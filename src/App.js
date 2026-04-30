@@ -233,6 +233,10 @@ function App() {
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [newUnexpected, setNewUnexpected] = useState({ project: '', type: 'work', description: '', unit: 'м²', quantity: '', price: '', reason: '' });
   const [newStage, setNewStage] = useState({ projectId: '', name: '', startDate: '', endDate: '', status: 'Не начат', description: '', responsible: '' });
+  const [estimates, setEstimates] = useState([]);
+const [selectedEstimate, setSelectedEstimate] = useState(null);
+const [newEstimate, setNewEstimate] = useState({ projectId: '', name: '', version: '1.0' });
+const [newEstimateItem, setNewEstimateItem] = useState({ section: '', name: '', unit: 'м²', quantity: '', priceWork: '', priceMaterial: '' });
   const [profileData, setProfileData] = useState({ fullName: '', passport: '', inn: '', contractType: 'ГПХ', bankAccount: '', bankName: '', phone: '', specialization: '', ogrnip: '' });
   const [movement, setMovement] = useState({ id: '', type: 'приход', quantity: '', project: '', invoicePhoto: '' });
   const [smetaFile, setSmetaFile] = useState(null);
@@ -1060,6 +1064,158 @@ function App() {
               );
             })}
             {stages.length===0&&<p style={{color:'#999',textAlign:'center',padding:'40px'}}>Этапов пока нет. Добавьте первый этап!</p>}
+          </div>
+        )}
+        {activePage==='estimates'&&(
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
+              <h2 style={{color:'#333'}}>📊 Сметы</h2>
+              {!selectedEstimate&&<button onClick={()=>setShowForm(!showForm)} style={btnOrange}>+ Новая смета</button>}
+            </div>
+            {!selectedEstimate?(
+              <>
+                {showForm&&(
+                  <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
+                    <select value={newEstimate.projectId} onChange={e=>setNewEstimate({...newEstimate,projectId:e.target.value})} style={inputStyle}>
+                      <option value="">Выберите объект</option>
+                      {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <input placeholder="Название сметы" value={newEstimate.name} onChange={e=>setNewEstimate({...newEstimate,name:e.target.value})} style={inputStyle}/>
+                    <input placeholder="Версия (1.0)" value={newEstimate.version} onChange={e=>setNewEstimate({...newEstimate,version:e.target.value})} style={inputStyle}/>
+                    <button onClick={()=>{if(!newEstimate.projectId||!newEstimate.name){alert('Заполните поля');return;}setEstimates(prev=>[...prev,{...newEstimate,id:Date.now(),items:[],createdBy:user.name,date:new Date().toISOString().split('T')[0]}]);setNewEstimate({projectId:'',name:'',version:'1.0'});setShowForm(false);}} style={btnOrange}>Создать</button>
+                  </div>
+                )}
+                {estimates.length===0&&<p style={{color:'#999',textAlign:'center',padding:'40px'}}>Смет пока нет</p>}
+                {estimates.map(est=>{
+                  const project=projects.find(p=>p.id===Number(est.projectId));
+                  const items=est.items||[];
+                  const planTotal=items.reduce((s,i)=>s+Number(i.quantity)*(Number(i.priceWork)+Number(i.priceMaterial)),0);
+                  const factTotal=items.reduce((s,i)=>s+Number(i.factQuantity||i.quantity)*(Number(i.factPriceWork||i.priceWork)+Number(i.factPriceMaterial||i.priceMaterial)),0);
+                  return (
+                    <div key={est.id} style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'15px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                        <div>
+                          <h3 style={{margin:0}}>{est.name}</h3>
+                          <p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>🏗️ {project?.name} | v{est.version} | {items.length} позиций</p>
+                          <div style={{display:'flex',gap:'15px',fontSize:'14px',marginTop:'8px'}}>
+                            <span>📋 План: <b>{planTotal.toLocaleString()}</b> руб.</span>
+                            <span>✅ Факт: <b>{factTotal.toLocaleString()}</b> руб.</span>
+                            <span style={{color:factTotal>planTotal?'#dc3545':'#28a745',fontWeight:'bold'}}>{factTotal>planTotal?`⚠️ +${(factTotal-planTotal).toLocaleString()}`:`✅ ${(factTotal-planTotal).toLocaleString()}`} руб.</span>
+                          </div>
+                        </div>
+                        <div style={{display:'flex',gap:'8px'}}>
+                          <button onClick={()=>setSelectedEstimate(est)} style={{...btnOrange,padding:'6px 12px',fontSize:'13px'}}>📋 Открыть</button>
+                          <button onClick={()=>setEstimates(prev=>prev.filter(e=>e.id!==est.id))} style={btnRed}>🗑️</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            ):(
+              <div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
+                  <h3 style={{margin:0}}>{selectedEstimate.name}</h3>
+                  <button onClick={()=>setSelectedEstimate(null)} style={btnGray}>← Назад</button>
+                </div>
+                <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
+                  <h4 style={{marginBottom:'15px'}}>➕ Добавить позицию</h4>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px'}}>
+                    <input placeholder="Раздел" value={newEstimateItem.section} onChange={e=>setNewEstimateItem({...newEstimateItem,section:e.target.value})} style={{...inputStyle,marginBottom:0}}/>
+                    <input placeholder="Наименование *" value={newEstimateItem.name} onChange={e=>setNewEstimateItem({...newEstimateItem,name:e.target.value})} style={{...inputStyle,marginBottom:0}}/>
+                    <select value={newEstimateItem.unit} onChange={e=>setNewEstimateItem({...newEstimateItem,unit:e.target.value})} style={{...inputStyle,marginBottom:0}}>
+                      <option>м²</option><option>м³</option><option>м</option><option>шт</option><option>кг</option><option>т</option>
+                    </select>
+                    <input placeholder="Кол-во план *" type="number" value={newEstimateItem.quantity} onChange={e=>setNewEstimateItem({...newEstimateItem,quantity:e.target.value})} style={{...inputStyle,marginBottom:0}}/>
+                    <input placeholder="Цена работ" type="number" value={newEstimateItem.priceWork} onChange={e=>setNewEstimateItem({...newEstimateItem,priceWork:e.target.value})} style={{...inputStyle,marginBottom:0}}/>
+                    <input placeholder="Цена материалов" type="number" value={newEstimateItem.priceMaterial} onChange={e=>setNewEstimateItem({...newEstimateItem,priceMaterial:e.target.value})} style={{...inputStyle,marginBottom:0}}/>
+                  </div>
+                  <button onClick={()=>{
+                    if(!newEstimateItem.name||!newEstimateItem.quantity){alert('Заполните обязательные поля');return;}
+                    const updated={...selectedEstimate,items:[...(selectedEstimate.items||[]),{...newEstimateItem,id:Date.now()}]};
+                    setSelectedEstimate(updated);
+                    setEstimates(prev=>prev.map(e=>e.id===selectedEstimate.id?updated:e));
+                    setNewEstimateItem({section:'',name:'',unit:'м²',quantity:'',priceWork:'',priceMaterial:''});
+                  }} style={{...btnOrange,marginTop:'10px'}}>Добавить</button>
+                </div>
+                {(selectedEstimate.items||[]).length>0&&(
+                  <div style={{backgroundColor:'white',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)',overflow:'hidden',marginBottom:'20px'}}>
+                    <div style={{overflowX:'auto'}}>
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:'13px'}}>
+                        <thead>
+                          <tr style={{backgroundColor:'#1a1a2e',color:'white'}}>
+                            <th style={{padding:'10px',textAlign:'left',minWidth:'150px'}}>Раздел / Наименование</th>
+                            <th style={{padding:'10px'}}>Ед.</th>
+                            <th style={{padding:'10px',backgroundColor:'#1a3a5e'}}>Кол-во план</th>
+                            <th style={{padding:'10px',backgroundColor:'#1a3a5e'}}>Работы план</th>
+                            <th style={{padding:'10px',backgroundColor:'#1a3a5e'}}>Мат. план</th>
+                            <th style={{padding:'10px',backgroundColor:'#1a3a5e'}}>Сумма план</th>
+                            <th style={{padding:'10px',backgroundColor:'#1a3e2e'}}>Кол-во факт</th>
+                            <th style={{padding:'10px',backgroundColor:'#1a3e2e'}}>Работы факт</th>
+                            <th style={{padding:'10px',backgroundColor:'#1a3e2e'}}>Мат. факт</th>
+                            <th style={{padding:'10px',backgroundColor:'#1a3e2e'}}>Сумма факт</th>
+                            <th style={{padding:'10px'}}>Откл.</th>
+                            <th style={{padding:'10px'}}>Del</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(selectedEstimate.items||[]).map(item=>{
+                            const planSum=Number(item.quantity)*(Number(item.priceWork)+Number(item.priceMaterial));
+                            const factSum=Number(item.factQuantity||item.quantity)*(Number(item.factPriceWork||item.priceWork)+Number(item.factPriceMaterial||item.priceMaterial));
+                            const dev=factSum-planSum;
+                            return (
+                              <tr key={item.id} style={{backgroundColor:dev>planSum*0.1?'#fff5f5':dev<0?'#f0fff0':'white'}}>
+                                <td style={{padding:'8px',border:'1px solid #eee'}}><b style={{fontSize:'11px',color:'#ff6b00'}}>{item.section}</b><br/>{item.name}</td>
+                                <td style={{padding:'8px',border:'1px solid #eee',textAlign:'center'}}>{item.unit}</td>
+                                <td style={{padding:'8px',border:'1px solid #eee',textAlign:'center',backgroundColor:'#f0f8ff'}}>{item.quantity}</td>
+                                <td style={{padding:'8px',border:'1px solid #eee',textAlign:'right',backgroundColor:'#f0f8ff'}}>{Number(item.priceWork).toLocaleString()}</td>
+                                <td style={{padding:'8px',border:'1px solid #eee',textAlign:'right',backgroundColor:'#f0f8ff'}}>{Number(item.priceMaterial).toLocaleString()}</td>
+                                <td style={{padding:'8px',border:'1px solid #eee',textAlign:'right',fontWeight:'bold',backgroundColor:'#f0f8ff'}}>{planSum.toLocaleString()}</td>
+                                <td style={{padding:'4px',border:'1px solid #eee',backgroundColor:'#f0fff8'}}>
+                                  <input type="number" value={item.factQuantity||''} placeholder={item.quantity} onChange={e=>{const updated={...selectedEstimate,items:selectedEstimate.items.map(i=>i.id===item.id?{...i,factQuantity:e.target.value}:i)};setSelectedEstimate(updated);setEstimates(prev=>prev.map(e=>e.id===selectedEstimate.id?updated:e));}} style={{width:'70px',padding:'4px',border:'1px solid #ddd',borderRadius:'4px',fontSize:'12px'}}/>
+                                </td>
+                                <td style={{padding:'4px',border:'1px solid #eee',backgroundColor:'#f0fff8'}}>
+                                  <input type="number" value={item.factPriceWork||''} placeholder={item.priceWork} onChange={e=>{const updated={...selectedEstimate,items:selectedEstimate.items.map(i=>i.id===item.id?{...i,factPriceWork:e.target.value}:i)};setSelectedEstimate(updated);setEstimates(prev=>prev.map(e=>e.id===selectedEstimate.id?updated:e));}} style={{width:'80px',padding:'4px',border:'1px solid #ddd',borderRadius:'4px',fontSize:'12px'}}/>
+                                </td>
+                                <td style={{padding:'4px',border:'1px solid #eee',backgroundColor:'#f0fff8'}}>
+                                  <input type="number" value={item.factPriceMaterial||''} placeholder={item.priceMaterial} onChange={e=>{const updated={...selectedEstimate,items:selectedEstimate.items.map(i=>i.id===item.id?{...i,factPriceMaterial:e.target.value}:i)};setSelectedEstimate(updated);setEstimates(prev=>prev.map(e=>e.id===selectedEstimate.id?updated:e));}} style={{width:'80px',padding:'4px',border:'1px solid #ddd',borderRadius:'4px',fontSize:'12px'}}/>
+                                </td>
+                                <td style={{padding:'8px',border:'1px solid #eee',textAlign:'right',fontWeight:'bold',backgroundColor:'#f0fff8'}}>{factSum.toLocaleString()}</td>
+                                <td style={{padding:'8px',border:'1px solid #eee',textAlign:'right',color:dev>0?'#dc3545':'#28a745',fontWeight:'bold'}}>{dev>0?`+${dev.toLocaleString()}`:dev.toLocaleString()}</td>
+                                <td style={{padding:'8px',border:'1px solid #eee',textAlign:'center'}}><button onClick={()=>{const updated={...selectedEstimate,items:selectedEstimate.items.filter(i=>i.id!==item.id)};setSelectedEstimate(updated);setEstimates(prev=>prev.map(e=>e.id===selectedEstimate.id?updated:e));}} style={{...btnRed,padding:'3px 8px',fontSize:'12px'}}>🗑️</button></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                {(selectedEstimate.items||[]).length>0&&(()=>{
+                  const items=selectedEstimate.items||[];
+                  const planTotal=items.reduce((s,i)=>s+Number(i.quantity)*(Number(i.priceWork)+Number(i.priceMaterial)),0);
+                  const factTotal=items.reduce((s,i)=>s+Number(i.factQuantity||i.quantity)*(Number(i.factPriceWork||i.priceWork)+Number(i.factPriceMaterial||i.priceMaterial)),0);
+                  return (
+                    <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'15px'}}>
+                        <div style={{backgroundColor:'#e8f4fd',padding:'15px',borderRadius:'8px',textAlign:'center'}}>
+                          <div style={{fontSize:'12px',color:'#666',marginBottom:'4px'}}>📋 ПЛАН</div>
+                          <div style={{fontSize:'20px',fontWeight:'bold',color:'#007bff'}}>{planTotal.toLocaleString()} руб.</div>
+                        </div>
+                        <div style={{backgroundColor:'#e8fff0',padding:'15px',borderRadius:'8px',textAlign:'center'}}>
+                          <div style={{fontSize:'12px',color:'#666',marginBottom:'4px'}}>✅ ФАКТ</div>
+                          <div style={{fontSize:'20px',fontWeight:'bold',color:'#28a745'}}>{factTotal.toLocaleString()} руб.</div>
+                        </div>
+                        <div style={{backgroundColor:factTotal>planTotal?'#fff5f5':'#f0fff0',padding:'15px',borderRadius:'8px',textAlign:'center'}}>
+                          <div style={{fontSize:'12px',color:'#666',marginBottom:'4px'}}>📊 ОТКЛОНЕНИЕ</div>
+                          <div style={{fontSize:'20px',fontWeight:'bold',color:factTotal>planTotal?'#dc3545':'#28a745'}}>{factTotal>planTotal?'+':''}{(factTotal-planTotal).toLocaleString()} руб.</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 
