@@ -4,12 +4,12 @@ const API = 'http://localhost:8000';
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
 
 const ROLES = {
-  директор: ['dashboard', 'projects', 'clients', 'warehouse', 'staff', 'users', 'pricelists', 'suppliers', 'journal', 'accounting', 'analytics', 'checklists'],
-  зам_директора: ['dashboard', 'projects', 'clients', 'warehouse', 'staff', 'pricelists', 'suppliers', 'journal', 'analytics', 'accounting'],
-  главный_инженер: ['dashboard', 'projects', 'warehouse', 'staff', 'journal', 'checklists'],
-  прораб: ['dashboard', 'projects', 'warehouse', 'staff', 'journal', 'checklists'],
+  директор: ['dashboard', 'projects', 'clients', 'warehouse', 'staff', 'users', 'pricelists', 'suppliers', 'journal', 'accounting', 'analytics', 'checklists', 'unexpected', 'personnel'],
+  зам_директора: ['dashboard', 'projects', 'clients', 'warehouse', 'staff', 'pricelists', 'suppliers', 'journal', 'analytics', 'accounting', 'unexpected', 'personnel'],
+  главный_инженер: ['dashboard', 'projects', 'warehouse', 'staff', 'journal', 'checklists', 'unexpected'],
+  прораб: ['dashboard', 'projects', 'warehouse', 'staff', 'journal', 'checklists', 'unexpected'],
   кладовщик: ['warehouse', 'suppliers'],
-  бухгалтер: ['dashboard', 'staff', 'journal', 'accounting'],
+  бухгалтер: ['dashboard', 'staff', 'journal', 'accounting', 'personnel', 'unexpected'],
   мастер: ['master'],
   заказчик: ['client_view'],
 };
@@ -40,6 +40,108 @@ const EXPENSE_CATEGORIES = [
   { id: 'unexpected', label: '❓ Непредвиденные', color: '#dc3545' },
   { id: 'other', label: '📌 Прочее', color: '#6c757d' },
 ];
+
+const STAGE_STATUSES = ['Не начат', 'В работе', 'Ожидает материалы', 'Выполнен', 'На проверке', 'Принят', 'Заблокирован'];
+
+const CONTRACT_TEMPLATES = {
+  'ГПХ': (profile, contract, company) => `ДОГОВОР ПОДРЯДА № ${contract.contractNumber}
+г. _____________ «___» _________ ${new Date(contract.startDate).getFullYear()} г.
+
+${company || '________________________________'} (далее — Заказчик), с одной стороны, и
+гр. ${profile.fullName}, паспорт: ${profile.passport || '___'}, ИНН: ${profile.inn} (далее — Исполнитель), с другой стороны, заключили договор о следующем:
+
+1. ПРЕДМЕТ ДОГОВОРА
+1.1. Исполнитель выполняет строительные работы на объекте: ${contract.project}.
+1.2. Объём и стоимость работ фиксируются в актах выполненных работ.
+1.3. Исполнитель выполняет работы лично без привлечения третьих лиц.
+
+2. СРОКИ
+2.1. Начало: ${contract.startDate} | Окончание: ${contract.endDate}
+2.2. Заказчик вправе изменять сроки, уведомив за 3 дня.
+
+3. ОПЛАТА
+3.1. Стоимость по прайс-листу Заказчика.
+3.2. Оплата в течение 10 рабочих дней с момента подписания акта на БУМАЖНОМ НОСИТЕЛЕ обеими сторонами.
+3.3. Акт в 2 экземплярах. Электронное подписание НЕ является основанием для оплаты.
+3.4. Заказчик вправе удержать стоимость устранения дефектов.
+3.5. При завышении объёмов — пересчёт по факту.
+3.6. Аванс не выплачивается без письменного согласования.
+
+4. ОБЯЗАННОСТИ ИСПОЛНИТЕЛЯ
+4.1. Выполнять работы качественно согласно СНиП и ГОСТ.
+4.2. Соблюдать технику безопасности.
+4.3. Фиксировать работы фотографиями.
+4.4. Не разглашать информацию об объекте.
+
+5. ПРАВА ЗАКАЗЧИКА
+5.1. Проверять ход и качество работ в любое время.
+5.2. Отказаться от договора, оплатив фактически выполненные работы.
+5.3. Не принимать работы с нарушением технологии.
+5.4. Неустойка 0,5% от суммы за каждый день просрочки.
+
+6. ОТВЕТСТВЕННОСТЬ
+6.1. Полная материальная ответственность за ущерб имуществу Заказчика.
+6.2. Брак устраняется за счёт Исполнителя.
+6.3. Гарантийный срок — 24 месяца.
+6.4. Споры — по месту нахождения Заказчика.
+
+7. ПЕРСОНАЛЬНЫЕ ДАННЫЕ
+7.1. Согласие на обработку ПД согласно ФЗ №152-ФЗ.
+
+ЗАКАЗЧИК: _________________________    ИСПОЛНИТЕЛЬ: ${profile.fullName} _________________________`,
+
+  'Самозанятый': (profile, contract, company) => `ДОГОВОР ПОДРЯДА № ${contract.contractNumber}
+(с плательщиком налога на профессиональный доход)
+
+г. _____________ «___» _________ ${new Date(contract.startDate).getFullYear()} г.
+
+${company || '________________________________'} (далее — Заказчик), и
+гр. ${profile.fullName}, ИНН: ${profile.inn}, самозанятый (далее — Исполнитель).
+
+1. ПРЕДМЕТ: Строительные работы на объекте ${contract.project}.
+2. СРОКИ: ${contract.startDate} — ${contract.endDate}
+
+3. ОПЛАТА
+3.1. Оплата в течение 10 рабочих дней с момента подписания акта на БУМАЖНОМ НОСИТЕЛЕ.
+3.2. Исполнитель ОБЯЗАН выдать чек через приложение «Мой налог» в день оплаты.
+3.3. При непредоставлении чека — удержание суммы налога.
+3.4. Аванс не выплачивается.
+
+4. СТАТУС САМОЗАНЯТОГО
+4.1. Исполнитель подтверждает статус НПД.
+4.2. При утрате статуса — уведомить Заказчика в течение 3 дней.
+4.3. Заказчик НЕ является налоговым агентом.
+
+5. ОТВЕТСТВЕННОСТЬ
+5.1. Неустойка 0,5% за каждый день просрочки.
+5.2. Гарантийный срок — 24 месяца.
+5.3. Споры — по месту нахождения Заказчика.
+
+ЗАКАЗЧИК: _________________________    ИСПОЛНИТЕЛЬ: ${profile.fullName} _________________________`,
+
+  'ИП': (profile, contract, company) => `ДОГОВОР ПОДРЯДА № ${contract.contractNumber}
+
+г. _____________ «___» _________ ${new Date(contract.startDate).getFullYear()} г.
+
+${company || '________________________________'} (далее — Заказчик), и
+ИП ${profile.fullName}, ИНН: ${profile.inn}, ОГРНИП: ${profile.ogrnip || '___'}, р/с: ${profile.bankAccount}, банк: ${profile.bankName} (далее — Исполнитель).
+
+1. ПРЕДМЕТ: Строительные работы на объекте ${contract.project}.
+2. СРОКИ: ${contract.startDate} — ${contract.endDate}
+
+3. ОПЛАТА
+3.1. Оплата в течение 10 рабочих дней с момента подписания акта на БУМАЖНОМ НОСИТЕЛЕ.
+3.2. Оплата на расчётный счёт Исполнителя.
+3.3. Заказчик НЕ является налоговым агентом. Налоги платит Исполнитель.
+3.4. Аванс не выплачивается.
+
+4. ОТВЕТСТВЕННОСТЬ
+4.1. Неустойка 0,5% за каждый день просрочки.
+4.2. Гарантийный срок — 24 месяца.
+4.3. Споры — по месту нахождения Заказчика.
+
+ЗАКАЗЧИК: _________________________    ИСПОЛНИТЕЛЬ: ИП ${profile.fullName} _________________________`
+};
 
 const inputStyle = { width: '100%', padding: '10px', marginBottom: '10px', border: '1px solid #ddd', borderRadius: '6px', boxSizing: 'border-box' };
 const btnOrange = { padding: '10px 20px', backgroundColor: '#ff6b00', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '15px' };
@@ -81,6 +183,8 @@ function App() {
   const [timesheet, setTimesheet] = useState({});
   const [checklists, setChecklists] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [unexpectedWorks, setUnexpectedWorks] = useState([]);
+  const [stages, setStages] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showTimesheet, setShowTimesheet] = useState(false);
@@ -109,6 +213,8 @@ function App() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [selectedWorks, setSelectedWorks] = useState({});
   const [masterProjectId, setMasterProjectId] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [projectExpensesFilter, setProjectExpensesFilter] = useState('');
   const [newPiecework, setNewPiecework] = useState({ staffId: '', description: '', unit: 'м²', quantity: '', pricePerUnit: '', project: '', comment: '' });
   const [newProject, setNewProject] = useState({ name: '', client: '', status: 'Планирование', budget: '', deadline: '', progress: 0, tasks: [], pricelistId: null });
   const [newClient, setNewClient] = useState({ name: '', phone: '', email: '', status: 'Активный', notes: '', deals: [] });
@@ -125,7 +231,9 @@ function App() {
   const [newAct, setNewAct] = useState({ masterId: '', masterName: '', project: '', periodStart: '', periodEnd: '' });
   const [newChecklist, setNewChecklist] = useState({ project: '', title: '', items: [] });
   const [newChecklistItem, setNewChecklistItem] = useState('');
-  const [profileData, setProfileData] = useState({ fullName: '', passport: '', inn: '', contractType: 'ГПХ', bankAccount: '', bankName: '', phone: '', specialization: '' });
+  const [newUnexpected, setNewUnexpected] = useState({ project: '', type: 'work', description: '', unit: 'м²', quantity: '', price: '', reason: '' });
+  const [newStage, setNewStage] = useState({ projectId: '', name: '', startDate: '', endDate: '', status: 'Не начат', description: '', responsible: '' });
+  const [profileData, setProfileData] = useState({ fullName: '', passport: '', inn: '', contractType: 'ГПХ', bankAccount: '', bankName: '', phone: '', specialization: '', ogrnip: '' });
   const [movement, setMovement] = useState({ id: '', type: 'приход', quantity: '', project: '', invoicePhoto: '' });
   const [smetaFile, setSmetaFile] = useState(null);
 
@@ -135,6 +243,8 @@ function App() {
       const allowed = ROLES[user.role] || [];
       if (!allowed.includes(activePage)) setActivePage(allowed[0] || 'dashboard');
       if (user.role === 'мастер') loadMasterProfile();
+      const saved = localStorage.getItem('companyName');
+      if (saved) setCompanyName(saved);
     }
   }, [user]);
 
@@ -194,10 +304,7 @@ function App() {
       const data = await res.json();
       setUploadingPhoto(false);
       return data.url;
-    } catch {
-      setUploadingPhoto(false);
-      return '';
-    }
+    } catch { setUploadingPhoto(false); return ''; }
   };
 
   const handleLogin = async () => {
@@ -211,7 +318,6 @@ function App() {
 
   const handleRegister = async () => {
     if (!regName || !regEmail || !regPassword || !regCode) { setLoginError('Заполните все поля'); return; }
-    setLoginError('');
     try {
       const res = await fetch(`${API}/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: regName, email: regEmail, password: regPassword, code: regCode }) });
       if (!res.ok) { const err = await res.json(); setLoginError(err.detail); return; }
@@ -221,7 +327,7 @@ function App() {
 
   const saveProfile = async () => {
     if (!profileData.fullName || !profileData.inn || !profileData.bankAccount) { alert('Заполните обязательные поля'); return; }
-    if (!consentChecked) { alert('Необходимо дать согласие на обработку персональных данных (152-ФЗ)'); return; }
+    if (!consentChecked) { alert('Необходимо согласие на обработку ПД'); return; }
     const res = await fetch(`${API}/master-profile`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...profileData, userId: user.id }) });
     setMasterProfile(await res.json());
     setShowProfileForm(false);
@@ -232,24 +338,28 @@ function App() {
   const statusColor = (s) => s === 'В работе' || s === 'Активный' ? '#ff6b00' : s === 'Завершён' ? '#28a745' : '#6c757d';
   const stockColor = (m) => m.quantity === 0 ? '#dc3545' : m.minQuantity && m.quantity < m.minQuantity ? '#ffc107' : '#28a745';
   const roleColor = (r) => ({ директор: '#ff6b00', зам_директора: '#e67e00', главный_инженер: '#8e44ad', прораб: '#007bff', кладовщик: '#28a745', бухгалтер: '#6c757d', мастер: '#e83e8c', заказчик: '#17a2b8' }[r] || '#333');
+  const stageStatusColor = (s) => ({ 'Не начат': '#6c757d', 'В работе': '#ff6b00', 'Ожидает материалы': '#ffc107', 'Выполнен': '#17a2b8', 'На проверке': '#8e44ad', 'Принят': '#28a745', 'Заблокирован': '#dc3545' }[s] || '#6c757d');
   const workedDays = (staffId) => daysInMonth.filter(d => timesheet[`${staffId}-${d}`]).length;
   const staffPieceworkTotal = (staffId) => piecework.filter(p => Number(p.staffId) === staffId).reduce((sum, p) => sum + p.total, 0);
   const calcSalary = (s) => s.payType === 'сдельно' ? staffPieceworkTotal(s.id) : Math.round((s.salary / 31) * workedDays(s.id));
   const projectMaterialCost = (n) => history.filter(h => h.project === n && h.type === 'расход').reduce((sum, h) => { const mat = materials.find(m => m.name === h.material); return sum + (mat ? mat.price * h.quantity : 0); }, 0);
   const projectLaborCost = (n) => staff.filter(s => s.project === n).reduce((sum, s) => sum + calcSalary(s), 0) + piecework.filter(p => p.project === n).reduce((sum, p) => sum + p.total, 0);
+  const projectExpensesByCategory = (projectName) => {
+    const result = {};
+    EXPENSE_CATEGORIES.forEach(cat => { result[cat.id] = 0; });
+    result['materials'] = projectMaterialCost(projectName);
+    result['works'] = projectLaborCost(projectName);
+    expenses.filter(e => e.project === projectName).forEach(e => { result[e.category] = (result[e.category] || 0) + Number(e.amount); });
+    unexpectedWorks.filter(u => u.project === projectName && u.status === 'Утверждено').forEach(u => { result['unexpected'] = (result['unexpected'] || 0) + (Number(u.quantity) * Number(u.price)); });
+    return result;
+  };
   const lowStockMaterials = materials.filter(m => m.minQuantity && m.quantity < m.minQuantity);
   const pendingJournal = workJournal.filter(j => j.status === 'На проверке').length;
+  const pendingUnexpected = unexpectedWorks.filter(u => u.status === 'На согласовании').length;
 
   const runAI = (type) => {
-    setAiLoading(true);
-    setShowAiModal(true);
-    setTimeout(() => {
-      setAiLoading(false);
-      setAiResult({
-        title: type === 'kp' ? '🤖 Анализ КП' : type === 'smeta' ? '🤖 Анализ сметы' : type === 'invoice' ? '🤖 Распознавание накладной' : '🤖 Прогноз перерасхода',
-        content: 'ИИ модуль готов к подключению! Получите API ключ на console.anthropic.com и мы активируем за 30 минут.'
-      });
-    }, 1500);
+    setAiLoading(true); setShowAiModal(true);
+    setTimeout(() => { setAiLoading(false); setAiResult({ title: '🤖 ИИ модуль', content: 'ИИ модуль готов к подключению! Получите API ключ на console.anthropic.com.' }); }, 1500);
   };
 
   const saveProject = async () => {
@@ -277,9 +387,7 @@ function App() {
     if (!newClient.name) { alert('Введите имя'); return; }
     if (editingItem) await fetch(`${API}/clients/${editingItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newClient) });
     else await fetch(`${API}/clients`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newClient) });
-    await loadAll();
-    setNewClient({ name: '', phone: '', email: '', status: 'Активный', notes: '', deals: [] });
-    setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewClient({ name: '', phone: '', email: '', status: 'Активный', notes: '', deals: [] }); setEditingItem(null); setShowForm(false);
   };
   const deleteClient = async (id) => { if (window.confirm('Удалить?')) { await fetch(`${API}/clients/${id}`, { method: 'DELETE' }); await loadAll(); } };
   const editClient = (c) => { setEditingItem(c); setNewClient({...c}); setShowForm(true); };
@@ -289,9 +397,7 @@ function App() {
     const data = { ...newMaterial, quantity: Number(newMaterial.quantity), price: Number(newMaterial.price), minQuantity: Number(newMaterial.minQuantity) };
     if (editingItem) await fetch(`${API}/materials/${editingItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     else await fetch(`${API}/materials`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    await loadAll();
-    setNewMaterial({ name: '', unit: 'шт', quantity: '', price: '', minQuantity: '', project: '' });
-    setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewMaterial({ name: '', unit: 'шт', quantity: '', price: '', minQuantity: '', project: '' }); setEditingItem(null); setShowForm(false);
   };
   const deleteMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(`${API}/materials/${id}`, { method: 'DELETE' }); await loadAll(); } };
 
@@ -305,8 +411,7 @@ function App() {
     if (movement.type === 'приход' && movement.invoicePhoto) {
       setExpenses(prev => [...prev, { id: Date.now(), project: movement.project, category: 'materials', description: `Накладная: ${mat.name}`, amount: mat.price * qty, date: new Date().toISOString().split('T')[0], invoicePhoto: movement.invoicePhoto, status: 'Ожидает подтверждения', addedBy: user.name }]);
     }
-    await loadAll();
-    setMovement({ id: '', type: 'приход', quantity: '', project: '', invoicePhoto: '' });
+    await loadAll(); setMovement({ id: '', type: 'приход', quantity: '', project: '', invoicePhoto: '' });
   };
 
   const saveStaff = async () => {
@@ -314,17 +419,14 @@ function App() {
     const data = { ...newStaff, salary: Number(newStaff.salary) };
     if (editingItem) await fetch(`${API}/staff/${editingItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     else await fetch(`${API}/staff`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    await loadAll();
-    setNewStaff({ name: '', role: '', phone: '', salary: '', project: '', payType: 'оклад' });
-    setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewStaff({ name: '', role: '', phone: '', salary: '', project: '', payType: 'оклад' }); setEditingItem(null); setShowForm(false);
   };
   const deleteStaff = async (id) => { if (window.confirm('Удалить?')) { await fetch(`${API}/staff/${id}`, { method: 'DELETE' }); await loadAll(); } };
 
   const addPiecework = async () => {
     if (!newPiecework.staffId || !newPiecework.description || !newPiecework.quantity || !newPiecework.pricePerUnit) { alert('Заполните поля'); return; }
     await fetch(`${API}/piecework`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newPiecework, total: Number(newPiecework.quantity) * Number(newPiecework.pricePerUnit), date: new Date().toISOString().split('T')[0], photoUrl: '' }) });
-    await loadAll();
-    setNewPiecework({ staffId: '', description: '', unit: 'м²', quantity: '', pricePerUnit: '', project: '', comment: '' });
+    await loadAll(); setNewPiecework({ staffId: '', description: '', unit: 'м²', quantity: '', pricePerUnit: '', project: '', comment: '' });
   };
 
   const addMasterWorks = async () => {
@@ -333,7 +435,6 @@ function App() {
     const pl = pricelists.find(p => p.id === project.pricelistId);
     const coeff = pl ? pl.coefficient : 1.0;
     const now = new Date();
-    const weekNumber = Math.ceil(now.getDate() / 7);
     let hasWork = false;
     for (const [itemId, workData] of Object.entries(selectedWorks)) {
       if (!workData.quantity || Number(workData.quantity) <= 0) continue;
@@ -343,14 +444,11 @@ function App() {
       const pricePerUnit = item.price * coeff;
       const total = Number(workData.quantity) * pricePerUnit;
       await fetch(`${API}/piecework`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ staffId: String(user.id), description: item.name, unit: item.unit, quantity: Number(workData.quantity), pricePerUnit, total, project: project.name, date: now.toISOString().split('T')[0], comment: workData.comment || '', photoUrl: workData.photoUrl || '' }) });
-      await fetch(`${API}/work-journal`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ masterId: user.id, masterName: user.name, project: project.name, description: item.name, unit: item.unit, quantity: Number(workData.quantity), pricePerUnit, total, date: now.toISOString().split('T')[0], comment: workData.comment || '', weekNumber, photoUrl: workData.photoUrl || '' }) });
+      await fetch(`${API}/work-journal`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ masterId: user.id, masterName: user.name, project: project.name, description: item.name, unit: item.unit, quantity: Number(workData.quantity), pricePerUnit, total, date: now.toISOString().split('T')[0], comment: workData.comment || '', weekNumber: Math.ceil(now.getDate() / 7), photoUrl: workData.photoUrl || '' }) });
     }
     if (!hasWork) { alert('Введите количество хотя бы для одной работы'); return; }
-    await loadAll();
-    setSelectedWorks({});
-    setMasterProjectId('');
-    setPricelistItems([]);
-    alert('✅ Все работы отправлены на проверку!');
+    await loadAll(); setSelectedWorks({}); setMasterProjectId(''); setPricelistItems([]);
+    alert('✅ Работы отправлены на проверку!');
   };
 
   const confirmJournalEntry = async (entry) => {
@@ -360,18 +458,14 @@ function App() {
 
   const rejectJournalEntry = async (entry, comment) => {
     await fetch(`${API}/work-journal/${entry.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'Отклонено', confirmedBy: user.name, confirmedAt: new Date().toISOString().split('T')[0], comment: comment || entry.comment }) });
-    await loadAll();
-    setRejectingEntry(null);
-    setRejectComment('');
+    await loadAll(); setRejectingEntry(null); setRejectComment('');
   };
 
   const saveUser = async () => {
     if (!newUser.name || !newUser.email || (!editingItem && !newUser.password)) { alert('Заполните поля'); return; }
     if (editingItem) await fetch(`${API}/users/${editingItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser) });
     else await fetch(`${API}/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser) });
-    await loadAll();
-    setNewUser({ name: '', email: '', password: '', role: 'прораб' });
-    setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewUser({ name: '', email: '', password: '', role: 'прораб' }); setEditingItem(null); setShowForm(false);
   };
   const deleteUser = async (id) => { if (id === user.id) { alert('Нельзя удалить себя!'); return; } if (window.confirm('Удалить?')) { await fetch(`${API}/users/${id}`, { method: 'DELETE' }); await loadAll(); } };
   const createInviteCode = async () => { await fetch(`${API}/invite-codes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: newInviteRole }) }); await loadAll(); };
@@ -381,9 +475,7 @@ function App() {
     if (!newPricelist.name) { alert('Введите название'); return; }
     if (editingItem) await fetch(`${API}/pricelists/${editingItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newPricelist) });
     else await fetch(`${API}/pricelists`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newPricelist) });
-    await loadAll();
-    setNewPricelist({ name: '', description: '', coefficient: 1.0 });
-    setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewPricelist({ name: '', description: '', coefficient: 1.0 }); setEditingItem(null); setShowForm(false);
   };
   const deletePricelist = async (id) => { if (window.confirm('Удалить?')) { await fetch(`${API}/pricelists/${id}`, { method: 'DELETE' }); await loadAll(); } };
   const copyPricelist = async (pl) => { const name = prompt('Название копии:', `Копия — ${pl.name}`); if (!name) return; await fetch(`${API}/pricelists/${pl.id}/copy`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); await loadAll(); };
@@ -393,9 +485,7 @@ function App() {
     const data = { ...newPlItem, price: Number(newPlItem.price), pricelistId: selectedPricelist.id };
     if (editingItem) await fetch(`${API}/pricelist-items/${editingItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     else await fetch(`${API}/pricelist-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    await loadPricelistItems(selectedPricelist.id);
-    setNewPlItem({ name: '', unit: 'м²', price: '', category: '', specialization: '' });
-    setEditingItem(null);
+    await loadPricelistItems(selectedPricelist.id); setNewPlItem({ name: '', unit: 'м²', price: '', category: '', specialization: '' }); setEditingItem(null);
   };
   const deletePlItem = async (id) => { await fetch(`${API}/pricelist-items/${id}`, { method: 'DELETE' }); await loadPricelistItems(selectedPricelist.id); };
 
@@ -403,31 +493,23 @@ function App() {
     if (!newSupplier.name) { alert('Введите название'); return; }
     if (editingItem) await fetch(`${API}/suppliers/${editingItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newSupplier) });
     else await fetch(`${API}/suppliers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newSupplier) });
-    await loadAll();
-    setNewSupplier({ name: '', phone: '', email: '', specialization: '', rating: 5.0, notes: '', status: 'Активный' });
-    setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewSupplier({ name: '', phone: '', email: '', specialization: '', rating: 5.0, notes: '', status: 'Активный' }); setEditingItem(null); setShowForm(false);
   };
   const deleteSupplier = async (id) => { if (window.confirm('Удалить?')) { await fetch(`${API}/suppliers/${id}`, { method: 'DELETE' }); await loadAll(); } };
 
   const saveRequest = async () => {
     if (!newRequest.materialName || !newRequest.quantity) { alert('Заполните поля'); return; }
     await fetch(`${API}/supply-requests`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newRequest, quantity: Number(newRequest.quantity), createdBy: user.name, date: new Date().toISOString().split('T')[0] }) });
-    await loadAll();
-    setNewRequest({ materialName: '', quantity: '', unit: 'шт', project: '', notes: '' });
-    setShowForm(false);
+    await loadAll(); setNewRequest({ materialName: '', quantity: '', unit: 'шт', project: '', notes: '' }); setShowForm(false);
   };
 
-  const cancelRequest = async (id) => {
-    await fetch(`${API}/supply-requests/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'Отменена' }) });
-    await loadAll();
-  };
+  const cancelRequest = async (id) => { await fetch(`${API}/supply-requests/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'Отменена' }) }); await loadAll(); };
 
   const saveOffer = async (requestId) => {
     if (!newOffer.supplierId || !newOffer.pricePerUnit) { alert('Заполните поля'); return; }
     const req = supplyRequests.find(r => r.id === requestId);
     await fetch(`${API}/supplier-offers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId, supplierId: Number(newOffer.supplierId), pricePerUnit: Number(newOffer.pricePerUnit), totalPrice: Number(newOffer.pricePerUnit) * req.quantity, deliveryDays: Number(newOffer.deliveryDays) || 0, notes: newOffer.notes }) });
-    await loadAll();
-    setNewOffer({ supplierId: '', pricePerUnit: '', deliveryDays: '', notes: '' });
+    await loadAll(); setNewOffer({ supplierId: '', pricePerUnit: '', deliveryDays: '', notes: '' });
   };
 
   const approveOffer = async (offer) => {
@@ -436,8 +518,7 @@ function App() {
     const req = supplyRequests.find(r => r.id === offer.requestId);
     const sup = suppliers.find(s => s.id === offer.supplierId);
     await fetch(`${API}/supply-history`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ supplierId: offer.supplierId, materialName: req?.materialName, quantity: req?.quantity, unit: req?.unit, pricePerUnit: offer.pricePerUnit, totalPrice: offer.totalPrice, project: req?.project, date: new Date().toISOString().split('T')[0], status: 'Ожидает поставки' }) });
-    await loadAll();
-    alert(`✅ Предложение от "${sup?.name}" утверждено!`);
+    await loadAll(); alert(`✅ Предложение от "${sup?.name}" утверждено!`);
   };
 
   const confirmDelivery = async (delivery) => {
@@ -458,9 +539,7 @@ function App() {
   const createContract = async () => {
     if (!newContract.masterId || !newContract.contractNumber || !newContract.project) { alert('Заполните поля'); return; }
     await fetch(`${API}/contracts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newContract) });
-    await loadAll();
-    setNewContract({ masterId: '', masterName: '', contractType: 'ГПХ', contractNumber: '', project: '', startDate: '', endDate: '' });
-    setShowForm(false);
+    await loadAll(); setNewContract({ masterId: '', masterName: '', contractType: 'ГПХ', contractNumber: '', project: '', startDate: '', endDate: '' }); setShowForm(false);
   };
 
   const createInterimAct = async () => {
@@ -469,21 +548,34 @@ function App() {
     const total = masterWorks.reduce((sum, w) => sum + w.total, 0);
     const contract = contracts.find(c => c.masterId === Number(newAct.masterId) && c.project === newAct.project);
     await fetch(`${API}/interim-acts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newAct, masterId: Number(newAct.masterId), contractId: contract?.id, totalAmount: total }) });
-    await loadAll();
-    setNewAct({ masterId: '', masterName: '', project: '', periodStart: '', periodEnd: '' });
-    setShowForm(false);
+    await loadAll(); setNewAct({ masterId: '', masterName: '', project: '', periodStart: '', periodEnd: '' }); setShowForm(false);
+  };
+
+  const addUnexpected = () => {
+    if (!newUnexpected.project || !newUnexpected.description || !newUnexpected.quantity || !newUnexpected.price) { alert('Заполните все поля'); return; }
+    setUnexpectedWorks(prev => [...prev, { ...newUnexpected, id: Date.now(), createdBy: user.name, date: new Date().toISOString().split('T')[0], status: 'На согласовании', total: Number(newUnexpected.quantity) * Number(newUnexpected.price) }]);
+    setNewUnexpected({ project: '', type: 'work', description: '', unit: 'м²', quantity: '', price: '', reason: '' }); setShowForm(false);
+  };
+
+  const addStage = () => {
+    if (!newStage.projectId || !newStage.name) { alert('Заполните поля'); return; }
+    setStages(prev => [...prev, { ...newStage, id: Date.now(), createdBy: user.name }]);
+    setNewStage({ projectId: '', name: '', startDate: '', endDate: '', status: 'Не начат', description: '', responsible: '' }); setShowForm(false);
+  };
+
+  const updateStageStatus = (id, status) => {
+    setStages(prev => prev.map(s => s.id === id ? { ...s, status } : s));
   };
 
   const printAct = (entry) => {
     const w = window.open('', '_blank');
-    w.document.write(`<html><head><title>АОСР</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:13px}h2{text-align:center;text-transform:uppercase}table{width:100%;border-collapse:collapse;margin:15px 0}td,th{border:1px solid #333;padding:6px}th{background:#f5f5f5}.sign{margin-top:50px;display:flex;justify-content:space-between}.sign-block{width:22%;text-align:center}.sign-line{border-top:1px solid #333;margin-top:35px;padding-top:4px;font-size:11px}</style></head><body>
+    w.document.write(`<html><head><title>АОСР</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:13px}h2{text-align:center}table{width:100%;border-collapse:collapse;margin:15px 0}td,th{border:1px solid #333;padding:6px}th{background:#f5f5f5}.sign{margin-top:50px;display:flex;justify-content:space-between}.sign-block{width:22%;text-align:center}.sign-line{border-top:1px solid #333;margin-top:35px;padding-top:4px;font-size:11px}</style></head><body>
     <h2>АКТ ОСВИДЕТЕЛЬСТВОВАНИЯ СКРЫТЫХ РАБОТ № ${entry.id}</h2>
     <p style="text-align:center">от ${entry.date}</p>
     <table><tr><th>Объект</th><td>${entry.project}</td></tr><tr><th>Исполнитель</th><td>${entry.masterName}</td></tr></table>
-    <p><b>К освидетельствованию предъявлены:</b></p>
-    <table><tr><th>№</th><th>Наименование работ</th><th>Ед. изм.</th><th>Объём</th></tr>
+    <table><tr><th>№</th><th>Наименование работ</th><th>Ед.</th><th>Объём</th></tr>
     <tr><td>1</td><td>${entry.description}</td><td>${entry.unit}</td><td>${entry.quantity}</td></tr></table>
-    <p>Работы выполнены в соответствии с проектной документацией и требованиями нормативных документов.</p>
+    <p>Работы выполнены в соответствии с проектной документацией.</p>
     <p><b>Разрешается производство последующих работ.</b></p>
     <div class="sign">
     <div class="sign-block"><div class="sign-line">Мастер<br>${entry.masterName}</div></div>
@@ -495,24 +587,9 @@ function App() {
   };
 
   const printContract = (profile, contract) => {
+    const template = CONTRACT_TEMPLATES[contract.contractType] || CONTRACT_TEMPLATES['ГПХ'];
     const w = window.open('', '_blank');
-    w.document.write(`<html><head><title>Договор</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:13px;line-height:1.8}h2{text-align:center}.sign{margin-top:60px;display:flex;justify-content:space-between}.sign-block{width:45%}.sign-line{border-top:1px solid #333;margin-top:40px;padding-top:5px;font-size:12px}</style></head><body>
-    <h2>ДОГОВОР ${contract.contractType} № ${contract.contractNumber}</h2>
-    <p style="text-align:right">Дата: ${contract.startDate}</p>
-    <p><b>Исполнитель:</b> ${profile.fullName}, ИНН: ${profile.inn}, ${profile.contractType}</p>
-    <p><b>Банк:</b> ${profile.bankName}, счёт: ${profile.bankAccount}</p>
-    <p><b>Объект:</b> ${contract.project} | <b>Период:</b> ${contract.startDate} — ${contract.endDate}</p>
-    <br><p><b>1. ПРЕДМЕТ ДОГОВОРА</b></p>
-    <p>1.1. Исполнитель выполняет строительные работы на объекте согласно прайс-листу.</p>
-    <p>1.2. Специализация: ${profile.specialization}</p>
-    <br><p><b>2. ОПЛАТА</b></p>
-    <p>2.1. Оплата по факту подтверждённых прорабом работ на основании акта.</p>
-    <br><p><b>3. ПЕРСОНАЛЬНЫЕ ДАННЫЕ</b></p>
-    <p>3.1. Исполнитель даёт согласие на обработку персональных данных согласно ФЗ №152-ФЗ.</p>
-    <div class="sign">
-    <div class="sign-block"><p><b>ЗАКАЗЧИК:</b></p><div class="sign-line">Подпись ___________</div></div>
-    <div class="sign-block"><p><b>ИСПОЛНИТЕЛЬ:</b></p><div class="sign-line">${profile.fullName}<br>Подпись ___________</div></div>
-    </div></body></html>`);
+    w.document.write(`<html><head><title>Договор</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:13px;line-height:1.8}pre{font-family:Arial,sans-serif;white-space:pre-wrap;font-size:13px;line-height:1.8}</style></head><body><pre>${template(profile, contract, companyName)}</pre></body></html>`);
     w.document.close(); w.print();
   };
 
@@ -553,18 +630,10 @@ function App() {
 
   const navigateTo = (p) => {
     if (canAccess(p)) {
-      setActivePage(p);
-      setShowForm(false);
-      setShowHistory(false);
-      setExpandedProject(null);
-      setExpandedClient(null);
-      setEditingItem(null);
-      setShowPiecework(false);
-      setSelectedPricelist(null);
-      setPricelistItems([]);
-      setShowInvites(false);
-      setShowOffers(null);
-      setShowSupplyHistory(false);
+      setActivePage(p); setShowForm(false); setShowHistory(false);
+      setExpandedProject(null); setExpandedClient(null); setEditingItem(null);
+      setShowPiecework(false); setSelectedPricelist(null); setPricelistItems([]);
+      setShowInvites(false); setShowOffers(null); setShowSupplyHistory(false);
     }
   };
 
@@ -623,6 +692,7 @@ function App() {
             const works=workJournal.filter(j=>j.project===p.name&&j.status==='Подтверждено');
             const labCost=works.reduce((s,w)=>s+w.total,0);
             const pct=p.budget>0?Math.min(100,Math.round((labCost/p.budget)*100)):0;
+            const projectStages=stages.filter(s=>s.projectId===String(p.id));
             return (
               <div key={p.id} style={{backgroundColor:'white',padding:'25px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
@@ -646,6 +716,17 @@ function App() {
                 <div style={{backgroundColor:'#f0f2f5',borderRadius:'10px',height:'10px',marginBottom:'15px'}}>
                   <div style={{backgroundColor:'#ff6b00',width:`${pct}%`,height:'10px',borderRadius:'10px'}}/>
                 </div>
+                {projectStages.length>0&&(
+                  <div style={{marginBottom:'15px'}}>
+                    <h4 style={{marginBottom:'10px'}}>🏗️ Этапы строительства</h4>
+                    {projectStages.map(stage=>(
+                      <div key={stage.id} style={{display:'flex',justifyContent:'space-between',padding:'8px 12px',backgroundColor:'#f8f9fa',borderRadius:'6px',marginBottom:'6px',borderLeft:`4px solid ${stageStatusColor(stage.status)}`}}>
+                        <span>{stage.name}</span>
+                        <span style={{backgroundColor:stageStatusColor(stage.status),color:'white',padding:'2px 8px',borderRadius:'10px',fontSize:'12px'}}>{stage.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <h4 style={{marginBottom:'10px'}}>✅ Выполненные работы</h4>
                 {works.slice(0,5).map(w=>(
                   <div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid #f5f5f5',fontSize:'14px'}}>
@@ -677,6 +758,12 @@ function App() {
             <select value={profileData.contractType} onChange={e=>setProfileData({...profileData,contractType:e.target.value})} style={inputStyle}>
               <option>ГПХ</option><option>ИП</option><option>Самозанятый</option>
             </select>
+            {profileData.contractType==='ИП'&&(
+              <>
+                <label style={{color:'#555',fontSize:'13px',fontWeight:'bold'}}>ОГРНИП</label>
+                <input placeholder="123456789012345" value={profileData.ogrnip||''} onChange={e=>setProfileData({...profileData,ogrnip:e.target.value})} style={inputStyle}/>
+              </>
+            )}
             <label style={{color:'#555',fontSize:'13px',fontWeight:'bold'}}>Номер счёта *</label>
             <input placeholder="40817810000000000000" value={profileData.bankAccount} onChange={e=>setProfileData({...profileData,bankAccount:e.target.value})} style={inputStyle}/>
             <label style={{color:'#555',fontSize:'13px',fontWeight:'bold'}}>Банк</label>
@@ -693,7 +780,7 @@ function App() {
             <div style={{backgroundColor:'#f8f9fa',padding:'15px',borderRadius:'8px',marginBottom:'15px',border:'1px solid #dee2e6'}}>
               <label style={{display:'flex',alignItems:'flex-start',gap:'12px',cursor:'pointer'}}>
                 <input type="checkbox" checked={consentChecked} onChange={e=>setConsentChecked(e.target.checked)} style={{marginTop:'3px',width:'18px',height:'18px',cursor:'pointer',flexShrink:0}}/>
-                <span style={{fontSize:'13px',color:'#555',lineHeight:'1.6'}}>Я даю согласие на обработку персональных данных в соответствии с ФЗ №152-ФЗ. <span style={{color:'#dc3545'}}>*</span></span>
+                <span style={{fontSize:'13px',color:'#555',lineHeight:'1.6'}}>Согласие на обработку ПД согласно ФЗ №152-ФЗ <span style={{color:'#dc3545'}}>*</span></span>
               </label>
             </div>
             <button onClick={saveProfile} style={{...btnOrange,width:'100%',padding:'12px',fontSize:'16px'}}>✅ Сохранить</button>
@@ -709,52 +796,34 @@ function App() {
 
     return (
       <div style={{display:'flex',height:'100vh',backgroundColor:'#f0f2f5'}}>
-        {showPhotoModal&&(
-          <div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}>
-            <img src={showPhotoModal} alt="фото" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'8px'}}/>
-          </div>
-        )}
+        {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="фото" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'8px'}}/></div>)}
         <div style={{width:'220px',backgroundColor:'#1a1a2e',color:'white',padding:'20px 0',flexShrink:0,display:'flex',flexDirection:'column'}}>
           <h3 style={{textAlign:'center',color:'#ff6b00'}}>🏗️ СтройКа</h3>
           <div style={{textAlign:'center',marginBottom:'20px'}}>
             <span style={{backgroundColor:'#e83e8c',color:'white',padding:'2px 10px',borderRadius:'20px',fontSize:'12px'}}>мастер</span>
             <p style={{color:'#aaa',fontSize:'13px',margin:'5px 0 0'}}>{user.name}</p>
-            {masterProfile?.specialization&&<p style={{color:'#ff6b00',fontSize:'12px',margin:'2px 0'}}>{masterProfile.specialization}</p>}
           </div>
           <div style={{padding:'15px 25px',backgroundColor:'#ff6b00',borderLeft:'4px solid white'}}>🔨 Мои работы</div>
           <div onClick={()=>setShowProfileForm(true)} style={{padding:'15px 25px',cursor:'pointer',color:'#aaa'}}>👤 Мой профиль</div>
           <div style={{marginTop:'auto'}}><div onClick={()=>setUser(null)} style={{padding:'15px 25px',cursor:'pointer',color:'#aaa'}}>🚪 Выйти</div></div>
         </div>
         <div style={{flex:1,padding:'30px',overflowY:'auto'}}>
-          {!masterProfile?.profileCompleted&&(
-            <div style={{backgroundColor:'#fff3cd',border:'1px solid #ffc107',padding:'15px',borderRadius:'10px',marginBottom:'20px'}}>
-              <b>⚠️ Профиль не заполнен!</b>
-              <button onClick={()=>setShowProfileForm(true)} style={{...btnOrange,marginLeft:'15px',padding:'6px 15px',fontSize:'14px'}}>Заполнить</button>
-            </div>
-          )}
+          {!masterProfile?.profileCompleted&&(<div style={{backgroundColor:'#fff3cd',border:'1px solid #ffc107',padding:'15px',borderRadius:'10px',marginBottom:'20px'}}><b>⚠️ Профиль не заполнен!</b><button onClick={()=>setShowProfileForm(true)} style={{...btnOrange,marginLeft:'15px',padding:'6px 15px',fontSize:'14px'}}>Заполнить</button></div>)}
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
             <h2 style={{color:'#333'}}>🔨 Мои работы</h2>
             <div style={{backgroundColor:'#28a745',color:'white',padding:'10px 20px',borderRadius:'10px',fontWeight:'bold'}}>Всего: {myTotal.toLocaleString()} руб.</div>
           </div>
           <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
             <h3 style={{marginBottom:'15px'}}>➕ Добавить работы</h3>
-            <select value={masterProjectId} onChange={async e=>{
-              const pid=e.target.value;
-              setMasterProjectId(pid);
-              setSelectedWorks({});
-              const proj=projects.find(p=>p.id===Number(pid));
-              if(proj&&proj.pricelistId) await loadPricelistItems(proj.pricelistId);
-              else setPricelistItems([]);
-            }} style={inputStyle}>
+            <select value={masterProjectId} onChange={async e=>{const pid=e.target.value;setMasterProjectId(pid);setSelectedWorks({});const proj=projects.find(p=>p.id===Number(pid));if(proj&&proj.pricelistId) await loadPricelistItems(proj.pricelistId);else setPricelistItems([]);}} style={inputStyle}>
               <option value="">Выберите объект</option>
               {projects.filter(p=>p.status==='В работе').map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             {pricelistItems.length>0&&(
               <>
-                <p style={{color:'#666',fontSize:'13px',marginBottom:'10px'}}>✅ Отметьте выполненные работы:</p>
                 {categories.map(cat=>(
                   <div key={cat} style={{marginBottom:'15px'}}>
-                    <div style={{color:'#ff6b00',fontSize:'12px',fontWeight:'bold',marginBottom:'8px',textTransform:'uppercase',borderBottom:'2px solid #ff6b00',paddingBottom:'4px'}}>{cat}</div>
+                    <div style={{color:'#ff6b00',fontSize:'12px',fontWeight:'bold',marginBottom:'8px',borderBottom:'2px solid #ff6b00',paddingBottom:'4px'}}>{cat}</div>
                     {pricelistItems.filter(i=>i.category===cat).map(item=>{
                       const proj=projects.find(p=>p.id===Number(masterProjectId));
                       const pl=proj&&pricelists.find(p=>p.id===proj.pricelistId);
@@ -762,33 +831,18 @@ function App() {
                       const isSelected=selectedWorks[item.id]!==undefined;
                       return (
                         <div key={item.id} style={{padding:'10px',marginBottom:'8px',borderRadius:'8px',border:`2px solid ${isSelected?'#ff6b00':'#eee'}`,backgroundColor:isSelected?'#fff5f0':'white'}}>
-                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isSelected?'8px':'0'}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                             <label style={{display:'flex',alignItems:'center',gap:'10px',cursor:'pointer',flex:1}}>
-                              <input type="checkbox" checked={isSelected} onChange={e=>{
-                                if(e.target.checked) setSelectedWorks(prev=>({...prev,[item.id]:{quantity:'',comment:'',photoUrl:''}}));
-                                else{const updated={...selectedWorks};delete updated[item.id];setSelectedWorks(updated);}
-                              }} style={{width:'18px',height:'18px',cursor:'pointer'}}/>
+                              <input type="checkbox" checked={isSelected} onChange={e=>{if(e.target.checked) setSelectedWorks(prev=>({...prev,[item.id]:{quantity:'',comment:'',photoUrl:''}}));else{const updated={...selectedWorks};delete updated[item.id];setSelectedWorks(updated);}}} style={{width:'18px',height:'18px',cursor:'pointer'}}/>
                               <span style={{fontWeight:isSelected?'bold':'normal'}}>{item.name}</span>
                             </label>
                             <span style={{color:'#ff6b00',fontWeight:'bold',fontSize:'14px'}}>{price.toLocaleString()} руб./{item.unit}</span>
                           </div>
                           {isSelected&&(
-                            <div style={{paddingLeft:'28px'}}>
-                              <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
-                                <input placeholder={`Количество (${item.unit})`} type="number" value={selectedWorks[item.id]?.quantity||''} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],quantity:e.target.value}}))} style={{...inputStyle,marginBottom:0,flex:1}}/>
-                                {selectedWorks[item.id]?.quantity&&(
-                                  <span style={{color:'#28a745',fontWeight:'bold',whiteSpace:'nowrap'}}>= {(Number(selectedWorks[item.id].quantity)*price).toLocaleString()} руб.</span>
-                                )}
-                              </div>
-                              <input placeholder="Комментарий" value={selectedWorks[item.id]?.comment||''} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],comment:e.target.value}}))} style={{...inputStyle,marginTop:'8px',marginBottom:'8px'}}/>
-                              <label style={{color:'#555',fontSize:'12px',fontWeight:'bold'}}>📸 Фото работы</label>
-                              <input type="file" accept="image/*" onChange={async e=>{
-                                if(e.target.files[0]){
-                                  const url=await uploadPhoto(e.target.files[0]);
-                                  setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],photoUrl:url}}));
-                                }
-                              }} style={{...inputStyle,padding:'6px',marginTop:'4px'}}/>
-                              {selectedWorks[item.id]?.photoUrl&&<p style={{color:'#28a745',fontSize:'12px'}}>✅ Фото загружено</p>}
+                            <div style={{paddingLeft:'28px',marginTop:'8px'}}>
+                              <input placeholder={`Количество (${item.unit})`} type="number" value={selectedWorks[item.id]?.quantity||''} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],quantity:e.target.value}}))} style={inputStyle}/>
+                              <input placeholder="Комментарий" value={selectedWorks[item.id]?.comment||''} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],comment:e.target.value}}))} style={inputStyle}/>
+                              <input type="file" accept="image/*" onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],photoUrl:url}}));}}} style={{...inputStyle,padding:'6px'}}/>
                             </div>
                           )}
                         </div>
@@ -796,46 +850,23 @@ function App() {
                     })}
                   </div>
                 ))}
-                {Object.keys(selectedWorks).length>0&&(
-                  <div style={{backgroundColor:'#f0fff0',padding:'15px',borderRadius:'8px',marginBottom:'15px'}}>
-                    <b>Итого: {Object.entries(selectedWorks).reduce((sum,[itemId,data])=>{
-                      const item=pricelistItems.find(i=>i.id===Number(itemId));
-                      const proj=projects.find(p=>p.id===Number(masterProjectId));
-                      const pl=proj&&pricelists.find(p=>p.id===proj.pricelistId);
-                      const price=item?item.price*(pl?pl.coefficient:1.0):0;
-                      return sum+(Number(data.quantity)*price||0);
-                    },0).toLocaleString()} руб.</b>
-                    <p style={{color:'#666',fontSize:'13px',margin:'4px 0 0'}}>Выбрано работ: {Object.keys(selectedWorks).length}</p>
-                  </div>
-                )}
-                <button onClick={addMasterWorks} style={btnOrange}>✅ Отправить все работы на проверку</button>
+                <button onClick={addMasterWorks} style={btnOrange}>✅ Отправить все работы</button>
               </>
             )}
-            {masterProjectId&&pricelistItems.length===0&&<p style={{color:'#999'}}>К этому объекту не привязан прайс-лист</p>}
           </div>
           <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
             <h3 style={{marginBottom:'15px'}}>📋 История работ</h3>
-            {myWorks.length===0&&<p style={{color:'#999'}}>Работ пока нет</p>}
             {myWorks.map(w=>{
               const je=workJournal.find(j=>j.masterId===user.id&&j.description===w.description&&j.date===w.date);
               return (
                 <div key={w.id} style={{padding:'15px',borderBottom:'1px solid #eee'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                    <div style={{flex:1}}>
+                  <div style={{display:'flex',justifyContent:'space-between'}}>
+                    <div>
                       <b>{w.description}</b>
-                      <p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>{w.quantity} {w.unit} × {w.pricePerUnit?.toLocaleString()} руб. | 🏗️ {w.project} | 📅 {w.date}</p>
-                      {w.comment&&<p style={{color:'#999',margin:'4px 0',fontSize:'13px'}}>💬 {w.comment}</p>}
-                      {w.photoUrl&&<img src={`${API}${w.photoUrl}`} alt="фото" onClick={()=>setShowPhotoModal(`${API}${w.photoUrl}`)} style={{width:'80px',height:'60px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',marginTop:'6px'}}/>}
-                      {je&&(
-                        <div style={{marginTop:'6px'}}>
-                          <span style={{fontSize:'12px',padding:'2px 8px',borderRadius:'10px',backgroundColor:je.status==='Подтверждено'?'#28a745':je.status==='Отклонено'?'#dc3545':'#ffc107',color:'white'}}>
-                            {je.status==='Подтверждено'?'✅ Подтверждено':je.status==='Отклонено'?'❌ Отклонено':'⏳ На проверке'}
-                          </span>
-                          {je.status==='Отклонено'&&je.comment&&<p style={{color:'#dc3545',fontSize:'12px',margin:'4px 0'}}>Причина: {je.comment}</p>}
-                        </div>
-                      )}
+                      <p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>{w.quantity} {w.unit} | 🏗️ {w.project} | 📅 {w.date}</p>
+                      {je&&<span style={{fontSize:'12px',padding:'2px 8px',borderRadius:'10px',backgroundColor:je.status==='Подтверждено'?'#28a745':je.status==='Отклонено'?'#dc3545':'#ffc107',color:'white'}}>{je.status}</span>}
                     </div>
-                    <b style={{color:'#28a745',whiteSpace:'nowrap',marginLeft:'10px'}}>{w.total?.toLocaleString()} руб.</b>
+                    <b style={{color:'#28a745'}}>{w.total?.toLocaleString()} руб.</b>
                   </div>
                 </div>
               );
@@ -850,13 +881,16 @@ function App() {
     {id:'dashboard',icon:'📊',label:'Главная'},
     {id:'analytics',icon:'📈',label:'Аналитика'},
     {id:'projects',icon:'📋',label:'Проекты'},
+    {id:'stages',icon:'🏗️',label:'Этапы'},
     {id:'clients',icon:'👥',label:'Клиенты'},
-    {id:'warehouse',icon:'🏗️',label:'Склад'},
+    {id:'warehouse',icon:'📦',label:'Склад'},
     {id:'staff',icon:'👷',label:'Сотрудники'},
     {id:'suppliers',icon:'🚚',label:'Поставщики'},
     {id:'journal',icon:'📔',label:'Журнал работ'},
     {id:'checklists',icon:'✅',label:'Чек-листы'},
     {id:'accounting',icon:'💰',label:'Бухгалтерия'},
+    {id:'unexpected',icon:'🔧',label:'Непредвиденные'},
+    {id:'personnel',icon:'👥',label:'Персонал'},
     {id:'pricelists',icon:'💲',label:'Прайс-листы'},
     {id:'users',icon:'🔐',label:'Пользователи'},
   ];
@@ -865,47 +899,10 @@ function App() {
 
   return (
     <div style={{display:'flex',height:'100vh',backgroundColor:'#f0f2f5'}}>
-      {showPhotoModal&&(
-        <div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}>
-          <img src={showPhotoModal} alt="фото" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'8px'}}/>
-        </div>
-      )}
-      {showAiModal&&(
-        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}>
-          <div style={{backgroundColor:'white',padding:'30px',borderRadius:'10px',width:'450px',maxWidth:'90%'}}>
-            {aiLoading?(
-              <div style={{textAlign:'center',padding:'30px'}}>
-                <div style={{fontSize:'40px',marginBottom:'15px'}}>🤖</div>
-                <h3>ИИ анализирует...</h3>
-              </div>
-            ):aiResult&&(
-              <div>
-                <h3 style={{marginBottom:'15px'}}>{aiResult.title}</h3>
-                <div style={{backgroundColor:'#f8f9fa',padding:'15px',borderRadius:'8px',marginBottom:'15px'}}>
-                  <p style={{color:'#666',margin:0}}>{aiResult.content}</p>
-                </div>
-                <div style={{backgroundColor:'#fff3cd',padding:'12px',borderRadius:'8px',marginBottom:'15px',fontSize:'13px'}}>
-                  <b>⚡ Для активации:</b><br/>1. Получите API ключ на console.anthropic.com<br/>2. Сообщите нам — подключим за 30 минут!
-                </div>
-                <button onClick={()=>{setShowAiModal(false);setAiResult(null);}} style={btnOrange}>Закрыть</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      {rejectingEntry&&(
-        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}>
-          <div style={{backgroundColor:'white',padding:'30px',borderRadius:'10px',width:'400px'}}>
-            <h3 style={{marginBottom:'15px'}}>❌ Причина отклонения</h3>
-            <p style={{color:'#666',marginBottom:'10px',fontSize:'14px'}}>{rejectingEntry.description} — {rejectingEntry.masterName}</p>
-            <textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inputStyle,height:'100px',resize:'vertical'}}/>
-            <div style={{display:'flex',gap:'10px'}}>
-              <button onClick={()=>rejectJournalEntry(rejectingEntry,rejectComment)} style={btnRed}>❌ Отклонить</button>
-              <button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnGray}>Отмена</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="фото" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'8px'}}/></div>)}
+      {showAiModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{backgroundColor:'white',padding:'30px',borderRadius:'10px',width:'450px',maxWidth:'90%'}}>{aiLoading?(<div style={{textAlign:'center',padding:'30px'}}><div style={{fontSize:'40px'}}>🤖</div><h3>ИИ анализирует...</h3></div>):aiResult&&(<div><h3>{aiResult.title}</h3><p style={{color:'#666'}}>{aiResult.content}</p><button onClick={()=>{setShowAiModal(false);setAiResult(null);}} style={btnOrange}>Закрыть</button></div>)}</div></div>)}
+      {rejectingEntry&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{backgroundColor:'white',padding:'30px',borderRadius:'10px',width:'400px'}}><h3>❌ Причина отклонения</h3><textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inputStyle,height:'100px',resize:'vertical'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>rejectJournalEntry(rejectingEntry,rejectComment)} style={btnRed}>❌ Отклонить</button><button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnGray}>Отмена</button></div></div></div>)}
+
       <div style={{width:'220px',backgroundColor:'#1a1a2e',color:'white',padding:'20px 0',flexShrink:0,display:'flex',flexDirection:'column',overflowY:'auto'}}>
         <h3 style={{textAlign:'center',color:'#ff6b00',marginBottom:'5px'}}>🏗️ СтройКа</h3>
         <div style={{textAlign:'center',marginBottom:'20px'}}>
@@ -913,33 +910,31 @@ function App() {
           <p style={{color:'#aaa',fontSize:'13px',margin:'5px 0 0'}}>{user.name}</p>
         </div>
         {menuItems.map(item=>(
-          <div key={item.id} onClick={()=>navigateTo(item.id)}
-            style={{padding:'15px 25px',cursor:'pointer',backgroundColor:activePage===item.id?'#ff6b00':'transparent',borderLeft:activePage===item.id?'4px solid white':'4px solid transparent'}}>
+          <div key={item.id} onClick={()=>navigateTo(item.id)} style={{padding:'15px 25px',cursor:'pointer',backgroundColor:activePage===item.id?'#ff6b00':'transparent',borderLeft:activePage===item.id?'4px solid white':'4px solid transparent'}}>
             {item.icon} {item.label}
             {item.id==='warehouse'&&lowStockMaterials.length>0&&<span style={{marginLeft:'8px',backgroundColor:'#dc3545',color:'white',borderRadius:'50%',padding:'1px 6px',fontSize:'12px'}}>{lowStockMaterials.length}</span>}
             {item.id==='journal'&&pendingJournal>0&&<span style={{marginLeft:'8px',backgroundColor:'#ffc107',color:'white',borderRadius:'50%',padding:'1px 6px',fontSize:'12px'}}>{pendingJournal}</span>}
+            {item.id==='unexpected'&&pendingUnexpected>0&&<span style={{marginLeft:'8px',backgroundColor:'#dc3545',color:'white',borderRadius:'50%',padding:'1px 6px',fontSize:'12px'}}>{pendingUnexpected}</span>}
           </div>
         ))}
-        <div style={{marginTop:'auto'}}>
-          <div onClick={()=>setUser(null)} style={{padding:'15px 25px',cursor:'pointer',color:'#aaa'}}>🚪 Выйти</div>
-        </div>
+        <div style={{marginTop:'auto'}}><div onClick={()=>setUser(null)} style={{padding:'15px 25px',cursor:'pointer',color:'#aaa'}}>🚪 Выйти</div></div>
       </div>
+
       <div style={{flex:1,padding:'30px',overflowY:'auto'}}>
 
         {activePage==='dashboard'&&(
           <div>
-            <h2 style={{color:'#333',marginBottom:'20px'}}>📊 Главная</h2>
+            <h2 style={{color:'#333',marginBottom:'20px'}}>📊 Главная — {user.name}</h2>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))',gap:'20px',marginBottom:'30px'}}>
               {[
                 {label:'Проектов',value:projects.length,icon:'📋',color:'#ff6b00',page:'projects'},
                 {label:'Клиентов',value:clients.length,icon:'👥',color:'#007bff',page:'clients'},
-                {label:'Материалов',value:materials.length,icon:'🏗️',color:'#28a745',page:'warehouse'},
+                {label:'Материалов',value:materials.length,icon:'📦',color:'#28a745',page:'warehouse'},
                 {label:'Сотрудников',value:staff.length,icon:'👷',color:'#6c757d',page:'staff'},
                 {label:'Поставщиков',value:suppliers.length,icon:'🚚',color:'#8e44ad',page:'suppliers'},
                 {label:'Мастеров',value:masterProfiles.length,icon:'🔨',color:'#e83e8c',page:'accounting'},
               ].filter(card=>canAccess(card.page)).map(card=>(
-                <div key={card.label} onClick={()=>navigateTo(card.page)}
-                  style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)',borderTop:`4px solid ${card.color}`,cursor:'pointer',transition:'box-shadow 0.2s'}}>
+                <div key={card.label} onClick={()=>navigateTo(card.page)} style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)',borderTop:`4px solid ${card.color}`,cursor:'pointer'}}>
                   <div style={{fontSize:'25px',marginBottom:'8px'}}>{card.icon}</div>
                   <div style={{fontSize:'28px',fontWeight:'bold',color:card.color}}>{card.value}</div>
                   <div style={{color:'#666',fontSize:'14px'}}>{card.label}</div>
@@ -949,30 +944,43 @@ function App() {
             </div>
             {isFinanceRole()&&(
               <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)',marginBottom:'20px'}}>
-                <h3 style={{marginBottom:'15px'}}>💰 Финансовая сводка</h3>
+                <h3 style={{marginBottom:'15px'}}>💰 Финансовая сводка и контроль маржи</h3>
                 {projects.map(p=>{
-                  const matCost=projectMaterialCost(p.name);
-                  const labCost=projectLaborCost(p.name);
-                  const remaining=p.budget-matCost-labCost;
-                  const pct=p.budget>0?Math.min(100,Math.round(((matCost+labCost)/p.budget)*100)):0;
+                  const catExpenses=projectExpensesByCategory(p.name);
+                  const total=Object.values(catExpenses).reduce((s,v)=>s+v,0);
+                  const remaining=p.budget-total;
+                  const pct=p.budget>0?Math.min(100,Math.round((total/p.budget)*100)):0;
+                  const margin=p.budget>0?Math.round(((p.budget-total)/p.budget)*100):0;
                   return (
-                    <div key={p.id} style={{marginBottom:'15px',paddingBottom:'15px',borderBottom:'1px solid #eee'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:'5px'}}>
-                        <b>{p.name}</b>
-                        <span style={{color:remaining>=0?'#28a745':'#dc3545',fontWeight:'bold'}}>{remaining>=0?`✅ ${remaining.toLocaleString()}`:`⚠️ -${Math.abs(remaining).toLocaleString()}`} руб.</span>
+                    <div key={p.id} style={{marginBottom:'20px',paddingBottom:'20px',borderBottom:'1px solid #eee'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}>
+                        <b style={{fontSize:'15px'}}>{p.name}</b>
+                        <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                          <span style={{backgroundColor:margin<10?'#dc3545':margin<20?'#ffc107':'#28a745',color:'white',padding:'2px 8px',borderRadius:'10px',fontSize:'12px'}}>Маржа: {margin}%</span>
+                          <span style={{color:remaining>=0?'#28a745':'#dc3545',fontWeight:'bold'}}>{remaining>=0?`✅ ${remaining.toLocaleString()}`:`⚠️ -${Math.abs(remaining).toLocaleString()}`} руб.</span>
+                        </div>
                       </div>
-                      <div style={{display:'flex',gap:'15px',fontSize:'13px',color:'#666',marginBottom:'6px'}}>
-                        <span>📦 {matCost.toLocaleString()}</span><span>👷 {labCost.toLocaleString()}</span><span>💰 {p.budget.toLocaleString()}</span>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))',gap:'6px',marginBottom:'8px'}}>
+                        {EXPENSE_CATEGORIES.filter(cat=>catExpenses[cat.id]>0).map(cat=>(
+                          <div key={cat.id} style={{backgroundColor:'#f8f9fa',padding:'6px 8px',borderRadius:'6px',borderLeft:`3px solid ${cat.color}`}}>
+                            <div style={{fontSize:'11px',color:'#666'}}>{cat.label}</div>
+                            <div style={{fontSize:'13px',fontWeight:'bold',color:cat.color}}>{catExpenses[cat.id].toLocaleString()} руб.</div>
+                          </div>
+                        ))}
                       </div>
                       <div style={{backgroundColor:'#f0f2f5',borderRadius:'10px',height:'8px'}}>
-                        <div style={{backgroundColor:pct>90?'#dc3545':'#ff6b00',width:`${pct}%`,height:'8px',borderRadius:'10px'}}/>
+                        <div style={{backgroundColor:pct>90?'#dc3545':pct>70?'#ffc107':'#28a745',width:`${pct}%`,height:'8px',borderRadius:'10px'}}/>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:'12px',color:'#999',marginTop:'4px'}}>
+                        <span>Бюджет: {p.budget.toLocaleString()} руб.</span>
+                        <span>Потрачено: {pct}%</span>
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
-            <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)',marginBottom:'20px'}}>
+            <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
               <h3 style={{marginBottom:'15px'}}>📋 Прогресс проектов</h3>
               {projects.filter(p=>p.status==='В работе').map(p=>(
                 <div key={p.id} style={{marginBottom:'15px',cursor:'pointer'}} onClick={()=>navigateTo('projects')}>
@@ -983,22 +991,75 @@ function App() {
                 </div>
               ))}
             </div>
-            {isFinanceRole()&&(
-              <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
-                <h3 style={{marginBottom:'15px'}}>📊 Статьи затрат</h3>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:'10px'}}>
-                  {EXPENSE_CATEGORIES.map(cat=>{
-                    const total=expenses.filter(e=>e.category===cat.id).reduce((sum,e)=>sum+Number(e.amount),0);
+          </div>
+        )}
+
+        {activePage==='stages'&&(
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
+              <h2 style={{color:'#333'}}>🏗️ Этапы строительства</h2>
+              <button onClick={()=>setShowForm(!showForm)} style={btnOrange}>+ Добавить этап</button>
+            </div>
+            {showForm&&(
+              <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
+                <select value={newStage.projectId} onChange={e=>setNewStage({...newStage,projectId:e.target.value})} style={inputStyle}>
+                  <option value="">Выберите объект</option>
+                  {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <input placeholder="Название этапа (Фундамент, Стены, Кровля...)" value={newStage.name} onChange={e=>setNewStage({...newStage,name:e.target.value})} style={inputStyle}/>
+                <textarea placeholder="Описание работ" value={newStage.description} onChange={e=>setNewStage({...newStage,description:e.target.value})} style={{...inputStyle,height:'80px',resize:'vertical'}}/>
+                <input placeholder="Ответственный" value={newStage.responsible} onChange={e=>setNewStage({...newStage,responsible:e.target.value})} style={inputStyle}/>
+                <div style={{display:'flex',gap:'10px'}}>
+                  <div style={{flex:1}}><label style={{color:'#666',fontSize:'13px'}}>Начало</label><input type="date" value={newStage.startDate} onChange={e=>setNewStage({...newStage,startDate:e.target.value})} style={inputStyle}/></div>
+                  <div style={{flex:1}}><label style={{color:'#666',fontSize:'13px'}}>Окончание</label><input type="date" value={newStage.endDate} onChange={e=>setNewStage({...newStage,endDate:e.target.value})} style={inputStyle}/></div>
+                </div>
+                <button onClick={addStage} style={btnOrange}>Создать этап</button>
+              </div>
+            )}
+            {projects.map(p=>{
+              const projectStages=stages.filter(s=>s.projectId===String(p.id));
+              if(projectStages.length===0) return null;
+              return (
+                <div key={p.id} style={{marginBottom:'25px'}}>
+                  <h3 style={{color:'#333',marginBottom:'10px',padding:'10px 15px',backgroundColor:'white',borderRadius:'8px',boxShadow:'0 2px 4px rgba(0,0,0,0.06)'}}>{p.name}</h3>
+                  {projectStages.map(stage=>{
+                    const stageWorks=workJournal.filter(j=>j.project===p.name&&j.status==='Подтверждено');
                     return (
-                      <div key={cat.id} style={{backgroundColor:'#f8f9fa',padding:'12px',borderRadius:'8px',borderLeft:`4px solid ${cat.color}`}}>
-                        <div style={{fontSize:'13px',color:'#666'}}>{cat.label}</div>
-                        <div style={{fontSize:'16px',fontWeight:'bold',color:cat.color}}>{total.toLocaleString()} руб.</div>
+                      <div key={stage.id} style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)',borderLeft:`4px solid ${stageStatusColor(stage.status)}`}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                          <div style={{flex:1}}>
+                            <h3 style={{margin:0}}>{stage.name}</h3>
+                            {stage.description&&<p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>{stage.description}</p>}
+                            <div style={{display:'flex',gap:'15px',fontSize:'13px',color:'#666',marginTop:'6px',flexWrap:'wrap'}}>
+                              {stage.responsible&&<span>👤 {stage.responsible}</span>}
+                              {stage.startDate&&<span>📅 {stage.startDate}</span>}
+                              {stage.endDate&&<span>🏁 {stage.endDate}</span>}
+                            </div>
+                          </div>
+                          <div style={{display:'flex',flexDirection:'column',gap:'8px',alignItems:'flex-end',marginLeft:'15px'}}>
+                            <span style={{backgroundColor:stageStatusColor(stage.status),color:'white',padding:'4px 12px',borderRadius:'20px',fontSize:'13px'}}>{stage.status}</span>
+                            <select value={stage.status} onChange={e=>updateStageStatus(stage.id,e.target.value)} style={{...inputStyle,marginBottom:0,fontSize:'12px',padding:'4px 8px',width:'auto'}}>
+                              {STAGE_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        {stage.status==='Заблокирован'&&(
+                          <div style={{backgroundColor:'#fff3cd',padding:'10px',borderRadius:'6px',marginTop:'10px',fontSize:'13px'}}>
+                            ⚠️ Этап заблокирован — проверьте документы и материалы
+                          </div>
+                        )}
+                        {stage.status==='Принят'&&(
+                          <div style={{backgroundColor:'#d4edda',padding:'10px',borderRadius:'6px',marginTop:'10px',fontSize:'13px'}}>
+                            ✅ Этап принят | Работ подтверждено: {stageWorks.length}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            )}
+              );
+            })}
+            {stages.length===0&&<p style={{color:'#999',textAlign:'center',padding:'40px'}}>Этапов пока нет. Добавьте первый этап!</p>}
           </div>
         )}
 
@@ -1010,9 +1071,10 @@ function App() {
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px',marginBottom:'20px'}}>
               <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
-                <h3 style={{marginBottom:'15px'}}>💰 План / Факт</h3>
+                <h3 style={{marginBottom:'15px'}}>💰 План / Факт по объектам</h3>
                 {projects.map(p=>{
-                  const fact=projectMaterialCost(p.name)+projectLaborCost(p.name);
+                  const catExpenses=projectExpensesByCategory(p.name);
+                  const fact=Object.values(catExpenses).reduce((s,v)=>s+v,0);
                   const pct=p.budget>0?Math.min(100,Math.round((fact/p.budget)*100)):0;
                   return (
                     <div key={p.id} style={{marginBottom:'15px',paddingBottom:'15px',borderBottom:'1px solid #eee'}}>
@@ -1050,69 +1112,173 @@ function App() {
                 })}
               </div>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px',marginBottom:'20px'}}>
-              <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
-                <h3 style={{marginBottom:'15px'}}>📊 Статьи затрат</h3>
-                {EXPENSE_CATEGORIES.map(cat=>{
-                  const total=expenses.filter(e=>e.category===cat.id).reduce((sum,e)=>sum+Number(e.amount),0);
-                  return (
-                    <div key={cat.id} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #eee'}}>
-                      <span>{cat.label}</span><b style={{color:cat.color}}>{total.toLocaleString()} руб.</b>
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
-                <h3 style={{marginBottom:'15px'}}>🚚 Рейтинг поставщиков</h3>
-                {[...suppliers].sort((a,b)=>b.rating-a.rating).map(s=>(
-                  <div key={s.id} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #eee'}}>
-                    <div><b>{s.name}</b><p style={{color:'#666',fontSize:'13px',margin:'2px 0'}}>{s.specialization}</p></div>
-                    <div style={{textAlign:'right'}}>
-                      <div style={{color:'#ff6b00',fontWeight:'bold'}}>⭐ {s.rating}</div>
-                      <div style={{color:'#666',fontSize:'12px'}}>{supplyHistory.filter(h=>h.supplierId===s.id).length} поставок</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
             <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)',marginBottom:'20px'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <h3 style={{margin:0}}>📄 Анализ сметы (ИИ)</h3>
-                <button onClick={()=>runAI('smeta')} style={{...btnBlue,fontSize:'13px'}}>🤖 Анализ ИИ</button>
+                <h3 style={{margin:0}}>📊 Статьи затрат по объектам</h3>
+                <select value={projectExpensesFilter} onChange={e=>setProjectExpensesFilter(e.target.value)} style={{...inputStyle,marginBottom:0,width:'200px'}}>
+                  <option value="">Все объекты</option>
+                  {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
               </div>
-              <input type="file" accept=".pdf,.xlsx,.xls,.csv" onChange={e=>setSmetaFile(e.target.files[0])} style={{...inputStyle,padding:'8px'}}/>
-              {smetaFile&&<p style={{color:'#28a745',fontSize:'13px'}}>📄 {smetaFile.name}</p>}
+              {(projectExpensesFilter?projects.filter(p=>p.name===projectExpensesFilter):projects).map(p=>{
+                const catExpenses=projectExpensesByCategory(p.name);
+                const total=Object.values(catExpenses).reduce((s,v)=>s+v,0);
+                return (
+                  <div key={p.id} style={{marginBottom:'20px',paddingBottom:'20px',borderBottom:'1px solid #eee'}}>
+                    <h4 style={{margin:'0 0 10px'}}>{p.name}</h4>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))',gap:'8px'}}>
+                      {EXPENSE_CATEGORIES.map(cat=>(
+                        <div key={cat.id} style={{backgroundColor:'#f8f9fa',padding:'10px',borderRadius:'8px',borderLeft:`3px solid ${cat.color}`}}>
+                          <div style={{fontSize:'12px',color:'#666'}}>{cat.label}</div>
+                          <div style={{fontSize:'14px',fontWeight:'bold',color:cat.color}}>{catExpenses[cat.id].toLocaleString()} руб.</div>
+                          {p.budget>0&&<div style={{fontSize:'11px',color:'#999'}}>{Math.round(catExpenses[cat.id]/p.budget*100)}% бюджета</div>}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{marginTop:'10px',padding:'10px',backgroundColor:'#f0f2f5',borderRadius:'8px',display:'flex',justifyContent:'space-between',fontSize:'13px'}}>
+                      <span>💰 Бюджет: <b>{p.budget.toLocaleString()}</b></span>
+                      <span>📊 Итого: <b>{total.toLocaleString()}</b></span>
+                      <span style={{color:p.budget-total>=0?'#28a745':'#dc3545',fontWeight:'bold'}}>{p.budget-total>=0?`✅ ${(p.budget-total).toLocaleString()}`:`⚠️ -${Math.abs(p.budget-total).toLocaleString()}`} руб.</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
-              <h3 style={{marginBottom:'15px'}}>📊 Сводная таблица КС-2</h3>
+              <h3 style={{marginBottom:'15px'}}>📊 Сводная КС-2</h3>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:'13px'}}>
-                <thead>
-                  <tr style={{backgroundColor:'#f5f5f5'}}>
-                    <th style={{padding:'10px',border:'1px solid #ddd',textAlign:'left'}}>Объект</th>
-                    <th style={{padding:'10px',border:'1px solid #ddd'}}>Статус</th>
-                    <th style={{padding:'10px',border:'1px solid #ddd'}}>Бюджет</th>
-                    <th style={{padding:'10px',border:'1px solid #ddd'}}>Факт</th>
-                    <th style={{padding:'10px',border:'1px solid #ddd'}}>Остаток</th>
-                    <th style={{padding:'10px',border:'1px solid #ddd'}}>КС-2</th>
-                  </tr>
-                </thead>
+                <thead><tr style={{backgroundColor:'#f5f5f5'}}>
+                  <th style={{padding:'10px',border:'1px solid #ddd',textAlign:'left'}}>Объект</th>
+                  <th style={{padding:'10px',border:'1px solid #ddd'}}>Статус</th>
+                  <th style={{padding:'10px',border:'1px solid #ddd'}}>Бюджет</th>
+                  <th style={{padding:'10px',border:'1px solid #ddd'}}>Факт</th>
+                  <th style={{padding:'10px',border:'1px solid #ddd'}}>Маржа</th>
+                  <th style={{padding:'10px',border:'1px solid #ddd'}}>КС-2</th>
+                </tr></thead>
                 <tbody>
                   {projects.map(p=>{
-                    const total=projectMaterialCost(p.name)+projectLaborCost(p.name);
+                    const catExpenses=projectExpensesByCategory(p.name);
+                    const total=Object.values(catExpenses).reduce((s,v)=>s+v,0);
                     const rem=p.budget-total;
+                    const margin=p.budget>0?Math.round((rem/p.budget)*100):0;
                     return (
                       <tr key={p.id}>
                         <td style={{padding:'8px 10px',border:'1px solid #ddd'}}><b>{p.name}</b></td>
                         <td style={{padding:'8px 10px',border:'1px solid #ddd',textAlign:'center'}}><span style={{backgroundColor:statusColor(p.status),color:'white',padding:'2px 8px',borderRadius:'10px',fontSize:'12px'}}>{p.status}</span></td>
                         <td style={{padding:'8px 10px',border:'1px solid #ddd',textAlign:'right'}}>{p.budget.toLocaleString()}</td>
                         <td style={{padding:'8px 10px',border:'1px solid #ddd',textAlign:'right',fontWeight:'bold'}}>{total.toLocaleString()}</td>
-                        <td style={{padding:'8px 10px',border:'1px solid #ddd',textAlign:'right',color:rem>=0?'#28a745':'#dc3545',fontWeight:'bold'}}>{rem.toLocaleString()}</td>
+                        <td style={{padding:'8px 10px',border:'1px solid #ddd',textAlign:'center'}}><span style={{backgroundColor:margin<10?'#dc3545':margin<20?'#ffc107':'#28a745',color:'white',padding:'2px 8px',borderRadius:'10px',fontSize:'12px'}}>{margin}%</span></td>
                         <td style={{padding:'8px 10px',border:'1px solid #ddd',textAlign:'center'}}><button onClick={()=>printKS2(p)} style={{...btnBlue,padding:'4px 10px',fontSize:'12px'}}>📄</button></td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {activePage==='unexpected'&&(
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
+              <h2 style={{color:'#333'}}>🔧 Непредвиденные работы и материалы</h2>
+              <button onClick={()=>setShowForm(!showForm)} style={btnOrange}>+ Добавить</button>
+            </div>
+            {showForm&&(
+              <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
+                <select value={newUnexpected.project} onChange={e=>setNewUnexpected({...newUnexpected,project:e.target.value})} style={inputStyle}>
+                  <option value="">Выберите объект</option>
+                  {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+                <select value={newUnexpected.type} onChange={e=>setNewUnexpected({...newUnexpected,type:e.target.value})} style={inputStyle}>
+                  <option value="work">🔨 Непредвиденная работа</option>
+                  <option value="material">📦 Непредвиденный материал</option>
+                </select>
+                <input placeholder="Наименование" value={newUnexpected.description} onChange={e=>setNewUnexpected({...newUnexpected,description:e.target.value})} style={inputStyle}/>
+                <textarea placeholder="Причина (обязательно)" value={newUnexpected.reason} onChange={e=>setNewUnexpected({...newUnexpected,reason:e.target.value})} style={{...inputStyle,height:'80px',resize:'vertical'}}/>
+                <div style={{display:'flex',gap:'10px'}}>
+                  <select value={newUnexpected.unit} onChange={e=>setNewUnexpected({...newUnexpected,unit:e.target.value})} style={{...inputStyle,flex:1}}>
+                    <option>м²</option><option>м³</option><option>м</option><option>шт</option><option>кг</option><option>т</option>
+                  </select>
+                  <input placeholder="Кол-во" type="number" value={newUnexpected.quantity} onChange={e=>setNewUnexpected({...newUnexpected,quantity:e.target.value})} style={{...inputStyle,flex:1}}/>
+                  <input placeholder="Цена/ед." type="number" value={newUnexpected.price} onChange={e=>setNewUnexpected({...newUnexpected,price:e.target.value})} style={{...inputStyle,flex:1}}/>
+                </div>
+                {newUnexpected.quantity&&newUnexpected.price&&<div style={{backgroundColor:'#fff3cd',padding:'10px',borderRadius:'6px',marginBottom:'10px'}}><b>Сумма: {(Number(newUnexpected.quantity)*Number(newUnexpected.price)).toLocaleString()} руб.</b></div>}
+                <button onClick={addUnexpected} style={btnOrange}>Отправить на согласование</button>
+              </div>
+            )}
+            {pendingUnexpected>0&&<div style={{backgroundColor:'#fff3cd',border:'1px solid #ffc107',padding:'15px',borderRadius:'10px',marginBottom:'20px'}}><b>⏳ Ожидают согласования: {pendingUnexpected}</b></div>}
+            {unexpectedWorks.length===0&&<p style={{color:'#999',textAlign:'center',padding:'40px'}}>Непредвиденных позиций пока нет</p>}
+            {unexpectedWorks.map(u=>(
+              <div key={u.id} style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'15px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)',borderLeft:`4px solid ${u.status==='Утверждено'?'#28a745':u.status==='Отклонено'?'#dc3545':'#ffc107'}`}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:'flex',gap:'10px',alignItems:'center',marginBottom:'5px'}}>
+                      <span style={{backgroundColor:u.type==='work'?'#007bff':'#28a745',color:'white',padding:'2px 8px',borderRadius:'10px',fontSize:'12px'}}>{u.type==='work'?'🔨 Работа':'📦 Материал'}</span>
+                      <h3 style={{margin:0}}>{u.description}</h3>
+                    </div>
+                    <p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>🏗️ {u.project} | {u.quantity} {u.unit} × {Number(u.price).toLocaleString()} руб. | 📅 {u.date}</p>
+                    <p style={{color:'#dc3545',margin:'4px 0',fontSize:'13px'}}>⚠️ {u.reason}</p>
+                    <p style={{color:'#666',margin:'4px 0',fontSize:'13px'}}>👤 {u.createdBy}</p>
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column',gap:'8px',alignItems:'flex-end',marginLeft:'15px'}}>
+                    <b style={{color:'#ff6b00',fontSize:'16px'}}>{u.total?.toLocaleString()} руб.</b>
+                    <span style={{backgroundColor:u.status==='Утверждено'?'#28a745':u.status==='Отклонено'?'#dc3545':'#ffc107',color:'white',padding:'4px 12px',borderRadius:'20px',fontSize:'13px'}}>{u.status}</span>
+                    {u.status==='На согласовании'&&isFinanceRole()&&(
+                      <div style={{display:'flex',gap:'8px'}}>
+                        <button onClick={()=>setUnexpectedWorks(prev=>prev.map(x=>x.id===u.id?{...x,status:'Утверждено',approvedBy:user.name}:x))} style={{...btnGreen,fontSize:'13px'}}>✅</button>
+                        <button onClick={()=>setUnexpectedWorks(prev=>prev.map(x=>x.id===u.id?{...x,status:'Отклонено'}:x))} style={{...btnRed,fontSize:'13px'}}>❌</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activePage==='personnel'&&(
+          <div>
+            <h2 style={{color:'#333',marginBottom:'20px'}}>👥 База персонала</h2>
+            <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
+              <h3 style={{marginBottom:'15px'}}>👷 Мастера</h3>
+              {masterProfiles.length===0&&<p style={{color:'#999'}}>Мастеров пока нет</p>}
+              {masterProfiles.map(mp=>(
+                <div key={mp.id} style={{padding:'15px',borderBottom:'1px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                  <div>
+                    <b style={{fontSize:'15px'}}>{mp.fullName}</b>
+                    <p style={{color:'#ff6b00',margin:'4px 0',fontSize:'14px'}}>{mp.specialization} | {mp.contractType}</p>
+                    <p style={{color:'#666',margin:'4px 0',fontSize:'13px'}}>📞 {mp.phone} | ИНН: {mp.inn}</p>
+                    {isFinanceRole()&&<p style={{color:'#666',margin:'4px 0',fontSize:'13px'}}>🏦 {mp.bankName} | {mp.bankAccount}</p>}
+                  </div>
+                  {isFinanceRole()&&(
+                    <div style={{textAlign:'right'}}>
+                      <p style={{color:'#28a745',fontWeight:'bold',fontSize:'15px',margin:0}}>
+                        {workJournal.filter(j=>j.masterId===mp.userId&&j.status==='Подтверждено').reduce((s,w)=>s+w.total,0).toLocaleString()} руб.
+                      </p>
+                      <p style={{color:'#666',fontSize:'12px',margin:'4px 0'}}>{workJournal.filter(j=>j.masterId===mp.userId&&j.status==='Подтверждено').length} работ</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
+              <h3 style={{marginBottom:'15px'}}>👔 Сотрудники компании</h3>
+              {ROLE_GROUPS.filter(g=>g.key!=='заказчики').map(group=>{
+                const groupUsers=users.filter(u=>group.roles.includes(u.role));
+                if(groupUsers.length===0) return null;
+                return (
+                  <div key={group.key} style={{marginBottom:'15px'}}>
+                    <div style={{backgroundColor:'#f8f9fa',padding:'10px 15px',borderRadius:'8px',marginBottom:'8px'}}><b>{group.label} ({groupUsers.length})</b></div>
+                    {groupUsers.map(u=>(
+                      <div key={u.id} style={{padding:'10px 15px',borderBottom:'1px solid #f5f5f5',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                        <div><b>{u.name}</b><p style={{color:'#666',margin:'2px 0',fontSize:'13px'}}>✉️ {u.email}</p></div>
+                        <span style={{backgroundColor:roleColor(u.role),color:'white',padding:'3px 10px',borderRadius:'15px',fontSize:'12px'}}>{ROLE_LABELS[u.role]}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1140,15 +1306,9 @@ function App() {
                     <button onClick={()=>setNewChecklist({...newChecklist,items:newChecklist.items.filter((_,idx)=>idx!==i)})} style={{...btnRed,padding:'2px 8px',fontSize:'12px'}}>✕</button>
                   </div>
                 ))}
-                <button onClick={()=>{
-                  if(!newChecklist.title){alert('Введите название');return;}
-                  setChecklists([...checklists,{...newChecklist,id:Date.now(),createdBy:user.name,date:new Date().toISOString().split('T')[0]}]);
-                  setNewChecklist({project:'',title:'',items:[]});
-                  setShowForm(false);
-                }} style={btnOrange}>Создать</button>
+                <button onClick={()=>{if(!newChecklist.title){alert('Введите название');return;}setChecklists([...checklists,{...newChecklist,id:Date.now(),createdBy:user.name,date:new Date().toISOString().split('T')[0]}]);setNewChecklist({project:'',title:'',items:[]});setShowForm(false);}} style={btnOrange}>Создать</button>
               </div>
             )}
-            {checklists.length===0&&<p style={{color:'#999',textAlign:'center',padding:'40px'}}>Чек-листов пока нет</p>}
             {checklists.map(cl=>{
               const done=cl.items.filter(i=>i.checked).length;
               const total=cl.items.length;
@@ -1156,20 +1316,14 @@ function App() {
               return (
                 <div key={cl.id} style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'15px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
-                    <div>
-                      <h3 style={{margin:0}}>{cl.title}</h3>
-                      <p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>🏗️ {cl.project} | 👤 {cl.createdBy} | 📅 {cl.date}</p>
-                    </div>
+                    <div><h3 style={{margin:0}}>{cl.title}</h3><p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>🏗️ {cl.project} | 👤 {cl.createdBy}</p></div>
                     <span style={{backgroundColor:pct===100?'#28a745':'#ffc107',color:'white',padding:'4px 12px',borderRadius:'20px',fontSize:'13px'}}>{done}/{total}</span>
                   </div>
                   <div style={{backgroundColor:'#f0f2f5',borderRadius:'6px',height:'6px',marginBottom:'12px'}}>
                     <div style={{backgroundColor:pct===100?'#28a745':'#ff6b00',width:`${pct}%`,height:'6px',borderRadius:'6px'}}/>
                   </div>
                   {cl.items.map((item,i)=>(
-                    <div key={i} onClick={()=>{
-                      const updated=checklists.map(c=>c.id===cl.id?{...c,items:c.items.map((it,idx)=>idx===i?{...it,checked:!it.checked}:it)}:c);
-                      setChecklists(updated);
-                    }} style={{display:'flex',alignItems:'center',gap:'10px',padding:'8px',borderRadius:'6px',cursor:'pointer',backgroundColor:item.checked?'#f0fff0':'white',marginBottom:'4px',border:'1px solid #f0f0f0'}}>
+                    <div key={i} onClick={()=>{const updated=checklists.map(c=>c.id===cl.id?{...c,items:c.items.map((it,idx)=>idx===i?{...it,checked:!it.checked}:it)}:c);setChecklists(updated);}} style={{display:'flex',alignItems:'center',gap:'10px',padding:'8px',borderRadius:'6px',cursor:'pointer',backgroundColor:item.checked?'#f0fff0':'white',marginBottom:'4px',border:'1px solid #f0f0f0'}}>
                       <span style={{fontSize:'18px'}}>{item.checked?'✅':'⬜'}</span>
                       <span style={{color:item.checked?'#28a745':'#333',textDecoration:item.checked?'line-through':'none'}}>{item.text}</span>
                     </div>
@@ -1177,6 +1331,7 @@ function App() {
                 </div>
               );
             })}
+            {checklists.length===0&&<p style={{color:'#999',textAlign:'center',padding:'40px'}}>Чек-листов пока нет</p>}
           </div>
         )}
 
@@ -1186,10 +1341,7 @@ function App() {
             {pendingJournal>0&&<div style={{backgroundColor:'#fff3cd',border:'1px solid #ffc107',padding:'15px',borderRadius:'10px',marginBottom:'20px'}}><b>⏳ Ожидают: {pendingJournal}</b></div>}
             <div style={{display:'flex',gap:'10px',marginBottom:'20px',flexWrap:'wrap'}}>
               {['Все','На проверке','Подтверждено','Отклонено'].map(filter=>(
-                <button key={filter} onClick={()=>setJournalFilter(filter==='Все'?'':filter)}
-                  style={{padding:'8px 16px',borderRadius:'20px',border:'none',cursor:'pointer',backgroundColor:journalFilter===(filter==='Все'?'':filter)?'#ff6b00':'#f0f2f5',color:journalFilter===(filter==='Все'?'':filter)?'white':'#333'}}>
-                  {filter}
-                </button>
+                <button key={filter} onClick={()=>setJournalFilter(filter==='Все'?'':filter)} style={{padding:'8px 16px',borderRadius:'20px',border:'none',cursor:'pointer',backgroundColor:journalFilter===(filter==='Все'?'':filter)?'#ff6b00':'#f0f2f5',color:journalFilter===(filter==='Все'?'':filter)?'white':'#333'}}>{filter}</button>
               ))}
             </div>
             {workJournal.filter(j=>!journalFilter||j.status===journalFilter).map(entry=>(
@@ -1200,21 +1352,12 @@ function App() {
                     <p style={{color:'#e83e8c',margin:'4px 0',fontWeight:'bold',fontSize:'14px'}}>👷 {entry.masterName}</p>
                     <p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>🏗️ {entry.project} | {entry.quantity} {entry.unit} × {entry.pricePerUnit?.toLocaleString()} руб. | 📅 {entry.date}</p>
                     {entry.comment&&<p style={{color:entry.status==='Отклонено'?'#dc3545':'#999',margin:'4px 0',fontSize:'13px'}}>💬 {entry.comment}</p>}
-                    {entry.confirmedBy&&<p style={{color:'#666',margin:'4px 0',fontSize:'13px'}}>✍️ {entry.confirmedBy} | {entry.confirmedAt}</p>}
-                    {entry.photoUrl&&(
-                      <img src={`${API}${entry.photoUrl}`} alt="фото" onClick={()=>setShowPhotoModal(`${API}${entry.photoUrl}`)}
-                        style={{width:'100px',height:'75px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',marginTop:'8px',border:'2px solid #eee'}}/>
-                    )}
+                    {entry.photoUrl&&<img src={`${API}${entry.photoUrl}`} alt="фото" onClick={()=>setShowPhotoModal(`${API}${entry.photoUrl}`)} style={{width:'100px',height:'75px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',marginTop:'8px'}}/>}
                   </div>
                   <div style={{display:'flex',flexDirection:'column',gap:'8px',alignItems:'flex-end',marginLeft:'15px'}}>
                     <b style={{color:'#28a745',fontSize:'16px'}}>{entry.total?.toLocaleString()} руб.</b>
                     <span style={{backgroundColor:entry.status==='Подтверждено'?'#28a745':entry.status==='Отклонено'?'#dc3545':'#ffc107',color:'white',padding:'4px 12px',borderRadius:'20px',fontSize:'13px'}}>{entry.status}</span>
-                    {entry.status==='На проверке'&&(
-                      <div style={{display:'flex',gap:'8px'}}>
-                        <button onClick={()=>confirmJournalEntry(entry)} style={{...btnGreen,padding:'6px 12px',fontSize:'13px'}}>✅</button>
-                        <button onClick={()=>setRejectingEntry(entry)} style={{...btnRed,padding:'6px 12px',fontSize:'13px'}}>❌</button>
-                      </div>
-                    )}
+                    {entry.status==='На проверке'&&(<div style={{display:'flex',gap:'8px'}}><button onClick={()=>confirmJournalEntry(entry)} style={{...btnGreen,padding:'6px 12px',fontSize:'13px'}}>✅</button><button onClick={()=>setRejectingEntry(entry)} style={{...btnRed,padding:'6px 12px',fontSize:'13px'}}>❌</button></div>)}
                     {entry.status==='Подтверждено'&&<button onClick={()=>printAct(entry)} style={{...btnBlue,padding:'6px 12px',fontSize:'13px'}}>🖨️ АОСР</button>}
                   </div>
                 </div>
@@ -1249,10 +1392,11 @@ function App() {
               </div>
             )}
             {projects.map(p=>{
-              const matCost=projectMaterialCost(p.name);
-              const labCost=projectLaborCost(p.name);
-              const remaining=p.budget-matCost-labCost;
+              const catExpenses=projectExpensesByCategory(p.name);
+              const total=Object.values(catExpenses).reduce((s,v)=>s+v,0);
+              const remaining=p.budget-total;
               const pl=pricelists.find(pl=>pl.id===p.pricelistId);
+              const projectStages=stages.filter(s=>s.projectId===String(p.id));
               return (
                 <div key={p.id} style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'15px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -1264,14 +1408,20 @@ function App() {
                       <button onClick={()=>deleteProject(p.id)} style={btnRed}>🗑️</button>
                     </div>
                   </div>
-                  <p style={{color:'#666',margin:'8px 0',fontSize:'14px'}}>👤 {p.client} &nbsp;&nbsp; 📅 {p.deadline}</p>
+                  <p style={{color:'#666',margin:'8px 0',fontSize:'14px'}}>👤 {p.client} | 📅 {p.deadline}</p>
                   {pl&&<p style={{color:'#007bff',margin:'4px 0',fontSize:'14px'}}>📋 {pl.name} (коэф. {pl.coefficient})</p>}
                   {isFinanceRole()&&(
-                    <div style={{display:'flex',gap:'15px',fontSize:'14px',marginBottom:'8px'}}>
+                    <div style={{display:'flex',gap:'15px',fontSize:'14px',marginBottom:'8px',flexWrap:'wrap'}}>
                       <span>💰 {p.budget.toLocaleString()}</span>
-                      <span>📦 {matCost.toLocaleString()}</span>
-                      <span>👷 {labCost.toLocaleString()}</span>
+                      <span>📊 {total.toLocaleString()}</span>
                       <span style={{color:remaining>=0?'#28a745':'#dc3545',fontWeight:'bold'}}>{remaining>=0?`✅ ${remaining.toLocaleString()}`:`⚠️ -${Math.abs(remaining).toLocaleString()}`} руб.</span>
+                    </div>
+                  )}
+                  {projectStages.length>0&&(
+                    <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'8px'}}>
+                      {projectStages.map(stage=>(
+                        <span key={stage.id} style={{backgroundColor:stageStatusColor(stage.status),color:'white',padding:'2px 8px',borderRadius:'10px',fontSize:'12px'}}>{stage.name}: {stage.status}</span>
+                      ))}
                     </div>
                   )}
                   <div style={{backgroundColor:'#f0f2f5',borderRadius:'10px',height:'8px'}}>
@@ -1279,6 +1429,19 @@ function App() {
                   </div>
                   {expandedProject===p.id&&(
                     <div style={{marginTop:'15px',borderTop:'1px solid #eee',paddingTop:'15px'}}>
+                      {isFinanceRole()&&(
+                        <div style={{marginBottom:'15px'}}>
+                          <h4 style={{marginBottom:'10px'}}>📊 Статьи затрат</h4>
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))',gap:'8px'}}>
+                            {EXPENSE_CATEGORIES.filter(cat=>catExpenses[cat.id]>0).map(cat=>(
+                              <div key={cat.id} style={{backgroundColor:'#f8f9fa',padding:'8px',borderRadius:'6px',borderLeft:`3px solid ${cat.color}`}}>
+                                <div style={{fontSize:'11px',color:'#666'}}>{cat.label}</div>
+                                <div style={{fontSize:'13px',fontWeight:'bold',color:cat.color}}>{catExpenses[cat.id].toLocaleString()} руб.</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <h4 style={{marginBottom:'10px'}}>✅ Задачи</h4>
                       {(p.tasks||[]).map((task,i)=>(
                         <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'1px solid #f5f5f5'}}>
@@ -1326,7 +1489,7 @@ function App() {
                     <button onClick={()=>deleteClient(c.id)} style={btnRed}>🗑️</button>
                   </div>
                 </div>
-                <p style={{color:'#666',margin:'8px 0',fontSize:'14px'}}>📞 {c.phone} &nbsp;&nbsp; ✉️ {c.email}</p>
+                <p style={{color:'#666',margin:'8px 0',fontSize:'14px'}}>📞 {c.phone} | ✉️ {c.email}</p>
                 {expandedClient===c.id&&c.notes&&<p style={{color:'#666',marginTop:'10px'}}>📝 {c.notes}</p>}
               </div>
             ))}
@@ -1337,15 +1500,15 @@ function App() {
           <div>
             {lowStockMaterials.length>0&&<div style={{backgroundColor:'#fff3cd',border:'1px solid #ffc107',padding:'15px',borderRadius:'10px',marginBottom:'20px'}}><b>⚠️ Заканчиваются:</b> {lowStockMaterials.map(m=>m.name).join(', ')}</div>}
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
-              <h2 style={{color:'#333'}}>🏗️ Склад</h2>
+              <h2 style={{color:'#333'}}>📦 Склад</h2>
               <div style={{display:'flex',gap:'10px'}}>
                 <button onClick={()=>setShowHistory(!showHistory)} style={{...btnGray,padding:'10px 20px'}}>📊 История</button>
-                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewMaterial({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',project:''});}} style={btnOrange}>+ Материал</button>
+                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewMaterial({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',project:'',});}} style={btnOrange}>+ Материал</button>
               </div>
             </div>
             {showHistory&&(
               <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
-                <h3 style={{marginBottom:'15px'}}>📊 История</h3>
+                <h3 style={{marginBottom:'15px'}}>📊 История движения</h3>
                 {history.map(h=>(
                   <div key={h.id} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #eee',fontSize:'14px'}}>
                     <span>{h.date} — {h.material} ({h.project})</span>
@@ -1356,7 +1519,6 @@ function App() {
             )}
             {showForm&&(
               <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
-                <h3 style={{marginBottom:'15px'}}>{editingItem?'Редактировать':'Новый материал'}</h3>
                 <input placeholder="Название" value={newMaterial.name} onChange={e=>setNewMaterial({...newMaterial,name:e.target.value})} style={inputStyle}/>
                 <input placeholder="Количество" type="number" value={newMaterial.quantity} onChange={e=>setNewMaterial({...newMaterial,quantity:e.target.value})} style={inputStyle}/>
                 <input placeholder="Цена за единицу" type="number" value={newMaterial.price} onChange={e=>setNewMaterial({...newMaterial,price:e.target.value})} style={inputStyle}/>
@@ -1387,18 +1549,9 @@ function App() {
               </select>
               {movement.type==='приход'&&(
                 <div style={{marginBottom:'10px'}}>
-                  <label style={{color:'#555',fontSize:'13px',fontWeight:'bold',display:'block',marginBottom:'5px'}}>📸 Фото накладной → бухгалтеру</label>
-                  <input type="file" accept="image/*" onChange={async e=>{
-                    if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setMovement(prev=>({...prev,invoicePhoto:url}));}
-                  }} style={{...inputStyle,padding:'8px'}}/>
-                  {uploadingPhoto&&<p style={{color:'#ff6b00',fontSize:'13px'}}>⏳ Загрузка...</p>}
-                  {movement.invoicePhoto&&(
-                    <div style={{marginTop:'8px'}}>
-                      <img src={`${API}${movement.invoicePhoto}`} alt="накладная" onClick={()=>setShowPhotoModal(`${API}${movement.invoicePhoto}`)} style={{width:'120px',height:'90px',objectFit:'cover',borderRadius:'6px',cursor:'pointer'}}/>
-                      <p style={{color:'#28a745',fontSize:'13px'}}>✅ Фото загружено → бухгалтеру</p>
-                      <button onClick={()=>runAI('invoice')} style={{...btnBlue,fontSize:'12px',padding:'4px 10px',marginTop:'4px'}}>🤖 Распознать ИИ</button>
-                    </div>
-                  )}
+                  <label style={{color:'#555',fontSize:'13px',fontWeight:'bold',display:'block',marginBottom:'5px'}}>📸 Фото накладной</label>
+                  <input type="file" accept="image/*" onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setMovement(prev=>({...prev,invoicePhoto:url}));}}} style={{...inputStyle,padding:'8px'}}/>
+                  {movement.invoicePhoto&&<p style={{color:'#28a745',fontSize:'13px'}}>✅ Фото загружено → бухгалтеру</p>}
                 </div>
               )}
               <button onClick={applyMovement} style={{...btnOrange,backgroundColor:'#28a745'}}>Применить</button>
@@ -1422,7 +1575,6 @@ function App() {
                   <span style={{color:'#ff6b00',fontWeight:'bold'}}>Итого: {(m.price*m.quantity).toLocaleString()} руб.</span>
                   {m.project&&<span>🏗️ {m.project}</span>}
                 </div>
-                {m.minQuantity>0&&m.quantity<m.minQuantity&&<p style={{color:'#ffc107',margin:'4px 0',fontSize:'13px'}}>⚠️ Ниже минимума</p>}
               </div>
             ))}
           </div>
@@ -1439,21 +1591,15 @@ function App() {
             </div>
             {showSupplyHistory&&(
               <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
-                <h3 style={{marginBottom:'15px'}}>📦 История поставок</h3>
                 {supplyHistory.map(d=>{
                   const sup=suppliers.find(s=>s.id===d.supplierId);
                   return (
                     <div key={d.id} style={{padding:'12px',borderBottom:'1px solid #eee'}}>
                       <div style={{display:'flex',justifyContent:'space-between'}}>
-                        <div>
-                          <b>{d.materialName}</b> — {d.quantity} {d.unit}
-                          <p style={{color:'#666',margin:'2px 0',fontSize:'13px'}}>🚚 {sup?.name} | 🏗️ {d.project} | 💰 {d.totalPrice?.toLocaleString()} руб.</p>
-                        </div>
+                        <div><b>{d.materialName}</b> — {d.quantity} {d.unit}<p style={{color:'#666',margin:'2px 0',fontSize:'13px'}}>🚚 {sup?.name} | {d.totalPrice?.toLocaleString()} руб.</p></div>
                         <div style={{display:'flex',flexDirection:'column',gap:'5px',alignItems:'flex-end'}}>
                           <span style={{backgroundColor:d.status==='Доставлено'?'#28a745':'#ffc107',color:'white',padding:'2px 10px',borderRadius:'15px',fontSize:'12px'}}>{d.status}</span>
-                          {d.status==='Ожидает поставки'&&(user.role==='прораб'||user.role==='кладовщик'||user.role==='директор')&&(
-                            <button onClick={()=>confirmDelivery(d)} style={{...btnGreen,fontSize:'12px',padding:'4px 10px'}}>✅ Принять</button>
-                          )}
+                          {d.status==='Ожидает поставки'&&(user.role==='прораб'||user.role==='кладовщик'||user.role==='директор')&&<button onClick={()=>confirmDelivery(d)} style={{...btnGreen,fontSize:'12px',padding:'4px 10px'}}>✅ Принять</button>}
                         </div>
                       </div>
                     </div>
@@ -1463,7 +1609,7 @@ function App() {
             )}
             <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <h3 style={{margin:0}}>📋 Заявки</h3>
+                <h3 style={{margin:0}}>📋 Заявки на материалы</h3>
                 <button onClick={()=>{setShowForm(true);setEditingItem(null);setNewRequest({materialName:'',quantity:'',unit:'шт',project:'',notes:''});}} style={{...btnBlue,padding:'8px 16px'}}>+ Заявка</button>
               </div>
               {showForm&&!editingItem&&(
@@ -1472,7 +1618,7 @@ function App() {
                   <div style={{display:'flex',gap:'10px'}}>
                     <input placeholder="Количество" type="number" value={newRequest.quantity} onChange={e=>setNewRequest({...newRequest,quantity:e.target.value})} style={{...inputStyle,flex:1}}/>
                     <select value={newRequest.unit} onChange={e=>setNewRequest({...newRequest,unit:e.target.value})} style={{...inputStyle,flex:1}}>
-                      <option>шт</option><option>мешок</option><option>м</option><option>м²</option><option>м³</option><option>кг</option><option>т</option>
+                      <option>шт</option><option>мешок</option><option>м</option><option>м²</option><option>кг</option><option>т</option>
                     </select>
                   </div>
                   <select value={newRequest.project} onChange={e=>setNewRequest({...newRequest,project:e.target.value})} style={inputStyle}>
@@ -1486,13 +1632,10 @@ function App() {
                 const reqOffers=supplierOffers.filter(o=>o.requestId===req.id);
                 const bestOffer=reqOffers.reduce((best,o)=>!best||o.totalPrice<best.totalPrice?o:best,null);
                 return (
-                  <div key={req.id} style={{padding:'12px',borderBottom:'1px solid #eee',backgroundColor:req.status==='Утверждено'?'#f0fff0':req.status==='Отменена'?'#fff5f5':'white',borderRadius:'6px',marginBottom:'5px'}}>
+                  <div key={req.id} style={{padding:'12px',borderBottom:'1px solid #eee',backgroundColor:req.status==='Утверждено'?'#f0fff0':'white',borderRadius:'6px',marginBottom:'5px'}}>
                     <div style={{display:'flex',justifyContent:'space-between'}}>
-                      <div>
-                        <b>{req.materialName}</b> — {req.quantity} {req.unit} | 🏗️ {req.project}
-                        <p style={{color:'#666',margin:'2px 0',fontSize:'13px'}}>👤 {req.createdBy} | 📅 {req.date}</p>
-                      </div>
-                      <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                      <div><b>{req.materialName}</b> — {req.quantity} {req.unit} | 🏗️ {req.project}<p style={{color:'#666',margin:'2px 0',fontSize:'13px'}}>👤 {req.createdBy} | 📅 {req.date}</p></div>
+                      <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
                         <span style={{backgroundColor:req.status==='Утверждено'?'#28a745':req.status==='Отменена'?'#dc3545':'#007bff',color:'white',padding:'2px 10px',borderRadius:'15px',fontSize:'12px'}}>{req.status}</span>
                         {req.status!=='Отменена'&&req.status!=='Утверждено'&&<button onClick={()=>setShowOffers(showOffers===req.id?null:req.id)} style={{...btnGray,fontSize:'12px',padding:'4px 10px'}}>📊 ({reqOffers.length})</button>}
                         {req.status==='Новая'&&<button onClick={()=>cancelRequest(req.id)} style={{...btnRed,fontSize:'12px',padding:'4px 8px'}}>✕</button>}
@@ -1506,9 +1649,7 @@ function App() {
                           return (
                             <div key={offer.id} style={{padding:'8px',marginBottom:'6px',borderRadius:'6px',backgroundColor:isBest?'#e8f5e9':'white',border:`1px solid ${isBest?'#28a745':'#eee'}`}}>
                               <div style={{display:'flex',justifyContent:'space-between'}}>
-                                <div><b>{sup?.name}</b> {isBest&&<span style={{color:'#28a745',fontSize:'11px'}}>⭐ Лучшая</span>}
-                                  <p style={{color:'#666',margin:'2px 0',fontSize:'12px'}}>💰 {offer.pricePerUnit?.toLocaleString()} руб/ед. | {offer.totalPrice?.toLocaleString()} руб. | {offer.deliveryDays} дн.</p>
-                                </div>
+                                <div><b>{sup?.name}</b> {isBest&&<span style={{color:'#28a745',fontSize:'11px'}}>⭐ Лучшая</span>}<p style={{color:'#666',margin:'2px 0',fontSize:'12px'}}>💰 {offer.pricePerUnit?.toLocaleString()} руб/ед. | {offer.totalPrice?.toLocaleString()} руб. | {offer.deliveryDays} дн.</p></div>
                                 <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
                                   {offer.status==='Ожидает'&&(user.role==='директор'||user.role==='зам_директора')&&<button onClick={()=>approveOffer(offer)} style={{...btnGreen,fontSize:'12px',padding:'4px 10px'}}>✅</button>}
                                   <span style={{backgroundColor:offer.status==='Утверждено'?'#28a745':'#6c757d',color:'white',padding:'2px 8px',borderRadius:'10px',fontSize:'11px'}}>{offer.status}</span>
@@ -1526,10 +1667,7 @@ function App() {
                             <input placeholder="Цена/ед." type="number" value={newOffer.pricePerUnit} onChange={e=>setNewOffer({...newOffer,pricePerUnit:e.target.value})} style={{...inputStyle,flex:1,marginBottom:'6px'}}/>
                             <input placeholder="Дней" type="number" value={newOffer.deliveryDays} onChange={e=>setNewOffer({...newOffer,deliveryDays:e.target.value})} style={{...inputStyle,flex:1,marginBottom:'6px'}}/>
                           </div>
-                          <div style={{display:'flex',gap:'8px'}}>
-                            <button onClick={()=>saveOffer(req.id)} style={{...btnBlue,padding:'6px 14px',fontSize:'13px'}}>Добавить</button>
-                            <button onClick={()=>runAI('kp')} style={{...btnBlue,padding:'6px 14px',fontSize:'13px',backgroundColor:'#8e44ad'}}>🤖 ИИ анализ КП</button>
-                          </div>
+                          <button onClick={()=>saveOffer(req.id)} style={{...btnBlue,padding:'6px 14px',fontSize:'13px'}}>Добавить КП</button>
                         </div>
                       </div>
                     )}
@@ -1557,7 +1695,6 @@ function App() {
             )}
             {showForm&&editingItem&&(
               <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
-                <h3 style={{marginBottom:'15px'}}>Редактировать поставщика</h3>
                 <input placeholder="Название" value={newSupplier.name} onChange={e=>setNewSupplier({...newSupplier,name:e.target.value})} style={inputStyle}/>
                 <input placeholder="Телефон" value={newSupplier.phone} onChange={e=>setNewSupplier({...newSupplier,phone:e.target.value})} style={inputStyle}/>
                 <input placeholder="Email" value={newSupplier.email} onChange={e=>setNewSupplier({...newSupplier,email:e.target.value})} style={inputStyle}/>
@@ -1599,7 +1736,6 @@ function App() {
             )}
             {showForm&&(
               <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
-                <h3 style={{marginBottom:'15px'}}>{editingItem?'Редактировать':'Новый сотрудник'}</h3>
                 <input placeholder="Имя" value={newStaff.name} onChange={e=>setNewStaff({...newStaff,name:e.target.value})} style={inputStyle}/>
                 <input placeholder="Должность" value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})} style={inputStyle}/>
                 <input placeholder="Телефон" value={newStaff.phone} onChange={e=>setNewStaff({...newStaff,phone:e.target.value})} style={inputStyle}/>
@@ -1624,7 +1760,7 @@ function App() {
                     <button onClick={()=>deleteStaff(s.id)} style={btnRed}>🗑️</button>
                   </div>
                 </div>
-                <p style={{color:'#666',margin:'8px 0',fontSize:'14px'}}>📞 {s.phone} &nbsp;&nbsp; 🏗️ {s.project}</p>
+                <p style={{color:'#666',margin:'8px 0',fontSize:'14px'}}>📞 {s.phone} | 🏗️ {s.project}</p>
                 <p style={{color:'#28a745',margin:'4px 0',fontWeight:'bold',fontSize:'14px'}}>
                   {s.payType==='оклад'?`✅ Отработано: ${workedDays(s.id)} дн. | К выплате: ${calcSalary(s).toLocaleString()} руб.`:`✅ Начислено: ${staffPieceworkTotal(s.id).toLocaleString()} руб.`}
                 </p>
@@ -1640,7 +1776,7 @@ function App() {
                       return <div key={day} onClick={()=>toggleDay(selectedStaff.id,day)} style={{width:'40px',height:'40px',display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'6px',cursor:'pointer',backgroundColor:worked?'#28a745':'#f0f2f5',color:worked?'white':'#333',fontWeight:'bold'}}>{day}</div>;
                     })}
                   </div>
-                  <p style={{marginBottom:'15px'}}><b>Отработано: {workedDays(selectedStaff.id)} дней | К выплате: {calcSalary(selectedStaff).toLocaleString()} руб.</b></p>
+                  <p><b>Отработано: {workedDays(selectedStaff.id)} дней | К выплате: {calcSalary(selectedStaff).toLocaleString()} руб.</b></p>
                   <button onClick={()=>setShowTimesheet(false)} style={btnOrange}>Закрыть</button>
                 </div>
               </div>
@@ -1651,10 +1787,15 @@ function App() {
         {activePage==='accounting'&&(
           <div>
             <h2 style={{color:'#333',marginBottom:'20px'}}>💰 Бухгалтерия</h2>
+            {isFinanceRole()&&(
+              <div style={{backgroundColor:'#f8f9fa',padding:'15px',borderRadius:'10px',marginBottom:'20px',display:'flex',gap:'15px',alignItems:'center',flexWrap:'wrap'}}>
+                <span style={{color:'#666',fontSize:'14px'}}>🏢 Название компании для договоров:</span>
+                <input placeholder="ООО СтройКа" value={companyName} onChange={e=>{setCompanyName(e.target.value);localStorage.setItem('companyName',e.target.value);}} style={{...inputStyle,marginBottom:0,flex:1,maxWidth:'300px'}}/>
+              </div>
+            )}
             <div style={{display:'flex',gap:'10px',marginBottom:'20px',flexWrap:'wrap'}}>
               {['contracts','acts','masters','invoices'].map(tab=>(
-                <button key={tab} onClick={()=>setAccountingTab(tab)}
-                  style={{padding:'10px 20px',borderRadius:'8px',border:'none',cursor:'pointer',backgroundColor:accountingTab===tab?'#ff6b00':'#f0f2f5',color:accountingTab===tab?'white':'#333',fontWeight:'bold'}}>
+                <button key={tab} onClick={()=>setAccountingTab(tab)} style={{padding:'10px 20px',borderRadius:'8px',border:'none',cursor:'pointer',backgroundColor:accountingTab===tab?'#ff6b00':'#f0f2f5',color:accountingTab===tab?'white':'#333',fontWeight:'bold'}}>
                   {tab==='contracts'?'📄 Договоры':tab==='acts'?'📋 Акты':tab==='masters'?'👷 Мастера':'📸 Накладные'}
                 </button>
               ))}
@@ -1666,21 +1807,19 @@ function App() {
                 {expenses.filter(e=>e.invoicePhoto).map(exp=>(
                   <div key={exp.id} style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'15px',boxShadow:'0 2px 8px rgba(0,0,0,0.08)'}}>
                     <div style={{display:'flex',gap:'20px',alignItems:'flex-start'}}>
-                      <img src={`${API}${exp.invoicePhoto}`} alt="накладная" onClick={()=>setShowPhotoModal(`${API}${exp.invoicePhoto}`)} style={{width:'120px',height:'90px',objectFit:'cover',borderRadius:'8px',cursor:'pointer',border:'2px solid #eee'}}/>
+                      <img src={`${API}${exp.invoicePhoto}`} alt="накладная" onClick={()=>setShowPhotoModal(`${API}${exp.invoicePhoto}`)} style={{width:'120px',height:'90px',objectFit:'cover',borderRadius:'8px',cursor:'pointer'}}/>
                       <div style={{flex:1}}>
                         <h3 style={{margin:0}}>{exp.description}</h3>
                         <p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>🏗️ {exp.project} | 📅 {exp.date} | 👤 {exp.addedBy}</p>
-                        {exp.amount>0&&<p style={{color:'#28a745',fontWeight:'bold',fontSize:'16px',margin:'4px 0'}}>{Number(exp.amount).toLocaleString()} руб.</p>}
                         <span style={{backgroundColor:exp.status==='Подтверждено'?'#28a745':'#ffc107',color:'white',padding:'2px 10px',borderRadius:'15px',fontSize:'12px'}}>{exp.status}</span>
                       </div>
                       {exp.status!=='Подтверждено'&&(
                         <div style={{display:'flex',flexDirection:'column',gap:'8px',minWidth:'180px'}}>
-                          <input placeholder="Сумма накладной" type="number" style={inputStyle} defaultValue={exp.amount} onBlur={e=>setExpenses(prev=>prev.map(ex=>ex.id===exp.id?{...ex,amount:e.target.value}:ex))}/>
+                          <input placeholder="Сумма" type="number" style={inputStyle} defaultValue={exp.amount} onBlur={e=>setExpenses(prev=>prev.map(ex=>ex.id===exp.id?{...ex,amount:e.target.value}:ex))}/>
                           <select style={inputStyle} value={exp.category} onChange={e=>setExpenses(prev=>prev.map(ex=>ex.id===exp.id?{...ex,category:e.target.value}:ex))}>
                             {EXPENSE_CATEGORIES.map(cat=><option key={cat.id} value={cat.id}>{cat.label}</option>)}
                           </select>
                           <button onClick={()=>setExpenses(prev=>prev.map(ex=>ex.id===exp.id?{...ex,status:'Подтверждено'}:ex))} style={btnGreen}>✅ Подтвердить</button>
-                          <button onClick={()=>runAI('invoice')} style={{...btnBlue,fontSize:'12px',padding:'6px 10px'}}>🤖 Распознать ИИ</button>
                         </div>
                       )}
                     </div>
@@ -1707,30 +1846,17 @@ function App() {
                           <p style={{color:'#666',fontSize:'13px',margin:'4px 0'}}>Работ: {confirmedWorks.length}</p>
                         </div>
                       </div>
-                      <div style={{marginTop:'10px',borderTop:'1px solid #eee',paddingTop:'10px'}}>
-                        {confirmedWorks.slice(0,3).map(w=>(
-                          <div key={w.id} style={{display:'flex',justifyContent:'space-between',fontSize:'13px',padding:'4px 0',color:'#666'}}>
-                            <span>📅 {w.date} — {w.description} ({w.quantity} {w.unit})</span>
-                            <span style={{color:'#28a745',fontWeight:'bold'}}>{w.total?.toLocaleString()} руб.</span>
-                          </div>
-                        ))}
-                        {confirmedWorks.length>3&&<p style={{color:'#999',fontSize:'12px',margin:'4px 0'}}>...ещё {confirmedWorks.length-3} работ</p>}
-                        <button onClick={()=>{
-                          const w=window.open('','_blank');
-                          w.document.write(`<html><head><title>Акт мастера</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:13px}h2{text-align:center}table{width:100%;border-collapse:collapse;margin:15px 0}td,th{border:1px solid #333;padding:7px}th{background:#f5f5f5}.sign{margin-top:50px;display:flex;justify-content:space-between}.sign-block{width:45%;text-align:center}.sign-line{border-top:1px solid #333;margin-top:35px;padding-top:4px;font-size:11px}</style></head><body>
-                          <h2>АКТ ВЫПОЛНЕННЫХ РАБОТ</h2>
-                          <p><b>Мастер:</b> ${mp.fullName} | ИНН: ${mp.inn}</p>
-                          <p><b>Банк:</b> ${mp.bankName} | Счёт: ${mp.bankAccount}</p>
-                          <table><tr><th>№</th><th>Дата</th><th>Работа</th><th>Объект</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>
-                          ${confirmedWorks.map((w,i)=>`<tr><td>${i+1}</td><td>${w.date}</td><td>${w.description}</td><td>${w.project}</td><td>${w.unit}</td><td>${w.quantity}</td><td>${w.pricePerUnit?.toLocaleString()}</td><td>${w.total?.toLocaleString()}</td></tr>`).join('')}
-                          <tr style="background:#f5f5f5"><td colspan="7"><b>ИТОГО:</b></td><td><b>${totalEarned.toLocaleString()} руб.</b></td></tr></table>
-                          <div class="sign">
-                          <div class="sign-block"><div class="sign-line">Заказчик<br>___________</div></div>
-                          <div class="sign-block"><div class="sign-line">Исполнитель<br>${mp.fullName}</div></div>
-                          </div></body></html>`);
-                          w.document.close();w.print();
-                        }} style={{...btnBlue,fontSize:'12px',padding:'6px 12px',marginTop:'8px'}}>🖨️ Печать акта</button>
-                      </div>
+                      <button onClick={()=>{
+                        const w=window.open('','_blank');
+                        w.document.write(`<html><head><title>Акт</title><style>body{font-family:Arial,sans-serif;padding:40px;font-size:13px}h2{text-align:center}table{width:100%;border-collapse:collapse;margin:15px 0}td,th{border:1px solid #333;padding:7px}th{background:#f5f5f5}</style></head><body>
+                        <h2>АКТ ВЫПОЛНЕННЫХ РАБОТ</h2><p><b>Мастер:</b> ${mp.fullName} | ИНН: ${mp.inn} | ${mp.bankName} | ${mp.bankAccount}</p>
+                        <table><tr><th>№</th><th>Дата</th><th>Работа</th><th>Объект</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>
+                        ${confirmedWorks.map((w,i)=>`<tr><td>${i+1}</td><td>${w.date}</td><td>${w.description}</td><td>${w.project}</td><td>${w.unit}</td><td>${w.quantity}</td><td>${w.pricePerUnit?.toLocaleString()}</td><td>${w.total?.toLocaleString()}</td></tr>`).join('')}
+                        <tr style="background:#f5f5f5"><td colspan="7"><b>ИТОГО:</b></td><td><b>${totalEarned.toLocaleString()} руб.</b></td></tr></table>
+                        <div style="margin-top:50px;display:flex;justify-content:space-between"><div style="width:45%">Заказчик: ___________</div><div style="width:45%">Исполнитель: ${mp.fullName}</div></div>
+                        </body></html>`);
+                        w.document.close();w.print();
+                      }} style={{...btnBlue,fontSize:'12px',padding:'6px 12px',marginTop:'10px'}}>🖨️ Печать акта</button>
                     </div>
                   );
                 })}
@@ -1746,8 +1872,9 @@ function App() {
                   <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
                     <select value={newContract.masterId} onChange={e=>{const mp=masterProfiles.find(p=>p.userId===Number(e.target.value));setNewContract({...newContract,masterId:e.target.value,masterName:mp?.fullName||'',contractType:mp?.contractType||'ГПХ'});}} style={inputStyle}>
                       <option value="">Выберите мастера</option>
-                      {masterProfiles.map(mp=><option key={mp.id} value={mp.userId}>{mp.fullName}</option>)}
+                      {masterProfiles.map(mp=><option key={mp.id} value={mp.userId}>{mp.fullName} ({mp.contractType})</option>)}
                     </select>
+                    {newContract.masterId&&<div style={{backgroundColor:'#f0f8ff',padding:'10px',borderRadius:'6px',marginBottom:'10px',fontSize:'13px'}}><b>Тип договора: {newContract.contractType}</b></div>}
                     <input placeholder="Номер договора" value={newContract.contractNumber} onChange={e=>setNewContract({...newContract,contractNumber:e.target.value})} style={inputStyle}/>
                     <select value={newContract.project} onChange={e=>setNewContract({...newContract,project:e.target.value})} style={inputStyle}>
                       <option value="">Выберите объект</option>
@@ -1767,12 +1894,15 @@ function App() {
                       <div style={{display:'flex',justifyContent:'space-between'}}>
                         <div>
                           <h3 style={{margin:0}}>Договор № {ct.contractNumber}</h3>
-                          <p style={{color:'#ff6b00',margin:'4px 0',fontWeight:'bold'}}>{ct.masterName} | {ct.contractType}</p>
-                          <p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>🏗️ {ct.project} | 📅 {ct.startDate} — {ct.endDate}</p>
+                          <p style={{color:'#ff6b00',margin:'4px 0',fontWeight:'bold'}}>{ct.masterName}</p>
+                          <div style={{display:'flex',gap:'8px',alignItems:'center',margin:'4px 0'}}>
+                            <span style={{backgroundColor:ct.contractType==='ГПХ'?'#007bff':ct.contractType==='ИП'?'#28a745':'#8e44ad',color:'white',padding:'2px 8px',borderRadius:'10px',fontSize:'12px'}}>{ct.contractType}</span>
+                            <span style={{color:'#666',fontSize:'13px'}}>🏗️ {ct.project} | 📅 {ct.startDate} — {ct.endDate}</span>
+                          </div>
                         </div>
                         <div style={{display:'flex',flexDirection:'column',gap:'8px',alignItems:'flex-end'}}>
                           <span style={{backgroundColor:'#28a745',color:'white',padding:'4px 12px',borderRadius:'20px',fontSize:'13px'}}>{ct.status}</span>
-                          {mp&&<button onClick={()=>printContract(mp,ct)} style={{...btnBlue,fontSize:'13px'}}>🖨️ Печать</button>}
+                          {mp&&<button onClick={()=>printContract(mp,ct)} style={{...btnBlue,fontSize:'13px'}}>🖨️ Печать {ct.contractType}</button>}
                         </div>
                       </div>
                     </div>
@@ -1796,11 +1926,6 @@ function App() {
                       <option value="">Выберите объект</option>
                       {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
                     </select>
-                    {newAct.masterId&&newAct.project&&(()=>{
-                      const works=workJournal.filter(j=>j.masterId===Number(newAct.masterId)&&j.project===newAct.project&&j.status==='Подтверждено');
-                      const total=works.reduce((sum,w)=>sum+w.total,0);
-                      return <div style={{backgroundColor:'#f0fff0',padding:'10px',borderRadius:'6px',marginBottom:'10px',fontSize:'14px'}}><b>Работ: {works.length} | Сумма: {total.toLocaleString()} руб.</b></div>;
-                    })()}
                     <div style={{display:'flex',gap:'10px'}}>
                       <input type="date" value={newAct.periodStart} onChange={e=>setNewAct({...newAct,periodStart:e.target.value})} style={{...inputStyle,flex:1}}/>
                       <input type="date" value={newAct.periodEnd} onChange={e=>setNewAct({...newAct,periodEnd:e.target.value})} style={{...inputStyle,flex:1}}/>
@@ -1820,7 +1945,7 @@ function App() {
                         <b style={{color:'#28a745',fontSize:'18px'}}>{act.totalAmount?.toLocaleString()} руб.</b>
                         <span style={{backgroundColor:act.status==='Оплачен'?'#28a745':'#ffc107',color:'white',padding:'4px 12px',borderRadius:'20px',fontSize:'13px'}}>{act.status}</span>
                         <button onClick={()=>printInterimAct(act)} style={{...btnBlue,fontSize:'13px'}}>🖨️ Печать</button>
-                        {act.status==='Новый'&&<button onClick={async()=>{await fetch(`${API}/interim-acts/${act.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Оплачен',paidAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGreen,fontSize:'13px'}}>💰 Оплачено</button>}
+                        {act.status==='Новый'&&<button onClick={async()=>{await fetch(`${API}/interim-acts/${act.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Оплачен'})});await loadAll();}} style={{...btnGreen,fontSize:'13px'}}>💰 Оплачено</button>}
                       </div>
                     </div>
                   </div>
@@ -1852,9 +1977,8 @@ function App() {
                   <button onClick={()=>{setSelectedPricelist(null);setPricelistItems([]);setEditingItem(null);}} style={btnGray}>← Назад</button>
                 </div>
                 <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
-                  <h4 style={{marginBottom:'15px'}}>➕ {editingItem?'Редактировать':'Добавить'}</h4>
                   <input placeholder="Название работы" value={newPlItem.name} onChange={e=>setNewPlItem({...newPlItem,name:e.target.value})} style={inputStyle}/>
-                  <input placeholder="Категория (Каменные работы, Отделка...)" value={newPlItem.category} onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={inputStyle}/>
+                  <input placeholder="Категория" value={newPlItem.category} onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={inputStyle}/>
                   <input placeholder="Специализация" value={newPlItem.specialization} onChange={e=>setNewPlItem({...newPlItem,specialization:e.target.value})} style={inputStyle}/>
                   <input placeholder="Цена (руб)" type="number" value={newPlItem.price} onChange={e=>setNewPlItem({...newPlItem,price:e.target.value})} style={inputStyle}/>
                   <select value={newPlItem.unit} onChange={e=>setNewPlItem({...newPlItem,unit:e.target.value})} style={inputStyle}>
@@ -1870,7 +1994,6 @@ function App() {
                         <div style={{flex:1,marginRight:'10px'}}>
                           <b style={{fontSize:'14px'}}>{item.name}</b>
                           <span style={{color:'#666',fontSize:'13px'}}> — {item.unit}</span>
-                          {item.specialization&&<span style={{marginLeft:'8px',backgroundColor:'#e9ecef',padding:'2px 8px',borderRadius:'10px',fontSize:'12px'}}>{item.specialization}</span>}
                         </div>
                         <div style={{display:'flex',gap:'8px',alignItems:'center',flexShrink:0}}>
                           <b style={{color:'#28a745',fontSize:'13px'}}>{item.price.toLocaleString()} руб.</b>
@@ -1889,7 +2012,6 @@ function App() {
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                     <div>
                       <h3 style={{margin:0}}>{pl.name}</h3>
-                      {pl.description&&<p style={{color:'#666',margin:'4px 0',fontSize:'14px'}}>{pl.description}</p>}
                       <p style={{color:'#007bff',margin:'4px 0',fontSize:'14px'}}>Коэффициент: {pl.coefficient}</p>
                     </div>
                     <div style={{display:'flex',gap:'8px'}}>
@@ -1916,12 +2038,11 @@ function App() {
             </div>
             {showInvites&&(
               <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
-                <h3 style={{marginBottom:'15px'}}>🔑 Коды приглашений</h3>
                 <div style={{display:'flex',gap:'10px',marginBottom:'15px'}}>
                   <select value={newInviteRole} onChange={e=>setNewInviteRole(e.target.value)} style={{...inputStyle,marginBottom:0,flex:1}}>
                     {Object.entries(ROLE_LABELS).map(([key,label])=><option key={key} value={key}>{label}</option>)}
                   </select>
-                  <button onClick={createInviteCode} style={btnOrange}>Создать</button>
+                  <button onClick={createInviteCode} style={btnOrange}>Создать код</button>
                 </div>
                 {inviteCodes.map(ic=>(
                   <div key={ic.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px',backgroundColor:ic.used?'#f8f9fa':'#f0fff0',borderRadius:'8px',marginBottom:'8px',border:`1px solid ${ic.used?'#dee2e6':'#28a745'}`}}>
@@ -1938,7 +2059,7 @@ function App() {
               <div style={{backgroundColor:'white',padding:'20px',borderRadius:'10px',marginBottom:'20px',boxShadow:'0 2px 8px rgba(0,0,0,0.1)'}}>
                 <input placeholder="Имя" value={newUser.name} onChange={e=>setNewUser({...newUser,name:e.target.value})} style={inputStyle}/>
                 <input placeholder="Email" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} style={inputStyle}/>
-                <input placeholder={editingItem?"Пароль (пусто = без изменений)":"Пароль"} type="password" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={inputStyle}/>
+                <input placeholder="Пароль" type="password" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={inputStyle}/>
                 <select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})} style={inputStyle}>
                   {Object.entries(ROLE_LABELS).map(([key,label])=><option key={key} value={key}>{label}</option>)}
                 </select>
@@ -1951,8 +2072,7 @@ function App() {
               if(groupUsers.length===0) return null;
               return (
                 <div key={group.key} style={{marginBottom:'15px'}}>
-                  <div onClick={()=>setExpandedGroup(expandedGroup===group.key?null:group.key)}
-                    style={{backgroundColor:'#1a1a2e',color:'white',padding:'15px 20px',borderRadius:expandedGroup===group.key?'10px 10px 0 0':'10px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div onClick={()=>setExpandedGroup(expandedGroup===group.key?null:group.key)} style={{backgroundColor:'#1a1a2e',color:'white',padding:'15px 20px',borderRadius:expandedGroup===group.key?'10px 10px 0 0':'10px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                     <span style={{fontWeight:'bold'}}>{group.label}</span>
                     <span style={{backgroundColor:'#ff6b00',color:'white',padding:'2px 10px',borderRadius:'20px',fontSize:'13px'}}>{groupUsers.length} чел.</span>
                   </div>
