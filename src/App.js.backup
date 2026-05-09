@@ -1004,8 +1004,6 @@ function App() {
 
   const deleteRoom = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/rooms/'+id,{method:'DELETE'}); await loadAll(); } };
 
-  const saveTbEntry = (data) => { const updated = [...tbJournal,{...data,id:Date.now(),createdBy:user.name}]; setTbJournal(updated); localStorage.setItem("tbJournal",JSON.stringify(updated)); };
-
   const navigateTo = (p) => {
     if (canAccess(p)) {
       setActivePage(p); setShowForm(false); setExpandedProject(null);
@@ -1538,7 +1536,7 @@ function App() {
               </div>);})()}
               <div style={{backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,padding:'12px',borderRadius:'8px',marginBottom:'12px'}}>
                 <b style={{color:C.warning,fontSize:'13px'}}>🤖 ИИ распознавание накладной</b>
-                <label style={{cursor:"pointer",backgroundColor:C.warningLight,padding:"6px 14px",borderRadius:"6px",fontSize:"12px",color:C.warning,border:"1.5px solid "+C.warningBorder,display:"inline-flex",alignItems:"center",gap:"8px",marginLeft:"10px"}}>AI<input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewInvoice(prev=>({...prev,photoUrl:url}));}}}/></label>
+                <label style={{cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'8px',marginLeft:'12px',backgroundColor:'white',padding:'5px 12px',borderRadius:'6px',fontSize:'12px',color:C.warning,border:'1.5px solid '+C.warningBorder}}>{aiLoading?'Распознаю...':'Загрузить и распознать'}<input type="file" accept="image/*" style={{display:'none'}} disabled={aiLoading} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);const result=await recognizeInvoice(e.target.files[0]);if(result?.items){const newItems=result.items.map(item=>({name:item.name,quantity:String(item.quantity),unit:item.unit||'шт',price:String(item.price||0)}));setNewInvoice(prev=>({...prev,photoUrl:url,items:newItems,newSupplierName:result.supplier||prev.newSupplierName,isNewSupplier:result.supplier?true:prev.isNewSupplier}));alert('Распознано! Проверьте данные.');}}}/></label>
               </div>
               <button onClick={saveInvoiceNew} style={{...btnO,width:'100%',padding:'12px',justifyContent:'center',fontSize:'14px'}}><Check size={16}/>Принять накладную</button>
             </div>
