@@ -1966,3 +1966,52 @@ async def parse_smeta(file: UploadFile = File(...)):
     except Exception as e:
         os.unlink(tmp_path)
         return {"error": str(e)}
+
+@app.get("/estimates")
+def get_estimates():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,project_id,project_name,name,version,sections_json FROM estimates ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    import json as j
+    result = []
+    for r in rows:
+        try:
+            sections = j.loads(r[5]) if r[5] else []
+        except:
+            sections = []
+        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections})
+    return result
+
+@app.post("/estimates")
+def create_estimate(data: dict):
+    import json as j
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectId"),data.get("projectName",""),data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False)))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.put("/estimates/{id}")
+def update_estimate(id: int, data: dict):
+    import json as j
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s WHERE id=%s",
+        (data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.delete("/estimates/{id}")
+def delete_estimate(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM estimates WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
