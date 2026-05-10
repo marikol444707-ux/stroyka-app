@@ -1542,3 +1542,97 @@ async def upload_photo(file: UploadFile = File(...)):
     with open(filepath, "wb") as f:
         shutil.copyfileobj(file.file, f)
     return {"url": "/uploads/" + filename}
+
+@app.get("/room-windows")
+def get_room_windows():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,room_id,name,width,height,window_type,reveal_depth,reveal_material,order_num FROM room_windows ORDER BY id")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"room_id":r[1],"name":r[2],"width":r[3],"height":r[4],"window_type":r[5],"reveal_depth":r[6],"reveal_material":r[7],"order_num":r[8]} for r in rows]
+
+@app.post("/room-windows")
+def create_room_window(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO room_windows (room_id,name,width,height,window_type,reveal_depth,reveal_material,order_num) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        (data.get('roomId') or data.get('room_id'),data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('windowType') or data.get('window_type','ПВХ'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0)))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return row
+
+@app.get("/room-doors")
+def get_room_doors():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,room_id,name,width,height,door_type,door_purpose,reveal_depth,reveal_material,order_num FROM room_doors ORDER BY id")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"room_id":r[1],"name":r[2],"width":r[3],"height":r[4],"door_type":r[5],"door_purpose":r[6],"reveal_depth":r[7],"reveal_material":r[8],"order_num":r[9]} for r in rows]
+
+@app.post("/room-doors")
+def create_room_door(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO room_doors (room_id,name,width,height,door_type,door_purpose,reveal_depth,reveal_material,order_num) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        (data.get('roomId') or data.get('room_id'),data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('doorType') or data.get('door_type','Деревянная'),data.get('doorPurpose') or data.get('door_purpose','Межкомнатная'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0)))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return row
+
+@app.get("/messages")
+def get_messages():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,chat_type,project_id,author_id,author_name,author_role,text,photo_url,created_at FROM messages ORDER BY created_at ASC LIMIT 200")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"chat_type":r[1],"project_id":r[2],"author_id":r[3],"author_name":r[4],"author_role":r[5],"text":r[6],"photo_url":r[7],"created_at":str(r[8])} for r in rows]
+
+@app.post("/messages")
+def create_message(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO messages (chat_type,project_id,author_id,author_name,author_role,text,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        (data.get('chatType','company'),data.get('projectId'),data.get('authorId'),data.get('authorName',''),data.get('authorRole',''),data.get('text',''),data.get('photoUrl','')))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return row
+
+import urllib.request
+import json as json_lib
+
+@app.post("/ai-chat")
+def ai_chat(data: dict):
+    try:
+        messages = data.get("messages", [])
+        yandex_messages = [{"role": "system", "text": "Ты умный помощник прораба строительной компании СтройКа. Отвечай на русском языке. Знаешь строительные нормы, СНиП, расценки, материалы. Помогаешь с расчётами объёмов, материалов, стоимости работ."}]
+        for msg in messages:
+            yandex_messages.append({"role": msg.get("role", "user"), "text": msg.get("content", "")})
+        
+        payload = json_lib.dumps({
+            "modelUri": "gpt://b1ghgq7lsv3rak4hjqr3/yandexgpt/latest",
+            "completionOptions": {"stream": False, "temperature": 0.3, "maxTokens": 2000},
+            "messages": yandex_messages
+        }).encode("utf-8")
+        
+        req = urllib.request.Request(
+            "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Api-Key AQVNwKMYa9a-s1z6_Ag1jH8tUHL8NoB0vOj_IBVp"
+            },
+            method="POST"
+        )
+        
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json_lib.loads(response.read().decode("utf-8"))
+            text = result.get("result", {}).get("alternatives", [{}])[0].get("message", {}).get("text", "")
+            return {"text": text}
+    except Exception as e:
+        return {"text": "Ошибка: " + str(e)}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, Star, AlertTriangle, CheckCircle, Clock, FileText, Briefcase, Wrench, Archive } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, Star, AlertTriangle, CheckCircle, Clock, FileText, Briefcase, Wrench, Archive, CloudSun, QrCode, Calculator } from 'lucide-react';
 
 const API = 'http://localhost:8001';
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
@@ -46,15 +46,17 @@ const PreviewModal = ({content, title, onClose}) => (
 );
 
 const ROLES = {
-  директор: ['dashboard','projects','clients','warehouse','staff','users','pricelists','suppliers','accounting','analytics','personnel','crm','activitylog','companychat'],
-  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','analytics','accounting','personnel','crm','activitylog','companychat'],
-  главный_инженер: ['dashboard','projects','warehouse','staff','companychat'],
-  прораб: ['dashboard','projects','warehouse','suppliers','staff','companychat'],
+  директор: ['dashboard','projects','clients','warehouse','staff','users','pricelists','suppliers','accounting','analytics','personnel','crm','activitylog','companychat','estimates','weather'],
+  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','analytics','accounting','personnel','crm','activitylog','companychat','estimates','weather'],
+  главный_инженер: ['dashboard','projects','warehouse','staff','companychat','estimates','weather'],
+  прораб: ['dashboard','projects','warehouse','suppliers','staff','companychat','weather'],
   кладовщик: ['warehouse','suppliers','companychat'],
   бухгалтер: ['dashboard','accounting','personnel','companychat'],
   снабженец: ['warehouse','suppliers','companychat'],
   стройконтроль: ['projects','companychat'],
   менеджер_crm: ['crm','companychat'],
+  сметчик: ['estimates','projects','accounting','companychat'],
+  субподрядчик: ['works','materials','history','documents','companychat'],
   мастер: ['works','materials','history','documents','companychat'],
   заказчик: ['client_view'],
   поставщик: ['supplier_view'],
@@ -66,6 +68,7 @@ const ROLE_LABELS = {
   кладовщик:'📦 Кладовщик', бухгалтер:'💰 Бухгалтер',
   снабженец:'🚛 Снабженец', стройконтроль:'🔍 Стройконтроль',
   менеджер_crm:'🤝 Менеджер CRM', мастер:'👷 Мастер',
+  сметчик:'📊 Сметчик', субподрядчик:'🔩 Субподрядчик',
   заказчик:'🏠 Заказчик', поставщик:'🏭 Поставщик',
 };
 
@@ -74,8 +77,10 @@ const ROLE_GROUPS = [
   {key:'инженер',label:'Инженерный состав',roles:['главный_инженер','прораб'],color:'#8b5cf6'},
   {key:'контроль',label:'Стройконтроль',roles:['стройконтроль'],color:'#06b6d4'},
   {key:'рабочие',label:'Мастера',roles:['мастер'],color:'#ec4899'},
+  {key:'субподрядчики',label:'Субподрядчики',roles:['субподрядчик'],color:'#f59e0b'},
   {key:'снабжение',label:'Снабжение',roles:['кладовщик','снабженец'],color:'#10b981'},
   {key:'бухгалтерия',label:'Бухгалтерия',roles:['бухгалтер'],color:'#6b7280'},
+  {key:'сметчики',label:'Сметчики',roles:['сметчик'],color:'#3b82f6'},
   {key:'crm',label:'CRM',roles:['менеджер_crm'],color:'#8b5cf6'},
   {key:'заказчики',label:'Заказчики',roles:['заказчик'],color:'#06b6d4'},
   {key:'поставщики',label:'Поставщики',roles:['поставщик'],color:'#f59e0b'},
@@ -92,22 +97,21 @@ const EXPENSE_CATEGORIES = [
 
 const MATERIAL_CATEGORIES = ['Бетон и растворы','Металл и арматура','Кирпич и блоки','Кровельные','Отделочные','Электрика','Сантехника','Утеплители','Окна и двери','Инструмент','Прочее'];
 const UNITS = ['шт','мешок','м','м2','м3','кг','т','л','рулон','лист','упак','компл','пог.м','ящик','бутылка','банка','труба','секция','пара','набор','пачка','флакон','ведро','бухта'];
-const STAGE_STATUSES = ['Не начат','В работе','Ожидает материалы','Выполнен','На проверке','Принят','Заблокирован'];
 const PROJECT_TABS = ['Общее','Этапы','График','Смета','Журнал','Помещения','Чек-листы','Непредвиденные','Чат','Финансы','Предписания','Журнал ТБ'];
 const CRM_STAGES = ['Новый','Переговоры','КП отправлено','Договор','Отказ'];
 const SUPPLIER_CATEGORIES = ['Стройматериалы общие','Кровельные материалы','Металл и арматура','Отделочные материалы','Сантехника','Электрика','Инструмент','Бетон и растворы','Утеплители','Окна и двери','Прочее'];
 const SURFACES = ['Стены','Потолок','Пол','Откосы оконные','Откосы дверные','Фасад','Цоколь'];
 const TOOL_STATUSES = ['На складе','На объекте','У мастера','На ремонте','Списан'];
 const VAT_OPTIONS = ['Без НДС','С НДС 22%'];
-
-const CHECKLIST_TEMPLATES = {
-  'Фундамент':['Разметка под фундамент','Земляные работы','Армирование','Опалубка','Заливка бетона','Гидроизоляция'],
-  'Кровля':['Стропильная система','Обрешётка','Гидроизоляция','Утеплитель','Финишное покрытие','Водосток'],
-  'Электрика':['Разводка кабелей','Установка розеток','Установка выключателей','Щиток','Заземление','Проверка'],
-  'Сантехника':['Разводка труб','Установка унитаза','Установка ванны','Смесители','Счётчики','Проверка на течь'],
-  'Отделка':['Штукатурка стен','Шпаклёвка','Грунтовка','Покраска','Укладка плитки','Финишная уборка'],
-  'Сдача объекта':['Проверка всех систем','Уборка','Фотофиксация','Подписание акта','Передача ключей'],
-};
+const CEILING_TYPES = ['Простой','Гипсокартон','Натяжной','Армстронг','Реечный'];
+const WALL_MATERIALS = ['Штукатурка','Плитка','Гипсокартон','Панели','Обои','Покраска'];
+const FLOOR_MATERIALS = ['Стяжка','Плитка','Ламинат','Паркет','Линолеум','Наливной пол'];
+const WINDOW_TYPES = ['ПВХ','Алюминий','Дерево','Комбинированное'];
+const DOOR_TYPES = ['Деревянная','ПВХ','Алюминий','Металлическая','МДФ'];
+const DOOR_PURPOSES = ['Входная','Межкомнатная','Балконная','Техническая'];
+const REVEAL_MATERIALS = ['Штукатурка','Гипсокартон','ПВХ панели','Алюминиевые','Деревянные','Плитка','МДФ','Камень'];
+const PAYMENT_TYPES = ['Наличные','Перевод','Карта','Аванс'];
+const WEATHER_CONDITIONS = ['Ясно','Облачно','Пасмурно','Дождь','Снег','Гроза','Туман','Ветер'];
 
 const TB_INSTRUCTIONS = {
   'Вводный инструктаж': '<h3>ВВОДНЫЙ ИНСТРУКТАЖ ПО ОХРАНЕ ТРУДА</h3><p>1. Работник обязан соблюдать правила внутреннего трудового распорядка.</p><p>2. Запрещается появляться на рабочем месте в состоянии алкогольного опьянения.</p><p>3. Работник обязан использовать средства индивидуальной защиты (СИЗ).</p><p>4. При несчастном случае немедленно сообщить руководителю.</p><p>5. Запрещается работать неисправным инструментом.</p>',
@@ -119,8 +123,8 @@ const TB_INSTRUCTIONS = {
 };
 
 const CONTRACTS = {
-  'ГПХ': (company, master, contract) => '<h2 style="text-align:center">ДОГОВОР ПОДРЯДА № '+contract.contractNumber+'</h2><p><b>'+( company||'_____')+'</b> (Заказчик) и гр. <b>'+master.fullName+'</b>, ИНН: <b>'+master.inn+'</b> (Исполнитель).</p><h3>1. ПРЕДМЕТ ДОГОВОРА</h3><p>Объект: <b>'+contract.project+'</b>. Сроки: '+contract.startDate+' — '+contract.endDate+'</p><h3>2. ОПЛАТА</h3><p>Аванс <b>5%</b>. Остаток <b>95%</b> в течение <b>10 рабочих дней</b>. Удержание <b>10%</b> до гарантии.</p><h3>3. ОТВЕТСТВЕННОСТЬ</h3><p>Неустойка <b>0,5%/день</b>. Гарантия <b>36 месяцев</b>.</p><table><tr><th>ЗАКАЗЧИК</th><th>ИСПОЛНИТЕЛЬ</th></tr><tr><td>'+(company||'_____')+'</td><td>'+master.fullName+'</td></tr><tr><td>ИНН: _______</td><td>ИНН: '+master.inn+'</td></tr><tr><td>Р/с: _______</td><td>Р/с: '+master.bankAccount+'</td></tr><tr><td style="padding-top:40px">_____________</td><td style="padding-top:40px">_____________</td></tr></table>',
-  'Самозанятый': (company, master, contract) => '<h2 style="text-align:center">ДОГОВОР ОКАЗАНИЯ УСЛУГ № '+contract.contractNumber+'</h2><h3 style="text-align:center">с самозанятым (НПД)</h3><p><b>'+(company||'_____')+'</b> (Заказчик) и гр. <b>'+master.fullName+'</b>, ИНН: <b>'+master.inn+'</b> (Исполнитель).</p><h3>1. ПРЕДМЕТ</h3><p>Объект: <b>'+contract.project+'</b>. Сроки: '+contract.startDate+' — '+contract.endDate+'</p><h3>2. СТАТУС</h3><p>Исполнитель — плательщик НПД по ФЗ №422-ФЗ. Чек из «Мой налог» не позднее следующего дня.</p><h3>3. ОПЛАТА</h3><p>Аванс <b>5%</b>. Остаток <b>95%</b> в течение <b>10 рабочих дней</b>.</p><table><tr><th>ЗАКАЗЧИК</th><th>ИСПОЛНИТЕЛЬ</th></tr><tr><td>'+(company||'_____')+'</td><td>'+master.fullName+'</td></tr><tr><td>ИНН: _______</td><td>ИНН: '+master.inn+'</td></tr><tr><td>Р/с: _______</td><td>Р/с: '+master.bankAccount+'</td></tr><tr><td style="padding-top:40px">_____________</td><td style="padding-top:40px">_____________</td></tr></table>',
+  'ГПХ': (company, master, contract) => '<h2 style="text-align:center">ДОГОВОР ПОДРЯДА № '+contract.contractNumber+'</h2><p><b>'+(company||'_____')+'</b> (Заказчик) и гр. <b>'+master.fullName+'</b>, ИНН: <b>'+master.inn+'</b> (Исполнитель).</p><h3>1. ПРЕДМЕТ ДОГОВОРА</h3><p>Объект: <b>'+contract.project+'</b>. Сроки: '+contract.startDate+' — '+contract.endDate+'</p><h3>2. ОПЛАТА</h3><p>Аванс <b>5%</b>. Остаток <b>95%</b> в течение <b>10 рабочих дней</b>. Удержание <b>10%</b> до гарантии.</p><h3>3. ОТВЕТСТВЕННОСТЬ</h3><p>Неустойка <b>0,5%/день</b>. Гарантия <b>36 месяцев</b>.</p><table><tr><th>ЗАКАЗЧИК</th><th>ИСПОЛНИТЕЛЬ</th></tr><tr><td>'+(company||'_____')+'</td><td>'+master.fullName+'</td></tr><tr><td>ИНН: _______</td><td>ИНН: '+master.inn+'</td></tr><tr><td>Р/с: _______</td><td>Р/с: '+master.bankAccount+'</td></tr><tr><td style="padding-top:40px">_____________</td><td style="padding-top:40px">_____________</td></tr></table>',
+  'Самозанятый': (company, master, contract) => '<h2 style="text-align:center">ДОГОВОР ОКАЗАНИЯ УСЛУГ № '+contract.contractNumber+'</h2><p><b>'+(company||'_____')+'</b> (Заказчик) и гр. <b>'+master.fullName+'</b>, ИНН: <b>'+master.inn+'</b> (Исполнитель).</p><h3>1. ПРЕДМЕТ</h3><p>Объект: <b>'+contract.project+'</b>. Сроки: '+contract.startDate+' — '+contract.endDate+'</p><h3>2. СТАТУС</h3><p>Исполнитель — плательщик НПД по ФЗ №422-ФЗ.</p><h3>3. ОПЛАТА</h3><p>Аванс <b>5%</b>. Остаток <b>95%</b> в течение <b>10 рабочих дней</b>.</p><table><tr><th>ЗАКАЗЧИК</th><th>ИСПОЛНИТЕЛЬ</th></tr><tr><td>'+(company||'_____')+'</td><td>'+master.fullName+'</td></tr><tr><td>ИНН: _______</td><td>ИНН: '+master.inn+'</td></tr><tr><td>Р/с: _______</td><td>Р/с: '+master.bankAccount+'</td></tr><tr><td style="padding-top:40px">_____________</td><td style="padding-top:40px">_____________</td></tr></table>',
   'ИП': (company, master, contract) => '<h2 style="text-align:center">ДОГОВОР ПОДРЯДА № '+contract.contractNumber+'</h2><p>ИП <b>'+master.fullName+'</b>, ОГРНИП: <b>'+(master.ogrnip||'_____')+'</b> (Подрядчик) и <b>'+(company||'_____')+'</b> (Заказчик).</p><h3>1. ПРЕДМЕТ</h3><p>Объект: <b>'+contract.project+'</b>. Сроки: '+contract.startDate+' — '+contract.endDate+'</p><h3>2. ОПЛАТА</h3><p>Аванс <b>5%</b>. Остаток <b>95%</b> в течение <b>10 рабочих дней</b>.</p><table><tr><th>ЗАКАЗЧИК</th><th>ПОДРЯДЧИК (ИП)</th></tr><tr><td>'+(company||'_____')+'</td><td>ИП '+master.fullName+'</td></tr><tr><td>ИНН: _______</td><td>ОГРНИП: '+(master.ogrnip||'_____')+'</td></tr><tr><td>Р/с: _______</td><td>Р/с: '+master.bankAccount+'</td></tr><tr><td style="padding-top:40px">_____________</td><td style="padding-top:40px">_____________</td></tr></table>',
 };
 
@@ -134,38 +138,35 @@ const POSITION_INSTRUCTIONS = {
   кладовщик: '<h2 style="text-align:center">ДОЛЖНОСТНАЯ ИНСТРУКЦИЯ КЛАДОВЩИКА</h2><p><b>1. ОБЩИЕ ПОЛОЖЕНИЯ</b></p><p>1.1. Подчиняется директору. Договор о полной материальной ответственности.</p><p><b>2. ОБЯЗАННОСТИ</b></p><p>2.1. Приём, хранение и отпуск материалов. 2.2. Ведёт учёт движения в системе. 2.3. Выдаёт материалы под подпись.</p><p><b>3. ОТВЕТСТВЕННОСТЬ</b></p><p>3.1. Полная материальная ответственность за все ТМЦ.</p>',
   снабженец: '<h2 style="text-align:center">ДОЛЖНОСТНАЯ ИНСТРУКЦИЯ СНАБЖЕНЦА</h2><p><b>1. ОБЩИЕ ПОЛОЖЕНИЯ</b></p><p>1.1. Подчиняется директору.</p><p><b>2. ОБЯЗАННОСТИ</b></p><p>2.1. Организует снабжение объектов. 2.2. Запрашивает и анализирует КП. 2.3. Контролирует поставки.</p><p><b>3. ОТВЕТСТВЕННОСТЬ</b></p><p>3.1. За своевременное обеспечение объектов.</p>',
   стройконтроль: '<h2 style="text-align:center">ДОЛЖНОСТНАЯ ИНСТРУКЦИЯ СТРОЙКОНТРОЛЯ</h2><p><b>1. ОБЩИЕ ПОЛОЖЕНИЯ</b></p><p>1.1. Назначается заказчиком согласно ст. 53 ГрК РФ.</p><p><b>2. ОБЯЗАННОСТИ</b></p><p>2.1. Контроль качества СМР. 2.2. Выдача предписаний. 2.3. Участие в освидетельствовании скрытых работ.</p><p><b>3. ПРАВА</b></p><p>3.1. Требовать устранения нарушений.</p>',
+  сметчик: '<h2 style="text-align:center">ДОЛЖНОСТНАЯ ИНСТРУКЦИЯ СМЕТЧИКА</h2><p><b>1. ОБЩИЕ ПОЛОЖЕНИЯ</b></p><p>1.1. Подчиняется директору. Высшее строительное или экономическое образование.</p><p><b>2. ОБЯЗАННОСТИ</b></p><p>2.1. Составляет сметную документацию. 2.2. Проверяет КС-2 и КС-3. 2.3. Контролирует соответствие факта смете. 2.4. Работает с Гранд Сметой.</p><p><b>3. ОТВЕТСТВЕННОСТЬ</b></p><p>3.1. За достоверность сметной документации.</p>',
 };
 
 const WORK_NORMS = {
   'Штукатурка гипсовая 10мм': [{mat:'Штукатурка гипсовая',qty:8,unit:'кг'},{mat:'Грунтовка',qty:0.15,unit:'л'}],
   'Штукатурка гипсовая 20мм': [{mat:'Штукатурка гипсовая',qty:16,unit:'кг'},{mat:'Грунтовка',qty:0.15,unit:'л'}],
-  'Штукатурка ЦПС 20мм': [{mat:'Цемент М500',qty:10,unit:'кг'},{mat:'Песок',qty:0.025,unit:'м3'}],
   'Стяжка ЦПС 50мм': [{mat:'Цемент М500',qty:12,unit:'кг'},{mat:'Песок',qty:0.035,unit:'м3'}],
-  'Шпаклёвка стартовая': [{mat:'Шпаклёвка стартовая',qty:1.2,unit:'кг'},{mat:'Грунтовка',qty:0.1,unit:'л'}],
   'Шпаклёвка финишная': [{mat:'Шпаклёвка финишная',qty:0.8,unit:'кг'},{mat:'Грунтовка',qty:0.1,unit:'л'}],
   'Покраска стен 2 слоя': [{mat:'Грунтовка',qty:0.1,unit:'л'},{mat:'Краска интерьерная',qty:0.35,unit:'л'}],
   'Укладка плитки на пол': [{mat:'Плиточный клей С1',qty:4,unit:'кг'},{mat:'Затирка',qty:0.3,unit:'кг'}],
   'Укладка плитки на стены': [{mat:'Плиточный клей С2',qty:6,unit:'кг'},{mat:'Затирка',qty:0.3,unit:'кг'}],
   'Укладка ламината': [{mat:'Подложка 3мм',qty:1.05,unit:'м2'}],
-  'Перегородка ГКЛ 1 слой': [{mat:'ГКЛ 12.5мм',qty:2.1,unit:'м2'},{mat:'Профиль ПН 50/40',qty:1.2,unit:'пог.м'}],
   'Кладка кирпича рядового': [{mat:'Кирпич рядовой',qty:400,unit:'шт'},{mat:'Цемент М500',qty:175,unit:'кг'}],
   'Кладка газобетона 200мм': [{mat:'Блок газобетон 200мм',qty:12.5,unit:'шт'},{mat:'Клей для газобетона',qty:3,unit:'кг'}],
-  'Укладка металлочерепицы': [{mat:'Металлочерепица',qty:1.15,unit:'м2'},{mat:'Саморез кровельный',qty:8,unit:'шт'}],
 };
 
 const PRICELISTS_DATA = {
   'Земляные работы': [{name:'Разработка грунта вручную',unit:'м3'},{name:'Обратная засыпка',unit:'м3'},{name:'Планировка территории',unit:'м2'}],
-  'Фундаментные работы': [{name:'Устройство опалубки',unit:'м2'},{name:'Вязка арматуры ø12',unit:'кг'},{name:'Заливка бетона М300',unit:'м3'},{name:'Гидроизоляция обмазочная',unit:'м2'}],
-  'Кладочные работы': [{name:'Кладка кирпича рядового',unit:'м3'},{name:'Кладка газобетона 200мм',unit:'м2'},{name:'Кладка пеноблока 200мм',unit:'м2'}],
-  'Кровельные работы': [{name:'Монтаж стропильной системы',unit:'м2'},{name:'Укладка металлочерепицы',unit:'м2'},{name:'Монтаж водосточной системы',unit:'пог.м'}],
-  'Стяжка и полы': [{name:'Стяжка ЦПС 50мм',unit:'м2'},{name:'Укладка ламината',unit:'м2'},{name:'Установка плинтуса',unit:'пог.м'}],
-  'Штукатурные работы': [{name:'Штукатурка гипсовая 10мм',unit:'м2'},{name:'Штукатурка гипсовая 20мм',unit:'м2'},{name:'Штукатурка ЦПС 20мм',unit:'м2'}],
-  'Шпаклёвочные работы': [{name:'Шпаклёвка стартовая',unit:'м2'},{name:'Шпаклёвка финишная',unit:'м2'},{name:'Шпаклёвка потолка',unit:'м2'}],
-  'Малярные работы': [{name:'Покраска стен 2 слоя',unit:'м2'},{name:'Покраска потолка 2 слоя',unit:'м2'},{name:'Оклейка обоями',unit:'м2'}],
-  'Плиточные работы': [{name:'Укладка плитки на пол до 30х30',unit:'м2'},{name:'Укладка плитки на стены',unit:'м2'},{name:'Укладка керамогранита',unit:'м2'}],
-  'Гипсокартонные работы': [{name:'Перегородка ГКЛ 1 слой',unit:'м2'},{name:'Потолок ГКЛ 1 уровень',unit:'м2'}],
-  'Электромонтажные работы': [{name:'Разводка кабеля ВВГнг 3х2.5',unit:'пог.м'},{name:'Установка розетки',unit:'шт'},{name:'Установка выключателя',unit:'шт'},{name:'Сборка щитка до 24 модулей',unit:'шт'}],
-  'Сантехнические работы': [{name:'Разводка труб ХВС ø20',unit:'пог.м'},{name:'Монтаж канализации ø110',unit:'пог.м'},{name:'Установка унитаза',unit:'шт'},{name:'Монтаж радиатора',unit:'шт'}],
+  'Фундаментные работы': [{name:'Устройство опалубки',unit:'м2'},{name:'Вязка арматуры ø12',unit:'кг'},{name:'Заливка бетона М300',unit:'м3'}],
+  'Кладочные работы': [{name:'Кладка кирпича рядового',unit:'м3'},{name:'Кладка газобетона 200мм',unit:'м2'}],
+  'Кровельные работы': [{name:'Монтаж стропильной системы',unit:'м2'},{name:'Укладка металлочерепицы',unit:'м2'}],
+  'Стяжка и полы': [{name:'Стяжка ЦПС 50мм',unit:'м2'},{name:'Укладка ламината',unit:'м2'},{name:'Укладка плитки на пол',unit:'м2'}],
+  'Штукатурные работы': [{name:'Штукатурка гипсовая 10мм',unit:'м2'},{name:'Штукатурка гипсовая 20мм',unit:'м2'}],
+  'Шпаклёвочные работы': [{name:'Шпаклёвка финишная',unit:'м2'},{name:'Шпаклёвка потолка',unit:'м2'}],
+  'Малярные работы': [{name:'Покраска стен 2 слоя',unit:'м2'},{name:'Покраска потолка 2 слоя',unit:'м2'}],
+  'Плиточные работы': [{name:'Укладка плитки на стены',unit:'м2'},{name:'Укладка керамогранита',unit:'м2'}],
+  'Откосы': [{name:'Откосы оконные ПВХ',unit:'м2'},{name:'Откосы дверные штукатурка',unit:'м2'},{name:'Откосы оконные штукатурка',unit:'м2'}],
+  'Электромонтажные работы': [{name:'Разводка кабеля ВВГнг 3х2.5',unit:'пог.м'},{name:'Установка розетки',unit:'шт'},{name:'Установка выключателя',unit:'шт'}],
+  'Сантехнические работы': [{name:'Разводка труб ХВС ø20',unit:'пог.м'},{name:'Монтаж канализации ø110',unit:'пог.м'},{name:'Установка унитаза',unit:'шт'}],
   'Оконные и дверные работы': [{name:'Установка окна ПВХ до 1.5м2',unit:'шт'},{name:'Установка двери входной',unit:'шт'},{name:'Установка двери межкомнатной',unit:'шт'}],
   'Демонтажные работы': [{name:'Демонтаж стяжки',unit:'м2'},{name:'Демонтаж штукатурки',unit:'м2'},{name:'Вывоз мусора',unit:'м3'}],
 };
@@ -231,11 +232,9 @@ function App() {
   const [timesheet, setTimesheet] = useState({});
   const [expenses, setExpenses] = useState([]);
   const [unexpectedWorks, setUnexpectedWorks] = useState([]);
-  const [stages, setStages] = useState([]);
-  const [estimates, setEstimates] = useState([]);
   const [checklists, setChecklists] = useState([]);
   const [projectChats, setProjectChats] = useState({});
-  const [companyChat, setCompanyChat] = useState([]);
+  const [companyMessages, setCompanyMessages] = useState([]);
   const [leads, setLeads] = useState([]);
   const [masterRatings, setMasterRatings] = useState({});
   const [activityLog, setActivityLog] = useState([]);
@@ -249,12 +248,21 @@ function App() {
   const [signedDocs, setSignedDocs] = useState({});
   const [rooms, setRooms] = useState([]);
   const [roomWorks, setRoomWorks] = useState([]);
+  const [roomWindows, setRoomWindows] = useState([]);
+  const [roomDoors, setRoomDoors] = useState([]);
   const [tools, setTools] = useState([]);
   const [toolHistory, setToolHistory] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [pdConsents, setPdConsents] = useState([]);
+  const [actPayments, setActPayments] = useState([]);
+  const [weatherLog, setWeatherLog] = useState([]);
+  const [estimatesList, setEstimatesList] = useState([]);
+  const [estimateSections, setEstimateSections] = useState([]);
+  const [estimateItems, setEstimateItems] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState('');
+  const [aiChat, setAiChat] = useState([]);
+  const [aiMessage, setAiMessage] = useState('');
   const [pushEnabled, setPushEnabled] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [previewContent, setPreviewContent] = useState(null);
@@ -262,7 +270,6 @@ function App() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   const [showTimesheet, setShowTimesheet] = useState(false);
   const [showPiecework, setShowPiecework] = useState(false);
   const [showInvites, setShowInvites] = useState(false);
@@ -272,6 +279,8 @@ function App() {
   const [showArchive, setShowArchive] = useState(false);
   const [showIssueToolModal, setShowIssueToolModal] = useState(null);
   const [showReturnToolModal, setShowReturnToolModal] = useState(null);
+  const [showPayActModal, setShowPayActModal] = useState(null);
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
   const [accountingTab, setAccountingTab] = useState('contracts');
   const [accountingDocProject, setAccountingDocProject] = useState('');
@@ -281,36 +290,41 @@ function App() {
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
   const [toolsTab, setToolsTab] = useState('list');
+  const [estimatesTab, setEstimatesTab] = useState('list');
+  const [weatherTab, setWeatherTab] = useState('log');
   const [rejectComment, setRejectComment] = useState('');
   const [rejectingEntry, setRejectingEntry] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
   const [editingPlItem, setEditingPlItem] = useState(null);
+  const [inlineEditPl, setInlineEditPl] = useState(null);
+  const [inlineEditPrice, setInlineEditPrice] = useState('');
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [selectedPricelist, setSelectedPricelist] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [selectedInventory, setSelectedInventory] = useState(null);
+  const [selectedEstimate, setSelectedEstimate] = useState(null);
   const [expandedProject, setExpandedProject] = useState(null);
   const [expandedClient, setExpandedClient] = useState(null);
   const [expandedGroup, setExpandedGroup] = useState(null);
   const [expandedMaster, setExpandedMaster] = useState(null);
   const [expandedMasterProject, setExpandedMasterProject] = useState(null);
   const [expandedPieceworkProject, setExpandedPieceworkProject] = useState(null);
+  const [expandedRoom, setExpandedRoom] = useState(null);
   const [searchUser, setSearchUser] = useState('');
   const [newTask, setNewTask] = useState('');
-  const [chatMessage, setChatMessage] = useState('');
-  const [chatPhoto, setChatPhoto] = useState('');
   const [companyChatMessage, setCompanyChatMessage] = useState('');
   const [masterProjectId, setMasterProjectId] = useState('');
   const [selectedWorks, setSelectedWorks] = useState({});
   const [companyName, setCompanyName] = useState('');
   const [issueToolData, setIssueToolData] = useState({masterName:'',project:'',issueType:'Временно'});
   const [returnToolCondition, setReturnToolCondition] = useState('Исправен');
+  const [newPayment, setNewPayment] = useState({amount:'',paymentType:'Наличные',paidBy:'',date:'',notes:''});
   const [newPiecework, setNewPiecework] = useState({staffId:'',description:'',unit:'м2',quantity:'',pricePerUnit:'',project:''});
   const [newProject, setNewProject] = useState({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null});
   const [newClient, setNewClient] = useState({name:'',phone:'',email:'',status:'Активный',notes:''});
   const [newMaterial, setNewMaterial] = useState({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',project:'',category:''});
   const [newMainMaterial, setNewMainMaterial] = useState({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',category:''});
-  const [newMovement, setNewMovement] = useState({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:''});
+  const [newMovement, setNewMovement] = useState({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
   const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photoUrl:'',items:[{name:'',quantity:'',unit:'шт',price:''}]});
   const [newStaff, setNewStaff] = useState({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад'});
   const [newUser, setNewUser] = useState({name:'',email:'',password:'',role:'прораб'});
@@ -323,30 +337,52 @@ function App() {
   const [newContract, setNewContract] = useState({masterId:'',masterName:'',contractType:'ГПХ',contractNumber:'',project:'',startDate:'',endDate:''});
   const [newAct, setNewAct] = useState({masterId:'',masterName:'',project:'',periodStart:'',periodEnd:''});
   const [newTool, setNewTool] = useState({name:'',inventoryNumber:'',cost:'',status:'На складе',location:'Основной склад',project:'',masterId:'',masterName:'',issueType:'',notes:''});
-  const [newRoom, setNewRoom] = useState({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',windows:'',doors:'',notes:''});
-  const [newRoomWork, setNewRoomWork] = useState({roomId:'',project:'',roomName:'',description:'',surface:'Стены',unit:'м2',quantity:'',photoUrl:''});
+  const [newRoom, setNewRoom] = useState({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',notes:''});
+  const [newWindow, setNewWindow] = useState({roomId:'',name:'Окно 1',width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'});
+  const [newDoor, setNewDoor] = useState({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});
   const [newInventory, setNewInventory] = useState({project:'',date:'',notes:''});
+  const [newWeather, setNewWeather] = useState({projectName:'',date:'',temperature:'',condition:'Ясно',windSpeed:'',notes:''});
+  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0'});
+  const [newEstimateSection, setNewEstimateSection] = useState({name:''});
+  const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});
   const [profileData, setProfileData] = useState({fullName:'',passport:'',inn:'',contractType:'ГПХ',bankAccount:'',bankName:'',phone:'',specialization:'',ogrnip:''});
   const [newLead, setNewLead] = useState({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});
-  const [newPrescription, setNewPrescription] = useState({project:'',description:'',responsible:'',masterName:'',deadline:'',detectedBy:''});
   const [newTbEntry, setNewTbEntry] = useState({project:'',type:'Вводный инструктаж',participants:[],date:''});
   const [newParticipant, setNewParticipant] = useState('');
   const notifRef = useRef(null);
   const sidebarRef = useRef(null);
+  const chatEndRef = useRef(null);
 
   const showPreview = (content, title) => { setPreviewContent(content); setPreviewTitle(title); };
 
-  const callAI = async (prompt, imageBase64) => {
-    setAiLoading(true); setAiResult('');
+  const callAI = async (prompt, imageBase64, conversational) => {
+    setAiLoading(true);
     try {
-      const messages = imageBase64
-        ? [{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:imageBase64}},{type:'text',text:prompt}]}]
-        : [{role:'user',content:prompt}];
-      const res = await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages})});
+      let messages;
+      if (conversational) {
+        messages = [...aiChat.map(m=>({role:m.role,content:m.content})), {role:'user',content:prompt}];
+      } else {
+        messages = imageBase64
+          ? [{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:imageBase64}},{type:'text',text:prompt}]}]
+          : [{role:'user',content:prompt}];
+      }
+      const res = await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages})});
       const data = await res.json();
-      const text = data.content?.map(i=>i.text||'').join('') || '';
-      setAiResult(text); setAiLoading(false); return text;
+      const text = data.text || '';
+      setAiLoading(false);
+      return text;
     } catch(e) { setAiLoading(false); return ''; }
+  };
+
+  const sendAiMessage = async () => {
+    if (!aiMessage.trim()) return;
+    const userMsg = {role:'user',content:aiMessage,time:new Date().toLocaleTimeString('ru-RU')};
+    setAiChat(prev=>[...prev,userMsg]);
+    setAiMessage('');
+    const response = await callAI(aiMessage, null, true);
+    const assistantMsg = {role:'assistant',content:response,time:new Date().toLocaleTimeString('ru-RU')};
+    setAiChat(prev=>[...prev,assistantMsg]);
+    setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:'smooth'}),100);
   };
 
   const recognizeInvoice = async (file) => {
@@ -354,7 +390,7 @@ function App() {
     return new Promise(resolve => {
       reader.onload = async e => {
         const base64 = e.target.result.split(',')[1];
-        const result = await callAI('Распознай накладную. Верни только JSON: {"supplier":"название","items":[{"name":"название","quantity":число,"unit":"ед","price":число}],"total":число}', base64);
+        const result = await callAI('Распознай накладную. Верни только JSON без комментариев: {"supplier":"название поставщика","items":[{"name":"наименование товара","quantity":число,"unit":"единица","price":число}],"total":число}', base64);
         try { resolve(JSON.parse(result.replace(/```json|```/g,'').trim())); } catch { resolve(null); }
       };
       reader.readAsDataURL(file);
@@ -370,7 +406,7 @@ function App() {
     if (!user) return notifs;
     if (['директор','зам_директора'].includes(user.role)) return notifs;
     if (user.role==='прораб') return notifs.filter(n=>['work','material','unexpected','prescription','supply'].includes(n.type));
-    if (user.role==='мастер') return notifs.filter(n=>n.text&&n.text.includes(user.name));
+    if (['мастер','субподрядчик'].includes(user.role)) return notifs.filter(n=>n.text&&n.text.includes(user.name));
     if (user.role==='бухгалтер') return notifs.filter(n=>['invoice','act','contract'].includes(n.type));
     if (['кладовщик','снабженец'].includes(user.role)) return notifs.filter(n=>['stock','supply','delivery'].includes(n.type));
     return notifs;
@@ -398,10 +434,10 @@ function App() {
   useEffect(() => {
     if (user) {
       loadAll();
-      if (user.role==='мастер') { loadMasterProfile(); setActivePage('works'); }
+      if (['мастер','субподрядчик'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
       const saved = localStorage.getItem('companyName'); if (saved) setCompanyName(saved);
-      const keys = ['projectChats','leads','masterRatings','activityLog','companyChat','materialIssues','invoices','notifications','archivedProjects','prescriptions','tbJournal','geoCheckins','signedDocs','unexpectedWorks','stages','estimates','checklists'];
-      const setters = [setProjectChats,setLeads,setMasterRatings,setActivityLog,setCompanyChat,setMaterialIssues,setInvoices,setNotifications,setArchivedProjects,setPrescriptions,setTbJournal,setGeoCheckins,setSignedDocs,setUnexpectedWorks,setStages,setEstimates,setChecklists];
+      const keys = ['projectChats','leads','masterRatings','activityLog','materialIssues','invoices','notifications','archivedProjects','prescriptions','tbJournal','geoCheckins','signedDocs','unexpectedWorks','checklists','actPayments','weatherLog'];
+      const setters = [setProjectChats,setLeads,setMasterRatings,setActivityLog,setMaterialIssues,setInvoices,setNotifications,setArchivedProjects,setPrescriptions,setTbJournal,setGeoCheckins,setSignedDocs,setUnexpectedWorks,setChecklists,setActPayments,setWeatherLog];
       keys.forEach((k,i) => { const v=localStorage.getItem(k); if(v) setters[i](JSON.parse(v)); });
       requestPushPermission().then(granted => setPushEnabled(granted));
     }
@@ -442,6 +478,17 @@ function App() {
       setSupplyHistory(sh);setWorkJournal(wj);setMasterProfiles(mp);setContracts(ct);
       setInterimActs(ia);setRooms(ro);setRoomWorks(rw);setTools(tl);setToolHistory(th);
       setInventory(inv);setPdConsents(pdc);
+      try {
+        const [rwin,rdoor] = await Promise.all([
+          fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]),
+          fetch(API+'/room-doors').then(r=>r.json()).catch(()=>[]),
+        ]);
+        setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
+      } catch(e) {}
+      try {
+        const msgs = await fetch(API+'/messages').then(r=>r.json()).catch(()=>[]);
+        setCompanyMessages(msgs||[]);
+      } catch(e) {}
     } catch(e) { console.log('Load error:',e); }
   };
 
@@ -484,14 +531,51 @@ function App() {
       const checkin = {id:Date.now(),userId:user.id,userName:user.name,lat:pos.coords.latitude,lng:pos.coords.longitude,time:new Date().toLocaleString('ru-RU'),date:new Date().toISOString().split('T')[0]};
       const updated = [...geoCheckins,checkin];
       setGeoCheckins(updated); localStorage.setItem('geoCheckins',JSON.stringify(updated));
-      notify(user.name+' отметился на объекте','geo');
-      alert('Отметка: '+new Date().toLocaleTimeString('ru-RU'));
+      alert('Отметка зафиксирована: '+new Date().toLocaleTimeString('ru-RU'));
     }, () => alert('Не удалось получить геолокацию'));
   };
 
   const calcVat = (total, vatType) => {
     if (vatType==='С НДС 22%') return {base:Math.round(total/1.22*100)/100, vat:Math.round(total/1.22*0.22*100)/100, total};
     return {base:total, vat:0, total};
+  };
+
+  const calcWindowArea = (w) => Number(w.width||0)*Number(w.height||0);
+  const calcWindowReveals = (w) => {
+    const d = Number(w.reveal_depth||w.revealDepth||0)/100;
+    const wd = Number(w.width||0);
+    const ht = Number(w.height||0);
+    return Math.round((wd*d + ht*d*2)*100)/100;
+  };
+  const calcDoorArea = (d) => Number(d.width||0)*Number(d.height||0);
+  const calcDoorReveals = (d) => {
+    const dep = Number(d.reveal_depth||d.revealDepth||0)/100;
+    const wd = Number(d.width||0);
+    const ht = Number(d.height||0);
+    return Math.round((wd*dep + ht*dep*2)*100)/100;
+  };
+
+  const getRoomNetWall = (room) => {
+    const wins = roomWindows.filter(w=>w.room_id===room.id);
+    const doors = roomDoors.filter(d=>d.room_id===room.id);
+    const winArea = wins.reduce((s,w)=>s+calcWindowArea(w),0);
+    const doorArea = doors.reduce((s,d)=>s+calcDoorArea(d),0);
+    return Math.max(0, Math.round((room.wallArea - winArea - doorArea)*100)/100);
+  };
+
+  const saveActPayment = async (actId) => {
+    if (!newPayment.amount||!newPayment.date) { alert('Заполните сумму и дату'); return; }
+    const act = interimActs.find(a=>a.id===actId);
+    if (!act) return;
+    const payment = {...newPayment,id:Date.now(),actId,amount:Number(newPayment.amount)};
+    const updated = [...actPayments,payment];
+    setActPayments(updated); localStorage.setItem('actPayments',JSON.stringify(updated));
+    const totalPaid = updated.filter(p=>p.actId===actId).reduce((s,p)=>s+p.amount,0);
+    const newStatus = totalPaid>=(act.totalAmount||0)?'Оплачен':'Частично оплачен';
+    await fetch(API+'/interim-acts/'+actId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:totalPaid})});
+    await loadAll();
+    setNewPayment({amount:'',paymentType:'Наличные',paidBy:'',date:'',notes:''});
+    setShowPayActModal(null);
   };
 
   const saveInvoiceNew = async () => {
@@ -533,29 +617,104 @@ function App() {
     alert('Накладная принята!');
   };
 
+  const applyWarehouseMovement = async () => {
+    if (!newMovement.toLocation) { alert('Выберите куда переместить'); return; }
+    const selected = newMovement.selectedMaterials||[];
+    if (selected.length===0) { alert('Выберите материалы'); return; }
+    for (const item of selected) {
+      if (!item.quantity||Number(item.quantity)<=0) continue;
+      await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes})});
+      if (newMovement.fromLocation==='Основной склад') {
+        const mat = warehouseMain.find(m=>m.name===item.name);
+        if (mat) await fetch(API+'/warehouse-main/'+mat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mat,quantity:Math.max(0,mat.quantity-Number(item.quantity))})});
+        const existing = materials.find(m=>m.name===item.name&&m.project===newMovement.toLocation);
+        if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
+        else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:item.price||0,minQuantity:0,project:newMovement.toLocation,category:item.category||''})});
+      } else {
+        const mat = materials.find(m=>m.name===item.name&&m.project===newMovement.fromLocation);
+        if (mat) await fetch(API+'/materials/'+mat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mat,quantity:Math.max(0,mat.quantity-Number(item.quantity))})});
+        if (newMovement.toLocation==='Основной склад') {
+          const existing = warehouseMain.find(m=>m.name===item.name);
+          if (existing) await fetch(API+'/warehouse-main/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
+          else await fetch(API+'/warehouse-main',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:mat?.price||0,minQuantity:0,category:mat?.category||''})});
+        } else {
+          const existing = materials.find(m=>m.name===item.name&&m.project===newMovement.toLocation);
+          if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
+          else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:mat?.price||0,minQuantity:0,project:newMovement.toLocation,category:mat?.category||''})});
+        }
+      }
+    }
+    notify('Перемещение выполнено','material');
+    await loadAll();
+    setNewMovement({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
+  };
+
+  const buildMovementDoc = (movement, items) => {
+    let html = '<h2 style="text-align:center">НАКЛАДНАЯ НА ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ</h2>';
+    html += '<table><tr><th>Откуда</th><td>'+movement.fromLocation+'</td><th>Куда</th><td>'+movement.toLocation+'</td></tr>';
+    html += '<tr><th>Дата</th><td>'+new Date().toLocaleDateString('ru-RU')+'</td><th>Кто отправил</th><td>'+user.name+'</td></tr></table>';
+    html += '<table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Принял</th></tr>';
+    items.forEach((item,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+item.unit+'</td><td>'+item.quantity+'</td><td style="min-width:120px"></td></tr>'; });
+    html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Отпустил: '+user.name+'</div></div><div class="sig"><div class="sig-line">Принял: _______________</div></div><div class="sig"><div class="sig-line">Водитель: _______________</div></div></div>';
+    return html;
+  };
+
+  const buildInventoryDoc = (inv, items) => {
+    const totalShortage = items.filter(i=>i.difference<0).reduce((s,i)=>s+Math.abs(i.difference)*i.price,0);
+    const totalSurplus = items.filter(i=>i.difference>0).reduce((s,i)=>s+i.difference*i.price,0);
+    let html = '<h2 style="text-align:center">АКТ ИНВЕНТАРИЗАЦИИ № '+inv.id+'</h2>';
+    html += '<table><tr><th>Объект</th><td>'+inv.project+'</td></tr><tr><th>Дата</th><td>'+inv.date+'</td></tr><tr><th>Провёл</th><td>'+(inv.created_by||inv.createdBy||'')+'</td></tr></table>';
+    html += '<table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>По учёту</th><th>Факт</th><th>Разница</th><th>Цена</th><th>Сумма</th></tr>';
+    items.forEach((item,i) => {
+      const sum = Math.abs(item.difference||0)*Number(item.price||0);
+      html += '<tr><td>'+(i+1)+'</td><td>'+item.materialName+'</td><td>'+item.unit+'</td><td>'+item.expected+'</td><td>'+item.actual+'</td><td style="color:'+(item.difference<0?'red':item.difference>0?'green':'black')+'">'+(item.difference>0?'+':'')+item.difference+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+(item.difference!==0?sum.toLocaleString():'0')+'</td></tr>';
+    });
+    html += '</table><p><b>Итого недостача: '+totalShortage.toLocaleString()+' руб.</b></p><p><b>Итого излишек: '+totalSurplus.toLocaleString()+' руб.</b></p>';
+    html += '<div class="signatures"><div class="sig"><div class="sig-line">Директор</div></div><div class="sig"><div class="sig-line">Прораб</div></div><div class="sig"><div class="sig-line">Кладовщик</div></div><div class="sig"><div class="sig-line">Мастер</div></div></div>';
+    return html;
+  };
+
   const buildJPRContent = (projectName) => {
     const works = workJournal.filter(j=>j.project===projectName&&j.status==='Подтверждено');
     let html = '<h2>ЖУРНАЛ ПРОИЗВОДСТВА РАБОТ</h2><p>Объект: <b>'+projectName+'</b> | Дата: '+new Date().toLocaleDateString('ru-RU')+'</p>';
-    html += '<table><tr><th>N</th><th>Дата</th><th>Вид работ</th><th>Исполнитель</th><th>Ед.</th><th>Кол-во</th><th>Принял</th></tr>';
-    works.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.date+'</td><td>'+wk.description+'</td><td>'+wk.masterName+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.confirmedBy||'')+'</td></tr>'; });
+    html += '<table><tr><th>N</th><th>Дата</th><th>Вид работ</th><th>Помещение</th><th>Исполнитель</th><th>Ед.</th><th>Кол-во</th><th>Принял</th></tr>';
+    works.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.date+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.masterName+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.confirmedBy||'')+'</td></tr>'; });
     html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Прораб</div></div><div class="sig"><div class="sig-line">Генподрядчик</div></div></div>';
     return html;
   };
 
-  const buildAOSRContent = (entry) => {
-    let html = '<h2 style="text-align:center">АКТ ОСВИДЕТЕЛЬСТВОВАНИЯ СКРЫТЫХ РАБОТ</h2>';
-    html += '<table><tr><th>Объект</th><td>'+entry.project+'</td></tr><tr><th>Подрядчик</th><td>'+entry.masterName+'</td></tr><tr><th>Вид работ</th><td>'+entry.description+'</td></tr><tr><th>Объём</th><td>'+entry.quantity+' '+entry.unit+'</td></tr><tr><th>Дата</th><td>'+entry.date+'</td></tr></table>';
-    html += '<div class="signatures"><div class="sig"><div class="sig-line">Заказчик</div></div><div class="sig"><div class="sig-line">Прораб</div></div><div class="sig"><div class="sig-line">Стройконтроль</div></div></div>';
+  const buildActContent = (act) => {
+    const profile = masterProfiles.find(p=>p.userId===act.masterId);
+    const mw = workJournal.filter(j=>j.masterId===act.masterId&&j.project===act.project&&j.status==='Подтверждено');
+    const payments = actPayments.filter(p=>p.actId===act.id);
+    const toolDeductions = tools.filter(t=>t.masterName===act.masterName&&t.issueType==='В счёт зарплаты').reduce((s,t)=>s+t.cost,0);
+    let html = '<h2 style="text-align:center">АКТ ВЫПОЛНЕННЫХ РАБОТ № '+act.id+'</h2>';
+    html += '<p>Заказчик: <b>'+(companyName||'_____')+'</b> | Исполнитель: <b>'+act.masterName+'</b></p>';
+    html += '<p>Объект: <b>'+act.project+'</b> | Период: '+act.periodStart+' — '+act.periodEnd+'</p>';
+    if (profile) html += '<p>ИНН: '+profile.inn+' | '+profile.bankName+' | Р/с: '+profile.bankAccount+'</p>';
+    html += '<table><tr><th>N</th><th>Работа</th><th>Помещение</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
+    mw.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+(wk.total||0).toLocaleString()+'</td></tr>'; });
+    const totalAmt=act.totalAmount||0; const paidAmt=act.paidAmount||0;
+    html += '<tr><td colspan="6"><b>ИТОГО начислено:</b></td><td><b>'+totalAmt.toLocaleString()+' руб.</b></td></tr>';
+    if (toolDeductions>0) html += '<tr><td colspan="6">Удержания (инструмент):</td><td style="color:red">-'+toolDeductions.toLocaleString()+' руб.</td></tr>';
+    html += '<tr><td colspan="6"><b>К выплате:</b></td><td><b>'+(totalAmt-toolDeductions).toLocaleString()+' руб.</b></td></tr>';
+    if (payments.length>0) {
+      html += '<tr><td colspan="7"><b>История оплат:</b></td></tr>';
+      payments.forEach(p => { html += '<tr><td colspan="3">'+p.date+'</td><td colspan="2">'+p.paymentType+'</td><td>'+p.paidBy+'</td><td>'+p.amount.toLocaleString()+' руб.</td></tr>'; });
+    }
+    html += '<tr><td colspan="6">Оплачено:</td><td>'+paidAmt.toLocaleString()+' руб.</td></tr>';
+    html += '<tr><td colspan="6"><b>Остаток:</b></td><td><b style="color:red">'+(totalAmt-toolDeductions-paidAmt).toLocaleString()+' руб.</b></td></tr></table>';
+    html += '<div class="signatures"><div class="sig"><div class="sig-line">Выполнил<br/>'+act.masterName+'</div></div><div class="sig"><div class="sig-line">Принял (прораб)</div></div><div class="sig"><div class="sig-line">Генподрядчик<br/>'+(companyName||'')+'</div></div></div>';
     return html;
   };
 
   const buildKS2Content = (project) => {
     const pw = workJournal.filter(j=>j.project===project.name&&j.status==='Подтверждено');
     let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА № КС-2</h2><h3 style="text-align:center">АКТ О ПРИЁМКЕ ВЫПОЛНЕННЫХ РАБОТ</h3>';
-    html += '<table><tr><th>Организация</th><td>'+(companyName||'_____')+'</td><th>Объект</th><td>'+project.name+'</td></tr><tr><th>Заказчик</th><td>'+project.client+'</td><th>Дата</th><td>'+new Date().toLocaleDateString('ru-RU')+'</td></tr></table>';
-    html += '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-    pw.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+(wk.total||0).toLocaleString()+'</td></tr>'; });
-    html += '<tr><td colspan="5"><b>ИТОГО:</b></td><td><b>'+pw.reduce((s,wk)=>s+(wk.total||0),0).toLocaleString()+' руб.</b></td></tr></table>';
+    html += '<table><tr><th>Организация</th><td>'+(companyName||'_____')+'</td><th>Объект</th><td>'+project.name+'</td></tr></table>';
+    html += '<table><tr><th>N</th><th>Наименование работ</th><th>Помещение</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
+    pw.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+(wk.total||0).toLocaleString()+'</td></tr>'; });
+    html += '<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+pw.reduce((s,wk)=>s+(wk.total||0),0).toLocaleString()+' руб.</b></td></tr></table>';
     html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал</div></div><div class="sig"><div class="sig-line">Принял</div></div></div>';
     return html;
   };
@@ -563,28 +722,11 @@ function App() {
   const buildKS3Content = (project) => {
     const cat = expByCategory(project.name);
     const total = Object.values(cat).reduce((s,v)=>s+v,0);
-    let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА № КС-3</h2><h3 style="text-align:center">СПРАВКА О СТОИМОСТИ ВЫПОЛНЕННЫХ РАБОТ</h3>';
+    let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА № КС-3</h2>';
     html += '<table><tr><th>N</th><th>Наименование</th><th>Сумма (руб.)</th></tr>';
     EXPENSE_CATEGORIES.forEach((c,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+c.label+'</td><td>'+cat[c.id].toLocaleString()+'</td></tr>'; });
     html += '<tr><td colspan="2"><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+'</b></td></tr></table>';
     html += '<div class="signatures"><div class="sig"><div class="sig-line">Подрядчик</div></div><div class="sig"><div class="sig-line">Заказчик</div></div></div>';
-    return html;
-  };
-
-  const buildActContent = (act) => {
-    const profile = masterProfiles.find(p=>p.userId===act.masterId);
-    const mw = workJournal.filter(j=>j.masterId===act.masterId&&j.project===act.project&&j.status==='Подтверждено');
-    let html = '<h2 style="text-align:center">АКТ ВЫПОЛНЕННЫХ РАБОТ № '+act.id+'</h2>';
-    html += '<p>Заказчик: <b>'+(companyName||'_____')+'</b> | Исполнитель: <b>'+act.masterName+'</b></p>';
-    html += '<p>Объект: <b>'+act.project+'</b> | Период: '+act.periodStart+' — '+act.periodEnd+'</p>';
-    if (profile) html += '<p>ИНН: '+profile.inn+' | '+profile.bankName+' | Р/с: '+profile.bankAccount+'</p>';
-    html += '<table><tr><th>N</th><th>Работа</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-    mw.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+(wk.total||0).toLocaleString()+'</td></tr>'; });
-    const totalAmt=act.totalAmount||0; const paidAmt=act.paidAmount||0; const remaining=totalAmt-paidAmt;
-    html += '<tr><td colspan="5"><b>ИТОГО:</b></td><td><b>'+totalAmt.toLocaleString()+' руб.</b></td></tr>';
-    html += '<tr><td colspan="5">Оплачено:</td><td>'+paidAmt.toLocaleString()+' руб.</td></tr>';
-    html += '<tr><td colspan="5"><b>Остаток:</b></td><td><b style="color:red">'+remaining.toLocaleString()+' руб.</b></td></tr></table>';
-    html += '<div class="signatures"><div class="sig"><div class="sig-line">Выполнил<br/>'+act.masterName+'</div></div><div class="sig"><div class="sig-line">Принял</div></div><div class="sig"><div class="sig-line">Генподрядчик</div></div></div>';
     return html;
   };
 
@@ -606,9 +748,9 @@ function App() {
 
   const buildPricelistContent = (pl, items) => {
     const categories = [...new Set(items.map(i=>i.category))];
-    let html = '<h2 style="text-align:center">ПРАЙС-ЛИСТ</h2><p><b>'+(companyName||'')+'</b> | '+pl.name+(pl.forWho?' | Для: '+pl.forWho:'')+' | '+new Date().toLocaleDateString('ru-RU')+'</p>';
+    let html = '<h2 style="text-align:center">ПРАЙС-ЛИСТ</h2><p><b>'+(companyName||'')+'</b> | '+pl.name+' | '+new Date().toLocaleDateString('ru-RU')+'</p>';
     categories.forEach(cat => {
-      html += '<h3 style="color:#f97316">'+( cat||'Общее')+'</h3><table><tr><th>Наименование</th><th>Ед.</th><th>Цена (руб.)</th></tr>';
+      html += '<h3 style="color:#f97316">'+(cat||'Общее')+'</h3><table><tr><th>Наименование</th><th>Ед.</th><th>Цена (руб.)</th></tr>';
       items.filter(i=>i.category===cat).forEach(item => { html += '<tr><td>'+item.name+'</td><td>'+item.unit+'</td><td>'+(item.price*pl.coefficient).toLocaleString()+'</td></tr>'; });
       html += '</table>';
     });
@@ -626,12 +768,14 @@ function App() {
     const totalExp = Object.values(cat).reduce((s,v)=>s+v,0);
     let html = '<h2 style="text-align:center">ПАСПОРТ ОБЪЕКТА</h2><h3 style="text-align:center">'+project.name+'</h3>';
     html += '<table><tr><th>Заказчик</th><td>'+project.client+'</td></tr><tr><th>Бюджет</th><td>'+project.budget.toLocaleString()+' руб.</td></tr><tr><th>Статус</th><td>'+project.status+'</td></tr></table>';
-    html += '<h3>ПОМЕЩЕНИЯ:</h3><table><tr><th>Помещение</th><th>Пол м2</th><th>Стены м2</th><th>Потолок м2</th><th>Окна</th><th>Двери</th></tr>';
-    projectRooms.forEach(r => { html += '<tr><td>'+r.name+'</td><td>'+r.floorArea+'</td><td>'+r.wallArea+'</td><td>'+r.ceilingArea+'</td><td>'+r.windows+'</td><td>'+r.doors+'</td></tr>'; });
-    html += '<tr><td><b>ИТОГО</b></td><td><b>'+projectRooms.reduce((s,r)=>s+r.floorArea,0)+'</b></td><td><b>'+projectRooms.reduce((s,r)=>s+r.wallArea,0)+'</b></td><td><b>'+projectRooms.reduce((s,r)=>s+r.ceilingArea,0)+'</b></td><td><b>'+projectRooms.reduce((s,r)=>s+r.windows,0)+'</b></td><td><b>'+projectRooms.reduce((s,r)=>s+r.doors,0)+'</b></td></tr></table>';
-    html += '<h3>ФИНАНСЫ:</h3><table>';
+    html += '<h3>ПОМЕЩЕНИЯ:</h3><table><tr><th>Помещение</th><th>Пол м2</th><th>Стены м2</th><th>Чистые стены</th><th>Потолок м2</th><th>Тип потолка</th></tr>';
+    projectRooms.forEach(r => {
+      const netWall = getRoomNetWall(r);
+      html += '<tr><td>'+r.name+'</td><td>'+r.floorArea+'</td><td>'+r.wallArea+'</td><td>'+netWall+'</td><td>'+r.ceilingArea+'</td><td>'+(r.ceiling_type||r.ceilingType||'—')+'</td></tr>';
+    });
+    html += '</table><h3>ФИНАНСЫ:</h3><table>';
     EXPENSE_CATEGORIES.forEach(c => { html += '<tr><td>'+c.label+'</td><td>'+cat[c.id].toLocaleString()+' руб.</td></tr>'; });
-    html += '<tr><td><b>Итого затрат:</b></td><td><b>'+totalExp.toLocaleString()+' руб.</b></td></tr>';
+    html += '<tr><td><b>Итого:</b></td><td><b>'+totalExp.toLocaleString()+' руб.</b></td></tr>';
     html += '<tr><td>Бюджет:</td><td>'+project.budget.toLocaleString()+' руб.</td></tr>';
     html += '<tr><td><b>Остаток:</b></td><td><b>'+(project.budget-totalExp).toLocaleString()+' руб.</b></td></tr></table>';
     return html;
@@ -644,24 +788,23 @@ function App() {
     html += '<tr><th>Принял</th><td>'+inv.acceptedBy+'</td><th>Место</th><td>'+(inv.location==='Основной склад'?'Основной склад':inv.project||'')+'</td></tr>';
     html += '<tr><th>НДС</th><td colspan="3">'+inv.vat+'</td></tr></table>';
     html += '<table><tr><th>N</th><th>Наименование товара</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th></tr>';
-    (inv.items||[]).forEach((item,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+(Number(item.price||0)).toLocaleString()+'</td><td>'+(Number(item.quantity)*Number(item.price||0)).toLocaleString()+'</td></tr>'; });
+    (inv.items||[]).forEach((item,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+(Number(item.quantity)*Number(item.price||0)).toLocaleString()+'</td></tr>'; });
     html += '<tr><td colspan="5">Итого без НДС:</td><td>'+vatCalc.base.toLocaleString()+' руб.</td></tr>';
     if (inv.vat==='С НДС 22%') html += '<tr><td colspan="5">НДС 22%:</td><td>'+vatCalc.vat.toLocaleString()+' руб.</td></tr><tr><td colspan="5"><b>Итого с НДС:</b></td><td><b>'+vatCalc.total.toLocaleString()+' руб.</b></td></tr>';
     html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Поставщик</div></div><div class="sig"><div class="sig-line">Принял: '+inv.acceptedBy+'</div></div></div>';
     return html;
   };
 
-  const sendChatMessage = (projectId, text, photoUrl) => {
+  const sendCompanyChatMessage = async (text, photoUrl) => {
     if (!text && !photoUrl) return;
-    const msg = {id:Date.now(),text,photoUrl,author:user.name,role:user.role,time:new Date().toLocaleString('ru-RU')};
-    setProjectChats(prev=>{const updated={...prev,[projectId]:[...(prev[projectId]||[]),msg]};localStorage.setItem('projectChats',JSON.stringify(updated));return updated;});
-    setChatMessage(''); setChatPhoto('');
-  };
-
-  const sendCompanyChatMessage = (text, photoUrl) => {
-    if (!text && !photoUrl) return;
-    const msg = {id:Date.now(),text,photoUrl,author:user.name,role:user.role,time:new Date().toLocaleString('ru-RU')};
-    setCompanyChat(prev=>{const updated=[...prev,msg];localStorage.setItem('companyChat',JSON.stringify(updated));return updated;});
+    try {
+      await fetch(API+'/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chatType:'company',projectId:null,authorId:user.id,authorName:user.name,authorRole:user.role,text,photoUrl})});
+      const msgs = await fetch(API+'/messages').then(r=>r.json()).catch(()=>[]);
+      setCompanyMessages(msgs||[]);
+    } catch(e) {
+      const msg = {id:Date.now(),text,photoUrl,author_name:user.name,author_role:user.role,created_at:new Date().toISOString()};
+      setCompanyMessages(prev=>[...prev,msg]);
+    }
     setCompanyChatMessage('');
   };
 
@@ -704,7 +847,8 @@ function App() {
   const isFinanceRole = () => ['директор','зам_директора','бухгалтер'].includes(user?user.role:'');
   const isLeadership = () => ['директор','зам_директора'].includes(user?user.role:'');
   const isProrab = () => ['директор','зам_директора','прораб','главный_инженер'].includes(user?user.role:'');
-  const roleColor = (r) => ({'директор':'#f97316','зам_директора':'#ea580c','главный_инженер':'#8b5cf6','прораб':'#3b82f6','кладовщик':'#10b981','снабженец':'#14b8a6','бухгалтер':'#6b7280','стройконтроль':'#06b6d4','менеджер_crm':'#8b5cf6','мастер':'#ec4899','заказчик':'#06b6d4','поставщик':'#f59e0b'}[r]||'#6b7280');
+  const isMasterRole = () => ['мастер','субподрядчик'].includes(user?user.role:'');
+  const roleColor = (r) => ({'директор':'#f97316','зам_директора':'#ea580c','главный_инженер':'#8b5cf6','прораб':'#3b82f6','кладовщик':'#10b981','снабженец':'#14b8a6','бухгалтер':'#6b7280','стройконтроль':'#06b6d4','менеджер_crm':'#8b5cf6','мастер':'#ec4899','субподрядчик':'#f59e0b','сметчик':'#3b82f6','заказчик':'#06b6d4','поставщик':'#f59e0b'}[r]||'#6b7280');
   const workedDays = (id) => daysInMonth.filter(d=>timesheet[id+'-'+d]).length;
   const pwTotal = (id) => piecework.filter(p=>Number(p.staffId)===id).reduce((s,p)=>s+p.total,0);
   const calcSalary = (s) => s.payType==='сдельно'?pwTotal(s.id):Math.round((s.salary/31)*workedDays(s.id));
@@ -713,7 +857,6 @@ function App() {
   const expByCategory = (pn) => {const r={};EXPENSE_CATEGORIES.forEach(c=>{r[c.id]=0;});r['materials']=matCost(pn);r['works']=labCost(pn);expenses.filter(e=>e.project===pn).forEach(e=>{r[e.category]=(r[e.category]||0)+Number(e.amount);});unexpectedWorks.filter(u=>u.project===pn&&u.status==='Утверждено').forEach(u=>{const uTotal=(u.items||[]).reduce((s,i)=>s+Number(i.quantity||0)*Number(i.price||0),0);r['unexpected']=(r['unexpected']||0)+uTotal;});return r;};
   const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
   const lowMainStock = warehouseMain.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
-  const pendingJ = workJournal.filter(j=>j.status==='На проверке').length;
   const pendingUnexpected = unexpectedWorks.filter(u=>u.status==='Ожидает цены'||u.status==='На согласовании').length;
   const unreadNotifications = myNotifications(notifications).filter(n=>!n.read).length;
 
@@ -769,14 +912,6 @@ function App() {
 
   const deleteMainMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/warehouse-main/'+id,{method:'DELETE'}); await loadAll(); } };
 
-  const applyWarehouseMovement = async () => {
-    if (!newMovement.materialName||!newMovement.toLocation||!newMovement.quantity) { alert('Заполните поля'); return; }
-    await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newMovement,date:new Date().toISOString().split('T')[0],createdBy:user.name})});
-    await loadAll();
-    setNewMovement({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:''});
-    notify('Перемещение: '+newMovement.materialName,'material');
-  };
-
   const saveTool = async () => {
     if (!newTool.name) return;
     const data = {...newTool,cost:Number(newTool.cost),masterId:newTool.masterId?Number(newTool.masterId):null};
@@ -793,9 +928,7 @@ function App() {
     const updated = {...tool,status:issueType==='В счёт зарплаты'?'У мастера (куплен)':'У мастера',location:'У мастера',masterName,project,issueType};
     await fetch(API+'/tools/'+tool.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
     await fetch(API+'/tool-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({toolId:tool.id,toolName:tool.name,action:'Выдача',fromLocation:tool.location,toLocation:'У мастера — '+masterName,masterName,project,issueType,condition:'Исправен',date:new Date().toISOString().split('T')[0],createdBy:user.name})});
-    await loadAll();
-    setShowIssueToolModal(null);
-    setIssueToolData({masterName:'',project:'',issueType:'Временно'});
+    await loadAll(); setShowIssueToolModal(null); setIssueToolData({masterName:'',project:'',issueType:'Временно'});
     notify('Инструмент выдан: '+tool.name+' → '+masterName,'material');
   };
 
@@ -803,9 +936,7 @@ function App() {
     const updated = {...tool,status:returnToolCondition==='Исправен'?'На складе':'На ремонте',location:'Основной склад',masterName:'',project:'',issueType:''};
     await fetch(API+'/tools/'+tool.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
     await fetch(API+'/tool-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({toolId:tool.id,toolName:tool.name,action:'Возврат',fromLocation:'У мастера — '+tool.masterName,toLocation:'Основной склад',masterName:tool.masterName,project:tool.project,issueType:'',condition:returnToolCondition,date:new Date().toISOString().split('T')[0],createdBy:user.name})});
-    await loadAll();
-    setShowReturnToolModal(null);
-    setReturnToolCondition('Исправен');
+    await loadAll(); setShowReturnToolModal(null); setReturnToolCondition('Исправен');
   };
 
   const autoWriteOffMaterials = async (workName, quantity, projectName) => {
@@ -861,10 +992,10 @@ function App() {
         await fetch(API+'/room-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({roomId:Number(workData.roomId),project:project.name,roomName:workData.roomName||'',masterId:user.id,masterName:user.name,description:item.name,surface:workData.surface||'Стены',unit:item.unit,quantity:Number(workData.quantity),pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],photoUrl:workData.photoUrl||''})});
       }
     }
-    if (!hasWork) { alert('Введите количество'); return; }
+    if (!hasWork) { alert('Введите количество хотя бы для одной работы'); return; }
     notify(user.name+' отправил работы','work');
     await loadAll(); setSelectedWorks({}); setMasterProjectId(''); setPricelistItems([]);
-    alert('Работы отправлены!');
+    alert('Работы отправлены на проверку!');
   };
 
   const confirmJ = async (e) => {
@@ -920,6 +1051,12 @@ function App() {
     }
     await loadPricelistItems(selectedPricelist.id);
     setNewPlItem({name:'',unit:'м2',price:'',category:''}); setEditingPlItem(null);
+  };
+
+  const saveInlinePlItem = async (item) => {
+    await fetch(API+'/pricelist-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...item,price:Number(inlineEditPrice),pricelistId:selectedPricelist.id})});
+    await loadPricelistItems(selectedPricelist.id);
+    setInlineEditPl(null); setInlineEditPrice('');
   };
 
   const deletePlItem = async (id) => { await fetch(API+'/pricelist-items/'+id,{method:'DELETE'}); await loadPricelistItems(selectedPricelist.id); };
@@ -996,15 +1133,39 @@ function App() {
 
   const saveRoom = async () => {
     if (!newRoom.name||!newRoom.project) return;
-    const data = {project:newRoom.project,name:newRoom.name,floorArea:Number(newRoom.floorArea)||0,wallArea:Number(newRoom.wallArea)||0,ceilingArea:Number(newRoom.ceilingArea)||0,windows:Number(newRoom.windows)||0,doors:Number(newRoom.doors)||0,notes:newRoom.notes};
+    const data = {project:newRoom.project,name:newRoom.name,floorArea:Number(newRoom.floorArea)||0,wallArea:Number(newRoom.wallArea)||0,ceilingArea:Number(newRoom.ceilingArea)||0,height:Number(newRoom.height)||0,ceilingType:newRoom.ceilingType,wallMaterial:newRoom.wallMaterial,floorMaterial:newRoom.floorMaterial,windows:0,doors:0,notes:newRoom.notes};
     if (editingItem) await fetch(API+'/rooms/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     else await fetch(API+'/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    await loadAll(); setNewRoom({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',windows:'',doors:'',notes:''}); setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewRoom({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',notes:''}); setEditingItem(null); setShowForm(false);
   };
 
   const deleteRoom = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/rooms/'+id,{method:'DELETE'}); await loadAll(); } };
 
-  const saveTbEntry = (data) => { const updated = [...tbJournal,{...data,id:Date.now(),createdBy:user.name}]; setTbJournal(updated); localStorage.setItem("tbJournal",JSON.stringify(updated)); };
+  const saveWindow = async (roomId) => {
+    if (!newWindow.width||!newWindow.height) return;
+    try {
+      await fetch(API+'/room-windows',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newWindow,roomId:Number(roomId)})});
+      const rwin = await fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]);
+      setRoomWindows(Array.isArray(rwin)?rwin:[]);
+    } catch(e) {
+      const win = {...newWindow,id:Date.now(),room_id:Number(roomId)};
+      setRoomWindows(prev=>[...prev,win]);
+    }
+    setNewWindow({roomId:'',name:'Окно '+(roomWindows.filter(w=>w.room_id===roomId).length+2),width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'});
+  };
+
+  const saveWeather = () => {
+    if (!newWeather.projectName||!newWeather.date) return;
+    const entry = {...newWeather,id:Date.now(),createdBy:user.name,temperature:Number(newWeather.temperature||0),windSpeed:Number(newWeather.windSpeed||0)};
+    const updated = [...weatherLog,entry];
+    setWeatherLog(updated); localStorage.setItem('weatherLog',JSON.stringify(updated));
+    setNewWeather({projectName:'',date:'',temperature:'',condition:'Ясно',windSpeed:'',notes:''});
+  };
+
+  const saveTbEntry = (data) => {
+    const updated = [...tbJournal,{...data,id:Date.now(),createdBy:user.name}];
+    setTbJournal(updated); localStorage.setItem('tbJournal',JSON.stringify(updated));
+  };
 
   const navigateTo = (p) => {
     if (canAccess(p)) {
@@ -1014,7 +1175,7 @@ function App() {
       setShowInvites(false); setShowOffers(null);
       setShowSearch(false); setGlobalSearch(''); setShowArchive(false);
       setSelectedRoom(null); setSelectedInventory(null); setSidebarVisible(false);
-      setSelectedWarehouseProject(null);
+      setSelectedWarehouseProject(null); setInlineEditPl(null);
     }
   };
 
@@ -1034,12 +1195,14 @@ function App() {
     ...materials.filter(m=>m.name.toLowerCase().includes(globalSearch.toLowerCase())).map(m=>({icon:'📦',title:m.name,subtitle:m.quantity+' '+m.unit,page:'warehouse'})),
     ...tools.filter(t=>t.name.toLowerCase().includes(globalSearch.toLowerCase())).map(t=>({icon:'🔧',title:t.name,subtitle:t.status,page:'warehouse'})),
   ].slice(0,8) : [];
-  if (user && user.role === 'мастер') {
+  if (isMasterRole()) {
     if (showProfileForm) {
       return (
         <div style={{display:'flex',justifyContent:'center',alignItems:'center',minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
           <div style={{...card,padding:'40px',width:'500px',maxHeight:'90vh',overflowY:'auto'}}>
-            <h2 style={{textAlign:'center',color:C.text,marginBottom:'25px',fontSize:'22px',fontWeight:'800'}}>👷 Заполните профиль</h2>
+            <h2 style={{textAlign:'center',color:C.text,marginBottom:'25px',fontSize:'22px',fontWeight:'800'}}>
+              {user.role==='субподрядчик'?'🔩 Заполните профиль субподрядчика':'👷 Заполните профиль'}
+            </h2>
             <input placeholder="ФИО *" value={profileData.fullName} onChange={e=>setProfileData({...profileData,fullName:e.target.value})} style={inp}/>
             <input placeholder="Паспорт серия и номер" value={profileData.passport} onChange={e=>setProfileData({...profileData,passport:e.target.value})} style={inp}/>
             <input placeholder="ИНН *" value={profileData.inn} onChange={e=>setProfileData({...profileData,inn:e.target.value})} style={inp}/>
@@ -1052,7 +1215,7 @@ function App() {
             <input placeholder="Телефон" value={profileData.phone} onChange={e=>setProfileData({...profileData,phone:e.target.value})} style={inp}/>
             <select value={profileData.specialization} onChange={e=>setProfileData({...profileData,specialization:e.target.value})} style={inp}>
               <option value="">Специализация</option>
-              {['Каменщик','Электрик','Сантехник','Отделочник','Кровельщик','Бетонщик','Монтажник','Плотник','Сварщик','Разнорабочий'].map(s=><option key={s}>{s}</option>)}
+              {['Каменщик','Электрик','Сантехник','Отделочник','Кровельщик','Бетонщик','Монтажник','Плотник','Сварщик','Разнорабочий','Общестроительные работы','Электромонтаж','Сантехника','Кровельные работы'].map(s=><option key={s}>{s}</option>)}
             </select>
             <div style={{backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,padding:'14px',borderRadius:'10px',marginBottom:'15px'}}>
               <b style={{color:C.info,fontSize:'13px'}}>📄 Согласие на обработку ПД</b>
@@ -1081,6 +1244,7 @@ function App() {
     const myActs = interimActs.filter(a=>a.masterId===user.id);
     const myTbEntries = tbJournal.filter(tb=>(tb.participants||[]).includes(masterProfile?.fullName));
     const projectRooms = masterProjectId ? rooms.filter(r=>r.project===(projects.find(p=>p.id===Number(masterProjectId))?.name||'')) : [];
+    const myTools = tools.filter(t=>t.masterName===(masterProfile?.fullName||user.name)&&t.status.includes('У мастера'));
 
     return (
       <div style={{display:'flex',flexDirection:'column',minHeight:'100vh',backgroundColor:C.bg}}>
@@ -1088,7 +1252,7 @@ function App() {
         {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)}/>}
         <div style={{flex:1,padding:'15px',paddingBottom:'90px',overflowY:'auto'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
-            <div><h2 style={{margin:0,color:C.text,fontSize:'20px',fontWeight:'800'}}>СтройКа</h2><p style={{margin:0,color:C.textSec,fontSize:'12px'}}>{user.name+' — Мастер'}</p></div>
+            <div><h2 style={{margin:0,color:C.text,fontSize:'20px',fontWeight:'800'}}>СтройКа</h2><p style={{margin:0,color:C.textSec,fontSize:'12px'}}>{user.name+' — '+(ROLE_LABELS[user.role]||user.role)}</p></div>
             <button onClick={checkinGeo} style={{...btnGr,padding:'8px 16px',fontSize:'12px'}}><MapPin size={14}/>Отметиться</button>
           </div>
 
@@ -1108,7 +1272,6 @@ function App() {
                     const pl=proj&&pricelists.find(p=>p.id===proj.pricelistId);
                     const price=item.price*(pl?pl.coefficient:1.0);
                     const isSel=selectedWorks[item.id]!==undefined;
-                    const norms=WORK_NORMS[item.name];
                     return(<div key={item.id} style={{padding:'12px',marginBottom:'8px',borderRadius:'10px',border:'1.5px solid '+(isSel?C.accent:C.border),backgroundColor:isSel?C.accentLight:C.bgWhite}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                         <label style={{display:'flex',alignItems:'center',gap:'12px',cursor:'pointer',flex:1}}>
@@ -1117,7 +1280,6 @@ function App() {
                         </label>
                         <span style={{color:C.accent,fontWeight:'700',fontSize:'12px',whiteSpace:'nowrap'}}>{price.toLocaleString()+' ₽/'+item.unit}</span>
                       </div>
-                      {norms&&<p style={{color:C.success,fontSize:'11px',margin:'6px 0 0 30px'}}>{'📦 '+norms.map(n=>n.mat+' '+n.qty+n.unit).join(' · ')}</p>}
                       {isSel&&(<div style={{paddingLeft:'30px',marginTop:'10px'}}>
                         <input placeholder={'Количество ('+item.unit+')'} type="number" value={selectedWorks[item.id]?.quantity||''} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],quantity:e.target.value}}))} style={inp}/>
                         {projectRooms.length>0&&(<><select value={selectedWorks[item.id]?.roomId||''} onChange={e=>{const room=projectRooms.find(r=>r.id===Number(e.target.value));setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],roomId:e.target.value,roomName:room?.name||''}}));}} style={inp}><option value="">Выберите помещение</option>{projectRooms.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select><select value={selectedWorks[item.id]?.surface||'Стены'} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],surface:e.target.value}}))} style={inp}>{SURFACES.map(s=><option key={s}>{s}</option>)}</select></>)}
@@ -1162,8 +1324,16 @@ function App() {
           </div>)}
 
           {activePage==='materials'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'20px',fontSize:'18px',fontWeight:'700'}}>Выданные материалы</h3>
-            {myIssues.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Материалов не выдавалось</div>}
+            <h3 style={{color:C.text,marginBottom:'20px',fontSize:'18px',fontWeight:'700'}}>Мои инструменты и материалы</h3>
+            {myTools.length>0&&(<div style={{...card,padding:'20px',marginBottom:'16px',borderLeft:'3px solid '+C.purple}}>
+              <h4 style={{color:C.purple,marginBottom:'12px',fontSize:'14px',fontWeight:'600'}}>🔧 Инструменты за мной:</h4>
+              {myTools.map(t=>(<div key={t.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div><b style={{color:C.text,fontSize:'13px'}}>{t.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{t.inventoryNumber?' № '+t.inventoryNumber:''}{t.project?' · '+t.project:''}</p>{t.issueType==='В счёт зарплаты'&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Удержание: '+(t.cost||0).toLocaleString()+' ₽'}</span>}</div>
+                <span style={badge(C.accent,C.accentLight,C.accentBorder)}>{t.status}</span>
+              </div>))}
+            </div>)}
+            <h4 style={{color:C.text,marginBottom:'12px',fontSize:'14px',fontWeight:'600'}}>Выданные материалы:</h4>
+            {myIssues.length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Материалов не выдавалось</div>}
             {myIssues.map(issue=>(<div key={issue.id} style={{...card,padding:'16px',marginBottom:'10px',borderLeft:'3px solid '+(issue.confirmed?C.success:C.warning)}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <div><b style={{color:C.text}}>{issue.materialName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{issue.quantity+' '+issue.unit+' · '+issue.project}</p></div>
@@ -1180,29 +1350,33 @@ function App() {
                 <button onClick={()=>showPreview(PD_CONSENT_TEXT({fullName:masterProfile?.fullName||user.name,passport:masterProfile?.passport||'',inn:masterProfile?.inn||''}),'Согласие на ПД')} style={btnB}><Eye size={14}/>Просмотр</button>
                 <button onClick={()=>doPrint(PD_CONSENT_TEXT({fullName:masterProfile?.fullName||user.name,passport:masterProfile?.passport||'',inn:masterProfile?.inn||''}))} style={btnO}><Printer size={14}/>Распечатать</button>
               </div>
-              {(()=>{const consent=pdConsents.find(c=>c.userId===user.id);if(consent?.scanUrl) return(<div style={{backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,padding:'10px',borderRadius:'8px',display:'flex',alignItems:'center',gap:'10px'}}><CheckCircle size={16} color={C.success}/><span style={{color:C.success,fontSize:'13px'}}>Скан загружен</span><a href={API+consent.scanUrl} target="_blank" rel="noreferrer" style={{...btnB,fontSize:'11px',textDecoration:'none',marginLeft:'auto'}}>Открыть</a></div>);return(<label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить подписанный скан<input type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);await fetch(API+'/pd-consents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,signedAt:new Date().toLocaleString('ru-RU'),scanUrl:url,uploadedBy:user.name})});await loadAll();}}}/></label>);})()}
-            </div>
-            <div style={{...card,padding:'20px',marginBottom:'15px'}}>
-              <h4 style={{color:C.text,marginBottom:'10px',fontSize:'14px',fontWeight:'600'}}>📄 Должностная инструкция</h4>
-              <div style={{display:'flex',gap:'8px',marginBottom:'10px',flexWrap:'wrap'}}>
-                <button onClick={()=>showPreview(buildPositionInstructionContent('мастер',masterProfile?.fullName||user.name),'Должностная инструкция')} style={btnB}><Eye size={14}/>Просмотр</button>
-                <button onClick={()=>doPrint(buildPositionInstructionContent('мастер',masterProfile?.fullName||user.name))} style={btnO}><Printer size={14}/>Печать</button>
-              </div>
-              {signedDocs['instruction_'+user.id]?(<div style={{backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,padding:'10px',borderRadius:'8px',display:'flex',alignItems:'center',gap:'10px'}}><CheckCircle size={16} color={C.success}/><span style={{color:C.success,fontSize:'13px'}}>Скан загружен</span></div>):(<label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить скан<input type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]) await uploadSignedDoc('instruction_'+user.id,e.target.files[0]);}}/></label>)}
+              {(()=>{const consent=pdConsents.find(c=>c.userId===user.id);if(consent?.scanUrl) return(<div style={{backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,padding:'10px',borderRadius:'8px',display:'flex',alignItems:'center',gap:'10px'}}><CheckCircle size={16} color={C.success}/><span style={{color:C.success,fontSize:'13px'}}>Скан загружен</span></div>);return(<label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить подписанный скан<input type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);await fetch(API+'/pd-consents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,signedAt:new Date().toLocaleString('ru-RU'),scanUrl:url,uploadedBy:user.name})});await loadAll();}}}/></label>);})()}
             </div>
             <div style={{...card,padding:'20px',marginBottom:'15px'}}>
               <h4 style={{color:C.text,marginBottom:'10px',fontSize:'14px',fontWeight:'600'}}>📄 Мой договор</h4>
-              {myContract?(<div><p style={{color:C.textSec,fontSize:'13px'}}>{'Договор № '+myContract.contractNumber+' · '+myContract.contractType+' · '+myContract.project}</p><div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={()=>{const mp=masterProfiles.find(p=>p.userId===user.id);if(mp) showPreview(buildContractContent(mp,myContract),'Договор');}} style={btnB}><Eye size={14}/>Просмотр</button><button onClick={()=>{const mp=masterProfiles.find(p=>p.userId===user.id);if(mp) doPrint(buildContractContent(mp,myContract));}} style={btnO}><Printer size={14}/>Печать</button></div></div>):<p style={{color:C.textMuted,fontSize:'13px'}}>Договор не найден</p>}
+              {myContract?(<div><p style={{color:C.textSec,fontSize:'13px'}}>{'Договор № '+myContract.contractNumber+' · '+myContract.contractType+' · '+myContract.project}</p><div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={()=>{const mp=masterProfiles.find(p=>p.userId===user.id);if(mp) showPreview(buildContractContent(mp,myContract),'Договор');}} style={btnB}><Eye size={14}/>Просмотр</button></div></div>):<p style={{color:C.textMuted,fontSize:'13px'}}>Договор не найден</p>}
             </div>
             <div style={{...card,padding:'20px',marginBottom:'15px'}}>
               <h4 style={{color:C.text,marginBottom:'10px',fontSize:'14px',fontWeight:'600'}}>📋 Мои акты</h4>
-              {myActs.map(act=>{const totalAmt=act.totalAmount||0;const paidAmt=act.paidAmount||0;const remaining=totalAmt-paidAmt;return(<div key={act.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div><b style={{fontSize:'13px',color:C.text}}>{'Акт №'+act.id}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{act.project+' · '+act.periodStart+' — '+act.periodEnd}</p><p style={{color:C.text,margin:'1px 0',fontSize:'12px'}}>{'Начислено: '+totalAmt.toLocaleString()+' ₽'}</p><p style={{color:C.success,margin:'1px 0',fontSize:'12px'}}>{'Оплачено: '+paidAmt.toLocaleString()+' ₽'}</p>{remaining>0&&<p style={{color:C.danger,margin:'1px 0',fontSize:'12px'}}>{'Остаток: '+remaining.toLocaleString()+' ₽'}</p>}</div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={14}/></button><button onClick={()=>doPrint(buildActContent(act))} style={btnO}><Printer size={14}/></button></div></div></div>);})}
+              {myActs.map(act=>{
+                const totalAmt=act.totalAmount||0;
+                const paidAmt=act.paidAmount||0;
+                const toolDed=myTools.filter(t=>t.issueType==='В счёт зарплаты').reduce((s,t)=>s+t.cost,0);
+                return(<div key={act.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                    <div>
+                      <b style={{fontSize:'13px',color:C.text}}>{'Акт №'+act.id}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{act.project+' · '+act.periodStart+' — '+act.periodEnd}</p>
+                      <p style={{color:C.text,margin:'1px 0',fontSize:'12px'}}>{'Начислено: '+totalAmt.toLocaleString()+' ₽'}</p>
+                      {toolDed>0&&<p style={{color:C.danger,margin:'1px 0',fontSize:'12px'}}>{'Удержания: -'+toolDed.toLocaleString()+' ₽'}</p>}
+                      <p style={{color:C.success,margin:'1px 0',fontSize:'12px'}}>{'Оплачено: '+paidAmt.toLocaleString()+' ₽'}</p>
+                      {(totalAmt-toolDed-paidAmt)>0&&<p style={{color:C.danger,margin:'1px 0',fontSize:'12px',fontWeight:'600'}}>{'Остаток: '+(totalAmt-toolDed-paidAmt).toLocaleString()+' ₽'}</p>}
+                    </div>
+                    <div style={{display:'flex',gap:'6px'}}><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={14}/></button></div>
+                  </div>
+                </div>);
+              })}
               {myActs.length===0&&<p style={{color:C.textMuted,fontSize:'13px'}}>Актов нет</p>}
-            </div>
-            <div style={{...card,padding:'20px'}}>
-              <h4 style={{color:C.text,marginBottom:'10px',fontSize:'14px',fontWeight:'600'}}>🦺 Инструктажи ТБ</h4>
-              {myTbEntries.map(tb=>(<div key={tb.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{tb.type}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{tb.project+' · '+tb.date}</p></div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>showPreview(buildTBContent(tb),tb.type)} style={btnB}><Eye size={14}/></button><button onClick={()=>doPrint(buildTBContent(tb))} style={btnO}><Printer size={14}/></button></div></div>))}
-              {myTbEntries.length===0&&<p style={{color:C.textMuted,fontSize:'13px'}}>Инструктажей нет</p>}
             </div>
           </div>)}
 
@@ -1210,8 +1384,8 @@ function App() {
             <h3 style={{color:C.text,marginBottom:'20px',fontSize:'18px',fontWeight:'700'}}>Общий чат</h3>
             <div style={{...card,padding:'20px'}}>
               <div style={{backgroundColor:C.bg,borderRadius:'12px',padding:'15px',minHeight:'300px',maxHeight:'400px',overflowY:'auto',marginBottom:'15px',display:'flex',flexDirection:'column',gap:'10px',border:'1.5px solid '+C.border}}>
-                {companyChat.length===0&&<p style={{color:C.textMuted,textAlign:'center',margin:'auto'}}>Сообщений нет</p>}
-                {companyChat.map(msg=>{const isMe=msg.author===user.name;return(<div key={msg.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start'}}><div style={{maxWidth:'80%',backgroundColor:isMe?C.accent:'white',color:isMe?'white':C.text,padding:'10px 14px',borderRadius:isMe?'16px 16px 4px 16px':'16px 16px 16px 4px',border:'1.5px solid '+(isMe?C.accent:C.border)}}>{!isMe&&<div style={{fontSize:'11px',fontWeight:'700',color:roleColor(msg.role),marginBottom:'4px'}}>{msg.author}</div>}{msg.text&&<p style={{margin:0,fontSize:'13px'}}>{msg.text}</p>}<div style={{fontSize:'10px',color:isMe?'rgba(255,255,255,0.7)':C.textMuted,marginTop:'4px',textAlign:'right'}}>{msg.time}</div></div></div>);})}
+                {companyMessages.length===0&&<p style={{color:C.textMuted,textAlign:'center',margin:'auto'}}>Сообщений нет</p>}
+                {companyMessages.map(msg=>{const isMe=(msg.author_name||msg.author)===user.name;return(<div key={msg.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start'}}><div style={{maxWidth:'80%',backgroundColor:isMe?C.accent:'white',color:isMe?'white':C.text,padding:'10px 14px',borderRadius:isMe?'16px 16px 4px 16px':'16px 16px 16px 4px',border:'1.5px solid '+(isMe?C.accent:C.border)}}>{!isMe&&<div style={{fontSize:'11px',fontWeight:'700',color:roleColor(msg.author_role||msg.role),marginBottom:'4px'}}>{msg.author_name||msg.author}</div>}{msg.text&&<p style={{margin:0,fontSize:'13px'}}>{msg.text}</p>}<div style={{fontSize:'10px',color:isMe?'rgba(255,255,255,0.7)':C.textMuted,marginTop:'4px',textAlign:'right'}}>{msg.created_at?new Date(msg.created_at).toLocaleTimeString('ru-RU'):''}</div></div></div>);})}
               </div>
               <div style={{display:'flex',gap:'8px'}}><input placeholder="Написать..." value={companyChatMessage} onChange={e=>setCompanyChatMessage(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendCompanyChatMessage(companyChatMessage,'')} style={{...inp,marginBottom:0,flex:1}}/><button onClick={()=>sendCompanyChatMessage(companyChatMessage,'')} style={btnO}>➤</button></div>
             </div>
@@ -1219,7 +1393,7 @@ function App() {
         </div>
 
         <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid '+C.border,display:'flex',justifyContent:'space-around',padding:'10px 0 14px',zIndex:100,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
-          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Материалы',badge:myIssues.filter(i=>!i.confirmed).length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative'}}>
+          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Инструменты',badge:myIssues.filter(i=>!i.confirmed).length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative'}}>
             <span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span>
             <span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px'}}>{item.label}</span>
             {item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}
@@ -1280,6 +1454,8 @@ function App() {
     {id:'accounting',icon:<DollarSign size={18}/>,label:'Бухгалтерия'},
     {id:'personnel',icon:<UserCheck size={18}/>,label:'Персонал'},
     {id:'pricelists',icon:<Tag size={18}/>,label:'Прайс-листы'},
+    {id:'estimates',icon:<Calculator size={18}/>,label:'Сметы'},
+    {id:'weather',icon:<CloudSun size={18}/>,label:'Погода / ЖПР'},
     {id:'companychat',icon:<MessageSquare size={18}/>,label:'Чат'},
     {id:'activitylog',icon:<ScrollText size={18}/>,label:'Журнал'},
     {id:'users',icon:<Shield size={18}/>,label:'Пользователи'},
@@ -1291,10 +1467,57 @@ function App() {
       {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)}/>}
       {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'12px'}}/></div>)}
       {rejectingEntry&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Причина отклонения</h3><textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inp,height:'100px',resize:'vertical'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>rejectJ(rejectingEntry,rejectComment)} style={btnR}><X size={14}/>Отклонить</button><button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnG}>Отмена</button></div></div></div>)}
-
       {showIssueToolModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{'Выдать: '+showIssueToolModal.name}</h3><select value={issueToolData.masterName} onChange={e=>setIssueToolData({...issueToolData,masterName:e.target.value})} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.fullName}>{mp.fullName}</option>)}</select><select value={issueToolData.project} onChange={e=>setIssueToolData({...issueToolData,project:e.target.value})} style={inp}><option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><select value={issueToolData.issueType} onChange={e=>setIssueToolData({...issueToolData,issueType:e.target.value})} style={inp}><option value="Временно">Временно</option><option value="В счёт зарплаты">В счёт зарплаты</option></select><div style={{display:'flex',gap:'10px'}}><button onClick={()=>issueTool(showIssueToolModal)} style={btnO}><Check size={14}/>Выдать</button><button onClick={()=>setShowIssueToolModal(null)} style={btnG}>Отмена</button></div></div></div>)}
-
       {showReturnToolModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{'Вернуть: '+showReturnToolModal.name}</h3><p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{'От: '+showReturnToolModal.masterName}</p><select value={returnToolCondition} onChange={e=>setReturnToolCondition(e.target.value)} style={inp}><option value="Исправен">Исправен</option><option value="Требует ремонта">Требует ремонта</option><option value="Сломан">Сломан</option><option value="Утерян">Утерян</option></select><div style={{display:'flex',gap:'10px'}}><button onClick={()=>returnTool(showReturnToolModal)} style={btnGr}><Check size={14}/>Вернуть</button><button onClick={()=>setShowReturnToolModal(null)} style={btnG}>Отмена</button></div></div></div>)}
+      {showPayActModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'420px'}}>
+        <h3 style={{color:C.text,marginBottom:'5px',fontWeight:'700'}}>Добавить оплату</h3>
+        <p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{'Акт №'+showPayActModal.id+' · '+showPayActModal.masterName}</p>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+          <input placeholder="Сумма *" type="number" value={newPayment.amount} onChange={e=>setNewPayment({...newPayment,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
+          <select value={newPayment.paymentType} onChange={e=>setNewPayment({...newPayment,paymentType:e.target.value})} style={{...inp,marginBottom:0}}>{PAYMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
+          <input placeholder="Кто выплатил" value={newPayment.paidBy} onChange={e=>setNewPayment({...newPayment,paidBy:e.target.value})} style={{...inp,marginBottom:0}}/>
+          <input type="date" value={newPayment.date} onChange={e=>setNewPayment({...newPayment,date:e.target.value})} style={{...inp,marginBottom:0}}/>
+        </div>
+        <input placeholder="Примечание" value={newPayment.notes} onChange={e=>setNewPayment({...newPayment,notes:e.target.value})} style={{...inp,marginTop:'10px'}}/>
+        <div style={{display:'flex',gap:'10px'}}><button onClick={()=>saveActPayment(showPayActModal.id)} style={btnO}><Check size={14}/>Записать</button><button onClick={()=>setShowPayActModal(null)} style={btnG}>Отмена</button></div>
+        <div style={{marginTop:'15px',borderTop:'1.5px solid '+C.border,paddingTop:'12px'}}>
+          <b style={{color:C.text,fontSize:'13px'}}>История оплат:</b>
+          {actPayments.filter(p=>p.actId===showPayActModal.id).map(p=>(<div key={p.id} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid '+C.border,fontSize:'12px'}}><span style={{color:C.textSec}}>{p.date+' · '+p.paymentType+' · '+p.paidBy}</span><b style={{color:C.success}}>{p.amount.toLocaleString()+' ₽'}</b></div>))}
+          {actPayments.filter(p=>p.actId===showPayActModal.id).length===0&&<p style={{color:C.textMuted,fontSize:'12px',margin:'6px 0'}}>Оплат нет</p>}
+        </div>
+      </div></div>)}
+
+      {showAiAssistant&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'flex-end',zIndex:1500}}>
+        <div style={{width:'420px',backgroundColor:C.bgWhite,display:'flex',flexDirection:'column',boxShadow:'-4px 0 30px rgba(0,0,0,0.15)'}}>
+          <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',backgroundColor:C.sidebar}}>
+            <div><b style={{color:'white',fontSize:'15px'}}>🤖 ИИ Помощник прораба</b><p style={{color:'rgba(255,255,255,0.5)',margin:'2px 0',fontSize:'12px'}}>Знает нормы СНиП, расценки, материалы</p></div>
+            <button onClick={()=>setShowAiAssistant(false)} style={{backgroundColor:'transparent',border:'none',cursor:'pointer',color:'white'}}><X size={20}/></button>
+          </div>
+          <div style={{flex:1,overflowY:'auto',padding:'16px',display:'flex',flexDirection:'column',gap:'12px'}}>
+            {aiChat.length===0&&(<div style={{textAlign:'center',padding:'30px',color:C.textMuted}}>
+              <div style={{fontSize:'40px',marginBottom:'10px'}}>🏗️</div>
+              <b style={{color:C.text}}>Спросите меня!</b>
+              <div style={{display:'flex',flexDirection:'column',gap:'8px',marginTop:'16px'}}>
+                {['Сколько цемента нужно для стяжки 50м2?','Нормы расхода штукатурки на 1м2?','Как рассчитать количество кирпича?','Какие СНиП для жилых домов?'].map(q=>(<button key={q} onClick={()=>{setAiMessage(q);}} style={{...btnG,fontSize:'12px',textAlign:'left',justifyContent:'flex-start'}}>{q}</button>))}
+              </div>
+            </div>)}
+            {aiChat.map((msg,i)=>(<div key={i} style={{display:'flex',justifyContent:msg.role==='user'?'flex-end':'flex-start'}}>
+              <div style={{maxWidth:'85%',backgroundColor:msg.role==='user'?C.accent:C.bg,color:msg.role==='user'?'white':C.text,padding:'10px 14px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',border:'1.5px solid '+(msg.role==='user'?C.accent:C.border),fontSize:'13px',lineHeight:'1.5'}}>
+                {msg.content}
+                <div style={{fontSize:'10px',color:msg.role==='user'?'rgba(255,255,255,0.6)':C.textMuted,marginTop:'4px',textAlign:'right'}}>{msg.time}</div>
+              </div>
+            </div>))}
+            {aiLoading&&<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{backgroundColor:C.bg,padding:'10px 14px',borderRadius:'16px',border:'1.5px solid '+C.border,color:C.textSec,fontSize:'13px'}}>Думаю...</div></div>}
+            <div ref={chatEndRef}/>
+          </div>
+          <div style={{padding:'12px',borderTop:'1.5px solid '+C.border}}>
+            <div style={{display:'flex',gap:'8px'}}>
+              <input placeholder="Задайте вопрос..." value={aiMessage} onChange={e=>setAiMessage(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!aiLoading&&sendAiMessage()} style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}} disabled={aiLoading}/>
+              <button onClick={sendAiMessage} disabled={aiLoading} style={btnO}>➤</button>
+            </div>
+          </div>
+        </div>
+      </div>)}
 
       <div style={{position:'fixed',top:0,left:0,width:'16px',height:'100vh',zIndex:200}} onMouseEnter={()=>setSidebarVisible(true)}/>
       <div ref={sidebarRef} onMouseLeave={()=>setSidebarVisible(false)} style={{position:'fixed',top:0,left:0,height:'100vh',width:'240px',backgroundColor:C.sidebar,color:'white',zIndex:300,transform:sidebarVisible?'translateX(0)':'translateX(-100%)',transition:'transform 0.25s cubic-bezier(0.4,0,0.2,1)',display:'flex',flexDirection:'column',boxShadow:sidebarVisible?'4px 0 30px rgba(0,0,0,0.15)':'none'}}>
@@ -1314,12 +1537,11 @@ function App() {
           {menuItems.map(item=>(<div key={item.id} onClick={()=>navigateTo(item.id)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',marginBottom:'2px',backgroundColor:activePage===item.id?'rgba(249,115,22,0.15)':'transparent',border:activePage===item.id?'1px solid rgba(249,115,22,0.3)':'1px solid transparent',transition:'all 0.15s'}}>
             <span style={{color:activePage===item.id?C.accent:'rgba(255,255,255,0.5)',flexShrink:0}}>{item.icon}</span>
             <span style={{fontSize:'13px',fontWeight:activePage===item.id?'600':'400',color:activePage===item.id?'white':'rgba(255,255,255,0.6)',flex:1}}>{item.label}</span>
-            {item.id==='warehouse'&&(lowStock.length+lowMainStock.length)>0&&<span style={{backgroundColor:C.danger,color:'white',borderRadius:'20px',padding:'1px 7px',fontSize:'10px',fontWeight:'700'}}>{lowStock.length+lowMainStock.length}</span>}
-            {item.id==='dashboard'&&pendingUnexpected>0&&<span style={{backgroundColor:C.warning,color:'white',borderRadius:'20px',padding:'1px 7px',fontSize:'10px',fontWeight:'700'}}>{pendingUnexpected}</span>}
             {activePage===item.id&&<ChevronRight size={14} color={C.accent}/>}
           </div>))}
         </div>
         <div style={{padding:'10px',borderTop:'1px solid rgba(255,255,255,0.08)'}}>
+          <button onClick={()=>setShowAiAssistant(true)} style={{width:'100%',padding:'10px 12px',backgroundColor:'rgba(249,115,22,0.15)',border:'1px solid rgba(249,115,22,0.3)',borderRadius:'8px',cursor:'pointer',color:'#f97316',fontSize:'13px',fontWeight:'600',display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>🤖 ИИ Помощник</button>
           <div onClick={()=>setUser(null)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',backgroundColor:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)'}}>
             <LogOut size={18} color='#ef4444'/><span style={{fontSize:'13px',color:'#ef4444',fontWeight:'500'}}>Выйти</span>
           </div>
@@ -1349,21 +1571,9 @@ function App() {
             </div>)}
           </div>
         </div>
-
         <div style={{flex:1,padding:'24px',overflowY:'auto',backgroundColor:C.bg}}>
         {activePage==='dashboard'&&(<div>
           <p style={{color:C.textSec,margin:'0 0 24px',fontSize:'14px'}}>{'Добро пожаловать, '+user.name+' 👋'}</p>
-          {pendingUnexpected>0&&isFinanceRole()&&(<div style={{backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,padding:'16px 20px',borderRadius:'12px',marginBottom:'24px'}}>
-            <b style={{color:C.warning,fontSize:'14px'}}>❓ Непредвиденные — ожидают решения ({pendingUnexpected})</b>
-            {unexpectedWorks.filter(u=>u.status==='Ожидает цены'||u.status==='На согласовании').map(u=>(<div key={u.id} style={{backgroundColor:C.bgWhite,padding:'14px',borderRadius:'10px',marginBottom:'8px',marginTop:'10px',border:'1.5px solid '+C.border}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                <div><b style={{color:C.text,fontSize:'13px'}}>{'🏗️ '+u.project}</b>{(u.items||[]).map((item,i)=>(<p key={i} style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{item.description+' · '+item.quantity+' '+item.unit}</p>))}</div>
-                <div style={{display:'flex',gap:'6px',alignItems:'center',flexShrink:0,marginLeft:'10px'}}>
-                  {u.status==='Ожидает цены'&&(<><input placeholder="Цена/ед." type="number" style={{width:'90px',padding:'6px 10px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} id={'price_'+u.id}/><button onClick={()=>{const p=document.getElementById('price_'+u.id)?.value;if(p) approveUnexpected(u.id,p);}} style={btnGr}><Check size={13}/>OK</button><button onClick={()=>setUnexpectedWorks(prev=>prev.map(x=>x.id===u.id?{...x,status:'Отклонено'}:x))} style={btnR}><X size={13}/></button></>)}
-                </div>
-              </div>
-            </div>))}
-          </div>)}
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'12px',marginBottom:'24px'}}>
             {[{label:'Проектов',value:projects.length,icon:<FolderKanban size={22}/>,color:'#f97316',page:'projects'},{label:'Клиентов',value:clients.length,icon:<Users size={22}/>,color:'#06b6d4',page:'clients'},{label:'На складе',value:materials.length+warehouseMain.length,icon:<Package size={22}/>,color:'#10b981',page:'warehouse'},{label:'Инструментов',value:tools.length,icon:<Wrench size={22}/>,color:'#8b5cf6',page:'warehouse'},{label:'Мастеров',value:masterProfiles.length,icon:<Briefcase size={22}/>,color:'#ec4899',page:'personnel'}].filter(c=>canAccess(c.page)).map(c=>(<div key={c.label} onClick={()=>navigateTo(c.page)} style={{...card,padding:'20px',borderTop:'3px solid '+c.color,cursor:'pointer'}}>
               <div style={{color:c.color,marginBottom:'10px'}}>{c.icon}</div>
@@ -1371,29 +1581,53 @@ function App() {
               <div style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>{c.label}</div>
             </div>))}
           </div>
+
+          {isLeadership()&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
+            <h3 style={{marginBottom:'16px',color:C.text,fontSize:'15px',fontWeight:'700',display:'flex',alignItems:'center',gap:'8px'}}><DollarSign size={16} color={C.accent}/>Финансовый дашборд</h3>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:'12px',marginBottom:'16px'}}>
+              {(()=>{
+                const totalBudget=projects.reduce((s,p)=>s+p.budget,0);
+                const totalSpent=projects.reduce((s,p)=>s+Object.values(expByCategory(p.name)).reduce((a,v)=>a+v,0),0);
+                const totalActs=interimActs.reduce((s,a)=>s+(a.totalAmount||0),0);
+                const totalPaid=interimActs.reduce((s,a)=>s+(a.paidAmount||0),0);
+                const totalDebt=totalActs-totalPaid;
+                return[
+                  {label:'Бюджет всего',value:totalBudget.toLocaleString()+' ₽',color:C.info},
+                  {label:'Потрачено',value:totalSpent.toLocaleString()+' ₽',color:C.accent},
+                  {label:'Остаток',value:(totalBudget-totalSpent).toLocaleString()+' ₽',color:(totalBudget-totalSpent)>=0?C.success:C.danger},
+                  {label:'Долг мастерам',value:totalDebt.toLocaleString()+' ₽',color:C.warning},
+                ].map(item=>(<div key={item.label} style={{backgroundColor:C.bg,padding:'14px',borderRadius:'10px',border:'1.5px solid '+C.border,textAlign:'center'}}>
+                  <b style={{color:item.color,fontSize:'18px',display:'block'}}>{item.value}</b>
+                  <span style={{color:C.textSec,fontSize:'11px'}}>{item.label}</span>
+                </div>));
+              })()}
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
+              <div style={{backgroundColor:C.bg,padding:'14px',borderRadius:'10px',border:'1.5px solid '+C.border}}>
+                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Маржа по проектам</b>
+                {projects.filter(p=>p.status==='В работе').map(p=>{const cat=expByCategory(p.name);const total=Object.values(cat).reduce((s,v)=>s+v,0);const margin=p.budget>0?Math.round(((p.budget-total)/p.budget)*100):0;return(<div key={p.id} style={{marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:'3px'}}><span style={{fontSize:'12px',color:C.text}}>{p.name}</span><span style={{color:margin<10?C.danger:margin<20?C.warning:C.success,fontWeight:'700',fontSize:'12px'}}>{margin+'%'}</span></div><div style={{backgroundColor:C.bgGray,borderRadius:'3px',height:'4px'}}><div style={{backgroundColor:margin<10?C.danger:margin<20?C.warning:C.success,width:Math.max(0,Math.min(100,margin))+'%',height:'4px',borderRadius:'3px'}}/></div></div>);})}
+                {projects.filter(p=>p.status==='В работе').length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Нет активных проектов</p>}
+              </div>
+              <div style={{backgroundColor:C.bg,padding:'14px',borderRadius:'10px',border:'1.5px solid '+C.border}}>
+                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Долги по мастерам</b>
+                {masterProfiles.map(mp=>{const acts=interimActs.filter(a=>a.masterId===mp.userId&&a.status!=='Оплачен');const debt=acts.reduce((s,a)=>s+(a.totalAmount||0)-(a.paidAmount||0),0);if(debt<=0) return null;return(<div key={mp.id} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:'1px solid '+C.border}}><span style={{fontSize:'12px',color:C.text}}>{mp.fullName}</span><b style={{color:C.danger,fontSize:'12px'}}>{debt.toLocaleString()+' ₽'}</b></div>);})}
+              </div>
+            </div>
+          </div>)}
+
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px',marginBottom:'20px'}}>
-            {isFinanceRole()&&(<div style={{...card,padding:'20px'}}>
-              <h3 style={{marginBottom:'16px',color:C.text,fontSize:'15px',fontWeight:'700',display:'flex',alignItems:'center',gap:'8px'}}><DollarSign size={16} color={C.accent}/>Маржа по проектам</h3>
-              {projects.filter(p=>p.status==='В работе').map(p=>{const cat=expByCategory(p.name);const total=Object.values(cat).reduce((s,v)=>s+v,0);const rem=p.budget-total;const pct=p.budget>0?Math.min(100,Math.round((total/p.budget)*100)):0;const margin=p.budget>0?Math.round(((p.budget-total)/p.budget)*100):0;
-                return(<div key={p.id} style={{marginBottom:'14px',paddingBottom:'14px',borderBottom:'1.5px solid '+C.border,cursor:'pointer'}} onClick={()=>navigateTo('projects')}>
-                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}><b style={{fontSize:'13px',color:C.text}}>{p.name}</b><span style={badge(margin<10?C.danger:margin<20?C.warning:C.success,margin<10?C.dangerLight:margin<20?C.warningLight:C.successLight,margin<10?C.dangerBorder:margin<20?C.warningBorder:C.successBorder)}>{'Маржа: '+margin+'%'}</span></div>
-                  <div style={{backgroundColor:C.bgGray,borderRadius:'4px',height:'5px'}}><div style={{backgroundColor:pct>90?C.danger:pct>70?C.warning:C.success,width:pct+'%',height:'5px',borderRadius:'4px'}}/></div>
-                  <div style={{display:'flex',justifyContent:'space-between',fontSize:'11px',marginTop:'4px',color:C.textMuted}}><span>{total.toLocaleString()+' ₽'}</span><span style={{color:rem>=0?C.success:C.danger,fontWeight:'600'}}>{(rem>=0?'+':'')+rem.toLocaleString()+' ₽'}</span></div>
-                </div>);
-              })}
-              {projects.filter(p=>p.status==='В работе').length===0&&<p style={{color:C.textMuted,textAlign:'center',fontSize:'13px',padding:'20px'}}>Нет активных проектов</p>}
-            </div>)}
             <div style={{...card,padding:'20px'}}>
               <h3 style={{marginBottom:'16px',color:C.text,fontSize:'15px',fontWeight:'700',display:'flex',alignItems:'center',gap:'8px'}}><FolderKanban size={16} color={C.accent}/>Прогресс проектов</h3>
               {projects.filter(p=>p.status==='В работе').map(p=>(<div key={p.id} style={{marginBottom:'14px',cursor:'pointer'}} onClick={()=>navigateTo('projects')}><div style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}><span style={{fontSize:'13px',color:C.text}}>{p.name}</span><span style={{color:C.accent,fontWeight:'700',fontSize:'13px'}}>{p.progress+'%'}</span></div><div style={{backgroundColor:C.bgGray,borderRadius:'4px',height:'6px'}}><div style={{background:'linear-gradient(90deg,#f97316,#ea580c)',width:p.progress+'%',height:'6px',borderRadius:'4px'}}/></div></div>))}
               {projects.filter(p=>p.status==='В работе').length===0&&<p style={{color:C.textMuted,textAlign:'center',fontSize:'13px',padding:'20px'}}>Нет активных проектов</p>}
             </div>
+            <div style={{...card,padding:'20px'}}>
+              <h3 style={{marginBottom:'15px',color:C.text,fontSize:'15px',fontWeight:'700',display:'flex',alignItems:'center',gap:'8px'}}><Clock size={16} color={C.accent}/>Дедлайны</h3>
+              {[...projects].filter(p=>p.deadline).sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).slice(0,5).map(p=>{const days=Math.ceil((new Date(p.deadline)-new Date())/(1000*60*60*24));return(<div key={p.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{p.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{p.deadline}</p></div><span style={badge(days<0?C.danger:days<7?C.warning:C.success,days<0?C.dangerLight:days<7?C.warningLight:C.successLight,days<0?C.dangerBorder:days<7?C.warningBorder:C.successBorder)}>{days<0?('-'+Math.abs(days)+'д'):days===0?'Сегодня':(days+'д')}</span></div>);})}
+              {projects.filter(p=>p.deadline).length===0&&<p style={{color:C.textMuted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Дедлайнов нет</p>}
+            </div>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'20px'}}>
-            <div style={{...card,padding:'20px'}}><h3 style={{marginBottom:'15px',color:C.text,fontSize:'15px',fontWeight:'700',display:'flex',alignItems:'center',gap:'8px'}}><ScrollText size={16} color={C.accent}/>Последние действия</h3>{activityLog.slice(0,6).map(entry=>(<div key={entry.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border}}><p style={{margin:0,fontSize:'13px',color:C.text}}><b style={{color:roleColor(entry.role)}}>{entry.user}</b>{' — '+entry.action}</p><p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px'}}>{entry.time}</p></div>))}{activityLog.length===0&&<p style={{color:C.textMuted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Нет действий</p>}</div>
-            <div style={{...card,padding:'20px'}}><h3 style={{marginBottom:'15px',color:C.text,fontSize:'15px',fontWeight:'700',display:'flex',alignItems:'center',gap:'8px'}}><Clock size={16} color={C.accent}/>Дедлайны</h3>{[...projects].filter(p=>p.deadline).sort((a,b)=>new Date(a.deadline)-new Date(b.deadline)).slice(0,5).map(p=>{const days=Math.ceil((new Date(p.deadline)-new Date())/(1000*60*60*24));return(<div key={p.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{p.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{p.deadline}</p></div><span style={badge(days<0?C.danger:days<7?C.warning:C.success,days<0?C.dangerLight:days<7?C.warningLight:C.successLight,days<0?C.dangerBorder:days<7?C.warningBorder:C.successBorder)}>{days<0?('−'+Math.abs(days)+'д'):days===0?'Сегодня':(days+'д')}</span></div>);})}
-            {projects.filter(p=>p.deadline).length===0&&<p style={{color:C.textMuted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Дедлайнов нет</p>}</div>
-          </div>
+          <div style={{...card,padding:'20px'}}><h3 style={{marginBottom:'15px',color:C.text,fontSize:'15px',fontWeight:'700',display:'flex',alignItems:'center',gap:'8px'}}><ScrollText size={16} color={C.accent}/>Последние действия</h3>{activityLog.slice(0,6).map(entry=>(<div key={entry.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border}}><p style={{margin:0,fontSize:'13px',color:C.text}}><b style={{color:roleColor(entry.role)}}>{entry.user}</b>{' — '+entry.action}</p><p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px'}}>{entry.time}</p></div>))}{activityLog.length===0&&<p style={{color:C.textMuted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Нет действий</p>}</div>
         </div>)}
 
         {activePage==='analytics'&&(<div>
@@ -1401,31 +1635,147 @@ function App() {
             <div style={{...card,padding:'20px'}}><h3 style={{marginBottom:'15px',color:C.text,fontSize:'15px',fontWeight:'700'}}>💰 План / Факт</h3>{projects.map(p=>{const cat=expByCategory(p.name);const fact=Object.values(cat).reduce((s,v)=>s+v,0);const pct=p.budget>0?Math.min(100,Math.round((fact/p.budget)*100)):0;return(<div key={p.id} style={{marginBottom:'14px',paddingBottom:'14px',borderBottom:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:'5px'}}><b style={{color:C.text,fontSize:'13px'}}>{p.name}</b><span style={{color:pct>90?C.danger:C.success,fontWeight:'700',fontSize:'12px'}}>{pct+'%'}</span></div><div style={{backgroundColor:C.bgGray,borderRadius:'4px',height:'6px'}}><div style={{backgroundColor:pct>90?C.danger:pct>70?C.warning:C.success,width:pct+'%',height:'6px',borderRadius:'4px'}}/></div></div>);})}{projects.length===0&&<p style={{color:C.textMuted,textAlign:'center',fontSize:'13px'}}>Нет проектов</p>}</div>
             <div style={{...card,padding:'20px'}}><h3 style={{marginBottom:'15px',color:C.text,fontSize:'15px',fontWeight:'700'}}>👷 Топ мастеров</h3>{[...masterProfiles].sort((a,b)=>{const aT=workJournal.filter(j=>j.masterId===a.userId&&j.status==='Подтверждено').reduce((s,w)=>s+w.total,0);const bT=workJournal.filter(j=>j.masterId===b.userId&&j.status==='Подтверждено').reduce((s,w)=>s+w.total,0);return bT-aT;}).slice(0,5).map((mp,idx)=>{const total=workJournal.filter(j=>j.masterId===mp.userId&&j.status==='Подтверждено').reduce((s,w)=>s+w.total,0);const rating=masterRatings[mp.userId]||0;return(<div key={mp.id} style={{padding:'10px 0',borderBottom:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{display:'flex',alignItems:'center',gap:'10px'}}><span style={{color:C.accent,fontWeight:'700'}}>{idx===0?'🥇':idx===1?'🥈':idx===2?'🥉':(idx+1)+'.'}</span><div><b style={{fontSize:'13px',color:C.text}}>{mp.fullName}</b><p style={{color:C.textSec,fontSize:'11px',margin:'1px 0'}}>{mp.specialization}</p></div></div><b style={{color:C.success,fontSize:'13px'}}>{total.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',gap:'3px',marginTop:'4px'}}>{[1,2,3,4,5].map(star=>(<Star key={star} size={13} onClick={()=>ratemaster(mp.userId,star)} style={{cursor:'pointer',color:star<=rating?C.warning:C.border,fill:star<=rating?C.warning:'none'}}/>))}</div></div>);})}{masterProfiles.length===0&&<p style={{color:C.textMuted,textAlign:'center',fontSize:'13px'}}>Нет мастеров</p>}</div>
           </div>
-          <div style={{...card,padding:'20px'}}><h3 style={{marginBottom:'15px',color:C.text,fontSize:'15px',fontWeight:'700'}}>🤝 Воронка продаж</h3><div style={{display:'flex',gap:'10px'}}>{CRM_STAGES.map(stage=>{const count=leads.filter(l=>l.stage===stage).length;return(<div key={stage} style={{flex:1,backgroundColor:C.bg,padding:'16px',borderRadius:'10px',textAlign:'center',borderTop:'3px solid '+({'Новый':'#3b82f6','Переговоры':'#f97316','КП отправлено':'#8b5cf6','Договор':'#10b981','Отказ':'#ef4444'}[stage]||'#6b7280')}}><div style={{fontSize:'24px',fontWeight:'800',color:({'Новый':'#3b82f6','Переговоры':'#f97316','КП отправлено':'#8b5cf6','Договор':'#10b981','Отказ':'#ef4444'}[stage]||'#6b7280')}}>{count}</div><div style={{fontSize:'11px',color:C.textSec,marginTop:'4px'}}>{stage}</div></div>);})}</div></div>
         </div>)}
 
-        {activePage==='crm'&&(<div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}><div/><button onClick={()=>{setShowForm(!showForm);setEditingItem(null);}} style={btnO}><Plus size={16}/>Новый лид</button></div>
-          {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Имя *" value={newLead.name} onChange={e=>setNewLead({...newLead,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Телефон" value={newLead.phone} onChange={e=>setNewLead({...newLead,phone:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Бюджет" type="number" value={newLead.budget} onChange={e=>setNewLead({...newLead,budget:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newLead.stage} onChange={e=>setNewLead({...newLead,stage:e.target.value})} style={{...inp,marginBottom:0}}>{CRM_STAGES.map(s=><option key={s} value={s}>{s}</option>)}</select></div><textarea placeholder="Заметки" value={newLead.notes} onChange={e=>setNewLead({...newLead,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical',marginTop:'10px'}}/><button onClick={()=>{if(!newLead.name) return;editingItem?saveLead({...editingItem,...newLead}):saveLead(newLead);setShowForm(false);setEditingItem(null);}} style={{...btnO,marginTop:'10px'}}>Сохранить</button></div>)}
-          <div style={{display:'flex',gap:'12px',overflowX:'auto',paddingBottom:'10px'}}>{CRM_STAGES.map(stage=>{const stageLeads=leads.filter(l=>l.stage===stage);const sc={'Новый':'#3b82f6','Переговоры':'#f97316','КП отправлено':'#8b5cf6','Договор':'#10b981','Отказ':'#ef4444'}[stage]||'#6b7280';return(<div key={stage} style={{minWidth:'220px',backgroundColor:C.bgWhite,borderRadius:'12px',padding:'16px',borderTop:'3px solid '+sc,border:'1.5px solid '+C.border,flexShrink:0}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}><b style={{color:sc,fontSize:'13px',fontWeight:'700'}}>{stage}</b><span style={{backgroundColor:C.bgGray,color:C.textSec,padding:'2px 8px',borderRadius:'20px',fontSize:'11px'}}>{stageLeads.length}</span></div>{stageLeads.map(lead=>(<div key={lead.id} style={{backgroundColor:C.bg,padding:'12px',borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}><b style={{fontSize:'13px',color:C.text}}>{lead.name}</b>{lead.phone&&<p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{lead.phone}</p>}{lead.budget&&<p style={{color:C.accent,margin:'4px 0',fontSize:'12px',fontWeight:'700'}}>{Number(lead.budget).toLocaleString()+' ₽'}</p>}<div style={{display:'flex',gap:'4px',marginTop:'8px',flexWrap:'wrap'}}>{CRM_STAGES.filter(s=>s!==stage).map(s=>(<button key={s} onClick={()=>saveLead({...lead,stage:s})} style={{padding:'2px 6px',backgroundColor:'transparent',color:({'Новый':'#3b82f6','Переговоры':'#f97316','КП отправлено':'#8b5cf6','Договор':'#10b981','Отказ':'#ef4444'}[s]||'#6b7280'),border:'1px solid '+({'Новый':'#3b82f6','Переговоры':'#f97316','КП отправлено':'#8b5cf6','Договор':'#10b981','Отказ':'#ef4444'}[s]||'#6b7280'),borderRadius:'4px',cursor:'pointer',fontSize:'10px'}}>{s}</button>))}</div><div style={{display:'flex',gap:'5px',marginTop:'6px'}}><button onClick={()=>{setEditingItem(lead);setNewLead({...lead});setShowForm(true);}} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><Edit2 size={11}/></button><button onClick={()=>deleteLead(lead.id)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><Trash2 size={11}/></button></div></div>))}</div>);})}</div>
-        </div>)}
-
-        {activePage==='activitylog'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}><div/><button onClick={()=>exportToExcel(activityLog.map(e=>({Пользователь:e.user,Действие:e.action,Время:e.time})),'log')} style={btnG}><Download size={14}/>Excel</button></div><div style={{...card,padding:'20px'}}>{activityLog.map(entry=>(<div key={entry.id} style={{padding:'10px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between'}}><p style={{margin:0,fontSize:'13px',color:C.text}}><b style={{color:roleColor(entry.role)}}>{entry.user}</b>{' — '+entry.action}</p><span style={{color:C.textMuted,fontSize:'11px',whiteSpace:'nowrap',marginLeft:'10px'}}>{entry.time}</span></div>))}{activityLog.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Нет действий</p>}</div></div>)}
-
-        {activePage==='companychat'&&(<div>
-          <div style={{...card,padding:'20px'}}>
-            <div style={{backgroundColor:C.bg,borderRadius:'12px',padding:'16px',minHeight:'420px',maxHeight:'520px',overflowY:'auto',marginBottom:'16px',display:'flex',flexDirection:'column',gap:'10px',border:'1.5px solid '+C.border}}>
-              {companyChat.length===0&&<p style={{color:C.textMuted,textAlign:'center',margin:'auto'}}>Сообщений нет</p>}
-              {companyChat.map(msg=>{const isMe=msg.author===user.name;return(<div key={msg.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start'}}><div style={{maxWidth:'70%',backgroundColor:isMe?C.accent:'white',color:isMe?'white':C.text,padding:'10px 14px',borderRadius:isMe?'16px 16px 4px 16px':'16px 16px 16px 4px',border:'1.5px solid '+(isMe?C.accent:C.border)}}>{!isMe&&<div style={{fontSize:'11px',fontWeight:'700',color:roleColor(msg.role),marginBottom:'4px'}}>{msg.author+' · '+(ROLE_LABELS[msg.role]||msg.role)}</div>}{msg.text&&<p style={{margin:0,fontSize:'14px'}}>{msg.text}</p>}{msg.photoUrl&&<img src={API+msg.photoUrl} alt="" onClick={()=>setShowPhotoModal(API+msg.photoUrl)} style={{maxWidth:'200px',borderRadius:'8px',marginTop:'6px',cursor:'pointer',display:'block'}}/>}<div style={{fontSize:'10px',color:isMe?'rgba(255,255,255,0.6)':C.textMuted,marginTop:'4px',textAlign:'right'}}>{msg.time}</div></div></div>);})}
+        {activePage==='weather'&&(<div>
+          <div style={{display:'flex',gap:'8px',marginBottom:'20px'}}>
+            {[{id:'log',label:'📋 Журнал погоды'},{id:'add',label:'+ Добавить запись'}].map(t=>(<button key={t.id} onClick={()=>setWeatherTab(t.id)} style={{padding:'9px 18px',borderRadius:'8px',border:'1.5px solid '+(weatherTab===t.id?C.accent:C.border),cursor:'pointer',backgroundColor:weatherTab===t.id?C.accentLight:'transparent',color:weatherTab===t.id?C.accent:C.textSec,fontWeight:'600',fontSize:'13px'}}>{t.label}</button>))}
+          </div>
+          {weatherTab==='add'&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px'}}>
+              <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Объект</label><select value={newWeather.projectName} onChange={e=>setNewWeather({...newWeather,projectName:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select></div>
+              <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Дата</label><input type="date" value={newWeather.date} onChange={e=>setNewWeather({...newWeather,date:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+              <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Погода</label><select value={newWeather.condition} onChange={e=>setNewWeather({...newWeather,condition:e.target.value})} style={{...inp,marginBottom:0}}>{WEATHER_CONDITIONS.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+              <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Температура (°C)</label><input type="number" placeholder="0" value={newWeather.temperature} onChange={e=>setNewWeather({...newWeather,temperature:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+              <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Ветер (м/с)</label><input type="number" placeholder="0" value={newWeather.windSpeed} onChange={e=>setNewWeather({...newWeather,windSpeed:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+              <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Примечание</label><input placeholder="Остановили работы..." value={newWeather.notes} onChange={e=>setNewWeather({...newWeather,notes:e.target.value})} style={{...inp,marginBottom:0}}/></div>
             </div>
-            <div style={{display:'flex',gap:'10px',alignItems:'flex-end'}}>
-              <div style={{flex:1}}>
-                <textarea placeholder="Написать..." value={companyChatMessage} onChange={e=>setCompanyChatMessage(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendCompanyChatMessage(companyChatMessage,'');}}} style={{...inp,marginBottom:'8px',resize:'none',height:'55px'}}/>
-                <label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'6px 12px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}><Upload size={13}/>Фото<input type="file" accept="image/*" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);sendCompanyChatMessage('',url);}}}/></label>
-              </div>
-              <button onClick={()=>sendCompanyChatMessage(companyChatMessage,'')} style={{...btnO,padding:'14px 22px',alignSelf:'flex-start'}}>➤</button>
+            <button onClick={saveWeather} style={{...btnO,marginTop:'12px'}}><Check size={14}/>Сохранить запись</button>
+          </div>)}
+          {weatherTab==='log'&&(<div>
+            {projects.map(proj=>{
+              const projWeather=weatherLog.filter(w=>w.projectName===proj.name);
+              if(projWeather.length===0) return null;
+              return(<div key={proj.id} style={{...card,marginBottom:'12px'}}>
+                <div style={{padding:'14px 16px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <b style={{color:C.text,fontSize:'14px'}}>{'🏗️ '+proj.name}</b>
+                  <button onClick={()=>{const html=buildJPRContent(proj.name);showPreview(html,'ЖПР — '+proj.name);}} style={{...btnB,fontSize:'12px',padding:'4px 10px'}}><Eye size={13}/>ЖПР</button>
+                </div>
+                <div style={{overflowX:'auto'}}>
+                  <table style={tbl}><thead><tr><th style={tblH}>Дата</th><th style={tblH}>Погода</th><th style={tblH}>Темп.</th><th style={tblH}>Ветер</th><th style={tblH}>Примечание</th><th style={tblH}>Кто</th></tr></thead><tbody>
+                    {projWeather.map(w=>(<tr key={w.id}><td style={tblC}>{w.date}</td><td style={tblC}>{w.condition}</td><td style={tblC}>{w.temperature>0?'+':''}{w.temperature}°C</td><td style={{...tblC,color:w.windSpeed>15?C.danger:C.textSec}}>{w.windSpeed+' м/с'}{w.windSpeed>15&&' ⚠️'}</td><td style={{...tblC,color:C.textSec,fontSize:'11px'}}>{w.notes||'—'}</td><td style={{...tblC,color:C.textSec,fontSize:'11px'}}>{w.createdBy}</td></tr>))}
+                  </tbody></table>
+                </div>
+              </div>);
+            })}
+            {weatherLog.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Записей нет. Добавьте первую!</div>}
+          </div>)}
+        </div>)}
+
+        {activePage==='estimates'&&(<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
+            <div style={{display:'flex',gap:'8px'}}>
+              {[{id:'list',label:'Сметы'},{id:'new',label:'+ Новая смета'}].map(t=>(<button key={t.id} onClick={()=>setEstimatesTab(t.id)} style={{padding:'9px 18px',borderRadius:'8px',border:'1.5px solid '+(estimatesTab===t.id?C.accent:C.border),cursor:'pointer',backgroundColor:estimatesTab===t.id?C.accentLight:'transparent',color:estimatesTab===t.id?C.accent:C.textSec,fontWeight:'600',fontSize:'13px'}}>{t.label}</button>))}
             </div>
           </div>
+          {estimatesTab==='new'&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
+            <h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>Новая смета</h3>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',marginBottom:'16px'}}>
+              <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Объект *</label><select value={newEstimate.projectId} onChange={e=>{const p=projects.find(p=>p.id===Number(e.target.value));setNewEstimate({...newEstimate,projectId:e.target.value,projectName:p?.name||''});}} style={{...inp,marginBottom:0}}><option value="">Выберите</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+              <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Название сметы</label><input placeholder="Смета на отделку" value={newEstimate.name} onChange={e=>setNewEstimate({...newEstimate,name:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+              <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Версия</label><input placeholder="1.0" value={newEstimate.version} onChange={e=>setNewEstimate({...newEstimate,version:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+            </div>
+            <div style={{backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,padding:'12px',borderRadius:'8px',marginBottom:'12px'}}>
+              <b style={{color:C.warning,fontSize:'13px'}}>📁 Импорт из Гранд Смета (XML)</b>
+              <label style={{cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'8px',marginLeft:'12px',backgroundColor:'white',padding:'5px 12px',borderRadius:'6px',fontSize:'12px',color:C.warning,border:'1.5px solid '+C.warningBorder}}>
+                Загрузить XML
+                <input type="file" accept=".xml" style={{display:'none'}} onChange={async e=>{
+                  if(e.target.files[0]) {
+                    const text = await e.target.files[0].text();
+                    const parser = new DOMParser();
+                    const xml = parser.parseFromString(text,'text/xml');
+                    const items = xml.querySelectorAll('Position,position,row,Row');
+                    if(items.length>0) {
+                      const parsed = Array.from(items).map(item=>({
+                        name:item.querySelector('Name,name')?.textContent||item.getAttribute('name')||'',
+                        unit:item.querySelector('Unit,unit')?.textContent||'шт',
+                        quantity:Number(item.querySelector('Quantity,quantity')?.textContent||0),
+                        priceWork:Number(item.querySelector('PriceWork,price_work')?.textContent||0),
+                        priceMaterial:Number(item.querySelector('PriceMaterial,price_material')?.textContent||0),
+                      })).filter(i=>i.name);
+                      alert('Загружено '+parsed.length+' позиций из XML!');
+                    } else {
+                      alert('Позиции не найдены в XML файле');
+                    }
+                  }
+                }}/>
+              </label>
+            </div>
+            <button onClick={()=>{if(!newEstimate.projectId||!newEstimate.name) return;const est={...newEstimate,id:Date.now(),status:'Черновик',totalAmount:0,createdBy:user.name,createdAt:new Date().toISOString().split('T')[0],sections:[],items:[]};setEstimatesList(prev=>[...prev,est]);setSelectedEstimate(est);setEstimatesTab('list');}} style={btnO}><Plus size={14}/>Создать смету</button>
+          </div>)}
+          {estimatesTab==='list'&&!selectedEstimate&&(<div>
+            {estimatesList.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Смет нет. Создайте первую!</div>}
+            {estimatesList.map(est=>(<div key={est.id} style={{...card,padding:'16px',marginBottom:'10px',cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div><b style={{color:C.text,fontSize:'14px'}}>{est.name}</b><p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{est.projectName+' · v'+est.version+' · '+est.createdAt}</p></div>
+                <div style={{display:'flex',gap:'8px',alignItems:'center'}}><span style={badge(est.status==='Утверждена'?C.success:C.warning,est.status==='Утверждена'?C.successLight:C.warningLight,est.status==='Утверждена'?C.successBorder:C.warningBorder)}>{est.status}</span><button onClick={e=>{e.stopPropagation();setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));}} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><Trash2 size={11}/></button></div>
+              </div>
+            </div>))}
+          </div>)}
+          {selectedEstimate&&(<div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
+              <div><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>{selectedEstimate.name}</h3><p style={{color:C.textSec,margin:'4px 0',fontSize:'13px'}}>{selectedEstimate.projectName+' · v'+selectedEstimate.version}</p></div>
+              <div style={{display:'flex',gap:'8px'}}>
+                <button onClick={()=>setSelectedEstimate(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
+              </div>
+            </div>
+            <div style={{...card,padding:'16px',marginBottom:'16px'}}>
+              <h4 style={{color:C.text,marginBottom:'12px',fontSize:'13px',fontWeight:'600'}}>Добавить раздел и позицию:</h4>
+              <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr',gap:'8px',marginBottom:'8px',alignItems:'end'}}>
+                <div><label style={{fontSize:'10px',color:C.textSec,display:'block',marginBottom:'3px',fontWeight:'600',textTransform:'uppercase'}}>Раздел</label><input placeholder="Штукатурные работы" value={newEstimateSection.name} onChange={e=>setNewEstimateSection({name:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+                <div><label style={{fontSize:'10px',color:C.textSec,display:'block',marginBottom:'3px',fontWeight:'600',textTransform:'uppercase'}}>Наименование *</label><input placeholder="Штукатурка стен" value={newEstimateItem.name} onChange={e=>setNewEstimateItem({...newEstimateItem,name:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+                <div><label style={{fontSize:'10px',color:C.textSec,display:'block',marginBottom:'3px',fontWeight:'600',textTransform:'uppercase'}}>Ед./Кол-во</label><div style={{display:'flex',gap:'4px'}}><select value={newEstimateItem.unit} onChange={e=>setNewEstimateItem({...newEstimateItem,unit:e.target.value})} style={{...inp,marginBottom:0,width:'70px'}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select><input placeholder="0" type="number" value={newEstimateItem.quantity} onChange={e=>setNewEstimateItem({...newEstimateItem,quantity:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/></div></div>
+                <div><label style={{fontSize:'10px',color:C.textSec,display:'block',marginBottom:'3px',fontWeight:'600',textTransform:'uppercase'}}>Цена работ</label><input placeholder="0" type="number" value={newEstimateItem.priceWork} onChange={e=>setNewEstimateItem({...newEstimateItem,priceWork:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+                <div><label style={{fontSize:'10px',color:C.textSec,display:'block',marginBottom:'3px',fontWeight:'600',textTransform:'uppercase'}}>Цена мат.</label><input placeholder="0" type="number" value={newEstimateItem.priceMaterial} onChange={e=>setNewEstimateItem({...newEstimateItem,priceMaterial:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+              </div>
+              <button onClick={()=>{
+                if(!newEstimateItem.name) return;
+                const total=(Number(newEstimateItem.priceWork||0)+Number(newEstimateItem.priceMaterial||0))*Number(newEstimateItem.quantity||0);
+                const item={...newEstimateItem,id:Date.now(),section:newEstimateSection.name,total};
+                const updated={...selectedEstimate,items:[...(selectedEstimate.items||[]),item],totalAmount:(selectedEstimate.totalAmount||0)+total};
+                setSelectedEstimate(updated);
+                setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
+                setNewEstimateItem({sectionId:'',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});
+              }} style={btnO}><Plus size={14}/>Добавить позицию</button>
+            </div>
+            {(()=>{
+              const sections=[...new Set((selectedEstimate.items||[]).map(i=>i.section))];
+              const total=(selectedEstimate.items||[]).reduce((s,i)=>s+(i.total||0),0);
+              return(<div>
+                <div style={{...card,overflow:'hidden',marginBottom:'12px'}}>
+                  <table style={tbl}><thead><tr><th style={tblH}>Раздел / Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена работ</th><th style={tblH}>Цена мат.</th><th style={tblH}>Итого</th><th style={tblH}></th></tr></thead><tbody>
+                    {sections.map(sec=>(<React.Fragment key={sec||'nosec'}>
+                      {sec&&<tr><td colSpan={7} style={{...tblC,backgroundColor:C.bg,fontWeight:'700',color:C.accent,fontSize:'12px',textTransform:'uppercase'}}>{sec}</td></tr>}
+                      {(selectedEstimate.items||[]).filter(i=>i.section===sec).map(item=>(<tr key={item.id}>
+                        <td style={tblC}>{item.name}</td>
+                        <td style={{...tblC,color:C.textMuted}}>{item.unit}</td>
+                        <td style={tblC}>{item.quantity}</td>
+                        <td style={tblC}>{Number(item.priceWork||0).toLocaleString()+' ₽'}</td>
+                        <td style={tblC}>{Number(item.priceMaterial||0).toLocaleString()+' ₽'}</td>
+                        <td style={{...tblC,fontWeight:'600',color:C.success}}>{(item.total||0).toLocaleString()+' ₽'}</td>
+                        <td style={tblC}><button onClick={()=>{const updated={...selectedEstimate,items:(selectedEstimate.items||[]).filter(i=>i.id!==item.id)};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));}} style={{...btnR,padding:'2px 6px',fontSize:'10px'}}><Trash2 size={11}/></button></td>
+                      </tr>))}
+                    </React.Fragment>))}
+                    <tr style={{backgroundColor:C.accentLight}}><td colSpan={5} style={{...tblC,fontWeight:'800',fontSize:'14px'}}>ИТОГО:</td><td style={{...tblC,fontWeight:'800',fontSize:'14px',color:C.accent}}>{total.toLocaleString()+' ₽'}</td><td/></tr>
+                  </tbody></table>
+                </div>
+                <div style={{display:'flex',gap:'10px'}}>
+                  <button onClick={()=>exportToExcel((selectedEstimate.items||[]).map(i=>({Раздел:i.section,Наименование:i.name,Ед:i.unit,Количество:i.quantity,ЦенаРабот:i.priceWork,ЦенаМат:i.priceMaterial,Итого:i.total})),'smeta_'+selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
+                  <button onClick={()=>{const html='<h2>СМЕТА</h2><p>'+selectedEstimate.projectName+' · '+selectedEstimate.name+'</p><table><tr><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Работы</th><th>Материалы</th><th>Итого</th></tr>'+(selectedEstimate.items||[]).map(i=>'<tr><td>'+i.name+'</td><td>'+i.unit+'</td><td>'+i.quantity+'</td><td>'+Number(i.priceWork||0).toLocaleString()+'</td><td>'+Number(i.priceMaterial||0).toLocaleString()+'</td><td>'+Number(i.total||0).toLocaleString()+'</td></tr>').join('')+'<tr><td colspan="5"><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+'</b></td></tr></table><div class="signatures"><div class="sig"><div class="sig-line">Составил сметчик</div></div><div class="sig"><div class="sig-line">Утвердил директор</div></div></div>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
+                </div>
+              </div>);
+            })()}
+          </div>)}
         </div>)}
         {activePage==='warehouse'&&(<div>
           {(lowStock.length>0||lowMainStock.length>0)&&<div style={{backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,padding:'12px 16px',borderRadius:'10px',marginBottom:'20px',display:'flex',alignItems:'center',gap:'10px'}}><AlertTriangle size={16} color={C.warning}/><b style={{color:C.warning}}>Заканчиваются: </b><span style={{color:C.textSec,fontSize:'13px'}}>{[...lowStock,...lowMainStock].map(m=>m.name).join(', ')}</span></div>}
@@ -1445,20 +1795,20 @@ function App() {
                   <div><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>{selectedWarehouseProject.name}</h3><p style={{color:C.textSec,margin:'4px 0',fontSize:'13px'}}>{materials.filter(m=>m.project===selectedWarehouseProject.name).length+' позиций'}</p></div>
                   <button onClick={()=>setSelectedWarehouseProject(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
                 </div>
-                {showForm&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}><input placeholder="Название *" value={newMaterial.name} onChange={e=>setNewMaterial({...newMaterial,name:e.target.value,project:selectedWarehouseProject.name})} style={{...inp,marginBottom:0}}/><input placeholder="Кол-во" type="number" value={newMaterial.quantity} onChange={e=>setNewMaterial({...newMaterial,quantity:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Цена" type="number" value={newMaterial.price} onChange={e=>setNewMaterial({...newMaterial,price:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Мин." type="number" value={newMaterial.minQuantity} onChange={e=>setNewMaterial({...newMaterial,minQuantity:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newMaterial.unit} onChange={e=>setNewMaterial({...newMaterial,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select><button onClick={saveMaterial} style={btnO}><Check size={14}/></button></div><div style={{marginTop:'8px',display:'flex',gap:'8px'}}><select value={newMaterial.category} onChange={e=>setNewMaterial({...newMaterial,category:e.target.value})} style={{...inp,marginBottom:0,flex:1}}><option value="">Категория</option>{MATERIAL_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnR}><X size={14}/></button></div></div>)}
+                {showForm&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}><input placeholder="Название *" value={newMaterial.name} onChange={e=>setNewMaterial({...newMaterial,name:e.target.value,project:selectedWarehouseProject.name})} style={{...inp,marginBottom:0}}/><input placeholder="Кол-во" type="number" value={newMaterial.quantity} onChange={e=>setNewMaterial({...newMaterial,quantity:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Цена" type="number" value={newMaterial.price} onChange={e=>setNewMaterial({...newMaterial,price:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Мин." type="number" value={newMaterial.minQuantity} onChange={e=>setNewMaterial({...newMaterial,minQuantity:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newMaterial.unit} onChange={e=>setNewMaterial({...newMaterial,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select><button onClick={saveMaterial} style={btnO}><Check size={14}/></button></div><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={{...btnG,marginTop:'8px'}}><X size={14}/>Отмена</button></div>)}
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
                   <b style={{color:C.accent,fontSize:'16px'}}>{materials.filter(m=>m.project===selectedWarehouseProject.name).reduce((s,m)=>s+m.price*m.quantity,0).toLocaleString()+' ₽'}</b>
                   <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewMaterial({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',project:selectedWarehouseProject.name,category:''});}} style={btnO}><Plus size={16}/>Материал</button>
                 </div>
                 <div style={{...card,overflow:'hidden'}}>
-                  <table style={tbl}><thead><tr><th style={tblH}>Название</th><th style={tblH}>Кол-во</th><th style={tblH}>Мин.</th><th style={tblH}>Ед.</th><th style={tblH}>Цена</th><th style={tblH}>Категория</th><th style={tblH}></th></tr></thead><tbody>
+                  <table style={tbl}><thead><tr><th style={tblH}>Название</th><th style={tblH}>Остаток</th><th style={tblH}>Мин.</th><th style={tblH}>Ед.</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}></th></tr></thead><tbody>
                     {materials.filter(m=>m.project===selectedWarehouseProject.name).map(m=>(<tr key={m.id} style={{backgroundColor:m.quantity===0?C.dangerLight:m.minQuantity&&m.quantity<m.minQuantity?C.warningLight:'white'}}>
-                      <td style={tblC}><b style={{color:C.text}}>{m.name}</b></td>
+                      <td style={tblC}><b>{m.name}</b>{m.category&&<span style={{color:C.textMuted,fontSize:'11px'}}>{' · '+m.category}</span>}</td>
                       <td style={tblC}><b style={{color:m.quantity===0?C.danger:m.minQuantity&&m.quantity<m.minQuantity?C.warning:C.success}}>{m.quantity}</b></td>
                       <td style={{...tblC,color:C.textMuted}}>{m.minQuantity||'—'}</td>
                       <td style={{...tblC,color:C.textMuted}}>{m.unit}</td>
                       <td style={tblC}>{m.price.toLocaleString()+' ₽'}</td>
-                      <td style={{...tblC,color:C.textMuted,fontSize:'11px'}}>{m.category||'—'}</td>
+                      <td style={{...tblC,color:C.accent,fontWeight:'600'}}>{(m.price*m.quantity).toLocaleString()+' ₽'}</td>
                       <td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(m);setNewMaterial({...m,quantity:String(m.quantity),price:String(m.price)});setShowForm(true);}} style={{...btnG,padding:'3px 6px'}}><Edit2 size={11}/></button><button onClick={()=>deleteMaterial(m.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button></div></td>
                     </tr>))}
                   </tbody></table>
@@ -1470,20 +1820,20 @@ function App() {
 
           {warehouseTab==='main'&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>🏠 Основной склад</h3><button onClick={()=>{setShowForm(!showForm);setEditingItem(null);}} style={btnO}><Plus size={16}/>Материал</button></div>
-            {showForm&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}><input placeholder="Название *" value={newMainMaterial.name} onChange={e=>setNewMainMaterial({...newMainMaterial,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Кол-во" type="number" value={newMainMaterial.quantity} onChange={e=>setNewMainMaterial({...newMainMaterial,quantity:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Цена" type="number" value={newMainMaterial.price} onChange={e=>setNewMainMaterial({...newMainMaterial,price:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Мин." type="number" value={newMainMaterial.minQuantity} onChange={e=>setNewMainMaterial({...newMainMaterial,minQuantity:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newMainMaterial.unit} onChange={e=>setNewMainMaterial({...newMainMaterial,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select><button onClick={saveMainMaterial} style={btnO}><Check size={14}/></button></div><div style={{marginTop:'8px',display:'flex',gap:'8px'}}><select value={newMainMaterial.category} onChange={e=>setNewMainMaterial({...newMainMaterial,category:e.target.value})} style={{...inp,marginBottom:0,flex:1}}><option value="">Категория</option>{MATERIAL_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnR}><X size={14}/></button></div></div>)}
+            {showForm&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}><input placeholder="Название *" value={newMainMaterial.name} onChange={e=>setNewMainMaterial({...newMainMaterial,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Кол-во" type="number" value={newMainMaterial.quantity} onChange={e=>setNewMainMaterial({...newMainMaterial,quantity:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Цена" type="number" value={newMainMaterial.price} onChange={e=>setNewMainMaterial({...newMainMaterial,price:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Мин." type="number" value={newMainMaterial.minQuantity} onChange={e=>setNewMainMaterial({...newMainMaterial,minQuantity:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newMainMaterial.unit} onChange={e=>setNewMainMaterial({...newMainMaterial,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select><button onClick={saveMainMaterial} style={btnO}><Check size={14}/></button></div><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={{...btnG,marginTop:'8px'}}><X size={14}/>Отмена</button></div>)}
             <div style={{backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,padding:'12px 20px',borderRadius:'10px',marginBottom:'16px',display:'flex',justifyContent:'space-between'}}>
-              <b style={{color:C.text}}>Итого:</b>
+              <b style={{color:C.text}}>Итого на основном складе:</b>
               <b style={{color:C.accent,fontSize:'16px'}}>{warehouseMain.reduce((s,m)=>s+m.price*m.quantity,0).toLocaleString()+' ₽'}</b>
             </div>
             <div style={{...card,overflow:'hidden'}}>
-              <table style={tbl}><thead><tr><th style={tblH}>Название</th><th style={tblH}>Кол-во</th><th style={tblH}>Мин.</th><th style={tblH}>Ед.</th><th style={tblH}>Цена</th><th style={tblH}>Категория</th><th style={tblH}></th></tr></thead><tbody>
+              <table style={tbl}><thead><tr><th style={tblH}>Название</th><th style={tblH}>Остаток</th><th style={tblH}>Мин.</th><th style={tblH}>Ед.</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}></th></tr></thead><tbody>
                 {warehouseMain.map(m=>(<tr key={m.id} style={{backgroundColor:m.quantity===0?C.dangerLight:m.minQuantity&&m.quantity<m.minQuantity?C.warningLight:'white'}}>
-                  <td style={tblC}><b style={{color:C.text}}>{m.name}</b></td>
+                  <td style={tblC}><b>{m.name}</b>{m.category&&<span style={{color:C.textMuted,fontSize:'11px'}}>{' · '+m.category}</span>}</td>
                   <td style={tblC}><b style={{color:m.quantity===0?C.danger:m.minQuantity&&m.quantity<m.minQuantity?C.warning:C.success}}>{m.quantity}</b></td>
                   <td style={{...tblC,color:C.textMuted}}>{m.minQuantity||'—'}</td>
                   <td style={{...tblC,color:C.textMuted}}>{m.unit}</td>
                   <td style={tblC}>{m.price.toLocaleString()+' ₽'}</td>
-                  <td style={{...tblC,color:C.textMuted,fontSize:'11px'}}>{m.category||'—'}</td>
+                  <td style={{...tblC,color:C.accent,fontWeight:'600'}}>{(m.price*m.quantity).toLocaleString()+' ₽'}</td>
                   <td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(m);setNewMainMaterial({...m,quantity:String(m.quantity),price:String(m.price)});setShowForm(true);}} style={{...btnG,padding:'3px 6px'}}><Edit2 size={11}/></button><button onClick={()=>deleteMainMaterial(m.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button></div></td>
                 </tr>))}
               </tbody></table>
@@ -1494,15 +1844,15 @@ function App() {
           {warehouseTab==='movement'&&(<div>
             <h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>📥 Приход / Выдача</h3>
             <div style={{...card,padding:'20px',marginBottom:'16px'}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'10px',marginBottom:'16px'}}>
-                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Накладная №</label><input placeholder="№ накладной" value={newInvoice.number} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'10px',marginBottom:'12px'}}>
+                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Накладная №</label><input placeholder="№" value={newInvoice.number} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={{...inp,marginBottom:0}}/></div>
                 <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Дата</label><input type="date" value={newInvoice.date} onChange={e=>setNewInvoice({...newInvoice,date:e.target.value})} style={{...inp,marginBottom:0}}/></div>
                 <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Поставщик</label>
-                  {newInvoice.isNewSupplier?(<div style={{display:'flex',gap:'6px'}}><input placeholder="Новый поставщик" value={newInvoice.newSupplierName} onChange={e=>setNewInvoice({...newInvoice,newSupplierName:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/><button onClick={()=>setNewInvoice({...newInvoice,isNewSupplier:false})} style={{...btnR,padding:'0 8px'}}><X size={12}/></button></div>):(<div style={{display:'flex',gap:'6px'}}><select value={newInvoice.supplierId} onChange={e=>setNewInvoice({...newInvoice,supplierId:e.target.value})} style={{...inp,marginBottom:0,flex:1}}><option value="">Выберите...</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><button onClick={()=>setNewInvoice({...newInvoice,isNewSupplier:true})} style={{...btnO,padding:'0 8px'}}><Plus size={12}/></button></div>)}
+                  {newInvoice.isNewSupplier?(<div style={{display:'flex',gap:'4px'}}><input placeholder="Новый" value={newInvoice.newSupplierName} onChange={e=>setNewInvoice({...newInvoice,newSupplierName:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/><button onClick={()=>setNewInvoice({...newInvoice,isNewSupplier:false})} style={{...btnR,padding:'0 6px'}}><X size={12}/></button></div>):(<div style={{display:'flex',gap:'4px'}}><select value={newInvoice.supplierId} onChange={e=>setNewInvoice({...newInvoice,supplierId:e.target.value})} style={{...inp,marginBottom:0,flex:1}}><option value="">Выбрать...</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><button onClick={()=>setNewInvoice({...newInvoice,isNewSupplier:true})} style={{...btnO,padding:'0 8px'}}><Plus size={12}/></button></div>)}
                 </div>
-                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Принял</label><input placeholder="ФИО принявшего" value={newInvoice.acceptedBy} onChange={e=>setNewInvoice({...newInvoice,acceptedBy:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Принял</label><input placeholder="ФИО" value={newInvoice.acceptedBy} onChange={e=>setNewInvoice({...newInvoice,acceptedBy:e.target.value})} style={{...inp,marginBottom:0}}/></div>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',marginBottom:'16px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',marginBottom:'12px'}}>
                 <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Место приёмки</label>
                   <select value={newInvoice.location} onChange={e=>setNewInvoice({...newInvoice,location:e.target.value,project:''})} style={{...inp,marginBottom:0}}>
                     <option value="Основной склад">🏠 Основной склад</option>
@@ -1511,78 +1861,61 @@ function App() {
                 </div>
                 <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>НДС</label><select value={newInvoice.vat} onChange={e=>setNewInvoice({...newInvoice,vat:e.target.value})} style={{...inp,marginBottom:0}}>{VAT_OPTIONS.map(v=><option key={v} value={v}>{v}</option>)}</select></div>
                 <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Фото накладной</label>
-                  {newInvoice.photoUrl?(<div style={{display:'flex',alignItems:'center',gap:'8px'}}><CheckCircle size={16} color={C.success}/><span style={{color:C.success,fontSize:'12px'}}>Загружено</span><button onClick={()=>setNewInvoice({...newInvoice,photoUrl:''})} style={{...btnR,padding:'2px 6px',fontSize:'11px'}}><X size={11}/></button></div>):(<label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 12px',borderRadius:'8px',fontSize:'12px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}><Upload size={13}/>Фото<input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewInvoice(prev=>({...prev,photoUrl:url}));}}}/></label>)}
+                  {newInvoice.photoUrl?(<div style={{display:'flex',alignItems:'center',gap:'6px'}}><img src={API+newInvoice.photoUrl} alt="" style={{width:'40px',height:'30px',objectFit:'cover',borderRadius:'4px',cursor:'pointer'}} onClick={()=>setShowPhotoModal(API+newInvoice.photoUrl)}/><button onClick={()=>setNewInvoice({...newInvoice,photoUrl:''})} style={{...btnR,padding:'2px 6px',fontSize:'11px'}}><X size={11}/></button></div>):(<label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'7px 12px',borderRadius:'7px',fontSize:'12px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}><Upload size={13}/>Фото<input type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewInvoice(prev=>({...prev,photoUrl:url}));}}}/></label>)}
                 </div>
               </div>
-              <div style={{backgroundColor:C.bg,padding:'12px',borderRadius:'8px',border:'1.5px solid '+C.border,marginBottom:'12px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr auto',gap:'8px',marginBottom:'8px'}}>
-                  <b style={{...tblH,padding:'4px 0'}}>Наименование товара</b>
-                  <b style={{...tblH,padding:'4px 0'}}>Кол-во</b>
-                  <b style={{...tblH,padding:'4px 0'}}>Ед.</b>
-                  <b style={{...tblH,padding:'4px 0'}}>Цена</b>
+              <div style={{backgroundColor:C.bg,padding:'12px',borderRadius:'8px',border:'1.5px solid '+C.border,marginBottom:'10px'}}>
+                <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr auto',gap:'8px',marginBottom:'6px'}}>
+                  <b style={{fontSize:'11px',color:C.textSec,fontWeight:'600',textTransform:'uppercase'}}>Наименование товара</b>
+                  <b style={{fontSize:'11px',color:C.textSec,fontWeight:'600',textTransform:'uppercase'}}>Кол-во</b>
+                  <b style={{fontSize:'11px',color:C.textSec,fontWeight:'600',textTransform:'uppercase'}}>Ед.</b>
+                  <b style={{fontSize:'11px',color:C.textSec,fontWeight:'600',textTransform:'uppercase'}}>Цена</b>
                   <div/>
                 </div>
-                {newInvoice.items.map((item,i)=>(<div key={i} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr auto',gap:'8px',marginBottom:'8px',alignItems:'center'}}>
+                {newInvoice.items.map((item,i)=>(<div key={i} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr auto',gap:'8px',marginBottom:'6px',alignItems:'center'}}>
                   <input placeholder="Наименование товара" value={item.name} onChange={e=>{const items=[...newInvoice.items];items[i]={...items[i],name:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Кол-во" type="number" value={item.quantity} onChange={e=>{const items=[...newInvoice.items];items[i]={...items[i],quantity:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0}}/>
+                  <input placeholder="0" type="number" value={item.quantity} onChange={e=>{const items=[...newInvoice.items];items[i]={...items[i],quantity:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0}}/>
                   <select value={item.unit} onChange={e=>{const items=[...newInvoice.items];items[i]={...items[i],unit:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select>
-                  <input placeholder="Цена" type="number" value={item.price||''} onChange={e=>{const items=[...newInvoice.items];items[i]={...items[i],price:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0}}/>
-                  {newInvoice.items.length>1&&<button onClick={()=>setNewInvoice({...newInvoice,items:newInvoice.items.filter((_,idx)=>idx!==i)})} style={{...btnR,padding:'6px 8px'}}><X size={13}/></button>}
+                  <input placeholder="0" type="number" value={item.price||''} onChange={e=>{const items=[...newInvoice.items];items[i]={...items[i],price:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0}}/>
+                  {newInvoice.items.length>1&&<button onClick={()=>setNewInvoice({...newInvoice,items:newInvoice.items.filter((_,idx)=>idx!==i)})} style={{...btnR,padding:'5px 7px'}}><X size={13}/></button>}
                 </div>))}
                 <button onClick={()=>setNewInvoice({...newInvoice,items:[...newInvoice.items,{name:'',quantity:'',unit:'шт',price:''}]})} style={{...btnB,fontSize:'12px',marginTop:'4px'}}><Plus size={13}/>Строка</button>
               </div>
-              {(()=>{const total=newInvoice.items.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.price||0),0);const vatCalc=calcVat(total,newInvoice.vat);return(<div style={{backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,padding:'12px 16px',borderRadius:'8px',marginBottom:'12px',display:'flex',gap:'20px',flexWrap:'wrap'}}>
-                <span style={{color:C.text,fontSize:'13px'}}>Итого без НДС: <b>{vatCalc.base.toLocaleString()+' ₽'}</b></span>
-                {newInvoice.vat==='С НДС 22%'&&<span style={{color:C.text,fontSize:'13px'}}>НДС 22%: <b>{vatCalc.vat.toLocaleString()+' ₽'}</b></span>}
-                <span style={{color:C.accent,fontSize:'14px',fontWeight:'700'}}>Итого: <b>{vatCalc.total.toLocaleString()+' ₽'}</b></span>
-              </div>);})()}
-              <div style={{backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,padding:'12px',borderRadius:'8px',marginBottom:'12px'}}>
-                <b style={{color:C.warning,fontSize:'13px'}}>🤖 ИИ распознавание накладной</b>
-                <label style={{cursor:"pointer",backgroundColor:C.warningLight,padding:"6px 14px",borderRadius:"6px",fontSize:"12px",color:C.warning,border:"1.5px solid "+C.warningBorder,display:"inline-flex",alignItems:"center",gap:"8px",marginLeft:"10px"}}>AI<input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewInvoice(prev=>({...prev,photoUrl:url}));}}}/></label>
+              {(()=>{const total=newInvoice.items.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.price||0),0);const vatCalc=calcVat(total,newInvoice.vat);return(<div style={{backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,padding:'10px 14px',borderRadius:'8px',marginBottom:'10px',display:'flex',gap:'20px',flexWrap:'wrap'}}><span style={{color:C.text,fontSize:'13px'}}>Без НДС: <b>{vatCalc.base.toLocaleString()+' ₽'}</b></span>{newInvoice.vat==='С НДС 22%'&&<span style={{color:C.text,fontSize:'13px'}}>НДС 22%: <b>{vatCalc.vat.toLocaleString()+' ₽'}</b></span>}<span style={{color:C.accent,fontSize:'14px',fontWeight:'700'}}>Итого: <b>{vatCalc.total.toLocaleString()+' ₽'}</b></span></div>);})()}
+              <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
+                <label style={{cursor:"pointer",backgroundColor:C.warningLight,padding:"7px 12px",borderRadius:"7px",fontSize:"12px",color:C.warning,border:"1.5px solid "+C.warningBorder,display:"inline-flex",alignItems:"center",gap:"6px"}}>{aiLoading?"...":"AI"}<input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewInvoice(prev=>({...prev,photoUrl:url}));}}}/></label>
+                <button onClick={saveInvoiceNew} style={{...btnO,flex:1,justifyContent:'center'}}><Check size={16}/>Принять накладную</button>
               </div>
-              <button onClick={saveInvoiceNew} style={{...btnO,width:'100%',padding:'12px',justifyContent:'center',fontSize:'14px'}}><Check size={16}/>Принять накладную</button>
             </div>
-            <h4 style={{color:C.text,marginBottom:'12px',fontWeight:'600'}}>История накладных</h4>
-            {invoices.slice(0,20).map(inv=>{const sup=suppliers.find(s=>s.id===inv.supplierId);const vatCalc=calcVat(inv.totalBase||0,inv.vat||'Без НДС');return(<div key={inv.id} style={{...card,padding:'16px',marginBottom:'10px'}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                <div style={{flex:1}}>
-                  <div style={{display:'flex',gap:'12px',alignItems:'center',marginBottom:'8px'}}>
-                    {inv.photoUrl&&<img src={API+inv.photoUrl} alt="" onClick={()=>setShowPhotoModal(API+inv.photoUrl)} style={{width:'50px',height:'38px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',border:'1.5px solid '+C.border}}/>}
-                    <div>
-                      <b style={{color:C.text,fontSize:'14px'}}>{'Накладная № '+inv.number}</b>
-                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{inv.date+' · '+(sup?.name||inv.supplierName||'—')+' · Принял: '+inv.acceptedBy}</p>
-                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(inv.location==='Основной склад'?'🏠 Основной склад':'🏗️ '+inv.project)+' · '+inv.vat}</p>
-                    </div>
-                  </div>
-                  <div style={{display:'flex',gap:'12px',flexWrap:'wrap'}}>
-                    <span style={{color:C.text,fontSize:'12px'}}>{'Без НДС: '+vatCalc.base.toLocaleString()+' ₽'}</span>
-                    {inv.vat==='С НДС 22%'&&<span style={{color:C.textSec,fontSize:'12px'}}>{'НДС: '+vatCalc.vat.toLocaleString()+' ₽'}</span>}
-                    <b style={{color:C.accent,fontSize:'13px'}}>{'Итого: '+(inv.totalBase||0).toLocaleString()+' ₽'}</b>
-                  </div>
-                </div>
-                <div style={{display:'flex',gap:'6px',marginLeft:'10px'}}>
-                  <button onClick={()=>showPreview(buildInvoiceContent(inv),'Накладная №'+inv.number)} style={btnB}><Eye size={13}/></button>
-                  <button onClick={()=>doPrint(buildInvoiceContent(inv))} style={btnO}><Printer size={13}/></button>
-                </div>
-              </div>
-            </div>);})}
-            {invoices.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Накладных нет</div>}
+            <h4 style={{color:C.text,marginBottom:'12px',fontWeight:'600'}}>История накладных ({invoices.length})</h4>
+            {invoices.slice(0,20).map(inv=>{const sup=suppliers.find(s=>s.id===inv.supplierId);return(<div key={inv.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div style={{display:'flex',gap:'10px',flex:1}}>{inv.photoUrl&&<img src={API+inv.photoUrl} alt="" onClick={()=>setShowPhotoModal(API+inv.photoUrl)} style={{width:'44px',height:'33px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',border:'1.5px solid '+C.border,flexShrink:0}}/>}<div><b style={{color:C.text,fontSize:'13px'}}>{'Накладная № '+inv.number}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{inv.date+' · '+(sup?.name||inv.supplierName||'—')+' · '+(inv.location==='Основной склад'?'Осн. склад':inv.project||'')+' · '+inv.vat}</p><b style={{color:C.accent,fontSize:'13px'}}>{Number(inv.totalBase||0).toLocaleString()+' ₽'}</b></div></div><div style={{display:'flex',gap:'4px'}}><button onClick={()=>showPreview(buildInvoiceContent(inv),'Накладная')} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><Eye size={12}/></button><button onClick={()=>doPrint(buildInvoiceContent(inv))} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}><Printer size={12}/></button></div></div></div>);})}
+            {invoices.length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Накладных нет</div>}
           </div>)}
 
           {warehouseTab==='transfer'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>↔️ Перемещение</h3>
-            <div style={{...card,padding:'16px',marginBottom:'16px'}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr 1fr auto',gap:'10px',alignItems:'end'}}>
-                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Откуда</label><select value={newMovement.fromLocation} onChange={e=>setNewMovement({...newMovement,fromLocation:e.target.value})} style={{...inp,marginBottom:0}}><option value="Основной склад">🏠 Основной склад</option>{projects.map(p=><option key={p.id} value={p.name}>🏗️ {p.name}</option>)}</select></div>
-                <div style={{paddingBottom:'10px',fontSize:'20px',color:C.textMuted}}>→</div>
+            <h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>↔️ Перемещение между складами</h3>
+            <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:'10px',alignItems:'end',marginBottom:'12px'}}>
+                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Откуда</label><select value={newMovement.fromLocation} onChange={e=>setNewMovement({...newMovement,fromLocation:e.target.value,selectedMaterials:[]})} style={{...inp,marginBottom:0}}><option value="Основной склад">🏠 Основной склад</option>{projects.map(p=><option key={p.id} value={p.name}>🏗️ {p.name}</option>)}</select></div>
+                <div style={{paddingBottom:'10px',fontSize:'20px',color:C.textMuted,textAlign:'center'}}>→</div>
                 <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Куда</label><select value={newMovement.toLocation} onChange={e=>setNewMovement({...newMovement,toLocation:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Выберите...</option><option value="Основной склад">🏠 Основной склад</option>{projects.map(p=><option key={p.id} value={p.name}>🏗️ {p.name}</option>)}</select></div>
-                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Материал</label><input placeholder="Название" value={newMovement.materialName} onChange={e=>setNewMovement({...newMovement,materialName:e.target.value})} style={{...inp,marginBottom:0}}/></div>
-                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Кол-во</label><input placeholder="0" type="number" value={newMovement.quantity} onChange={e=>setNewMovement({...newMovement,quantity:e.target.value})} style={{...inp,marginBottom:0,width:'80px'}}/></div>
               </div>
-              <div style={{display:'flex',gap:'10px',marginTop:'10px',alignItems:'center'}}>
-                <select value={newMovement.unit} onChange={e=>setNewMovement({...newMovement,unit:e.target.value})} style={{...inp,marginBottom:0,width:'100px'}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select>
-                <input placeholder="Примечание" value={newMovement.notes} onChange={e=>setNewMovement({...newMovement,notes:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/>
+              <h4 style={{color:C.text,fontSize:'13px',fontWeight:'600',marginBottom:'10px'}}>Выберите материалы для перемещения:</h4>
+              <div style={{backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,marginBottom:'12px',maxHeight:'300px',overflowY:'auto'}}>
+                {(newMovement.fromLocation==='Основной склад'?warehouseMain:materials.filter(m=>m.project===newMovement.fromLocation)).map(m=>{
+                  const selected=newMovement.selectedMaterials?.find(s=>s.id===m.id);
+                  return(<div key={m.id} style={{padding:'10px 14px',borderBottom:'1px solid '+C.border,display:'flex',alignItems:'center',gap:'10px',backgroundColor:selected?C.accentLight:'transparent'}}>
+                    <input type="checkbox" checked={!!selected} onChange={e=>{if(e.target.checked) setNewMovement(prev=>({...prev,selectedMaterials:[...(prev.selectedMaterials||[]),{...m,quantity:''}]}));else setNewMovement(prev=>({...prev,selectedMaterials:(prev.selectedMaterials||[]).filter(s=>s.id!==m.id)}));}} style={{width:'16px',height:'16px',accentColor:C.accent}}/>
+                    <div style={{flex:1}}><b style={{fontSize:'13px',color:C.text}}>{m.name}</b><span style={{color:C.textSec,fontSize:'11px'}}>{' · Доступно: '+m.quantity+' '+m.unit}</span></div>
+                    {selected&&<input placeholder="Кол-во" type="number" max={m.quantity} value={selected.quantity||''} onChange={e=>{setNewMovement(prev=>({...prev,selectedMaterials:prev.selectedMaterials.map(s=>s.id===m.id?{...s,quantity:e.target.value}:s)}));}} style={{width:'80px',padding:'5px 8px',border:'1.5px solid '+C.accent,borderRadius:'6px',fontSize:'12px'}}/>}
+                  </div>);
+                })}
+                {(newMovement.fromLocation==='Основной склад'?warehouseMain:materials.filter(m=>m.project===newMovement.fromLocation)).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>Нет материалов</p>}
+              </div>
+              <input placeholder="Примечание" value={newMovement.notes} onChange={e=>setNewMovement({...newMovement,notes:e.target.value})} style={{...inp,marginBottom:'10px'}}/>
+              <div style={{display:'flex',gap:'10px'}}>
                 <button onClick={applyWarehouseMovement} style={btnO}><Check size={14}/>Переместить</button>
+                {(newMovement.selectedMaterials||[]).length>0&&<button onClick={()=>{const doc=buildMovementDoc(newMovement,newMovement.selectedMaterials.filter(m=>m.quantity>0));showPreview(doc,'Накладная на перемещение');}} style={btnB}><Eye size={14}/>Документ М-11</button>}
               </div>
             </div>
             <div style={{...card,overflow:'hidden'}}>
@@ -1596,64 +1929,91 @@ function App() {
           {warehouseTab==='tools'&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
               <div style={{display:'flex',gap:'8px'}}>
-                {[{id:'list',label:'Реестр'},{id:'history',label:'История'}].map(t=>(<button key={t.id} onClick={()=>setToolsTab(t.id)} style={{padding:'8px 16px',borderRadius:'8px',border:'1.5px solid '+(toolsTab===t.id?C.accent:C.border),cursor:'pointer',backgroundColor:toolsTab===t.id?C.accentLight:'transparent',color:toolsTab===t.id?C.accent:C.textSec,fontWeight:'600',fontSize:'13px'}}>{t.label}</button>))}
+                {[{id:'list',label:'Реестр'},{id:'history',label:'История по объектам'}].map(t=>(<button key={t.id} onClick={()=>setToolsTab(t.id)} style={{padding:'8px 16px',borderRadius:'8px',border:'1.5px solid '+(toolsTab===t.id?C.accent:C.border),cursor:'pointer',backgroundColor:toolsTab===t.id?C.accentLight:'transparent',color:toolsTab===t.id?C.accent:C.textSec,fontWeight:'600',fontSize:'13px'}}>{t.label}</button>))}
               </div>
               <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);}} style={btnO}><Plus size={16}/>Инструмент</button>
             </div>
-            {showForm&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr',gap:'8px'}}><input placeholder="Название *" value={newTool.name} onChange={e=>setNewTool({...newTool,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Инв. номер" value={newTool.inventoryNumber} onChange={e=>setNewTool({...newTool,inventoryNumber:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Стоимость" type="number" value={newTool.cost} onChange={e=>setNewTool({...newTool,cost:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newTool.status} onChange={e=>setNewTool({...newTool,status:e.target.value})} style={{...inp,marginBottom:0}}>{TOOL_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></div><textarea placeholder="Примечание" value={newTool.notes} onChange={e=>setNewTool({...newTool,notes:e.target.value})} style={{...inp,height:'50px',resize:'vertical',marginTop:'8px'}}/><div style={{display:'flex',gap:'8px',marginTop:'8px'}}><button onClick={saveTool} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
-            {toolsTab==='list'&&(<div>
-              <div style={{...card,overflow:'hidden'}}>
-                <table style={tbl}><thead><tr><th style={tblH}>Название</th><th style={tblH}>Инв. №</th><th style={tblH}>Стоимость</th><th style={tblH}>Статус</th><th style={tblH}>У кого / Объект</th><th style={tblH}>Действия</th></tr></thead><tbody>
-                  {tools.map(t=>(<tr key={t.id}>
-                    <td style={tblC}><b style={{color:C.text}}>{t.name}</b>{t.notes&&<p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px'}}>{t.notes}</p>}</td>
-                    <td style={{...tblC,color:C.textSec,fontFamily:'monospace'}}>{t.inventoryNumber||'—'}</td>
-                    <td style={tblC}>{t.cost?t.cost.toLocaleString()+' ₽':'—'}</td>
-                    <td style={tblC}><span style={badge(t.status==='На складе'?C.success:t.status.includes('У мастера')?C.accent:t.status==='На ремонте'?C.warning:C.danger,t.status==='На складе'?C.successLight:t.status.includes('У мастера')?C.accentLight:t.status==='На ремонте'?C.warningLight:C.dangerLight,t.status==='На складе'?C.successBorder:t.status.includes('У мастера')?C.accentBorder:t.status==='На ремонте'?C.warningBorder:C.dangerBorder)}>{t.status}</span></td>
-                    <td style={tblC}>{t.masterName?(<div><b style={{color:C.text,fontSize:'12px'}}>{t.masterName}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{t.project}</p>{t.issueType&&<span style={{color:C.info,fontSize:'11px'}}>{t.issueType}</span>}</div>):'—'}</td>
-                    <td style={tblC}><div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
-                      {t.status==='На складе'&&<button onClick={()=>{setShowIssueToolModal(t);setIssueToolData({masterName:'',project:'',issueType:'Временно'});}} style={{...btnO,padding:'3px 8px',fontSize:'11px'}}>Выдать</button>}
-                      {t.status.includes('У мастера')&&<button onClick={()=>setShowReturnToolModal(t)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}>Вернуть</button>}
-                      <button onClick={()=>{setEditingItem(t);setNewTool({...t,cost:String(t.cost)});setShowForm(true);}} style={{...btnG,padding:'3px 6px'}}><Edit2 size={11}/></button>
-                      <button onClick={()=>deleteTool(t.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button>
-                    </div></td>
-                  </tr>))}
-                </tbody></table>
-                {tools.length===0&&<p style={{textAlign:'center',color:C.textMuted,padding:'30px'}}>Инструментов нет</p>}
-              </div>
+            {showForm&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr',gap:'8px'}}><input placeholder="Название *" value={newTool.name} onChange={e=>setNewTool({...newTool,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Инв. номер" value={newTool.inventoryNumber} onChange={e=>setNewTool({...newTool,inventoryNumber:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Стоимость" type="number" value={newTool.cost} onChange={e=>setNewTool({...newTool,cost:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newTool.status} onChange={e=>setNewTool({...newTool,status:e.target.value})} style={{...inp,marginBottom:0}}>{TOOL_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></div><div style={{display:'flex',gap:'8px',marginTop:'8px'}}><button onClick={saveTool} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
+            {toolsTab==='list'&&(<div style={{...card,overflow:'hidden'}}>
+              <table style={tbl}><thead><tr><th style={tblH}>Название</th><th style={tblH}>Инв. №</th><th style={tblH}>Стоимость</th><th style={tblH}>Статус</th><th style={tblH}>У кого / Объект</th><th style={tblH}>Действия</th></tr></thead><tbody>
+                {tools.map(t=>(<tr key={t.id}>
+                  <td style={tblC}><b>{t.name}</b>{t.notes&&<p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px'}}>{t.notes}</p>}</td>
+                  <td style={{...tblC,fontFamily:'monospace',color:C.textSec}}>{t.inventoryNumber||'—'}</td>
+                  <td style={tblC}>{t.cost?t.cost.toLocaleString()+' ₽':'—'}</td>
+                  <td style={tblC}><span style={badge(t.status==='На складе'?C.success:t.status.includes('У мастера')?C.accent:C.warning,t.status==='На складе'?C.successLight:t.status.includes('У мастера')?C.accentLight:C.warningLight,t.status==='На складе'?C.successBorder:t.status.includes('У мастера')?C.accentBorder:C.warningBorder)}>{t.status}</span></td>
+                  <td style={tblC}>{t.masterName?<div><b style={{fontSize:'12px'}}>{t.masterName}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{t.project}{t.issueType&&' · '+t.issueType}</p></div>:'—'}</td>
+                  <td style={tblC}><div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+                    {t.status==='На складе'&&<button onClick={()=>{setShowIssueToolModal(t);setIssueToolData({masterName:'',project:'',issueType:'Временно'});}} style={{...btnO,padding:'3px 8px',fontSize:'11px'}}>Выдать</button>}
+                    {t.status.includes('У мастера')&&<button onClick={()=>setShowReturnToolModal(t)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}>Вернуть</button>}
+                    <button onClick={()=>{setEditingItem(t);setNewTool({...t,cost:String(t.cost)});setShowForm(true);}} style={{...btnG,padding:'3px 6px'}}><Edit2 size={11}/></button>
+                    <button onClick={()=>deleteTool(t.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button>
+                  </div></td>
+                </tr>))}
+              </tbody></table>
+              {tools.length===0&&<p style={{textAlign:'center',color:C.textMuted,padding:'30px'}}>Инструментов нет</p>}
             </div>)}
             {toolsTab==='history'&&(<div>
-              <div style={{...card,overflow:'hidden'}}>
-                <table style={tbl}><thead><tr><th style={tblH}>Дата</th><th style={tblH}>Инструмент</th><th style={tblH}>Действие</th><th style={tblH}>Мастер</th><th style={tblH}>Откуда → Куда</th><th style={tblH}>Состояние</th></tr></thead><tbody>
-                  {toolHistory.map(h=>(<tr key={h.id}><td style={{...tblC,color:C.textMuted,fontSize:'11px'}}>{h.date}</td><td style={tblC}><b>{h.toolName}</b></td><td style={tblC}><span style={badge(h.action==='Выдача'?C.accent:C.success,h.action==='Выдача'?C.accentLight:C.successLight,h.action==='Выдача'?C.accentBorder:C.successBorder)}>{h.action}</span></td><td style={tblC}>{h.masterName||'—'}</td><td style={{...tblC,fontSize:'11px',color:C.textSec}}>{(h.fromLocation||'')+(h.toLocation?' → '+h.toLocation:'')}</td><td style={tblC}><span style={{color:h.condition==='Исправен'?C.success:h.condition==='Сломан'?C.danger:C.warning,fontSize:'12px'}}>{h.condition||'—'}</span></td></tr>))}
-                </tbody></table>
-                {toolHistory.length===0&&<p style={{textAlign:'center',color:C.textMuted,padding:'30px'}}>История пуста</p>}
-              </div>
+              {projects.map(proj=>{
+                const projHistory=toolHistory.filter(h=>h.project===proj.name);
+                const projTools=tools.filter(t=>t.project===proj.name&&t.status.includes('У мастера'));
+                if(projHistory.length===0&&projTools.length===0) return null;
+                return(<div key={proj.id} style={{...card,marginBottom:'12px'}}>
+                  <div style={{padding:'12px 16px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}><b style={{color:C.text,fontSize:'14px'}}>{'🏗️ '+proj.name}</b></div>
+                  {projTools.length>0&&(<div style={{padding:'12px 16px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.accentLight}}>
+                    <b style={{color:C.accent,fontSize:'12px',display:'block',marginBottom:'6px'}}>Сейчас на объекте:</b>
+                    {projTools.map(t=>(<div key={t.id} style={{display:'flex',justifyContent:'space-between',fontSize:'12px',padding:'3px 0'}}><span style={{color:C.text}}>{t.name+(t.inventoryNumber?' #'+t.inventoryNumber:'')}</span><span style={{color:C.textSec}}>{t.masterName+' · '+t.issueType}</span></div>))}
+                  </div>)}
+                  <div style={{overflowX:'auto'}}>
+                    <table style={tbl}><thead><tr><th style={tblH}>Дата</th><th style={tblH}>Инструмент</th><th style={tblH}>Действие</th><th style={tblH}>Мастер</th><th style={tblH}>Состояние</th></tr></thead><tbody>
+                      {projHistory.map(h=>(<tr key={h.id}><td style={{...tblC,fontSize:'11px',color:C.textMuted}}>{h.date}</td><td style={tblC}><b>{h.toolName}</b></td><td style={tblC}><span style={badge(h.action==='Выдача'?C.accent:C.success,h.action==='Выдача'?C.accentLight:C.successLight,h.action==='Выдача'?C.accentBorder:C.successBorder)}>{h.action}</span></td><td style={tblC}>{h.masterName||'—'}</td><td style={tblC}><span style={{color:h.condition==='Исправен'?C.success:h.condition==='Сломан'?C.danger:C.warning,fontSize:'12px'}}>{h.condition||'—'}</span></td></tr>))}
+                    </tbody></table>
+                  </div>
+                </div>);
+              })}
+              {toolHistory.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>История пуста</div>}
             </div>)}
           </div>)}
 
           {warehouseTab==='inventory'&&(<div>
             <h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>📊 Инвентаризация</h3>
             {!selectedInventory?(<div>
-              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+              <div style={{...card,padding:'16px',marginBottom:'16px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:'10px',alignItems:'end'}}>
                   <select value={newInventory.project} onChange={e=>setNewInventory({...newInventory,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Выберите объект *</option><option value="Основной склад">🏠 Основной склад</option>{projects.map(p=><option key={p.id} value={p.name}>🏗️ {p.name}</option>)}</select>
                   <input type="date" value={newInventory.date} onChange={e=>setNewInventory({...newInventory,date:e.target.value})} style={{...inp,marginBottom:0}}/>
                   <button onClick={async()=>{if(!newInventory.project||!newInventory.date) return;const res=await fetch(API+'/inventory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newInventory,createdBy:user.name})});const inv=await res.json();await loadAll();setSelectedInventory(inv);}} style={btnO}><Plus size={14}/>Начать</button>
                 </div>
               </div>
-              {inventory.map(inv=>(<div key={inv.id} style={{...card,padding:'16px',marginBottom:'10px',cursor:'pointer'}} onClick={()=>setSelectedInventory(inv)}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'14px'}}>{inv.project}</b><p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{inv.date+' · '+inv.created_by}</p></div><span style={badge(inv.status==='Завершена'?C.success:C.warning,inv.status==='Завершена'?C.successLight:C.warningLight,inv.status==='Завершена'?C.successBorder:C.warningBorder)}>{inv.status}</span></div></div>))}
+              {inventory.map(inv=>(<div key={inv.id} style={{...card,padding:'14px',marginBottom:'8px',cursor:'pointer'}} onClick={()=>setSelectedInventory(inv)}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div><b style={{color:C.text,fontSize:'14px'}}>{inv.project}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{inv.date+' · '+(inv.created_by||inv.createdBy||'')}</p></div>
+                  <span style={badge(inv.status==='Завершена'?C.success:C.warning,inv.status==='Завершена'?C.successLight:C.warningLight,inv.status==='Завершена'?C.successBorder:C.warningBorder)}>{inv.status}</span>
+                </div>
+              </div>))}
             </div>):(
               <div>
                 <div style={{display:'flex',justifyContent:'space-between',marginBottom:'16px'}}>
                   <h4 style={{margin:0,color:C.text,fontWeight:'700'}}>{selectedInventory.project+' · '+selectedInventory.date}</h4>
                   <div style={{display:'flex',gap:'8px'}}>
+                    <button onClick={async()=>{
+                      const mats = selectedInventory.project==='Основной склад'?warehouseMain:materials.filter(m=>m.project===selectedInventory.project);
+                      const items = mats.map(m=>{const actualEl=document.getElementById('inv_'+m.id);const actual=Number(actualEl?.value||m.quantity);const diff=actual-m.quantity;return{materialName:m.name,unit:m.unit,expected:m.quantity,actual,difference:diff,price:m.price||0};});
+                      showPreview(buildInventoryDoc(selectedInventory,items),'Акт инвентаризации');
+                    }} style={btnB}><Eye size={14}/>Акт</button>
                     <button onClick={async()=>{await fetch(API+'/inventory/'+selectedInventory.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Завершена'})});await loadAll();setSelectedInventory(null);}} style={btnGr}><Check size={14}/>Завершить</button>
                     <button onClick={()=>setSelectedInventory(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
                   </div>
                 </div>
                 <div style={{...card,overflow:'hidden'}}>
-                  <table style={tbl}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>По учёту</th><th style={tblH}>Фактически</th><th style={tblH}>Расхождение</th><th style={tblH}></th></tr></thead><tbody>
-                    {(selectedInventory.project==='Основной склад'?warehouseMain:materials.filter(m=>m.project===selectedInventory.project)).map(m=>(<tr key={m.id}><td style={tblC}><b>{m.name}</b></td><td style={tblC}>{m.quantity+' '+m.unit}</td><td style={tblC}><input placeholder="Факт" type="number" style={{width:'80px',padding:'5px 8px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} id={'inv_'+m.id}/></td><td style={tblC} id={'diff_'+m.id}>—</td><td style={tblC}><button onClick={async()=>{const actual=Number(document.getElementById('inv_'+m.id)?.value||0);const diff=actual-m.quantity;document.getElementById('diff_'+m.id).innerHTML='<b style="color:'+(diff<0?'#ef4444':diff>0?'#f59e0b':'#10b981')+'">'+( diff>0?'+':'')+diff+'</b>';await fetch(API+'/inventory-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({inventoryId:selectedInventory.id,materialName:m.name,unit:m.unit,expected:m.quantity,actual,difference:diff,notes:''})});}} style={btnGr}><Check size={12}/></button></td></tr>))}
+                  <table style={tbl}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>По учёту</th><th style={tblH}>Факт</th><th style={tblH}>Разница</th><th style={tblH}>Цена</th><th style={tblH}>Сумма расх.</th></tr></thead><tbody>
+                    {(selectedInventory.project==='Основной склад'?warehouseMain:materials.filter(m=>m.project===selectedInventory.project)).map(m=>(<tr key={m.id}>
+                      <td style={tblC}><b>{m.name}</b></td>
+                      <td style={tblC}>{m.quantity+' '+m.unit}</td>
+                      <td style={tblC}><input id={'inv_'+m.id} placeholder={String(m.quantity)} type="number" defaultValue={m.quantity} onChange={e=>{const actual=Number(e.target.value);const diff=actual-m.quantity;const diffEl=document.getElementById('diff_'+m.id);const sumEl=document.getElementById('sum_'+m.id);if(diffEl) diffEl.innerHTML='<b style="color:'+(diff<0?'#ef4444':diff>0?'#f59e0b':'#10b981')+'">'+(diff>0?'+':'')+diff+'</b>';if(sumEl) sumEl.textContent=diff!==0?(Math.abs(diff)*Number(m.price||0)).toLocaleString()+' ₽':'—';}} style={{width:'80px',padding:'5px 8px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}}/></td>
+                      <td style={tblC} id={'diff_'+m.id}>—</td>
+                      <td style={{...tblC,color:C.textSec}}>{Number(m.price||0).toLocaleString()+' ₽'}</td>
+                      <td style={tblC} id={'sum_'+m.id}>—</td>
+                    </tr>))}
                   </tbody></table>
                 </div>
               </div>
@@ -1684,35 +2044,31 @@ function App() {
               <div style={{display:'flex',gap:'10px'}}><button onClick={saveRequest} style={btnO}>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}>Отмена</button></div>
             </div>)}
             {supplyRequests.filter(r=>r.status==='Новая'||r.status==='Утверждено').map(req=>{const reqOffers=supplierOffers.filter(o=>o.requestId===req.id);const bestOffer=reqOffers.reduce((best,o)=>!best||o.totalPrice<best.totalPrice?o:best,null);return(<div key={req.id} style={{...card,padding:'16px',marginBottom:'10px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div><b style={{color:C.text,fontSize:'14px'}}>{req.materialName}</b><p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · '+req.project+' · '+req.createdBy}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><span style={badge(req.status==='Утверждено'?C.success:C.info,req.status==='Утверждено'?C.successLight:C.infoLight,req.status==='Утверждено'?C.successBorder:C.infoBorder)}>{req.status}</span><button onClick={()=>setShowOffers(showOffers===req.id?null:req.id)} style={{...btnG,fontSize:'12px',padding:'4px 10px'}}>{'КП ('+reqOffers.length+')'}</button><button onClick={()=>cancelRequest(req.id)} style={{...btnR,fontSize:'12px',padding:'4px 8px'}}><X size={13}/></button></div></div>
-            {showOffers===req.id&&(<div style={{marginTop:'12px',backgroundColor:C.bg,padding:'14px',borderRadius:'8px',border:'1.5px solid '+C.border}}>
-              {reqOffers.map(offer=>{const sup=suppliers.find(s=>s.id===offer.supplierId);const isBest=bestOffer&&offer.id===bestOffer.id&&reqOffers.length>1;return(<div key={offer.id} style={{padding:'10px',marginBottom:'8px',borderRadius:'8px',backgroundColor:isBest?C.successLight:C.bgWhite,border:'1.5px solid '+(isBest?C.successBorder:C.border)}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{fontSize:'13px',color:C.text}}>{sup?sup.name:''}</b>{isBest&&<span style={{color:C.success,fontSize:'11px'}}> ⭐ Лучшее</span>}<p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{(offer.pricePerUnit||0).toLocaleString()+' ₽/ед. · '+offer.deliveryDays+' дн.'}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}>{offer.status==='Ожидает'&&(['директор','зам_директора','снабженец'].includes(user.role))&&<button onClick={()=>approveOffer(offer)} style={btnGr}><Check size={13}/>Утвердить</button>}<span style={badge(offer.status==='Утверждено'?C.success:C.textSec,offer.status==='Утверждено'?C.successLight:C.bgGray,offer.status==='Утверждено'?C.successBorder:C.border)}>{offer.status}</span></div></div></div>);})}
-              <div style={{backgroundColor:C.bgWhite,padding:'12px',borderRadius:'8px',border:'1.5px solid '+C.border,marginTop:'8px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}><select value={newOffer.supplierId} onChange={e=>setNewOffer({...newOffer,supplierId:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Поставщик</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><input placeholder="Цена/ед." type="number" value={newOffer.pricePerUnit} onChange={e=>setNewOffer({...newOffer,pricePerUnit:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Дней доставки" type="number" value={newOffer.deliveryDays} onChange={e=>setNewOffer({...newOffer,deliveryDays:e.target.value})} style={{...inp,marginBottom:0}}/></div><button onClick={()=>saveOffer(req.id)} style={{...btnB,fontSize:'13px',marginTop:'8px'}}><Plus size={14}/>Добавить КП</button></div>
+            {showOffers===req.id&&(<div style={{marginTop:'12px',backgroundColor:C.bg,padding:'12px',borderRadius:'8px',border:'1.5px solid '+C.border}}>
+              {reqOffers.map(offer=>{const sup=suppliers.find(s=>s.id===offer.supplierId);const isBest=bestOffer&&offer.id===bestOffer.id&&reqOffers.length>1;return(<div key={offer.id} style={{padding:'10px',marginBottom:'6px',borderRadius:'8px',backgroundColor:isBest?C.successLight:C.bgWhite,border:'1.5px solid '+(isBest?C.successBorder:C.border)}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{fontSize:'13px',color:C.text}}>{sup?sup.name:''}</b>{isBest&&<span style={{color:C.success,fontSize:'11px'}}> ⭐ Лучшее</span>}<p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{(offer.pricePerUnit||0).toLocaleString()+' ₽/ед. · '+offer.deliveryDays+' дн.'}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}>{offer.status==='Ожидает'&&(['директор','зам_директора','снабженец'].includes(user.role))&&<button onClick={()=>approveOffer(offer)} style={btnGr}><Check size={13}/>Утвердить</button>}<span style={badge(offer.status==='Утверждено'?C.success:C.textSec,offer.status==='Утверждено'?C.successLight:C.bgGray,offer.status==='Утверждено'?C.successBorder:C.border)}>{offer.status}</span></div></div></div>);})}
+              <div style={{backgroundColor:C.bgWhite,padding:'10px',borderRadius:'8px',border:'1.5px solid '+C.border,marginTop:'8px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}><select value={newOffer.supplierId} onChange={e=>setNewOffer({...newOffer,supplierId:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Поставщик</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><input placeholder="Цена/ед." type="number" value={newOffer.pricePerUnit} onChange={e=>setNewOffer({...newOffer,pricePerUnit:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Дней" type="number" value={newOffer.deliveryDays} onChange={e=>setNewOffer({...newOffer,deliveryDays:e.target.value})} style={{...inp,marginBottom:0}}/></div><button onClick={()=>saveOffer(req.id)} style={{...btnB,fontSize:'12px',marginTop:'8px'}}><Plus size={13}/>Добавить КП</button></div>
             </div>)}
             </div>);})}
             {supplyRequests.filter(r=>r.status==='Новая'||r.status==='Утверждено').length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>}
           </div>)}
-          {suppliersTab==='done'&&(<div><h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>Выполненные поставки</h3>{supplyHistory.map(d=>{const sup=suppliers.find(s=>s.id===d.supplierId);return(<div key={d.id} style={{...card,padding:'16px',marginBottom:'10px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{color:C.text,fontSize:'14px'}}>{d.materialName}</b><p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{d.quantity+' '+d.unit+' · '+(sup?sup.name:'')+' · '+d.project}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><span style={badge(d.status==='Доставлено'?C.success:C.warning,d.status==='Доставлено'?C.successLight:C.warningLight,d.status==='Доставлено'?C.successBorder:C.warningBorder)}>{d.status}</span>{d.status==='Ожидает поставки'&&<button onClick={()=>confirmDelivery(d)} style={btnGr}><Check size={13}/>Принять</button>}</div></div></div>);})}
+          {suppliersTab==='done'&&(<div><h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>Выполненные поставки</h3>{supplyHistory.map(d=>{const sup=suppliers.find(s=>s.id===d.supplierId);return(<div key={d.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{color:C.text,fontSize:'13px'}}>{d.materialName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{d.quantity+' '+d.unit+' · '+(sup?sup.name:'')+' · '+d.project}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><span style={badge(d.status==='Доставлено'?C.success:C.warning,d.status==='Доставлено'?C.successLight:C.warningLight,d.status==='Доставлено'?C.successBorder:C.warningBorder)}>{d.status}</span>{d.status==='Ожидает поставки'&&<button onClick={()=>confirmDelivery(d)} style={btnGr}><Check size={13}/>Принять</button>}</div></div></div>);})}
           {supplyHistory.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Нет данных</div>}</div>)}
-          {suppliersTab==='cancelled'&&(<div>{supplyRequests.filter(r=>r.status==='Отменена').map(req=>(<div key={req.id} style={{...card,padding:'16px',marginBottom:'10px',opacity:0.6}}><b style={{color:C.textSec}}>{req.materialName}</b><p style={{color:C.textMuted,fontSize:'12px'}}>{req.quantity+' '+req.unit+' · '+req.project}</p></div>))}{supplyRequests.filter(r=>r.status==='Отменена').length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Нет</div>}</div>)}
+          {suppliersTab==='cancelled'&&(<div>{supplyRequests.filter(r=>r.status==='Отменена').map(req=>(<div key={req.id} style={{...card,padding:'14px',marginBottom:'8px',opacity:0.6}}><b style={{color:C.textSec}}>{req.materialName}</b><p style={{color:C.textMuted,fontSize:'12px'}}>{req.quantity+' '+req.unit+' · '+req.project}</p></div>))}{supplyRequests.filter(r=>r.status==='Отменена').length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Нет</div>}</div>)}
           {suppliersTab==='base'&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>База поставщиков</h3><button onClick={()=>{setShowForm(true);setEditingItem({});}} style={btnO}><Plus size={16}/>Поставщик</button></div>
-            {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newSupplier.name} onChange={e=>setNewSupplier({...newSupplier,name:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newSupplier.category} onChange={e=>setNewSupplier({...newSupplier,category:e.target.value})} style={{...inp,marginBottom:0}}>{SUPPLIER_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select><input placeholder="Телефон" value={newSupplier.phone} onChange={e=>setNewSupplier({...newSupplier,phone:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Email" value={newSupplier.email} onChange={e=>setNewSupplier({...newSupplier,email:e.target.value})} style={{...inp,marginBottom:0}}/></div><div style={{display:'flex',gap:'10px',marginTop:'12px'}}><button onClick={saveSupplier} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
-            {suppliers.map(s=>(<div key={s.id} style={{...card,padding:'16px',marginBottom:'10px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><h3 style={{margin:0,color:C.text,fontSize:'14px',fontWeight:'600'}}>{s.name}</h3><p style={{color:C.accent,margin:'3px 0',fontSize:'12px'}}>{s.category}</p><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{s.phone+(s.email?' · '+s.email:'')}</p></div><div style={{display:'flex',gap:'5px'}}><button onClick={()=>{setEditingItem(s);setNewSupplier({...s});setShowForm(true);}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}><Edit2 size={11}/></button><button onClick={()=>deleteSupplier(s.id)} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><Trash2 size={11}/></button></div></div></div>))}
+            {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newSupplier.name} onChange={e=>setNewSupplier({...newSupplier,name:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newSupplier.category} onChange={e=>setNewSupplier({...newSupplier,category:e.target.value})} style={{...inp,marginBottom:0}}>{SUPPLIER_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select><input placeholder="Телефон" value={newSupplier.phone} onChange={e=>setNewSupplier({...newSupplier,phone:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Email" value={newSupplier.email} onChange={e=>setNewSupplier({...newSupplier,email:e.target.value})} style={{...inp,marginBottom:0}}/></div><div style={{display:'flex',gap:'10px',marginTop:'12px'}}><button onClick={saveSupplier} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
+            {suppliers.map(s=>(<div key={s.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'14px'}}>{s.name}</b><p style={{color:C.accent,margin:'3px 0',fontSize:'12px'}}>{s.category}</p><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{s.phone+(s.email?' · '+s.email:'')}</p></div><div style={{display:'flex',gap:'5px'}}><button onClick={()=>{setEditingItem(s);setNewSupplier({...s});setShowForm(true);}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}><Edit2 size={11}/></button><button onClick={()=>deleteSupplier(s.id)} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><Trash2 size={11}/></button></div></div></div>))}
             {suppliers.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Поставщиков нет</div>}
           </div>)}
         </div>)}
 
         {activePage==='accounting'&&(<div>
-          {isFinanceRole()&&(<div style={{...card,padding:'14px 16px',marginBottom:'16px'}}><input placeholder="Название компании (для документов)" value={companyName} onChange={e=>{setCompanyName(e.target.value);localStorage.setItem('companyName',e.target.value);}} style={{...inp,marginBottom:0,maxWidth:'350px'}}/></div>)}
+          {isFinanceRole()&&(<div style={{...card,padding:'12px 16px',marginBottom:'16px'}}><input placeholder="Название компании (для документов)" value={companyName} onChange={e=>{setCompanyName(e.target.value);localStorage.setItem('companyName',e.target.value);}} style={{...inp,marginBottom:0,maxWidth:'400px'}}/></div>)}
           <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>{['contracts','acts','masters','invoices','documents','scans'].map(tab=>(<button key={tab} onClick={()=>setAccountingTab(tab)} style={{padding:'9px 18px',borderRadius:'8px',border:'1.5px solid '+(accountingTab===tab?C.accent:C.border),cursor:'pointer',backgroundColor:accountingTab===tab?C.accentLight:'transparent',color:accountingTab===tab?C.accent:C.textSec,fontWeight:'600',fontSize:'13px'}}>{tab==='contracts'?'📄 Договоры':tab==='acts'?'📋 Акты':tab==='masters'?'👷 Мастера':tab==='invoices'?'📸 Накладные':tab==='documents'?'📁 Документы':'🗂️ Сканы'}</button>))}</div>
 
           {accountingTab==='scans'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>🗂️ Сканы документов мастеров</h3>
-            {masterProfiles.map(mp=>{const consent=pdConsents.find(c=>c.userId===mp.userId);const instrScan=signedDocs['instruction_'+mp.userId];const hasDocs=consent?.scanUrl||instrScan;return(<div key={mp.id} style={{...card,padding:'16px',marginBottom:'10px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div><b style={{color:C.text,fontSize:'14px'}}>{mp.fullName}</b><p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{mp.specialization+' · '+mp.contractType}</p></div><span style={badge(hasDocs?C.success:C.danger,hasDocs?C.successLight:C.dangerLight,hasDocs?C.successBorder:C.dangerBorder)}>{hasDocs?'Документы есть':'Нет сканов'}</span></div>
-            <div style={{marginTop:'12px',display:'flex',gap:'10px',flexWrap:'wrap'}}>
-              {consent?.scanUrl?(<div style={{display:'flex',alignItems:'center',gap:'8px',backgroundColor:C.successLight,padding:'8px 12px',borderRadius:'8px',border:'1.5px solid '+C.successBorder}}><CheckCircle size={14} color={C.success}/><span style={{color:C.success,fontSize:'12px'}}>Согласие на ПД</span><a href={API+consent.scanUrl} target="_blank" rel="noreferrer" style={{...btnB,fontSize:'11px',textDecoration:'none',padding:'3px 8px'}}>Открыть</a>{isLeadership()&&<button onClick={async()=>{if(window.confirm('Удалить скан?')){await fetch(API+'/pd-consents/'+mp.userId,{method:'DELETE'});await loadAll();}}} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><Trash2 size={11}/></button>}</div>):(<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>Согласие не загружено</span>)}
-              {instrScan?(<div style={{display:'flex',alignItems:'center',gap:'8px',backgroundColor:C.successLight,padding:'8px 12px',borderRadius:'8px',border:'1.5px solid '+C.successBorder}}><CheckCircle size={14} color={C.success}/><span style={{color:C.success,fontSize:'12px'}}>Должностная инструкция</span><a href={API+instrScan.url} target="_blank" rel="noreferrer" style={{...btnB,fontSize:'11px',textDecoration:'none',padding:'3px 8px'}}>Открыть</a>{isLeadership()&&<button onClick={()=>{const updated={...signedDocs};delete updated['instruction_'+mp.userId];setSignedDocs(updated);localStorage.setItem('signedDocs',JSON.stringify(updated));}} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><Trash2 size={11}/></button>}</div>):(<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>Инструкция не загружена</span>)}
-            </div></div>);})}
+            <h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>🗂️ Сканы документов</h3>
+            {masterProfiles.map(mp=>{const consent=pdConsents.find(c=>c.userId===mp.userId);return(<div key={mp.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'14px'}}>{mp.fullName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{mp.specialization+' · '+mp.contractType}</p></div><span style={badge(consent?.scanUrl?C.success:C.danger,consent?.scanUrl?C.successLight:C.dangerLight,consent?.scanUrl?C.successBorder:C.dangerBorder)}>{consent?.scanUrl?'Документы есть':'Нет сканов'}</span></div>{consent?.scanUrl&&<div style={{marginTop:'8px'}}><a href={API+consent.scanUrl} target="_blank" rel="noreferrer" style={{...btnB,textDecoration:'none',fontSize:'12px',padding:'4px 10px'}}>Открыть скан</a></div>}</div>);})}
             {masterProfiles.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Мастеров нет</div>}
           </div>)}
 
@@ -1720,51 +2076,29 @@ function App() {
             <h3 style={{color:C.text,marginBottom:'16px',fontWeight:'700'}}>📁 Документы по объектам</h3>
             <select value={accountingDocProject} onChange={e=>{setAccountingDocProject(e.target.value);setAccountingDocSection('');}} style={{...inp,maxWidth:'400px',marginBottom:'20px'}}><option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
             {accountingDocProject&&(<div>
-              <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
+              <div style={{display:'flex',gap:'8px',marginBottom:'16px',flexWrap:'wrap'}}>
                 {['masters','prorab','supply'].map(sec=>(<button key={sec} onClick={()=>setAccountingDocSection(accountingDocSection===sec?'':sec)} style={{padding:'9px 18px',borderRadius:'8px',border:'1.5px solid '+(accountingDocSection===sec?C.accent:C.border),cursor:'pointer',backgroundColor:accountingDocSection===sec?C.accentLight:'transparent',color:accountingDocSection===sec?C.accent:C.textSec,fontWeight:'600',fontSize:'13px'}}>{sec==='masters'?'👷 Мастера':sec==='prorab'?'🔨 Прораб':'🚚 Снабжение'}</button>))}
               </div>
-              {accountingDocSection==='masters'&&(<div>
-                {masterProfiles.filter(mp=>interimActs.some(a=>a.masterId===mp.userId&&a.project===accountingDocProject)||contracts.some(c=>c.masterId===mp.userId&&c.project===accountingDocProject)).map(mp=>{
-                  const mpContracts=contracts.filter(c=>c.masterId===mp.userId&&c.project===accountingDocProject);
-                  const mpActs=interimActs.filter(a=>a.masterId===mp.userId&&a.project===accountingDocProject);
-                  const mpTotal=mpActs.reduce((s,a)=>s+(a.totalAmount||0),0);
-                  const mpPaid=mpActs.reduce((s,a)=>s+(a.paidAmount||0),0);
-                  const isExp=expandedMaster===mp.id+'_doc';
-                  return(<div key={mp.id} style={{...card,marginBottom:'10px'}}>
-                    <div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedMaster(isExp?null:mp.id+'_doc')}>
-                      <div><b style={{color:C.text,fontSize:'14px'}}>{mp.fullName}</b><p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{mp.specialization}</p></div>
-                      <div style={{textAlign:'right',display:'flex',alignItems:'center',gap:'12px'}}><div><p style={{color:C.text,margin:0,fontSize:'13px',fontWeight:'600'}}>{mpTotal.toLocaleString()+' ₽'}</p><p style={{color:C.success,margin:'2px 0',fontSize:'12px'}}>{'Оплачено: '+mpPaid.toLocaleString()+' ₽'}</p>{mpTotal-mpPaid>0&&<p style={{color:C.danger,margin:'2px 0',fontSize:'12px'}}>{'Остаток: '+(mpTotal-mpPaid).toLocaleString()+' ₽'}</p>}</div>{isExp?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div>
-                    </div>
-                    {isExp&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'16px'}}>
-                      {mpContracts.map(ct=>(<div key={ct.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><div><b style={{color:C.text,fontSize:'13px'}}>{'Договор № '+ct.contractNumber}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{ct.contractType+' · '+ct.startDate+' — '+ct.endDate}</p></div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>showPreview(buildContractContent(mp,ct),'Договор')} style={btnB}><Eye size={13}/></button><button onClick={()=>doPrint(buildContractContent(mp,ct))} style={btnO}><Printer size={13}/></button></div></div>))}
-                      {mpActs.map(act=>{const totalAmt=act.totalAmount||0;const paidAmt=act.paidAmount||0;return(<div key={act.id} style={{padding:'10px 12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                          <div><b style={{color:C.text,fontSize:'13px'}}>{'Акт №'+act.id}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{act.periodStart+' — '+act.periodEnd}</p><div style={{display:'flex',gap:'10px',marginTop:'4px'}}><span style={{color:C.text,fontSize:'12px'}}>{totalAmt.toLocaleString()+' ₽'}</span><span style={{color:C.success,fontSize:'12px'}}>{'Опл: '+paidAmt.toLocaleString()+' ₽'}</span>{totalAmt-paidAmt>0&&<span style={{color:C.danger,fontSize:'12px'}}>{'Ост: '+(totalAmt-paidAmt).toLocaleString()+' ₽'}</span>}</div></div>
-                          <div style={{display:'flex',gap:'6px',alignItems:'center'}}><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={13}/></button><button onClick={()=>doPrint(buildActContent(act))} style={btnO}><Printer size={13}/></button></div>
-                        </div>
-                        {act.status!=='Оплачен'&&(<div style={{marginTop:'8px',display:'flex',gap:'8px',alignItems:'center'}}><input placeholder="Сумма оплаты" type="number" style={{width:'130px',padding:'6px 10px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} id={'pay_'+act.id}/><button onClick={async()=>{const paid=Number(document.getElementById('pay_'+act.id)?.value||0);const newPaid=Math.min((act.paidAmount||0)+paid,act.totalAmount||0);const newStatus=newPaid>=(act.totalAmount||0)?'Оплачен':'Частично оплачен';await fetch(API+'/interim-acts/'+act.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:newPaid})});await loadAll();}} style={btnGr}><Check size={13}/>Оплатить</button></div>)}
-                      </div>);})}
-                    </div>)}
-                  </div>);
-                })}
-              </div>)}
-              {accountingDocSection==='prorab'&&(<div>{projects.filter(p=>p.name===accountingDocProject).map(p=>(<div key={p.id} style={{...card,padding:'20px'}}><div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}><button onClick={()=>showPreview(buildKS2Content(p),'КС-2')} style={btnB}><Eye size={14}/>КС-2</button><button onClick={()=>doPrint(buildKS2Content(p))} style={btnO}><Printer size={14}/>КС-2</button><button onClick={()=>showPreview(buildKS3Content(p),'КС-3')} style={btnB}><Eye size={14}/>КС-3</button><button onClick={()=>doPrint(buildKS3Content(p))} style={btnO}><Printer size={14}/>КС-3</button><button onClick={()=>showPreview(buildJPRContent(p.name),'ЖПР')} style={btnB}><Eye size={14}/>ЖПР</button><button onClick={()=>showPreview(buildPassportContent(p),'Паспорт объекта')} style={btnB}><Eye size={14}/>Паспорт</button></div></div>))}</div>)}
-              {accountingDocSection==='supply'&&(<div>{(()=>{const ps=supplyHistory.filter(d=>d.project===accountingDocProject);const total=ps.reduce((s,d)=>s+(d.totalPrice||0),0);return(<div><div style={{backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,padding:'14px 20px',borderRadius:'10px',marginBottom:'16px',display:'flex',justifyContent:'space-between'}}><b>Итого поставок:</b><b style={{color:C.accent,fontSize:'16px'}}>{total.toLocaleString()+' ₽'}</b></div>{ps.map(d=>{const sup=suppliers.find(s=>s.id===d.supplierId);return(<div key={d.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{color:C.text,fontSize:'13px'}}>{d.materialName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{d.quantity+' '+d.unit+' · '+(sup?sup.name:'')+' · '+d.date}</p></div><b style={{color:C.accent}}>{(d.totalPrice||0).toLocaleString()+' ₽'}</b></div></div>);})}{ps.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Нет данных</p>}</div>);})()}</div>)}
+              {accountingDocSection==='prorab'&&(<div style={{...card,padding:'20px'}}><div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}><button onClick={()=>showPreview(buildKS2Content(projects.find(p=>p.name===accountingDocProject)||{name:accountingDocProject,budget:0,client:''}),'КС-2')} style={btnB}><Eye size={14}/>КС-2</button><button onClick={()=>doPrint(buildKS2Content(projects.find(p=>p.name===accountingDocProject)||{name:accountingDocProject,budget:0,client:''}))} style={btnO}><Printer size={14}/>КС-2</button><button onClick={()=>showPreview(buildKS3Content(projects.find(p=>p.name===accountingDocProject)||{name:accountingDocProject,budget:0,client:''}),'КС-3')} style={btnB}><Eye size={14}/>КС-3</button><button onClick={()=>showPreview(buildJPRContent(accountingDocProject),'ЖПР')} style={btnB}><Eye size={14}/>ЖПР</button><button onClick={()=>showPreview(buildPassportContent(projects.find(p=>p.name===accountingDocProject)||{name:accountingDocProject,budget:0,client:''}),'Паспорт')} style={btnB}><Eye size={14}/>Паспорт</button></div></div>)}
+              {accountingDocSection==='masters'&&(<div>{masterProfiles.filter(mp=>interimActs.some(a=>a.masterId===mp.userId&&a.project===accountingDocProject)).map(mp=>{const mpActs=interimActs.filter(a=>a.masterId===mp.userId&&a.project===accountingDocProject);const totalAmt=mpActs.reduce((s,a)=>s+(a.totalAmount||0),0);const totalPaid=mpActs.reduce((s,a)=>s+(a.paidAmount||0),0);return(<div key={mp.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text}}>{mp.fullName}</b><p style={{color:C.textSec,fontSize:'12px',margin:'3px 0'}}>{totalAmt.toLocaleString()+' ₽ · Опл: '+totalPaid.toLocaleString()+' ₽'}</p></div>{totalAmt-totalPaid>0&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Ост: '+(totalAmt-totalPaid).toLocaleString()+' ₽'}</span>}</div>{mpActs.map(act=><div key={act.id} style={{marginTop:'8px',display:'flex',gap:'6px'}}><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={{...btnB,fontSize:'11px',padding:'3px 8px'}}><Eye size={11}/>Акт №{act.id}</button><button onClick={()=>setShowPayActModal(act)} style={{...btnO,fontSize:'11px',padding:'3px 8px'}}><DollarSign size={11}/>Оплата</button></div>)}</div>);})}</div>)}
+              {accountingDocSection==='supply'&&(<div>{(()=>{const ps=supplyHistory.filter(d=>d.project===accountingDocProject);const total=ps.reduce((s,d)=>s+(d.totalPrice||0),0);return(<div><div style={{backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,padding:'12px',borderRadius:'8px',marginBottom:'12px',display:'flex',justifyContent:'space-between'}}><b>Итого поставок:</b><b style={{color:C.accent}}>{total.toLocaleString()+' ₽'}</b></div>{ps.map(d=>{const sup=suppliers.find(s=>s.id===d.supplierId);return(<div key={d.id} style={{...card,padding:'12px',marginBottom:'6px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{fontSize:'13px'}}>{d.materialName}</b><p style={{color:C.textSec,fontSize:'12px',margin:'2px 0'}}>{d.quantity+' '+d.unit+' · '+(sup?sup.name:'')+' · '+d.date}</p></div><b style={{color:C.accent}}>{(d.totalPrice||0).toLocaleString()+' ₽'}</b></div></div>);})}{ps.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Нет данных</p>}</div>);})()}</div>)}
             </div>)}
           </div>)}
 
-          {accountingTab==='invoices'&&(<div><h3 style={{marginBottom:'16px',color:C.text,fontWeight:'700'}}>📸 Накладные</h3>{invoices.map(inv=>{const sup=suppliers.find(s=>s.id===inv.supplierId);return(<div key={inv.id} style={{...card,padding:'18px',marginBottom:'12px'}}><div style={{display:'flex',gap:'15px',alignItems:'flex-start'}}>{inv.photoUrl&&<img src={API+inv.photoUrl} alt="" onClick={()=>setShowPhotoModal(API+inv.photoUrl)} style={{width:'80px',height:'60px',objectFit:'cover',borderRadius:'8px',cursor:'pointer',border:'1.5px solid '+C.border}}/>}<div style={{flex:1}}><h3 style={{margin:0,color:C.text,fontSize:'14px',fontWeight:'600'}}>{'Накладная № '+inv.number}</h3><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{inv.date+' · '+(sup?.name||inv.supplierName||'—')+' · Принял: '+inv.acceptedBy}</p><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{(inv.location==='Основной склад'?'🏠 Основной склад':'🏗️ '+(inv.project||''))+' · '+inv.vat}</p><b style={{color:C.accent,fontSize:'15px'}}>{Number(inv.totalBase||0).toLocaleString()+' ₽'}</b></div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>showPreview(buildInvoiceContent(inv),'Накладная')} style={btnB}><Eye size={14}/></button><button onClick={()=>doPrint(buildInvoiceContent(inv))} style={btnO}><Printer size={14}/></button></div></div></div>);})}
+          {accountingTab==='invoices'&&(<div><h3 style={{marginBottom:'16px',color:C.text,fontWeight:'700'}}>📸 Накладные</h3>{invoices.map(inv=>{const sup=suppliers.find(s=>s.id===inv.supplierId);return(<div key={inv.id} style={{...card,padding:'16px',marginBottom:'10px'}}><div style={{display:'flex',gap:'12px',alignItems:'flex-start'}}>{inv.photoUrl&&<img src={API+inv.photoUrl} alt="" onClick={()=>setShowPhotoModal(API+inv.photoUrl)} style={{width:'70px',height:'52px',objectFit:'cover',borderRadius:'8px',cursor:'pointer',border:'1.5px solid '+C.border,flexShrink:0}}/>}<div style={{flex:1}}><b style={{color:C.text,fontSize:'14px'}}>{'Накладная № '+inv.number}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{inv.date+' · '+(sup?.name||inv.supplierName||'—')+' · '+(inv.location==='Основной склад'?'Осн. склад':inv.project||'')}</p><b style={{color:C.accent}}>{Number(inv.totalBase||0).toLocaleString()+' ₽'}</b></div><div style={{display:'flex',gap:'4px'}}><button onClick={()=>showPreview(buildInvoiceContent(inv),'Накладная')} style={{...btnB,padding:'4px 8px'}}><Eye size={13}/></button><button onClick={()=>doPrint(buildInvoiceContent(inv))} style={{...btnO,padding:'4px 8px'}}><Printer size={13}/></button></div></div></div>);})}
           {invoices.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Накладных нет</div>}</div>)}
 
-          {accountingTab==='masters'&&(<div><h3 style={{marginBottom:'16px',color:C.text,fontWeight:'700'}}>👷 Расчёты с мастерами</h3>{masterProfiles.map(mp=>{const cw=workJournal.filter(j=>j.masterId===mp.userId&&j.status==='Подтверждено');const te=cw.reduce((s,w)=>s+w.total,0);const masterActs=interimActs.filter(a=>a.masterId===mp.userId);const totalPaid=masterActs.reduce((s,a)=>s+(a.paidAmount||0),0);const totalAmt=masterActs.reduce((s,a)=>s+(a.totalAmount||0),0);const isExpanded=expandedMaster===mp.id;return(<div key={mp.id} style={{...card,marginBottom:'12px'}}><div style={{padding:'18px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',cursor:'pointer'}} onClick={()=>setExpandedMaster(isExpanded?null:mp.id)}><div><h3 style={{margin:0,color:C.text,fontSize:'14px',fontWeight:'600'}}>{mp.fullName}</h3><p style={{color:C.accent,margin:'4px 0',fontSize:'13px'}}>{mp.specialization+' · '+mp.contractType}</p></div><div style={{textAlign:'right',display:'flex',alignItems:'center',gap:'12px'}}><div><p style={{color:C.text,fontWeight:'700',fontSize:'15px',margin:0}}>{te.toLocaleString()+' ₽'}</p><p style={{color:C.success,margin:'2px 0',fontSize:'12px'}}>{'Оплачено: '+totalPaid.toLocaleString()+' ₽'}</p>{totalAmt-totalPaid>0&&<p style={{color:C.danger,margin:'2px 0',fontSize:'12px'}}>{'Остаток: '+(totalAmt-totalPaid).toLocaleString()+' ₽'}</p>}</div>{isExpanded?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div></div>
-          {isExpanded&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'16px'}}>{masterActs.map(act=>{const totalA=act.totalAmount||0;const paidA=act.paidAmount||0;return(<div key={act.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{'Акт №'+act.id+' · '+act.project}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{act.periodStart+' — '+act.periodEnd}</p><div style={{display:'flex',gap:'12px',marginTop:'4px'}}><span style={{color:C.text,fontSize:'12px'}}>{totalA.toLocaleString()+' ₽'}</span><span style={{color:C.success,fontSize:'12px'}}>{'Опл: '+paidA.toLocaleString()+' ₽'}</span>{totalA-paidA>0&&<span style={{color:C.danger,fontSize:'12px'}}>{'Ост: '+(totalA-paidA).toLocaleString()+' ₽'}</span>}</div></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={13}/></button><button onClick={()=>doPrint(buildActContent(act))} style={btnO}><Printer size={13}/></button></div></div>
-          {act.status!=='Оплачен'&&(<div style={{marginTop:'8px',display:'flex',gap:'8px',alignItems:'center'}}><input placeholder="Сумма оплаты" type="number" style={{width:'130px',padding:'6px 10px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} id={'mpay_'+act.id}/><button onClick={async()=>{const paid=Number(document.getElementById('mpay_'+act.id)?.value||0);const newPaid=Math.min((act.paidAmount||0)+paid,act.totalAmount||0);const newStatus=newPaid>=(act.totalAmount||0)?'Оплачен':'Частично оплачен';await fetch(API+'/interim-acts/'+act.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:newPaid})});await loadAll();}} style={btnGr}><Check size={13}/>Оплатить</button></div>)}
+          {accountingTab==='masters'&&(<div><h3 style={{marginBottom:'16px',color:C.text,fontWeight:'700'}}>👷 Расчёты с мастерами</h3>{masterProfiles.map(mp=>{const mpActs=interimActs.filter(a=>a.masterId===mp.userId);const totalAmt=mpActs.reduce((s,a)=>s+(a.totalAmount||0),0);const totalPaid=mpActs.reduce((s,a)=>s+(a.paidAmount||0),0);const isExp=expandedMaster===mp.id;return(<div key={mp.id} style={{...card,marginBottom:'10px'}}><div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedMaster(isExp?null:mp.id)}><div><b style={{color:C.text,fontSize:'14px'}}>{mp.fullName}</b><p style={{color:C.accent,margin:'3px 0',fontSize:'12px'}}>{mp.specialization+' · '+mp.contractType}</p></div><div style={{display:'flex',alignItems:'center',gap:'12px'}}><div style={{textAlign:'right'}}><b style={{color:C.text,fontSize:'14px'}}>{totalAmt.toLocaleString()+' ₽'}</b><p style={{color:C.success,margin:'2px 0',fontSize:'12px'}}>{'Опл: '+totalPaid.toLocaleString()+' ₽'}</p>{totalAmt-totalPaid>0&&<p style={{color:C.danger,margin:'2px 0',fontSize:'12px'}}>{'Ост: '+(totalAmt-totalPaid).toLocaleString()+' ₽'}</p>}</div>{isExp?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div></div>
+          {isExp&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'14px'}}>{mpActs.map(act=>{const totalA=act.totalAmount||0;const paidA=act.paidAmount||0;const actPaymentsList=actPayments.filter(p=>p.actId===act.id);return(<div key={act.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{'Акт №'+act.id+' · '+act.project}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{act.periodStart+' — '+act.periodEnd}</p><div style={{display:'flex',gap:'10px',marginTop:'3px'}}><span style={{color:C.text,fontSize:'12px'}}>{totalA.toLocaleString()+' ₽'}</span><span style={{color:C.success,fontSize:'12px'}}>{'Опл: '+paidA.toLocaleString()+' ₽'}</span>{totalA-paidA>0&&<span style={{color:C.danger,fontSize:'12px'}}>{'Ост: '+(totalA-paidA).toLocaleString()+' ₽'}</span>}</div></div><div style={{display:'flex',gap:'4px'}}><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}><Eye size={11}/></button><button onClick={()=>setShowPayActModal(act)} style={{...btnO,padding:'3px 8px',fontSize:'11px'}}><DollarSign size={11}/>Оплата</button></div></div>
+          {actPaymentsList.length>0&&(<div style={{marginTop:'8px',paddingTop:'8px',borderTop:'1px solid '+C.border}}>{actPaymentsList.map(p=>(<div key={p.id} style={{display:'flex',justifyContent:'space-between',fontSize:'11px',padding:'2px 0'}}><span style={{color:C.textSec}}>{p.date+' · '+p.paymentType+' · '+p.paidBy}</span><b style={{color:C.success}}>{p.amount.toLocaleString()+' ₽'}</b></div>))}</div>)}
           </div>);})}
           </div>)}</div>);})}
           </div>)}
 
-          {accountingTab==='contracts'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>📄 Договоры</h3><button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={16}/>Новый</button></div>{showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}><select value={newContract.masterId} onChange={e=>{const mp=masterProfiles.find(p=>p.userId===Number(e.target.value));setNewContract({...newContract,masterId:e.target.value,masterName:mp?mp.fullName:'',contractType:mp?mp.contractType:'ГПХ'});}} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.userId}>{mp.fullName}</option>)}</select><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Номер договора" value={newContract.contractNumber} onChange={e=>setNewContract({...newContract,contractNumber:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newContract.project} onChange={e=>setNewContract({...newContract,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><input type="date" value={newContract.startDate} onChange={e=>setNewContract({...newContract,startDate:e.target.value})} style={{...inp,marginBottom:0}}/><input type="date" value={newContract.endDate} onChange={e=>setNewContract({...newContract,endDate:e.target.value})} style={{...inp,marginBottom:0}}/></div><button onClick={createContract} style={{...btnO,marginTop:'12px'}}>Создать</button></div>)}{contracts.map(ct=>{const mp=masterProfiles.find(p=>p.userId===ct.masterId);return(<div key={ct.id} style={{...card,padding:'18px',marginBottom:'12px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><h3 style={{margin:0,color:C.text,fontSize:'14px',fontWeight:'600'}}>{'Договор № '+ct.contractNumber}</h3><p style={{color:C.accent,margin:'4px 0',fontWeight:'600',fontSize:'13px'}}>{ct.masterName}</p><p style={{color:C.textSec,fontSize:'12px'}}>{ct.project+' · '+ct.contractType+' · '+ct.startDate+' — '+ct.endDate}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}>{mp&&<button onClick={()=>showPreview(buildContractContent(mp,ct),'Договор')} style={btnB}><Eye size={14}/></button>}{mp&&<button onClick={()=>doPrint(buildContractContent(mp,ct))} style={btnO}><Printer size={14}/></button>}<button onClick={()=>deleteContract(ct.id)} style={btnR}><Trash2 size={14}/></button></div></div></div>);})}</div>)}
-          {accountingTab==='acts'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>📋 Акты выполненных работ</h3><button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={16}/>Новый</button></div>{showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}><select value={newAct.masterId} onChange={e=>{const mp=masterProfiles.find(p=>p.userId===Number(e.target.value));setNewAct({...newAct,masterId:e.target.value,masterName:mp?mp.fullName:''});}} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.userId}>{mp.fullName}</option>)}</select><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><select value={newAct.project} onChange={e=>setNewAct({...newAct,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><div/><input type="date" value={newAct.periodStart} onChange={e=>setNewAct({...newAct,periodStart:e.target.value})} style={{...inp,marginBottom:0}}/><input type="date" value={newAct.periodEnd} onChange={e=>setNewAct({...newAct,periodEnd:e.target.value})} style={{...inp,marginBottom:0}}/></div><button onClick={createInterimAct} style={{...btnO,marginTop:'12px'}}>Создать акт</button></div>)}{interimActs.map(act=>{const totalAmt=act.totalAmount||0;const paidAmt=act.paidAmount||0;const remaining=totalAmt-paidAmt;return(<div key={act.id} style={{...card,padding:'18px',marginBottom:'12px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><h3 style={{margin:0,color:C.text,fontSize:'14px',fontWeight:'600'}}>{'Акт № '+act.id}</h3><p style={{color:C.accent,margin:'4px 0',fontWeight:'600',fontSize:'13px'}}>{act.masterName}</p><p style={{color:C.textSec,margin:'4px 0',fontSize:'13px'}}>{act.project+' · '+act.periodStart+' — '+act.periodEnd}</p><div style={{marginTop:'6px',display:'flex',gap:'12px',flexWrap:'wrap'}}><span style={{color:C.text,fontSize:'13px'}}>{'Начислено: '+totalAmt.toLocaleString()+' ₽'}</span><span style={{color:C.success,fontSize:'13px'}}>{'Оплачено: '+paidAmt.toLocaleString()+' ₽'}</span>{remaining>0&&<span style={{color:C.danger,fontSize:'13px'}}>{'Остаток: '+remaining.toLocaleString()+' ₽'}</span>}</div></div><div style={{display:'flex',flexDirection:'column',gap:'8px',alignItems:'flex-end'}}><div style={{display:'flex',gap:'6px'}}><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={14}/></button><button onClick={()=>doPrint(buildActContent(act))} style={btnO}><Printer size={14}/></button><button onClick={()=>deleteInterimAct(act.id)} style={btnR}><Trash2 size={14}/></button></div><span style={badge(act.status==='Оплачен'?C.success:act.status==='Частично оплачен'?C.warning:C.textSec,act.status==='Оплачен'?C.successLight:act.status==='Частично оплачен'?C.warningLight:C.bgGray,act.status==='Оплачен'?C.successBorder:act.status==='Частично оплачен'?C.warningBorder:C.border)}>{act.status||'Новый'}</span>{act.status!=='Оплачен'&&(<div style={{display:'flex',gap:'6px',alignItems:'center'}}><input placeholder="Сумма" type="number" style={{width:'100px',padding:'5px 8px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} id={'aact_'+act.id}/><button onClick={async()=>{const paid=Number(document.getElementById('aact_'+act.id)?.value||0);const newPaid=Math.min((act.paidAmount||0)+paid,act.totalAmount||0);const newStatus=newPaid>=(act.totalAmount||0)?'Оплачен':'Частично оплачен';await fetch(API+'/interim-acts/'+act.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:newPaid})});await loadAll();}} style={btnGr}><Check size={13}/>Оплатить</button></div>)}</div></div></div>);})}
+          {accountingTab==='contracts'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>📄 Договоры</h3><button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={16}/>Новый</button></div>{showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><select value={newContract.masterId} onChange={e=>{const mp=masterProfiles.find(p=>p.userId===Number(e.target.value));setNewContract({...newContract,masterId:e.target.value,masterName:mp?mp.fullName:'',contractType:mp?mp.contractType:'ГПХ'});}} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.userId}>{mp.fullName}</option>)}</select><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Номер договора" value={newContract.contractNumber} onChange={e=>setNewContract({...newContract,contractNumber:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newContract.project} onChange={e=>setNewContract({...newContract,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><input type="date" value={newContract.startDate} onChange={e=>setNewContract({...newContract,startDate:e.target.value})} style={{...inp,marginBottom:0}}/><input type="date" value={newContract.endDate} onChange={e=>setNewContract({...newContract,endDate:e.target.value})} style={{...inp,marginBottom:0}}/></div><button onClick={createContract} style={{...btnO,marginTop:'12px'}}>Создать</button></div>)}{contracts.map(ct=>{const mp=masterProfiles.find(p=>p.userId===ct.masterId);return(<div key={ct.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{color:C.text,fontSize:'14px'}}>{'Договор № '+ct.contractNumber}</b><p style={{color:C.accent,margin:'3px 0',fontSize:'12px'}}>{ct.masterName}</p><p style={{color:C.textSec,fontSize:'12px'}}>{ct.project+' · '+ct.contractType+' · '+ct.startDate+' — '+ct.endDate}</p></div><div style={{display:'flex',gap:'4px'}}>{mp&&<button onClick={()=>showPreview(buildContractContent(mp,ct),'Договор')} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><Eye size={11}/></button>}{mp&&<button onClick={()=>doPrint(buildContractContent(mp,ct))} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}><Printer size={11}/></button>}<button onClick={()=>deleteContract(ct.id)} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><Trash2 size={11}/></button></div></div></div>);})}</div>)}
+          {accountingTab==='acts'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>📋 Акты</h3><button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={16}/>Новый</button></div>{showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><select value={newAct.masterId} onChange={e=>{const mp=masterProfiles.find(p=>p.userId===Number(e.target.value));setNewAct({...newAct,masterId:e.target.value,masterName:mp?mp.fullName:''});}} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.userId}>{mp.fullName}</option>)}</select><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><select value={newAct.project} onChange={e=>setNewAct({...newAct,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><div/><input type="date" value={newAct.periodStart} onChange={e=>setNewAct({...newAct,periodStart:e.target.value})} style={{...inp,marginBottom:0}}/><input type="date" value={newAct.periodEnd} onChange={e=>setNewAct({...newAct,periodEnd:e.target.value})} style={{...inp,marginBottom:0}}/></div><button onClick={createInterimAct} style={{...btnO,marginTop:'12px'}}>Создать акт</button></div>)}{interimActs.map(act=>{const totalAmt=act.totalAmount||0;const paidAmt=act.paidAmount||0;const actPaymentsList=actPayments.filter(p=>p.actId===act.id);return(<div key={act.id} style={{...card,padding:'14px',marginBottom:'10px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{color:C.text,fontSize:'14px'}}>{'Акт № '+act.id}</b><p style={{color:C.accent,margin:'3px 0',fontSize:'12px'}}>{act.masterName}</p><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{act.project+' · '+act.periodStart+' — '+act.periodEnd}</p><div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}><span style={{color:C.text,fontSize:'13px'}}>{totalAmt.toLocaleString()+' ₽'}</span><span style={{color:C.success,fontSize:'13px'}}>{'Опл: '+paidAmt.toLocaleString()+' ₽'}</span>{totalAmt-paidAmt>0&&<span style={{color:C.danger,fontSize:'13px'}}>{'Ост: '+(totalAmt-paidAmt).toLocaleString()+' ₽'}</span>}</div></div><div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end'}}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><Eye size={11}/></button><button onClick={()=>doPrint(buildActContent(act))} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}><Printer size={11}/></button><button onClick={()=>setShowPayActModal(act)} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><DollarSign size={11}/>Оплата</button><button onClick={()=>deleteInterimAct(act.id)} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><Trash2 size={11}/></button></div><span style={badge(act.status==='Оплачен'?C.success:act.status==='Частично оплачен'?C.warning:C.textSec,act.status==='Оплачен'?C.successLight:act.status==='Частично оплачен'?C.warningLight:C.bgGray,act.status==='Оплачен'?C.successBorder:act.status==='Частично оплачен'?C.warningBorder:C.border)}>{act.status||'Новый'}</span></div></div>
+          {actPaymentsList.length>0&&(<div style={{marginTop:'10px',borderTop:'1.5px solid '+C.border,paddingTop:'8px'}}><b style={{color:C.text,fontSize:'12px'}}>История оплат:</b>{actPaymentsList.map(p=>(<div key={p.id} style={{display:'flex',justifyContent:'space-between',fontSize:'11px',padding:'3px 0',borderBottom:'1px solid '+C.border}}><span style={{color:C.textSec}}>{p.date+' · '+p.paymentType+' · '+p.paidBy}</span><b style={{color:C.success}}>{p.amount.toLocaleString()+' ₽'}</b></div>))}</div>)}
+          </div>);})}
           </div>)}
         </div>)}
         {activePage==='personnel'&&(<div>
@@ -1781,22 +2115,22 @@ function App() {
               const toolsIssued=tools.filter(t=>t.masterName===mp.fullName&&t.status.includes('У мастера'));
               return(<div key={mp.id} style={{...card,marginBottom:'10px'}}>
                 <div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedMaster(isExp?null:mp.id+'_pers')}>
-                  <div><b style={{fontSize:'14px',color:C.text,fontWeight:'600'}}>{mp.fullName}</b><p style={{color:C.accent,margin:'4px 0',fontSize:'13px'}}>{mp.specialization+' · '+mp.contractType}</p><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{mp.phone}</p>{toolsIssued.length>0&&<span style={badge(C.purple,C.purpleLight,C.purple+'44')}>{'🔧 '+toolsIssued.length+' инструментов'}</span>}</div>
-                  <div style={{textAlign:'right',display:'flex',alignItems:'center',gap:'12px'}}>{isFinanceRole()&&<p style={{color:C.success,fontWeight:'700',fontSize:'15px',margin:0}}>{mpTotal.toLocaleString()+' ₽'}</p>}{isExp?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div>
+                  <div><b style={{fontSize:'14px',color:C.text}}>{mp.fullName}</b><p style={{color:C.accent,margin:'3px 0',fontSize:'12px'}}>{mp.specialization+' · '+mp.contractType}</p><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{mp.phone}</p>{toolsIssued.length>0&&<span style={badge(C.purple,C.purpleLight,C.purple+'44')}>{'🔧 '+toolsIssued.length+' инстр.'}</span>}</div>
+                  <div style={{display:'flex',alignItems:'center',gap:'12px'}}>{isFinanceRole()&&<b style={{color:C.success,fontSize:'14px'}}>{mpTotal.toLocaleString()+' ₽'}</b>}{isExp?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div>
                 </div>
                 {isExp&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'16px'}}>
-                  {toolsIssued.length>0&&(<div style={{marginBottom:'16px',backgroundColor:C.purpleLight,padding:'12px',borderRadius:'8px',border:'1.5px solid '+C.purple+'44'}}><b style={{color:C.purple,fontSize:'13px'}}>🔧 Инструменты у мастера:</b>{toolsIssued.map(t=>(<p key={t.id} style={{color:C.text,margin:'4px 0',fontSize:'12px'}}>{t.name+(t.inventoryNumber?' · №'+t.inventoryNumber:'')+(t.issueType?' · '+t.issueType:'')}</p>))}</div>)}
+                  {toolsIssued.length>0&&(<div style={{marginBottom:'12px',backgroundColor:C.purpleLight,padding:'10px',borderRadius:'8px',border:'1.5px solid '+C.purple+'44'}}><b style={{color:C.purple,fontSize:'12px'}}>🔧 Инструменты:</b>{toolsIssued.map(t=>(<p key={t.id} style={{color:C.text,margin:'3px 0',fontSize:'12px'}}>{t.name+(t.inventoryNumber?' #'+t.inventoryNumber:'')+(t.issueType==='В счёт зарплаты'?' · -'+(t.cost||0).toLocaleString()+'₽':'')}</p>))}</div>)}
                   {mpProjects.map(proj=>{
                     const projWorks=mpWorks.filter(w=>w.project===proj);
                     const projTotal=projWorks.reduce((s,w)=>s+w.total,0);
                     const isProjOpen=expandedMasterProject===mp.id+'_p_'+proj;
                     return(<div key={proj} style={{marginBottom:'8px',border:'1.5px solid '+C.border,borderRadius:'10px',overflow:'hidden'}}>
-                      <div onClick={()=>setExpandedMasterProject(isProjOpen?null:mp.id+'_p_'+proj)} style={{padding:'10px 16px',backgroundColor:C.bg,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <div onClick={()=>setExpandedMasterProject(isProjOpen?null:mp.id+'_p_'+proj)} style={{padding:'10px 14px',backgroundColor:C.bg,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                         <b style={{color:C.text,fontSize:'13px'}}>{'🏗️ '+proj}</b>
                         <div style={{display:'flex',gap:'10px',alignItems:'center'}}>{isFinanceRole()&&<b style={{color:C.success,fontSize:'12px'}}>{projTotal.toLocaleString()+' ₽'}</b>}{isProjOpen?<ChevronUp size={14} color={C.textMuted}/>:<ChevronDown size={14} color={C.textMuted}/>}</div>
                       </div>
-                      {isProjOpen&&(<div style={{padding:'12px 16px'}}>
-                        {projWorks.map(w=>(<div key={w.id} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid '+C.border}}><span style={{fontSize:'12px',color:C.text}}>{w.description+' · '+w.quantity+' '+w.unit}</span>{isFinanceRole()&&<b style={{fontSize:'12px',color:C.success}}>{(w.total||0).toLocaleString()+' ₽'}</b>}</div>))}
+                      {isProjOpen&&(<div style={{padding:'10px 14px'}}>
+                        {projWorks.map(w=>(<div key={w.id} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:'1px solid '+C.border}}><span style={{fontSize:'12px',color:C.text}}>{w.description+' · '+w.quantity+' '+w.unit}</span>{isFinanceRole()&&<b style={{fontSize:'12px',color:C.success}}>{(w.total||0).toLocaleString()+' ₽'}</b>}</div>))}
                       </div>)}
                     </div>);
                   })}
@@ -1816,77 +2150,81 @@ function App() {
               </div>
             </div>
             {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Имя" value={newStaff.name} onChange={e=>setNewStaff({...newStaff,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Должность" value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Телефон" value={newStaff.phone} onChange={e=>setNewStaff({...newStaff,phone:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newStaff.payType} onChange={e=>setNewStaff({...newStaff,payType:e.target.value})} style={{...inp,marginBottom:0}}><option value="оклад">Оклад</option><option value="сдельно">Сдельно</option></select>{newStaff.payType==='оклад'&&<input placeholder="Оклад" type="number" value={newStaff.salary} onChange={e=>setNewStaff({...newStaff,salary:e.target.value})} style={{...inp,marginBottom:0}}/>}<select value={newStaff.project} onChange={e=>setNewStaff({...newStaff,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Проект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select></div><div style={{display:'flex',gap:'10px',marginTop:'12px'}}><button onClick={saveStaff} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
-            {staff.map(s=>(<div key={s.id} style={{...card,padding:'16px',marginBottom:'10px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><h3 style={{margin:0,color:C.text,fontSize:'14px',fontWeight:'600'}}>{s.name}</h3><p style={{color:C.accent,margin:'3px 0',fontSize:'13px'}}>{s.role}</p><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{s.phone+' · '+s.project}</p><p style={{color:C.success,margin:'3px 0',fontWeight:'600',fontSize:'13px'}}>{s.payType==='оклад'?(workedDays(s.id)+' дн. · '+calcSalary(s).toLocaleString()+' ₽'):(pwTotal(s.id).toLocaleString()+' ₽')}</p></div><div style={{display:'flex',gap:'8px'}}>{s.payType==='оклад'&&<button onClick={async()=>{setSelectedStaff(s);await loadTimesheet(s.id);setShowTimesheet(true);}} style={btnO}>Табель</button>}<button onClick={()=>{setEditingItem(s);setNewStaff({...s,salary:String(s.salary)});setShowForm(true);}} style={btnG}><Edit2 size={13}/></button><button onClick={()=>deleteStaff(s.id)} style={btnR}><Trash2 size={13}/></button></div></div></div>))}
+            {staff.map(s=>(<div key={s.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'14px'}}>{s.name}</b><p style={{color:C.accent,margin:'3px 0',fontSize:'12px'}}>{s.role}</p><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{s.phone+' · '+s.project}</p><p style={{color:C.success,margin:'2px 0',fontWeight:'600',fontSize:'13px'}}>{s.payType==='оклад'?(workedDays(s.id)+' дн. · '+calcSalary(s).toLocaleString()+' ₽'):(pwTotal(s.id).toLocaleString()+' ₽')}</p></div><div style={{display:'flex',gap:'6px'}}>{s.payType==='оклад'&&<button onClick={async()=>{setSelectedStaff(s);await loadTimesheet(s.id);setShowTimesheet(true);}} style={btnO}>Табель</button>}<button onClick={()=>{setEditingItem(s);setNewStaff({...s,salary:String(s.salary)});setShowForm(true);}} style={btnG}><Edit2 size={13}/></button><button onClick={()=>deleteStaff(s.id)} style={btnR}><Trash2 size={13}/></button></div></div></div>))}
             {showTimesheet&&selectedStaff&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1000}}><div style={{...card,padding:'30px',width:'500px',maxWidth:'90%'}}><h3 style={{marginBottom:'16px',color:C.text,fontWeight:'700'}}>{'Табель — '+selectedStaff.name}</h3><div style={{display:'flex',flexWrap:'wrap',gap:'8px',marginBottom:'20px'}}>{daysInMonth.map(day=>{const worked=timesheet[selectedStaff.id+'-'+day];return<div key={day} onClick={()=>toggleDay(selectedStaff.id,day)} style={{width:'42px',height:'42px',display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'8px',cursor:'pointer',backgroundColor:worked?C.success:C.bg,color:worked?'white':C.text,fontWeight:'600',fontSize:'14px',border:'1.5px solid '+(worked?C.success:C.border)}}>{day}</div>;})}</div><p style={{color:C.text,fontWeight:'600',marginBottom:'16px'}}>{'Отработано: '+workedDays(selectedStaff.id)+' дн. · К выплате: '+calcSalary(selectedStaff).toLocaleString()+' ₽'}</p><button onClick={()=>setShowTimesheet(false)} style={btnO}>Закрыть</button></div></div>)}
           </div>)}
 
           {personnelTab==='piecework'&&(<div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>Сдельные начисления</h3><button onClick={()=>setShowPiecework(!showPiecework)} style={btnO}><Plus size={16}/>Начислить</button></div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>Сдельные</h3><button onClick={()=>setShowPiecework(!showPiecework)} style={btnO}><Plus size={16}/>Начислить</button></div>
             {showPiecework&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><select value={newPiecework.staffId} onChange={e=>setNewPiecework({...newPiecework,staffId:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Сотрудник</option>{staff.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><input placeholder="Вид работы" value={newPiecework.description} onChange={e=>setNewPiecework({...newPiecework,description:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Количество" type="number" value={newPiecework.quantity} onChange={e=>setNewPiecework({...newPiecework,quantity:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Цена за единицу" type="number" value={newPiecework.pricePerUnit} onChange={e=>setNewPiecework({...newPiecework,pricePerUnit:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPiecework.project} onChange={e=>setNewPiecework({...newPiecework,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Проект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><select value={newPiecework.unit} onChange={e=>setNewPiecework({...newPiecework,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select></div><button onClick={addPiecework} style={{...btnO,marginTop:'12px'}}>Начислить</button></div>)}
-            {[...new Set(piecework.map(pw=>pw.project))].map(proj=>{const projPW=piecework.filter(pw=>pw.project===proj);const projTotal=projPW.reduce((s,pw)=>s+pw.total,0);const isProjOpen=expandedPieceworkProject===proj;return(<div key={proj} style={{...card,marginBottom:'10px'}}><div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedPieceworkProject(isProjOpen?null:proj)}><b style={{color:C.text,fontSize:'14px'}}>{'🏗️ '+proj}</b><div style={{display:'flex',gap:'10px',alignItems:'center'}}>{isFinanceRole()&&<b style={{color:C.success,fontSize:'14px'}}>{projTotal.toLocaleString()+' ₽'}</b>}{isProjOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div></div>{isProjOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 16px'}}>{projPW.map(pw=>{const s=staff.find(st=>st.id===Number(pw.staffId));return(<div key={pw.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid '+C.border}}><div><b style={{color:C.text,fontSize:'13px'}}>{pw.description}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(s?s.name:'')+' · '+pw.quantity+' '+pw.unit+' · '+pw.date}</p></div><div style={{display:'flex',gap:'5px',alignItems:'center'}}>{isFinanceRole()&&<b style={{color:C.success,fontSize:'13px'}}>{(pw.total||0).toLocaleString()+' ₽'}</b>}<button onClick={()=>deletePiecework(pw.id)} style={{...btnR,padding:'2px 6px',fontSize:'10px'}}><Trash2 size={11}/></button></div></div>);})}</div>)}</div>);})}
+            {[...new Set(piecework.map(pw=>pw.project))].map(proj=>{const projPW=piecework.filter(pw=>pw.project===proj);const projTotal=projPW.reduce((s,pw)=>s+pw.total,0);const isProjOpen=expandedPieceworkProject===proj;return(<div key={proj} style={{...card,marginBottom:'10px'}}><div style={{padding:'14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedPieceworkProject(isProjOpen?null:proj)}><b style={{color:C.text,fontSize:'14px'}}>{'🏗️ '+proj}</b><div style={{display:'flex',gap:'10px',alignItems:'center'}}>{isFinanceRole()&&<b style={{color:C.success,fontSize:'13px'}}>{projTotal.toLocaleString()+' ₽'}</b>}{isProjOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div></div>{isProjOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 14px'}}>{projPW.map(pw=>{const s=staff.find(st=>st.id===Number(pw.staffId));return(<div key={pw.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'1px solid '+C.border}}><div><b style={{color:C.text,fontSize:'12px'}}>{pw.description}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(s?s.name:'')+' · '+pw.quantity+' '+pw.unit+' · '+pw.date}</p></div><div style={{display:'flex',gap:'4px',alignItems:'center'}}>{isFinanceRole()&&<b style={{color:C.success,fontSize:'12px'}}>{(pw.total||0).toLocaleString()+' ₽'}</b>}<button onClick={()=>deletePiecework(pw.id)} style={{...btnR,padding:'2px 6px',fontSize:'10px'}}><Trash2 size={10}/></button></div></div>);})}</div>)}</div>);})}
           </div>)}
 
           {personnelTab==='instructions'&&(<div>
-            {Object.keys(POSITION_INSTRUCTIONS).map(role=>{const roleUsers=users.filter(u=>u.role===role);const signedCount=roleUsers.filter(u=>signedDocs['instruction_'+u.id]).length;return(<div key={role} style={{...card,padding:'16px',marginBottom:'10px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>{ROLE_LABELS[role]||role}</b><p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{roleUsers.length+' сотрудников · Подписали: '+signedCount+'/'+roleUsers.length}</p></div><div style={{display:'flex',gap:'8px'}}><button onClick={()=>showPreview(buildPositionInstructionContent(role,'______'),'Инструкция')} style={btnB}><Eye size={14}/></button><button onClick={()=>doPrint(buildPositionInstructionContent(role,'______'))} style={btnO}><Printer size={14}/></button></div></div></div>);})}
+            {Object.keys(POSITION_INSTRUCTIONS).map(role=>{const roleUsers=users.filter(u=>u.role===role);const signedCount=roleUsers.filter(u=>signedDocs['instruction_'+u.id]).length;return(<div key={role} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'14px'}}>{ROLE_LABELS[role]||role}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{roleUsers.length+' сотрудников · Подписали: '+signedCount+'/'+roleUsers.length}</p></div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>showPreview(buildPositionInstructionContent(role,'______'),'Инструкция')} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><Eye size={11}/></button><button onClick={()=>doPrint(buildPositionInstructionContent(role,'______'))} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}><Printer size={11}/></button></div></div></div>);})}
           </div>)}
         </div>)}
 
         {activePage==='pricelists'&&(<div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{pricelists.length+' прайс-листов'}</p>{!selectedPricelist&&<button onClick={()=>{setShowForm(!showForm);setEditingItem(null);}} style={btnO}><Plus size={16}/>Новый прайс-лист</button>}</div>
-          {showForm&&!selectedPricelist&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newPricelist.name} onChange={e=>setNewPricelist({...newPricelist,name:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPricelist.forWho} onChange={e=>setNewPricelist({...newPricelist,forWho:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Для кого</option>{['Электрики','Сантехники','Каменщики','Отделочники','Кровельщики','Монтажники','Разнорабочие','Общий'].map(r=><option key={r}>{r}</option>)}</select></div><label style={{color:C.textSec,fontSize:'13px',display:'block',marginTop:'12px',marginBottom:'6px'}}>{'Коэффициент: ×'+newPricelist.coefficient}</label><input type="range" min="0.5" max="3" step="0.1" value={newPricelist.coefficient} onChange={e=>setNewPricelist({...newPricelist,coefficient:Number(e.target.value)})} style={{width:'100%',marginBottom:'12px',accentColor:C.accent}}/><div style={{display:'flex',gap:'10px'}}><button onClick={savePricelist} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{pricelists.length+' прайс-листов'}</p>{!selectedPricelist&&<button onClick={()=>{setShowForm(!showForm);setEditingItem(null);}} style={btnO}><Plus size={16}/>Новый</button>}</div>
+          {showForm&&!selectedPricelist&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newPricelist.name} onChange={e=>setNewPricelist({...newPricelist,name:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPricelist.forWho} onChange={e=>setNewPricelist({...newPricelist,forWho:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Для кого</option>{['Электрики','Сантехники','Каменщики','Отделочники','Кровельщики','Монтажники','Общий'].map(r=><option key={r}>{r}</option>)}</select></div><label style={{color:C.textSec,fontSize:'13px',display:'block',marginTop:'10px',marginBottom:'4px'}}>{'Коэффициент: ×'+newPricelist.coefficient}</label><input type="range" min="0.5" max="3" step="0.1" value={newPricelist.coefficient} onChange={e=>setNewPricelist({...newPricelist,coefficient:Number(e.target.value)})} style={{width:'100%',marginBottom:'12px',accentColor:C.accent}}/><div style={{display:'flex',gap:'10px'}}><button onClick={savePricelist} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
           {selectedPricelist?(<div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
-              <div><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>{selectedPricelist.name}</h3>{selectedPricelist.forWho&&<p style={{color:C.accent,margin:'4px 0',fontSize:'13px'}}>{'Для: '+selectedPricelist.forWho+' · Коэф: ×'+selectedPricelist.coefficient}</p>}</div>
-              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button onClick={()=>showPreview(buildPricelistContent(selectedPricelist,pricelistItems),'Прайс-лист')} style={btnB}><Eye size={14}/>Просмотр</button>
-                <button onClick={()=>doPrint(buildPricelistContent(selectedPricelist,pricelistItems))} style={btnO}><Printer size={14}/>Печать</button>
-                <button onClick={()=>{setSelectedPricelist(null);setPricelistItems([]);setEditingPlItem(null);}} style={btnG}><ArrowLeft size={14}/>Назад</button>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
+              <div><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>{selectedPricelist.name}</h3>{selectedPricelist.forWho&&<p style={{color:C.accent,margin:'4px 0',fontSize:'13px'}}>{'Для: '+selectedPricelist.forWho}</p>}<div style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'4px'}}><span style={{color:C.textSec,fontSize:'13px'}}>Коэффициент: ×</span><input type='number' step='0.1' min='0.1' max='10' value={selectedPricelist.coefficient} onChange={e=>setSelectedPricelist(prev=>({...prev,coefficient:Number(e.target.value)}))} onKeyDown={async e=>{if(e.key==='Enter'){await fetch(API+'/pricelists/'+selectedPricelist.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selectedPricelist,coefficient:Number(e.target.value)})});await loadAll();alert('Сохранено!');}}} style={{width:'70px',padding:'4px 8px',border:'1.5px solid '+C.accent,borderRadius:'6px',fontSize:'13px',fontWeight:'600',color:C.accent}}/><span style={{color:C.textMuted,fontSize:'11px'}}>Enter для сохранения</span></div></div>
+              <div style={{display:'flex',gap:'8px'}}>
+                <button onClick={()=>showPreview(buildPricelistContent(selectedPricelist,pricelistItems),'Прайс')} style={btnB}><Eye size={14}/></button>
+                <button onClick={()=>doPrint(buildPricelistContent(selectedPricelist,pricelistItems))} style={btnO}><Printer size={14}/></button>
+                <button onClick={()=>{setSelectedPricelist(null);setPricelistItems([]);setEditingPlItem(null);setInlineEditPl(null);}} style={btnG}><ArrowLeft size={14}/>Назад</button>
               </div>
             </div>
-            <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+            <div style={{...card,padding:'16px',marginBottom:'12px'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
-                <div>
-                  <label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Категория</label>
-                  {plCategories.length>0?(<select value={newPlItem.category} onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Выберите</option>{plCategories.map(c=><option key={c} value={c}>{c}</option>)}<option value="__new__">+ Новая категория</option></select>):(<input placeholder="Категория" value={newPlItem.category==='__new__'?'':newPlItem.category} onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={{...inp,marginBottom:0}}/>)}
-                  {newPlItem.category==='__new__'&&<input placeholder="Название новой категории" onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={{...inp,marginBottom:0,marginTop:'6px'}}/>}
+                <div><label style={{fontSize:'10px',color:C.textSec,display:'block',marginBottom:'3px',fontWeight:'600',textTransform:'uppercase'}}>Категория</label>
+                  {plCategories.length>0?(<select value={newPlItem.category} onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Выберите</option>{plCategories.map(c=><option key={c} value={c}>{c}</option>)}<option value="__new__">+ Новая</option></select>):(<input placeholder="Категория" value={newPlItem.category==='__new__'?'':newPlItem.category} onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={{...inp,marginBottom:0}}/>)}
+                  {newPlItem.category==='__new__'&&<input placeholder="Название новой" onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={{...inp,marginBottom:0,marginTop:'4px'}}/>}
                 </div>
-                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Название *</label><input placeholder="Название работы" value={newPlItem.name} onChange={e=>setNewPlItem({...newPlItem,name:e.target.value})} style={{...inp,marginBottom:0}}/></div>
-                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Цена (₽)</label><input placeholder="0" type="number" value={newPlItem.price} onChange={e=>setNewPlItem({...newPlItem,price:e.target.value})} style={{...inp,marginBottom:0}}/></div>
-                <div><label style={{fontSize:'11px',color:C.textSec,marginBottom:'4px',display:'block',fontWeight:'600',textTransform:'uppercase'}}>Единица</label><select value={newPlItem.unit} onChange={e=>setNewPlItem({...newPlItem,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select></div>
+                <div><label style={{fontSize:'10px',color:C.textSec,display:'block',marginBottom:'3px',fontWeight:'600',textTransform:'uppercase'}}>Название *</label><input placeholder="Название работы" value={newPlItem.name} onChange={e=>setNewPlItem({...newPlItem,name:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+                <div><label style={{fontSize:'10px',color:C.textSec,display:'block',marginBottom:'3px',fontWeight:'600',textTransform:'uppercase'}}>Ед. / Цена</label><div style={{display:'flex',gap:'4px'}}><select value={newPlItem.unit} onChange={e=>setNewPlItem({...newPlItem,unit:e.target.value})} style={{...inp,marginBottom:0,width:'70px'}}>{UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select><input placeholder="0" type="number" value={newPlItem.price} onChange={e=>setNewPlItem({...newPlItem,price:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/></div></div>
                 <div style={{paddingBottom:'2px'}}><button onClick={savePlItem} style={btnO}>{editingPlItem?'Обновить':'Добавить'}</button></div>
               </div>
-              {editingPlItem&&<p style={{color:C.accent,fontSize:'12px',marginTop:'8px'}}>✏️ Редактирование: {editingPlItem.name} <button onClick={()=>{setEditingPlItem(null);setNewPlItem({name:'',unit:'м2',price:'',category:''});}} style={{...btnG,padding:'2px 8px',fontSize:'11px',marginLeft:'8px'}}>Отмена</button></p>}
+              {editingPlItem&&<p style={{color:C.accent,fontSize:'12px',marginTop:'6px'}}>✏️ Редактирование: {editingPlItem.name} <button onClick={()=>{setEditingPlItem(null);setNewPlItem({name:'',unit:'м2',price:'',category:''});}} style={{...btnG,padding:'2px 8px',fontSize:'11px',marginLeft:'8px'}}>Отмена</button></p>}
             </div>
-            <div style={{backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,padding:'14px 16px',borderRadius:'10px',marginBottom:'16px'}}>
-              <b style={{color:C.warning,fontSize:'13px'}}>📋 Быстрое добавление разделов:</b>
-              <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'10px'}}>
-                {Object.keys(PRICELISTS_DATA).map(section=>(<button key={section} onClick={async()=>{const items=PRICELISTS_DATA[section];for(const item of items){await fetch(API+'/pricelist-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,price:0,category:section,pricelistId:selectedPricelist.id,specialization:''})});}await loadPricelistItems(selectedPricelist.id);alert('Добавлено '+items.length+' позиций!');}} style={{padding:'5px 12px',backgroundColor:C.accentLight,color:C.accent,border:'1.5px solid '+C.accentBorder,borderRadius:'6px',cursor:'pointer',fontSize:'11px',fontWeight:'600'}}>{section}</button>))}
+            <div style={{backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,padding:'12px 14px',borderRadius:'10px',marginBottom:'12px'}}>
+              <b style={{color:C.warning,fontSize:'12px'}}>📋 Быстрое добавление:</b>
+              <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'8px'}}>
+                {Object.keys(PRICELISTS_DATA).map(section=>(<button key={section} onClick={async()=>{const items=PRICELISTS_DATA[section];for(const item of items){await fetch(API+'/pricelist-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,price:0,category:section,pricelistId:selectedPricelist.id,specialization:''})});}await loadPricelistItems(selectedPricelist.id);alert('Добавлено '+items.length+'!');}} style={{padding:'4px 10px',backgroundColor:C.accentLight,color:C.accent,border:'1.5px solid '+C.accentBorder,borderRadius:'6px',cursor:'pointer',fontSize:'11px',fontWeight:'600'}}>{section}</button>))}
               </div>
             </div>
             <div style={{...card,overflow:'hidden'}}>
-              <table style={tbl}><thead><tr><th style={tblH}>Категория</th><th style={tblH}>Название</th><th style={tblH}>Ед.</th><th style={tblH}>Цена</th><th style={tblH}>С коэф.</th><th style={tblH}></th></tr></thead><tbody>
+              <table style={tbl}><thead><tr><th style={tblH}>Категория</th><th style={tblH}>Название</th><th style={tblH}>Ед.</th><th style={tblH}>Цена</th><th style={tblH}>С коэф.</th><th style={tblH}>Действия</th></tr></thead><tbody>
                 {pricelistItems.map(item=>(<tr key={item.id} style={{backgroundColor:editingPlItem?.id===item.id?C.accentLight:'white'}}>
                   <td style={{...tblC,color:C.textSec,fontSize:'11px'}}>{item.category||'—'}</td>
-                  <td style={tblC}><b style={{color:C.text}}>{item.name}</b>{WORK_NORMS[item.name]&&<span style={{color:C.success,fontSize:'11px',marginLeft:'6px'}}>📦</span>}</td>
+                  <td style={tblC}><b style={{color:C.text}}>{item.name}</b></td>
                   <td style={{...tblC,color:C.textMuted}}>{item.unit}</td>
-                  <td style={tblC}>{item.price.toLocaleString()+' ₽'}</td>
-                  <td style={{...tblC,color:C.info,fontWeight:'600'}}>{(item.price*selectedPricelist.coefficient).toLocaleString()+' ₽'}</td>
-                  <td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingPlItem(item);setNewPlItem({name:item.name,unit:item.unit,price:String(item.price),category:item.category||''});window.scrollTo({top:0,behavior:'smooth'});}} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button><button onClick={()=>deletePlItem(item.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button></div></td>
+                  <td style={tblC}>
+                    {inlineEditPl===item.id?(
+                      <div style={{display:'flex',gap:'4px',alignItems:'center'}}>
+                        <input type="number" value={inlineEditPrice} onChange={e=>setInlineEditPrice(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') saveInlinePlItem(item);if(e.key==='Escape'){setInlineEditPl(null);setInlineEditPrice('');}}} autoFocus style={{width:'80px',padding:'4px 6px',border:'1.5px solid '+C.accent,borderRadius:'6px',fontSize:'12px'}}/>
+                        <button onClick={()=>saveInlinePlItem(item)} style={{...btnGr,padding:'3px 6px'}}><Check size={11}/></button>
+                        <button onClick={()=>{setInlineEditPl(null);setInlineEditPrice('');}} style={{...btnR,padding:'3px 6px'}}><X size={11}/></button>
+                      </div>
+                    ):(
+                      <span style={{cursor:'pointer',color:C.text}} onClick={()=>{setInlineEditPl(item.id);setInlineEditPrice(String(item.price));}}>{item.price.toLocaleString()+' ₽'}</span>
+                    )}
+                  </td>
+                  <td style={{...tblC,color:C.info,fontWeight:"600"}}>{(item.price*selectedPricelist.coefficient).toLocaleString()+" ₽"}</td>
+                  <td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingPlItem(item);setNewPlItem({name:item.name,unit:item.unit,price:String(item.price),category:item.category||''});}} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><Edit2 size={11}/></button><button onClick={()=>deletePlItem(item.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button></div></td>
                 </tr>))}
               </tbody></table>
-              {pricelistItems.length===0&&<p style={{textAlign:'center',color:C.textMuted,padding:'30px'}}>Позиций нет. Добавьте первую!</p>}
+              {pricelistItems.length===0&&<p style={{textAlign:'center',color:C.textMuted,padding:'30px'}}>Позиций нет</p>}
             </div>
-          </div>):(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:'12px'}}>
-            {pricelists.map(pl=>(<div key={pl.id} style={{...card,padding:'18px'}}>
+          </div>):(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:'12px'}}>
+            {pricelists.map(pl=>(<div key={pl.id} style={{...card,padding:'16px'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                 <div style={{flex:1}}><h3 style={{margin:0,color:C.text,fontSize:'14px',fontWeight:'600'}}>{pl.name}</h3>{pl.forWho&&<p style={{color:C.accent,margin:'3px 0',fontSize:'12px'}}>{'Для: '+pl.forWho}</p>}<p style={{color:C.info,margin:'3px 0',fontSize:'12px'}}>{'Коэф.: ×'+pl.coefficient}</p></div>
                 <div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end'}}>
                   <button onClick={async()=>{setSelectedPricelist(pl);await loadPricelistItems(pl.id);}} style={{...btnO,padding:'6px 12px',fontSize:'12px'}}>Открыть</button>
-                  <div style={{display:'flex',gap:'4px'}}>
-                    <button onClick={()=>copyPricelist(pl)} style={{...btnG,padding:'3px 8px',fontSize:'10px'}}><Copy size={11}/>Копия</button>
-                    <button onClick={()=>{setEditingItem(pl);setNewPricelist({name:pl.name,description:pl.description||'',forWho:pl.forWho||'',coefficient:pl.coefficient});setShowForm(true);}} style={{...btnG,padding:'3px 8px',fontSize:'10px'}}><Edit2 size={11}/></button>
-                    <button onClick={()=>deletePricelist(pl.id)} style={{...btnR,padding:'3px 8px',fontSize:'10px'}}><Trash2 size={11}/></button>
-                  </div>
+                  <div style={{display:'flex',gap:'4px'}}><button onClick={()=>copyPricelist(pl)} style={{...btnG,padding:'3px 6px',fontSize:'10px'}}><Copy size={11}/></button><button onClick={()=>{setEditingItem(pl);setNewPricelist({name:pl.name,description:pl.description||'',forWho:pl.forWho||'',coefficient:pl.coefficient});setShowForm(true);}} style={{...btnG,padding:'3px 6px',fontSize:'10px'}}><Edit2 size={11}/></button><button onClick={()=>deletePricelist(pl.id)} style={{...btnR,padding:'3px 6px',fontSize:'10px'}}><Trash2 size={11}/></button></div>
                 </div>
               </div>
             </div>))}
@@ -1895,69 +2233,63 @@ function App() {
         </div>)}
 
         {activePage==='users'&&user.role==='директор'&&(<div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}><div/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>setShowInvites(!showInvites)} style={btnG}>🔑 Коды приглашений</button><button onClick={()=>{setShowForm(!showForm);setEditingItem(null);}} style={btnO}><Plus size={16}/>Пользователь</button></div></div>
-          {showInvites&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}><div style={{display:'flex',gap:'10px',marginBottom:'16px'}}><select value={newInviteRole} onChange={e=>setNewInviteRole(e.target.value)} style={{...inp,marginBottom:0,flex:1}}>{Object.entries(ROLE_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><button onClick={createInvite} style={btnO}>Создать код</button></div>{inviteCodes.map(ic=>(<div key={ic.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',backgroundColor:ic.used?C.bg:C.successLight,borderRadius:'10px',marginBottom:'8px',border:'1.5px solid '+(ic.used?C.border:C.successBorder)}}><div><span style={{fontFamily:'monospace',fontSize:'20px',fontWeight:'800',letterSpacing:'4px',color:ic.used?C.textMuted:C.success}}>{ic.code}</span><span style={{marginLeft:'15px',color:C.textSec,fontSize:'12px'}}>{(ROLE_LABELS[ic.role]||ic.role)+' · '+(ic.used?'Использован':'Активен')}</span></div><button onClick={()=>deleteInvite(ic.id)} style={btnR}><Trash2 size={14}/></button></div>))}</div>)}
-          {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Имя" value={newUser.name} onChange={e=>setNewUser({...newUser,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Email" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Пароль" type="password" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})} style={{...inp,marginBottom:0}}>{Object.entries(ROLE_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div><button onClick={saveUser} style={{...btnO,marginTop:'12px'}}>Сохранить</button></div>)}
-          <input placeholder="🔍 Поиск пользователя..." value={searchUser} onChange={e=>setSearchUser(e.target.value)} style={{...inp,marginBottom:'20px'}}/>
-          {ROLE_GROUPS.map(group=>{const gu=users.filter(u=>group.roles.includes(u.role)&&(u.name.toLowerCase().includes(searchUser.toLowerCase())||u.email.toLowerCase().includes(searchUser.toLowerCase())));if(gu.length===0) return null;return(<div key={group.key} style={{marginBottom:'12px'}}><div onClick={()=>setExpandedGroup(expandedGroup===group.key?null:group.key)} style={{backgroundColor:C.bgWhite,border:'1.5px solid '+(expandedGroup===group.key?C.accent:C.border),padding:'14px 18px',borderRadius:expandedGroup===group.key?'10px 10px 0 0':'10px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{display:'flex',alignItems:'center',gap:'10px'}}><div style={{width:'8px',height:'8px',borderRadius:'50%',backgroundColor:group.color}}/><span style={{fontWeight:'600',fontSize:'14px',color:C.text}}>{group.label}</span></div><span style={{backgroundColor:group.color,color:'white',padding:'2px 10px',borderRadius:'20px',fontSize:'12px',fontWeight:'700'}}>{gu.length+' чел.'}</span></div>{expandedGroup===group.key&&(<div style={{backgroundColor:C.bgWhite,borderRadius:'0 0 10px 10px',border:'1.5px solid '+C.accent,borderTop:'none'}}>{gu.map(u=>(<div key={u.id} style={{padding:'12px 18px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'14px'}}>{u.name}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{u.email}</p></div><div style={{display:'flex',gap:'8px',alignItems:'center'}}><span style={badge(roleColor(u.role),'white',roleColor(u.role)+'33')}>{ROLE_LABELS[u.role]}</span><button onClick={()=>{setEditingItem(u);setNewUser({...u,password:''});setShowForm(true);}} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><Edit2 size={11}/></button><button onClick={()=>deleteUser(u.id)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><Trash2 size={11}/></button></div></div>))}</div>)}</div>);})}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}><div/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>setShowInvites(!showInvites)} style={btnG}>🔑 Коды</button><button onClick={()=>{setShowForm(!showForm);setEditingItem(null);}} style={btnO}><Plus size={16}/>Пользователь</button></div></div>
+          {showInvites&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'flex',gap:'10px',marginBottom:'14px'}}><select value={newInviteRole} onChange={e=>setNewInviteRole(e.target.value)} style={{...inp,marginBottom:0,flex:1}}>{Object.entries(ROLE_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select><button onClick={createInvite} style={btnO}>Создать</button></div>{inviteCodes.map(ic=>(<div key={ic.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',backgroundColor:ic.used?C.bg:C.successLight,borderRadius:'10px',marginBottom:'6px',border:'1.5px solid '+(ic.used?C.border:C.successBorder)}}><div><span style={{fontFamily:'monospace',fontSize:'18px',fontWeight:'800',letterSpacing:'4px',color:ic.used?C.textMuted:C.success}}>{ic.code}</span><span style={{marginLeft:'12px',color:C.textSec,fontSize:'12px'}}>{(ROLE_LABELS[ic.role]||ic.role)+' · '+(ic.used?'Использован':'Активен')}</span></div><button onClick={()=>deleteInvite(ic.id)} style={btnR}><Trash2 size={14}/></button></div>))}</div>)}
+          {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Имя" value={newUser.name} onChange={e=>setNewUser({...newUser,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Email" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Пароль" type="password" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})} style={{...inp,marginBottom:0}}>{Object.entries(ROLE_LABELS).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div><button onClick={saveUser} style={{...btnO,marginTop:'10px'}}>Сохранить</button></div>)}
+          <input placeholder="Поиск..." value={searchUser} onChange={e=>setSearchUser(e.target.value)} style={{...inp,marginBottom:'16px'}}/>
+          {ROLE_GROUPS.map(group=>{const gu=users.filter(u=>group.roles.includes(u.role)&&(u.name.toLowerCase().includes(searchUser.toLowerCase())||u.email.toLowerCase().includes(searchUser.toLowerCase())));if(gu.length===0) return null;return(<div key={group.key} style={{marginBottom:'10px'}}><div onClick={()=>setExpandedGroup(expandedGroup===group.key?null:group.key)} style={{backgroundColor:C.bgWhite,border:'1.5px solid '+(expandedGroup===group.key?C.accent:C.border),padding:'12px 16px',borderRadius:expandedGroup===group.key?'10px 10px 0 0':'10px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{display:'flex',alignItems:'center',gap:'10px'}}><div style={{width:'8px',height:'8px',borderRadius:'50%',backgroundColor:group.color}}/><span style={{fontWeight:'600',fontSize:'14px',color:C.text}}>{group.label}</span></div><span style={{backgroundColor:group.color,color:'white',padding:'2px 10px',borderRadius:'20px',fontSize:'12px',fontWeight:'700'}}>{gu.length+' чел.'}</span></div>{expandedGroup===group.key&&(<div style={{backgroundColor:C.bgWhite,borderRadius:'0 0 10px 10px',border:'1.5px solid '+C.accent,borderTop:'none'}}>{gu.map(u=>(<div key={u.id} style={{padding:'10px 16px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'13px'}}>{u.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{u.email}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><span style={badge(roleColor(u.role),'white',roleColor(u.role)+'33')}>{ROLE_LABELS[u.role]}</span><button onClick={()=>{setEditingItem(u);setNewUser({...u,password:''});setShowForm(true);}} style={{...btnG,padding:'3px 6px',fontSize:'11px'}}><Edit2 size={11}/></button><button onClick={()=>deleteUser(u.id)} style={{...btnR,padding:'3px 6px',fontSize:'11px'}}><Trash2 size={11}/></button></div></div>))}</div>)}</div>);})}
         </div>)}
         {activePage==='projects'&&(<div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
             <div style={{display:'flex',gap:'8px'}}>
               <button onClick={()=>setShowArchive(false)} style={{padding:'8px 16px',borderRadius:'8px',border:'1.5px solid '+(showArchive?C.border:C.accent),cursor:'pointer',backgroundColor:showArchive?'transparent':C.accentLight,color:showArchive?C.textSec:C.accent,fontWeight:'600',fontSize:'13px'}}>{'Активные ('+projects.length+')'}</button>
               <button onClick={()=>setShowArchive(true)} style={{padding:'8px 16px',borderRadius:'8px',border:'1.5px solid '+(showArchive?C.accent:C.border),cursor:'pointer',backgroundColor:showArchive?C.accentLight:'transparent',color:showArchive?C.accent:C.textSec,fontWeight:'600',fontSize:'13px'}}>{'Архив ('+archivedProjects.length+')'}</button>
             </div>
-            <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null});}} style={btnO}><Plus size={16}/>Новый проект</button>
+            <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null});}} style={btnO}><Plus size={16}/>Проект</button>
           </div>
-          {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newProject.name} onChange={e=>setNewProject({...newProject,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Заказчик" value={newProject.client} onChange={e=>setNewProject({...newProject,client:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newProject.status} onChange={e=>setNewProject({...newProject,status:e.target.value})} style={{...inp,marginBottom:0}}>{['Планирование','В работе','Сдача','Завершён','Заморожен'].map(s=><option key={s} value={s}>{s}</option>)}</select><input placeholder="Бюджет" type="number" value={newProject.budget} onChange={e=>setNewProject({...newProject,budget:e.target.value})} style={{...inp,marginBottom:0}}/><input type="date" value={newProject.deadline} onChange={e=>setNewProject({...newProject,deadline:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newProject.pricelistId||''} onChange={e=>setNewProject({...newProject,pricelistId:e.target.value?Number(e.target.value):null})} style={{...inp,marginBottom:0}}><option value="">Прайс-лист</option>{pricelists.map(pl=><option key={pl.id} value={pl.id}>{pl.name}</option>)}</select></div><div style={{display:'flex',gap:'10px',marginTop:'12px'}}><button onClick={saveProject} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
+          {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newProject.name} onChange={e=>setNewProject({...newProject,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Заказчик" value={newProject.client} onChange={e=>setNewProject({...newProject,client:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newProject.status} onChange={e=>setNewProject({...newProject,status:e.target.value})} style={{...inp,marginBottom:0}}>{['Планирование','В работе','Сдача','Завершён','Заморожен'].map(s=><option key={s} value={s}>{s}</option>)}</select><input placeholder="Бюджет" type="number" value={newProject.budget} onChange={e=>setNewProject({...newProject,budget:e.target.value})} style={{...inp,marginBottom:0}}/><input type="date" value={newProject.deadline} onChange={e=>setNewProject({...newProject,deadline:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newProject.pricelistId||''} onChange={e=>setNewProject({...newProject,pricelistId:e.target.value?Number(e.target.value):null})} style={{...inp,marginBottom:0}}><option value="">Прайс-лист</option>{pricelists.map(pl=><option key={pl.id} value={pl.id}>{pl.name}</option>)}</select></div><div style={{display:'flex',gap:'10px',marginTop:'10px'}}><button onClick={saveProject} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
           {(showArchive?archivedProjects:projects).map(project=>{
             const isOpen=expandedProject===project.id;
             const cat=expByCategory(project.name);
             const totalExp=Object.values(cat).reduce((s,v)=>s+v,0);
-            const margin=project.budget>0?Math.round(((project.budget-totalExp)/project.budget)*100):0;
             const pRooms=rooms.filter(r=>r.project===project.name);
             const statusColors={'Планирование':C.info,'В работе':C.accent,'Сдача':C.purple,'Завершён':C.success,'Заморожен':C.textMuted};
             return(<div key={project.id} style={{...card,marginBottom:'12px',borderLeft:'3px solid '+(statusColors[project.status]||C.border)}}>
-              <div style={{padding:'18px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedProject(isOpen?null:project.id)}>
-                <div style={{flex:1}}><h3 style={{margin:0,color:C.text,fontSize:'15px',fontWeight:'700'}}>{project.name}</h3><p style={{color:C.textSec,margin:'4px 0',fontSize:'13px'}}>{project.client+(project.deadline?' · до '+project.deadline:'')}</p>{isFinanceRole()&&<p style={{color:C.accent,margin:'4px 0',fontSize:'13px',fontWeight:'600'}}>{totalExp.toLocaleString()+' / '+project.budget.toLocaleString()+' ₽'}</p>}</div>
-                <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                  <span style={badge(statusColors[project.status]||C.textSec,C.bgGray,C.border)}>{project.status}</span>
-                  {isOpen?<ChevronUp size={18} color={C.textMuted}/>:<ChevronDown size={18} color={C.textMuted}/>}
-                </div>
+              <div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedProject(isOpen?null:project.id)}>
+                <div style={{flex:1}}><h3 style={{margin:0,color:C.text,fontSize:'15px',fontWeight:'700'}}>{project.name}</h3><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{project.client+(project.deadline?' · до '+project.deadline:'')}</p>{isFinanceRole()&&<p style={{color:C.accent,margin:'3px 0',fontSize:'12px',fontWeight:'600'}}>{totalExp.toLocaleString()+' / '+project.budget.toLocaleString()+' ₽'}</p>}</div>
+                <div style={{display:'flex',alignItems:'center',gap:'10px'}}><span style={badge(statusColors[project.status]||C.textSec,C.bgGray,C.border)}>{project.status}</span>{isOpen?<ChevronUp size={18} color={C.textMuted}/>:<ChevronDown size={18} color={C.textMuted}/>}</div>
               </div>
-              {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'20px'}}>
-                <div style={{display:'flex',gap:'6px',marginBottom:'20px',flexWrap:'wrap'}}>
-                  {PROJECT_TABS.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'6px 14px',borderRadius:'6px',border:'1.5px solid '+(activeProjectTab===tab?C.accent:C.border),cursor:'pointer',backgroundColor:activeProjectTab===tab?C.accentLight:'transparent',color:activeProjectTab===tab?C.accent:C.textSec,fontWeight:'600',fontSize:'12px'}}>{tab}</button>))}
+              {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'18px'}}>
+                <div style={{display:'flex',gap:'6px',marginBottom:'18px',flexWrap:'wrap'}}>
+                  {PROJECT_TABS.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'6px 12px',borderRadius:'6px',border:'1.5px solid '+(activeProjectTab===tab?C.accent:C.border),cursor:'pointer',backgroundColor:activeProjectTab===tab?C.accentLight:'transparent',color:activeProjectTab===tab?C.accent:C.textSec,fontWeight:'600',fontSize:'11px'}}>{tab}</button>))}
                 </div>
 
                 {activeProjectTab==='Общее'&&(<div>
-                  <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
-                    <button onClick={()=>editProject(project)} style={btnG}><Edit2 size={14}/>Редактировать</button>
-                    {isLeadership()&&<button onClick={()=>{if(window.confirm('Архивировать проект?')){setArchivedProjects(prev=>{const u=[...prev,project];localStorage.setItem('archivedProjects',JSON.stringify(u));return u;});deleteProject(project.id);}}} style={btnG}><Archive size={14}/>В архив</button>}
-                    <button onClick={()=>showPreview(buildPassportContent(project),'Паспорт объекта')} style={btnB}><Eye size={14}/>Паспорт</button>
-                    <button onClick={()=>doPrint(buildPassportContent(project))} style={btnO}><Printer size={14}/>Паспорт</button>
-                    {isLeadership()&&<button onClick={()=>deleteProject(project.id)} style={btnR}><Trash2 size={14}/>Удалить</button>}
+                  <div style={{display:'flex',gap:'8px',marginBottom:'14px',flexWrap:'wrap'}}>
+                    <button onClick={()=>editProject(project)} style={btnG}><Edit2 size={13}/>Редактировать</button>
+                    {isLeadership()&&<button onClick={()=>{if(window.confirm('Архивировать?')){setArchivedProjects(prev=>{const u=[...prev,project];localStorage.setItem('archivedProjects',JSON.stringify(u));return u;});deleteProject(project.id);}}} style={btnG}><Archive size={13}/>Архив</button>}
+                    <button onClick={()=>showPreview(buildPassportContent(project),'Паспорт')} style={btnB}><Eye size={13}/>Паспорт</button>
+                    {isLeadership()&&<button onClick={()=>deleteProject(project.id)} style={btnR}><Trash2 size={13}/>Удалить</button>}
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
-                    <div style={{backgroundColor:C.bg,padding:'14px',borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{color:C.textSec,margin:'0 0 4px',fontSize:'11px',fontWeight:'600',textTransform:'uppercase'}}>Прогресс</p><div style={{display:'flex',alignItems:'center',gap:'10px'}}><div style={{flex:1,backgroundColor:C.bgGray,borderRadius:'4px',height:'8px'}}><div style={{background:'linear-gradient(90deg,#f97316,#ea580c)',width:project.progress+'%',height:'8px',borderRadius:'4px'}}/></div><b style={{color:C.accent}}>{project.progress+'%'}</b></div></div>
-                    {isFinanceRole()&&<div style={{backgroundColor:C.bg,padding:'14px',borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{color:C.textSec,margin:'0 0 4px',fontSize:'11px',fontWeight:'600',textTransform:'uppercase'}}>Маржа</p><b style={{color:margin<10?C.danger:margin<20?C.warning:C.success,fontSize:'22px'}}>{margin+'%'}</b></div>}
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
+                    <div style={{backgroundColor:C.bg,padding:'12px',borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{color:C.textSec,margin:'0 0 4px',fontSize:'11px',fontWeight:'600',textTransform:'uppercase'}}>Прогресс</p><div style={{display:'flex',alignItems:'center',gap:'8px'}}><div style={{flex:1,backgroundColor:C.bgGray,borderRadius:'4px',height:'6px'}}><div style={{background:'linear-gradient(90deg,#f97316,#ea580c)',width:project.progress+'%',height:'6px',borderRadius:'4px'}}/></div><b style={{color:C.accent,fontSize:'13px'}}>{project.progress+'%'}</b></div></div>
+                    {isFinanceRole()&&<div style={{backgroundColor:C.bg,padding:'12px',borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{color:C.textSec,margin:'0 0 4px',fontSize:'11px',fontWeight:'600',textTransform:'uppercase'}}>Остаток бюджета</p><b style={{color:(project.budget-totalExp)>=0?C.success:C.danger,fontSize:'18px'}}>{(project.budget-totalExp).toLocaleString()+' ₽'}</b></div>}
                   </div>
-                  <div><p style={{color:C.textSec,fontSize:'13px',fontWeight:'600',marginBottom:'8px'}}>Задачи:</p>{(project.tasks||[]).map((t,i)=>(<div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 10px',backgroundColor:C.bg,borderRadius:'6px',marginBottom:'5px',border:'1.5px solid '+C.border}}><span style={{fontSize:'13px',color:C.text}}>{'• '+t}</span><button onClick={()=>removeTask(project,i)} style={{...btnR,padding:'1px 6px',fontSize:'10px'}}><X size={11}/></button></div>))}<div style={{display:'flex',gap:'8px',marginTop:'8px'}}><input placeholder="Новая задача..." value={newTask} onChange={e=>setNewTask(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addTask(project)} style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}}/><button onClick={()=>addTask(project)} style={btnO}><Plus size={14}/></button></div></div>
+                  <div><p style={{color:C.textSec,fontSize:'12px',fontWeight:'600',marginBottom:'6px'}}>Задачи:</p>{(project.tasks||[]).map((t,i)=>(<div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 10px',backgroundColor:C.bg,borderRadius:'6px',marginBottom:'4px',border:'1.5px solid '+C.border}}><span style={{fontSize:'12px',color:C.text}}>{'• '+t}</span><button onClick={()=>removeTask(project,i)} style={{...btnR,padding:'1px 6px',fontSize:'10px'}}><X size={10}/></button></div>))}<div style={{display:'flex',gap:'8px',marginTop:'6px'}}><input placeholder="Новая задача..." value={newTask} onChange={e=>setNewTask(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addTask(project)} style={{...inp,marginBottom:0,flex:1,fontSize:'12px'}}/><button onClick={()=>addTask(project)} style={btnO}><Plus size={13}/></button></div></div>
                 </div>)}
 
                 {activeProjectTab==='Журнал'&&(<div>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
-                    <b style={{color:C.text,fontSize:'14px'}}>{'Журнал работ — '+workJournal.filter(j=>j.project===project.name).length+' записей'}</b>
-                    <button onClick={()=>showPreview(buildJPRContent(project.name),'ЖПР')} style={btnB}><Eye size={14}/>ЖПР</button>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+                    <b style={{color:C.text,fontSize:'13px'}}>{'Журнал — '+workJournal.filter(j=>j.project===project.name).length+' записей'}</b>
+                    <button onClick={()=>showPreview(buildJPRContent(project.name),'ЖПР')} style={{...btnB,fontSize:'12px',padding:'5px 10px'}}><Eye size={13}/>ЖПР</button>
                   </div>
-                  {workJournal.filter(j=>j.project===project.name).map(entry=>(<div key={entry.id} style={{...card,padding:'16px',marginBottom:'10px',borderLeft:'3px solid '+(entry.status==='Подтверждено'?C.success:entry.status==='Отклонено'?C.danger:C.warning)}}>
+                  {workJournal.filter(j=>j.project===project.name).map(entry=>(<div key={entry.id} style={{...card,padding:'12px',marginBottom:'8px',borderLeft:'3px solid '+(entry.status==='Подтверждено'?C.success:entry.status==='Отклонено'?C.danger:C.warning)}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                      <div style={{flex:1}}><b style={{color:C.text,fontSize:'13px'}}>{entry.description}</b><p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{'👷 '+entry.masterName+' · '+entry.quantity+' '+entry.unit+' · '+entry.date}</p>{isFinanceRole()&&entry.total>0&&<p style={{color:C.success,margin:'3px 0',fontSize:'12px',fontWeight:'600'}}>{(entry.total||0).toLocaleString()+' ₽'}</p>}{entry.comment&&<p style={{color:C.danger,margin:'3px 0',fontSize:'12px'}}>{'💬 '+entry.comment}</p>}</div>
-                      <div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end',marginLeft:'10px'}}>
+                      <div style={{flex:1}}><b style={{color:C.text,fontSize:'13px'}}>{entry.description}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'11px'}}>{'👷 '+entry.masterName+' · '+entry.quantity+' '+entry.unit+' · '+entry.date+(entry.roomName?' · '+entry.roomName:'')}</p>{isFinanceRole()&&entry.total>0&&<p style={{color:C.success,margin:'2px 0',fontSize:'11px',fontWeight:'600'}}>{(entry.total||0).toLocaleString()+' ₽'}</p>}{entry.comment&&<p style={{color:C.danger,margin:'2px 0',fontSize:'11px'}}>{'💬 '+entry.comment}</p>}</div>
+                      <div style={{display:'flex',flexDirection:'column',gap:'4px',alignItems:'flex-end',marginLeft:'8px'}}>
                         <span style={badge(entry.status==='Подтверждено'?C.success:entry.status==='Отклонено'?C.danger:C.warning,entry.status==='Подтверждено'?C.successLight:entry.status==='Отклонено'?C.dangerLight:C.warningLight,entry.status==='Подтверждено'?C.successBorder:entry.status==='Отклонено'?C.dangerBorder:C.warningBorder)}>{entry.status}</span>
-                        {entry.photoUrl&&<button onClick={()=>setShowPhotoModal(API+entry.photoUrl)} style={{...btnB,padding:'3px 8px',fontSize:'10px'}}><Eye size={11}/>Фото</button>}
-                        {isProrab()&&entry.status==='На проверке'&&(<div style={{display:'flex',gap:'5px'}}><button onClick={()=>confirmJ(entry)} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><Check size={12}/>Принять</button><button onClick={()=>setRejectingEntry(entry)} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><X size={12}/>Отклонить</button></div>)}
-                        {entry.status==='Подтверждено'&&isProrab()&&<button onClick={()=>showPreview(buildAOSRContent(entry),'АОСР')} style={{...btnB,padding:'3px 8px',fontSize:'10px'}}>АОСР</button>}
+                        {entry.photoUrl&&<button onClick={()=>setShowPhotoModal(API+entry.photoUrl)} style={{...btnB,padding:'2px 8px',fontSize:'10px'}}><Eye size={10}/>Фото</button>}
+                        {isProrab()&&entry.status==='На проверке'&&(<div style={{display:'flex',gap:'4px'}}><button onClick={()=>confirmJ(entry)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/>OK</button><button onClick={()=>setRejectingEntry(entry)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button></div>)}
                       </div>
                     </div>
                   </div>))}
@@ -1965,114 +2297,187 @@ function App() {
                 </div>)}
 
                 {activeProjectTab==='Помещения'&&(<div>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
-                    <b style={{color:C.text,fontSize:'14px'}}>{'Помещения — '+pRooms.length+' шт'}</b>
-                    <button onClick={()=>{setShowForm(true);setNewRoom({...newRoom,project:project.name});}} style={btnO}><Plus size={16}/>Помещение</button>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+                    <b style={{color:C.text,fontSize:'13px'}}>{'Помещения — '+pRooms.length+' шт'}</b>
+                    {isProrab()&&<button onClick={()=>{setShowForm(true);setNewRoom({...newRoom,project:project.name});}} style={btnO}><Plus size={14}/>Помещение</button>}
                   </div>
-                  {showForm&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
+                  {showForm&&isProrab()&&(<div style={{...card,padding:'14px',marginBottom:'12px'}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                       <input placeholder="Название *" value={newRoom.name} onChange={e=>setNewRoom({...newRoom,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+                      <input placeholder="Высота (м)" type="number" value={newRoom.height} onChange={e=>setNewRoom({...newRoom,height:e.target.value})} style={{...inp,marginBottom:0}}/>
+                      <select value={newRoom.ceilingType} onChange={e=>setNewRoom({...newRoom,ceilingType:e.target.value})} style={{...inp,marginBottom:0}}>{CEILING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
                       <input placeholder="Пол м2" type="number" value={newRoom.floorArea} onChange={e=>setNewRoom({...newRoom,floorArea:e.target.value})} style={{...inp,marginBottom:0}}/>
                       <input placeholder="Стены м2" type="number" value={newRoom.wallArea} onChange={e=>setNewRoom({...newRoom,wallArea:e.target.value})} style={{...inp,marginBottom:0}}/>
                       <input placeholder="Потолок м2" type="number" value={newRoom.ceilingArea} onChange={e=>setNewRoom({...newRoom,ceilingArea:e.target.value})} style={{...inp,marginBottom:0}}/>
-                      <input placeholder="Окна (шт)" type="number" value={newRoom.windows} onChange={e=>setNewRoom({...newRoom,windows:e.target.value})} style={{...inp,marginBottom:0}}/>
-                      <input placeholder="Двери (шт)" type="number" value={newRoom.doors} onChange={e=>setNewRoom({...newRoom,doors:e.target.value})} style={{...inp,marginBottom:0}}/>
+                      <select value={newRoom.wallMaterial} onChange={e=>setNewRoom({...newRoom,wallMaterial:e.target.value})} style={{...inp,marginBottom:0}}>{WALL_MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}</select>
+                      <select value={newRoom.floorMaterial} onChange={e=>setNewRoom({...newRoom,floorMaterial:e.target.value})} style={{...inp,marginBottom:0}}>{FLOOR_MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}</select>
                     </div>
-                    <div style={{display:'flex',gap:'8px',marginTop:'8px'}}><button onClick={saveRoom} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div>
+                    <div style={{display:'flex',gap:'8px'}}><button onClick={saveRoom} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div>
                   </div>)}
                   {pRooms.map(room=>{
-                    const roomWorksList=roomWorks.filter(rw=>rw.roomId===room.id);
-                    const roomTotal=roomWorksList.filter(rw=>rw.status==='Подтверждено').reduce((s,rw)=>s+(rw.total||0),0);
-                    const isRoomOpen=selectedRoom===room.id;
-                    return(<div key={room.id} style={{...card,marginBottom:'10px'}}>
-                      <div style={{padding:'14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setSelectedRoom(isRoomOpen?null:room.id)}>
-                        <div><b style={{color:C.text,fontSize:'14px'}}>{room.name}</b>
-                          <div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
-                            {room.floorArea>0&&<span style={{color:C.textSec,fontSize:'11px'}}>{'Пол: '+room.floorArea+' м2'}</span>}
-                            {room.wallArea>0&&<span style={{color:C.textSec,fontSize:'11px'}}>{'Стены: '+room.wallArea+' м2'}</span>}
-                            {room.ceilingArea>0&&<span style={{color:C.textSec,fontSize:'11px'}}>{'Потолок: '+room.ceilingArea+' м2'}</span>}
-                            {room.windows>0&&<span style={{color:C.textSec,fontSize:'11px'}}>{'Окна: '+room.windows}</span>}
-                            {room.doors>0&&<span style={{color:C.textSec,fontSize:'11px'}}>{'Двери: '+room.doors}</span>}
+                    const wins=roomWindows.filter(w=>w.room_id===room.id);
+                    const doors=roomDoors.filter(d=>d.room_id===room.id);
+                    const netWall=getRoomNetWall(room);
+                    const winArea=wins.reduce((s,w)=>s+calcWindowArea(w),0);
+                    const doorArea=doors.reduce((s,d)=>s+calcDoorArea(d),0);
+                    const winReveals=wins.reduce((s,w)=>s+calcWindowReveals(w),0);
+                    const doorReveals=doors.reduce((s,d)=>s+calcDoorReveals(d),0);
+                    const isRoomOpen=expandedRoom===room.id;
+                    return(<div key={room.id} style={{...card,marginBottom:'8px'}}>
+                      <div style={{padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedRoom(isRoomOpen?null:room.id)}>
+                        <div>
+                          <b style={{color:C.text,fontSize:'14px'}}>{room.name}</b>
+                          <div style={{display:'flex',gap:'8px',marginTop:'3px',flexWrap:'wrap'}}>
+                            {room.ceilingType&&room.ceilingType!=='Простой'&&<span style={badge(C.purple,C.purpleLight,C.purple+'44')}>{room.ceilingType}</span>}
+                            {room.height>0&&<span style={{color:C.textSec,fontSize:'11px'}}>{'h='+room.height+'м'}</span>}
+                            {room.floorArea>0&&<span style={{color:C.textSec,fontSize:'11px'}}>{'П:'+room.floorArea+'м2'}</span>}
+                            {room.wallArea>0&&<span style={{color:C.textSec,fontSize:'11px'}}>{'С:'+room.wallArea+'→'+netWall+'м2'}</span>}
+                            {room.ceilingArea>0&&<span style={{color:C.textSec,fontSize:'11px'}}>{'Пт:'+room.ceilingArea+'м2'}</span>}
+                            {wins.length>0&&<span style={{color:C.info,fontSize:'11px'}}>{'🪟'+wins.length+'('+winArea.toFixed(1)+'м2)'}</span>}
+                            {doors.length>0&&<span style={{color:C.success,fontSize:'11px'}}>{'🚪'+doors.length+'('+doorArea.toFixed(1)+'м2)'}</span>}
                           </div>
                         </div>
-                        <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
-                          {isFinanceRole()&&roomTotal>0&&<b style={{color:C.success,fontSize:'13px'}}>{roomTotal.toLocaleString()+' ₽'}</b>}
-                          <button onClick={e=>{e.stopPropagation();setEditingItem(room);setNewRoom({project:room.project,name:room.name,floorArea:String(room.floorArea),wallArea:String(room.wallArea),ceilingArea:String(room.ceilingArea),windows:String(room.windows),doors:String(room.doors),notes:room.notes||''});setShowForm(true);}} style={{...btnG,padding:'3px 8px',fontSize:'10px'}}><Edit2 size={11}/></button>
-                          <button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'3px 8px',fontSize:'10px'}}><Trash2 size={11}/></button>
-                          {isRoomOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
+                        <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+                          {isProrab()&&<button onClick={e=>{e.stopPropagation();setEditingItem(room);setNewRoom({project:room.project,name:room.name,floorArea:String(room.floorArea),wallArea:String(room.wallArea),ceilingArea:String(room.ceilingArea),height:String(room.height||0),ceilingType:room.ceiling_type||room.ceilingType||'Простой',wallMaterial:room.wall_material||room.wallMaterial||'Штукатурка',floorMaterial:room.floor_material||room.floorMaterial||'Стяжка',notes:room.notes||''});setShowForm(true);}} style={{...btnG,padding:'3px 6px',fontSize:'10px'}}><Edit2 size={10}/></button>}
+                          {isProrab()&&<button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'3px 6px',fontSize:'10px'}}><Trash2 size={10}/></button>}
+                          {isRoomOpen?<ChevronUp size={15} color={C.textMuted}/>:<ChevronDown size={15} color={C.textMuted}/>}
                         </div>
                       </div>
                       {isRoomOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'14px'}}>
-                        {SURFACES.map(surface=>{
-                          const surfWorks=roomWorksList.filter(rw=>rw.surface===surface&&rw.status==='Подтверждено');
-                          const surfTotal=surfWorks.reduce((s,rw)=>s+rw.quantity,0);
-                          const surfMax=surface==='Пол'?room.floorArea:surface==='Стены'?room.wallArea:surface==='Потолок'?room.ceilingArea:0;
-                          if(surfWorks.length===0&&surfMax===0) return null;
-                          const pct=surfMax>0?Math.min(100,Math.round((surfTotal/surfMax)*100)):0;
-                          return(<div key={surface} style={{marginBottom:'8px'}}>
-                            <div style={{display:'flex',justifyContent:'space-between',marginBottom:'3px'}}>
-                              <span style={{fontSize:'12px',color:C.text,fontWeight:'600'}}>{surface}</span>
-                              <span style={{fontSize:'11px',color:C.textSec}}>{surfTotal+(surfMax>0?' / '+surfMax:'')+' м2'+(surfMax>0?' ('+pct+'%)':'')}</span>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'12px'}}>
+                          <div style={{backgroundColor:C.bg,padding:'10px',borderRadius:'8px',border:'1.5px solid '+C.border}}>
+                            <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>📐 Площади</b>
+                            <div style={{display:'flex',flexDirection:'column',gap:'3px'}}>
+                              <div style={{display:'flex',justifyContent:'space-between',fontSize:'12px'}}><span style={{color:C.textSec}}>Стены общие:</span><b>{room.wallArea+' м2'}</b></div>
+                              {winArea>0&&<div style={{display:'flex',justifyContent:'space-between',fontSize:'12px'}}><span style={{color:C.textSec}}>Минус окна:</span><span style={{color:C.danger}}>{'-'+winArea.toFixed(1)+' м2'}</span></div>}
+                              {doorArea>0&&<div style={{display:'flex',justifyContent:'space-between',fontSize:'12px'}}><span style={{color:C.textSec}}>Минус двери:</span><span style={{color:C.danger}}>{'-'+doorArea.toFixed(1)+' м2'}</span></div>}
+                              <div style={{display:'flex',justifyContent:'space-between',fontSize:'12px',borderTop:'1px solid '+C.border,paddingTop:'3px'}}><span style={{color:C.textSec}}>Стены чистые:</span><b style={{color:C.success}}>{netWall+' м2'}</b></div>
+                              {winReveals>0&&<div style={{display:'flex',justifyContent:'space-between',fontSize:'12px'}}><span style={{color:C.textSec}}>Откосы окон:</span><b>{winReveals.toFixed(1)+' м2'}</b></div>}
+                              {doorReveals>0&&<div style={{display:'flex',justifyContent:'space-between',fontSize:'12px'}}><span style={{color:C.textSec}}>Откосы дверей:</span><b>{doorReveals.toFixed(1)+' м2'}</b></div>}
                             </div>
-                            {surfMax>0&&<div style={{backgroundColor:C.bgGray,borderRadius:'3px',height:'4px'}}><div style={{backgroundColor:pct>=100?C.success:pct>50?C.accent:C.warning,width:pct+'%',height:'4px',borderRadius:'3px'}}/></div>}
-                          </div>);
-                        })}
-                        {roomWorksList.length>0&&(<div style={{marginTop:'10px',backgroundColor:C.bg,padding:'10px',borderRadius:'8px',border:'1.5px solid '+C.border}}>
-                          {roomWorksList.map(rw=>(<div key={rw.id} style={{display:'flex',justifyContent:'space-between',padding:'3px 0',borderBottom:'1px solid '+C.border}}><span style={{fontSize:'11px',color:C.text}}>{rw.surface+' · '+rw.description+' · '+rw.masterName}</span><span style={{fontSize:'11px',color:C.textSec}}>{rw.quantity+' '+rw.unit}</span></div>))}
-                        </div>)}
+                          </div>
+                          <div style={{backgroundColor:C.bg,padding:'10px',borderRadius:'8px',border:'1.5px solid '+C.border}}>
+                            <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>🎨 Материалы</b>
+                            <div style={{display:'flex',flexDirection:'column',gap:'3px',fontSize:'12px'}}>
+                              <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.textSec}}>Потолок:</span><span>{room.ceiling_type||room.ceilingType||'—'}</span></div>
+                              <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.textSec}}>Стены:</span><span>{room.wall_material||room.wallMaterial||'—'}</span></div>
+                              <div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.textSec}}>Пол:</span><span>{room.floor_material||room.floorMaterial||'—'}</span></div>
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{marginBottom:'12px'}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                            <b style={{color:C.text,fontSize:'12px'}}>🪟 Окна ({wins.length})</b>
+                            {isProrab()&&<button onClick={()=>{setNewWindow({roomId:room.id,name:'Окно '+(wins.length+1),width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'});}} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}><Plus size={11}/>Окно</button>}
+                          </div>
+                          {newWindow.roomId===room.id&&(<div style={{backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,padding:'10px',borderRadius:'8px',marginBottom:'8px'}}>
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'6px'}}>
+                              <input placeholder="Название" value={newWindow.name} onChange={e=>setNewWindow({...newWindow,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                              <input placeholder="Ширина (м)" type="number" value={newWindow.width} onChange={e=>setNewWindow({...newWindow,width:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                              <input placeholder="Высота (м)" type="number" value={newWindow.height} onChange={e=>setNewWindow({...newWindow,height:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                              <select value={newWindow.windowType} onChange={e=>setNewWindow({...newWindow,windowType:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{WINDOW_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
+                              <input placeholder="Глубина откоса (см)" type="number" value={newWindow.revealDepth} onChange={e=>setNewWindow({...newWindow,revealDepth:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                              <select value={newWindow.revealMaterial} onChange={e=>setNewWindow({...newWindow,revealMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}</select>
+                            </div>
+                            <div style={{display:'flex',gap:'6px'}}><button onClick={()=>saveWindow(room.id)} style={{...btnO,fontSize:'12px',padding:'5px 10px'}}><Check size={12}/>Сохранить</button><button onClick={()=>setNewWindow({roomId:'',name:'',width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'})} style={{...btnG,fontSize:'12px',padding:'5px 10px'}}><X size={12}/></button></div>
+                          </div>)}
+                          {wins.map(w=>(<div key={w.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'12px'}}>
+                            <span style={{color:C.text}}>{w.name+' · '+w.window_type||w.windowType}</span>
+                            <span style={{color:C.textSec}}>{w.width+'×'+w.height+'м ('+calcWindowArea(w).toFixed(2)+'м2)'}{w.reveal_depth>0&&' · откос '+calcWindowReveals(w).toFixed(2)+'м2'}</span>
+                          </div>))}
+                        </div>
+                        <div>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                            <b style={{color:C.text,fontSize:'12px'}}>🚪 Двери ({doors.length})</b>
+                            {isProrab()&&<button onClick={()=>{setNewDoor({roomId:room.id,name:'Дверь '+(doors.length+1),width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});}} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}><Plus size={11}/>Дверь</button>}
+                          </div>
+                          {newDoor.roomId===room.id&&(<div style={{backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,padding:'10px',borderRadius:'8px',marginBottom:'8px'}}>
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'6px'}}>
+                              <input placeholder="Название" value={newDoor.name} onChange={e=>setNewDoor({...newDoor,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                              <input placeholder="Ширина (м)" type="number" value={newDoor.width} onChange={e=>setNewDoor({...newDoor,width:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                              <input placeholder="Высота (м)" type="number" value={newDoor.height} onChange={e=>setNewDoor({...newDoor,height:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                              <select value={newDoor.doorType} onChange={e=>setNewDoor({...newDoor,doorType:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{DOOR_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
+                              <select value={newDoor.doorPurpose} onChange={e=>setNewDoor({...newDoor,doorPurpose:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{DOOR_PURPOSES.map(p=><option key={p} value={p}>{p}</option>)}</select>
+                              <input placeholder="Глубина откоса (см)" type="number" value={newDoor.revealDepth} onChange={e=>setNewDoor({...newDoor,revealDepth:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                              <select value={newDoor.revealMaterial} onChange={e=>setNewDoor({...newDoor,revealMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}</select>
+                            </div>
+                            <div style={{display:'flex',gap:'6px'}}><button onClick={async()=>{if(!newDoor.width||!newDoor.height) return;try{await fetch(API+'/room-doors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newDoor,roomId:Number(newDoor.roomId)})});const rdoor=await fetch(API+'/room-doors').then(r=>r.json()).catch(()=>[]);setRoomDoors(Array.isArray(rdoor)?rdoor:[]);}catch(e){const door={...newDoor,id:Date.now(),room_id:Number(newDoor.roomId)};setRoomDoors(prev=>[...prev,door]);}setNewDoor({roomId:'',name:'',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});}} style={{...btnO,fontSize:'12px',padding:'5px 10px'}}><Check size={12}/>Сохранить</button><button onClick={()=>setNewDoor({roomId:'',name:'',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'})} style={{...btnG,fontSize:'12px',padding:'5px 10px'}}><X size={12}/></button></div>
+                          </div>)}
+                          {doors.map(d=>(<div key={d.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'12px'}}>
+                            <span style={{color:C.text}}>{d.name+' · '+(d.door_type||d.doorType)+' · '+(d.door_purpose||d.doorPurpose)}</span>
+                            <span style={{color:C.textSec}}>{d.width+'×'+d.height+'м ('+calcDoorArea(d).toFixed(2)+'м2)'}{d.reveal_depth>0&&' · откос '+calcDoorReveals(d).toFixed(2)+'м2'}</span>
+                          </div>))}
+                        </div>
                       </div>)}
                     </div>);
                   })}
-                  {pRooms.length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Помещений нет. Нажмите + Помещение</div>}
-                  {pRooms.length>0&&(<div style={{backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,padding:'14px 20px',borderRadius:'10px',marginTop:'16px'}}>
-                    <b style={{color:C.accent,fontSize:'13px'}}>📐 Итого по объекту:</b>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'10px',marginTop:'10px'}}>
-                      {[{label:'м2 пола',val:pRooms.reduce((s,r)=>s+r.floorArea,0)},{label:'м2 стен',val:pRooms.reduce((s,r)=>s+r.wallArea,0)},{label:'м2 потолков',val:pRooms.reduce((s,r)=>s+r.ceilingArea,0)},{label:'окон',val:pRooms.reduce((s,r)=>s+r.windows,0)},{label:'дверей',val:pRooms.reduce((s,r)=>s+r.doors,0)}].map(item=>(<div key={item.label} style={{textAlign:'center'}}><b style={{color:C.text,fontSize:'18px'}}>{item.val}</b><p style={{color:C.textSec,margin:0,fontSize:'11px'}}>{item.label}</p></div>))}
+                  {pRooms.length>0&&(<div style={{backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,padding:'12px 16px',borderRadius:'10px',marginTop:'12px'}}>
+                    <b style={{color:C.accent,fontSize:'12px'}}>📐 Итого по объекту:</b>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'8px',marginTop:'8px'}}>
+                      {[{label:'м2 пола',val:pRooms.reduce((s,r)=>s+r.floorArea,0).toFixed(1)},{label:'м2 стен',val:pRooms.reduce((s,r)=>s+r.wallArea,0).toFixed(1)},{label:'чист. стены',val:pRooms.reduce((s,r)=>s+getRoomNetWall(r),0).toFixed(1)},{label:'м2 потолков',val:pRooms.reduce((s,r)=>s+r.ceilingArea,0).toFixed(1)},{label:'откосы окон',val:roomWindows.filter(w=>pRooms.find(r=>r.id===w.room_id)).reduce((s,w)=>s+calcWindowReveals(w),0).toFixed(1)}].map(item=>(<div key={item.label} style={{textAlign:'center'}}><b style={{color:C.text,fontSize:'16px'}}>{item.val}</b><p style={{color:C.textSec,margin:0,fontSize:'10px'}}>{item.label}</p></div>))}
                     </div>
                   </div>)}
+                  {pRooms.length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Помещений нет</div>}
                 </div>)}
 
                 {activeProjectTab==='Финансы'&&isFinanceRole()&&(<div>
-                  <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
-                    <button onClick={()=>showPreview(buildKS2Content(project),'КС-2')} style={btnB}><Eye size={14}/>КС-2</button>
-                    <button onClick={()=>doPrint(buildKS2Content(project))} style={btnO}><Printer size={14}/>КС-2</button>
-                    <button onClick={()=>showPreview(buildKS3Content(project),'КС-3')} style={btnB}><Eye size={14}/>КС-3</button>
-                    <button onClick={()=>doPrint(buildKS3Content(project))} style={btnO}><Printer size={14}/>КС-3</button>
-                    <button onClick={()=>exportToExcel(EXPENSE_CATEGORIES.map(c=>({Категория:c.label,Сумма:cat[c.id]})),'expenses_'+project.name)} style={btnG}><Download size={14}/>Excel</button>
+                  <div style={{display:'flex',gap:'8px',marginBottom:'14px',flexWrap:'wrap'}}>
+                    <button onClick={()=>showPreview(buildKS2Content(project),'КС-2')} style={btnB}><Eye size={13}/>КС-2</button>
+                    <button onClick={()=>doPrint(buildKS2Content(project))} style={btnO}><Printer size={13}/>КС-2</button>
+                    <button onClick={()=>showPreview(buildKS3Content(project),'КС-3')} style={btnB}><Eye size={13}/>КС-3</button>
+                    <button onClick={()=>exportToExcel(EXPENSE_CATEGORIES.map(c=>({Категория:c.label,Сумма:cat[c.id]})),'expenses')} style={btnG}><Download size={13}/>Excel</button>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
-                    {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{backgroundColor:C.bgWhite,padding:'14px',borderRadius:'10px',border:'1.5px solid '+C.border,borderTop:'3px solid '+c.color}}><p style={{color:C.textSec,margin:'0 0 6px',fontSize:'11px',fontWeight:'600',textTransform:'uppercase'}}>{c.label}</p><b style={{color:c.color,fontSize:'18px'}}>{cat[c.id].toLocaleString()+' ₽'}</b></div>))}
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'12px'}}>
+                    {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{backgroundColor:C.bgWhite,padding:'12px',borderRadius:'10px',border:'1.5px solid '+C.border,borderTop:'3px solid '+c.color}}><p style={{color:C.textSec,margin:'0 0 4px',fontSize:'11px',fontWeight:'600',textTransform:'uppercase'}}>{c.label}</p><b style={{color:c.color,fontSize:'16px'}}>{cat[c.id].toLocaleString()+' ₽'}</b></div>))}
                   </div>
-                  <div style={{backgroundColor:C.bg,padding:'16px',borderRadius:'12px',border:'1.5px solid '+C.border}}>
-                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}><b style={{color:C.text}}>Бюджет:</b><b style={{color:C.text,fontSize:'16px'}}>{project.budget.toLocaleString()+' ₽'}</b></div>
-                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}><b style={{color:C.text}}>Расход:</b><b style={{color:C.danger,fontSize:'16px'}}>{totalExp.toLocaleString()+' ₽'}</b></div>
-                    <div style={{borderTop:'2px solid '+C.border,paddingTop:'8px',display:'flex',justifyContent:'space-between'}}><b style={{color:C.text,fontSize:'15px'}}>Остаток:</b><b style={{color:(project.budget-totalExp)>=0?C.success:C.danger,fontSize:'20px'}}>{(project.budget-totalExp).toLocaleString()+' ₽'}</b></div>
+                  <div style={{backgroundColor:C.bg,padding:'14px',borderRadius:'10px',border:'1.5px solid '+C.border}}>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}><b style={{color:C.text}}>Бюджет:</b><b style={{color:C.text,fontSize:'15px'}}>{project.budget.toLocaleString()+' ₽'}</b></div>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}><b style={{color:C.text}}>Расход:</b><b style={{color:C.danger}}>{totalExp.toLocaleString()+' ₽'}</b></div>
+                    <div style={{borderTop:'2px solid '+C.border,paddingTop:'6px',display:'flex',justifyContent:'space-between'}}><b style={{color:C.text,fontSize:'14px'}}>Остаток:</b><b style={{color:(project.budget-totalExp)>=0?C.success:C.danger,fontSize:'18px'}}>{(project.budget-totalExp).toLocaleString()+' ₽'}</b></div>
                   </div>
                 </div>)}
 
                 {activeProjectTab==='Журнал ТБ'&&(<div>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}><b style={{color:C.text,fontSize:'14px'}}>Журнал инструктажей ТБ</b><button onClick={()=>setShowForm(true)} style={btnO}><Plus size={14}/>Инструктаж</button></div>
-                  {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}><b style={{color:C.text,fontSize:'13px'}}>Журнал инструктажей ТБ</b><button onClick={()=>setShowForm(true)} style={btnO}><Plus size={13}/>Инструктаж</button></div>
+                  {showForm&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
                     <select value={newTbEntry.type} onChange={e=>setNewTbEntry({...newTbEntry,type:e.target.value})} style={inp}>{Object.keys(TB_INSTRUCTIONS).map(t=><option key={t} value={t}>{t}</option>)}</select>
                     <input type="date" value={newTbEntry.date} onChange={e=>setNewTbEntry({...newTbEntry,date:e.target.value})} style={inp}/>
-                    <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}><input placeholder="ФИО участника" value={newParticipant} onChange={e=>setNewParticipant(e.target.value)} style={{...inp,marginBottom:0,flex:1}}/><button onClick={()=>{if(newParticipant){setNewTbEntry(prev=>({...prev,participants:[...prev.participants,newParticipant]}));setNewParticipant('');}}} style={btnO}><Plus size={14}/></button></div>
+                    <div style={{display:'flex',gap:'8px',marginBottom:'8px'}}><input placeholder="ФИО участника" value={newParticipant} onChange={e=>setNewParticipant(e.target.value)} style={{...inp,marginBottom:0,flex:1}}/><button onClick={()=>{if(newParticipant){setNewTbEntry(prev=>({...prev,participants:[...prev.participants,newParticipant]}));setNewParticipant('');}}} style={btnO}><Plus size={13}/></button></div>
                     <div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'10px'}}>{newTbEntry.participants.map((p,i)=>(<span key={i} style={{...badge(C.info,C.infoLight,C.infoBorder),cursor:'pointer'}} onClick={()=>setNewTbEntry(prev=>({...prev,participants:prev.participants.filter((_,idx)=>idx!==i)}))}>{p+' ✕'}</span>))}</div>
-                    <div style={{display:'flex',gap:'10px'}}><button onClick={()=>{saveTbEntry({...newTbEntry,project:project.name});setShowForm(false);setNewTbEntry({project:'',type:'Вводный инструктаж',participants:[],date:'',createdBy:user.name});}} style={btnO}>Сохранить</button><button onClick={()=>setShowForm(false)} style={btnG}>Отмена</button></div>
+                    <div style={{display:'flex',gap:'8px'}}><button onClick={()=>{saveTbEntry({...newTbEntry,project:project.name});setShowForm(false);setNewTbEntry({project:'',type:'Вводный инструктаж',participants:[],date:'',createdBy:user.name});}} style={btnO}>Сохранить</button><button onClick={()=>setShowForm(false)} style={btnG}>Отмена</button></div>
                   </div>)}
-                  {tbJournal.filter(tb=>tb.project===project.name).map(tb=>(<div key={tb.id} style={{...card,padding:'16px',marginBottom:'10px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'13px'}}>{tb.type}</b><p style={{color:C.textSec,margin:'4px 0',fontSize:'12px'}}>{tb.date+' · Участников: '+(tb.participants||[]).length}</p></div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>showPreview(buildTBContent(tb),tb.type)} style={btnB}><Eye size={14}/></button><button onClick={()=>doPrint(buildTBContent(tb))} style={btnO}><Printer size={14}/></button></div></div></div>))}
+                  {tbJournal.filter(tb=>tb.project===project.name).map(tb=>(<div key={tb.id} style={{...card,padding:'12px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'13px'}}>{tb.type}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'11px'}}>{tb.date+' · Участников: '+(tb.participants||[]).length}</p></div><div style={{display:'flex',gap:'4px'}}><button onClick={()=>showPreview(buildTBContent(tb),tb.type)} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}><Eye size={11}/></button><button onClick={()=>doPrint(buildTBContent(tb))} style={{...btnO,padding:'3px 8px',fontSize:'11px'}}><Printer size={11}/></button></div></div></div>))}
                 </div>)}
 
               </div>)}
             </div>);
           })}
-          {(showArchive?archivedProjects:projects).length===0&&<div style={{...card,padding:'60px',textAlign:'center',color:C.textMuted}}>{showArchive?'Архив пуст':'Проектов нет. Создайте первый!'}</div>}
+          {(showArchive?archivedProjects:projects).length===0&&<div style={{...card,padding:'60px',textAlign:'center',color:C.textMuted}}>{showArchive?'Архив пуст':'Проектов нет'}</div>}
         </div>)}
 
         {activePage==='clients'&&(<div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}><div/><button onClick={()=>{setShowForm(!showForm);setEditingItem(null);}} style={btnO}><Plus size={16}/>Новый клиент</button></div>
-          {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Имя *" value={newClient.name} onChange={e=>setNewClient({...newClient,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Телефон" value={newClient.phone} onChange={e=>setNewClient({...newClient,phone:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Email" value={newClient.email} onChange={e=>setNewClient({...newClient,email:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newClient.status} onChange={e=>setNewClient({...newClient,status:e.target.value})} style={{...inp,marginBottom:0}}><option>Активный</option><option>Потенциальный</option><option>Завершён</option></select></div><textarea placeholder="Заметки" value={newClient.notes} onChange={e=>setNewClient({...newClient,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical',marginTop:'10px'}}/><div style={{display:'flex',gap:'10px',marginTop:'10px'}}><button onClick={saveClient} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
-          {clients.map(c=>{const isOpen=expandedClient===c.id;const clientProjects=projects.filter(p=>p.client===c.name);return(<div key={c.id} style={{...card,marginBottom:'10px'}}><div style={{padding:'18px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedClient(isOpen?null:c.id)}><div><h3 style={{margin:0,color:C.text,fontSize:'14px',fontWeight:'600'}}>{c.name}</h3><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{c.phone+(c.email?' · '+c.email:'')}</p></div><div style={{display:'flex',gap:'8px',alignItems:'center'}}><span style={badge(c.status==='Активный'?C.success:C.textSec,c.status==='Активный'?C.successLight:C.bgGray,c.status==='Активный'?C.successBorder:C.border)}>{c.status}</span>{isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div></div>{isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'16px'}}><div style={{display:'flex',gap:'8px',marginBottom:'14px'}}><button onClick={()=>{setEditingItem(c);setNewClient({...c});setShowForm(true);}} style={btnG}><Edit2 size={14}/>Редактировать</button><button onClick={()=>deleteClient(c.id)} style={btnR}><Trash2 size={14}/>Удалить</button></div>{c.notes&&<p style={{color:C.textSec,fontSize:'13px',marginBottom:'12px'}}>{c.notes}</p>}{clientProjects.map(p=>(<div key={p.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><b style={{color:C.text,fontSize:'13px'}}>{p.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{p.status+' · '+p.budget.toLocaleString()+' ₽'}</p></div>))}</div>)}</div>);})}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}><div/><button onClick={()=>{setShowForm(!showForm);setEditingItem(null);}} style={btnO}><Plus size={16}/>Клиент</button></div>
+          {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Имя *" value={newClient.name} onChange={e=>setNewClient({...newClient,name:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Телефон" value={newClient.phone} onChange={e=>setNewClient({...newClient,phone:e.target.value})} style={{...inp,marginBottom:0}}/><input placeholder="Email" value={newClient.email} onChange={e=>setNewClient({...newClient,email:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newClient.status} onChange={e=>setNewClient({...newClient,status:e.target.value})} style={{...inp,marginBottom:0}}><option>Активный</option><option>Потенциальный</option><option>Завершён</option></select></div><textarea placeholder="Заметки" value={newClient.notes} onChange={e=>setNewClient({...newClient,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical',marginTop:'10px'}}/><div style={{display:'flex',gap:'10px',marginTop:'10px'}}><button onClick={saveClient} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
+          {clients.map(c=>{const isOpen=expandedClient===c.id;const clientProjects=projects.filter(p=>p.client===c.name);return(<div key={c.id} style={{...card,marginBottom:'10px'}}><div style={{padding:'14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedClient(isOpen?null:c.id)}><div><b style={{color:C.text,fontSize:'14px'}}>{c.name}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{c.phone+(c.email?' · '+c.email:'')}</p></div><div style={{display:'flex',gap:'8px',alignItems:'center'}}><span style={badge(c.status==='Активный'?C.success:C.textSec,c.status==='Активный'?C.successLight:C.bgGray,c.status==='Активный'?C.successBorder:C.border)}>{c.status}</span>{isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div></div>{isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'14px'}}><div style={{display:'flex',gap:'8px',marginBottom:'12px'}}><button onClick={()=>{setEditingItem(c);setNewClient({...c});setShowForm(true);}} style={btnG}><Edit2 size={13}/>Редактировать</button><button onClick={()=>deleteClient(c.id)} style={btnR}><Trash2 size={13}/>Удалить</button></div>{c.notes&&<p style={{color:C.textSec,fontSize:'13px',marginBottom:'10px'}}>{c.notes}</p>}{clientProjects.map(p=>(<div key={p.id} style={{padding:'8px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><b style={{color:C.text,fontSize:'13px'}}>{p.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{p.status+' · '+p.budget.toLocaleString()+' ₽'}</p></div>))}</div>)}</div>);})}
           {clients.length===0&&<div style={{...card,padding:'60px',textAlign:'center',color:C.textMuted}}>Клиентов нет</div>}
+        </div>)}
+
+        {activePage==='activitylog'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}><div/><button onClick={()=>exportToExcel(activityLog.map(e=>({Пользователь:e.user,Действие:e.action,Время:e.time})),'log')} style={btnG}><Download size={14}/>Excel</button></div><div style={{...card,padding:'20px'}}>{activityLog.map(entry=>(<div key={entry.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between'}}><p style={{margin:0,fontSize:'13px',color:C.text}}><b style={{color:roleColor(entry.role)}}>{entry.user}</b>{' — '+entry.action}</p><span style={{color:C.textMuted,fontSize:'11px',whiteSpace:'nowrap',marginLeft:'10px'}}>{entry.time}</span></div>))}{activityLog.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Нет действий</p>}</div></div>)}
+
+        {activePage==='companychat'&&(<div>
+          <div style={{...card,padding:'20px'}}>
+            <div style={{backgroundColor:C.bg,borderRadius:'12px',padding:'16px',minHeight:'420px',maxHeight:'520px',overflowY:'auto',marginBottom:'16px',display:'flex',flexDirection:'column',gap:'10px',border:'1.5px solid '+C.border}}>
+              {companyMessages.length===0&&<p style={{color:C.textMuted,textAlign:'center',margin:'auto'}}>Сообщений нет</p>}
+              {companyMessages.map(msg=>{const isMe=(msg.author_name||msg.author)===user.name;return(<div key={msg.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start'}}><div style={{maxWidth:'70%',backgroundColor:isMe?C.accent:'white',color:isMe?'white':C.text,padding:'10px 14px',borderRadius:isMe?'16px 16px 4px 16px':'16px 16px 16px 4px',border:'1.5px solid '+(isMe?C.accent:C.border)}}>{!isMe&&<div style={{fontSize:'11px',fontWeight:'700',color:roleColor(msg.author_role||msg.role),marginBottom:'4px'}}>{(msg.author_name||msg.author)+' · '+(ROLE_LABELS[msg.author_role||msg.role]||msg.author_role||msg.role)}</div>}{msg.text&&<p style={{margin:0,fontSize:'14px'}}>{msg.text}</p>}{msg.photo_url&&<img src={API+msg.photo_url} alt="" onClick={()=>setShowPhotoModal(API+msg.photo_url)} style={{maxWidth:'200px',borderRadius:'8px',marginTop:'6px',cursor:'pointer',display:'block'}}/>}<div style={{fontSize:'10px',color:isMe?'rgba(255,255,255,0.6)':C.textMuted,marginTop:'4px',textAlign:'right'}}>{msg.created_at?new Date(msg.created_at).toLocaleTimeString('ru-RU'):''}</div></div></div>);})}
+            </div>
+            <div style={{display:'flex',gap:'10px',alignItems:'flex-end'}}>
+              <div style={{flex:1}}>
+                <textarea placeholder="Написать..." value={companyChatMessage} onChange={e=>setCompanyChatMessage(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendCompanyChatMessage(companyChatMessage,'');}}} style={{...inp,marginBottom:'8px',resize:'none',height:'55px'}}/>
+                <label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'6px 12px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}><Upload size={13}/>Фото<input type="file" accept="image/*" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);sendCompanyChatMessage('',url);}}}/></label>
+              </div>
+              <button onClick={()=>sendCompanyChatMessage(companyChatMessage,'')} style={{...btnO,padding:'14px 22px',alignSelf:'flex-start'}}>➤</button>
+            </div>
+          </div>
         </div>)}
 
         </div>
