@@ -1636,3 +1636,333 @@ def ai_chat(data: dict):
             return {"text": text}
     except Exception as e:
         return {"text": "Ошибка: " + str(e)}
+
+@app.get("/warehouses")
+def get_warehouses():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,name,city,address,notes FROM warehouses ORDER BY id")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"name":r[1],"city":r[2],"address":r[3],"notes":r[4]} for r in rows]
+
+@app.post("/warehouses")
+def create_warehouse(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO warehouses (name,city,address,notes) VALUES (%s,%s,%s,%s) RETURNING id,name,city,address,notes",
+        (data.get("name",""),data.get("city",""),data.get("address",""),data.get("notes","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"name":row[1],"city":row[2],"address":row[3],"notes":row[4]}
+
+@app.put("/warehouses/{id}")
+def update_warehouse(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE warehouses SET name=%s,city=%s,address=%s,notes=%s WHERE id=%s RETURNING id,name,city,address,notes",
+        (data.get("name",""),data.get("city",""),data.get("address",""),data.get("notes",""),id))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"name":row[1],"city":row[2],"address":row[3],"notes":row[4]}
+
+@app.delete("/warehouses/{id}")
+def delete_warehouse(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM warehouses WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.get("/company-requisites")
+def get_company_requisites():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,full_name,short_name,inn,kpp,ogrn,legal_address,actual_address,phone,email,director_name,director_position,basis,bank_name,bik,rs,ks FROM company_requisites ORDER BY id LIMIT 1")
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    if not row: return {}
+    return {"id":row[0],"fullName":row[1],"shortName":row[2],"inn":row[3],"kpp":row[4],"ogrn":row[5],"legalAddress":row[6],"actualAddress":row[7],"phone":row[8],"email":row[9],"directorName":row[10],"directorPosition":row[11],"basis":row[12],"bankName":row[13],"bik":row[14],"rs":row[15],"ks":row[16]}
+
+@app.post("/company-requisites")
+def save_company_requisites(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM company_requisites")
+    cur.execute("INSERT INTO company_requisites (full_name,short_name,inn,kpp,ogrn,legal_address,actual_address,phone,email,director_name,director_position,basis,bank_name,bik,rs,ks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("fullName",""),data.get("shortName",""),data.get("inn",""),data.get("kpp",""),data.get("ogrn",""),data.get("legalAddress",""),data.get("actualAddress",""),data.get("phone",""),data.get("email",""),data.get("directorName",""),data.get("directorPosition",""),data.get("basis",""),data.get("bankName",""),data.get("bik",""),data.get("rs",""),data.get("ks","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.get("/company-documents")
+def get_company_documents():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,company_id,name,doc_type,file_url,expires_at,uploaded_by FROM company_documents ORDER BY id")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"companyId":r[1],"name":r[2],"docType":r[3],"fileUrl":r[4],"expiresAt":r[5],"uploadedBy":r[6]} for r in rows]
+
+@app.post("/company-documents")
+def create_company_document(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO company_documents (company_id,name,doc_type,file_url,expires_at,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("companyId"),data.get("name",""),data.get("docType",""),data.get("fileUrl",""),data.get("expiresAt",""),data.get("uploadedBy","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.delete("/company-documents/{id}")
+def delete_company_document(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM company_documents WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.get("/project-stages")
+def get_project_stages():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,project_id,project_name,name,status,start_date,end_date,progress,responsible,notes,order_num FROM project_stages ORDER BY order_num,id")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"status":r[4],"startDate":r[5],"endDate":r[6],"progress":r[7],"responsible":r[8],"notes":r[9],"orderNum":r[10]} for r in rows]
+
+@app.post("/project-stages")
+def create_project_stage(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO project_stages (project_id,project_name,name,status,start_date,end_date,progress,responsible,notes,order_num) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectId"),data.get("projectName",""),data.get("name",""),data.get("status","Не начат"),data.get("startDate",""),data.get("endDate",""),int(data.get("progress",0)),data.get("responsible",""),data.get("notes",""),int(data.get("orderNum",0))))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.put("/project-stages/{id}")
+def update_project_stage(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE project_stages SET name=%s,status=%s,start_date=%s,end_date=%s,progress=%s,responsible=%s,notes=%s WHERE id=%s",
+        (data.get("name",""),data.get("status",""),data.get("startDate",""),data.get("endDate",""),int(data.get("progress",0)),data.get("responsible",""),data.get("notes",""),id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.delete("/project-stages/{id}")
+def delete_project_stage(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM project_stages WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.get("/project-checklists")
+def get_project_checklists():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,project_id,project_name,name,template,status,created_by,created_at FROM project_checklists ORDER BY id")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"template":r[4],"status":r[5],"createdBy":r[6],"createdAt":str(r[7])} for r in rows]
+
+@app.post("/project-checklists")
+def create_project_checklist(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO project_checklists (project_id,project_name,name,template,status,created_by,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectId"),data.get("projectName",""),data.get("name",""),data.get("template",""),data.get("status","В работе"),data.get("createdBy",""),data.get("createdAt","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.get("/checklist-items/{checklist_id}")
+def get_checklist_items(checklist_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,checklist_id,name,checked,checked_by,checked_at,order_num FROM checklist_items WHERE checklist_id=%s ORDER BY order_num,id",(checklist_id,))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"checklistId":r[1],"name":r[2],"checked":r[3],"checkedBy":r[4],"checkedAt":r[5],"orderNum":r[6]} for r in rows]
+
+@app.post("/checklist-items")
+def create_checklist_item(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO checklist_items (checklist_id,name,checked,checked_by,checked_at,order_num) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("checklistId"),data.get("name",""),data.get("checked",False),data.get("checkedBy",""),data.get("checkedAt",""),int(data.get("orderNum",0))))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.put("/checklist-items/{id}")
+def update_checklist_item(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE checklist_items SET checked=%s,checked_by=%s,checked_at=%s WHERE id=%s",
+        (data.get("checked",False),data.get("checkedBy",""),data.get("checkedAt",""),id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.get("/prescriptions")
+def get_prescriptions():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url,fix_photo_url,fix_notes FROM prescriptions ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1],"number":r[2],"issuedBy":r[3],"issuedByRole":r[4],"violation":r[5],"deadline":r[6],"responsible":r[7],"status":r[8],"photoUrl":r[9],"fixPhotoUrl":r[10],"fixNotes":r[11]} for r in rows]
+
+@app.post("/prescriptions")
+def create_prescription(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO prescriptions (project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectName",""),data.get("number",""),data.get("issuedBy",""),data.get("issuedByRole",""),data.get("violation",""),data.get("deadline",""),data.get("responsible",""),data.get("status","Открыто"),data.get("photoUrl","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.put("/prescriptions/{id}")
+def update_prescription(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE prescriptions SET status=%s,fix_photo_url=%s,fix_notes=%s WHERE id=%s",
+        (data.get("status",""),data.get("fixPhotoUrl",""),data.get("fixNotes",""),id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.get("/project-chat/{project_name}")
+def get_project_chat(project_name: str):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,project_name,author_id,author_name,author_role,text,photo_url,created_at FROM project_chat WHERE project_name=%s ORDER BY created_at ASC LIMIT 200",(project_name,))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1],"authorId":r[2],"authorName":r[3],"authorRole":r[4],"text":r[5],"photoUrl":r[6],"createdAt":str(r[7])} for r in rows]
+
+@app.post("/project-chat")
+def create_project_chat(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO project_chat (project_name,author_id,author_name,author_role,text,photo_url) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectName",""),data.get("authorId"),data.get("authorName",""),data.get("authorRole",""),data.get("text",""),data.get("photoUrl","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.get("/unexpected-works")
+def get_unexpected_works():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1],"description":r[2],"unit":r[3],"quantity":r[4],"price":r[5],"total":r[6],"addedBy":r[7],"addedByRole":r[8],"status":r[9],"approvedBy":r[10],"approvedAt":r[11],"notes":r[12],"photoUrl":r[13]} for r in rows]
+
+@app.post("/unexpected-works")
+def create_unexpected_work(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO unexpected_works (project_name,description,unit,quantity,price,total,added_by,added_by_role,status,notes,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectName",""),data.get("description",""),data.get("unit","шт"),float(data.get("quantity",0)),float(data.get("price",0)),float(data.get("total",0)),data.get("addedBy",""),data.get("addedByRole",""),data.get("status","Ожидает согласования"),data.get("notes",""),data.get("photoUrl","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.put("/unexpected-works/{id}")
+def update_unexpected_work(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE unexpected_works SET status=%s,price=%s,total=%s,approved_by=%s,approved_at=%s WHERE id=%s",
+        (data.get("status",""),float(data.get("price",0)),float(data.get("total",0)),data.get("approvedBy",""),data.get("approvedAt",""),id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.post("/parse-smeta")
+async def parse_smeta(file: UploadFile = File(...)):
+    import tempfile, os
+    try:
+        import openpyxl
+    except ImportError:
+        return {"error": "openpyxl not installed"}
+    
+    contents = await file.read()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        tmp.write(contents)
+        tmp_path = tmp.name
+    
+    try:
+        wb = openpyxl.load_workbook(tmp_path, data_only=True)
+        ws = wb.active
+        results = []
+        current_section = "Без раздела"
+        current_item = None
+        
+        for row in ws.iter_rows(min_row=40, values_only=True):
+            try:
+                col1 = row[0] if len(row) > 0 else None
+                col3 = row[2] if len(row) > 2 else None
+                col8 = row[7] if len(row) > 7 else None
+                col9 = row[8] if len(row) > 8 else None
+                col16 = row[15] if len(row) > 15 else None
+            except:
+                continue
+            
+            if col1 and isinstance(col1, str) and "Раздел" in col1:
+                current_section = col1.strip()
+                continue
+            
+            if col3 is None:
+                continue
+            
+            col3_str = str(col3).strip()
+            
+            if col1 is not None and col8 is not None and col3_str and len(col3_str) > 10:
+                try:
+                    num = int(float(str(col1)))
+                    current_item = {
+                        "section": current_section,
+                        "num": num,
+                        "name": col3_str,
+                        "unit": str(col8) if col8 else "",
+                        "quantity": float(col9) if col9 else 0,
+                        "total": 0
+                    }
+                except:
+                    pass
+            
+            if col3_str == "Всего по позиции" and current_item and col16:
+                try:
+                    current_item["total"] = float(col16)
+                    # Фильтруем ненормируемые и служебные позиции
+                    skip_words = ["ненормируемые", "накладные расходы", "сметная прибыль", "временные здания"]
+                    if not any(w in current_item["name"].lower() for w in skip_words) and current_item["unit"] != "%":
+                        results.append(dict(current_item))
+                except:
+                    pass
+                current_item = None
+        
+        os.unlink(tmp_path)
+        return {"items": results, "count": len(results)}
+    except Exception as e:
+        os.unlink(tmp_path)
+        return {"error": str(e)}
