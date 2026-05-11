@@ -289,6 +289,7 @@ function App() {
   const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});
   const [brigadeActForm, setBrigadeActForm] = useState({periodFrom:'',periodTo:''});
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
+  const [sverkaModal, setSverkaModal] = useState(null);
   const [showAiChat, setShowAiChat] = useState(false);
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
@@ -2434,6 +2435,38 @@ function App() {
                     </select>
                   </div>
                 </div>
+                <div style={{marginTop:'10px',marginBottom:'10px'}}>
+                  {newInvoice.location!=='Основной склад'&&estimatesList.filter(e=>(e.projectName===newInvoice.location)&&e.smetaType==='Материалы').length>0&&(
+                    <div style={{padding:'10px',backgroundColor:C.infoLight,borderRadius:'8px',border:'1.5px solid '+C.infoBorder}}>
+                      <p style={{color:C.info,fontSize:'12px',margin:'0 0 6px',fontWeight:'600'}}>📊 Сметы материалов по объекту:</p>
+                      <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                        {estimatesList.filter(e=>e.projectName===newInvoice.location&&e.smetaType==='Материалы').map(est=>(
+                          <button key={est.id} onClick={()=>{
+                            const smetaItems=(est.sections||[]).flatMap(s=>s.items||[]);
+                            const invoiceItems=newInvoice.items.filter(i=>i.name&&i.quantity);
+                            let report='📊 СВЕРКА НАКЛАДНОЙ СО СМЕТОЙ\n';
+                            report+='Смета: '+est.name+'\n\n';
+                            invoiceItems.forEach(invItem=>{
+                              const smetaItem=smetaItems.find(si=>si.name.toLowerCase().includes(invItem.name.toLowerCase())||invItem.name.toLowerCase().includes(si.name.toLowerCase().substring(0,15)));
+                              if(smetaItem){
+                                const need=Number(smetaItem.quantity||0);
+                                const got=Number(invItem.quantity||0);
+                                const diff=need-got;
+                                report+=`✅ ${invItem.name}\n`;
+                                report+=`   По смете: ${need} ${smetaItem.unit}\n`;
+                                report+=`   Получено: ${got} ${invItem.unit}\n`;
+                                report+=diff>0?`   ⚠️ Дефицит: ${diff}\n\n`:`   ✅ Достаточно\n\n`;
+                              } else {
+                                report+=`❓ ${invItem.name} — не найдено в смете\n\n`;
+                              }
+                            });
+                            setSverkaModal({title:'Сверка накладной со сметой '+est.name,text:report});
+                          }} style={{...btnB,fontSize:'11px',padding:'5px 10px'}}>🔍 Сверить с {est.name}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <b style={{color:C.text,fontSize:'13px',display:'block',marginTop:'15px',marginBottom:'10px'}}>Позиции накладной:</b>
                 {newInvoice.items.map((item,idx)=>(<div key={idx} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 2fr auto',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
                   <input placeholder="Наименование товара *" value={item.name} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],name:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
@@ -3280,6 +3313,16 @@ function App() {
           </div>)}
         </div>
       </div>
+    {sverkaModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{backgroundColor:'white',borderRadius:'16px',padding:'24px',width:'90%',maxWidth:'600px',maxHeight:'80vh',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
+          <b style={{fontSize:'15px'}}>📊 {sverkaModal.title}</b>
+          <button onClick={()=>setSverkaModal(null)} style={{background:'none',border:'none',fontSize:'20px',cursor:'pointer'}}>×</button>
+        </div>
+        <pre style={{fontSize:'13px',lineHeight:'1.8',whiteSpace:'pre-wrap',fontFamily:'inherit'}}>{sverkaModal.text}</pre>
+        <button onClick={()=>setSverkaModal(null)} style={{...btnO,marginTop:'16px',width:'100%',justifyContent:'center'}}>Закрыть</button>
+      </div>
+    </div>)}
     {showAiChat&&(<div style={{position:'fixed',bottom:'80px',right:'20px',width:'350px',height:'500px',backgroundColor:C.bgWhite,borderRadius:'16px',boxShadow:'0 8px 32px rgba(0,0,0,0.15)',border:'1.5px solid '+C.border,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}}>
         <div style={{padding:'14px 16px',backgroundColor:C.accent,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
