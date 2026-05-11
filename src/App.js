@@ -295,6 +295,7 @@ function App() {
   const [showCatalogForm, setShowCatalogForm] = useState(false);
   const [newCatalogItem, setNewCatalogItem] = useState({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
   const [supplierTab, setSupplierTab] = useState('requests');
+  const [supplierRequisites, setSupplierRequisites] = useState({companyName:'',inn:'',kpp:'',address:'',bank:'',bik:'',account:'',phone:'',email:''});
   const [materialTransfers, setMaterialTransfers] = useState([]);
   const [showTransferForm, setShowTransferForm] = useState(false);
   const [newTransfer, setNewTransfer] = useState({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
@@ -1745,13 +1746,14 @@ function App() {
 
           {supplierTab==='catalog'&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-              <b style={{color:C.text,fontSize:'14px'}}>📦 Мой каталог материалов</b>
-              <button onClick={async()=>{
-                const res=await fetch(API+'/supplier-catalog?supplier_id='+(mySupplier?.id||0));
-                const data=await res.json();
-                setSupplierCatalog(data);
-                setShowCatalogForm(!showCatalogForm);
-              }} style={btnO}><Plus size={14}/>Добавить</button>
+              <b style={{color:C.text,fontSize:'14px'}}>📦 Мой каталог</b>
+              <div style={{display:'flex',gap:'8px'}}>
+                <label style={{...btnG,padding:'6px 12px',fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px'}}>
+                  📥 Excel
+                  <input type='file' accept='.xlsx,.xls,.csv' style={{display:'none'}} onChange={e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=async ev=>{try{const XLSX=await import('xlsx');const wb=XLSX.read(ev.target.result,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});let count=0;for(let i=1;i<rows.length;i++){const r=rows[i];if(!r[0])continue;const item={materialName:String(r[0]),unit:String(r[1]||'шт'),price:Number(r[2]||0),minQuantity:Number(r[3]||1),deliveryDays:Number(r[4]||3),notes:String(r[5]||''),supplierId:mySupplier?.id||0,supplierName:user.name};const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});const saved=await res.json();setSupplierCatalog(prev=>[...prev,{...item,id:saved.id}]);count++;}alert('Импортировано '+count+' позиций!');}catch(err){alert('Ошибка: '+err.message);}};reader.readAsArrayBuffer(file);e.target.value='';}} />
+                </label>
+                <button onClick={()=>setShowCatalogForm(!showCatalogForm)} style={btnO}><Plus size={14}/>Добавить</button>
+              </div>
             </div>
             {showCatalogForm&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
@@ -1826,17 +1828,21 @@ function App() {
           </div>)}
 
           {supplierTab==='profile'&&(<div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚙️ Профиль и реквизиты</b>
-            {mySupplier?(<div style={{...card,padding:'16px'}}>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚙️ Реквизиты компании</b>
+            <div style={{...card,padding:'16px'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Название</p><b style={{color:C.text,fontSize:'13px'}}>{mySupplier.name}</b></div>
-                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Телефон</p><b style={{color:C.text,fontSize:'13px'}}>{mySupplier.phone||'Не указан'}</b></div>
-                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Email</p><b style={{color:C.text,fontSize:'13px'}}>{mySupplier.email||'Не указан'}</b></div>
-                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Категория</p><b style={{color:C.text,fontSize:'13px'}}>{mySupplier.category||'Не указана'}</b></div>
-                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Рейтинг</p><b style={{color:C.warning,fontSize:'13px'}}>{'⭐ '+(mySupplier.rating||5.0)}</b></div>
-                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Статус</p><b style={{color:C.success,fontSize:'13px'}}>{mySupplier.status||'Активный'}</b></div>
+                <input placeholder='Название компании' value={supplierRequisites.companyName} onChange={e=>setSupplierRequisites({...supplierRequisites,companyName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='ИНН' value={supplierRequisites.inn} onChange={e=>setSupplierRequisites({...supplierRequisites,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='КПП' value={supplierRequisites.kpp} onChange={e=>setSupplierRequisites({...supplierRequisites,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Юридический адрес' value={supplierRequisites.address} onChange={e=>setSupplierRequisites({...supplierRequisites,address:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='Банк' value={supplierRequisites.bank} onChange={e=>setSupplierRequisites({...supplierRequisites,bank:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='БИК' value={supplierRequisites.bik} onChange={e=>setSupplierRequisites({...supplierRequisites,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Расчётный счёт' value={supplierRequisites.account} onChange={e=>setSupplierRequisites({...supplierRequisites,account:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='Телефон' value={supplierRequisites.phone} onChange={e=>setSupplierRequisites({...supplierRequisites,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Email' value={supplierRequisites.email} onChange={e=>setSupplierRequisites({...supplierRequisites,email:e.target.value})} style={{...inp,marginBottom:0}}/>
               </div>
-            </div>):(<p style={{color:C.textMuted,fontSize:'12px'}}>Профиль не найден. Обратитесь к администратору.</p>)}
+              <button onClick={()=>{fetch(API+'/suppliers/'+(mySupplier?.id||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(supplierRequisites)}).then(()=>{localStorage.setItem('supplierReq_'+user.id,JSON.stringify(supplierRequisites));alert('Реквизиты сохранены!');loadAll();})}} style={{...btnO,marginTop:'12px'}}><Check size={14}/>Сохранить</button>
+            </div>
           </div>)}
         </div>
       </div>

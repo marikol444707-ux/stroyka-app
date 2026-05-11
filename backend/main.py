@@ -2290,3 +2290,18 @@ def delete_supplier_catalog(id: int):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+@app.put("/suppliers/{id}/requisites")
+def update_supplier_requisites(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""UPDATE suppliers SET 
+        inn=%s, kpp=%s, legal_address=%s, bank=%s, bik=%s, account=%s,
+        phone=COALESCE(%s, phone), email=COALESCE(%s, email)
+        WHERE id=%s""",
+        (data.get("inn",""), data.get("kpp",""), data.get("address",""),
+         data.get("bank",""), data.get("bik",""), data.get("account",""),
+         data.get("phone") or None, data.get("email") or None, id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
