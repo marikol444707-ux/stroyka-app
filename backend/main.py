@@ -2205,3 +2205,44 @@ def create_brigade_act(data: dict):
     row = cur.fetchone()
     cur.close(); conn.close()
     return {"id":row[0],"ok":True}
+
+@app.get("/material-transfers")
+def get_material_transfers(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    if project_name:
+        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"materialName":r[5],"quantity":float(r[6] or 0),"unit":r[7],"transferDate":str(r[8]) if r[8] else "","signed":r[9],"signedAt":str(r[10]) if r[10] else "","notes":r[11] or "","createdBy":r[12] or "","createdAt":str(r[13])} for r in rows]
+
+@app.post("/material-transfers")
+def create_material_transfer(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO material_transfers (project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,notes,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectName",""),data.get("fromLocation","Основной склад"),data.get("toPerson",""),data.get("toPersonRole",""),data.get("materialName",""),data.get("quantity",0),data.get("unit","шт"),data.get("transferDate") or None,data.get("notes",""),data.get("createdBy","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.put("/material-transfers/{id}/sign")
+def sign_material_transfer(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE material_transfers SET signed=TRUE,signed_at=NOW() WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.delete("/material-transfers/{id}")
+def delete_material_transfer(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM material_transfers WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}

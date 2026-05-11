@@ -118,7 +118,7 @@ const MATERIAL_CATEGORIES = [
 ];
 
 const UNITS = ['шт','мешок','м','м2','м3','кг','т','л','рулон','лист','упак','компл','пог.м','ящик','бутылка','банка','труба','секция','пара','набор','пачка','флакон','ведро','бухта'];
-const PROJECT_TABS = ['Общее','Этапы','График','Смета','Журнал','Помещения','Чек-листы','Непредвиденные','Наряды','Чат','Финансы','Предписания','Журнал ТБ'];
+const PROJECT_TABS = ['Общее','Этапы','График','Смета','Журнал','Помещения','Чек-листы','Непредвиденные','Наряды','Материалы','Чат','Финансы','Предписания','Журнал ТБ'];
 const CRM_STAGES = ['Новый','Переговоры','КП отправлено','Договор','Отказ'];
 const SUPPLIER_CATEGORIES = [
   'Сыпучие и бетон','Кровельные','Металл и арматура','Отделочные','Сантехника','Электрика',
@@ -289,6 +289,9 @@ function App() {
   const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});
   const [brigadeActForm, setBrigadeActForm] = useState({periodFrom:'',periodTo:''});
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
+  const [materialTransfers, setMaterialTransfers] = useState([]);
+  const [showTransferForm, setShowTransferForm] = useState(false);
+  const [newTransfer, setNewTransfer] = useState({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
   const [sverkaModal, setSverkaModal] = useState(null);
   const [showAiChat, setShowAiChat] = useState(false);
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
@@ -1797,6 +1800,20 @@ function App() {
                           <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>По договорам</p><b style={{color:C.accent,fontSize:'16px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+Number(bc.totalAmount||0),0).toLocaleString()+' ₽'}</b></div>
                           <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смет</p><b style={{color:C.text,fontSize:'18px'}}>{estimatesList.filter(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id)).length}</b></div>
                         </div>
+                        <div style={{marginBottom:'12px'}}>
+                          <div style={{display:'flex',justifyContent:'space-between',marginBottom:'4px'}}>
+                            <b style={{fontSize:'12px',color:C.text}}>Выполнение нарядов</b>
+                            <span style={{fontSize:'12px',color:C.textSec}}>{(()=>{
+                              const pBrigades=brigadeContracts.filter(bc=>bc.projectName===p.name);
+                              if(!pBrigades.length) return '0%';
+                              const totalSmeta=pBrigades.reduce((s,bc)=>s+Number(bc.totalAmount||0),0);
+                              return totalSmeta>0?'расчёт...':'0%';
+                            })()}</span>
+                          </div>
+                          <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'10px'}}>
+                            <div style={{backgroundColor:C.success,width:'0%',height:'100%',borderRadius:'6px'}}/>
+                          </div>
+                        </div>
                         <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'10px'}}>
                           <div style={{backgroundColor:C.successLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смета заказчика</p><b style={{color:C.success,fontSize:'14px'}}>{estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(e.smetaType==='Заказчик'||!e.smetaType)).reduce((s,e)=>(e.sections||[]).flatMap(sec=>sec.items||[]).reduce((ss,i)=>ss+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*Number(i.priceWork||0)),s),0).toLocaleString()+' ₽'}</b></div>
                           <div style={{backgroundColor:C.warningLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.warningBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Подрядчикам</p><b style={{color:C.warning,fontSize:'14px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+Number(bc.totalAmount||0),0).toLocaleString()+' ₽'}</b></div>
@@ -2163,6 +2180,99 @@ function App() {
               }} style={{...btnG,padding:'6px 14px',fontSize:'12px'}}>Сбросить цены</button>
             </div>
             <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Объём</th><th style={tblH}>Цена смета</th><th style={tblH}>Цена бригаде</th><th style={tblH}>Выполнено</th><th style={tblH}>%</th><th style={tblH}>К оплате</th><th style={tblH}>Экономия</th><th style={tblH}></th></tr></thead><tbody>{brigadeContractItems.map((item,idx)=>{const pct=item.quantity>0?Math.round(item.doneQuantity/item.quantity*100):0;const toPay=Math.round(item.doneQuantity*item.priceBrigade);const economy=Math.round(item.doneQuantity*(item.priceSmeta-item.priceBrigade));return(<tr key={item.id||idx}><td style={tblC}>{item.name}</td><td style={tblC}>{item.unit}</td><td style={tblC}>{item.quantity}</td><td style={tblC}>{Number(item.priceSmeta||0).toLocaleString()+' руб.'}</td><td style={tblC}>{Number(item.priceBrigade||0).toLocaleString()+' руб.'}</td><td style={tblC}><input type='number' value={item.doneQuantity||0} onChange={async e=>{const val=Math.min(Number(e.target.value),Number(item.quantity));const updated={...item,doneQuantity:val,status:val>=item.quantity?'Выполнено':val>0?'В работе':'Не начато'};setBrigadeContractItems(prev=>prev.map((it,i)=>i===idx?updated:it));await fetch(API+'/brigade-contract-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});}} style={{...inp,marginBottom:0,width:'80px',fontSize:'12px',padding:'4px 6px'}}/></td><td style={tblC}><span style={{padding:'2px 6px',borderRadius:'4px',fontSize:'11px',backgroundColor:pct>=100?C.successLight:pct>0?C.warningLight:C.bg,color:pct>=100?C.success:pct>0?C.warning:C.textMuted}}>{pct+'%'}</span></td><td style={{...tblC,fontWeight:'600',color:C.accent}}>{toPay.toLocaleString()+' руб.'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{economy.toLocaleString()+' руб.'}</td><td style={tblC}><button onClick={async()=>{await fetch(API+'/brigade-contract-items/'+item.id,{method:'DELETE'});setBrigadeContractItems(prev=>prev.filter((_,i)=>i!==idx));}} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td></tr>);})}</tbody></table>{brigadeContractItems.length>0&&(<div style={{...card,padding:'16px',marginTop:'16px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}><div><b style={{color:C.text,fontSize:'14px'}}>К оплате бригаде:</b></div><div style={{textAlign:'right'}}><b style={{color:C.accent,fontSize:'18px',display:'block'}}>{brigadeContractItems.reduce((s,i)=>s+Math.round(i.doneQuantity*i.priceBrigade),0).toLocaleString()+' руб.'}</b><b style={{color:C.success,fontSize:'13px'}}>{'+'+brigadeContractItems.reduce((s,i)=>s+Math.round(i.doneQuantity*(i.priceSmeta-i.priceBrigade)),0).toLocaleString()+' руб. экономия'}</b></div></div><button onClick={()=>{const items=brigadeContractItems.filter(i=>i.doneQuantity>0);if(!items.length){alert('Нет выполненных работ');return;}const total=items.reduce((s,i)=>s+Math.round(i.doneQuantity*i.priceBrigade),0);const html='<h2>АКТ ВЫПОЛНЕННЫХ РАБОТ</h2><p>Объект: '+p.name+'</p><p>Исполнитель: '+selectedBrigadeContract.brigadeName+'</p><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Выполнено</th><th>Цена</th><th>Сумма</th></tr>'+items.map((it,i)=>'<tr><td>'+(i+1)+'</td><td>'+it.name+'</td><td>'+it.unit+'</td><td>'+it.doneQuantity+'</td><td>'+Number(it.priceBrigade).toLocaleString()+'</td><td>'+Math.round(it.doneQuantity*it.priceBrigade).toLocaleString()+'</td></tr>').join('')+'<tr><td colspan=5><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+' руб.</b></td></tr></table>';showPreview(html,'Акт');}} style={{...btnO,width:'100%',justifyContent:'center'}}><ScrollText size={14}/>Сформировать акт</button></div>)}</div>):(<div>{brigadeContracts.filter(bc=>bc.projectName===p.name).map(bc=>(<div key={bc.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={async()=>{setSelectedBrigadeContract(bc);const res=await fetch(API+'/brigade-contract-items/'+bc.id);const items=await res.json();setBrigadeContractItems(items);}}><div><b style={{color:C.text,fontSize:'13px'}}>{bc.brigadeName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{bc.contractorType+' - '+bc.status}</p></div><div style={{display:'flex',gap:'8px',alignItems:'center'}}><ChevronRight size={16} color={C.textMuted}/><button onClick={async e=>{e.stopPropagation();if(!window.confirm('Удалить наряд?')) return;await fetch(API+'/brigade-contracts/'+bc.id,{method:'DELETE'});setBrigadeContracts(prev=>prev.filter(b=>b.id!==bc.id));}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div></div>))}{!brigadeContracts.filter(bc=>bc.projectName===p.name).length&&(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Users size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Нарядов нет</p></div>)}</div>)}</div>)}
+                    {activeProjectTab==='Материалы'&&(<div>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
+                        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Передача материалов</b>
+                        <button onClick={async()=>{
+                          const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(p.name));
+                          const data=await res.json();
+                          setMaterialTransfers(Array.isArray(data)?data:[]);
+                          setShowTransferForm(!showTransferForm);
+                        }} style={btnO}><Plus size={14}/>Передать материал</button>
+                      </div>
+
+                      {showTransferForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                        <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Передача материала бригаде/мастеру</h3>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                          <select value={newTransfer.fromLocation} onChange={e=>setNewTransfer({...newTransfer,fromLocation:e.target.value,materialName:'',quantity:''})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
+                            <option value='Основной склад'>Основной склад</option>
+                            {projects.map(pr=><option key={pr.id} value={pr.name}>{pr.name}</option>)}
+                          </select>
+                          <div style={{gridColumn:'span 2'}}>
+                            <p style={{fontSize:'12px',color:C.textSec,marginBottom:'6px'}}>Материалы на складе:</p>
+                            <div style={{maxHeight:'200px',overflowY:'auto',border:'1.5px solid '+C.border,borderRadius:'8px',padding:'8px'}}>
+                              {warehouseMain.filter(m=>m.location===newTransfer.fromLocation||(!m.location&&newTransfer.fromLocation==='Основной склад')).map((m,i)=>(<div key={i} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
+                                <input type='checkbox' checked={newTransfer.materialName===m.name} onChange={e=>setNewTransfer({...newTransfer,materialName:e.target.checked?m.name:'',unit:e.target.checked?m.unit:newTransfer.unit,quantity:''})} style={{width:'16px',height:'16px',cursor:'pointer'}}/>
+                                <span style={{flex:1,fontSize:'12px',color:C.text}}>{m.name}</span>
+                                <span style={{fontSize:'11px',color:C.textSec}}>Остаток: {m.quantity} {m.unit}</span>
+                              </div>))}
+                              {warehouseMain.filter(m=>m.location===newTransfer.fromLocation||(!m.location&&newTransfer.fromLocation==='Основной склад')).length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'10px'}}>Нет материалов на этом складе</p>}
+                            </div>
+                          </div>
+                          {newTransfer.materialName&&(<div style={{display:'flex',gap:'6px',gridColumn:'span 2',alignItems:'center'}}>
+                            <b style={{fontSize:'12px',color:C.text,flex:1}}>Передаём: {newTransfer.materialName}</b>
+                            <input placeholder='Кол-во *' type='number' value={newTransfer.quantity} onChange={e=>setNewTransfer({...newTransfer,quantity:e.target.value})} style={{...inp,marginBottom:0,width:'120px'}}/>
+                            <span style={{fontSize:'12px',color:C.textSec}}>{newTransfer.unit}</span>
+                            <span style={{fontSize:'11px',color:C.warning}}>
+                              Остаток: {warehouseMain.find(m=>m.name===newTransfer.materialName)?.quantity||0} {newTransfer.unit}
+                            </span>
+                          </div>)}
+                          <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={{...inp,marginBottom:0}}>
+                            <option value=''>Кому передать *</option>
+                            {staff.filter(s=>['мастер','прораб','бригадир'].includes(s.role.toLowerCase())).map(s=><option key={s.id} value={s.name}>{s.name} ({s.role})</option>)}
+                            {brigadeContracts.filter(bc=>bc.projectName===p.name).map(bc=><option key={bc.id} value={bc.brigadeName}>🔨 {bc.brigadeName} ({bc.contractorType})</option>)}
+                          </select>
+
+                          <input type='date' value={newTransfer.transferDate} onChange={e=>setNewTransfer({...newTransfer,transferDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+                          <input placeholder='Примечание' value={newTransfer.notes} onChange={e=>setNewTransfer({...newTransfer,notes:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
+                          <button onClick={async()=>{
+                            if(!newTransfer.materialName||!newTransfer.quantity||!newTransfer.toPerson) return;
+                            const data={...newTransfer,projectName:p.name,createdBy:user.name};
+                            const res=await fetch(API+'/material-transfers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+                            const saved=await res.json();
+                            setMaterialTransfers(prev=>[{...data,id:saved.id,signed:false},...prev]);
+                            setNewTransfer({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
+                            setShowTransferForm(false);
+                          }} style={btnO}><Check size={14}/>Передать</button>
+                          <button onClick={()=>setShowTransferForm(false)} style={btnG}><X size={14}/>Отмена</button>
+                        </div>
+                      </div>)}
+
+                      <table style={tbl}><thead><tr>
+                        <th style={tblH}>Материал</th>
+                        <th style={tblH}>Кол-во</th>
+                        <th style={tblH}>Кому</th>
+                        <th style={tblH}>Дата</th>
+                        <th style={tblH}>Статус</th>
+                        <th style={tblH}></th>
+                      </tr></thead><tbody>
+                        {materialTransfers.filter(t=>t.projectName===p.name).map(t=>(<tr key={t.id}>
+                          <td style={tblC}>{t.materialName}</td>
+                          <td style={tblC}>{t.quantity} {t.unit}</td>
+                          <td style={tblC}>{t.toPerson}<br/><span style={{fontSize:'11px',color:C.textSec}}>{t.toPersonRole}</span></td>
+                          <td style={tblC}>{t.transferDate}</td>
+                          <td style={tblC}>{t.signed?<span style={{color:C.success,fontSize:'12px'}}>✅ Подписано</span>:<span style={{color:C.warning,fontSize:'12px'}}>⏳ Ожидает подписи</span>}</td>
+                          <td style={tblC}>
+                            {!t.signed&&<button onClick={async()=>{
+                              await fetch(API+'/material-transfers/'+t.id+'/sign',{method:'PUT'});
+                              setMaterialTransfers(prev=>prev.map(mt=>mt.id===t.id?{...mt,signed:true}:mt));
+                            }} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Подписать</button>}
+                            <button onClick={async()=>{
+                              await fetch(API+'/material-transfers/'+t.id,{method:'DELETE'});
+                              setMaterialTransfers(prev=>prev.filter(mt=>mt.id!==t.id));
+                            }} style={{...btnR,padding:'4px 8px',marginLeft:'4px'}}><Trash2 size={11}/></button>
+                          </td>
+                        </tr>))}
+                      </tbody></table>
+                      {materialTransfers.filter(t=>t.projectName===p.name).length===0&&(
+                        <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>
+                          <Package size={48} style={{marginBottom:'15px',opacity:0.3}}/>
+                          <p>Передач материалов нет</p>
+                        </div>
+                      )}
+                    </div>)}
                     {activeProjectTab==='Чат'&&(<div>
                       <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Чат проекта</b>
                       <div style={{backgroundColor:C.bg,borderRadius:'12px',padding:'15px',minHeight:'250px',maxHeight:'350px',overflowY:'auto',marginBottom:'15px',display:'flex',flexDirection:'column',gap:'10px',border:'1.5px solid '+C.border}}>
