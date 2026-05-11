@@ -2015,3 +2015,107 @@ def delete_estimate(id: int):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+@app.get("/brigade-contracts")
+def get_brigade_contracts(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    if project_name:
+        cur.execute("SELECT id,project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,signed_at,notes,created_at FROM brigade_contracts WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute("SELECT id,project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,signed_at,notes,created_at FROM brigade_contracts ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],"totalAmount":float(r[6] or 0),"status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10])} for r in rows]
+
+@app.post("/brigade-contracts")
+def create_brigade_contract(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO brigade_contracts (project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectId") or None,data.get("projectName",""),data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("contractorId") or None,data.get("totalAmount",0),data.get("status","Черновик"),data.get("notes","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.put("/brigade-contracts/{id}")
+def update_brigade_contract(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s WHERE id=%s",
+        (data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("totalAmount",0),data.get("status","Черновик"),data.get("signedAt") or None,data.get("notes",""),id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.delete("/brigade-contracts/{id}")
+def delete_brigade_contract(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM brigade_contracts WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.get("/brigade-contract-items/{contract_id}")
+def get_brigade_contract_items(contract_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,contract_id,estimate_section,name,unit,quantity,price_smeta,price_brigade,done_quantity,status FROM brigade_contract_items WHERE contract_id=%s ORDER BY id", (contract_id,))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"contractId":r[1],"estimateSection":r[2],"name":r[3],"unit":r[4],"quantity":float(r[5] or 0),"priceSmeta":float(r[6] or 0),"priceBrigade":float(r[7] or 0),"doneQuantity":float(r[8] or 0),"status":r[9]} for r in rows]
+
+@app.post("/brigade-contract-items")
+def create_brigade_contract_item(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,name,unit,quantity,price_smeta,price_brigade,done_quantity,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("contractId"),data.get("estimateSection",""),data.get("name",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0),data.get("status","Не начато")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.put("/brigade-contract-items/{id}")
+def update_brigade_contract_item(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE brigade_contract_items SET price_brigade=%s,done_quantity=%s,status=%s WHERE id=%s",
+        (data.get("priceBrigade",0),data.get("doneQuantity",0),data.get("status","Не начато"),id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.delete("/brigade-contract-items/{id}")
+def delete_brigade_contract_item(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM brigade_contract_items WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.get("/brigade-acts")
+def get_brigade_acts(contract_id: int = None):
+    conn = get_db()
+    cur = conn.cursor()
+    if contract_id:
+        cur.execute("SELECT id,contract_id,project_name,brigade_name,period_from,period_to,total_amount,status,created_at FROM brigade_acts WHERE contract_id=%s ORDER BY id DESC", (contract_id,))
+    else:
+        cur.execute("SELECT id,contract_id,project_name,brigade_name,period_from,period_to,total_amount,status,created_at FROM brigade_acts ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"contractId":r[1],"projectName":r[2],"brigadeName":r[3],"periodFrom":str(r[4]) if r[4] else "","periodTo":str(r[5]) if r[5] else "","totalAmount":float(r[6] or 0),"status":r[7],"createdAt":str(r[8])} for r in rows]
+
+@app.post("/brigade-acts")
+def create_brigade_act(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO brigade_acts (contract_id,project_name,brigade_name,period_from,period_to,total_amount,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("contractId"),data.get("projectName",""),data.get("brigadeName",""),data.get("periodFrom") or None,data.get("periodTo") or None,data.get("totalAmount",0),data.get("status","Черновик")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
