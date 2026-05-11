@@ -89,6 +89,7 @@ const ROLE_GROUPS = [
   {key:'бухгалтерия',label:'Бухгалтерия',roles:['бухгалтер'],color:'#6b7280'},
   {key:'сметчики',label:'Сметчики',roles:['сметчик'],color:'#3b82f6'},
   {key:'crm',label:'CRM',roles:['менеджер_crm'],color:'#8b5cf6'},
+  {key:'технадзор',label:'Технадзор',roles:['технадзор'],color:'#ef4444'},
   {key:'заказчики',label:'Заказчики',roles:['заказчик'],color:'#06b6d4'},
   {key:'поставщики',label:'Поставщики',roles:['поставщик'],color:'#f59e0b'},
 ];
@@ -1173,7 +1174,7 @@ function App() {
     if (!newUser.name||!newUser.email) return;
     if (editingItem) await fetch(API+'/users/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
     else await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
-    await loadAll(); setNewUser({name:'',email:'',password:'',role:'прораб'}); setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewUser({name:'',email:'',password:'',role:'прораб',companyName:'',inn:'',projectId:'',projectName:''}); setEditingItem(null); setShowForm(false);
   };
 
   const deleteUser = async (id) => {
@@ -1669,6 +1670,228 @@ function App() {
     {id:'settings',icon:<Settings size={18}/>,label:'Настройки'},
     {id:'users',icon:<Shield size={18}/>,label:'Пользователи'},
   ];
+
+
+
+  // Кабинет поставщика
+  if (user && user.role === 'поставщик') {
+    const mySupplier = suppliers.find(s => s.name === user.name || s.email === user.email);
+    return (
+      <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
+        <div style={{maxWidth:'900px',margin:'0 auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}>
+            <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+              <span style={{fontSize:'28px'}}>🏭</span>
+              <div><b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет поставщика</b><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p></div>
+            </div>
+            <button onClick={()=>{setUser(null);localStorage.removeItem('user');}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'20px'}}>
+            <div style={{...card,padding:'16px',textAlign:'center'}}>
+              <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Новых заявок</p>
+              <b style={{color:C.danger,fontSize:'24px'}}>{supplyRequests.filter(r=>r.status==='Новая').length}</b>
+            </div>
+            <div style={{...card,padding:'16px',textAlign:'center'}}>
+              <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Моих предложений</p>
+              <b style={{color:C.accent,fontSize:'24px'}}>{supplierOffers.filter(o=>o.supplierId===mySupplier?.id).length}</b>
+            </div>
+            <div style={{...card,padding:'16px',textAlign:'center'}}>
+              <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Утверждено</p>
+              <b style={{color:C.success,fontSize:'24px'}}>{supplierOffers.filter(o=>o.supplierId===mySupplier?.id&&o.status==='Утверждено').length}</b>
+            </div>
+          </div>
+          <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Активные заявки</b>
+            {supplyRequests.filter(r=>r.status==='Новая'||r.status==='Ожидает предложений').map(req=>(
+              <div key={req.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                  <div>
+                    <b style={{fontSize:'13px',color:C.text}}>{req.materialName}</b>
+                    <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · '+req.projectName}</p>
+                    <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Нужно к: {req.deadline||'Не указано'}</p>
+                  </div>
+                  <div>
+                    {supplierOffers.find(o=>o.requestId===req.id&&o.supplierId===mySupplier?.id)?
+                      <span style={{padding:'4px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:C.successLight,color:C.success}}>✅ Отправлено</span>:
+                      <button onClick={()=>{
+                        const price=prompt('Ваша цена за единицу (руб):');
+                        const days=prompt('Срок поставки (дней):');
+                        if(price&&days){
+                          fetch(API+'/supplier-offers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:req.id,supplierId:mySupplier?.id||0,supplierName:user.name,pricePerUnit:Number(price),totalPrice:Number(price)*Number(req.quantity),deliveryDays:Number(days),status:'Ожидает'})}).then(()=>loadAll());
+                        }
+                      }} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}>💰 Предложить цену</button>
+                    }
+                  </div>
+                </div>
+              </div>
+            ))}
+            {supplyRequests.filter(r=>r.status==='Новая'||r.status==='Ожидает предложений').length===0&&
+              <p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Новых заявок нет</p>
+            }
+          </div>
+          <div style={{...card,padding:'20px'}}>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📦 Мои предложения</b>
+            {supplierOffers.filter(o=>o.supplierId===mySupplier?.id).map(o=>(
+              <div key={o.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <b style={{fontSize:'12px',color:C.text}}>{supplyRequests.find(r=>r.id===o.requestId)?.materialName||'Материал'}</b>
+                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(o.pricePerUnit).toLocaleString()+' ₽/ед · '+o.deliveryDays+' дней'}</p>
+                </div>
+                <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:o.status==='Утверждено'?C.successLight:C.warningLight,color:o.status==='Утверждено'?C.success:C.warning}}>{o.status==='Утверждено'?'✅ Утверждено':'⏳ Ожидает'}</span>
+              </div>
+            ))}
+            {supplierOffers.filter(o=>o.supplierId===mySupplier?.id).length===0&&
+              <p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Предложений нет</p>
+            }
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Кабинет технадзора
+  if (user && user.role === 'технадзор') {
+    const myProject = projects.find(p => p.id === Number(user.project_id||user.projectId) || p.name === (user.project_name||user.projectName));
+    return (
+      <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
+        <div style={{maxWidth:'800px',margin:'0 auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}>
+            <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+              <span style={{fontSize:'28px'}}>🔎</span>
+              <div><b style={{color:C.text,fontSize:'18px',display:'block'}}>Технический надзор</b><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p></div>
+            </div>
+            <button onClick={()=>{setUser(null);localStorage.removeItem('user');}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
+          </div>
+          {!myProject?(<div style={{...card,padding:'40px',textAlign:'center'}}><p style={{color:C.textMuted}}>Объект не найден. Обратитесь к подрядчику.</p></div>):(
+            <div>
+              <div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
+                <b style={{color:C.text,fontSize:'16px'}}>{myProject.name}</b>
+                <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'13px'}}>Статус: {myProject.status} · Прогресс: {myProject.progress||0}%</p>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
+                <div style={{...card,padding:'16px'}}>
+                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>📋 Чек-листы</b>
+                  {checklists.filter(c=>c.projectName===myProject.name).map(cl=>(
+                    <div key={cl.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border}}>
+                      <b style={{fontSize:'12px',color:C.text}}>{cl.name}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{cl.status}</p>
+                    </div>
+                  ))}
+                  {checklists.filter(c=>c.projectName===myProject.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Нет чек-листов</p>}
+                </div>
+                <div style={{...card,padding:'16px'}}>
+                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>⚠️ Предписания</b>
+                  {prescriptionsList.filter(pr=>pr.projectName===myProject.name).map(pr=>(
+                    <div key={pr.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border}}>
+                      <b style={{fontSize:'12px',color:C.danger}}>{pr.description}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{pr.status}</p>
+                    </div>
+                  ))}
+                  {prescriptionsList.filter(pr=>pr.projectName===myProject.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Предписаний нет</p>}
+                </div>
+              </div>
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚠️ Выдать предписание</b>
+                <textarea id='pres_desc_tn' placeholder='Описание нарушения *' style={{...inp,height:'80px'}}/>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                  <select id='pres_priority_tn' style={{...inp,marginBottom:0}}>
+                    <option value='Критичное'>🔴 Критичное</option>
+                    <option value='Важное'>🟡 Важное</option>
+                    <option value='Замечание'>🟢 Замечание</option>
+                  </select>
+                  <input type='date' id='pres_date_tn' style={{...inp,marginBottom:0}} defaultValue={new Date().toISOString().split('T')[0]}/>
+                </div>
+                <button onClick={async()=>{
+                  const desc=document.getElementById('pres_desc_tn').value;
+                  if(!desc){alert('Введите описание');return;}
+                  const priority=document.getElementById('pres_priority_tn').value;
+                  const deadline=document.getElementById('pres_date_tn').value;
+                  await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,description:desc,priority,deadline,issuedBy:user.name,issuedByRole:'Технадзор',status:'Открыто'})});
+                  await loadAll();
+                  document.getElementById('pres_desc_tn').value='';
+                  alert('Предписание выдано!');
+                }} style={{...btnO,marginTop:'12px'}}><Plus size={14}/>Выдать предписание</button>
+              </div>
+              <div style={{...card,padding:'20px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📖 Журнал работ</b>
+                {workJournal.filter(j=>j.project===myProject.name).slice(0,10).map(j=>(
+                  <div key={j.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border}}>
+                    <b style={{fontSize:'12px',color:C.text}}>{j.description}</b>
+                    <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{j.masterName+' · '+j.date+' · '+j.status}</p>
+                  </div>
+                ))}
+                {workJournal.filter(j=>j.project===myProject.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Записей нет</p>}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Кабинет заказчика
+  if (user && user.role === 'заказчик') {
+    const myProject = projects.find(p => p.id === Number(user.project_id||user.projectId) || p.name === (user.project_name||user.projectName));
+    return (
+      <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
+        <div style={{maxWidth:'800px',margin:'0 auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}>
+            <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+              <span style={{fontSize:'28px'}}>🏠</span>
+              <div><b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет заказчика</b><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p></div>
+            </div>
+            <button onClick={()=>{setUser(null);localStorage.removeItem('user');}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
+          </div>
+          {!myProject?(<div style={{...card,padding:'40px',textAlign:'center'}}><p style={{color:C.textMuted}}>Объект не найден. Обратитесь к подрядчику.</p></div>):(
+            <div>
+              <div style={{...card,padding:'20px',marginBottom:'16px',background:'linear-gradient(135deg,'+C.accent+',#5b6cf0)'}}>
+                <b style={{color:'white',fontSize:'20px',display:'block'}}>{myProject.name}</b>
+                <p style={{color:'rgba(255,255,255,0.8)',margin:'4px 0 0',fontSize:'14px'}}>Статус: {myProject.status}</p>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
+                <div style={{...card,padding:'16px',textAlign:'center'}}>
+                  <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Прогресс</p>
+                  <b style={{color:C.accent,fontSize:'24px'}}>{myProject.progress||0}%</b>
+                  <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'6px',marginTop:'8px'}}>
+                    <div style={{backgroundColor:C.accent,width:(myProject.progress||0)+'%',height:'100%',borderRadius:'6px'}}/>
+                  </div>
+                </div>
+                <div style={{...card,padding:'16px',textAlign:'center'}}>
+                  <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Бюджет</p>
+                  <b style={{color:C.text,fontSize:'16px'}}>{Number(myProject.budget||0).toLocaleString()+' ₽'}</b>
+                </div>
+                <div style={{...card,padding:'16px',textAlign:'center'}}>
+                  <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Срок сдачи</p>
+                  <b style={{color:C.text,fontSize:'14px'}}>{myProject.deadline||'Не указан'}</b>
+                </div>
+              </div>
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Этапы</b>
+                {projectStages.filter(s=>s.projectName===myProject.name).map(stage=>(
+                  <div key={stage.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid '+C.border}}>
+                    <div><b style={{fontSize:'13px',color:C.text}}>{stage.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{stage.startDate+' — '+stage.endDate}</p></div>
+                    <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:stage.status==='Завершён'?C.successLight:stage.status==='В работе'?C.warningLight:C.bg,color:stage.status==='Завершён'?C.success:stage.status==='В работе'?C.warning:C.textSec}}>{stage.status}</span>
+                  </div>
+                ))}
+                {projectStages.filter(s=>s.projectName===myProject.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Этапы не добавлены</p>}
+              </div>
+              <div style={{...card,padding:'20px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Документы</b>
+                {contracts.filter(c=>c.projectName===myProject.name||c.client===user.name).map(c=>(
+                  <div key={c.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid '+C.border}}>
+                    <div><b style={{fontSize:'13px',color:C.text}}>Договор № {c.number}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(c.totalAmount||0).toLocaleString()+' ₽ · '+c.status}</p></div>
+                    <button onClick={()=>showPreview('<h2>Договор №'+c.number+'</h2><p>Заказчик: '+c.client+'</p><p>Сумма: '+Number(c.totalAmount||0).toLocaleString()+' ₽</p>','Договор')} style={{...btnB,padding:'4px 10px',fontSize:'11px'}}><Eye size={11}/>Открыть</button>
+                  </div>
+                ))}
+                {contracts.filter(c=>c.projectName===myProject.name||c.client===user.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Документов нет</p>}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const menuItems = allMenuItems.filter(item=>canAccess(item.id));
 
   return (

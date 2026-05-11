@@ -428,6 +428,8 @@ class UserModel(BaseModel):
     email: str
     password: str = ""
     role: str = "прораб"
+    projectId: str = ""
+    projectName: str = ""
 
 class LoginModel(BaseModel):
     email: str
@@ -644,9 +646,9 @@ def register(data: RegisterModel):
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (data.code,))
         conn.close()
         return dict(user)
-    except:
+    except Exception as e:
         conn.close()
-        raise HTTPException(status_code=400, detail="Email уже существует")
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/projects")
 def get_projects():
@@ -907,14 +909,14 @@ def create_user(u: UserModel):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("INSERT INTO users (name,email,password,role) VALUES (%s,%s,%s,%s) RETURNING id,name,email,role",
-                    (u.name,u.email,u.password,u.role))
+        cur.execute("INSERT INTO users (name,email,password,role,project_id,project_name) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,name,email,role,project_id,project_name",
+                    (u.name,u.email,u.password,u.role,int(u.projectId) if u.projectId else None,u.projectName or ""))
         row = cur.fetchone()
         conn.close()
         return dict(row)
-    except:
+    except Exception as e:
         conn.close()
-        raise HTTPException(status_code=400, detail="Email уже существует")
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.put("/users/{id}")
 def update_user(id: int, u: UserModel):
