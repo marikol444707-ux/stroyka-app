@@ -2248,3 +2248,45 @@ def delete_material_transfer(id: int):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+@app.get("/supplier-catalog")
+def get_supplier_catalog(supplier_id: int = None):
+    conn = get_db()
+    cur = conn.cursor()
+    if supplier_id:
+        cur.execute("SELECT id,supplier_id,supplier_name,material_name,unit,price,min_quantity,delivery_days,in_stock,notes FROM supplier_catalog WHERE supplier_id=%s ORDER BY material_name", (supplier_id,))
+    else:
+        cur.execute("SELECT id,supplier_id,supplier_name,material_name,unit,price,min_quantity,delivery_days,in_stock,notes FROM supplier_catalog ORDER BY material_name")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"supplierId":r[1],"supplierName":r[2],"materialName":r[3],"unit":r[4],"price":float(r[5] or 0),"minQuantity":float(r[6] or 1),"deliveryDays":r[7] or 3,"inStock":r[8],"notes":r[9] or ""} for r in rows]
+
+@app.post("/supplier-catalog")
+def create_supplier_catalog(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO supplier_catalog (supplier_id,supplier_name,material_name,unit,price,min_quantity,delivery_days,in_stock,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("supplierId"),data.get("supplierName",""),data.get("materialName",""),data.get("unit","шт"),data.get("price",0),data.get("minQuantity",1),data.get("deliveryDays",3),data.get("inStock",True),data.get("notes","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.put("/supplier-catalog/{id}")
+def update_supplier_catalog(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE supplier_catalog SET price=%s,in_stock=%s,delivery_days=%s,notes=%s WHERE id=%s",
+        (data.get("price",0),data.get("inStock",True),data.get("deliveryDays",3),data.get("notes",""),id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.delete("/supplier-catalog/{id}")
+def delete_supplier_catalog(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM supplier_catalog WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}

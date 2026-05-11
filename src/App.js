@@ -291,6 +291,10 @@ function App() {
   const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});
   const [brigadeActForm, setBrigadeActForm] = useState({periodFrom:'',periodTo:''});
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
+  const [supplierCatalog, setSupplierCatalog] = useState([]);
+  const [showCatalogForm, setShowCatalogForm] = useState(false);
+  const [newCatalogItem, setNewCatalogItem] = useState({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
+  const [supplierTab, setSupplierTab] = useState('requests');
   const [materialTransfers, setMaterialTransfers] = useState([]);
   const [showTransferForm, setShowTransferForm] = useState(false);
   const [newTransfer, setNewTransfer] = useState({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
@@ -1676,6 +1680,10 @@ function App() {
   // Кабинет поставщика
   if (user && user.role === 'поставщик') {
     const mySupplier = suppliers.find(s => s.name === user.name || s.email === user.email);
+    const myCatalog = supplierCatalog.filter(c => c.supplierId === mySupplier?.id);
+    const myOffers = supplierOffers.filter(o => o.supplierId === mySupplier?.id);
+    const myInvoices = invoices.filter(inv => inv.supplierName === user.name);
+    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'documents',label:'📄 Документы'},{id:'profile',label:'⚙️ Профиль'}];
     return (
       <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
         <div style={{maxWidth:'900px',margin:'0 auto'}}>
@@ -1686,21 +1694,26 @@ function App() {
             </div>
             <button onClick={()=>{setUser(null);localStorage.removeItem('user');}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'20px'}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Новых заявок</p>
               <b style={{color:C.danger,fontSize:'24px'}}>{supplyRequests.filter(r=>r.status==='Новая').length}</b>
             </div>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Моих предложений</p>
-              <b style={{color:C.accent,fontSize:'24px'}}>{supplierOffers.filter(o=>o.supplierId===mySupplier?.id).length}</b>
+              <b style={{color:C.accent,fontSize:'24px'}}>{myOffers.length}</b>
             </div>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Утверждено</p>
-              <b style={{color:C.success,fontSize:'24px'}}>{supplierOffers.filter(o=>o.supplierId===mySupplier?.id&&o.status==='Утверждено').length}</b>
+              <b style={{color:C.success,fontSize:'24px'}}>{myOffers.filter(o=>o.status==='Утверждено').length}</b>
             </div>
           </div>
-          <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+
+          <div style={{display:'flex',gap:0,overflowX:'auto',borderBottom:'1.5px solid '+C.border,marginBottom:'16px'}}>
+            {SUPPLIER_TABS.map(t=>(<button key={t.id} onClick={()=>setSupplierTab(t.id)} style={{padding:'10px 16px',border:'none',backgroundColor:'transparent',cursor:'pointer',fontSize:'12px',fontWeight:supplierTab===t.id?'700':'400',color:supplierTab===t.id?C.accent:C.textSec,borderBottom:supplierTab===t.id?'2px solid '+C.accent:'2px solid transparent',whiteSpace:'nowrap'}}>{t.label}</button>))}
+          </div>
+
+          {supplierTab==='requests'&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Активные заявки</b>
             {supplyRequests.filter(r=>r.status==='Новая'||r.status==='Ожидает предложений').map(req=>(
               <div key={req.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}>
@@ -1711,7 +1724,7 @@ function App() {
                     <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Нужно к: {req.deadline||'Не указано'}</p>
                   </div>
                   <div>
-                    {supplierOffers.find(o=>o.requestId===req.id&&o.supplierId===mySupplier?.id)?
+                    {myOffers.find(o=>o.requestId===req.id)?
                       <span style={{padding:'4px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:C.successLight,color:C.success}}>✅ Отправлено</span>:
                       <button onClick={()=>{
                         const price=prompt('Ваша цена за единицу (руб):');
@@ -1728,26 +1741,109 @@ function App() {
             {supplyRequests.filter(r=>r.status==='Новая'||r.status==='Ожидает предложений').length===0&&
               <p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Новых заявок нет</p>
             }
-          </div>
-          <div style={{...card,padding:'20px'}}>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📦 Мои предложения</b>
-            {supplierOffers.filter(o=>o.supplierId===mySupplier?.id).map(o=>(
+          </div>)}
+
+          {supplierTab==='catalog'&&(<div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+              <b style={{color:C.text,fontSize:'14px'}}>📦 Мой каталог материалов</b>
+              <button onClick={async()=>{
+                const res=await fetch(API+'/supplier-catalog?supplier_id='+(mySupplier?.id||0));
+                const data=await res.json();
+                setSupplierCatalog(data);
+                setShowCatalogForm(!showCatalogForm);
+              }} style={btnO}><Plus size={14}/>Добавить</button>
+            </div>
+            {showCatalogForm&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                <input placeholder='Наименование *' value={newCatalogItem.materialName} onChange={e=>setNewCatalogItem({...newCatalogItem,materialName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <select value={newCatalogItem.unit} onChange={e=>setNewCatalogItem({...newCatalogItem,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+                <input placeholder='Цена за ед.' type='number' value={newCatalogItem.price} onChange={e=>setNewCatalogItem({...newCatalogItem,price:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Мин. партия' type='number' value={newCatalogItem.minQuantity} onChange={e=>setNewCatalogItem({...newCatalogItem,minQuantity:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Срок поставки (дней)' type='number' value={newCatalogItem.deliveryDays} onChange={e=>setNewCatalogItem({...newCatalogItem,deliveryDays:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Примечание' value={newCatalogItem.notes} onChange={e=>setNewCatalogItem({...newCatalogItem,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+              </div>
+              <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
+                <button onClick={async()=>{
+                  if(!newCatalogItem.materialName) return;
+                  const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCatalogItem,supplierId:mySupplier?.id||0,supplierName:user.name})});
+                  const saved=await res.json();
+                  setSupplierCatalog(prev=>[...prev,{...newCatalogItem,id:saved.id,supplierId:mySupplier?.id||0}]);
+                  setNewCatalogItem({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
+                  setShowCatalogForm(false);
+                }} style={btnO}><Check size={14}/>Сохранить</button>
+                <button onClick={()=>setShowCatalogForm(false)} style={btnG}><X size={14}/>Отмена</button>
+              </div>
+            </div>)}
+            <table style={tbl}><thead><tr>
+              <th style={tblH}>Наименование</th>
+              <th style={tblH}>Ед.</th>
+              <th style={tblH}>Цена</th>
+              <th style={tblH}>Мин. партия</th>
+              <th style={tblH}>Поставка</th>
+              <th style={tblH}>Наличие</th>
+              <th style={tblH}></th>
+            </tr></thead><tbody>
+              {myCatalog.map(item=>(<tr key={item.id}>
+                <td style={tblC}>{item.materialName}</td>
+                <td style={tblC}>{item.unit}</td>
+                <td style={tblC}>{Number(item.price).toLocaleString()+' ₽'}</td>
+                <td style={tblC}>{item.minQuantity}</td>
+                <td style={tblC}>{item.deliveryDays+' дн.'}</td>
+                <td style={tblC}><span style={{color:item.inStock?C.success:C.danger,fontSize:'12px'}}>{item.inStock?'✅ Есть':'❌ Нет'}</span></td>
+                <td style={tblC}><button onClick={async()=>{await fetch(API+'/supplier-catalog/'+item.id,{method:'DELETE'});setSupplierCatalog(prev=>prev.filter(c=>c.id!==item.id));}} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
+              </tr>))}
+            </tbody></table>
+            {myCatalog.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Каталог пуст — добавьте материалы</p>}
+          </div>)}
+
+          {supplierTab==='offers'&&(<div>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>💰 Мои предложения</b>
+            {myOffers.map(o=>(
               <div key={o.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <div>
                   <b style={{fontSize:'12px',color:C.text}}>{supplyRequests.find(r=>r.id===o.requestId)?.materialName||'Материал'}</b>
-                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(o.pricePerUnit).toLocaleString()+' ₽/ед · '+o.deliveryDays+' дней'}</p>
+                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(o.pricePerUnit).toLocaleString()+' ₽/ед · Итого: '+Number(o.totalPrice).toLocaleString()+' ₽ · '+o.deliveryDays+' дней'}</p>
                 </div>
                 <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:o.status==='Утверждено'?C.successLight:C.warningLight,color:o.status==='Утверждено'?C.success:C.warning}}>{o.status==='Утверждено'?'✅ Утверждено':'⏳ Ожидает'}</span>
               </div>
             ))}
-            {supplierOffers.filter(o=>o.supplierId===mySupplier?.id).length===0&&
-              <p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Предложений нет</p>
-            }
-          </div>
+            {myOffers.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Предложений нет</p>}
+          </div>)}
+
+          {supplierTab==='documents'&&(<div>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Документы</b>
+            <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px'}}>Накладные</b>
+            {myInvoices.map(inv=>(
+              <div key={inv.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <b style={{fontSize:'12px',color:C.text}}>Накладная № {inv.number}</b>
+                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{inv.date+' · '+Number(inv.totalWithVat||0).toLocaleString()+' ₽ · '+inv.location}</p>
+                </div>
+                <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:C.successLight,color:C.success}}>✅ Принята</span>
+              </div>
+            ))}
+            {myInvoices.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Накладных нет</p>}
+          </div>)}
+
+          {supplierTab==='profile'&&(<div>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚙️ Профиль и реквизиты</b>
+            {mySupplier?(<div style={{...card,padding:'16px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Название</p><b style={{color:C.text,fontSize:'13px'}}>{mySupplier.name}</b></div>
+                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Телефон</p><b style={{color:C.text,fontSize:'13px'}}>{mySupplier.phone||'Не указан'}</b></div>
+                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Email</p><b style={{color:C.text,fontSize:'13px'}}>{mySupplier.email||'Не указан'}</b></div>
+                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Категория</p><b style={{color:C.text,fontSize:'13px'}}>{mySupplier.category||'Не указана'}</b></div>
+                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Рейтинг</p><b style={{color:C.warning,fontSize:'13px'}}>{'⭐ '+(mySupplier.rating||5.0)}</b></div>
+                <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Статус</p><b style={{color:C.success,fontSize:'13px'}}>{mySupplier.status||'Активный'}</b></div>
+              </div>
+            </div>):(<p style={{color:C.textMuted,fontSize:'12px'}}>Профиль не найден. Обратитесь к администратору.</p>)}
+          </div>)}
         </div>
       </div>
     );
   }
+
+
 
   // Кабинет технадзора
   if (user && user.role === 'технадзор') {
