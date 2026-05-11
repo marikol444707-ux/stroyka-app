@@ -1608,34 +1608,120 @@ import json as json_lib
 
 @app.post("/ai-chat")
 def ai_chat(data: dict):
-    try:
-        messages = data.get("messages", [])
-        yandex_messages = [{"role": "system", "text": "Ты умный помощник прораба строительной компании СтройКа. Отвечай на русском языке. Знаешь строительные нормы, СНиП, расценки, материалы. Помогаешь с расчётами объёмов, материалов, стоимости работ."}]
-        for msg in messages:
-            yandex_messages.append({"role": msg.get("role", "user"), "text": msg.get("content", "")})
-        
-        payload = json_lib.dumps({
-            "modelUri": "gpt://b1ghgq7lsv3rak4hjqr3/yandexgpt/latest",
-            "completionOptions": {"stream": False, "temperature": 0.3, "maxTokens": 2000},
-            "messages": yandex_messages
-        }).encode("utf-8")
-        
-        req = urllib.request.Request(
-            "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": "Api-Key AQVNwKMYa9a-s1z6_Ag1jH8tUHL8NoB0vOj_IBVp"
-            },
-            method="POST"
-        )
-        
-        with urllib.request.urlopen(req, timeout=30) as response:
-            result = json_lib.loads(response.read().decode("utf-8"))
-            text = result.get("result", {}).get("alternatives", [{}])[0].get("message", {}).get("text", "")
-            return {"text": text}
-    except Exception as e:
-        return {"text": "Ошибка: " + str(e)}
+    import json as j
+    messages = data.get("messages", [])
+    last_msg = messages[-1].get("content","").lower() if messages else ""
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Проекты
+    cur.execute("SELECT name, status, budget, progress FROM projects")
+    projects = cur.fetchall()
+    
+    # Склад
+    cur.execute("SELECT name, quantity, unit FROM warehouse_main")
+    materials = cur.fetchall()
+    
+    # Сотрудники
+    cur.execute("SELECT name, role FROM staff")
+    staff = cur.fetchall()
+    
+    # Договора
+    cur.execute("SELECT client, total_amount, status FROM contracts")
+    contracts = cur.fetchall()
+    
+    # Наряды
+    cur.execute("SELECT project_name, brigade_name, status, total_amount FROM brigade_contracts")
+    brigades = cur.fetchall()
+    
+    cur.close()
+    conn.close()
+    
+    # Анализируем вопрос и формируем ответ
+    response = ""
+    
+    # Проекты
+    if any(w in last_msg for w in ["проект", "объект", "стройк"]):
+        active = [p for p in projects if p[1] in ["В работе", "Активный"]]
+        done = [p for p in projects if p[1] in ["Завершён", "Сдан"]]
+        response = f"📋 Всего проектов: {len(projects)}\n"
+        response += f"🔨 В работе: {len(active)}\n"
+        response += f"✅ Завершено: {len(done)}\n"
+        if projects:
+            response += "\nПроекты:\n"
+            for p in projects[:5]:
+                response += f"• {p[0]} — {p[1]}"
+                if p[2]: response += f" (бюджет: {int(p[2]):,} ₽)"
+                response += "\n"
+    
+    # Склад/материалы
+    elif any(w in last_msg for w in ["склад", "материал", "остаток", "запас"]):
+        response = f"📦 На складе {len(materials)} позиций:\n\n"
+        for m in materials[:10]:
+            response += f"• {m[0]}: {m[1]} {m[2]}\n"
+        if len(materials) > 10:
+            response += f"\n...и ещё {len(materials)-10} позиций"
+    
+    # Сотрудники
+    elif any(w in last_msg for w in ["сотрудник", "работник", "персонал", "штат", "кто"]):
+        response = f"👷 Сотрудников: {len(staff)}\n\n"
+        for s in staff[:8]:
+            response += f"• {s[0]} — {s[1]}\n"
+    
+    # Договора/финансы
+    elif any(w in last_msg for w in ["договор", "деньг", "финанс", "сумм", "оплат"]):
+        total = sum(float(c[2] or 0) for c in contracts)
+        active_c = [c for c in contracts if c[2] not in ["Расторгнут"]]
+        response = f"💰 Договоров: {len(contracts)}\n"
+        response += f"📄 Активных: {len(active_c)}\n"
+        response += f"💵 Общая сумма: {total:,.0f} ₽\n\n"
+        for c in contracts[:5]:
+            response += f"• {c[0]} — {float(c[2] or 0):,.0f} ₽ ({c[1]})\n"
+    
+    # Наряды/бригады
+    elif any(w in last_msg for w in ["наряд", "бригад", "подрядчик", "мастер"]):
+        response = f"👷 Нарядов: {len(brigades)}\n\n"
+        for b in brigades[:8]:
+            response += f"• {b[1]} на объекте {b[0]} — {b[2]}\n"
+    
+    # Привет/помощь
+    elif any(w in last_msg for w in ["привет", "помог", "что умеешь", "помощь"]):
+        response = """Привет! Я ИИ помощник СтройКа 🤖
+
+Я могу ответить на вопросы:
+📋 О проектах и объектах
+📦 Об остатках на складе  
+👷 О сотрудниках и бригадах
+💰 О договорах и финансах
+📊 О нарядах и выполнении
+
+Просто спросите!"""
+    
+    # Итоговая сводка
+    elif any(w in last_msg for w in ["сводк", "итог", "статус", "отчёт", "отчет", "обзор"]):
+        active_p = len([p for p in projects if p[1] in ["В работе","Активный"]])
+        response = f"""📊 Сводка по системе:
+
+🏗️ Проектов в работе: {active_p} из {len(projects)}
+👷 Сотрудников: {len(staff)}
+📦 Позиций на складе: {len(materials)}
+📄 Договоров: {len(contracts)}
+🔨 Нарядов бригадам: {len(brigades)}"""
+    
+    else:
+        response = f"""Понял ваш вопрос! 
+
+Вот что я знаю о вашей системе:
+• Проектов: {len(projects)}
+• Сотрудников: {len(staff)}  
+• Материалов на складе: {len(materials)} позиций
+• Договоров: {len(contracts)}
+
+Уточните вопрос — спросите про проекты, склад, сотрудников, договора или наряды."""
+    
+    return {"response": response}
+
 
 @app.get("/warehouses")
 def get_warehouses():

@@ -288,6 +288,10 @@ function App() {
   const [newBrigadeContract, setNewBrigadeContract] = useState({projectId:'',projectName:'',brigadeName:'',contractorType:'Своя бригада',contractorId:'',notes:''});
   const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});
   const [brigadeActForm, setBrigadeActForm] = useState({periodFrom:'',periodTo:''});
+  const [brigadeCoef, setBrigadeCoef] = useState('0.6');
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
+  const [aiInput, setAiInput] = useState('');
   const [showDistributeModal, setShowDistributeModal] = useState(false);
   const [distributeEstimate, setDistributeEstimate] = useState(null);
   const [selectedDistributeItems, setSelectedDistributeItems] = useState([]);
@@ -411,7 +415,7 @@ function App() {
   const [newDoor, setNewDoor] = useState({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});
   const [newInventory, setNewInventory] = useState({project:'',date:'',notes:''});
   const [newWeather, setNewWeather] = useState({projectName:'',date:'',temperature:'',condition:'Ясно',windSpeed:'',notes:''});
-  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0'});
+  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик'});
   const [newEstimateSection, setNewEstimateSection] = useState({name:''});
   const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});
   const [newStage, setNewStage] = useState({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
@@ -1785,6 +1789,18 @@ function App() {
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px',marginBottom:'16px'}}>
                         {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'14px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
                       </div>
+                      <div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
+                        <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'12px'}}>📊 Наряды и выполнение</b>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'12px'}}>
+                          <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Нарядов</p><b style={{color:C.text,fontSize:'18px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).length}</b></div>
+                          <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>По договорам</p><b style={{color:C.accent,fontSize:'16px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+Number(bc.totalAmount||0),0).toLocaleString()+' ₽'}</b></div>
+                          <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смет</p><b style={{color:C.text,fontSize:'18px'}}>{estimatesList.filter(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id)).length}</b></div>
+                        </div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'10px'}}>
+                          <div style={{backgroundColor:C.successLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смета заказчика</p><b style={{color:C.success,fontSize:'14px'}}>{estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(e.smetaType==='Заказчик'||!e.smetaType)).reduce((s,e)=>(e.sections||[]).flatMap(sec=>sec.items||[]).reduce((ss,i)=>ss+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*Number(i.priceWork||0)),s),0).toLocaleString()+' ₽'}</b></div>
+                          <div style={{backgroundColor:C.warningLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.warningBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Подрядчикам</p><b style={{color:C.warning,fontSize:'14px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+Number(bc.totalAmount||0),0).toLocaleString()+' ₽'}</b></div>
+                        </div>
+                      </div>
                       <div style={{backgroundColor:C.bg,borderRadius:'10px',padding:'14px',border:'1.5px solid '+C.border,marginBottom:'12px'}}>
                         <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}><b style={{color:C.text,fontSize:'13px'}}>Прогресс бюджета</b><span style={{fontSize:'13px',color:total>p.budget?C.danger:C.success}}>{total.toLocaleString()+' из '+p.budget.toLocaleString()+' ₽'}</span></div>
                         <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'10px'}}><div style={{backgroundColor:total>p.budget?C.danger:total>p.budget*0.8?C.warning:C.success,width:Math.min(100,p.budget>0?total/p.budget*100:0)+'%',height:'100%',borderRadius:'6px',transition:'width 0.3s'}}/></div>
@@ -1806,6 +1822,7 @@ function App() {
                       </div>
                     </div>)}
 
+                    {activeProjectTab==='Наряды'&&(<div></div>)}
                     {activeProjectTab==='Этапы'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
                         <b style={{color:C.text}}>Этапы проекта</b>
@@ -2119,9 +2136,32 @@ function App() {
   if(matWords.some(w=>n.startsWith(w))) return false;
   const workWords=['устройство','монтаж','прокладка','установка','разборка','пробивка','сверление','окраска','штукатурка','кладка','демонтаж','погрузка','перевозка','очистка','покрытие','изоляция','сборка','укладка','ремонт','снятие','затаривание','огрунтовка','добавлять','исключать','смена','третья шпатлевка','вторая шпатлевка'];
   return workWords.some(w=>n.includes(w));
-});for(const item of allItems){const newItem={contractId:selectedBrigadeContract.id,estimateSection:item.estimateSection||'',name:item.name,unit:item.unit,quantity:item.quantity||0,priceSmeta:item.priceWork||0,priceBrigade:0,doneQuantity:0,status:'Не начато'};const res=await fetch(API+'/brigade-contract-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newItem)});const saved=await res.json();setBrigadeContractItems(prev=>[...prev,{...newItem,id:saved.id}]);}alert('Загружено!');}} style={{...btnG,fontSize:'11px',padding:'5px 10px'}}>📄 {est.name}</button>))}</div></div>)}
+});for(const item of allItems){const newItem={contractId:selectedBrigadeContract.id,estimateSection:item.estimateSection||'',name:item.name,unit:item.unit,quantity:item.quantity||0,priceSmeta:item.priceWork||0,priceBrigade:0,doneQuantity:0,status:'Не начато'};const res=await fetch(API+'/brigade-contract-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newItem)});const saved=await res.json();setBrigadeContractItems(prev=>[...prev,{...newItem,id:saved.id}]);}alert('Загружено!');}} style={{...btnG,fontSize:'11px',padding:'5px 10px'}}>{{Заказчик:'📋',Работы:'👷',Материалы:'📦'}[est.smetaType]||'📄'} {est.name}</button>))}</div></div>)}
 </div>
-<b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Добавить работу вручную</b><div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr auto',gap:'6px',alignItems:'center'}}><input placeholder='Наименование *' value={newBrigadeItem.name} onChange={e=>setNewBrigadeItem({...newBrigadeItem,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/><select value={newBrigadeItem.unit} onChange={e=>setNewBrigadeItem({...newBrigadeItem,unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select><input placeholder='Объём' type='number' value={newBrigadeItem.quantity} onChange={e=>setNewBrigadeItem({...newBrigadeItem,quantity:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/><input placeholder='Цена смета' type='number' value={newBrigadeItem.priceSmeta} onChange={e=>setNewBrigadeItem({...newBrigadeItem,priceSmeta:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/><input placeholder='Цена бригаде' type='number' value={newBrigadeItem.priceBrigade} onChange={e=>setNewBrigadeItem({...newBrigadeItem,priceBrigade:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/><button onClick={async()=>{if(!newBrigadeItem.name||!selectedBrigadeContract) return;const item={...newBrigadeItem,contractId:selectedBrigadeContract.id,doneQuantity:0,status:'Не начато'};const res=await fetch(API+'/brigade-contract-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});const saved=await res.json();setBrigadeContractItems(prev=>[...prev,{...item,id:saved.id}]);setNewBrigadeItem({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});}} style={{...btnO,padding:'7px 12px'}}><Plus size={13}/></button></div></div><table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Объём</th><th style={tblH}>Цена смета</th><th style={tblH}>Цена бригаде</th><th style={tblH}>Выполнено</th><th style={tblH}>%</th><th style={tblH}>К оплате</th><th style={tblH}>Экономия</th><th style={tblH}></th></tr></thead><tbody>{brigadeContractItems.map((item,idx)=>{const pct=item.quantity>0?Math.round(item.doneQuantity/item.quantity*100):0;const toPay=Math.round(item.doneQuantity*item.priceBrigade);const economy=Math.round(item.doneQuantity*(item.priceSmeta-item.priceBrigade));return(<tr key={item.id||idx}><td style={tblC}>{item.name}</td><td style={tblC}>{item.unit}</td><td style={tblC}>{item.quantity}</td><td style={tblC}>{Number(item.priceSmeta||0).toLocaleString()+' руб.'}</td><td style={tblC}>{Number(item.priceBrigade||0).toLocaleString()+' руб.'}</td><td style={tblC}><input type='number' value={item.doneQuantity||0} onChange={async e=>{const val=Math.min(Number(e.target.value),Number(item.quantity));const updated={...item,doneQuantity:val,status:val>=item.quantity?'Выполнено':val>0?'В работе':'Не начато'};setBrigadeContractItems(prev=>prev.map((it,i)=>i===idx?updated:it));await fetch(API+'/brigade-contract-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});}} style={{...inp,marginBottom:0,width:'80px',fontSize:'12px',padding:'4px 6px'}}/></td><td style={tblC}><span style={{padding:'2px 6px',borderRadius:'4px',fontSize:'11px',backgroundColor:pct>=100?C.successLight:pct>0?C.warningLight:C.bg,color:pct>=100?C.success:pct>0?C.warning:C.textMuted}}>{pct+'%'}</span></td><td style={{...tblC,fontWeight:'600',color:C.accent}}>{toPay.toLocaleString()+' руб.'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{economy.toLocaleString()+' руб.'}</td><td style={tblC}><button onClick={async()=>{await fetch(API+'/brigade-contract-items/'+item.id,{method:'DELETE'});setBrigadeContractItems(prev=>prev.filter((_,i)=>i!==idx));}} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td></tr>);})}</tbody></table>{brigadeContractItems.length>0&&(<div style={{...card,padding:'16px',marginTop:'16px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}><div><b style={{color:C.text,fontSize:'14px'}}>К оплате бригаде:</b></div><div style={{textAlign:'right'}}><b style={{color:C.accent,fontSize:'18px',display:'block'}}>{brigadeContractItems.reduce((s,i)=>s+Math.round(i.doneQuantity*i.priceBrigade),0).toLocaleString()+' руб.'}</b><b style={{color:C.success,fontSize:'13px'}}>{'+'+brigadeContractItems.reduce((s,i)=>s+Math.round(i.doneQuantity*(i.priceSmeta-i.priceBrigade)),0).toLocaleString()+' руб. экономия'}</b></div></div><button onClick={()=>{const items=brigadeContractItems.filter(i=>i.doneQuantity>0);if(!items.length){alert('Нет выполненных работ');return;}const total=items.reduce((s,i)=>s+Math.round(i.doneQuantity*i.priceBrigade),0);const html='<h2>АКТ ВЫПОЛНЕННЫХ РАБОТ</h2><p>Объект: '+p.name+'</p><p>Исполнитель: '+selectedBrigadeContract.brigadeName+'</p><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Выполнено</th><th>Цена</th><th>Сумма</th></tr>'+items.map((it,i)=>'<tr><td>'+(i+1)+'</td><td>'+it.name+'</td><td>'+it.unit+'</td><td>'+it.doneQuantity+'</td><td>'+Number(it.priceBrigade).toLocaleString()+'</td><td>'+Math.round(it.doneQuantity*it.priceBrigade).toLocaleString()+'</td></tr>').join('')+'<tr><td colspan=5><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+' руб.</b></td></tr></table>';showPreview(html,'Акт');}} style={{...btnO,width:'100%',justifyContent:'center'}}><ScrollText size={14}/>Сформировать акт</button></div>)}</div>):(<div>{brigadeContracts.filter(bc=>bc.projectName===p.name).map(bc=>(<div key={bc.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={async()=>{setSelectedBrigadeContract(bc);const res=await fetch(API+'/brigade-contract-items/'+bc.id);const items=await res.json();setBrigadeContractItems(items);}}><div><b style={{color:C.text,fontSize:'13px'}}>{bc.brigadeName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{bc.contractorType+' - '+bc.status}</p></div><div style={{display:'flex',gap:'8px',alignItems:'center'}}><ChevronRight size={16} color={C.textMuted}/></div></div>))}{!brigadeContracts.filter(bc=>bc.projectName===p.name).length&&(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Users size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Нарядов нет</p></div>)}</div>)}</div>)}
+<b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Добавить работу вручную</b><div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr auto',gap:'6px',alignItems:'center'}}><input placeholder='Наименование *' value={newBrigadeItem.name} onChange={e=>setNewBrigadeItem({...newBrigadeItem,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/><select value={newBrigadeItem.unit} onChange={e=>setNewBrigadeItem({...newBrigadeItem,unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select><input placeholder='Объём' type='number' value={newBrigadeItem.quantity} onChange={e=>setNewBrigadeItem({...newBrigadeItem,quantity:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/><input placeholder='Цена смета' type='number' value={newBrigadeItem.priceSmeta} onChange={e=>setNewBrigadeItem({...newBrigadeItem,priceSmeta:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/><input placeholder='Цена бригаде' type='number' value={newBrigadeItem.priceBrigade} onChange={e=>setNewBrigadeItem({...newBrigadeItem,priceBrigade:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/><button onClick={async()=>{if(!newBrigadeItem.name||!selectedBrigadeContract) return;const item={...newBrigadeItem,contractId:selectedBrigadeContract.id,doneQuantity:0,status:'Не начато'};const res=await fetch(API+'/brigade-contract-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});const saved=await res.json();setBrigadeContractItems(prev=>[...prev,{...item,id:saved.id}]);setNewBrigadeItem({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});}} style={{...btnO,padding:'7px 12px'}}><Plus size={13}/></button></div></div><div style={{...card,padding:'12px 16px',marginBottom:'8px',backgroundColor:C.bg,display:'flex',gap:'10px',alignItems:'center',flexWrap:'wrap'}}>
+              <b style={{color:C.text,fontSize:'13px'}}>Массовое выставление цены:</b>
+              <span style={{fontSize:'12px',color:C.textSec}}>Коэффициент от сметной цены:</span>
+              <input type='number' value={brigadeCoef} onChange={e=>setBrigadeCoef(e.target.value)} style={{...inp,marginBottom:0,width:'80px',fontSize:'12px',padding:'4px 8px'}} step='0.05' min='0.1' max='1'/>
+              <span style={{fontSize:'12px',color:C.textSec}}>({Math.round(brigadeCoef*100)}% от сметы)</span>
+              <button onClick={async()=>{
+                if(!window.confirm('Применить коэффициент '+brigadeCoef+' ко всем позициям?')) return;
+                const updated = brigadeContractItems.map(item=>({...item,priceBrigade:Math.round(Number(item.priceSmeta||0)*Number(brigadeCoef||0.6))}));
+                setBrigadeContractItems(updated);
+                for(const item of updated){
+                  await fetch(API+'/brigade-contract-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
+                }
+                alert('Цены обновлены!');
+              }} style={{...btnO,padding:'6px 14px',fontSize:'12px'}}>Применить ко всем</button>
+              <button onClick={async()=>{
+                if(!window.confirm('Сбросить все цены бригаде в 0?')) return;
+                const updated = brigadeContractItems.map(item=>({...item,priceBrigade:0}));
+                setBrigadeContractItems(updated);
+                for(const item of updated){
+                  await fetch(API+'/brigade-contract-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
+                }
+              }} style={{...btnG,padding:'6px 14px',fontSize:'12px'}}>Сбросить цены</button>
+            </div>
+            <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Объём</th><th style={tblH}>Цена смета</th><th style={tblH}>Цена бригаде</th><th style={tblH}>Выполнено</th><th style={tblH}>%</th><th style={tblH}>К оплате</th><th style={tblH}>Экономия</th><th style={tblH}></th></tr></thead><tbody>{brigadeContractItems.map((item,idx)=>{const pct=item.quantity>0?Math.round(item.doneQuantity/item.quantity*100):0;const toPay=Math.round(item.doneQuantity*item.priceBrigade);const economy=Math.round(item.doneQuantity*(item.priceSmeta-item.priceBrigade));return(<tr key={item.id||idx}><td style={tblC}>{item.name}</td><td style={tblC}>{item.unit}</td><td style={tblC}>{item.quantity}</td><td style={tblC}>{Number(item.priceSmeta||0).toLocaleString()+' руб.'}</td><td style={tblC}>{Number(item.priceBrigade||0).toLocaleString()+' руб.'}</td><td style={tblC}><input type='number' value={item.doneQuantity||0} onChange={async e=>{const val=Math.min(Number(e.target.value),Number(item.quantity));const updated={...item,doneQuantity:val,status:val>=item.quantity?'Выполнено':val>0?'В работе':'Не начато'};setBrigadeContractItems(prev=>prev.map((it,i)=>i===idx?updated:it));await fetch(API+'/brigade-contract-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});}} style={{...inp,marginBottom:0,width:'80px',fontSize:'12px',padding:'4px 6px'}}/></td><td style={tblC}><span style={{padding:'2px 6px',borderRadius:'4px',fontSize:'11px',backgroundColor:pct>=100?C.successLight:pct>0?C.warningLight:C.bg,color:pct>=100?C.success:pct>0?C.warning:C.textMuted}}>{pct+'%'}</span></td><td style={{...tblC,fontWeight:'600',color:C.accent}}>{toPay.toLocaleString()+' руб.'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{economy.toLocaleString()+' руб.'}</td><td style={tblC}><button onClick={async()=>{await fetch(API+'/brigade-contract-items/'+item.id,{method:'DELETE'});setBrigadeContractItems(prev=>prev.filter((_,i)=>i!==idx));}} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td></tr>);})}</tbody></table>{brigadeContractItems.length>0&&(<div style={{...card,padding:'16px',marginTop:'16px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}><div><b style={{color:C.text,fontSize:'14px'}}>К оплате бригаде:</b></div><div style={{textAlign:'right'}}><b style={{color:C.accent,fontSize:'18px',display:'block'}}>{brigadeContractItems.reduce((s,i)=>s+Math.round(i.doneQuantity*i.priceBrigade),0).toLocaleString()+' руб.'}</b><b style={{color:C.success,fontSize:'13px'}}>{'+'+brigadeContractItems.reduce((s,i)=>s+Math.round(i.doneQuantity*(i.priceSmeta-i.priceBrigade)),0).toLocaleString()+' руб. экономия'}</b></div></div><button onClick={()=>{const items=brigadeContractItems.filter(i=>i.doneQuantity>0);if(!items.length){alert('Нет выполненных работ');return;}const total=items.reduce((s,i)=>s+Math.round(i.doneQuantity*i.priceBrigade),0);const html='<h2>АКТ ВЫПОЛНЕННЫХ РАБОТ</h2><p>Объект: '+p.name+'</p><p>Исполнитель: '+selectedBrigadeContract.brigadeName+'</p><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Выполнено</th><th>Цена</th><th>Сумма</th></tr>'+items.map((it,i)=>'<tr><td>'+(i+1)+'</td><td>'+it.name+'</td><td>'+it.unit+'</td><td>'+it.doneQuantity+'</td><td>'+Number(it.priceBrigade).toLocaleString()+'</td><td>'+Math.round(it.doneQuantity*it.priceBrigade).toLocaleString()+'</td></tr>').join('')+'<tr><td colspan=5><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+' руб.</b></td></tr></table>';showPreview(html,'Акт');}} style={{...btnO,width:'100%',justifyContent:'center'}}><ScrollText size={14}/>Сформировать акт</button></div>)}</div>):(<div>{brigadeContracts.filter(bc=>bc.projectName===p.name).map(bc=>(<div key={bc.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={async()=>{setSelectedBrigadeContract(bc);const res=await fetch(API+'/brigade-contract-items/'+bc.id);const items=await res.json();setBrigadeContractItems(items);}}><div><b style={{color:C.text,fontSize:'13px'}}>{bc.brigadeName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{bc.contractorType+' - '+bc.status}</p></div><div style={{display:'flex',gap:'8px',alignItems:'center'}}><ChevronRight size={16} color={C.textMuted}/><button onClick={async e=>{e.stopPropagation();if(!window.confirm('Удалить наряд?')) return;await fetch(API+'/brigade-contracts/'+bc.id,{method:'DELETE'});setBrigadeContracts(prev=>prev.filter(b=>b.id!==bc.id));}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div></div>))}{!brigadeContracts.filter(bc=>bc.projectName===p.name).length&&(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Users size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Нарядов нет</p></div>)}</div>)}</div>)}
                     {activeProjectTab==='Чат'&&(<div>
                       <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Чат проекта</b>
                       <div style={{backgroundColor:C.bg,borderRadius:'12px',padding:'15px',minHeight:'250px',maxHeight:'350px',overflowY:'auto',marginBottom:'15px',display:'flex',flexDirection:'column',gap:'10px',border:'1.5px solid '+C.border}}>
@@ -2989,7 +3029,7 @@ function App() {
                   </div>
                 </div>
               </div>):(<div>
-                {estimatesList.map(est=>(<div key={est.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{flex:1,cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(est.projectName||'')+(est.version?' · v'+est.version:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{color:C.success,fontSize:'13px'}}>{(est.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0).toLocaleString()+' ₽'}</b><ChevronRight size={16} color={C.textMuted} style={{cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div></div>))}
+                {estimatesList.map(est=>(<div key={est.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{flex:1,cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(est.projectName||'')+(est.version?' · v'+est.version:'')+(est.smetaType?' · '+est.smetaType:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{color:C.success,fontSize:'13px'}}>{(est.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0).toLocaleString()+' ₽'}</b><ChevronRight size={16} color={C.textMuted} style={{cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div></div>))}
                 {estimatesList.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Calculator size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Смет нет — создайте первую!</p></div>}
               </div>)}
             </div>)}
@@ -3001,6 +3041,11 @@ function App() {
                 <select value={newEstimate.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));setNewEstimate({...newEstimate,projectId:e.target.value,projectName:p?p.name:'',name:p?'Смета — '+p.name:''});}} style={{...inp,maxWidth:'400px'}}>
                   <option value="">Привязать к проекту (необязательно)</option>
                   {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <select value={newEstimate.smetaType} onChange={e=>setNewEstimate({...newEstimate,smetaType:e.target.value})} style={{...inp,maxWidth:'400px'}}>
+                  <option value="Заказчик">📋 Смета заказчика (полная ЛСР)</option>
+                  <option value="Работы">👷 Смета работ (для бригады)</option>
+                  <option value="Материалы">📦 Смета материалов (для закупки)</option>
                 </select>
                 <label style={{display:'inline-flex',alignItems:'center',gap:'10px',cursor:'pointer',backgroundColor:C.accentLight,padding:'14px 24px',borderRadius:'10px',border:'1.5px dashed '+C.accent,fontSize:'14px',color:C.accent,fontWeight:'600'}}>
                   <Upload size={20}/>Загрузить Excel файл (.xlsx)
@@ -3018,7 +3063,7 @@ function App() {
                         sections[item.section].items.push({id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:item.total,priceMaterial:0,isImported:true});
                       });
                       const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',sections:Object.values(sections)};
-                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id};setEstimatesList(prev=>[...prev,estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');alert('Импортировано '+data.count+' позиций!');
+                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик'};setEstimatesList(prev=>[...prev,estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');alert('Импортировано '+data.count+' позиций!');
                     } catch(err){alert('Ошибка импорта');}
                   }}/>
                 </label>
@@ -3235,6 +3280,60 @@ function App() {
           </div>)}
         </div>
       </div>
+    {showAiChat&&(<div style={{position:'fixed',bottom:'80px',right:'20px',width:'350px',height:'500px',backgroundColor:C.bgWhite,borderRadius:'16px',boxShadow:'0 8px 32px rgba(0,0,0,0.15)',border:'1.5px solid '+C.border,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{padding:'14px 16px',backgroundColor:C.accent,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+            <span style={{fontSize:'20px'}}>🤖</span>
+            <div><b style={{color:'white',fontSize:'14px',display:'block'}}>ИИ Помощник</b><p style={{color:'rgba(255,255,255,0.8)',fontSize:'11px',margin:0}}>СтройКа Assistant</p></div>
+          </div>
+          <button onClick={()=>setShowAiChat(false)} style={{background:'none',border:'none',color:'white',cursor:'pointer',fontSize:'18px'}}>×</button>
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:'12px',display:'flex',flexDirection:'column',gap:'8px',backgroundColor:C.bg}}>
+          {aiMessages.map((msg,i)=>(<div key={i} style={{display:'flex',justifyContent:msg.role==='user'?'flex-end':'flex-start'}}>
+            <div style={{maxWidth:'85%',padding:'8px 12px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',backgroundColor:msg.role==='user'?C.accent:'white',color:msg.role==='user'?'white':C.text,fontSize:'13px',lineHeight:'1.5',boxShadow:'0 1px 3px rgba(0,0,0,0.08)',border:msg.role==='user'?'none':'1.5px solid '+C.border}}>
+              {msg.content}
+            </div>
+          </div>))}
+          {aiLoading&&(<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{padding:'8px 12px',borderRadius:'16px 16px 16px 4px',backgroundColor:'white',border:'1.5px solid '+C.border,fontSize:'13px',color:C.textSec}}>⏳ Думаю...</div></div>)}
+        </div>
+        <div style={{padding:'10px 12px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bgWhite,display:'flex',gap:'8px'}}>
+          <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={async e=>{
+            if(e.key==='Enter'&&!e.shiftKey&&aiInput.trim()){
+              e.preventDefault();
+              const msg=aiInput.trim();
+              setAiInput('');
+              setAiMessages(prev=>[...prev,{role:'user',content:msg}]);
+              setAiLoading(true);
+              try{
+                const context='Данные системы: проектов '+projects.length+', сотрудников '+staff.length+', материалов на складе '+materials.length+' позиций, договоров '+contracts.length+'. Текущий пользователь: '+user.name+' ('+ROLE_LABELS[user.role]+').';
+                const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[...aiMessages,{role:'user',content:context+' Вопрос: '+msg}]})});
+                const data=await res.json();
+                setAiMessages(prev=>[...prev,{role:'assistant',content:data.response||data.error||'Ошибка ответа'}]);
+              }catch(err){
+                setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения с ИИ. Проверьте подключение.'}]);
+              }
+              setAiLoading(false);
+            }
+          }} placeholder='Задайте вопрос...' style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}}/>
+          <button onClick={async()=>{
+            if(!aiInput.trim()) return;
+            const msg=aiInput.trim();
+            setAiInput('');
+            setAiMessages(prev=>[...prev,{role:'user',content:msg}]);
+            setAiLoading(true);
+            try{
+              const context='Данные системы: проектов '+projects.length+', сотрудников '+staff.length+', материалов на складе '+materials.length+' позиций, договоров '+contracts.length+'. Текущий пользователь: '+user.name+' ('+ROLE_LABELS[user.role]+').';
+              const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[...aiMessages,{role:'user',content:context+' Вопрос: '+msg}]})});
+              const data=await res.json();
+              setAiMessages(prev=>[...prev,{role:'assistant',content:data.response||data.error||'Ошибка ответа'}]);
+            }catch(err){
+              setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения с ИИ.'}]);
+            }
+            setAiLoading(false);
+          }} style={{...btnO,padding:'8px 14px'}}>➤</button>
+        </div>
+      </div>)}
+      <button onClick={()=>setShowAiChat(!showAiChat)} style={{position:'fixed',bottom:'20px',right:'20px',width:'56px',height:'56px',borderRadius:'50%',backgroundColor:C.accent,border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'24px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>🤖</button>
     </div>
   );
 }
