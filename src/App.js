@@ -64,6 +64,7 @@ const ROLES = {
   сметчик: ['estimates','projects','accounting','companychat'],
   субподрядчик: ['works','materials','history','documents','companychat'],
   мастер: ['works','materials','history','documents','companychat'],
+  технадзор: ['projects','companychat'],
   заказчик: ['client_view'],
   поставщик: ['supplier_view'],
 };
@@ -75,7 +76,7 @@ const ROLE_LABELS = {
   снабженец:'🚛 Снабженец', стройконтроль:'🔍 Стройконтроль',
   менеджер_crm:'🤝 Менеджер CRM', мастер:'👷 Мастер',
   сметчик:'📊 Сметчик', субподрядчик:'🔩 Субподрядчик',
-  заказчик:'🏠 Заказчик', поставщик:'🏭 Поставщик',
+  технадзор:'🔎 Технадзор', заказчик:'🏠 Заказчик', поставщик:'🏭 Поставщик',
 };
 
 const ROLE_GROUPS = [
@@ -3074,6 +3075,7 @@ function App() {
                 <input type="email" placeholder="Email *" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} style={{...inp,marginBottom:0}}/>
                 {!editingItem&&<input type="password" placeholder="Пароль *" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0}}/>}
                 <select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})} style={{...inp,marginBottom:0}}>{Object.keys(ROLES).map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
+                {['заказчик','технадзор'].includes(newUser.role)&&(<select value={newUser.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));setNewUser({...newUser,projectId:e.target.value,projectName:p?p.name:''});}} style={{...inp,marginBottom:0}}><option value=''>Привязать к проекту *</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)}
               </div>
               <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveUser} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
             </div>)}
