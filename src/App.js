@@ -1821,16 +1821,14 @@ function App() {
           </div>)}
 
           {supplierTab==='offers'&&(<div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>💰 Мои предложения</b>
-            {myOffers.map(o=>(
-              <div key={o.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div>
-                  <b style={{fontSize:'12px',color:C.text}}>{supplyRequests.find(r=>r.id===o.requestId)?.materialName||'Материал'}</b>
-                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(o.pricePerUnit).toLocaleString()+' ₽/ед · Итого: '+Number(o.totalPrice).toLocaleString()+' ₽ · '+o.deliveryDays+' дней'}</p>
-                </div>
-                <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:o.status==='Утверждено'?C.successLight:C.warningLight,color:o.status==='Утверждено'?C.success:C.warning}}>{o.status==='Утверждено'?'✅ Утверждено':'⏳ Ожидает'}</span>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>Мои предложения</b>
+            {myOffers.map(o=>(<div key={o.id} style={{...card,padding:'12px',marginBottom:'8px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}}>
+                <div><b style={{fontSize:'13px',color:C.text}}>{supplyRequests.find(r=>r.id===o.requestId)?.materialName||'Материал'}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(o.pricePerUnit).toLocaleString()+' руб/ед . '+Number(o.totalPrice).toLocaleString()+' руб . '+o.deliveryDays+' дней'}</p></div>
+                <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:o.status==='Утверждено'?C.successLight:C.warningLight,color:o.status==='Утверждено'?C.success:C.warning}}>{o.status==='Утверждено'?'Утверждено':'Ожидает'}</span>
               </div>
-            ))}
+              {o.status==='Утверждено'&&(<div><p style={{fontSize:'11px',color:C.textSec,marginBottom:'6px'}}>Статус доставки:</p><div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>{['Готовится к отгрузке','В пути','Доставлено'].map(s=>(<button key={s} onClick={async()=>{await fetch(API+'/supplier-offers/'+o.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({deliveryStatus:s})});await loadAll();}} style={{padding:'4px 10px',border:'1.5px solid '+(o.deliveryStatus===s?C.accent:C.border),borderRadius:'6px',fontSize:'11px',backgroundColor:o.deliveryStatus===s?C.accentLight:'transparent',color:o.deliveryStatus===s?C.accent:C.textSec,cursor:'pointer'}}>{s}</button>))}</div></div>)}
+            </div>))}
             {myOffers.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Предложений нет</p>}
           </div>)}
 

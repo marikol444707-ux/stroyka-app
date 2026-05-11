@@ -1124,7 +1124,7 @@ def update_supply_request(id: int, data: dict):
 def get_supplier_offers():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,request_id as \"requestId\",supplier_id as \"supplierId\",price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",delivery_days as \"deliveryDays\",notes,status FROM supplier_offers")
+    cur.execute("SELECT id,request_id as \"requestId\",supplier_id as \"supplierId\",price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",delivery_days as \"deliveryDays\",notes,status,delivery_status as \"deliveryStatus\" FROM supplier_offers")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -1145,6 +1145,9 @@ def update_supplier_offer(id: int, data: dict):
     cur = conn.cursor()
     if 'status' in data:
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", (data['status'],id))
+    if 'deliveryStatus' in data:
+        cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (data['deliveryStatus'],id))
+    conn.commit()
     conn.close()
     return {"ok": True}
 
