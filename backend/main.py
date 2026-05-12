@@ -2062,7 +2062,7 @@ async def parse_smeta(file: UploadFile = File(...)):
 def get_estimates():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,project_id,project_name,name,version,sections_json FROM estimates ORDER BY id DESC")
+    cur.execute("SELECT id,project_id,project_name,name,version,sections_json,status FROM estimates ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
@@ -2072,7 +2072,7 @@ def get_estimates():
             sections = j.loads(r[5]) if r[5] else []
         except:
             sections = []
-        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections})
+        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик"})
     return result
 
 @app.post("/estimates")
