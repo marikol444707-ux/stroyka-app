@@ -1542,7 +1542,12 @@ function App() {
                       const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
                       if(!doneItems.length){alert('Введите выполненные объёмы');return;}
                       for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
+                        const existing=workJournal.find(j=>j.description===item.name&&j.masterId===user.id&&j.project===(selectedBrigadeContract?.projectName||'')&&j.status==='На проверке');
+                        if(existing){
+                          await fetch(API+'/work-journal/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:item.doneQuantity,total:Math.round(item.doneQuantity*item.priceBrigade),date:new Date().toISOString().split('T')[0]})});
+                        } else {
+                          await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
+                        }
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
@@ -1575,7 +1580,9 @@ function App() {
                       const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
                       if(!doneItems.length){alert('Введите выполненные объёмы');return;}
                       for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
+                        const existing=workJournal.find(j=>j.description===item.name&&j.masterId===user.id&&j.status==='На проверке');
+                        if(existing){await fetch(API+'/work-journal/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:item.doneQuantity,total:Math.round(item.doneQuantity*item.priceBrigade),date:new Date().toISOString().split('T')[0]})});}
+                        else{await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});}
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
