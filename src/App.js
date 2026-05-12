@@ -2156,11 +2156,11 @@ function App() {
                       <div style={{display:'flex',gap:'15px',flexWrap:'wrap'}}>
                         <span style={{fontSize:'12px',color:C.textSec}}>{'👤 '+p.client}</span>
                         {p.deadline&&<span style={{fontSize:'12px',color:C.textSec}}>{'📅 '+p.deadline}</span>}
-                        <span style={{fontSize:'12px',color:C.textSec}}>{'💰 '+total.toLocaleString()+' / '+p.budget.toLocaleString()+' ₽'}</span>
+                        {isFinanceRole()&&<span style={{fontSize:'12px',color:C.textSec}}>{'💰 '+total.toLocaleString()+' / '+p.budget.toLocaleString()+' ₽'}</span>}
                       </div>
                     </div>
                     <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                      {isProrab()&&<button onClick={e=>{e.stopPropagation();editProject(p);}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>}
+                      {isLeadership()&&<button onClick={e=>{e.stopPropagation();editProject(p);}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>}
                       {isLeadership()&&<button onClick={e=>{e.stopPropagation();deleteProject(p.id);}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><Trash2 size={11}/></button>}
                       {isOpen?<ChevronUp size={18} color={C.textMuted}/>:<ChevronDown size={18} color={C.textMuted}/>}
                     </div>
@@ -2202,8 +2202,8 @@ function App() {
                         </div>
                       </div>
                       <div style={{backgroundColor:C.bg,borderRadius:'10px',padding:'14px',border:'1.5px solid '+C.border,marginBottom:'12px'}}>
-                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}><b style={{color:C.text,fontSize:'13px'}}>Прогресс бюджета</b><span style={{fontSize:'13px',color:total>p.budget?C.danger:C.success}}>{total.toLocaleString()+' из '+p.budget.toLocaleString()+' ₽'}</span></div>
-                        <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'10px'}}><div style={{backgroundColor:total>p.budget?C.danger:total>p.budget*0.8?C.warning:C.success,width:Math.min(100,p.budget>0?total/p.budget*100:0)+'%',height:'100%',borderRadius:'6px',transition:'width 0.3s'}}/></div>
+                        {isFinanceRole()&&(<><div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}><b style={{color:C.text,fontSize:'13px'}}>Прогресс бюджета</b><span style={{fontSize:'13px',color:total>p.budget?C.danger:C.success}}>{total.toLocaleString()+' из '+p.budget.toLocaleString()+' ₽'}</span></div>
+                        <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'10px'}}><div style={{backgroundColor:total>p.budget?C.danger:total>p.budget*0.8?C.warning:C.success,width:Math.min(100,p.budget>0?total/p.budget*100:0)+'%',height:'100%',borderRadius:'6px',transition:'width 0.3s'}}/></div></>)}
                       </div>
                       <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'16px'}}>
                         <button onClick={()=>showPreview(buildPassportContent(p),'Паспорт объекта — '+p.name)} style={btnB}><FileText size={14}/>Паспорт</button>
