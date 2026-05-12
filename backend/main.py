@@ -2308,3 +2308,39 @@ def update_supplier_requisites(id: int, data: dict):
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
+
+@app.get("/warehouse-invoices")
+def get_warehouse_invoices():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url FROM warehouse_invoices ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    import json as j
+    result = []
+    for r in rows:
+        try: items = j.loads(r[9]) if r[9] else []
+        except: items = []
+        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":float(r[10] or 0),"totalVat":float(r[11] or 0),"totalWithVat":float(r[12] or 0),"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or ""})
+    return result
+
+@app.post("/warehouse-invoices")
+def create_warehouse_invoice(data: dict):
+    import json as j
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO warehouse_invoices (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),data.get("location",""),data.get("project",""),data.get("vat","Без НДС"),j.dumps(data.get("items",[]),ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
+
+@app.delete("/warehouse-invoices/{id}")
+def delete_warehouse_invoice(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM warehouse_invoices WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
