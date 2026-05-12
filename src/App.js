@@ -2246,7 +2246,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Наряды'&&(<div></div>)}
@@ -2276,7 +2276,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {projectStages.filter(s=>s.projectName===p.name).map(stage=>{
                         const stColors={'Не начат':[C.textSec,C.bgGray,C.border],'В работе':[C.info,C.infoLight,C.infoBorder],'Завершён':[C.success,C.successLight,C.successBorder],'Заморожен':[C.warning,C.warningLight,C.warningBorder],'Просрочен':[C.danger,C.dangerLight,C.dangerBorder]};
@@ -2308,7 +2308,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                           </div>
                         </div>);
@@ -2322,7 +2322,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='График'&&(<div>
@@ -2367,7 +2367,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Смета'&&(<div>
@@ -2392,7 +2392,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Журнал'&&(<div>
@@ -2439,7 +2439,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Помещения'&&(<div>
@@ -2467,7 +2467,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {rooms.filter(r=>r.project===p.name).map(room=>{
                         const wins=roomWindows.filter(w=>w.room_id===room.id);
@@ -2513,7 +2513,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                                 </div>))}
                                 {newWindow.roomId===room.id&&(<div style={{padding:'10px',backgroundColor:C.accentLight,borderRadius:'8px',border:'1.5px solid '+C.accentBorder}}>
@@ -2534,7 +2534,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                               </div>
                               <div>
@@ -2565,7 +2565,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                                 </div>))}
                                 {newDoor.roomId===room.id&&(<div style={{padding:'10px',backgroundColor:C.accentLight,borderRadius:'8px',border:'1.5px solid '+C.accentBorder}}>
@@ -2587,7 +2587,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                               </div>
                             </div>
@@ -2599,7 +2599,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                         </div>);
                       })}
@@ -2612,7 +2612,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Чек-листы'&&(<div>
@@ -2632,7 +2632,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {checklists.filter(cl=>cl.projectName===p.name).map(cl=>{
                         const items=checklistItems[cl.id]||[];
@@ -2664,7 +2664,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                         </div>);
                       })}
@@ -2677,7 +2677,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Непредвиденные'&&(<div>
@@ -2701,7 +2701,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {['Ожидает согласования','Утверждено','Отклонено'].map(status=>{ const items=unexpectedWorksList.filter(u=>u.projectName===p.name&&u.status===status); if(items.length===0) return null; return(<div key={status} style={{marginBottom:'16px'}}><b style={{color:status==='Утверждено'?C.success:status==='Отклонено'?C.danger:C.warning,fontSize:'12px',display:'block',marginBottom:'8px'}}>{status==='Ожидает согласования'?'⏳':status==='Утверждено'?'✅':'❌'} {status} ({items.length})</b>{items.map(u=>(<div key={u.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div><b style={{fontSize:'13px',color:C.text}}>{u.description}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{u.quantity+' '+u.unit+(u.price>0?' · '+u.price.toLocaleString()+' ₽/'+u.unit:'')+(u.total>0?' · Итого: '+u.total.toLocaleString()+' ₽':'')}</p><p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{'Добавил: '+u.addedBy}</p></div>{isLeadership()&&u.status==='Ожидает согласования'&&(<div style={{display:'flex',gap:'6px',alignItems:'center'}}><input placeholder="Цена ₽" type="number" style={{width:'90px',padding:'4px 8px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} onChange={e=>e.target.dataset.price=e.target.value}/><button onClick={e=>{approveUnexpectedWork(u,e.target.previousSibling.dataset.price||0);}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><Check size={11}/>Утвердить</button><button onClick={async()=>{await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><X size={11}/>Откл.</button></div>)}</div></div>))}</div>);})}
                       {unexpectedWorksList.filter(u=>u.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Непредвиденных работ нет</p>}
@@ -2713,7 +2713,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Наряды'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}><b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Наряды и бригады</b><button onClick={()=>setShowBrigadeForm(!showBrigadeForm)} style={btnO}><Plus size={14}/>Новый наряд</button></div>{showBrigadeForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><select value={newBrigadeContract.contractorType} onChange={e=>setNewBrigadeContract({...newBrigadeContract,contractorType:e.target.value})} style={{...inp,marginBottom:0}}>{['Своя бригада','Субподрядчик','Мастер'].map(t=><option key={t}>{t}</option>)}</select><input placeholder='Название / ФИО *' value={newBrigadeContract.brigadeName} onChange={e=>setNewBrigadeContract({...newBrigadeContract,brigadeName:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newBrigadeContract.contractorId} onChange={e=>setNewBrigadeContract({...newBrigadeContract,contractorId:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Привязать к сотруднику</option>{staff.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><textarea placeholder='Примечание' value={newBrigadeContract.notes} onChange={e=>setNewBrigadeContract({...newBrigadeContract,notes:e.target.value})} style={{...inp,marginBottom:0,height:'60px'}}/></div><div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{if(!newBrigadeContract.brigadeName) return;const data={...newBrigadeContract,projectId:p.id,projectName:p.name};const res=await fetch(API+'/brigade-contracts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const saved=await res.json();const newBC={...data,id:saved.id,totalAmount:0,status:'Черновик',items:[]};setBrigadeContracts(prev=>[...prev,newBC]);setSelectedBrigadeContract(newBC);setBrigadeContractItems([]);setShowBrigadeForm(false);setNewBrigadeContract({projectId:'',projectName:'',brigadeName:'',contractorType:'Своя бригада',contractorId:'',notes:''});}} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowBrigadeForm(false)} style={btnG}><X size={14}/>Отмена</button></div></div>)}{selectedBrigadeContract?(<div><div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center',flexWrap:'wrap'}}><button onClick={()=>{setSelectedBrigadeContract(null);setBrigadeContractItems([]);}} style={btnG}><ArrowLeft size={14}/>Назад</button><b style={{color:C.text,fontSize:'14px'}}>{selectedBrigadeContract.brigadeName}</b><span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:C.accentLight,color:C.accent}}>{selectedBrigadeContract.contractorType}</span>{selectedBrigadeContract.status!=='Подписан'&&<button onClick={async()=>{await fetch(API+'/brigade-contracts/'+selectedBrigadeContract.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selectedBrigadeContract,status:'Подписан',signedAt:new Date().toISOString().split('T')[0]})});setSelectedBrigadeContract({...selectedBrigadeContract,status:'Подписан'});setBrigadeContracts(prev=>prev.map(bc=>bc.id===selectedBrigadeContract.id?{...bc,status:'Подписан'}:bc));}} style={btnO}><Check size={14}/>Подписать</button>}<button onClick={()=>{const html='<h2>ДОГОВОР ПОДРЯДА</h2><p>Объект: '+p.name+'</p><p>Исполнитель: '+selectedBrigadeContract.brigadeName+'</p><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Объём</th><th>Цена</th><th>Сумма</th></tr>'+brigadeContractItems.map((it,i)=>'<tr><td>'+(i+1)+'</td><td>'+it.name+'</td><td>'+it.unit+'</td><td>'+it.quantity+'</td><td>'+Number(it.priceBrigade).toLocaleString()+'</td><td>'+Math.round(it.quantity*it.priceBrigade).toLocaleString()+'</td></tr>').join('')+'<tr><td colspan=5><b>ИТОГО:</b></td><td><b>'+brigadeContractItems.reduce((s,i)=>s+i.quantity*i.priceBrigade,0).toLocaleString()+' руб.</b></td></tr></table>';showPreview(html,'Договор');}} style={btnB}><Eye size={14}/>Договор</button></div><div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}><div style={{display:'grid',gridTemplateColumns:isFinanceRole()?'repeat(3,1fr)':'1fr',gap:'12px'}}><div><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Бригаде по договору</p><b style={{color:C.accent,fontSize:'16px'}}>{brigadeContractItems.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.priceBrigade||0),0).toLocaleString()+' руб.'}</b></div><div style={{display:isFinanceRole()?'block':'none'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>По смете заказчика</p><b style={{color:C.text,fontSize:'16px'}}>{brigadeContractItems.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.priceSmeta||0),0).toLocaleString()+' руб.'}</b></div><div style={{display:isFinanceRole()?'block':'none'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Экономия</p><b style={{color:C.success,fontSize:'16px'}}>{(brigadeContractItems.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.priceSmeta||0),0)-brigadeContractItems.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.priceBrigade||0),0)).toLocaleString()+' руб.'}</b></div></div></div><div style={{...card,padding:'16px',marginBottom:'16px'}}><div style={{marginBottom:'12px'}}>
@@ -2795,7 +2795,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                           <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={{...inp,marginBottom:0}}>
                             <option value=''>Кому передать *</option>
@@ -2826,7 +2826,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                       <table style={tbl}><thead><tr>
@@ -2869,7 +2869,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                     {activeProjectTab==='Чат'&&(<div>
                       <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Чат проекта</b>
@@ -2889,7 +2889,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Финансы'&&(<div>
@@ -2906,7 +2906,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Предписания'&&(<div>
@@ -2930,7 +2930,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {prescriptionsList.filter(pr=>pr.projectName===p.name).map(pr=>(<div key={pr.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(pr.status==='Закрыто'?C.success:pr.status==='На проверке'?C.warning:C.danger)}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
@@ -2951,7 +2951,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Журнал ТБ'&&(<div>
@@ -2979,7 +2979,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {tbJournal.filter(e=>e.project===p.name).map(entry=>(<div key={entry.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -2996,7 +2996,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                   </div>
                 </div>)}
@@ -3592,7 +3592,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                           </div>);
                         })}
@@ -3604,7 +3604,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                     </div>);
                   })}
@@ -3677,7 +3677,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
-                    }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
+                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                 </div>);
               })}
