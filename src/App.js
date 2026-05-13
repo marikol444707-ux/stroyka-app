@@ -838,16 +838,39 @@ function App() {
     return html;
   };
 
+  const showKS2 = async (project) => {
+    const bcs = brigadeContracts.filter(bc=>bc.projectName===project.name);
+    let allBrigadeItems = [];
+    for(const bc of bcs){
+      const res = await fetch(API+'/brigade-contract-items/'+bc.id);
+      const items = await res.json();
+      allBrigadeItems = [...allBrigadeItems, ...items.filter(i=>i.doneQuantity>0)];
+    }
+    const pw = workJournal.filter(j=>j.project===project.name&&j.status==='Подтверждено');
+    const sourceItems = allBrigadeItems.length>0 ? allBrigadeItems.map(item=>({description:item.name,unit:item.unit,quantity:item.doneQuantity,pricePerUnit:Number(item.priceSmeta||0),total:Math.round(item.doneQuantity*Number(item.priceSmeta||0))})) : pw;
+    const req = companyRequisites||{};
+    let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА КС-2</h2><h3 style="text-align:center">АКТ О ПРИЁМКЕ ВЫПОЛНЕННЫХ РАБОТ</h3>';
+    html += '<table><tr><th>Организация</th><td>'+(req.fullName||companyName||'')+'</td><th>Объект</th><td>'+project.name+'</td></tr></table>';
+    html += '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
+    sourceItems.forEach((wk,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+Number(wk.pricePerUnit).toLocaleString()+'</td><td>'+Number(wk.total).toLocaleString()+'</td></tr>';});
+    html += '<tr><td colspan="5"><b>ИТОГО:</b></td><td><b>'+sourceItems.reduce((s,wk)=>s+Number(wk.total||0),0).toLocaleString()+' руб.</b></td></tr></table>';
+    html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал: '+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Принял:</div></div></div>';
+    showPreview(html,'КС-2 — '+project.name);
+  };
+
   const buildKS2Content = (project) => {
     const pw = workJournal.filter(j=>j.project===project.name&&j.status==='Подтверждено');
+    const bcs = brigadeContracts.filter(bc=>bc.projectName===project.name);
+    const brigadeItems = brigadeContractItems.filter(item=>bcs.find(bc=>bc.id===item.contractId)&&item.doneQuantity>0);
     const req = companyRequisites||{};
     let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА № КС-2</h2><h3 style="text-align:center">АКТ О ПРИЁМКЕ ВЫПОЛНЕННЫХ РАБОТ</h3>';
     html += '<table><tr><th>Организация</th><td>'+(req.fullName||req.shortName||companyName||'_____')+'</td><th>Объект</th><td>'+project.name+'</td></tr>';
     if (req.inn) html += '<tr><th>ИНН</th><td>'+req.inn+'</td><th>КПП</th><td>'+(req.kpp||'')+'</td></tr>';
     html += '</table>';
     html += '<table><tr><th>N</th><th>Наименование работ</th><th>Помещение</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-    pw.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+(wk.total||0).toLocaleString()+'</td></tr>'; });
-    html += '<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+pw.reduce((s,wk)=>s+(wk.total||0),0).toLocaleString()+' руб.</b></td></tr></table>';
+    const allItems = brigadeItems.length>0 ? brigadeItems.map(item=>({description:item.name,unit:item.unit,quantity:item.doneQuantity,pricePerUnit:Number(item.priceSmeta||item.price_smeta||0),total:Math.round(item.doneQuantity*Number(item.priceSmeta||item.price_smeta||0)),roomName:''})) : pw;
+    allItems.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+(wk.total||0).toLocaleString()+'</td></tr>'; });
+    html += '<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+allItems.reduce((s,wk)=>s+(wk.total||0),0).toLocaleString()+' руб.</b></td></tr></table>';
     html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал<br/>'+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Принял</div></div></div>';
     return html;
   };
@@ -2266,7 +2289,7 @@ function App() {
                       </div>
                       <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'16px'}}>
                         <button onClick={()=>showPreview(buildPassportContent(p),'Паспорт объекта — '+p.name)} style={btnB}><FileText size={14}/>Паспорт</button>
-                        <button onClick={()=>showPreview(buildKS2Content(p),'КС-2 — '+p.name)} style={btnG}><FileText size={14}/>КС-2</button>
+                        <button onClick={()=>showKS2(p)} style={btnG}><FileText size={14}/>КС-2</button>
                         <button onClick={()=>showPreview(buildKS3Content(p),'КС-3 — '+p.name)} style={btnG}><FileText size={14}/>КС-3</button>
                         <button onClick={()=>showPreview(buildJPRContent(p.name),'ЖПР — '+p.name)} style={btnG}><ScrollText size={14}/>ЖПР</button>
                         <button onClick={()=>setShowQRModal({title:'QR — '+p.name,data:window.location.origin+'/?project='+encodeURIComponent(p.name)})} style={btnG}><QrCode size={14}/>QR</button>
@@ -2417,7 +2440,7 @@ function App() {
                         <b style={{color:C.text}}>Журнал производства работ</b>
                         <div style={{display:'flex',gap:'8px'}}>
                           <button onClick={()=>showPreview(buildJPRContent(p.name),'ЖПР — '+p.name)} style={btnB}><ScrollText size={14}/>ЖПР</button>
-                          <button onClick={()=>showPreview(buildKS2Content(p),'КС-2 — '+p.name)} style={btnG}><FileText size={14}/>КС-2</button>
+                          <button onClick={()=>showKS2(p)} style={btnG}><FileText size={14}/>КС-2</button>
                         </div>
                       </div>
                       {(()=>{
