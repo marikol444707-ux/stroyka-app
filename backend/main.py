@@ -2310,3 +2310,39 @@ def create_project_payment(data: dict):
     row = cur.fetchone()
     cur.close(); conn.close()
     return {"id":row[0],"ok":True}
+
+VK_TOKEN = "vk1.a.aBp-tPMNFw5HSZhCUESCIw-H8T4cmSpYIryHHbmGfy67n8dNoIbuD3jbQ6"
+
+def send_vk_notification(vk_user_id: int, message: str):
+    import requests
+    try:
+        requests.post("https://api.vk.com/method/messages.send", params={
+            "user_id": vk_user_id,
+            "message": message,
+            "random_id": 0,
+            "access_token": VK_TOKEN,
+            "v": "5.131"
+        }, timeout=5)
+    except Exception as e:
+        print("VK error:", e)
+
+@app.post("/vk-connect")
+def vk_connect(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS vk_id INTEGER")
+    cur.execute("UPDATE users SET vk_id=%s WHERE email=%s", (data.get("vkId"), data.get("email")))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.post("/vk-notify")
+def vk_notify(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT vk_id FROM users WHERE id=%s", (data.get("userId"),))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    if row and row[0]:
+        send_vk_notification(row[0], data.get("message",""))
+    return {"ok": True}
