@@ -908,7 +908,7 @@ function App() {
     const totalExp = Object.values(cat).reduce((s,v)=>s+v,0);
     let html = '<h2 style="text-align:center">ПАСПОРТ ОБЪЕКТА</h2><h3 style="text-align:center">'+project.name+'</h3>';
     html += '<p>Организация: '+(req.fullName||req.shortName||companyName||'_____')+'</p>';
-    html += '<table><tr><th>Заказчик</th><td>'+project.client+'</td></tr><tr><th>Бюджет</th><td>'+project.budget.toLocaleString()+' руб.</td></tr><tr><th>Статус</th><td>'+project.status+'</td></tr></table>';
+    html += '<table><tr><th>Заказчик</th><td>'+project.client+'</td></tr>'+(isFinanceRole()?'<tr><th>Бюджет</th><td>'+project.budget.toLocaleString()+' руб.</td></tr>':'')+'<tr><th>Статус</th><td>'+project.status+'</td></tr></table>';
     html += '<h3>ПОМЕЩЕНИЯ:</h3><table><tr><th>Помещение</th><th>Пол м2</th><th>Стены м2</th><th>Чистые стены</th><th>Потолок м2</th><th>Тип потолка</th><th>Окна</th><th>Двери</th></tr>';
     projectRooms.forEach(r => {
       const wins = roomWindows.filter(w=>w.room_id===r.id);
@@ -930,11 +930,11 @@ function App() {
       });
       html += '</table>';
     }
-    html += '<h3>ФИНАНСЫ:</h3><table>';
+    if(isFinanceRole()) { html += '<h3>ФИНАНСЫ:</h3><table>';
     EXPENSE_CATEGORIES.forEach(c => { html += '<tr><td>'+c.label+'</td><td>'+cat[c.id].toLocaleString()+' руб.</td></tr>'; });
     html += '<tr><td><b>Итого:</b></td><td><b>'+totalExp.toLocaleString()+' руб.</b></td></tr>';
     html += '<tr><td>Бюджет:</td><td>'+project.budget.toLocaleString()+' руб.</td></tr>';
-    html += '<tr><td><b>Остаток:</b></td><td><b>'+(project.budget-totalExp).toLocaleString()+' руб.</b></td></tr></table>';
+    html += '<tr><td><b>Остаток:</b></td><td><b>'+(project.budget-totalExp).toLocaleString()+' руб.</b></td></tr></table>'; }
     return html;
   };
 
@@ -2716,7 +2716,7 @@ function App() {
                       <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Финансы проекта</b>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
                         {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'14px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'16px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
-                        <div style={{padding:'14px',backgroundColor:C.successLight,borderRadius:'10px',border:'1.5px solid '+C.successBorder,gridColumn:'span 2'}}><div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.success,fontSize:'13px',fontWeight:'600'}}>Бюджет</span><b style={{color:C.success}}>{p.budget.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px'}}>Расходы</span><b style={{color:total>p.budget?C.danger:C.text}}>{total.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px',fontWeight:'600'}}>Остаток</span><b style={{color:(p.budget-total)>0?C.success:C.danger}}>{(p.budget-total).toLocaleString()+' ₽'}</b></div></div>
+                        <div style={{padding:'14px',backgroundColor:C.successLight,borderRadius:'10px',border:'1.5px solid '+C.successBorder,gridColumn:'span 2',display:isFinanceRole()?'block':'none'}}><div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.success,fontSize:'13px',fontWeight:'600'}}>Бюджет</span><b style={{color:C.success}}>{p.budget.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px'}}>Расходы</span><b style={{color:total>p.budget?C.danger:C.text}}>{total.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px',fontWeight:'600'}}>Остаток</span><b style={{color:(p.budget-total)>0?C.success:C.danger}}>{(p.budget-total).toLocaleString()+' ₽'}</b></div></div>
                       </div>
                   </div>)}
 
