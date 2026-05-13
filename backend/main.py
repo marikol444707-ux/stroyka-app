@@ -2444,3 +2444,25 @@ def update_own_expense(id: int, data: dict):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+@app.get("/expenses")
+def get_expenses(project: str = ""):
+    conn = get_db()
+    cur = conn.cursor()
+    if project:
+        cur.execute("SELECT id,project,category,amount,note,date,added_by FROM expenses WHERE project=%s ORDER BY id DESC", (project,))
+    else:
+        cur.execute("SELECT id,project,category,amount,note,date,added_by FROM expenses ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"project":r[1],"category":r[2],"amount":float(r[3] or 0),"note":r[4] or "","date":str(r[5]) if r[5] else "","addedBy":r[6] or ""} for r in rows]
+
+@app.post("/expenses")
+def create_expense(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO expenses (project,category,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s,%s)",
+        (data.get("project",""),data.get("category","other"),data.get("amount",0),data.get("note",""),data.get("date") or None,data.get("addedBy","")))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}

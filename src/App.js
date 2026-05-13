@@ -96,10 +96,17 @@ const ROLE_GROUPS = [
 
 const EXPENSE_CATEGORIES = [
   {id:'materials',label:'Материалы',color:'#f97316'},
-  {id:'works',label:'Работы',color:'#10b981'},
-  {id:'delivery',label:'Доставка',color:'#3b82f6'},
-  {id:'equipment',label:'Техника',color:'#8b5cf6'},
-  {id:'unexpected',label:'Непредвиденные',color:'#ef4444'},
+  {id:'works',label:'Работы/Бригады',color:'#10b981'},
+  {id:'delivery',label:'Доставка материалов',color:'#3b82f6'},
+  {id:'fuel',label:'Топливо и транспорт',color:'#06b6d4'},
+  {id:'equipment',label:'Аренда техники',color:'#8b5cf6'},
+  {id:'tools',label:'Инструменты и оснастка',color:'#7c3aed'},
+  {id:'docs',label:'Документация и разрешения',color:'#0891b2'},
+  {id:'electricity',label:'Электроэнергия на объекте',color:'#f59e0b'},
+  {id:'utilities',label:'Коммунальные расходы',color:'#84cc16'},
+  {id:'food',label:'Питание рабочих',color:'#f43f5e'},
+  {id:'accountable',label:'Подотчётные расходы',color:'#d97706'},
+  {id:'unexpected',label:'Непредвиденные затраты',color:'#ef4444'},
   {id:'other',label:'Прочее',color:'#6b7280'},
 ];
 
@@ -313,6 +320,9 @@ function App() {
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [ownExpenses, setOwnExpenses] = useState([]);
   const [showOwnExpenseForm, setShowOwnExpenseForm] = useState(false);
+  const [addExpenseProject, setAddExpenseProject] = useState('');
+  const [manualExpenses, setManualExpenses] = useState([]);
+  const [newManualExpense, setNewManualExpense] = useState({category:'materials',amount:'',note:'',date:''});
   const [newOwnExpense, setNewOwnExpense] = useState({projectName:'',description:'',amount:'',photoUrl:'',date:''});
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
@@ -559,7 +569,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,oe,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
@@ -567,6 +577,7 @@ function App() {
         fetch(API+'/project-payments').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/accountable-payments').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/own-expenses').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/expenses').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/warehouse-main').then(r=>r.json()),
         fetch(API+'/warehouse-movements').then(r=>r.json()),
         fetch(API+'/warehouse-history').then(r=>r.json()),
@@ -599,7 +610,7 @@ function App() {
         fetch(API+'/estimates').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/brigade-contracts').then(r=>r.json()).catch(()=>[]),
       ]);
-      setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
+      setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
       setInviteCodes(ic);setSuppliers(sup);setSupplyRequests(sr);setSupplierOffers(so);
       setSupplyHistory(sh);setWorkJournal(wj);setMasterProfiles(mp);setContracts(ct);
@@ -2214,24 +2225,27 @@ function App() {
         </div>
         <div style={{flex:1,padding:'24px',overflowY:'auto',backgroundColor:C.bg}}>
           {activePage==='dashboard'&&(<div>
-            {user&&['прораб','мастер','снабженец','кладовщик'].includes(user.role)&&(<div style={{...card,padding:'14px 16px',marginBottom:'16px'}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
-                <b style={{color:C.text,fontSize:'14px'}}>💸 Потратил свои деньги</b>
-                <button onClick={()=>setShowOwnExpenseForm(!showOwnExpenseForm)} style={{...btnO,fontSize:'11px',padding:'5px 10px'}}><Plus size={12}/>Добавить</button>
+            {user&&['прораб','мастер','снабженец','кладовщик'].includes(user.role)&&(<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'12px'}}>
+              <div style={{...card,padding:'14px',cursor:'pointer'}} onClick={()=>setShowOwnExpenseForm(true)}>
+                <span style={{fontSize:'28px',display:'block',marginBottom:'6px'}}>💸</span>
+                <b style={{fontSize:'13px',color:C.text,display:'block'}}>Потратил свои</b>
+                {ownExpenses.filter(e=>e.employeeName===user.name&&e.status==='Ожидает').length>0
+                  ?<p style={{fontSize:'11px',color:C.warning,margin:'4px 0 0'}}>{'⏳ '+ownExpenses.filter(e=>e.employeeName===user.name&&e.status==='Ожидает').reduce((s,e)=>s+Number(e.amount),0).toLocaleString()+' ₽'}</p>
+                  :<p style={{fontSize:'11px',color:C.textMuted,margin:'4px 0 0'}}>Нажмите чтобы добавить</p>}
               </div>
-
-              {ownExpenses.filter(e=>e.employeeName===user.name&&e.status==='Ожидает').length>0&&(<div style={{marginTop:'8px'}}><p style={{fontSize:'12px',color:C.warning,margin:'0'}}>{'⏳ Ожидает возмещения: '+ownExpenses.filter(e=>e.employeeName===user.name&&e.status==='Ожидает').reduce((s,e)=>s+Number(e.amount),0).toLocaleString()+' ₽'}</p></div>)}
-            </div>)}
-            {accountablePayments.filter(ac=>ac.givenTo===user.name).length>0&&(<div style={{...card,padding:'14px 16px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
-              <b style={{color:C.warning,fontSize:'14px',display:'block',marginBottom:'8px'}}>💵 Подотчётные деньги</b>
-              {accountablePayments.filter(ac=>ac.givenTo===user.name).map(ac=>(<div key={ac.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.warningBorder}}>
-                <div><b style={{fontSize:'13px',color:C.text}}>{ac.projectName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{ac.purpose||'Без назначения'}</p></div>
-                <div style={{textAlign:'right'}}>
-                  <b style={{color:C.warning,fontSize:'13px'}}>{Number(ac.amount).toLocaleString()+' ₽'}</b>
-                  <p style={{color:C.danger,margin:'2px 0',fontSize:'11px'}}>{'Остаток: '+(Math.max(0,Number(ac.amount)-Number(ac.spentAmount||0))).toLocaleString()+' ₽'}</p>
-<button onClick={()=>setReportingPayment(ac)} style={{...btnO,fontSize:'11px',padding:'4px 10px',marginTop:'4px'}}>Отчитаться</button>
+              {accountablePayments.filter(ac=>ac.givenTo===user.name).length>0
+                ?<div style={{...card,padding:'14px',cursor:'pointer'}} onClick={()=>setReportingPayment(accountablePayments.filter(ac=>ac.givenTo===user.name)[0])}>
+                  <span style={{fontSize:'28px',display:'block',marginBottom:'6px'}}>💵</span>
+                  <b style={{fontSize:'13px',color:C.text,display:'block'}}>Подотчёт</b>
+                  <p style={{fontSize:'15px',color:C.accent,margin:'4px 0 0',fontWeight:'700'}}>{accountablePayments.filter(ac=>ac.givenTo===user.name).reduce((s,ac)=>s+Math.max(0,Number(ac.amount)-Number(ac.spentAmount||0)),0).toLocaleString()+' ₽'}</p>
+                  <p style={{fontSize:'11px',color:C.textMuted,margin:'2px 0 0'}}>Остаток</p>
+                  <p style={{fontSize:'11px',color:C.accent,margin:'6px 0 0',fontWeight:'600'}}>👆 Нажмите для отчёта</p>
                 </div>
-              </div>))}
+                :<div style={{...card,padding:'14px',opacity:0.5}}>
+                  <span style={{fontSize:'28px',display:'block',marginBottom:'6px'}}>💵</span>
+                  <b style={{fontSize:'13px',color:C.text,display:'block'}}>Подотчёт</b>
+                  <p style={{fontSize:'11px',color:C.textMuted,margin:'4px 0 0'}}>Нет выдач</p>
+                </div>}
             </div>)}
             {onlineUsers.length>0&&(<div style={{...card,padding:'12px 16px',marginBottom:'16px',display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
               <span style={{fontSize:'13px',color:C.textSec,fontWeight:'600'}}>🟢 Сейчас онлайн ({onlineUsers.length}):</span>
@@ -2855,7 +2869,10 @@ function App() {
                   </div>)}
 
                     {activeProjectTab==='Финансы'&&(<div>
-                      <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Финансы проекта</b>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
+                        <b style={{color:C.text,fontSize:'15px'}}>Финансы проекта</b>
+                        {isFinanceRole()&&<button onClick={()=>{setAddExpenseProject(p.name);setNewManualExpense({category:'materials',amount:'',note:'',date:''});}} style={{...btnO,fontSize:'11px',padding:'5px 10px'}}><Plus size={12}/>Расход</button>}
+                      </div>
                       {isFinanceRole()&&(()=>{
                         const received = projectPayments.filter(pay=>pay.projectName===p.name).reduce((s,pay)=>s+Number(pay.amount||0),0);
                         const materials_cost = invoices.filter(inv=>inv.location===p.name||inv.project===p.name).reduce((s,inv)=>s+Number(inv.totalWithVat||0),0);
@@ -4131,6 +4148,8 @@ function App() {
       <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💵 Отчёт о трате</b>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Выдано: '+Number(reportingPayment.amount).toLocaleString()+' ₽ · Остаток: '+(Number(reportingPayment.amount)-Number(reportingPayment.spentAmount||0)).toLocaleString()+' ₽'}</p>
+        <select value={newExpense.projectName||reportingPayment.projectName} onChange={e=>setNewExpense({...newExpense,projectName:e.target.value})} style={inp}><option value=''>Проект *</option>{projects.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
+        <select value={newExpense.category||'accountable'} onChange={e=>setNewExpense({...newExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат</option>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
         <input placeholder='За что потрачено *' value={newExpense.description} onChange={e=>setNewExpense({...newExpense,description:e.target.value})} style={inp}/>
         <input placeholder='Сумма (₽) *' type='number' value={newExpense.amount} onChange={e=>setNewExpense({...newExpense,amount:e.target.value})} style={inp}/>
         <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
@@ -4142,7 +4161,7 @@ function App() {
           <button onClick={async()=>{
             if(!newExpense.description||!newExpense.amount||expenseSubmitting) return;
             setExpenseSubmitting(true);
-            await fetch(API+'/accountable-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentId:reportingPayment.id,projectName:reportingPayment.projectName,description:newExpense.description,amount:Number(newExpense.amount),photoUrl:newExpense.photoUrl||'',date:new Date().toISOString().split('T')[0],addedBy:user.name})});
+            await fetch(API+'/accountable-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentId:reportingPayment.id,projectName:newExpense.projectName||reportingPayment.projectName,description:newExpense.description,amount:Number(newExpense.amount),photoUrl:newExpense.photoUrl||'',date:new Date().toISOString().split('T')[0],addedBy:user.name})});
             setReportingPayment(null);
             setNewExpense({description:'',amount:'',photoUrl:''});
             setExpenseSubmitting(false);
@@ -4150,6 +4169,26 @@ function App() {
             alert('Отчёт отправлен!');
           }} style={btnO}><Check size={14}/>Отправить</button>
           <button onClick={()=>{setReportingPayment(null);setNewExpense({description:'',amount:'',photoUrl:''});}} style={btnG}><X size={14}/>Отмена</button>
+        </div>
+      </div>
+    </div>)}
+    {addExpenseProject&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>➕ Добавить расход</b>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Проект: '+addExpenseProject}</p>
+        <select value={newManualExpense.category} onChange={e=>setNewManualExpense({...newManualExpense,category:e.target.value})} style={inp}>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
+        <input placeholder='Сумма (₽) *' type='number' value={newManualExpense.amount} onChange={e=>setNewManualExpense({...newManualExpense,amount:e.target.value})} style={inp}/>
+        <input placeholder='Примечание' value={newManualExpense.note} onChange={e=>setNewManualExpense({...newManualExpense,note:e.target.value})} style={inp}/>
+        <input type='date' value={newManualExpense.date} onChange={e=>setNewManualExpense({...newManualExpense,date:e.target.value})} style={inp}/>
+        <div style={{display:'flex',gap:'8px'}}>
+          <button onClick={async()=>{
+            if(!newManualExpense.amount) return;
+            await fetch(API+'/expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:addExpenseProject,category:newManualExpense.category,amount:Number(newManualExpense.amount),note:newManualExpense.note||'',date:newManualExpense.date||new Date().toISOString().split('T')[0],addedBy:user.name})});
+            setAddExpenseProject('');
+            await loadAll();
+            alert('Расход добавлен!');
+          }} style={btnO}><Check size={14}/>Добавить</button>
+          <button onClick={()=>setAddExpenseProject('')} style={btnG}><X size={14}/>Отмена</button>
         </div>
       </div>
     </div>)}
