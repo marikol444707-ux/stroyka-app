@@ -3028,7 +3028,7 @@ function App() {
                             let report='📊 СВЕРКА НАКЛАДНОЙ СО СМЕТОЙ\n';
                             report+='Смета: '+est.name+'\n\n';
                             invoiceItems.forEach(invItem=>{
-                              const smetaItem=smetaItems.find(si=>si.name.toLowerCase().includes(invItem.name.toLowerCase())||invItem.name.toLowerCase().includes(si.name.toLowerCase().substring(0,15)));
+                              const norm=(s)=>s.toLowerCase().replace(/[хx×]/g,'x').replace(/[,\.]/g,'.').replace(/\s+/g,' ').trim();const smetaItem=smetaItems.find(si=>norm(si.name).includes(norm(invItem.name))||norm(invItem.name).includes(norm(si.name))||norm(si.name).split(' ').filter(w=>w.length>3).every(w=>norm(invItem.name).includes(w)));
                               if(smetaItem){
                                 const need=Number(smetaItem.quantity||0);
                                 const got=Number(invItem.quantity||0);
