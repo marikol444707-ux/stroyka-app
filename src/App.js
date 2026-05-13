@@ -2239,7 +2239,7 @@ function App() {
             </div>
             {showForm===true&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
               <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать проект':'Новый проект'}</h3>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px'}}>
                 <input placeholder="Название *" value={newProject.name} onChange={e=>setNewProject({...newProject,name:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder="Заказчик (название)" value={newProject.client} onChange={e=>setNewProject({...newProject,client:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder="Email заказчика (для доступа в кабинет)" value={newProject.clientEmail||''} onChange={e=>setNewProject({...newProject,clientEmail:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -2257,7 +2257,7 @@ function App() {
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
               const sc=statusColors[p.status]||statusColors['Планирование'];
               return(<div key={p.id} style={{...card,marginBottom:'12px',overflow:'visible'}}>
-                <div style={{padding:'16px 20px',cursor:'pointer'}} onClick={()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');}}}>
+                <div style={{padding:'14px 16px',cursor:'pointer'}} onClick={()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');}}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                     <div style={{flex:1}}>
                       <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px'}}>
@@ -2279,7 +2279,7 @@ function App() {
                 </div>
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
                   <div style={{display:'flex',gap:0,overflowX:'auto',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'0 16px'}}>
-                    {PROJECT_TABS.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'10px 16px',border:'none',backgroundColor:'transparent',cursor:'pointer',fontSize:'12px',fontWeight:activeProjectTab===tab?'700':'400',color:activeProjectTab===tab?C.accent:C.textSec,borderBottom:activeProjectTab===tab?'2px solid '+C.accent:'2px solid transparent',whiteSpace:'nowrap'}}>{tab}</button>))}
+                    {PROJECT_TABS.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'12px 16px',border:'none',backgroundColor:activeProjectTab===tab?C.accentLight:'transparent',cursor:'pointer',fontSize:'13px',fontWeight:activeProjectTab===tab?'700':'400',color:activeProjectTab===tab?C.accent:C.textSec,borderBottom:activeProjectTab===tab?'2px solid '+C.accent:'2px solid transparent',whiteSpace:'nowrap',borderRadius:'8px 8px 0 0'}}>{tab}</button>))}
                   </div>
                   <div style={{padding:'20px'}}>
                     {activeProjectTab==='Общее'&&(<div>
@@ -2881,7 +2881,7 @@ function App() {
             </div>
             {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
               <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать':'Новый клиент'}</h3>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px'}}>
                 <input placeholder="Название *" value={newClient.name} onChange={e=>setNewClient({...newClient,name:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder="Телефон" value={newClient.phone} onChange={e=>setNewClient({...newClient,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder="Email" value={newClient.email} onChange={e=>setNewClient({...newClient,email:e.target.value})} style={{...inp,marginBottom:0}}/>
