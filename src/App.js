@@ -2448,6 +2448,13 @@ function App() {
                               </div>);
                             })}
                           </div>
+                          {projectPayments.filter(pay=>pay.projectName===p.name).length>0&&(<div style={{marginTop:'12px'}}>
+                            <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px'}}>История оплат:</b>
+                            {projectPayments.filter(pay=>pay.projectName===p.name).map(pay=>(<div key={pay.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
+                              <div><span style={{fontSize:'12px',color:C.text}}>{pay.note||'Оплата'}</span><span style={{fontSize:'11px',color:C.textMuted,marginLeft:'8px'}}>{pay.date}</span></div>
+                              <b style={{fontSize:'12px',color:C.success}}>+{Number(pay.amount).toLocaleString()+' ₽'}</b>
+                            </div>))}
+                          </div>)}
                         </div>);
                       })()}
                   </div>)}
@@ -2830,6 +2837,13 @@ function App() {
                             <div style={{padding:'12px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Выплачено бригадам</p><b style={{color:C.warning,fontSize:'16px'}}>{brigades_cost.toLocaleString()+' ₽'}</b></div>
                             <div style={{padding:'12px',backgroundColor:profit>=0?C.successLight:C.dangerLight,borderRadius:'8px',border:'1.5px solid '+(profit>=0?C.successBorder:C.dangerBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Прибыль</p><b style={{color:profit>=0?C.success:C.danger,fontSize:'16px'}}>{profit.toLocaleString()+' ₽'}</b></div>
                           </div>
+                          {projectPayments.filter(pay=>pay.projectName===p.name).length>0&&(<div style={{marginTop:'12px'}}>
+                            <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px'}}>История оплат:</b>
+                            {projectPayments.filter(pay=>pay.projectName===p.name).map(pay=>(<div key={pay.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
+                              <div><span style={{fontSize:'12px',color:C.text}}>{pay.note||'Оплата'}</span><span style={{fontSize:'11px',color:C.textMuted,marginLeft:'8px'}}>{pay.date}</span></div>
+                              <b style={{fontSize:'12px',color:C.success}}>+{Number(pay.amount).toLocaleString()+' ₽'}</b>
+                            </div>))}
+                          </div>)}
                         </div>);
                       })()}
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
