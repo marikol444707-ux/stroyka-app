@@ -550,6 +550,9 @@ class CopyPricelistModel(BaseModel):
     name: str
 
 class RoomModel(BaseModel):
+    floor: int = 1
+    liter: str = ''
+    roomType: str = 'Комната'
     project: str
     name: str
     floorArea: float = 0
@@ -1345,7 +1348,7 @@ def toggle_timesheet(data: TimesheetModel):
 def get_rooms():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes FROM rooms ORDER BY id")
+    cur.execute("SELECT id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes,floor,liter,room_type as \"roomType\" FROM rooms ORDER BY id")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -1354,8 +1357,8 @@ def get_rooms():
 def create_room(r: RoomModel):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO rooms (project,name,floor_area,wall_area,ceiling_area,windows,doors,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes",
-                (r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.windows,r.doors,r.notes))
+    cur.execute("INSERT INTO rooms (project,name,floor_area,wall_area,ceiling_area,windows,doors,notes,floor,liter,room_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes,floor,liter,room_type as \"roomType\"",
+                (r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.windows,r.doors,r.notes,r.floor,r.liter,r.roomType))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -1364,7 +1367,7 @@ def create_room(r: RoomModel):
 def update_room(id: int, r: RoomModel):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE rooms SET project=%s,name=%s,floor_area=%s,wall_area=%s,ceiling_area=%s,windows=%s,doors=%s,notes=%s WHERE id=%s",
+    cur.execute("UPDATE rooms SET floor=%s,liter=%s,room_type=%s, project=%s,name=%s,floor_area=%s,wall_area=%s,ceiling_area=%s,windows=%s,doors=%s,notes=%s WHERE id=%s",
                 (r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.windows,r.doors,r.notes,id))
     conn.close()
     return {"ok": True}

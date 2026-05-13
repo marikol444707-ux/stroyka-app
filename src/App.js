@@ -263,6 +263,7 @@ function App() {
   const [loginError, setLoginError] = useState('');
   const [activePage, setActivePage] = useState('dashboard');
   const [activeProjectTab, setActiveProjectTab] = useState('Общее');
+  const [activeTabGroup, setActiveTabGroup] = useState(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [projects, setProjects] = useState([]);
   const [clients, setClients] = useState([]);
@@ -322,6 +323,7 @@ function App() {
   const [showOwnExpenseForm, setShowOwnExpenseForm] = useState(false);
   const [addExpenseProject, setAddExpenseProject] = useState('');
   const [showBalanceDetails, setShowBalanceDetails] = useState(false);
+  const [customRoomTypes, setCustomRoomTypes] = useState(()=>{try{return JSON.parse(localStorage.getItem('customRoomTypes')||'[]');}catch{return [];}});
   const [manualExpenses, setManualExpenses] = useState([]);
   const [newManualExpense, setNewManualExpense] = useState({category:'materials',amount:'',note:'',date:''});
   const [newOwnExpense, setNewOwnExpense] = useState({projectName:'',description:'',amount:'',photoUrl:'',date:''});
@@ -1408,7 +1410,8 @@ function App() {
     if (!newRoom.name||!newRoom.project) return;
     const data = {project:newRoom.project,name:newRoom.name,floorArea:Number(newRoom.floorArea)||0,wallArea:Number(newRoom.wallArea)||0,ceilingArea:Number(newRoom.ceilingArea)||0,height:Number(newRoom.height)||0,ceilingType:newRoom.ceilingType,wallMaterial:newRoom.wallMaterial,floorMaterial:newRoom.floorMaterial,windows:0,doors:0,notes:newRoom.notes};
     if (editingItem) await fetch(API+'/rooms/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    else await fetch(API+'/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    else if(newRoom.roomType&&!['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое'].includes(newRoom.roomType)){const updated=[...new Set([...customRoomTypes,newRoom.roomType])];setCustomRoomTypes(updated);localStorage.setItem('customRoomTypes',JSON.stringify(updated));}
+    await fetch(API+'/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     await loadAll(); setNewRoom({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',notes:''}); setEditingItem(null); setShowRoomForm(false);
   };
 
@@ -2347,7 +2350,26 @@ function App() {
                 </div>
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
                   <div style={{display:'flex',gap:0,overflowX:'auto',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'0 16px'}}>
-                    {PROJECT_TABS.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'12px 16px',border:'none',backgroundColor:activeProjectTab===tab?C.accentLight:'transparent',cursor:'pointer',fontSize:'13px',fontWeight:activeProjectTab===tab?'700':'400',color:activeProjectTab===tab?C.accent:C.textSec,borderBottom:activeProjectTab===tab?'2px solid '+C.accent:'2px solid transparent',whiteSpace:'nowrap',borderRadius:'8px 8px 0 0'}}>{tab}</button>))}
+                    {(()=>{
+                      const tabGroups=[
+                        {id:'work',icon:'🔨',label:'Работы',tabs:['Наряды','Журнал','Непредвиденные','Чек-листы']},
+                        {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
+                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы']},
+                        {id:'docs',icon:'📋',label:'Документы',tabs:['Предписания','Журнал ТБ','Чат']},
+                      ];
+                      const activeGroup=tabGroups.find(g=>g.tabs.includes(activeProjectTab));
+                      return(<div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'6px',marginBottom:'10px'}}>
+                          {tabGroups.map(g=>(<div key={g.id} onClick={()=>{setActiveTabGroup(activeTabGroup===g.id?null:g.id);if(g.tabs.length>0)setActiveProjectTab(g.tabs[0]);}} style={{padding:'10px 6px',borderRadius:'10px',cursor:'pointer',textAlign:'center',backgroundColor:activeGroup&&activeGroup.id===g.id?C.accentLight:C.bg,border:'1.5px solid '+(activeGroup&&activeGroup.id===g.id?C.accentBorder:C.border),transition:'all 0.15s'}}>
+                            <div style={{fontSize:'20px',marginBottom:'3px'}}>{g.icon}</div>
+                            <div style={{fontSize:'11px',fontWeight:activeGroup&&activeGroup.id===g.id?'700':'400',color:activeGroup&&activeGroup.id===g.id?C.accent:C.textSec}}>{g.label}</div>
+                          </div>))}
+                        </div>
+                        {activeGroup&&(<div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}}>
+                          {activeGroup.tabs.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'6px 12px',border:'none',backgroundColor:activeProjectTab===tab?C.accent:'white',cursor:'pointer',fontSize:'12px',fontWeight:activeProjectTab===tab?'700':'400',color:activeProjectTab===tab?'white':C.textSec,borderRadius:'20px',border:'1.5px solid '+(activeProjectTab===tab?C.accent:C.border)}}>{tab}</button>))}
+                        </div>)}
+                      </div>);
+                    })()}
                   </div>
                   <div style={{padding:'20px'}}>
                     {activeProjectTab==='Общее'&&(<div>
@@ -2585,13 +2607,19 @@ function App() {
                       {showRoomForm&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
                           <input placeholder="Название *" value={newRoom.name} onChange={e=>setNewRoom({...newRoom,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+                          <input placeholder="Этаж (1,2,3...)" type="number" value={newRoom.floor||''} onChange={e=>setNewRoom({...newRoom,floor:e.target.value})} style={{...inp,marginBottom:0}}/>
+                          <input placeholder="Литер (А,Б,В...)" value={newRoom.liter||''} onChange={e=>setNewRoom({...newRoom,liter:e.target.value})} style={{...inp,marginBottom:0}}/>
+                          <select value={newRoom.roomType||'Комната'} onChange={e=>setNewRoom({...newRoom,roomType:e.target.value})} style={{...inp,marginBottom:0}}>
+                            {[...'Комната,Кабинет,Коридор,Санузел,Кухня,Балкон,Лестница,Холл,Техническое'.split(','),...customRoomTypes,'Другое'].map(t=><option key={t}>{t}</option>)}
+                          {(newRoom.roomType==='Другое'||(!['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое','Другое',''].includes(newRoom.roomType||'Комната')))&&<input placeholder='Введите своё название' value={newRoom.roomType==='Другое'?'':newRoom.roomType||''} onChange={e=>setNewRoom({...newRoom,roomType:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>}
+                          </select>
                           <input placeholder="Высота (м)" type="number" value={newRoom.height} onChange={e=>setNewRoom({...newRoom,height:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Площадь пола (м2)" type="number" value={newRoom.floorArea} onChange={e=>setNewRoom({...newRoom,floorArea:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Площадь стен (м2)" type="number" value={newRoom.wallArea} onChange={e=>setNewRoom({...newRoom,wallArea:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Площадь потолка (м2)" type="number" value={newRoom.ceilingArea} onChange={e=>setNewRoom({...newRoom,ceilingArea:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <select value={newRoom.ceilingType} onChange={e=>setNewRoom({...newRoom,ceilingType:e.target.value})} style={{...inp,marginBottom:0}}>{CEILING_TYPES.map(t=><option key={t}>{t}</option>)}</select>
-                          <select value={newRoom.wallMaterial} onChange={e=>setNewRoom({...newRoom,wallMaterial:e.target.value})} style={{...inp,marginBottom:0}}>{WALL_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
-                          <select value={newRoom.floorMaterial} onChange={e=>setNewRoom({...newRoom,floorMaterial:e.target.value})} style={{...inp,marginBottom:0}}>{FLOOR_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
+                          
+                          
+                          
                         </div>
                         <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={saveRoom} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowRoomForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
                   </div>)}
@@ -2604,7 +2632,7 @@ function App() {
                         const isRoomOpen=expandedRoom===room.id;
                         return(<div key={room.id} style={{...card,marginBottom:'10px'}}>
                           <div style={{padding:'14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setExpandedRoom(isRoomOpen?null:room.id)}>
-                            <div><b style={{color:C.text,fontSize:'13px'}}>{room.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Пол: '+room.floorArea+'м² · Стены: '+room.wallArea+'м² (чистые: '+netWall+'м²) · Потолок: '+room.ceilingArea+'м²'}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>{'Окна: '+wins.length+'шт · Двери: '+doors.length+'шт'+(winRevTotal>0?' · Откосы окон: '+winRevTotal+'м²':'')+(doorRevTotal>0?' · Откосы дверей: '+doorRevTotal+'м²':'')}</p></div>
+                            <div><b style={{color:C.text,fontSize:'13px'}}>{room.name}</b>{room.floor&&<span style={{fontSize:'11px',color:C.accent,marginLeft:'6px',padding:'1px 6px',backgroundColor:C.accentLight,borderRadius:'4px'}}>{'Эт.'+room.floor+(room.liter?' Лит.'+room.liter:'')}</span>}{room.roomType&&<span style={{fontSize:'11px',color:C.textSec,marginLeft:'4px'}}>{'· '+room.roomType}</span>}<p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Пол: '+room.floorArea+'м² · Стены: '+room.wallArea+'м² (чистые: '+netWall+'м²) · Потолок: '+room.ceilingArea+'м²'}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>{'Окна: '+wins.length+'шт · Двери: '+doors.length+'шт'+(winRevTotal>0?' · Откосы окон: '+winRevTotal+'м²':'')+(doorRevTotal>0?' · Откосы дверей: '+doorRevTotal+'м²':'')}</p></div>
                             <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
                               {isProrab()&&(<><button onClick={e=>{e.stopPropagation();setEditingItem(room);setNewRoom({project:room.project,name:room.name,floorArea:room.floorArea,wallArea:room.wallArea,ceilingArea:room.ceilingArea,height:room.height||'',ceilingType:room.ceiling_type||room.ceilingType||'Простой',wallMaterial:room.wall_material||room.wallMaterial||'Штукатурка',floorMaterial:room.floor_material||room.floorMaterial||'Стяжка',notes:room.notes||''});setShowRoomForm(true);}} style={{...btnG,padding:'4px 8px'}}><Edit2 size={11}/></button><button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></>)}
                               {isRoomOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
