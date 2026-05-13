@@ -2344,3 +2344,26 @@ def delete_warehouse_invoice(id: int):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+# Хранилище онлайн статусов
+online_users = {}
+
+@app.post("/online")
+def update_online(data: dict):
+    user_id = data.get("userId")
+    if user_id:
+        online_users[str(user_id)] = {
+            "userId": user_id,
+            "userName": data.get("userName",""),
+            "userRole": data.get("userRole",""),
+            "lastSeen": data.get("lastSeen",""),
+            "page": data.get("page","")
+        }
+    return {"ok": True}
+
+@app.get("/online")
+def get_online():
+    import time
+    now = time.time()
+    # Возвращаем пользователей активных за последние 2 минуты
+    return list(online_users.values())

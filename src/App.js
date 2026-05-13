@@ -303,6 +303,7 @@ function App() {
   const [sverkaModal, setSverkaModal] = useState(null);
   const [showAiChat, setShowAiChat] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState([]);
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
   const [showDistributeModal, setShowDistributeModal] = useState(false);
@@ -532,6 +533,17 @@ function App() {
       const setters = [setLeads,setMasterRatings,setActivityLog,setMaterialIssues,setNotifications,setArchivedProjects,setTbJournal,setGeoCheckins,setSignedDocs,setActPayments,setWeatherLog];
       keys.forEach((k,i) => { const v=localStorage.getItem(k); if(v) setters[i](JSON.parse(v)); });
       requestPushPermission().then(granted => setPushEnabled(granted));
+      const pingOnline = async () => {
+        try {
+          await fetch(API+'/online',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,userName:user.name,userRole:user.role,lastSeen:new Date().toISOString()})});
+          const res = await fetch(API+'/online');
+          const data = await res.json();
+          setOnlineUsers(Array.isArray(data)?data:[]);
+        } catch(e){}
+      };
+      pingOnline();
+      const pingInterval = setInterval(pingOnline, 30000);
+      return ()=>clearInterval(pingInterval);
     }
   }, [user]);
 
@@ -2184,6 +2196,14 @@ function App() {
         </div>
         <div style={{flex:1,padding:'24px',overflowY:'auto',backgroundColor:C.bg}}>
           {activePage==='dashboard'&&(<div>
+            {onlineUsers.length>0&&(<div style={{...card,padding:'12px 16px',marginBottom:'16px',display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
+              <span style={{fontSize:'13px',color:C.textSec,fontWeight:'600'}}>🟢 Сейчас онлайн ({onlineUsers.length}):</span>
+              {onlineUsers.map(u=>(<div key={u.userId} style={{display:'flex',alignItems:'center',gap:'6px',padding:'4px 10px',borderRadius:'20px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
+                <div style={{width:'8px',height:'8px',borderRadius:'50%',backgroundColor:'#22c55e'}}/>
+                <span style={{fontSize:'12px',color:C.accent,fontWeight:'600'}}>{u.userName}</span>
+                <span style={{fontSize:'11px',color:C.textSec}}>({ROLE_LABELS[u.userRole]||u.userRole})</span>
+              </div>))}
+            </div>)}
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'12px',marginBottom:'16px'}}>
               {[{label:'Проекты',value:projects.length,icon:'📋',color:C.accent,page:'projects'},{label:'Сотрудники',value:staff.length,icon:'👷',color:C.success,page:'staff'},{label:'Материалы',value:materials.length+warehouseMain.length,icon:'📦',color:C.info,page:'warehouse'},{label:'На складе',value:warehouseMain.reduce((s,m)=>s+(m.quantity*m.price),0).toLocaleString()+' ₽',icon:'🏭',color:C.purple,page:'warehouse'}].map((stat,i)=>(<div key={i} onClick={()=>setActivePage(stat.page)} style={{...card,padding:'20px',cursor:'pointer'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div><p style={{margin:'0 0 6px',color:C.textSec,fontSize:'12px',fontWeight:'500'}}>{stat.label}</p><b style={{fontSize:'22px',color:C.text,fontWeight:'800'}}>{stat.value}</b></div><span style={{fontSize:'28px'}}>{stat.icon}</span></div></div>))}
             </div>
