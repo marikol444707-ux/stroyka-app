@@ -460,7 +460,7 @@ function App() {
       }
       const res = await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages})});
       const data = await res.json();
-      const text = data.text || '';
+      const text = data.response || data.text || 'Нет ответа';
       setAiLoading(false);
       return text;
     } catch(e) { setAiLoading(false); return ''; }
@@ -4022,7 +4022,7 @@ function App() {
           {menuItems.map(m=>(<div key={m.id} onClick={()=>{setActivePage(m.id);setShowMobileMenu(false);}} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'12px 8px',borderRadius:'12px',cursor:'pointer',backgroundColor:activePage===m.id?'#fff7ed':'#f9fafb'}}><span style={{fontSize:'24px',marginBottom:'4px'}}>{m.icon}</span><span style={{fontSize:'11px',color:activePage===m.id?'#f97316':'#374151',fontWeight:activePage===m.id?'700':'400',textAlign:'center',lineHeight:'1.3'}}>{m.label}</span></div>))}
         </div>
       </div>)}
-      <button onClick={()=>setShowAiChat(!showAiChat)} style={{position:'fixed',bottom:'80px',right:'20px',width:'56px',height:'56px',borderRadius:'50%',backgroundColor:C.accent,border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'24px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>🤖</button>
+      <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{position:'fixed',bottom:'80px',right:'20px',width:'56px',height:'56px',borderRadius:'50%',backgroundColor:C.accent,border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'24px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>🤖</button>
     </div>
   );
 }
