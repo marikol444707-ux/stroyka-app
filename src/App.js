@@ -311,6 +311,9 @@ function App() {
   const [reportingPayment, setReportingPayment] = useState(null);
   const [newExpense, setNewExpense] = useState({description:'',amount:'',photoUrl:''});
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
+  const [ownExpenses, setOwnExpenses] = useState([]);
+  const [showOwnExpenseForm, setShowOwnExpenseForm] = useState(false);
+  const [newOwnExpense, setNewOwnExpense] = useState({projectName:'',description:'',amount:'',photoUrl:'',date:''});
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
   const [showDistributeModal, setShowDistributeModal] = useState(false);
@@ -556,13 +559,14 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
         fetch(API+'/warehouse-invoices').then(r=>r.json()),
         fetch(API+'/project-payments').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/accountable-payments').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/own-expenses').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/warehouse-main').then(r=>r.json()),
         fetch(API+'/warehouse-movements').then(r=>r.json()),
         fetch(API+'/warehouse-history').then(r=>r.json()),
@@ -595,7 +599,7 @@ function App() {
         fetch(API+'/estimates').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/brigade-contracts').then(r=>r.json()).catch(()=>[]),
       ]);
-      setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
+      setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
       setInviteCodes(ic);setSuppliers(sup);setSupplyRequests(sr);setSupplierOffers(so);
       setSupplyHistory(sh);setWorkJournal(wj);setMasterProfiles(mp);setContracts(ct);
@@ -2210,6 +2214,14 @@ function App() {
         </div>
         <div style={{flex:1,padding:'24px',overflowY:'auto',backgroundColor:C.bg}}>
           {activePage==='dashboard'&&(<div>
+            {user&&['прораб','мастер','снабженец','кладовщик'].includes(user.role)&&(<div style={{...card,padding:'14px 16px',marginBottom:'16px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                <b style={{color:C.text,fontSize:'14px'}}>💸 Потратил свои деньги</b>
+                <button onClick={()=>setShowOwnExpenseForm(!showOwnExpenseForm)} style={{...btnO,fontSize:'11px',padding:'5px 10px'}}><Plus size={12}/>Добавить</button>
+              </div>
+
+              {ownExpenses.filter(e=>e.employeeName===user.name&&e.status==='Ожидает').length>0&&(<div style={{marginTop:'8px'}}><p style={{fontSize:'12px',color:C.warning,margin:'0'}}>{'⏳ Ожидает возмещения: '+ownExpenses.filter(e=>e.employeeName===user.name&&e.status==='Ожидает').reduce((s,e)=>s+Number(e.amount),0).toLocaleString()+' ₽'}</p></div>)}
+            </div>)}
             {accountablePayments.filter(ac=>ac.givenTo===user.name).length>0&&(<div style={{...card,padding:'14px 16px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
               <b style={{color:C.warning,fontSize:'14px',display:'block',marginBottom:'8px'}}>💵 Подотчётные деньги</b>
               {accountablePayments.filter(ac=>ac.givenTo===user.name).map(ac=>(<div key={ac.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.warningBorder}}>
@@ -2894,6 +2906,27 @@ function App() {
                           <div style={{textAlign:'right'}}><b style={{color:C.accent,fontSize:'14px',display:'block'}}>{Number(ac.amount).toLocaleString()+' ₽'}</b><span style={{fontSize:'11px',color:C.warning}}>{'Потрачено: '+Number(ac.spentAmount||0).toLocaleString()+' ₽'}</span><br/><span style={{fontSize:'11px',color:C.danger}}>{'Остаток: '+(Math.max(0,Number(ac.amount)-Number(ac.spentAmount||0))).toLocaleString()+' ₽'}</span></div>
                         </div>))}
                         {accountablePayments.filter(ac=>ac.projectName===p.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'10px'}}>Подотчётных выдач нет</p>}
+                      {ownExpenses.filter(e=>e.projectName===p.name).length>0&&(<div style={{marginTop:'16px'}}>
+                        <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>💸 К возмещению</b>
+                        {ownExpenses.filter(e=>e.projectName===p.name).map(e=>(<div key={e.id} style={{...card,padding:'12px',marginBottom:'8px',borderLeft:'3px solid '+(e.status==='Ожидает'?C.warning:e.status==='Возмещено'?C.success:C.danger)}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                            <div>
+                              <b style={{fontSize:'13px',color:C.text}}>{e.employeeName}</b>
+                              <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{e.description}</p>
+                              <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>{e.date}</p>
+                            </div>
+                            <div style={{textAlign:'right'}}>
+                              <b style={{color:C.accent,fontSize:'14px',display:'block'}}>{Number(e.amount).toLocaleString()+' ₽'}</b>
+                              {e.photoUrl&&<button onClick={()=>setShowPhotoModal(e.photoUrl.startsWith('http')?e.photoUrl:API+e.photoUrl)} style={{...btnG,fontSize:'11px',padding:'3px 8px',marginTop:'4px'}}>📷 Чек</button>}
+                              {e.status==='Ожидает'&&isFinanceRole()&&(<div style={{display:'flex',gap:'4px',marginTop:'4px'}}>
+                                <button onClick={async()=>{await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Возмещено',approvedBy:user.name})});await loadAll();}} style={{...btnO,fontSize:'11px',padding:'3px 8px'}}>✅ Возместить</button>
+                                <button onClick={async()=>{await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name})});await loadAll();}} style={{...btnR,fontSize:'11px',padding:'3px 8px'}}>❌</button>
+                              </div>)}
+                              {e.status!=='Ожидает'&&<span style={{fontSize:'11px',color:e.status==='Возмещено'?C.success:C.danger}}>{e.status}</span>}
+                            </div>
+                          </div>
+                        </div>))}
+                      </div>)}
                       </div>)}
                   </div>)}
 
@@ -4117,6 +4150,31 @@ function App() {
             alert('Отчёт отправлен!');
           }} style={btnO}><Check size={14}/>Отправить</button>
           <button onClick={()=>{setReportingPayment(null);setNewExpense({description:'',amount:'',photoUrl:''});}} style={btnG}><X size={14}/>Отмена</button>
+        </div>
+      </div>
+    </div>)}
+    {showOwnExpenseForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
+        <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{projects.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
+        <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
+        <input placeholder='Сумма (₽) *' type='number' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>
+        <input type='date' value={newOwnExpense.date} onChange={e=>setNewOwnExpense({...newOwnExpense,date:e.target.value})} style={inp}/>
+        <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
+          <span style={{fontSize:'12px',color:C.textSec}}>📷 Фото чека:</span>
+          <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewOwnExpense(prev=>({...prev,photoUrl:url}));}}}/>
+          {newOwnExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid '+C.border}}><img src={newOwnExpense.photoUrl.startsWith('http')?newOwnExpense.photoUrl:API+newOwnExpense.photoUrl} style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',marginTop:'6px',color:C.textMuted,fontSize:'12px'}}>Нажмите чтобы загрузить фото чека</div>}
+        </label>
+        <div style={{display:'flex',gap:'8px'}}>
+          <button onClick={async()=>{
+            if(!newOwnExpense.projectName||!newOwnExpense.description||!newOwnExpense.amount) return;
+            await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newOwnExpense,amount:Number(newOwnExpense.amount),employeeName:user.name,employeeId:user.id})});
+            setNewOwnExpense({projectName:'',description:'',amount:'',photoUrl:'',date:''});
+            setShowOwnExpenseForm(false);
+            await loadAll();
+            alert('Отправлено на возмещение!');
+          }} style={btnO}><Check size={14}/>Отправить</button>
+          <button onClick={()=>{setShowOwnExpenseForm(false);setNewOwnExpense({projectName:'',description:'',amount:'',photoUrl:'',date:''});}} style={btnG}><X size={14}/>Отмена</button>
         </div>
       </div>
     </div>)}

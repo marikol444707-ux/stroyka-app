@@ -2410,3 +2410,37 @@ def create_accountable_expense(data: dict):
     cur.close(); conn.close()
     return {"ok":True}
     return {"id":row[0],"ok":True}
+
+@app.get("/own-expenses")
+def get_own_expenses(project_name: str = "", employee_name: str = ""):
+    conn = get_db()
+    cur = conn.cursor()
+    if project_name:
+        cur.execute("SELECT id,project_name,employee_name,description,amount,photo_url,date,status,approved_by FROM own_expenses WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    elif employee_name:
+        cur.execute("SELECT id,project_name,employee_name,description,amount,photo_url,date,status,approved_by FROM own_expenses WHERE employee_name=%s ORDER BY id DESC", (employee_name,))
+    else:
+        cur.execute("SELECT id,project_name,employee_name,description,amount,photo_url,date,status,approved_by FROM own_expenses ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1],"employeeName":r[2],"description":r[3],"amount":float(r[4] or 0),"photoUrl":r[5] or "","date":str(r[6]) if r[6] else "","status":r[7] or "Ожидает","approvedBy":r[8] or ""} for r in rows]
+
+@app.post("/own-expenses")
+def create_own_expense(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO own_expenses (project_name,employee_name,employee_id,description,amount,photo_url,date) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (data.get("projectName",""),data.get("employeeName",""),data.get("employeeId"),data.get("description",""),data.get("amount",0),data.get("photoUrl",""),data.get("date") or None))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.put("/own-expenses/{id}")
+def update_own_expense(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE own_expenses SET status=%s,approved_by=%s WHERE id=%s",
+        (data.get("status","Ожидает"),data.get("approvedBy",""),id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
