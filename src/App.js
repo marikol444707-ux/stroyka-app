@@ -1052,6 +1052,26 @@ function App() {
     setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null}); setEditingItem(null); setShowForm(false);
   };
 
+  const updateProjectProgress = async (projectName) => {
+    const contracts = brigadeContracts.filter(bc=>bc.projectName===projectName);
+    if(!contracts.length) return;
+    let totalQty = 0, doneQty = 0;
+    for(const bc of contracts){
+      const res = await fetch(API+'/brigade-contract-items/'+bc.id);
+      const items = await res.json();
+      items.forEach(item=>{
+        totalQty += Number(item.quantity||0);
+        doneQty += Number(item.doneQuantity||0);
+      });
+    }
+    const pct = totalQty>0 ? Math.round(doneQty/totalQty*100) : 0;
+    const proj = projects.find(p=>p.name===projectName);
+    if(proj && proj.progress!==pct){
+      await fetch(API+'/projects/'+proj.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...proj,progress:pct})});
+      await loadAll();
+    }
+  };
+
   const deleteProject = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/projects/'+id,{method:'DELETE'}); await loadAll(); } };
   const editProject = (p) => { setEditingItem(p); setNewProject({...p}); setShowForm(true); };
   const addTask = async (p) => { if (!newTask) return; await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:[...(p.tasks||[]),newTask]})}); await loadAll(); setNewTask(''); };
@@ -1174,7 +1194,7 @@ function App() {
   const confirmJ = async (e) => {
     await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Подтверждено',confirmedBy:user.name,confirmedAt:new Date().toISOString().split('T')[0]})});
     await autoWriteOffMaterials(e.description,e.quantity,e.project);
-    await loadAll(); notify('Работа подтверждена: '+e.description,'work'); addActivity('Подтвердил: '+e.description);
+    await loadAll(); await updateProjectProgress(e.project||""); notify('Работа подтверждена: '+e.description,'work'); addActivity('Подтвердил: '+e.description);
   };
 
   const rejectJ = async (e,c) => {
@@ -1567,6 +1587,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
+                      await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                 </div>))}
@@ -1602,6 +1623,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
+                      await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                     </div>);
@@ -2265,6 +2287,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
+                      await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
@@ -2295,6 +2318,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
+                      await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {projectStages.filter(s=>s.projectName===p.name).map(stage=>{
@@ -2327,6 +2351,7 @@ function App() {
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
+                      await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                           </div>
