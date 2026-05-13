@@ -1228,7 +1228,15 @@ function App() {
   const saveUser = async () => {
     if (!newUser.name||!newUser.email) return;
     if (editingItem) await fetch(API+'/users/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
-    else await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
+    else {
+      await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
+      if(newUser.role==='поставщик'){
+        const existing = suppliers.find(s=>s.name===newUser.name||s.email===newUser.email);
+        if(!existing){
+          await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newUser.name,email:newUser.email,phone:'',specialization:'',category:'Прочее',rating:5.0,status:'Активный'})});
+        }
+      }
+    }
     await loadAll(); setNewUser({name:'',email:'',password:'',role:'прораб',companyName:'',inn:'',projectId:'',projectName:''}); setEditingItem(null); setShowForm(false);
   };
 
