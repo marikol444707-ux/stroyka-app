@@ -2314,15 +2314,6 @@ function App() {
                         </div>);
                       })}
                       {projectStages.filter(s=>s.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Этапов нет — добавьте первый!</p>}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='График'&&(<div>
@@ -2359,15 +2350,6 @@ function App() {
                           </div>
                         </div>);
                       })()}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Смета'&&(<div>
@@ -2384,15 +2366,6 @@ function App() {
                           </div>
                         </div>));
                       })()}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Журнал'&&(<div>
@@ -2431,15 +2404,6 @@ function App() {
                         });
                       })()}
                       {workJournal.filter(j=>j.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Работ нет</p>}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Помещения'&&(<div>
@@ -2459,15 +2423,6 @@ function App() {
                           <select value={newRoom.floorMaterial} onChange={e=>setNewRoom({...newRoom,floorMaterial:e.target.value})} style={{...inp,marginBottom:0}}>{FLOOR_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
                         </div>
                         <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={saveRoom} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowRoomForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
-                      <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {rooms.filter(r=>r.project===p.name).map(room=>{
                         const wins=roomWindows.filter(w=>w.room_id===room.id);
@@ -2505,15 +2460,6 @@ function App() {
                                   </div>):(<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                                     <div><b style={{fontSize:'12px',color:C.text}}>{w.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{(w.window_type||w.windowType||'ПВХ')+' '+w.width+'×'+w.height+'м = '+calcWindowArea(w).toFixed(2)+'м²'}</p>{calcWindowReveals(w)>0&&<p style={{color:C.info,margin:'0',fontSize:'10px'}}>{'Откосы: '+calcWindowReveals(w).toFixed(2)+'м² ('+((w.reveal_depth||w.revealDepth)||0)+'см)'}</p>}</div>
                                     <div style={{display:'flex',gap:'4px'}}><button onClick={()=>setEditingWindow(w.id)} style={{...btnG,padding:'3px 7px'}}><Edit2 size={10}/></button><button onClick={()=>deleteWindow(w.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={10}/></button></div>
-                                  <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                                 </div>))}
                                 {newWindow.roomId===room.id&&(<div style={{padding:'10px',backgroundColor:C.accentLight,borderRadius:'8px',border:'1.5px solid '+C.accentBorder}}>
@@ -2526,15 +2472,6 @@ function App() {
                                     <select value={newWindow.revealMaterial} onChange={e=>setNewWindow({...newWindow,revealMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
                                   </div>
                                   <div style={{display:'flex',gap:'6px'}}><button onClick={()=>saveWindow(room.id)} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}><Check size={11}/>Добавить</button><button onClick={()=>setNewWindow({roomId:'',name:'Окно 1',width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'})} style={{...btnG,padding:'5px 12px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
-                                <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                               </div>
                               <div>
@@ -2557,15 +2494,6 @@ function App() {
                                   </div>):(<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                                     <div><b style={{fontSize:'12px',color:C.text}}>{d.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{(d.door_type||d.doorType||'')+(d.door_purpose||d.doorPurpose?'/'+(d.door_purpose||d.doorPurpose):'')+ ' '+d.width+'×'+d.height+'м = '+calcDoorArea(d).toFixed(2)+'м²'}</p>{calcDoorReveals(d)>0&&<p style={{color:C.info,margin:'0',fontSize:'10px'}}>{'Откосы: '+calcDoorReveals(d).toFixed(2)+'м² ('+((d.reveal_depth||d.revealDepth)||0)+'см)'}</p>}</div>
                                     <div style={{display:'flex',gap:'4px'}}><button onClick={()=>setEditingDoor(d.id)} style={{...btnG,padding:'3px 7px'}}><Edit2 size={10}/></button><button onClick={()=>deleteDoor(d.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={10}/></button></div>
-                                  <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                                 </div>))}
                                 {newDoor.roomId===room.id&&(<div style={{padding:'10px',backgroundColor:C.accentLight,borderRadius:'8px',border:'1.5px solid '+C.accentBorder}}>
@@ -2579,40 +2507,13 @@ function App() {
                                     <select value={newDoor.revealMaterial} onChange={e=>setNewDoor({...newDoor,revealMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{REVEAL_MATERIALS.map(t=><option key={t}>{t}</option>)}</select>
                                   </div>
                                   <div style={{display:'flex',gap:'6px'}}><button onClick={()=>saveDoor(room.id)} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}><Check size={11}/>Добавить</button><button onClick={()=>setNewDoor({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'})} style={{...btnG,padding:'5px 12px',fontSize:'11px'}}><X size={11}/>Отмена</button></div>
-                                <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                               </div>
                             </div>
-                          <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                         </div>);
                       })}
                       {rooms.filter(r=>r.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Помещений нет</p>}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Чек-листы'&&(<div>
@@ -2624,15 +2525,6 @@ function App() {
                         <input placeholder="Название чек-листа *" value={newChecklist.name} onChange={e=>setNewChecklist({...newChecklist,name:e.target.value})} style={inp}/>
                         <select value={newChecklist.template} onChange={e=>setNewChecklist({...newChecklist,template:e.target.value,name:e.target.value||newChecklist.name})} style={inp}><option value="">Свой чек-лист</option>{Object.keys(CHECKLIST_TEMPLATES).map(t=><option key={t} value={t}>{t}</option>)}</select>
                         <div style={{display:'flex',gap:'8px'}}><button onClick={()=>saveChecklist(p.id,p.name)} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
-                      <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {checklists.filter(cl=>cl.projectName===p.name).map(cl=>{
                         const items=checklistItems[cl.id]||[];
@@ -2656,28 +2548,10 @@ function App() {
                               <input placeholder="Добавить пункт..." value={newChecklistItem} onChange={e=>setNewChecklistItem(e.target.value)} style={{...inp,marginBottom:0,flex:1,fontSize:'12px'}}/>
                               <button onClick={async()=>{if(!newChecklistItem) return;await fetch(API+'/checklist-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({checklistId:cl.id,name:newChecklistItem,checked:false,orderNum:items.length})});await loadChecklistItems(cl.id);setNewChecklistItem('');}} style={{...btnO,padding:'6px 12px'}}><Plus size={13}/></button>
                             </div>
-                          <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                         </div>);
                       })}
                       {checklists.filter(cl=>cl.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Чек-листов нет</p>}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Непредвиденные'&&(<div>
@@ -2693,27 +2567,9 @@ function App() {
                           <input placeholder="Цена (₽)" type="number" value={newUnexpected.price} onChange={e=>setNewUnexpected({...newUnexpected,price:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
                         <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={()=>saveUnexpectedWork(p.name)} style={btnO}><Check size={14}/>Отправить</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
-                      <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {['Ожидает согласования','Утверждено','Отклонено'].map(status=>{ const items=unexpectedWorksList.filter(u=>u.projectName===p.name&&u.status===status); if(items.length===0) return null; return(<div key={status} style={{marginBottom:'16px'}}><b style={{color:status==='Утверждено'?C.success:status==='Отклонено'?C.danger:C.warning,fontSize:'12px',display:'block',marginBottom:'8px'}}>{status==='Ожидает согласования'?'⏳':status==='Утверждено'?'✅':'❌'} {status} ({items.length})</b>{items.map(u=>(<div key={u.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div><b style={{fontSize:'13px',color:C.text}}>{u.description}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{u.quantity+' '+u.unit+(u.price>0?' · '+u.price.toLocaleString()+' ₽/'+u.unit:'')+(u.total>0?' · Итого: '+u.total.toLocaleString()+' ₽':'')}</p><p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{'Добавил: '+u.addedBy}</p></div>{isLeadership()&&u.status==='Ожидает согласования'&&(<div style={{display:'flex',gap:'6px',alignItems:'center'}}><input placeholder="Цена ₽" type="number" style={{width:'90px',padding:'4px 8px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} onChange={e=>e.target.dataset.price=e.target.value}/><button onClick={e=>{approveUnexpectedWork(u,e.target.previousSibling.dataset.price||0);}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><Check size={11}/>Утвердить</button><button onClick={async()=>{await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><X size={11}/>Откл.</button></div>)}</div></div>))}</div>);})}
                       {unexpectedWorksList.filter(u=>u.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Непредвиденных работ нет</p>}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Наряды'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}><b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Наряды и бригады</b><button onClick={()=>setShowBrigadeForm(!showBrigadeForm)} style={btnO}><Plus size={14}/>Новый наряд</button></div>{showBrigadeForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><select value={newBrigadeContract.contractorType} onChange={e=>setNewBrigadeContract({...newBrigadeContract,contractorType:e.target.value})} style={{...inp,marginBottom:0}}>{['Своя бригада','Субподрядчик','Мастер'].map(t=><option key={t}>{t}</option>)}</select><input placeholder='Название / ФИО *' value={newBrigadeContract.brigadeName} onChange={e=>setNewBrigadeContract({...newBrigadeContract,brigadeName:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newBrigadeContract.contractorId} onChange={e=>setNewBrigadeContract({...newBrigadeContract,contractorId:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Привязать к сотруднику</option>{staff.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><textarea placeholder='Примечание' value={newBrigadeContract.notes} onChange={e=>setNewBrigadeContract({...newBrigadeContract,notes:e.target.value})} style={{...inp,marginBottom:0,height:'60px'}}/></div><div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{if(!newBrigadeContract.brigadeName) return;const data={...newBrigadeContract,projectId:p.id,projectName:p.name};const res=await fetch(API+'/brigade-contracts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const saved=await res.json();const newBC={...data,id:saved.id,totalAmount:0,status:'Черновик',items:[]};setBrigadeContracts(prev=>[...prev,newBC]);setSelectedBrigadeContract(newBC);setBrigadeContractItems([]);setShowBrigadeForm(false);setNewBrigadeContract({projectId:'',projectName:'',brigadeName:'',contractorType:'Своя бригада',contractorId:'',notes:''});}} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowBrigadeForm(false)} style={btnG}><X size={14}/>Отмена</button></div></div>)}{selectedBrigadeContract?(<div><div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center',flexWrap:'wrap'}}><button onClick={()=>{setSelectedBrigadeContract(null);setBrigadeContractItems([]);}} style={btnG}><ArrowLeft size={14}/>Назад</button><b style={{color:C.text,fontSize:'14px'}}>{selectedBrigadeContract.brigadeName}</b><span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:C.accentLight,color:C.accent}}>{selectedBrigadeContract.contractorType}</span>{selectedBrigadeContract.status!=='Подписан'&&<button onClick={async()=>{await fetch(API+'/brigade-contracts/'+selectedBrigadeContract.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selectedBrigadeContract,status:'Подписан',signedAt:new Date().toISOString().split('T')[0]})});setSelectedBrigadeContract({...selectedBrigadeContract,status:'Подписан'});setBrigadeContracts(prev=>prev.map(bc=>bc.id===selectedBrigadeContract.id?{...bc,status:'Подписан'}:bc));}} style={btnO}><Check size={14}/>Подписать</button>}<button onClick={()=>{const html='<h2>ДОГОВОР ПОДРЯДА</h2><p>Объект: '+p.name+'</p><p>Исполнитель: '+selectedBrigadeContract.brigadeName+'</p><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Объём</th><th>Цена</th><th>Сумма</th></tr>'+brigadeContractItems.map((it,i)=>'<tr><td>'+(i+1)+'</td><td>'+it.name+'</td><td>'+it.unit+'</td><td>'+it.quantity+'</td><td>'+Number(it.priceBrigade).toLocaleString()+'</td><td>'+Math.round(it.quantity*it.priceBrigade).toLocaleString()+'</td></tr>').join('')+'<tr><td colspan=5><b>ИТОГО:</b></td><td><b>'+brigadeContractItems.reduce((s,i)=>s+i.quantity*i.priceBrigade,0).toLocaleString()+' руб.</b></td></tr></table>';showPreview(html,'Договор');}} style={btnB}><Eye size={14}/>Договор</button></div><div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}><div style={{display:'grid',gridTemplateColumns:isFinanceRole()?'repeat(3,1fr)':'1fr',gap:'12px'}}><div><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Бригаде по договору</p><b style={{color:C.accent,fontSize:'16px'}}>{brigadeContractItems.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.priceBrigade||0),0).toLocaleString()+' руб.'}</b></div><div style={{display:isFinanceRole()?'block':'none'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>По смете заказчика</p><b style={{color:C.text,fontSize:'16px'}}>{brigadeContractItems.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.priceSmeta||0),0).toLocaleString()+' руб.'}</b></div><div style={{display:isFinanceRole()?'block':'none'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Экономия</p><b style={{color:C.success,fontSize:'16px'}}>{(brigadeContractItems.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.priceSmeta||0),0)-brigadeContractItems.reduce((s,i)=>s+Number(i.quantity||0)*Number(i.priceBrigade||0),0)).toLocaleString()+' руб.'}</b></div></div></div><div style={{...card,padding:'16px',marginBottom:'16px'}}><div style={{marginBottom:'12px'}}>
@@ -2787,15 +2643,6 @@ function App() {
                             <span style={{fontSize:'11px',color:C.warning}}>
                               Остаток: {warehouseMain.find(m=>m.name===newTransfer.materialName)?.quantity||0} {newTransfer.unit}
                             </span>
-                          <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                           <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={{...inp,marginBottom:0}}>
                             <option value=''>Кому передать *</option>
@@ -2818,15 +2665,6 @@ function App() {
                           }} style={btnO}><Check size={14}/>Передать</button>
                           <button onClick={()=>setShowTransferForm(false)} style={btnG}><X size={14}/>Отмена</button>
                         </div>
-                      <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                       <table style={tbl}><thead><tr>
@@ -2861,15 +2699,6 @@ function App() {
                           <p>Передач материалов нет</p>
                         </div>
                       )}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                     {activeProjectTab==='Чат'&&(<div>
                       <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Чат проекта</b>
@@ -2881,15 +2710,6 @@ function App() {
                         <button onClick={()=>{if(!projectChatMessages[p.name]) loadProjectChat(p.name);sendProjectChatMessage(p.name,projectChatMessage,'');}} style={btnO}>➤</button>
                       </div>
                       {!projectChatMessages[p.name]&&<button onClick={()=>loadProjectChat(p.name)} style={{...btnG,marginTop:'8px',fontSize:'12px'}}>Загрузить чат</button>}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Финансы'&&(<div>
@@ -2898,15 +2718,6 @@ function App() {
                         {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'14px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'16px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
                         <div style={{padding:'14px',backgroundColor:C.successLight,borderRadius:'10px',border:'1.5px solid '+C.successBorder,gridColumn:'span 2'}}><div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.success,fontSize:'13px',fontWeight:'600'}}>Бюджет</span><b style={{color:C.success}}>{p.budget.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px'}}>Расходы</span><b style={{color:total>p.budget?C.danger:C.text}}>{total.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px',fontWeight:'600'}}>Остаток</span><b style={{color:(p.budget-total)>0?C.success:C.danger}}>{(p.budget-total).toLocaleString()+' ₽'}</b></div></div>
                       </div>
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Предписания'&&(<div>
@@ -2922,15 +2733,6 @@ function App() {
                           <input placeholder="Ответственный" value={newPrescription.responsible} onChange={e=>setNewPrescription({...newPrescription,responsible:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
                         <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={()=>savePrescription(p.name)} style={btnO}><Check size={14}/>Выдать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
-                      <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {prescriptionsList.filter(pr=>pr.projectName===p.name).map(pr=>(<div key={pr.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(pr.status==='Закрыто'?C.success:pr.status==='На проверке'?C.warning:C.danger)}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
@@ -2943,15 +2745,6 @@ function App() {
                         </div>
                       </div>))}
                       {prescriptionsList.filter(pr=>pr.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Предписаний нет</p>}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='Журнал ТБ'&&(<div>
@@ -2971,15 +2764,6 @@ function App() {
                           <button onClick={()=>{saveTbEntry({...newTbEntry,project:p.name});setShowForm(false);setNewTbEntry({project:'',type:'Вводный инструктаж',participants:[],date:''});}} style={btnO}><Check size={14}/>Сохранить</button>
                           <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
                         </div>
-                      <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {tbJournal.filter(e=>e.project===p.name).map(entry=>(<div key={entry.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -2988,15 +2772,6 @@ function App() {
                         </div>
                       </div>))}
                       {tbJournal.filter(e=>e.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Записей нет</p>}
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                   </div>
                 </div>)}
@@ -3584,27 +3359,9 @@ function App() {
                             </div>
                             {isProjectOpen&&(<div style={{padding:'8px 12px'}}>
                               {pWorks.map(w=>(<div key={w.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><span style={{fontSize:'12px',color:C.text}}>{w.description}</span><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+' · '+w.date}</p></div><b style={{fontSize:'12px',color:C.success}}>{(w.total||0).toLocaleString()+' ₽'}</b></div>))}
-                            <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                           </div>);
                         })}
-                      <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                     </div>);
                   })}
@@ -3669,15 +3426,6 @@ function App() {
                   </div>
                   {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 14px'}}>
                     {sWorks.map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'12px',color:C.text}}>{w.description}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+' × '+w.pricePerUnit.toLocaleString()+' ₽ · '+w.date+(w.project?' · '+w.project:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{fontSize:'12px',color:C.success}}>{w.total.toLocaleString()+' ₽'}</b><button onClick={()=>deletePiecework(w.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={10}/></button></div></div>))}
-                  <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await loadAll();
-                    }} style={{...btnO,display:'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                 </div>);
               })}
