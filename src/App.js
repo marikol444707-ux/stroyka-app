@@ -1044,6 +1044,11 @@ function App() {
     if (editingItem) await fetch(API+'/projects/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     else { await fetch(API+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); notify('Создан проект: '+newProject.name,'project'); }
     await loadAll(); addActivity((editingItem?'Обновил':'Создал')+' проект: '+newProject.name);
+    if (!editingItem && newProject.clientEmail && newProject.clientPassword) {
+      const savedProject = projects.find(p=>p.name===newProject.name) || {name:newProject.name};
+      await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newProject.client||newProject.name,email:newProject.clientEmail,password:newProject.clientPassword,role:'заказчик',projectName:newProject.name})});
+      alert('Заказчик создан! Логин: '+newProject.clientEmail+' Пароль: '+newProject.clientPassword);
+    }
     setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null}); setEditingItem(null); setShowForm(false);
   };
 
@@ -2162,7 +2167,9 @@ function App() {
               <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать проект':'Новый проект'}</h3>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                 <input placeholder="Название *" value={newProject.name} onChange={e=>setNewProject({...newProject,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder="Заказчик" value={newProject.client} onChange={e=>setNewProject({...newProject,client:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder="Заказчик (название)" value={newProject.client} onChange={e=>setNewProject({...newProject,client:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder="Email заказчика (для доступа в кабинет)" value={newProject.clientEmail||''} onChange={e=>setNewProject({...newProject,clientEmail:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder="Пароль заказчика" value={newProject.clientPassword||''} onChange={e=>setNewProject({...newProject,clientPassword:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <select value={newProject.status} onChange={e=>setNewProject({...newProject,status:e.target.value})} style={{...inp,marginBottom:0}}>{['Планирование','В работе','Завершён','Заморожен'].map(s=><option key={s}>{s}</option>)}</select>
                 <input placeholder="Бюджет" type="number" value={newProject.budget} onChange={e=>setNewProject({...newProject,budget:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder="Дедлайн" type="date" value={newProject.deadline} onChange={e=>setNewProject({...newProject,deadline:e.target.value})} style={{...inp,marginBottom:0}}/>
