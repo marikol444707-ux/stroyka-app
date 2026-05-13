@@ -305,6 +305,9 @@ function App() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [projectPayments, setProjectPayments] = useState([]);
+  const [accountablePayments, setAccountablePayments] = useState([]);
+  const [showAccountableForm, setShowAccountableForm] = useState(false);
+  const [newAccountable, setNewAccountable] = useState({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:''});
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
   const [showDistributeModal, setShowDistributeModal] = useState(false);
@@ -550,12 +553,13 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc] = await Promise.all([
+      const [p,c,m,winv,pp,acp,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
         fetch(API+'/warehouse-invoices').then(r=>r.json()),
         fetch(API+'/project-payments').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/accountable-payments').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/warehouse-main').then(r=>r.json()),
         fetch(API+'/warehouse-movements').then(r=>r.json()),
         fetch(API+'/warehouse-history').then(r=>r.json()),
@@ -588,7 +592,7 @@ function App() {
         fetch(API+'/estimates').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/brigade-contracts').then(r=>r.json()).catch(()=>[]),
       ]);
-      setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
+      setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
       setInviteCodes(ic);setSuppliers(sup);setSupplyRequests(sr);setSupplierOffers(so);
       setSupplyHistory(sh);setWorkJournal(wj);setMasterProfiles(mp);setContracts(ct);
@@ -2203,6 +2207,32 @@ function App() {
         </div>
         <div style={{flex:1,padding:'24px',overflowY:'auto',backgroundColor:C.bg}}>
           {activePage==='dashboard'&&(<div>
+            {accountablePayments.filter(ac=>ac.givenTo===user.name).length>0&&(<div style={{...card,padding:'14px 16px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+              <b style={{color:C.warning,fontSize:'14px',display:'block',marginBottom:'8px'}}>💵 Подотчётные деньги</b>
+              {accountablePayments.filter(ac=>ac.givenTo===user.name).map(ac=>(<div key={ac.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.warningBorder}}>
+                <div><b style={{fontSize:'13px',color:C.text}}>{ac.projectName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{ac.purpose||'Без назначения'}</p></div>
+                <div style={{textAlign:'right'}}>
+                  <b style={{color:C.warning,fontSize:'13px'}}>{Number(ac.amount).toLocaleString()+' ₽'}</b>
+                  <p style={{color:C.danger,margin:'2px 0',fontSize:'11px'}}>{'Остаток: '+(Number(ac.amount)-Number(ac.spentAmount||0)).toLocaleString()+' ₽'}</p>
+                  <button onClick={async()=>{
+                    const desc=prompt('За что потрачено?');
+                    const amt=prompt('Сумма (₽):');
+                    if(desc&&amt&&Number(amt)>0){
+                      const photoFile=document.createElement('input');
+                      photoFile.type='file';
+                      photoFile.accept='image/*';
+                      photoFile.onchange=async e=>{
+                        const url=e.target.files[0]?await uploadPhoto(e.target.files[0]):'';
+                        await fetch(API+'/accountable-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentId:ac.id,projectName:ac.projectName,description:desc,amount:Number(amt),photoUrl:url,date:new Date().toISOString().split('T')[0],addedBy:user.name})});
+                        await loadAll();
+                        alert('Отчёт отправлен!');
+                      };
+                      photoFile.click();
+                    }
+                  }} style={{...btnO,fontSize:'11px',padding:'4px 10px',marginTop:'4px'}}>Отчитаться</button>
+                </div>
+              </div>))}
+            </div>)}
             {onlineUsers.length>0&&(<div style={{...card,padding:'12px 16px',marginBottom:'16px',display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
               <span style={{fontSize:'13px',color:C.textSec,fontWeight:'600'}}>🟢 Сейчас онлайн ({onlineUsers.length}):</span>
               {onlineUsers.map(u=>(<div key={u.userId} style={{display:'flex',alignItems:'center',gap:'6px',padding:'4px 10px',borderRadius:'20px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
@@ -2840,7 +2870,8 @@ function App() {
                             <div style={{padding:'12px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Получено от заказчика</p><b style={{color:C.success,fontSize:'16px'}}>{received.toLocaleString()+' ₽'}</b></div>
                             <div style={{padding:'12px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Потрачено на материалы</p><b style={{color:C.danger,fontSize:'16px'}}>{materials_cost.toLocaleString()+' ₽'}</b></div>
                             <div style={{padding:'12px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Выплачено бригадам</p><b style={{color:C.warning,fontSize:'16px'}}>{brigades_cost.toLocaleString()+' ₽'}</b></div>
-                            <div style={{padding:'12px',backgroundColor:profit>=0?C.successLight:C.dangerLight,borderRadius:'8px',border:'1.5px solid '+(profit>=0?C.successBorder:C.dangerBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Прибыль</p><b style={{color:profit>=0?C.success:C.danger,fontSize:'16px'}}>{profit.toLocaleString()+' ₽'}</b></div>
+                            <div style={{padding:'12px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>В подотчёте</p><b style={{color:C.warning,fontSize:'16px'}}>{accountablePayments.filter(ac=>ac.projectName===p.name).reduce((s,ac)=>s+Number(ac.amount||0)-Number(ac.spentAmount||0),0).toLocaleString()+' ₽'}</b></div>
+                            <div style={{padding:'12px',backgroundColor:profit>=0?C.successLight:C.dangerLight,borderRadius:'8px',border:'1.5px solid '+(profit>=0?C.successBorder:C.dangerBorder),gridColumn:'span 2'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Прибыль</p><b style={{color:profit>=0?C.success:C.danger,fontSize:'16px'}}>{profit.toLocaleString()+' ₽'}</b></div>
                           </div>
                           {projectPayments.filter(pay=>pay.projectName===p.name).length>0&&(<div style={{marginTop:'12px'}}>
                             <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px'}}>История оплат:</b>
@@ -2855,6 +2886,27 @@ function App() {
                         {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'14px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'16px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
                         <div style={{padding:'14px',backgroundColor:C.successLight,borderRadius:'10px',border:'1.5px solid '+C.successBorder,gridColumn:'span 2',display:isFinanceRole()?'block':'none'}}><div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.success,fontSize:'13px',fontWeight:'600'}}>Бюджет</span><b style={{color:C.success}}>{p.budget.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px'}}>Расходы</span><b style={{color:total>p.budget?C.danger:C.text}}>{total.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px',fontWeight:'600'}}>Остаток</span><b style={{color:(p.budget-total)>0?C.success:C.danger}}>{(p.budget-total).toLocaleString()+' ₽'}</b></div></div>
                       </div>
+                      {isFinanceRole()&&(<div style={{marginTop:'16px'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                          <b style={{color:C.text,fontSize:'14px'}}>💵 Подотчётные деньги</b>
+                          <button onClick={()=>setShowAccountableForm(!showAccountableForm)} style={{...btnO,fontSize:'11px',padding:'5px 10px'}}><Plus size={12}/>Выдать</button>
+                        </div>
+                        {showAccountableForm&&(<div style={{...card,padding:'14px',marginBottom:'12px'}}>
+                          <select value={newAccountable.givenTo} onChange={e=>setNewAccountable({...newAccountable,givenTo:e.target.value})} style={{...inp}}><option value=''>Кому выдать *</option>{users.filter(u=>['прораб','мастер','снабженец','кладовщик'].includes(u.role)).map(u=><option key={u.id} value={u.name}>{u.name}</option>)}</select>
+                          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                            <input placeholder='Сумма *' type='number' value={newAccountable.amount} onChange={e=>setNewAccountable({...newAccountable,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                            <select value={newAccountable.paymentMethod} onChange={e=>setNewAccountable({...newAccountable,paymentMethod:e.target.value})} style={{...inp,marginBottom:0}}>{['Наличные','Перевод на карту','Корпоративная карта','Через кассу'].map(m=><option key={m}>{m}</option>)}</select>
+                          </div>
+                          <input placeholder='Назначение' value={newAccountable.purpose} onChange={e=>setNewAccountable({...newAccountable,purpose:e.target.value})} style={{...inp}}/>
+                          <input type='date' value={newAccountable.date} onChange={e=>setNewAccountable({...newAccountable,date:e.target.value})} style={{...inp}}/>
+                          <div style={{display:'flex',gap:'8px'}}><button onClick={async()=>{if(!newAccountable.givenTo||!newAccountable.amount) return;await fetch(API+'/accountable-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newAccountable,projectName:p.name,amount:Number(newAccountable.amount),addedBy:user.name})});setNewAccountable({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:''});setShowAccountableForm(false);await loadAll();}} style={btnO}><Check size={14}/>Выдать</button><button onClick={()=>setShowAccountableForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
+                        </div>)}
+                        {accountablePayments.filter(ac=>ac.projectName===p.name).map(ac=>(<div key={ac.id} style={{...card,padding:'12px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                          <div><b style={{fontSize:'13px',color:C.text}}>{ac.givenTo}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{ac.paymentMethod+' · '+ac.date}</p><p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>{ac.purpose}</p></div>
+                          <div style={{textAlign:'right'}}><b style={{color:C.accent,fontSize:'14px',display:'block'}}>{Number(ac.amount).toLocaleString()+' ₽'}</b><span style={{fontSize:'11px',color:C.warning}}>{'Потрачено: '+Number(ac.spentAmount||0).toLocaleString()+' ₽'}</span><br/><span style={{fontSize:'11px',color:C.danger}}>{'Остаток: '+(Number(ac.amount)-Number(ac.spentAmount||0)).toLocaleString()+' ₽'}</span></div>
+                        </div>))}
+                        {accountablePayments.filter(ac=>ac.projectName===p.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'10px'}}>Подотчётных выдач нет</p>}
+                      </div>)}
                   </div>)}
 
                     {activeProjectTab==='Предписания'&&(<div>
