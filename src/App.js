@@ -2248,6 +2248,8 @@ function App() {
                 <input placeholder="Бюджет" type="number" value={newProject.budget} onChange={e=>setNewProject({...newProject,budget:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder="Дедлайн" type="date" value={newProject.deadline} onChange={e=>setNewProject({...newProject,deadline:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <select value={newProject.pricelistId||''} onChange={e=>setNewProject({...newProject,pricelistId:e.target.value?Number(e.target.value):null})} style={{...inp,marginBottom:0}}><option value="">Прайс-лист</option>{pricelists.map(pl=><option key={pl.id} value={pl.id}>{pl.name}</option>)}</select>
+                <input placeholder="Этажей (например: 3)" type="number" value={newProject.floors||''} onChange={e=>setNewProject({...newProject,floors:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder="Литеры (например: А,Б,В)" value={newProject.liters||''} onChange={e=>setNewProject({...newProject,liters:e.target.value})} style={{...inp,marginBottom:0}}/>
               </div>
               <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveProject} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
             </div>)}
@@ -2265,7 +2267,7 @@ function App() {
                         <span style={badge(sc[0],sc[1],sc[2])}>{p.status}</span>
                       </div>
                       <div style={{display:'flex',gap:'15px',flexWrap:'wrap'}}>
-                        <span style={{fontSize:'12px',color:C.textSec}}>{'👤 '+p.client}</span>
+                        <span style={{fontSize:'12px',color:C.textSec}}>{'👤 '+p.client}</span>{p.floors>1&&<span style={{fontSize:'12px',color:C.textSec}}>{'🏢 '+p.floors+' эт.'}</span>}{p.liters&&<span style={{fontSize:'12px',color:C.textSec}}>{'🔤 Лит. '+p.liters}</span>}
                         {p.deadline&&<span style={{fontSize:'12px',color:C.textSec}}>{'📅 '+p.deadline}</span>}
                         {isFinanceRole()&&<span style={{fontSize:'12px',color:C.textSec}}>{'💰 '+total.toLocaleString()+' / '+p.budget.toLocaleString()+' ₽'}</span>}
                       </div>

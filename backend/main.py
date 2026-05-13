@@ -358,6 +358,8 @@ class ProjectModel(BaseModel):
     progress: int = 0
     tasks: List[str] = []
     pricelistId: Optional[int] = None
+    floors: int = 1
+    liters: str = ""
 
 class ClientModel(BaseModel):
     name: str
@@ -654,7 +656,7 @@ def register(data: RegisterModel):
 def get_projects():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\" FROM projects")
+    cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters FROM projects")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -663,7 +665,7 @@ def get_projects():
 def create_project(p: ProjectModel):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\"",
+    cur.execute("INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters",
                 (p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId))
     row = cur.fetchone()
     conn.close()
@@ -673,7 +675,7 @@ def create_project(p: ProjectModel):
 def update_project(id: int, p: ProjectModel):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE projects SET name=%s,client=%s,status=%s,budget=%s,deadline=%s,progress=%s,tasks=%s,pricelist_id=%s WHERE id=%s",
+    cur.execute("UPDATE projects SET name=%s,client=%s,status=%s,budget=%s,deadline=%s,progress=%s,tasks=%s,pricelist_id=%s,floors=%s,liters=%s WHERE id=%s",
                 (p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,id))
     conn.close()
     return {"ok": True}
