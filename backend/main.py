@@ -2407,6 +2407,6 @@ def create_accountable_expense(data: dict):
     # Обновляем spent_amount
     cur.execute("UPDATE accountable_payments SET spent_amount=spent_amount+%s WHERE id=%s", (data.get("amount",0),data.get("paymentId")))
     conn.commit()
-    row = cur.fetchone()
     cur.close(); conn.close()
+    return {"ok":True}
     return {"id":row[0],"ok":True}

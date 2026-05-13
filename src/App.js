@@ -308,6 +308,9 @@ function App() {
   const [accountablePayments, setAccountablePayments] = useState([]);
   const [showAccountableForm, setShowAccountableForm] = useState(false);
   const [newAccountable, setNewAccountable] = useState({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:''});
+  const [reportingPayment, setReportingPayment] = useState(null);
+  const [newExpense, setNewExpense] = useState({description:'',amount:'',photoUrl:''});
+  const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
   const [showDistributeModal, setShowDistributeModal] = useState(false);
@@ -2213,23 +2216,8 @@ function App() {
                 <div><b style={{fontSize:'13px',color:C.text}}>{ac.projectName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{ac.purpose||'Без назначения'}</p></div>
                 <div style={{textAlign:'right'}}>
                   <b style={{color:C.warning,fontSize:'13px'}}>{Number(ac.amount).toLocaleString()+' ₽'}</b>
-                  <p style={{color:C.danger,margin:'2px 0',fontSize:'11px'}}>{'Остаток: '+(Number(ac.amount)-Number(ac.spentAmount||0)).toLocaleString()+' ₽'}</p>
-                  <button onClick={async()=>{
-                    const desc=prompt('За что потрачено?');
-                    const amt=prompt('Сумма (₽):');
-                    if(desc&&amt&&Number(amt)>0){
-                      const photoFile=document.createElement('input');
-                      photoFile.type='file';
-                      photoFile.accept='image/*';
-                      photoFile.onchange=async e=>{
-                        const url=e.target.files[0]?await uploadPhoto(e.target.files[0]):'';
-                        await fetch(API+'/accountable-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentId:ac.id,projectName:ac.projectName,description:desc,amount:Number(amt),photoUrl:url,date:new Date().toISOString().split('T')[0],addedBy:user.name})});
-                        await loadAll();
-                        alert('Отчёт отправлен!');
-                      };
-                      photoFile.click();
-                    }
-                  }} style={{...btnO,fontSize:'11px',padding:'4px 10px',marginTop:'4px'}}>Отчитаться</button>
+                  <p style={{color:C.danger,margin:'2px 0',fontSize:'11px'}}>{'Остаток: '+(Math.max(0,Number(ac.amount)-Number(ac.spentAmount||0))).toLocaleString()+' ₽'}</p>
+<button onClick={()=>setReportingPayment(ac)} style={{...btnO,fontSize:'11px',padding:'4px 10px',marginTop:'4px'}}>Отчитаться</button>
                 </div>
               </div>))}
             </div>)}
@@ -2903,7 +2891,7 @@ function App() {
                         </div>)}
                         {accountablePayments.filter(ac=>ac.projectName===p.name).map(ac=>(<div key={ac.id} style={{...card,padding:'12px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                           <div><b style={{fontSize:'13px',color:C.text}}>{ac.givenTo}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{ac.paymentMethod+' · '+ac.date}</p><p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>{ac.purpose}</p></div>
-                          <div style={{textAlign:'right'}}><b style={{color:C.accent,fontSize:'14px',display:'block'}}>{Number(ac.amount).toLocaleString()+' ₽'}</b><span style={{fontSize:'11px',color:C.warning}}>{'Потрачено: '+Number(ac.spentAmount||0).toLocaleString()+' ₽'}</span><br/><span style={{fontSize:'11px',color:C.danger}}>{'Остаток: '+(Number(ac.amount)-Number(ac.spentAmount||0)).toLocaleString()+' ₽'}</span></div>
+                          <div style={{textAlign:'right'}}><b style={{color:C.accent,fontSize:'14px',display:'block'}}>{Number(ac.amount).toLocaleString()+' ₽'}</b><span style={{fontSize:'11px',color:C.warning}}>{'Потрачено: '+Number(ac.spentAmount||0).toLocaleString()+' ₽'}</span><br/><span style={{fontSize:'11px',color:C.danger}}>{'Остаток: '+(Math.max(0,Number(ac.amount)-Number(ac.spentAmount||0))).toLocaleString()+' ₽'}</span></div>
                         </div>))}
                         {accountablePayments.filter(ac=>ac.projectName===p.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'10px'}}>Подотчётных выдач нет</p>}
                       </div>)}
@@ -4106,7 +4094,33 @@ function App() {
       <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid #e5e7eb',display:'flex',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',display:'flex'}}>
         {[{id:'dashboard',icon:'🏠',label:'Главная'},{id:'projects',icon:'📋',label:'Проекты'},{id:'warehouse',icon:'📦',label:'Склад'},{id:'companychat',icon:'💬',label:'Чат'},{id:'more',icon:'⋯',label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);}else{setActivePage(item.id);setShowMobileMenu(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?'#fff7ed':'transparent'}}><span style={{fontSize:'20px'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
-      {showMobileMenu&&(<div onMouseDown={e=>{e.preventDefault();setShowMobileMenu(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>)}
+      {reportingPayment&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💵 Отчёт о трате</b>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Выдано: '+Number(reportingPayment.amount).toLocaleString()+' ₽ · Остаток: '+(Number(reportingPayment.amount)-Number(reportingPayment.spentAmount||0)).toLocaleString()+' ₽'}</p>
+        <input placeholder='За что потрачено *' value={newExpense.description} onChange={e=>setNewExpense({...newExpense,description:e.target.value})} style={inp}/>
+        <input placeholder='Сумма (₽) *' type='number' value={newExpense.amount} onChange={e=>setNewExpense({...newExpense,amount:e.target.value})} style={inp}/>
+        <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
+          <span style={{fontSize:'12px',color:C.textSec}}>📷 Фото чека:</span>
+          <input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewExpense(prev=>({...prev,photoUrl:url}));}}}/>
+          {newExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid #e5e7eb'}}><img src={newExpense.photoUrl.startsWith('http')?newExpense.photoUrl:API+newExpense.photoUrl} style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'20px',textAlign:'center',marginTop:'6px',color:C.textMuted}}>Нажмите чтобы загрузить</div>}
+        </label>
+        <div style={{display:'flex',gap:'8px'}}>
+          <button onClick={async()=>{
+            if(!newExpense.description||!newExpense.amount||expenseSubmitting) return;
+            setExpenseSubmitting(true);
+            await fetch(API+'/accountable-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentId:reportingPayment.id,projectName:reportingPayment.projectName,description:newExpense.description,amount:Number(newExpense.amount),photoUrl:newExpense.photoUrl||'',date:new Date().toISOString().split('T')[0],addedBy:user.name})});
+            setReportingPayment(null);
+            setNewExpense({description:'',amount:'',photoUrl:''});
+            setExpenseSubmitting(false);
+            await loadAll();
+            alert('Отчёт отправлен!');
+          }} style={btnO}><Check size={14}/>Отправить</button>
+          <button onClick={()=>{setReportingPayment(null);setNewExpense({description:'',amount:'',photoUrl:''});}} style={btnG}><X size={14}/>Отмена</button>
+        </div>
+      </div>
+    </div>)}
+    {showMobileMenu&&(<div onMouseDown={e=>{e.preventDefault();setShowMobileMenu(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>)}
       {showMobileMenu&&(<div style={{position:'fixed',bottom:'60px',left:0,right:0,backgroundColor:'white',borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,maxHeight:'60vh',overflowY:'auto',boxShadow:'0 -8px 30px rgba(0,0,0,0.15)'}}>
         <div style={{textAlign:'center',marginBottom:'12px'}}><div style={{width:'36px',height:'4px',backgroundColor:'#e5e7eb',borderRadius:'2px',margin:'0 auto'}}/></div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
