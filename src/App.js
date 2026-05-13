@@ -304,6 +304,7 @@ function App() {
   const [showAiChat, setShowAiChat] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
+  const [projectPayments, setProjectPayments] = useState([]);
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
   const [showDistributeModal, setShowDistributeModal] = useState(false);
@@ -549,11 +550,12 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc] = await Promise.all([
+      const [p,c,m,winv,pp,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
         fetch(API+'/warehouse-invoices').then(r=>r.json()),
+        fetch(API+'/project-payments').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/warehouse-main').then(r=>r.json()),
         fetch(API+'/warehouse-movements').then(r=>r.json()),
         fetch(API+'/warehouse-history').then(r=>r.json()),
@@ -586,7 +588,7 @@ function App() {
         fetch(API+'/estimates').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/brigade-contracts').then(r=>r.json()).catch(()=>[]),
       ]);
-      setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
+      setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
       setInviteCodes(ic);setSuppliers(sup);setSupplyRequests(sr);setSupplierOffers(so);
       setSupplyHistory(sh);setWorkJournal(wj);setMasterProfiles(mp);setContracts(ct);
@@ -2812,6 +2814,24 @@ function App() {
 
                     {activeProjectTab==='Финансы'&&(<div>
                       <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Финансы проекта</b>
+                      {isFinanceRole()&&(()=>{
+                        const received = projectPayments.filter(pay=>pay.projectName===p.name).reduce((s,pay)=>s+Number(pay.amount||0),0);
+                        const materials_cost = invoices.filter(inv=>inv.location===p.name||inv.project===p.name).reduce((s,inv)=>s+Number(inv.totalWithVat||0),0);
+                        const brigades_cost = brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+brigadeContractItems.filter(i=>i.contractId===bc.id).reduce((ss,i)=>ss+Math.round(Number(i.doneQuantity||0)*Number(i.priceBrigade||0)),0),0);
+                        const profit = received - materials_cost - brigades_cost;
+                        return(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+                            <b style={{color:C.text,fontSize:'14px'}}>💰 Баланс объекта</b>
+                            <button onClick={()=>{const amount=prompt('Сумма оплаты от заказчика (₽):');const note=prompt('Примечание (например: аванс, оплата этапа):');if(amount&&Number(amount)>0){fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,amount:Number(amount),note:note||'',date:new Date().toISOString().split('T')[0],addedBy:user.name})}).then(()=>loadAll());}}} style={{...btnO,fontSize:'11px',padding:'5px 10px'}}><Plus size={12}/>Оплата</button>
+                          </div>
+                          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                            <div style={{padding:'12px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Получено от заказчика</p><b style={{color:C.success,fontSize:'16px'}}>{received.toLocaleString()+' ₽'}</b></div>
+                            <div style={{padding:'12px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Потрачено на материалы</p><b style={{color:C.danger,fontSize:'16px'}}>{materials_cost.toLocaleString()+' ₽'}</b></div>
+                            <div style={{padding:'12px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Выплачено бригадам</p><b style={{color:C.warning,fontSize:'16px'}}>{brigades_cost.toLocaleString()+' ₽'}</b></div>
+                            <div style={{padding:'12px',backgroundColor:profit>=0?C.successLight:C.dangerLight,borderRadius:'8px',border:'1.5px solid '+(profit>=0?C.successBorder:C.dangerBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Прибыль</p><b style={{color:profit>=0?C.success:C.danger,fontSize:'16px'}}>{profit.toLocaleString()+' ₽'}</b></div>
+                          </div>
+                        </div>);
+                      })()}
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
                         {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'14px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'16px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
                         <div style={{padding:'14px',backgroundColor:C.successLight,borderRadius:'10px',border:'1.5px solid '+C.successBorder,gridColumn:'span 2',display:isFinanceRole()?'block':'none'}}><div style={{display:'flex',justifyContent:'space-between'}}><span style={{color:C.success,fontSize:'13px',fontWeight:'600'}}>Бюджет</span><b style={{color:C.success}}>{p.budget.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px'}}>Расходы</span><b style={{color:total>p.budget?C.danger:C.text}}>{total.toLocaleString()+' ₽'}</b></div><div style={{display:'flex',justifyContent:'space-between',marginTop:'6px'}}><span style={{color:C.textSec,fontSize:'13px',fontWeight:'600'}}>Остаток</span><b style={{color:(p.budget-total)>0?C.success:C.danger}}>{(p.budget-total).toLocaleString()+' ₽'}</b></div></div>

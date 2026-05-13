@@ -2287,3 +2287,26 @@ def get_online():
     now = time.time()
     # Возвращаем пользователей активных за последние 2 минуты
     return list(online_users.values())
+
+@app.get("/project-payments")
+def get_project_payments(project_name: str = ""):
+    conn = get_db()
+    cur = conn.cursor()
+    if project_name:
+        cur.execute("SELECT id,project_name,amount,note,date,added_by FROM project_payments WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute("SELECT id,project_name,amount,note,date,added_by FROM project_payments ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1],"amount":float(r[2] or 0),"note":r[3] or "","date":str(r[4]) if r[4] else "","addedBy":r[5] or ""} for r in rows]
+
+@app.post("/project-payments")
+def create_project_payment(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO project_payments (project_name,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectName",""),data.get("amount",0),data.get("note",""),data.get("date") or None,data.get("addedBy","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id":row[0],"ok":True}
