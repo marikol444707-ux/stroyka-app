@@ -1627,8 +1627,24 @@ def ai_chat(data: dict):
     materials = cur.fetchall()
     cur.execute("SELECT name, role FROM users WHERE role NOT IN ('заказчик','поставщик')")
     staff = cur.fetchall()
-    cur.close(); conn.close()
-    context = "Ты ИИ помощник строительной компании СтройКа.\nПроекты ("+str(len(projects))+"): "+", ".join([p[0]+" ("+p[1]+")" for p in projects[:10]])+".\nСклад ("+str(len(materials))+" позиций): "+", ".join([m[0]+": "+str(m[1])+" "+m[2] for m in materials[:15]])+".\nСотрудники ("+str(len(staff))+"): "+", ".join([s[0]+" ("+s[1]+")" for s in staff[:15]])+".\nОтвечай подробно и по делу на русском языке."
+    cur.close()
+    # Получаем материалы на объектах
+    cur2 = conn.cursor()
+    cur2.execute("SELECT name, quantity, unit, project FROM materials WHERE quantity > 0 ORDER BY project")
+    obj_materials = cur2.fetchall()
+    cur2.execute("SELECT project_name, brigade_name, status FROM brigade_contracts")
+    brigades = cur2.fetchall()
+    cur2.execute("SELECT project_name, amount, note FROM project_payments ORDER BY id DESC LIMIT 10")
+    payments = cur2.fetchall()
+    cur2.close()
+    
+    context = "Ты ИИ помощник строительной компании СтройКа. Отвечай кратко на русском.\n"
+    context += "ПРОЕКТЫ ("+str(len(projects))+"): "+", ".join([p[0]+" ("+p[1]+")" for p in projects])+"\n"
+    context += "СОТРУДНИКИ: "+", ".join([s[0]+" - "+s[1] for s in staff[:15]])+"\n"
+    context += "СКЛАД ОСНОВНОЙ: "+", ".join([m[0]+": "+str(m[1])+" "+m[2] for m in materials[:20]])+"\n"
+    context += "МАТЕРИАЛЫ НА ОБЪЕКТАХ: "+", ".join([m[0]+": "+str(m[1])+" "+m[2]+" ("+str(m[3])+")" for m in obj_materials[:20]])+"\n"
+    context += "НАРЯДЫ: "+", ".join([b[0]+": "+b[1]+" - "+b[2] for b in brigades[:10]])+"\n"
+    context += "ОПЛАТЫ: "+", ".join([pay[0]+": "+str(int(pay[1]))+" руб - "+str(pay[2]) for pay in payments[:10]])+"\n"
     import openai as oa
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     user_text = messages[-1].get("content","") if messages else ""
