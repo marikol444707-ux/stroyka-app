@@ -2469,3 +2469,36 @@ def create_expense(data: dict):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+@app.post("/scan-invoice")
+def scan_invoice(data: dict):
+    import openai as oa
+    FOLDER_ID = "b1ghgq7lsv3rak4hjqr3"
+    API_KEY = "AQVNwKMYa9a-s1z6_Ag1jH8tUHL8NoB0vOj_IBVp"
+    base64_image = data.get("image", "")
+    client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
+    try:
+        response = client.responses.create(
+            model=f"gpt://{FOLDER_ID}/qwen3.6-35b-a3b/latest",
+            temperature=0.1,
+            instructions="Ты распознаёшь накладные. Верни только JSON без комментариев и без markdown.",
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"},
+                        {"type": "input_text", "text": "Распознай накладную. Верни JSON: {supplier:строка, items:[{name:строка,quantity:число,unit:строка,price:число}], total:число}. Только JSON без комментариев."}
+                    ]
+                }
+            ],
+            max_output_tokens=1000
+        )
+        answer = response.output_text
+        import json
+        clean = answer.replace("```json","").replace("```","").strip()
+        parsed = json.loads(clean)
+        print("SCAN OK:", parsed)
+        return {"ok": True, "data": parsed}
+    except Exception as e:
+        print("SCAN ERROR:", str(e))
+        return {"ok": False, "error": str(e)}

@@ -312,6 +312,9 @@ function App() {
   const [showAiChat, setShowAiChat] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
+  const [showScanInvoice, setShowScanInvoice] = useState(false);
+  const [showScannedInvoiceForm, setShowScannedInvoiceForm] = useState(false);
+  const [scanningInvoice, setScanningInvoice] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [projectPayments, setProjectPayments] = useState([]);
   const [accountablePayments, setAccountablePayments] = useState([]);
@@ -4233,6 +4236,83 @@ function App() {
         </div>
       </div>
     </div>)}
+    {showScannedInvoiceForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{...card,padding:'20px',width:'360px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'4px'}}>📋 Накладная распознана</b>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>Проверьте данные и выберите объект</p>
+        <input placeholder='Поставщик' value={newInvoice.supplier||''} onChange={e=>setNewInvoice({...newInvoice,supplier:e.target.value})} style={inp}/>
+        <select value={newInvoice.location||''} onChange={e=>setNewInvoice({...newInvoice,location:e.target.value})} style={inp}>
+          <option value=''>Выберите объект *</option>
+          <option value='Основной склад'>Основной склад</option>
+          {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+        </select>
+        <input type='date' value={newInvoice.date||new Date().toISOString().split('T')[0]} onChange={e=>setNewInvoice({...newInvoice,date:e.target.value})} style={inp}/>
+        <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Позиции:</b>
+        {(newInvoice.items||[]).map((item,idx)=>(<div key={idx} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr',gap:'6px',marginBottom:'6px'}}>
+          <input value={item.name} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],name:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+          <input type='number' value={item.quantity} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],quantity:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+          <input type='number' value={item.price} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],price:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+        </div>))}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'8px 0'}}>
+          <b style={{color:C.text,fontSize:'13px'}}>Итого: {Number(newInvoice.totalWithVat||0).toLocaleString()} ₽</b>
+        </div>
+        <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
+          <button onClick={async()=>{
+            if(!newInvoice.location) return alert('Выберите объект!');
+            await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newInvoice,addedBy:user.name,status:'Принята',date:newInvoice.date||new Date().toISOString().split('T')[0]})});
+            setShowScannedInvoiceForm(false);
+            await loadAll();
+            alert('Накладная сохранена!');
+          }} style={btnO}><Check size={14}/>Сохранить</button>
+          <button onClick={()=>setShowScannedInvoiceForm(false)} style={btnG}><X size={14}/>Отмена</button>
+        </div>
+      </div>
+    </div>)}
+    {showScanInvoice&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>📷 Сканировать накладную</b>
+        <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
+          <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={async e=>{
+            if(!e.target.files[0]) return;
+            setScanningInvoice(true);
+            const base64 = await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.readAsDataURL(e.target.files[0]);});
+            try {
+              const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:base64})});
+              const data = await resp.json();
+              if(!data.ok) throw new Error(data.error||'Ошибка');
+              const parsed = data.data;
+              const today = new Date().toISOString().split('T')[0];
+              setNewInvoice(prev=>({...prev,
+                supplier:parsed.supplier||'',
+                newSupplierName:parsed.supplier||'',
+                isNewSupplier:true,
+                date:today,
+                acceptedBy:user.name,
+                vat:'Без НДС',
+                totalWithVat:parsed.total||0,
+                items:(parsed.items||[]).map(item=>({
+                  name:item.name||'',
+                  quantity:String(item.quantity||''),
+                  unit:item.unit||'шт',
+                  price:String(item.price||''),
+                  category:''
+                }))
+              }));
+              setShowScanInvoice(false);
+              setShowScannedInvoiceForm(true);
+              alert('Накладная распознана! Проверьте данные.');
+            } catch(e){
+              alert('Не удалось распознать. Попробуйте ещё раз.');
+            }
+            setScanningInvoice(false);
+          }}/>
+          <div style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:'30px',textAlign:'center',cursor:'pointer'}}>
+            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт накладную...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📷</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Нажмите чтобы сфотографировать</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>ИИ автоматически заполнит форму</p></div>}
+          </div>
+        </label>
+        <button onClick={()=>setShowScanInvoice(false)} style={{...btnG,width:'100%',justifyContent:'center'}}><X size={14}/>Отмена</button>
+      </div>
+    </div>)}
     {showOwnExpenseForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
@@ -4264,7 +4344,7 @@ function App() {
       <b style={{color:'#111827',fontSize:'14px',display:'block',marginBottom:'12px'}}>⚡ Быстрые действия</b>
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
         {[
-          {icon:'📷',label:'Скан накладной',action:()=>{setShowQuickActions(false);setActivePage('warehouse');}},
+          {icon:'📷',label:'Скан накладной',action:()=>{setShowQuickActions(false);setShowScanInvoice(true);}},
           {icon:'💸',label:'Мои траты',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
           {icon:'💬',label:'Чат',action:()=>{setShowQuickActions(false);setActivePage('companychat');}},
           {icon:'👷',label:'Журнал работ',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
