@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, Star, AlertTriangle, CheckCircle, Clock, FileText, Briefcase, Wrench, Archive, CloudSun, QrCode, Calculator, Building2, Settings } from 'lucide-react';
 
-const API = window.location.hostname==='localhost'?'http://localhost:8001':'http://192.168.1.75:8001';
+const API = window.location.hostname==='localhost'?'http://localhost:8001':'http://192.168.1.82:8001';
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
 
 const requestPushPermission = async () => {
@@ -311,6 +311,7 @@ function App() {
   const [sverkaModal, setSverkaModal] = useState(null);
   const [showAiChat, setShowAiChat] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [projectPayments, setProjectPayments] = useState([]);
   const [accountablePayments, setAccountablePayments] = useState([]);
@@ -4159,7 +4160,7 @@ function App() {
         </div>
       </div>)}
       <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid #e5e7eb',display:'flex',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',display:'flex'}}>
-        {[{id:'dashboard',icon:'🏠',label:'Главная'},{id:'projects',icon:'📋',label:'Проекты'},{id:'warehouse',icon:'📦',label:'Склад'},{id:'companychat',icon:'💬',label:'Чат'},{id:'more',icon:'⋯',label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);}else{setActivePage(item.id);setShowMobileMenu(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?'#fff7ed':'transparent'}}><span style={{fontSize:'20px'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
+        {[{id:'dashboard',icon:'🏠',label:'Главная'},{id:'projects',icon:'📋',label:'Проекты'},{id:'warehouse',icon:'📦',label:'Склад'},{id:'companychat',icon:'💬',label:'Чат'},{id:'more',icon:'⋯',label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?'#fff7ed':'transparent'}}><span style={{fontSize:'20px'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
       {reportingPayment&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
@@ -4257,6 +4258,24 @@ function App() {
         </div>
       </div>
     </div>)}
+    {showQuickActions&&(<div onMouseDown={e=>{e.preventDefault();setShowQuickActions(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>)}
+    {showQuickActions&&(<div style={{position:'fixed',bottom:'65px',left:0,right:0,backgroundColor:'white',borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,boxShadow:'0 -8px 30px rgba(0,0,0,0.15)',maxHeight:'70vh',overflowY:'auto'}}>
+      <div style={{textAlign:'center',marginBottom:'12px'}}><div style={{width:'36px',height:'4px',backgroundColor:'#e5e7eb',borderRadius:'2px',margin:'0 auto'}}/></div>
+      <b style={{color:'#111827',fontSize:'14px',display:'block',marginBottom:'12px'}}>⚡ Быстрые действия</b>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
+        {[
+          {icon:'📷',label:'Скан накладной',action:()=>{setShowQuickActions(false);setActivePage('warehouse');}},
+          {icon:'💸',label:'Мои траты',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
+          {icon:'💬',label:'Чат',action:()=>{setShowQuickActions(false);setActivePage('companychat');}},
+          {icon:'👷',label:'Журнал работ',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
+          {icon:'📋',label:'Проекты',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
+          {icon:'🤖',label:'ИИ',action:()=>{setShowQuickActions(false);setShowAiAssistant(true);}},
+        ].map((btn,i)=>(<div key={i} onClick={btn.action} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'14px 8px',borderRadius:'12px',cursor:'pointer',backgroundColor:'#f9fafb',border:'1.5px solid #e5e7eb'}}>
+          <span style={{fontSize:'26px',marginBottom:'6px'}}>{btn.icon}</span>
+          <span style={{fontSize:'12px',color:'#374151',fontWeight:'500',textAlign:'center'}}>{btn.label}</span>
+        </div>))}
+      </div>
+    </div>)}
     {showMobileMenu&&(<div onMouseDown={e=>{e.preventDefault();setShowMobileMenu(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>)}
       {showMobileMenu&&(<div style={{position:'fixed',bottom:'60px',left:0,right:0,backgroundColor:'white',borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,maxHeight:'60vh',overflowY:'auto',boxShadow:'0 -8px 30px rgba(0,0,0,0.15)'}}>
         <div style={{textAlign:'center',marginBottom:'12px'}}><div style={{width:'36px',height:'4px',backgroundColor:'#e5e7eb',borderRadius:'2px',margin:'0 auto'}}/></div>
@@ -4264,6 +4283,7 @@ function App() {
           {menuItems.map(m=>(<div key={m.id} onClick={()=>{setActivePage(m.id);setShowMobileMenu(false);}} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'12px 8px',borderRadius:'12px',cursor:'pointer',backgroundColor:activePage===m.id?'#fff7ed':'#f9fafb'}}><span style={{fontSize:'24px',marginBottom:'4px'}}>{m.icon}</span><span style={{fontSize:'11px',color:activePage===m.id?'#f97316':'#374151',fontWeight:activePage===m.id?'700':'400',textAlign:'center',lineHeight:'1.3'}}>{m.label}</span></div>))}
         </div>
       </div>)}
+      <button onClick={()=>setShowQuickActions(s=>!s)} style={{position:'fixed',bottom:'145px',right:'20px',width:'48px',height:'48px',borderRadius:'50%',backgroundColor:'#10b981',border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'20px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>⚡</button>
       <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{position:'fixed',bottom:'80px',right:'20px',width:'56px',height:'56px',borderRadius:'50%',backgroundColor:C.accent,border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'24px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>🤖</button>
     </div>
   );
