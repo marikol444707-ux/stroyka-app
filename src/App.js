@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, Star, AlertTriangle, CheckCircle, Clock, FileText, Briefcase, Wrench, Archive, CloudSun, QrCode, Calculator, Building2, Settings } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, Star, AlertTriangle, CheckCircle, Clock, FileText, Briefcase, Wrench, Archive, CloudSun, QrCode, Calculator, Building2, Settings, Scan, CreditCard, Bot } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'http://192.168.1.82:8001';
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
@@ -4183,7 +4183,7 @@ function App() {
         </div>
       </div>)}
       <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:'flex',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',display:'flex'}}>
-        {[{id:'dashboard',icon:'🏠',label:'Главная'},{id:'projects',icon:'📋',label:'Проекты'},{id:'warehouse',icon:'📦',label:'Склад'},{id:'companychat',icon:'💬',label:'Чат'},{id:'more',icon:'⋯',label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{fontSize:'20px'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
+        {[{id:'dashboard',icon:<LayoutDashboard size={20}/>,label:'Главная'},{id:'projects',icon:<FolderKanban size={20}/>,label:'Объекты'},{id:'warehouse',icon:<Package size={20}/>,label:'Склад'},{id:'companychat',icon:<MessageSquare size={20}/>,label:'Чат'},{id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#6b7280'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
       {reportingPayment&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
@@ -4364,15 +4364,15 @@ function App() {
       <b style={{color:'#111827',fontSize:'14px',display:'block',marginBottom:'12px'}}>⚡ Быстрые действия</b>
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
         {[
-          {icon:'📷',label:'Скан накладной',action:()=>{setShowQuickActions(false);setShowScanInvoice(true);}},
-          {icon:'💸',label:'Мои траты',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
-          {icon:'💬',label:'Чат',action:()=>{setShowQuickActions(false);setActivePage('companychat');}},
-          {icon:'👷',label:'Журнал работ',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
-          {icon:'📋',label:'Проекты',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
-          {icon:'🤖',label:'ИИ',action:()=>{setShowQuickActions(false);setShowAiAssistant(true);}},
-        ].map((btn,i)=>(<div key={i} onClick={btn.action} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'14px 8px',borderRadius:'12px',cursor:'pointer',backgroundColor:'#f9fafb',border:'1.5px solid #e5e7eb'}}>
-          <span style={{fontSize:'26px',marginBottom:'6px'}}>{btn.icon}</span>
-          <span style={{fontSize:'12px',color:'#374151',fontWeight:'500',textAlign:'center'}}>{btn.label}</span>
+          {icon:<Scan size={24}/>,label:'Скан накладной',color:'#f97316',action:()=>{setShowQuickActions(false);setShowScanInvoice(true);}},
+          {icon:<CreditCard size={24}/>,label:'Мои траты',color:'#22c55e',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
+          {icon:<MessageSquare size={24}/>,label:'Чат',color:'#3b82f6',action:()=>{setShowQuickActions(false);setActivePage('companychat');}},
+          {icon:<FolderKanban size={24}/>,label:'Объекты',color:'#f59e0b',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
+          {icon:<Package size={24}/>,label:'Склад',color:'#8b5cf6',action:()=>{setShowQuickActions(false);setActivePage('warehouse');}},
+          {icon:<Bot size={24}/>,label:'ИИ',color:'#f97316',action:()=>{setShowQuickActions(false);setShowAiAssistant(true);}},
+        ].map((btn,i)=>(<div key={i} onClick={btn.action} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'14px 8px',borderRadius:'16px',cursor:'pointer',background:'rgba(30,41,59,0.6)',border:'1px solid rgba(148,163,184,0.12)'}}>
+          <div style={{width:'48px',height:'48px',borderRadius:'14px',background:`rgba(${btn.color==='#f97316'?'249,115,22':btn.color==='#22c55e'?'34,197,94':btn.color==='#3b82f6'?'59,130,246':btn.color==='#f59e0b'?'245,158,11':btn.color==='#8b5cf6'?'139,92,246':'249,115,22'},.15)`,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:'8px',color:btn.color}}>{btn.icon}</div>
+          <span style={{fontSize:'11px',color:'#94a3b8',fontWeight:'600',textAlign:'center'}}>{btn.label}</span>
         </div>))}
       </div>
     </div>)}
@@ -4384,7 +4384,7 @@ function App() {
         </div>
       </div>)}
       
-      <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{position:'fixed',bottom:'80px',right:'20px',width:'56px',height:'56px',borderRadius:'50%',backgroundColor:C.accent,border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'24px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>🤖</button>
+      <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{position:'fixed',bottom:'80px',right:'20px',width:'56px',height:'56px',borderRadius:'50%',backgroundColor:C.accent,border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'24px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}><Bot size={24} color='white'/></button>
     </div>
   );
 }
