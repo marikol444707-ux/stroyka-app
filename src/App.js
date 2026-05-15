@@ -2224,7 +2224,7 @@ function App() {
       </div>
 
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%'}}>
-        <div style={{backgroundColor:C.bgWhite,padding:'12px 24px',borderBottom:'1.5px solid '+C.border,display:'flex',alignItems:'center',gap:'15px',flexShrink:0,boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
+        <div style={{backgroundColor:C.bgWhite,padding:'12px 24px',borderBottom:'1.5px solid '+C.border,display:activePage==='dashboard'?'none':'flex',alignItems:'center',gap:'15px',flexShrink:0,boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
           <div style={{width:'8px',height:'32px',borderRadius:'4px',background:'linear-gradient(135deg,#f97316,#ea580c)',flexShrink:0}}/>
           <h2 style={{margin:0,color:C.text,fontSize:'18px',fontWeight:'700',flex:1}}>{allMenuItems.find(m=>m.id===activePage)?.label||'СтройКа'}</h2>
           <div style={{flex:1,maxWidth:'320px',position:'relative'}}>
@@ -2245,64 +2245,84 @@ function App() {
                   </div>{myNotifications(notifications).map(n=>(<div key={n.id} onClick={()=>{navigateTo(getNotifPage(n.type));setShowNotifications(false);const u=notifications.map(x=>x.id===n.id?{...x,read:true}:x);setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{padding:'12px 18px',borderBottom:'1px solid '+C.border,backgroundColor:n.read?'transparent':C.accentLight,cursor:'pointer'}}><p style={{margin:0,fontSize:'13px',color:C.text}}>{n.text}</p><p style={{margin:'3px 0 0',fontSize:'11px',color:C.textMuted}}>{n.time}</p></div>))}</div>)}
           </div>
         </div>
-        <div style={{flex:1,padding:'24px',overflowY:'auto',backgroundColor:C.bg}}>
-          {activePage==='dashboard'&&(<div>
-            {user&&['прораб','мастер','снабженец','кладовщик'].includes(user.role)&&(<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'12px'}}>
-              <div style={{...card,padding:'14px',cursor:'pointer'}} onClick={()=>setShowOwnExpenseForm(true)}>
-                <span style={{fontSize:'28px',display:'block',marginBottom:'6px'}}>💸</span>
-                <b style={{fontSize:'13px',color:C.text,display:'block'}}>Потратил свои</b>
-                {ownExpenses.filter(e=>e.employeeName===user.name&&e.status==='Ожидает').length>0
-                  ?<p style={{fontSize:'11px',color:C.warning,margin:'4px 0 0'}}>{'⏳ '+ownExpenses.filter(e=>e.employeeName===user.name&&e.status==='Ожидает').reduce((s,e)=>s+Number(e.amount),0).toLocaleString()+' ₽'}</p>
-                  :<p style={{fontSize:'11px',color:C.textMuted,margin:'4px 0 0'}}>Нажмите чтобы добавить</p>}
-              </div>
-              {accountablePayments.filter(ac=>ac.givenTo===user.name).length>0
-                ?<div style={{...card,padding:'14px',cursor:'pointer'}} onClick={()=>setReportingPayment(accountablePayments.filter(ac=>ac.givenTo===user.name)[0])}>
-                  <span style={{fontSize:'28px',display:'block',marginBottom:'6px'}}>💵</span>
-                  <b style={{fontSize:'13px',color:C.text,display:'block'}}>Подотчёт</b>
-                  <p style={{fontSize:'15px',color:C.accent,margin:'4px 0 0',fontWeight:'700'}}>{accountablePayments.filter(ac=>ac.givenTo===user.name).reduce((s,ac)=>s+Math.max(0,Number(ac.amount)-Number(ac.spentAmount||0)),0).toLocaleString()+' ₽'}</p>
-                  <p style={{fontSize:'11px',color:C.textMuted,margin:'2px 0 0'}}>Остаток</p>
-                  <p style={{fontSize:'11px',color:C.accent,margin:'6px 0 0',fontWeight:'600'}}>👆 Нажмите для отчёта</p>
+        <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
+          {activePage==='dashboard'&&(()=>{
+            const risks=[...lowStock.map(m=>'⚠️ Мало: '+m.name),...lowMainStock.map(m=>'⚠️ Склад: '+m.name)].slice(0,4);
+            const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+Number(p.progress||0),0)/projects.length):0;
+            return(
+            <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'28px',flexWrap:'wrap',gap:'12px'}}>
+                <div>
+                  <h1 style={{fontSize:'28px',fontWeight:'800',letterSpacing:'-.04em',margin:0,color:'#f8fafc'}}>Центр управления стройкой</h1>
+                  <p style={{color:'#94a3b8',margin:'6px 0 0',fontSize:'14px'}}>Контроль объектов, финансов, склада и рисков</p>
                 </div>
-                :<div style={{...card,padding:'14px',opacity:0.5}}>
-                  <span style={{fontSize:'28px',display:'block',marginBottom:'6px'}}>💵</span>
-                  <b style={{fontSize:'13px',color:C.text,display:'block'}}>Подотчёт</b>
-                  <p style={{fontSize:'11px',color:C.textMuted,margin:'4px 0 0'}}>Нет выдач</p>
-                </div>}
-            </div>)}
-            {onlineUsers.length>0&&(<div style={{...card,padding:'12px 16px',marginBottom:'16px',display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
-              <span style={{fontSize:'13px',color:C.textSec,fontWeight:'600'}}>🟢 Сейчас онлайн ({onlineUsers.length}):</span>
-              {onlineUsers.map(u=>(<div key={u.userId} style={{display:'flex',alignItems:'center',gap:'6px',padding:'4px 10px',borderRadius:'20px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
-                <div style={{width:'8px',height:'8px',borderRadius:'50%',backgroundColor:'#22c55e'}}/>
-                <span style={{fontSize:'12px',color:C.accent,fontWeight:'600'}}>{u.userName}</span>
-                <span style={{fontSize:'11px',color:C.textSec}}>({ROLE_LABELS[u.userRole]||u.userRole})</span>
-              </div>))}
-            </div>)}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'12px',marginBottom:'16px'}}>
-              {[{label:'Проекты',value:projects.length,icon:'📋',color:C.accent,page:'projects'},{label:'Сотрудники',value:staff.length,icon:'👷',color:C.success,page:'staff'},{label:'Материалы',value:materials.length+warehouseMain.length,icon:'📦',color:C.info,page:'warehouse'},{label:'На складе',value:warehouseMain.reduce((s,m)=>s+(m.quantity*m.price),0).toLocaleString()+' ₽',icon:'🏭',color:C.purple,page:'warehouse'}].map((stat,i)=>(<div key={i} onClick={()=>setActivePage(stat.page)} style={{...card,padding:'20px',cursor:'pointer'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div><p style={{margin:'0 0 6px',color:C.textSec,fontSize:'12px',fontWeight:'500'}}>{stat.label}</p><b style={{fontSize:'22px',color:C.text,fontWeight:'800'}}>{stat.value}</b></div><span style={{fontSize:'28px'}}>{stat.icon}</span></div></div>))}
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:'12px',marginBottom:'16px'}}>
-              <div style={{...card,padding:'20px'}}>
-                <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Активные проекты</h3>
-                {projects.filter(p=>p.status==='В работе').slice(0,5).map(p=>{const cat=expByCategory(p.name);const total=Object.values(cat).reduce((s,v)=>s+v,0);const pct=p.budget>0?Math.min(100,Math.round(total/p.budget*100)):0;return(<div key={p.id} onClick={()=>setActivePage('projects')} style={{padding:'12px 0',borderBottom:'1px solid '+C.border,cursor:'pointer'}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}><b style={{fontSize:'13px',color:C.text}}>{p.name}</b><span style={{fontSize:'12px',color:C.textSec}}>{pct+'%'}</span></div><div style={{backgroundColor:C.bgGray,borderRadius:'4px',height:'6px'}}><div style={{backgroundColor:pct>80?C.danger:pct>60?C.warning:C.success,width:pct+'%',height:'100%',borderRadius:'4px',transition:'width 0.3s'}}/></div></div>);})}
-                {projects.filter(p=>p.status==='В работе').length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Нет активных проектов</p>}
+                <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                  <div ref={notifRef} style={{position:'relative'}}>
+                    <button onClick={()=>setShowNotifications(!showNotifications)} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                      <Bell size={18} color='#94a3b8'/>
+                      {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
+                    </button>
+                  </div>
+                  <button onClick={()=>setShowQuickActions(true)} style={{background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'14px',padding:'10px 18px',color:'white',fontWeight:'700',cursor:'pointer',fontSize:'13px',boxShadow:'0 8px 24px rgba(234,88,12,.35)'}}>⚡ Быстро</button>
+                </div>
               </div>
-              <div style={{...card,padding:'20px'}}>
-                <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>⚠️ Мало на складе</h3>
-                {[...lowStock,...lowMainStock].slice(0,6).map(m=>(<div key={m.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={{fontSize:'12px',color:C.text}}>{m.name}</span><span style={{fontSize:'12px',color:C.danger,fontWeight:'600'}}>{m.quantity+' '+m.unit}</span></div>))}
-                {lowStock.length===0&&lowMainStock.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'13px'}}>Всё в норме ✅</p>}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'16px',marginBottom:'20px'}}>
+                {[{label:'Объекты',value:projects.filter(p=>p.status!=='Завершён').length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)'},
+                  {label:'Прогресс',value:avgProg+'%',sub:'среднее выполнение',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)'},
+                  {label:'Бюджет',value:Math.round(projects.reduce((s,p)=>s+Number(p.budget||0),0)/1000000)+' млн',sub:'общий бюджет',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)'}
+                ].map((k,i)=>(
+                  <div key={i} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
+                    <span style={{display:'inline-flex',borderRadius:'999px',padding:'5px 10px',fontSize:'11px',fontWeight:'700',background:k.bg,color:k.color,border:'1px solid '+k.border}}>{k.label}</span>
+                    <div style={{fontSize:'34px',fontWeight:'800',letterSpacing:'-.04em',margin:'10px 0 4px',color:'#f8fafc'}}>{k.value}</div>
+                    <div style={{color:'#94a3b8',fontSize:'13px'}}>{k.sub}</div>
+                  </div>
+                ))}
               </div>
+              <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:'16px'}}>
+                <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
+                  <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
+                  {projects.slice(0,5).map(p=>(
+                    <div key={p.id} onClick={()=>{setExpandedProject(p.id);setActivePage('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
+                        <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
+                        <span style={{display:'inline-flex',borderRadius:'999px',padding:'4px 10px',fontSize:'11px',fontWeight:'700',background:'rgba(234,88,12,.14)',color:'#fdba74',border:'1px solid rgba(234,88,12,.32)',whiteSpace:'nowrap'}}>{p.progress||0}%</span>
+                      </div>
+                      <div style={{height:'6px',background:'rgba(148,163,184,.16)',borderRadius:'999px',overflow:'hidden',margin:'10px 0'}}>
+                        <div style={{height:'100%',borderRadius:'999px',background:'linear-gradient(90deg,#f97316,#22c55e)',width:`${p.progress||0}%`}}/>
+                      </div>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Бюджет</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{Number(p.budget||0).toLocaleString()+' ₽'}</div></div>
+                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Срок</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{p.deadline||'—'}</div></div>
+                      </div>
+                      <div style={{marginTop:'10px',padding:'8px 12px',borderRadius:'12px',background:'rgba(234,88,12,.12)',border:'1px solid rgba(234,88,12,.24)',color:'#fed7aa',fontSize:'12px',fontWeight:'700'}}>{Number(p.progress||0)<40?'⚠️ AI: низкий темп':Number(p.progress||0)>80?'✅ AI: близко к сдаче':'🔵 AI: темп в норме'}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
+                  <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
+                    <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>AI-инсайты</h2>
+                    <div style={{borderRadius:'16px',padding:'14px',background:'linear-gradient(135deg,rgba(234,88,12,.16),rgba(30,41,59,.7))',border:'1px solid rgba(249,115,22,.28)',marginBottom:'12px'}}>
+                      <div style={{fontWeight:'800',marginBottom:'6px',color:'#f8fafc',fontSize:'14px'}}>Construction Intelligence</div>
+                      <div style={{color:'#cbd5e1',fontSize:'13px',lineHeight:'1.5'}}>Система анализирует склад, финансы и задачи.</div>
+                    </div>
+                    {risks.length>0?risks.map((r,i)=><div key={i} style={{padding:'10px 12px',borderRadius:'12px',background:'rgba(239,68,68,.10)',border:'1px solid rgba(239,68,68,.22)',color:'#fca5a5',fontSize:'12px',marginBottom:'8px'}}>{r}</div>):<div style={{color:'#94a3b8',fontSize:'13px',padding:'8px 0'}}>Критических рисков нет ✅</div>}
+                  </div>
+                  <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
+                    <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>Сегодня</h2>
+                    {activityLog.slice(0,5).map((a,i)=>(
+                      <div key={i} style={{display:'flex',gap:'12px',padding:'10px 0',borderBottom:'1px solid rgba(148,163,184,.18)'}}>
+                        <div style={{width:'10px',height:'10px',borderRadius:'50%',background:'#f97316',boxShadow:'0 0 14px rgba(249,115,22,.8)',marginTop:'4px',flexShrink:0}}/>
+                        <div><div style={{fontSize:'13px',fontWeight:'700',color:'#f8fafc'}}>{a.action}</div><div style={{color:'#94a3b8',fontSize:'11px',marginTop:'2px'}}>{a.user+' · '+a.time}</div></div>
+                      </div>
+                    ))}
+                    {activityLog.length===0&&<div style={{color:'#94a3b8',fontSize:'13px'}}>Пока нет активности</div>}
+                  </div>
+                </div>
+              </div>
+              <div style={{height:'100px'}}/>
             </div>
-            <div style={{...card,padding:'20px',marginBottom:'20px'}}>
-              <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>📋 Журнал работ — требуют проверки</h3>
-              {workJournal.filter(j=>j.status==='На проверке').slice(0,5).map(j=>(<div key={j.id} style={{padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'10px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{j.masterName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{j.description+' — '+j.quantity+' '+j.unit+' · '+j.project}</p></div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>confirmJ(j)} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={12}/>Ок</button><button onClick={()=>setRejectingEntry(j)} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><X size={12}/>Нет</button></div></div>))}
-              {workJournal.filter(j=>j.status==='На проверке').length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'10px',fontSize:'13px'}}>Нет работ на проверке ✅</p>}
-            </div>
-            {unexpectedWorksList.filter(u=>u.status==='Ожидает согласования').length>0&&(<div style={{...card,padding:'20px',marginBottom:'20px',borderLeft:'3px solid '+C.warning}}>
-              <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>❓ Непредвиденные работы — требуют согласования</h3>
-              {unexpectedWorksList.filter(u=>u.status==='Ожидает согласования').map(u=>(<div key={u.id} style={{padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'10px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><div><b style={{fontSize:'13px',color:C.text}}>{u.description}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{u.projectName+' · '+u.addedBy+' · '+u.unit}</p></div>{isLeadership()&&(<div style={{display:'flex',gap:'6px',alignItems:'center'}}><input placeholder="Цена" type="number" style={{width:'80px',padding:'4px 8px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} onChange={e=>e.target.dataset.price=e.target.value}/><button onClick={e=>{const price=e.target.previousSibling.dataset.price||0;approveUnexpectedWork(u,price);}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={12}/>Утвердить</button><button onClick={async()=>{await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><X size={12}/>Отклонить</button></div>)}</div></div>))}
-            </div>)}
-          </div>)}
-
+            );
+          })()}
           {activePage==='projects'&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
@@ -4162,8 +4182,8 @@ function App() {
           }} style={{...btnO,padding:'8px 14px'}}>➤</button>
         </div>
       </div>)}
-      <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid #e5e7eb',display:'flex',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',display:'flex'}}>
-        {[{id:'dashboard',icon:'🏠',label:'Главная'},{id:'projects',icon:'📋',label:'Проекты'},{id:'warehouse',icon:'📦',label:'Склад'},{id:'companychat',icon:'💬',label:'Чат'},{id:'more',icon:'⋯',label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?'#fff7ed':'transparent'}}><span style={{fontSize:'20px'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
+      <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:'flex',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',display:'flex'}}>
+        {[{id:'dashboard',icon:'🏠',label:'Главная'},{id:'projects',icon:'📋',label:'Проекты'},{id:'warehouse',icon:'📦',label:'Склад'},{id:'companychat',icon:'💬',label:'Чат'},{id:'more',icon:'⋯',label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{fontSize:'20px'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
       {reportingPayment&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
@@ -4339,7 +4359,7 @@ function App() {
       </div>
     </div>)}
     {showQuickActions&&(<div onMouseDown={e=>{e.preventDefault();setShowQuickActions(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>)}
-    {showQuickActions&&(<div style={{position:'fixed',bottom:'65px',left:0,right:0,backgroundColor:'white',borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,boxShadow:'0 -8px 30px rgba(0,0,0,0.15)',maxHeight:'70vh',overflowY:'auto'}}>
+    {showQuickActions&&(<div style={{position:'fixed',bottom:'65px',left:0,right:0,backgroundColor:'#0f172a',borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,boxShadow:'0 -8px 30px rgba(0,0,0,0.4)',maxHeight:'70vh',overflowY:'auto',border:'1px solid rgba(148,163,184,0.18)'}}>
       <div style={{textAlign:'center',marginBottom:'12px'}}><div style={{width:'36px',height:'4px',backgroundColor:'#e5e7eb',borderRadius:'2px',margin:'0 auto'}}/></div>
       <b style={{color:'#111827',fontSize:'14px',display:'block',marginBottom:'12px'}}>⚡ Быстрые действия</b>
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
@@ -4360,10 +4380,10 @@ function App() {
       {showMobileMenu&&(<div style={{position:'fixed',bottom:'60px',left:0,right:0,backgroundColor:'white',borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,maxHeight:'60vh',overflowY:'auto',boxShadow:'0 -8px 30px rgba(0,0,0,0.15)'}}>
         <div style={{textAlign:'center',marginBottom:'12px'}}><div style={{width:'36px',height:'4px',backgroundColor:'#e5e7eb',borderRadius:'2px',margin:'0 auto'}}/></div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
-          {menuItems.map(m=>(<div key={m.id} onClick={()=>{setActivePage(m.id);setShowMobileMenu(false);}} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'12px 8px',borderRadius:'12px',cursor:'pointer',backgroundColor:activePage===m.id?'#fff7ed':'#f9fafb'}}><span style={{fontSize:'24px',marginBottom:'4px'}}>{m.icon}</span><span style={{fontSize:'11px',color:activePage===m.id?'#f97316':'#374151',fontWeight:activePage===m.id?'700':'400',textAlign:'center',lineHeight:'1.3'}}>{m.label}</span></div>))}
+          {menuItems.map(m=>(<div key={m.id} onClick={()=>{setActivePage(m.id);setShowMobileMenu(false);}} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'12px 8px',borderRadius:'12px',cursor:'pointer',backgroundColor:activePage===m.id?'rgba(249,115,22,0.15)':'rgba(30,41,59,0.6)',border:'1px solid rgba(148,163,184,0.12)'}}><span style={{fontSize:'24px',marginBottom:'4px'}}>{m.icon}</span><span style={{fontSize:'11px',color:activePage===m.id?'#f97316':'#94a3b8',fontWeight:activePage===m.id?'700':'400',textAlign:'center',lineHeight:'1.3'}}>{m.label}</span></div>))}
         </div>
       </div>)}
-      <button onClick={()=>setShowQuickActions(s=>!s)} style={{position:'fixed',bottom:'145px',right:'20px',width:'48px',height:'48px',borderRadius:'50%',backgroundColor:'#10b981',border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'20px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>⚡</button>
+      
       <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{position:'fixed',bottom:'80px',right:'20px',width:'56px',height:'56px',borderRadius:'50%',backgroundColor:C.accent,border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'24px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>🤖</button>
     </div>
   );
