@@ -1846,15 +1846,15 @@ function App() {
     {id:'analytics',icon:<BarChart3 size={18}/>,label:'Аналитика'},
     {id:'crm',icon:<Handshake size={18}/>,label:'CRM'},
     {id:'projects',icon:<FolderKanban size={18}/>,label:'Проекты'},
-    {id:'clients',icon:<Users size={18}/>,label:'Клиенты'},
+    
     {id:'warehouse',icon:<Package size={18}/>,label:'Склад'},
     {id:'suppliers',icon:<Truck size={18}/>,label:'Поставщики'},
     {id:'accounting',icon:<DollarSign size={18}/>,label:'Бухгалтерия'},
     {id:'personnel',icon:<UserCheck size={18}/>,label:'Персонал'},
-    {id:'pricelists',icon:<Tag size={18}/>,label:'Прайс-листы'},
+    
     {id:'estimates',icon:<Calculator size={18}/>,label:'Сметы'},
     {id:'weather',icon:<CloudSun size={18}/>,label:'Погода / ЖПР'},
-    {id:'companychat',icon:<MessageSquare size={18}/>,label:'Чат'},
+    
     {id:'activitylog',icon:<ScrollText size={18}/>,label:'Журнал'},
     {id:'settings',icon:<Settings size={18}/>,label:'Настройки'},
     {id:'users',icon:<Shield size={18}/>,label:'Пользователи'},
@@ -2220,7 +2220,6 @@ function App() {
           {menuItems.map(item=>(<div key={item.id} onClick={()=>navigateTo(item.id)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',marginBottom:'2px',backgroundColor:activePage===item.id?'rgba(249,115,22,0.15)':'transparent',border:activePage===item.id?'1px solid rgba(249,115,22,0.3)':'1px solid transparent',transition:'all 0.15s'}}><span style={{color:activePage===item.id?C.accent:'rgba(255,255,255,0.5)',flexShrink:0}}>{item.icon}</span><span style={{fontSize:'13px',fontWeight:activePage===item.id?'600':'400',color:activePage===item.id?'white':'rgba(255,255,255,0.6)',flex:1}}>{item.label}</span>{activePage===item.id&&<ChevronRight size={14} color={C.accent}/>}</div>))}
         </div>
         <div style={{padding:'10px',borderTop:'1px solid rgba(255,255,255,0.08)'}}>
-          <button onClick={()=>setShowAiAssistant(true)} style={{width:'100%',padding:'10px 12px',backgroundColor:'rgba(249,115,22,0.15)',border:'1px solid rgba(249,115,22,0.3)',borderRadius:'8px',cursor:'pointer',color:'#f97316',fontSize:'13px',fontWeight:'600',display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>🤖 ИИ Помощник</button>
           <div onClick={()=>setUser(null)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',backgroundColor:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)'}}><LogOut size={18} color='#ef4444'/><span style={{fontSize:'13px',color:'#ef4444',fontWeight:'500'}}>Выйти</span></div>
         </div>
       </div>
