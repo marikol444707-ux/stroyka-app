@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, Star, AlertTriangle, CheckCircle, Clock, FileText, Briefcase, Wrench, Archive, CloudSun, QrCode, Calculator, Building2, Settings, Scan, CreditCard, Bot } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, Star, AlertTriangle, CheckCircle, Clock, FileText, Briefcase, Wrench, Archive, CloudSun, QrCode, Calculator, Building2, Settings, Scan, CreditCard, Bot, Camera } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'http://192.168.1.82:8001';
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
@@ -312,6 +312,8 @@ function App() {
   const [showAiChat, setShowAiChat] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
+  const [showChatPanel, setShowChatPanel] = useState(false);
+  const [companyChatInput, setCompanyChatInput] = useState('');
   const [showScanInvoice, setShowScanInvoice] = useState(false);
   const [showScannedInvoiceForm, setShowScannedInvoiceForm] = useState(false);
   const [scanningInvoice, setScanningInvoice] = useState(false);
@@ -2257,6 +2259,8 @@ function App() {
                   <p style={{color:'#94a3b8',margin:'6px 0 0',fontSize:'14px'}}>Контроль объектов, финансов, склада и рисков</p>
                 </div>
                 <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                  <button onClick={()=>setShowChatPanel(s=>!s)} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><MessageSquare size={18} color='#94a3b8'/></button>
+                  <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><Bot size={18} color='#94a3b8'/></button>
                   <div ref={notifRef} style={{position:'relative'}}>
                     <button onClick={()=>setShowNotifications(!showNotifications)} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
                       <Bell size={18} color='#94a3b8'/>
@@ -4183,7 +4187,7 @@ function App() {
         </div>
       </div>)}
       <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:'flex',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',display:'flex'}}>
-        {[{id:'dashboard',icon:<LayoutDashboard size={20}/>,label:'Главная'},{id:'projects',icon:<FolderKanban size={20}/>,label:'Объекты'},{id:'warehouse',icon:<Package size={20}/>,label:'Склад'},{id:'companychat',icon:<MessageSquare size={20}/>,label:'Чат'},{id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#6b7280'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
+        {[{id:'dashboard',icon:<LayoutDashboard size={20}/>,label:'Главная'},{id:'projects',icon:<FolderKanban size={20}/>,label:'Объекты'},{id:'warehouse',icon:<Package size={20}/>,label:'Склад'},{id:'companychat',icon:<MessageSquare size={20}/>,label:'Чат',isPanel:true},{id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else if(item.id==='companychat'){setShowChatPanel(s=>!s);setShowMobileMenu(false);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#6b7280'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
       {reportingPayment&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
@@ -4384,7 +4388,34 @@ function App() {
         </div>
       </div>)}
       
-      <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{position:'fixed',bottom:'80px',right:'20px',width:'56px',height:'56px',borderRadius:'50%',backgroundColor:C.accent,border:'none',cursor:'pointer',boxShadow:'0 4px 16px rgba(0,0,0,0.2)',fontSize:'24px',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}><Bot size={24} color='white'/></button>
+      
+    {showChatPanel&&(<div onMouseDown={e=>{e.preventDefault();setShowChatPanel(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:399}}/>)}
+    {showChatPanel&&(<div style={{position:'fixed',bottom:'70px',right:'12px',width:'340px',height:'460px',backgroundColor:'#0f172a',borderRadius:'16px',zIndex:400,display:'flex',flexDirection:'column',boxShadow:'0 8px 32px rgba(0,0,0,0.5)',border:'1px solid rgba(148,163,184,0.18)'}}>
+      <div style={{padding:'16px',borderBottom:'1px solid rgba(148,163,184,0.18)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <b style={{color:'#f8fafc',fontSize:'16px'}}>💬 Чат</b>
+        <button onClick={()=>setShowChatPanel(false)} style={{background:'none',border:'none',cursor:'pointer',color:'#94a3b8'}}><X size={20}/></button>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'12px',display:'flex',flexDirection:'column',gap:'8px'}}>
+        {companyMessages.slice(-20).map((msg,i)=>(
+          <div key={i} style={{display:'flex',justifyContent:(msg.author_name||msg.author)===user.name?'flex-end':'flex-start'}}>
+            <div style={{maxWidth:'80%',padding:'10px 14px',borderRadius:(msg.author_name||msg.author)===user.name?'16px 16px 4px 16px':'16px 16px 16px 4px',backgroundColor:(msg.author_name||msg.author)===user.name?'#ea580c':'rgba(30,41,59,0.8)',color:'#f8fafc',fontSize:'13px',lineHeight:'1.5'}}>
+              {(msg.author_name||msg.author)!==user.name&&<div style={{fontSize:'11px',color:'#94a3b8',marginBottom:'4px',fontWeight:'600'}}>{msg.author_name||msg.author}</div>}
+              {msg.text}
+              <div style={{fontSize:'10px',color:'rgba(255,255,255,0.5)',marginTop:'4px',textAlign:'right'}}>{msg.time}</div>
+            </div>
+          </div>
+        ))}
+        {companyMessages.length===0&&<div style={{textAlign:'center',color:'#94a3b8',padding:'30px',fontSize:'14px'}}>Нет сообщений</div>}
+      </div>
+      <div style={{padding:'12px',borderTop:'1px solid rgba(148,163,184,0.18)',display:'flex',gap:'8px'}}>
+        <label style={{padding:'8px',background:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><Camera size={16} color='#94a3b8'/><input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);sendCompanyChatMessage('[Фото]',url);}}}/></label>
+        <label style={{padding:'8px',background:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><FileText size={16} color='#94a3b8'/><input type='file' accept='.pdf,.doc,.docx' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){sendCompanyChatMessage('[Документ] '+e.target.files[0].name,'');}}}/>  </label>
+        <input placeholder="Сообщение..." value={companyChatInput||''} onChange={e=>setCompanyChatInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&companyChatInput?.trim()){sendCompanyChatMessage(companyChatInput);setCompanyChatInput('');}}} style={{flex:1,padding:'10px 14px',backgroundColor:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'12px',color:'#f8fafc',fontSize:'13px',outline:'none'}}/>
+        <button onClick={()=>{if(companyChatInput?.trim()){sendCompanyChatMessage(companyChatInput);setCompanyChatInput('');}}} style={{padding:'10px 16px',backgroundColor:'#ea580c',border:'none',borderRadius:'12px',color:'white',cursor:'pointer'}}><MessageSquare size={16}/></button>
+      </div>
+    </div>)}
+
+      
     </div>
   );
 }
