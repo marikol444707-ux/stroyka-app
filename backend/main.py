@@ -1945,57 +1945,106 @@ async def parse_smeta(file: UploadFile = File(...)):
         ws = wb.active
         results = []
         current_section = "Без раздела"
-        current_item = None
         
-        for row in ws.iter_rows(min_row=40, values_only=True):
+        # Определяем формат файла - ищем строку с заголовками
+        data_start_row = 1
+        file_type = "unknown"
+        
+        for i, row in enumerate(ws.iter_rows(max_row=30, values_only=True)):
+            vals = [str(v).strip() for v in row if v is not None]
+            row_text = " ".join(vals).lower()
+            if "наименование" in row_text and ("ед" in row_text or "кол" in row_text):
+                data_start_row = i + 2
+                if "обоснование" in row_text:
+                    file_type = "vedomost"
+                else:
+                    file_type = "defect"
+                break
+        
+        for i, row in enumerate(ws.iter_rows(min_row=data_start_row, values_only=True)):
             try:
-                col1 = row[0] if len(row) > 0 else None
-                col3 = row[2] if len(row) > 2 else None
-                col8 = row[7] if len(row) > 7 else None
-                col9 = row[8] if len(row) > 8 else None
-                col16 = row[15] if len(row) > 15 else None
-            except:
+                # Определяем раздел
+                vals = [v for v in row if v is not None]
+                if not vals:
+                    continue
+                
+                first_val = str(row[0]).strip() if row[0] is not None else ""
+                
+                # Проверяем раздел
+                if "Раздел" in first_val or "РАЗДЕЛ" in first_val or "раздел" in first_val:
+                    current_section = first_val
+                    continue
+                
+                if file_type == "defect":
+                    # Дефектная ведомость: №, Наименование, Ед.изм, Кол-во
+                    name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+                    unit = str(row[2]).strip() if len(row) > 2 and row[2] else "шт"
+                    qty = float(row[3]) if len(row) > 3 and row[3] and str(row[3]).replace('.','').isdigit() else 0
+                    
+                    if name and len(name) > 5 and name not in ["Наименование", "2"]:
+                        results.append({
+                            "section": current_section,
+                            "name": name,
+                            "unit": unit,
+                            "quantity": qty,
+                            "total": 0
+                        })
+                
+                elif file_type == "vedomost":
+                    # Ведомость ресурсов: №, Обоснование, Наименование, Ед, Кол-во, Цена ед, Итого
+                    name = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+                    unit = str(row[3]).strip() if len(row) > 3 and row[3] else "шт"
+                    qty = 0
+                    total = 0
+                    try:
+                        qty = float(row[4]) if len(row) > 4 and row[4] else 0
+                    except:
+                        pass
+                    try:
+                        total = float(row[6]) if len(row) > 6 and row[6] else 0
+                    except:
+                        pass
+                    
+                    if name and len(name) > 5 and name not in ["Наименование", "3"]:
+                        results.append({
+                            "section": current_section,
+                            "name": name,
+                            "unit": unit,
+                            "quantity": round(qty, 4),
+                            "total": round(total, 2)
+                        })
+                else:
+                    # Универсальный парсер
+                    for col_idx in range(len(row)):
+                        val = row[col_idx]
+                        if val and isinstance(val, str) and len(val) > 10:
+                            name = val.strip()
+                            unit = str(row[col_idx+1]).strip() if col_idx+1 < len(row) and row[col_idx+1] else "шт"
+                            qty = 0
+                            try:
+                                qty = float(row[col_idx+2]) if col_idx+2 < len(row) and row[col_idx+2] else 0
+                            except:
+                                pass
+                            results.append({
+                                "section": current_section,
+                                "name": name,
+                                "unit": unit,
+                                "quantity": qty,
+                                "total": 0
+                            })
+                            break
+            except Exception as e:
                 continue
-            
-            if col1 and isinstance(col1, str) and "Раздел" in col1:
-                current_section = col1.strip()
-                continue
-            
-            if col3 is None:
-                continue
-            
-            col3_str = str(col3).strip()
-            
-            if col1 is not None and col8 is not None and col3_str and len(col3_str) > 10:
-                try:
-                    num = int(float(str(col1)))
-                    current_item = {
-                        "section": current_section,
-                        "num": num,
-                        "name": col3_str,
-                        "unit": str(col8) if col8 else "",
-                        "quantity": float(col9) if col9 else 0,
-                        "total": 0
-                    }
-                except:
-                    pass
-            
-            if col3_str == "Всего по позиции" and current_item and col16:
-                try:
-                    current_item["total"] = float(col16)
-                    # Фильтруем ненормируемые и служебные позиции
-                    skip_words = ["ненормируемые", "накладные расходы", "сметная прибыль", "временные здания"]
-                    if not any(w in current_item["name"].lower() for w in skip_words) and current_item["unit"] != "%":
-                        results.append(dict(current_item))
-                except:
-                    pass
-                current_item = None
         
         os.unlink(tmp_path)
         return {"items": results, "count": len(results)}
     except Exception as e:
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
         return {"error": str(e)}
+
 
 @app.get("/estimates")
 def get_estimates():
