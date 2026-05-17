@@ -2019,33 +2019,29 @@ async def parse_smeta(file: UploadFile = File(...)):
                             "total": round(total, 2)
                         })
                 elif file_type == "lsr":
-                    # ЛСР Гранд Смета: №, Обоснование, Наименование, Ед, Кол-во, Стоимость
-                    # Строки раздела начинаются со слова "Раздел"
-                    # Строки позиций: row[0] = номер, row[2] = наименование
+                    # ЛСР Гранд Смета
+                    # col[0]=номер, col[2]=наименование, col[7]=ед, col[8]=кол-во, col[15]=стоимость
                     num = row[0]
                     name_col = str(row[2]).strip() if len(row) > 2 and row[2] else ""
                     
-                    # Пропускаем строки без номера позиции или технические строки
                     if not num or not isinstance(num, (int, float)):
                         continue
                     if not name_col or len(name_col) < 5:
                         continue
-                    # Пропускаем строки-описания (Объем=...)
-                    if "Объем=" in name_col or "объем=" in name_col.lower():
+                    if "Объем=" in name_col or "Итого" in name_col or "ФОТ" in name_col:
                         continue
                     
-                    unit = str(row[3]).strip() if len(row) > 3 and row[3] else "шт"
+                    unit = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
                     qty = 0
                     total = 0
                     try:
-                        qty = float(row[4]) if len(row) > 4 and row[4] else 0
+                        qty = float(row[8]) if len(row) > 8 and row[8] else 0
                     except:
                         pass
-                    # Стоимость в последней непустой колонке из 6-14
-                    for col_idx in range(min(len(row)-1, 14), 5, -1):
-                        if row[col_idx] and isinstance(row[col_idx], (int, float)):
-                            total = float(row[col_idx])
-                            break
+                    try:
+                        total = float(row[15]) if len(row) > 15 and row[15] else 0
+                    except:
+                        pass
                     
                     if name_col and len(name_col) > 5:
                         results.append({
