@@ -1976,12 +1976,15 @@ async def parse_smeta(file: UploadFile = File(...)):
                     continue
                 
                 if file_type == "defect":
+                    # Пропускаем строку с номерами колонок (1,2,3,4,5)
+                    if all(v is None or (isinstance(v, (int,float)) and v < 10) for v in row[:5]):
+                        continue
                     # Дефектная ведомость: №, Наименование, Ед.изм, Кол-во
                     name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
                     unit = str(row[2]).strip() if len(row) > 2 and row[2] else "шт"
                     qty = float(row[3]) if len(row) > 3 and row[3] and str(row[3]).replace('.','').isdigit() else 0
                     
-                    if name and len(name) > 5 and name not in ["Наименование", "2"]:
+                    if name and len(name) > 5 and name not in ["Наименование", "2"] and not all(c.isdigit() or c == ' ' for c in name):
                         results.append({
                             "section": current_section,
                             "name": name,
