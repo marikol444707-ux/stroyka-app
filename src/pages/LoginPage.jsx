@@ -56,10 +56,16 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginEr
           <button onClick={()=>{setPage('register');setLoginError('');}} style={{width:'100%',padding:'14px',borderRadius:'12px',border:'1px solid #3a3a3c',background:'#252527',cursor:'pointer',color:'#aeaeb2',fontSize:'13px',fontWeight:'500',marginBottom:'12px'}}>Вход по коду</button>
           <div style={{background:'#252527',borderRadius:'13px',padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:'14px'}}>
             <div>
-              <div style={{fontSize:'14px',fontWeight:'700',color:'#fff',marginBottom:'4px'}}>Ваши данные под защитой</div>
+              <div style={{fontSize:'14px',fontWeight:'700',color:'#fff',marginBottom:'4px'}}>Ваши данные<br/>под защитой</div>
               <div style={{fontSize:'11px',color:'#636366',lineHeight:1.5}}>Современные технологии шифрования</div>
             </div>
-            <div style={{width:'60px',height:'60px',borderRadius:'14px',background:'linear-gradient(145deg,#162a52,#0d1e3d)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'28px',flexShrink:0}}>🛡️</div>
+            <div style={{width:'60px',height:'60px',borderRadius:'14px',background:'linear-gradient(145deg,#162a52,#0d1e3d)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,boxShadow:'0 4px 20px rgba(20,70,180,0.4)'}}>
+      <svg width="32" height="36" viewBox="0 0 36 42" fill="none">
+        <defs><linearGradient id="sg" x1="8" y1="2" x2="28" y2="42"><stop offset="0%" stopColor="#2a5cbf"/><stop offset="100%" stopColor="#0d1e40"/></linearGradient></defs>
+        <path d="M18 2L3 8v12c0 9 6.5 17.4 15 19.5C27.5 37.4 33 29 33 20V8L18 2z" fill="url(#sg)" stroke="#3a6abf" strokeWidth="1.2"/>
+        <path d="M12 20.5l4.5 4.5 8-9" stroke="#5aabff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    </div>
           </div>
         </div>
       </div>
