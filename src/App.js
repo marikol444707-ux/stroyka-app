@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import LoginPage from './pages/LoginPage';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, Star, AlertTriangle, CheckCircle, Clock, FileText, Briefcase, Wrench, Archive, CloudSun, QrCode, Calculator, Building2, Settings, Scan, CreditCard, Bot, Camera } from 'lucide-react';
 
-const API = window.location.hostname==='localhost'?'http://localhost:8001':'http://192.168.1.82:8001';
+const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
 
 const requestPushPermission = async () => {
