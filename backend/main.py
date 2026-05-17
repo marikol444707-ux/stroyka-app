@@ -1953,14 +1953,20 @@ async def parse_smeta(file: UploadFile = File(...)):
         for i, row in enumerate(ws.iter_rows(max_row=60, values_only=True)):
             vals = [str(v).strip() for v in row if v is not None]
             row_text = " ".join(vals).lower()
-            if "наименование" in row_text and ("ед" in row_text or "кол" in row_text):
+            # ЛСР: ищем строку с "обоснование" и "наименование работ"
+            if "обоснование" in row_text and "наименование" in row_text and ("работ" in row_text or "затрат" in row_text):
                 data_start_row = i + 2
-                if "обоснование" in row_text and "работ" in row_text:
-                    file_type = "lsr"
-                elif "обоснование" in row_text:
-                    file_type = "vedomost"
-                else:
-                    file_type = "defect"
+                file_type = "lsr"
+                break
+            # Дефектная ведомость
+            elif "наименование" in row_text and "ед" in row_text and "кол" in row_text and "обоснование" not in row_text:
+                data_start_row = i + 2
+                file_type = "defect"
+                break
+            # Ведомость ресурсов
+            elif "обоснование" in row_text and "наименование" in row_text and "общее" in row_text:
+                data_start_row = i + 2
+                file_type = "vedomost"
                 break
         
         for i, row in enumerate(ws.iter_rows(min_row=data_start_row, values_only=True)):
