@@ -1945,139 +1945,112 @@ async def parse_smeta(file: UploadFile = File(...)):
         ws = wb.active
         results = []
         current_section = "Без раздела"
-        
-        # Определяем формат файла - ищем строку с заголовками
         data_start_row = 1
         file_type = "unknown"
         
         for i, row in enumerate(ws.iter_rows(max_row=60, values_only=True)):
             vals = [str(v).strip() for v in row if v is not None]
             row_text = " ".join(vals).lower()
-            # ЛСР: ищем строку с "обоснование" и "наименование работ"
             if "обоснование" in row_text and "наименование" in row_text and ("работ" in row_text or "затрат" in row_text):
                 data_start_row = i + 2
                 file_type = "lsr"
                 break
-            # Дефектная ведомость
             elif "наименование" in row_text and "ед" in row_text and "кол" in row_text and "обоснование" not in row_text:
                 data_start_row = i + 2
                 file_type = "defect"
                 break
-            # Ведомость ресурсов
             elif "обоснование" in row_text and "наименование" in row_text and "общее" in row_text:
                 data_start_row = i + 2
                 file_type = "vedomost"
                 break
         
+        work_prefixes = ["ГЭСН", "ФЕР", "ТЕР", "ГЭСНм", "ФЕРм", "ТЕРм", "ГЭСНи", "ФЕРи", "ГЭСНр", "ФЕРр", "ТЕРр"]
+        material_prefixes = ["ФСБЦ", "ФССЦ", "ТЦ_", "КАЦ", "МАТ"]
+        
         for i, row in enumerate(ws.iter_rows(min_row=data_start_row, values_only=True)):
             try:
-                # Определяем раздел
-                vals = [v for v in row if v is not None]
-                if not vals:
-                    continue
-                
                 first_val = str(row[0]).strip() if row[0] is not None else ""
+                name_col = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+                obosn = str(row[1]).strip() if len(row) > 1 and row[1] else ""
                 
-                # Проверяем раздел
-                if "Раздел" in first_val or "РАЗДЕЛ" in first_val or "раздел" in first_val:
+                if "Раздел" in first_val or "РАЗДЕЛ" in first_val:
                     current_section = first_val
                     continue
                 
-                if file_type == "defect":
-                    # Пропускаем строку с номерами колонок (1,2,3,4,5)
-                    if all(v is None or (isinstance(v, (int,float)) and v < 10) for v in row[:5]):
-                        continue
-                    # Дефектная ведомость: №, Наименование, Ед.изм, Кол-во
-                    name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
-                    unit = str(row[2]).strip() if len(row) > 2 and row[2] else "шт"
-                    qty = float(row[3]) if len(row) > 3 and row[3] and str(row[3]).replace('.','').isdigit() else 0
-                    
-                    if name and len(name) > 5 and name not in ["Наименование", "2"] and not all(c.isdigit() or c == ' ' for c in name):
-                        results.append({
-                            "section": current_section,
-                            "name": name,
-                            "unit": unit,
-                            "quantity": qty,
-                            "total": 0
-                        })
-                
-                elif file_type == "vedomost":
-                    # Ведомость ресурсов: №, Обоснование, Наименование, Ед, Кол-во, Цена ед, Итого
-                    name = str(row[2]).strip() if len(row) > 2 and row[2] else ""
-                    unit = str(row[3]).strip() if len(row) > 3 and row[3] else "шт"
-                    qty = 0
-                    total = 0
-                    try:
-                        qty = float(row[4]) if len(row) > 4 and row[4] else 0
-                    except:
-                        pass
-                    try:
-                        total = float(row[6]) if len(row) > 6 and row[6] else 0
-                    except:
-                        pass
-                    
-                    if name and len(name) > 5 and name not in ["Наименование", "3"]:
-                        results.append({
-                            "section": current_section,
-                            "name": name,
-                            "unit": unit,
-                            "quantity": round(qty, 4),
-                            "total": round(total, 2)
-                        })
-                elif file_type == "lsr":
-                    # ЛСР Гранд Смета
-                    # col[0]=номер, col[2]=наименование, col[7]=ед, col[8]=кол-во, col[15]=стоимость
-                    num = row[0]
-                    name_col = str(row[2]).strip() if len(row) > 2 and row[2] else ""
-                    
-                    if not num or not isinstance(num, (int, float)):
-                        continue
-                    if not name_col or len(name_col) < 5:
-                        continue
-                    if "Объем=" in name_col or "Итого" in name_col or "ФОТ" in name_col:
-                        continue
-                    
-                    unit = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
-                    qty = 0
-                    total = 0
-                    try:
-                        qty = float(row[8]) if len(row) > 8 and row[8] else 0
-                    except:
-                        pass
-                    try:
-                        total = float(row[15]) if len(row) > 15 and row[15] else 0
-                    except:
-                        pass
-                    
-                    if name_col and len(name_col) > 5:
-                        results.append({
-                            "section": current_section,
-                            "name": name_col,
-                            "unit": unit,
-                            "quantity": round(qty, 4),
-                            "total": round(total, 2)
-                        })
-                else:
-                    # Универсальный парсер
-                    for col_idx in range(len(row)):
-                        val = row[col_idx]
-                        if val and isinstance(val, str) and len(val) > 10:
-                            name = val.strip()
-                            unit = str(row[col_idx+1]).strip() if col_idx+1 < len(row) and row[col_idx+1] else "шт"
-                            qty = 0
+                if file_type == "lsr":
+                    if "Всего по позиции" in name_col:
+                        if results and results[-1]["total"] == 0:
                             try:
-                                qty = float(row[col_idx+2]) if col_idx+2 < len(row) and row[col_idx+2] else 0
+                                results[-1]["total"] = round(float(row[13]), 2) if len(row) > 13 and row[13] and isinstance(row[13], (int,float)) else 0
                             except:
                                 pass
-                            results.append({
-                                "section": current_section,
-                                "name": name,
-                                "unit": unit,
-                                "quantity": qty,
-                                "total": 0
-                            })
-                            break
-            except Exception as e:
+                        continue
+                    
+                    num = row[0]
+                    if not num:
+                        continue
+                    try:
+                        float(str(num).strip())
+                    except:
+                        continue
+                    
+                    if not name_col or len(name_col) < 5:
+                        continue
+                    if any(x in name_col for x in ["Объем=", "Итого", "ФОТ", "Всего", "Вспомогательные ненормируемые"]):
+                        continue
+                    if "Пр/" in obosn or "648/" in obosn:
+                        continue
+                    
+                    if any(obosn.startswith(x) for x in work_prefixes):
+                        item_type = "work"
+                    elif any(obosn.startswith(x) for x in material_prefixes):
+                        item_type = "material"
+                    else:
+                        item_type = "work"
+                    
+                    unit = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
+                    qty = float(row[8]) if len(row) > 8 and isinstance(row[8], (int,float)) else 0
+                    
+                    # Для материалов стоимость в col[15]
+                    mat_total = 0
+                    if item_type == "material":
+                        try:
+                            mat_total = round(float(row[15]), 2) if len(row) > 15 and row[15] and isinstance(row[15], (int,float)) else 0
+                        except:
+                            pass
+                    
+                    results.append({
+                        "section": current_section,
+                        "name": name_col,
+                        "unit": unit,
+                        "quantity": round(qty, 4),
+                        "total": mat_total,
+                        "type": item_type
+                    })
+                
+                elif file_type == "defect":
+                    if all(v is None or (isinstance(v, (int,float)) and v < 10) for v in row[:5]):
+                        continue
+                    name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+                    unit = str(row[2]).strip() if len(row) > 2 and row[2] else "шт"
+                    try:
+                        qty = float(row[3]) if len(row) > 3 and row[3] and isinstance(row[3], (int,float)) else 0
+                    except:
+                        qty = 0
+                    if name and len(name) > 5 and name not in ["Наименование", "2"] and not all(c.isdigit() or c == " " for c in name):
+                        results.append({"section": current_section, "name": name, "unit": unit, "quantity": qty, "total": 0, "type": "work"})
+                
+                elif file_type == "vedomost":
+                    name = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+                    unit = str(row[3]).strip() if len(row) > 3 and row[3] else "шт"
+                    try:
+                        qty = float(row[4]) if len(row) > 4 and row[4] and isinstance(row[4], (int,float)) else 0
+                        total = float(row[6]) if len(row) > 6 and row[6] and isinstance(row[6], (int,float)) else 0
+                    except:
+                        qty = total = 0
+                    if name and len(name) > 5 and name not in ["Наименование", "3"]:
+                        results.append({"section": current_section, "name": name, "unit": unit, "quantity": round(qty,4), "total": round(total,2), "type": "material"})
+            except:
                 continue
         
         os.unlink(tmp_path)

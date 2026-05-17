@@ -3884,7 +3884,7 @@ function App() {
                       const sections={};
                       (data.items||[]).forEach(item=>{
                         if(!sections[item.section]) sections[item.section]={id:Date.now()+Math.random(),name:item.section,items:[]};
-                        sections[item.section].items.push({id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:item.total,priceMaterial:0,isImported:true});
+                        sections[item.section].items.push({id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:item.type==='material'?0:item.total,priceMaterial:item.type==='material'?item.total:0,isImported:true,itemType:item.type||'work'});
                       });
                       const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',sections:Object.values(sections)};
                       const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик'};setEstimatesList(prev=>[...prev,estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');alert('Импортировано '+data.count+' позиций!');
