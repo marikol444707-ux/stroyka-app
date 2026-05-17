@@ -1950,12 +1950,14 @@ async def parse_smeta(file: UploadFile = File(...)):
         data_start_row = 1
         file_type = "unknown"
         
-        for i, row in enumerate(ws.iter_rows(max_row=30, values_only=True)):
+        for i, row in enumerate(ws.iter_rows(max_row=60, values_only=True)):
             vals = [str(v).strip() for v in row if v is not None]
             row_text = " ".join(vals).lower()
             if "наименование" in row_text and ("ед" in row_text or "кол" in row_text):
                 data_start_row = i + 2
-                if "обоснование" in row_text:
+                if "обоснование" in row_text and "работ" in row_text:
+                    file_type = "lsr"
+                elif "обоснование" in row_text:
                     file_type = "vedomost"
                 else:
                     file_type = "defect"
@@ -2012,6 +2014,43 @@ async def parse_smeta(file: UploadFile = File(...)):
                         results.append({
                             "section": current_section,
                             "name": name,
+                            "unit": unit,
+                            "quantity": round(qty, 4),
+                            "total": round(total, 2)
+                        })
+                elif file_type == "lsr":
+                    # ЛСР Гранд Смета: №, Обоснование, Наименование, Ед, Кол-во, Стоимость
+                    # Строки раздела начинаются со слова "Раздел"
+                    # Строки позиций: row[0] = номер, row[2] = наименование
+                    num = row[0]
+                    name_col = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+                    
+                    # Пропускаем строки без номера позиции или технические строки
+                    if not num or not isinstance(num, (int, float)):
+                        continue
+                    if not name_col or len(name_col) < 5:
+                        continue
+                    # Пропускаем строки-описания (Объем=...)
+                    if "Объем=" in name_col or "объем=" in name_col.lower():
+                        continue
+                    
+                    unit = str(row[3]).strip() if len(row) > 3 and row[3] else "шт"
+                    qty = 0
+                    total = 0
+                    try:
+                        qty = float(row[4]) if len(row) > 4 and row[4] else 0
+                    except:
+                        pass
+                    # Стоимость в последней непустой колонке из 6-14
+                    for col_idx in range(min(len(row)-1, 14), 5, -1):
+                        if row[col_idx] and isinstance(row[col_idx], (int, float)):
+                            total = float(row[col_idx])
+                            break
+                    
+                    if name_col and len(name_col) > 5:
+                        results.append({
+                            "section": current_section,
+                            "name": name_col,
                             "unit": unit,
                             "quantity": round(qty, 4),
                             "total": round(total, 2)
