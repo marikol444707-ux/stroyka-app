@@ -1602,6 +1602,20 @@ function App() {
               <b style={{color:C.info,fontSize:'13px'}}>📄 Согласие на обработку ПД</b>
               <div style={{display:'flex',gap:'8px',margin:'10px 0'}}>
                 <button onClick={()=>showPreview(PD_CONSENT_TEXT({fullName:profileData.fullName,passport:profileData.passport,inn:profileData.inn}),'Согласие на ПД')} style={btnB}><Eye size={14}/>Просмотр</button>
+                  <button onClick={async()=>{
+                    const items=(selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:i.quantity,work:Number(i.priceWork||0),mat:Number(i.priceMaterial||0)})));
+                    const total=items.reduce((s,i)=>s+i.work+i.mat,0);
+                    const prompt='Смета: '+selectedEstimate.name+'\nИтого: '+total.toLocaleString()+' руб\nПозиций: '+items.length+'\n\nПозиции:\n'+items.map(i=>i.section+' | '+i.name+' | '+i.unit+' '+i.qty+' | работы '+i.work+' руб | материалы '+i.mat+' руб').join('\n')+'\n\nПроанализируй смету: самые дорогие разделы, соотношение работ и материалов, рекомендации по оптимизации.';
+                    setAiMessages([{role:'user',content:prompt}]);
+                    setShowAiChat(true);
+                    setAiLoading(true);
+                    try{
+                      const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}]})});
+                      const data=await res.json();
+                      setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name},{role:'assistant',content:data.response||data.error||'Ошибка'}]);
+                    }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
+                    setAiLoading(false);
+                  }} style={{...btnB,backgroundColor:'#7c3aed'}}><Bot size={14}/>ИИ Анализ</button>
                 <button onClick={()=>doPrint(PD_CONSENT_TEXT({fullName:profileData.fullName,passport:profileData.passport,inn:profileData.inn}))} style={btnO}><Printer size={14}/>Распечатать</button>
               </div>
               <label style={{display:'flex',alignItems:'flex-start',gap:'12px',cursor:'pointer'}}>
