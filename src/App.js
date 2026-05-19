@@ -3869,7 +3869,7 @@ function App() {
                     setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name}]);
                     setAiLoading(true);
                     try{
-                      const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}]})});
+                      const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],jsonOnly:true})});
                       const data=await res.json();
                       const raw=(data.response||data.error||'').trim();
                       let parsed=null;
