@@ -9,6 +9,19 @@ import os
 import uuid
 import shutil
 
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_env_path):
+    with open(_env_path) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if not _line or _line.startswith("#") or "=" not in _line:
+                continue
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
+
 app = FastAPI()
 
 app.add_middleware(
@@ -1619,8 +1632,8 @@ import json as json_lib
 @app.post("/ai-chat")
 def ai_chat(data: dict):
     from openai import OpenAI
-    FOLDER_ID = "b1ghgq7lsv3rak4hjqr3"
-    API_KEY = "AQVNwKMYa9a-s1z6_Ag1jH8tUHL8NoB0vOj_IBVp"
+    FOLDER_ID = YANDEX_FOLDER_ID
+    API_KEY = YANDEX_API_KEY
     messages = data.get("messages", [])
     conn = get_db()
     cur = conn.cursor()
@@ -2539,8 +2552,8 @@ def create_expense(data: dict):
 @app.post("/scan-invoice")
 def scan_invoice(data: dict):
     import openai as oa
-    FOLDER_ID = "b1ghgq7lsv3rak4hjqr3"
-    API_KEY = "AQVNwKMYa9a-s1z6_Ag1jH8tUHL8NoB0vOj_IBVp"
+    FOLDER_ID = YANDEX_FOLDER_ID
+    API_KEY = YANDEX_API_KEY
     base64_image = data.get("image", "")
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     try:
