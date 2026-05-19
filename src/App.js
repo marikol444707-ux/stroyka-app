@@ -3834,40 +3834,77 @@ function App() {
                       const mat=Number(i.priceMaterial||0);
                       const qty=Number(i.quantity||0);
                       const sum=i.isImported?work:qty*(work+mat);
-                      let cmp='';
+                      let plPrice=0,diff=0;
                       if(Object.keys(plMap).length){
                         const k=(i.name||'').toLowerCase().trim();
-                        let plPrice=plMap[k];
+                        plPrice=plMap[k]||0;
                         if(!plPrice){const f=Object.keys(plMap).find(pk=>pk.length>5&&(k.includes(pk)||pk.includes(k)));if(f) plPrice=plMap[f];}
-                        if(plPrice&&(work+mat)>0){const diff=Math.round(((work+mat)/plPrice-1)*100);if(Math.abs(diff)>=15) cmp=' [в прайсе '+plPrice+'₽, разница '+(diff>0?'+':'')+diff+'%]';}
+                        if(plPrice&&(work+mat)>0){diff=Math.round(((work+mat)/plPrice-1)*100);}
                       }
-                      return {section:s.name,name:i.name,unit:i.unit,qty,work,mat,sum,cmp};
+                      return {section:s.name,name:i.name,unit:i.unit,qty,work,mat,sum,plPrice,diff};
                     }));
                     const total=allItems.reduce((s,i)=>s+i.sum,0);
                     const top5=[...allItems].sort((a,b)=>b.sum-a.sum).slice(0,5);
                     const bySection={};
                     allItems.forEach(i=>{bySection[i.section]=(bySection[i.section]||0)+i.sum;});
                     const shares=Object.entries(bySection).map(([n,s])=>({name:n,sum:s,share:total>0?Math.round(s/total*100):0})).sort((a,b)=>b.sum-a.sum);
-                    const prompt='Проанализируй смету "'+selectedEstimate.name+'".\n\n'
-                      +'ОБЩАЯ СУММА: '+total.toLocaleString()+' ₽\n'
-                      +'ПОЗИЦИЙ: '+allItems.length+', РАЗДЕЛОВ: '+shares.length+'\n\n'
-                      +'ДОЛИ РАЗДЕЛОВ:\n'+shares.map(s=>'- '+s.name+': '+s.sum.toLocaleString()+' ₽ ('+s.share+'%)').join('\n')+'\n\n'
-                      +'ТОП-5 ДОРОГИХ ПОЗИЦИЙ:\n'+top5.map((i,n)=>(n+1)+'. ['+i.section+'] '+i.name+' — '+i.qty+' '+i.unit+' × (работа '+i.work+'₽ + материал '+i.mat+'₽) = '+i.sum.toLocaleString()+' ₽ ('+(total>0?Math.round(i.sum/total*100):0)+'%)'+i.cmp).join('\n')+'\n\n'
-                      +'ВСЕ ПОЗИЦИИ:\n'+allItems.map(i=>'- ['+i.section+'] '+i.name+' | '+i.qty+' '+i.unit+' | работа '+i.work+'₽ материал '+i.mat+'₽ итого '+i.sum.toLocaleString()+'₽'+i.cmp).join('\n')+'\n\n'
-                      +'ТРЕБОВАНИЯ К ОТВЕТУ:\n'
-                      +'1. Используй ТОЛЬКО цифры из данных выше. Не выдумывай суммы.\n'
-                      +'2. Все суммы пиши с пробелом-разделителем (2 450 000 ₽).\n'
-                      +'3. Структура:\n\n'
-                      +'## Топ-5 дорогих позиций\n(каждая с конкретной суммой и долей от сметы)\n\n'
-                      +'## Подозрительные места\n(позиции с пометкой [в прайсе ...] где разница >20%, странные объёмы, возможные дубли. Если ничего — "явных рисков не выявлено")\n\n'
-                      +'## Конкретные действия\n(3-5 пунктов: что сделать с какой позицией/разделом, оценка экономии в рублях если возможно. Без общих фраз про "найти поставщиков".)';
-                    setAiMessages([{role:'user',content:prompt}]);
+                    const fmt=(n)=>Number(n||0).toLocaleString('ru-RU');
+                    const prompt='Ты эксперт по строительным сметам. Анализируешь смету "'+selectedEstimate.name+'" на '+fmt(total)+' ₽.\n\n'
+                      +'РАЗДЕЛЫ ('+shares.length+'):\n'+shares.map(s=>'• '+s.name+': '+fmt(s.sum)+' ₽ ('+s.share+'%)').join('\n')+'\n\n'
+                      +'ТОП-5 ДОРОГИХ ПОЗИЦИЙ:\n'+top5.map((i,n)=>(n+1)+'. ['+i.section+'] '+i.name+': '+i.qty+' '+i.unit+', '+fmt(i.sum)+' ₽ ('+(total>0?Math.round(i.sum/total*100):0)+'%)'+(i.plPrice?', прайс '+fmt(i.plPrice)+'₽ → '+(i.diff>0?'+':'')+i.diff+'%':'')).join('\n')+'\n\n'
+                      +'ВСЕ ПОЗИЦИИ:\n'+allItems.map(i=>'- ['+i.section+'] '+i.name+' | '+i.qty+' '+i.unit+' | '+fmt(i.sum)+'₽'+(i.plPrice?' (прайс '+fmt(i.plPrice)+'₽, '+(i.diff>0?'+':'')+i.diff+'%)':'')).join('\n')+'\n\n'
+                      +'ОТВЕТЬ СТРОГО В ФОРМАТЕ JSON (без markdown, без ```, только сырой JSON):\n'
+                      +'{\n'
+                      +'  "top": [{"name":"конкретное название позиции","section":"раздел","sum":число_в_рублях,"share":процент_от_сметы,"why":"одна фраза почему дорого"}],\n'
+                      +'  "risks": [{"where":"конкретная позиция или раздел","problem":"что не так","impact":число_в_рублях_или_0}],\n'
+                      +'  "actions": [{"do":"конкретное действие","target":"что/где менять","savings":число_в_рублях_или_0}]\n'
+                      +'}\n\n'
+                      +'ПРАВИЛА:\n'
+                      +'• top — 5 позиций из ТОП-5 выше, скопируй цифры точно.\n'
+                      +'• risks — позиции с отклонением от прайса >20%, странные объёмы, возможные дубли. Минимум 1, максимум 5. Если ничего не нашёл — пиши [].\n'
+                      +'• actions — 3-5 КОНКРЕТНЫХ шагов с привязкой к позиции из сметы. НЕ "найти поставщиков", а "заменить X на Y в позиции Z". savings — оценка экономии в рублях или 0 если не уверен.\n'
+                      +'• Все числа — без пробелов, без "руб", только цифры. Например 1260000 а не "1 260 000 руб".\n'
+                      +'• Только валидный JSON. Никакого текста до или после.';
                     setShowAiChat(true);
+                    setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name}]);
                     setAiLoading(true);
                     try{
                       const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}]})});
                       const data=await res.json();
-                      setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name},{role:'assistant',content:data.response||data.error||'Ошибка'}]);
+                      const raw=(data.response||data.error||'').trim();
+                      let parsed=null;
+                      try{
+                        const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+                        const start=clean.indexOf('{'),end=clean.lastIndexOf('}');
+                        if(start>=0&&end>start) parsed=JSON.parse(clean.slice(start,end+1));
+                      }catch(e){}
+                      let out;
+                      if(parsed&&(parsed.top||parsed.risks||parsed.actions)){
+                        const lines=[];
+                        lines.push('💰 Общая сумма: '+fmt(total)+' ₽');
+                        lines.push('');
+                        if(Array.isArray(parsed.top)&&parsed.top.length){
+                          lines.push('🔝 ТОП ДОРОГИХ ПОЗИЦИЙ');
+                          parsed.top.forEach((t,n)=>{lines.push((n+1)+'. '+(t.name||'?')+(t.section?' ['+t.section+']':''));lines.push('   '+fmt(t.sum)+' ₽'+(t.share?' ('+t.share+'%)':'')+(t.why?' — '+t.why:''));});
+                          lines.push('');
+                        }
+                        if(Array.isArray(parsed.risks)&&parsed.risks.length){
+                          lines.push('⚠️ РИСКИ');
+                          parsed.risks.forEach((r,n)=>{lines.push((n+1)+'. '+(r.where||'?')+': '+(r.problem||'')+(r.impact?' (~'+fmt(r.impact)+' ₽)':''));});
+                          lines.push('');
+                        }else{
+                          lines.push('✅ Явных рисков не выявлено');
+                          lines.push('');
+                        }
+                        if(Array.isArray(parsed.actions)&&parsed.actions.length){
+                          lines.push('🎯 ЧТО СДЕЛАТЬ');
+                          parsed.actions.forEach((a,n)=>{lines.push((n+1)+'. '+(a.do||'?')+(a.target?' → '+a.target:'')+(a.savings?' (экономия ~'+fmt(a.savings)+' ₽)':''));});
+                        }
+                        out=lines.join('\n');
+                      }else{
+                        out=raw||'Ошибка: пустой ответ от ИИ';
+                      }
+                      setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name},{role:'assistant',content:out}]);
                     }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
                     setAiLoading(false);
                   }} style={{...btnB,backgroundColor:'#7c3aed'}}><Bot size={14}/>ИИ Анализ</button>
@@ -4165,7 +4202,7 @@ function App() {
         <button onClick={()=>setSverkaModal(null)} style={{...btnO,marginTop:'16px',width:'100%',justifyContent:'center'}}>Закрыть</button>
       </div>
     </div>)}
-    {showAiChat&&(<div style={{position:'fixed',bottom:'80px',right:'20px',width:'350px',height:'500px',backgroundColor:C.bgWhite,borderRadius:'16px',boxShadow:'0 8px 32px rgba(0,0,0,0.15)',border:'1.5px solid '+C.border,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+    {showAiChat&&(<div style={{position:'fixed',bottom:'80px',right:'20px',width:'480px',height:'620px',backgroundColor:C.bgWhite,borderRadius:'16px',boxShadow:'0 8px 32px rgba(0,0,0,0.15)',border:'1.5px solid '+C.border,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}}>
         <div style={{padding:'14px 16px',backgroundColor:C.accent,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
             <span style={{fontSize:'20px'}}>🤖</span>
@@ -4175,7 +4212,7 @@ function App() {
         </div>
         <div style={{flex:1,overflowY:'auto',padding:'12px',display:'flex',flexDirection:'column',gap:'8px',backgroundColor:C.bg}}>
           {aiMessages.map((msg,i)=>(<div key={i} style={{display:'flex',justifyContent:msg.role==='user'?'flex-end':'flex-start'}}>
-            <div style={{maxWidth:'85%',padding:'8px 12px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',backgroundColor:msg.role==='user'?C.accent:'white',color:msg.role==='user'?'white':C.text,fontSize:'13px',lineHeight:'1.5',boxShadow:'0 1px 3px rgba(0,0,0,0.08)',border:msg.role==='user'?'none':'1.5px solid '+C.border}}>
+            <div style={{maxWidth:'85%',padding:'8px 12px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',backgroundColor:msg.role==='user'?C.accent:'white',color:msg.role==='user'?'white':C.text,fontSize:'13px',lineHeight:'1.5',boxShadow:'0 1px 3px rgba(0,0,0,0.08)',border:msg.role==='user'?'none':'1.5px solid '+C.border,whiteSpace:'pre-wrap'}}>
               {msg.content}
             </div>
           </div>))}
