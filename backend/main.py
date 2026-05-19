@@ -22,6 +22,14 @@ if os.path.exists(_env_path):
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
 
+DB_CONFIG = {
+    "dbname": os.getenv("DB_NAME", "stroyka"),
+    "user": os.getenv("DB_USER", "nikolas"),
+    "password": os.getenv("DB_PASSWORD", "password"),
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432"),
+}
+
 app = FastAPI()
 
 app.add_middleware(
@@ -31,14 +39,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-DB_CONFIG = {
-    "dbname": "stroyka",
-    "user": "nikolas",
-    "password": "password",
-    "host": "localhost",
-    "port": "5432"
-}
 
 def get_db():
     conn = psycopg2.connect(**DB_CONFIG)
