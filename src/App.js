@@ -3821,9 +3821,46 @@ function App() {
                   <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Цена мат.</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="7"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Number(it.priceMaterial||0).toLocaleString()}</td><td>${(Number(it.quantity||0)*(Number(it.priceWork||0)+Number(it.priceMaterial||0))).toLocaleString()}</td></tr>`)]).join('')+'<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
                   <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
                   <button onClick={async()=>{
-                    const items=(selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:i.quantity,work:Number(i.priceWork||0),mat:Number(i.priceMaterial||0)})));
-                    const total=items.reduce((s,i)=>s+i.work+i.mat,0);
-                    const prompt='Смета: '+selectedEstimate.name+'\nИтого: '+total.toLocaleString()+' руб\nПозиций: '+items.length+'\n\nПозиции:\n'+items.map(i=>i.section+' | '+i.name+' | '+i.unit+' '+i.qty+' | работы '+i.work+' руб | материалы '+i.mat+' руб').join('\n')+'\n\nПроанализируй смету: самые дорогие разделы, соотношение работ и материалов, рекомендации по оптимизации.';
+                    let plMap={};
+                    const proj=projects.find(p=>p.id===Number(selectedEstimate.projectId));
+                    if(proj&&proj.pricelistId){
+                      try{
+                        const pli=await fetch(API+'/pricelists/'+proj.pricelistId+'/items').then(r=>r.json());
+                        (pli||[]).forEach(p=>{const k=(p.name||'').toLowerCase().trim();if(k) plMap[k]=Number(p.price||0);});
+                      }catch(e){}
+                    }
+                    const allItems=(selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>{
+                      const work=Number(i.priceWork||0);
+                      const mat=Number(i.priceMaterial||0);
+                      const qty=Number(i.quantity||0);
+                      const sum=i.isImported?work:qty*(work+mat);
+                      let cmp='';
+                      if(Object.keys(plMap).length){
+                        const k=(i.name||'').toLowerCase().trim();
+                        let plPrice=plMap[k];
+                        if(!plPrice){const f=Object.keys(plMap).find(pk=>pk.length>5&&(k.includes(pk)||pk.includes(k)));if(f) plPrice=plMap[f];}
+                        if(plPrice&&(work+mat)>0){const diff=Math.round(((work+mat)/plPrice-1)*100);if(Math.abs(diff)>=15) cmp=' [в прайсе '+plPrice+'₽, разница '+(diff>0?'+':'')+diff+'%]';}
+                      }
+                      return {section:s.name,name:i.name,unit:i.unit,qty,work,mat,sum,cmp};
+                    }));
+                    const total=allItems.reduce((s,i)=>s+i.sum,0);
+                    const top5=[...allItems].sort((a,b)=>b.sum-a.sum).slice(0,5);
+                    const bySection={};
+                    allItems.forEach(i=>{bySection[i.section]=(bySection[i.section]||0)+i.sum;});
+                    const shares=Object.entries(bySection).map(([n,s])=>({name:n,sum:s,share:total>0?Math.round(s/total*100):0})).sort((a,b)=>b.sum-a.sum);
+                    const prompt='Проанализируй смету "'+selectedEstimate.name+'".\n\n'
+                      +'ОБЩАЯ СУММА: '+total.toLocaleString()+' ₽\n'
+                      +'ПОЗИЦИЙ: '+allItems.length+', РАЗДЕЛОВ: '+shares.length+'\n\n'
+                      +'ДОЛИ РАЗДЕЛОВ:\n'+shares.map(s=>'- '+s.name+': '+s.sum.toLocaleString()+' ₽ ('+s.share+'%)').join('\n')+'\n\n'
+                      +'ТОП-5 ДОРОГИХ ПОЗИЦИЙ:\n'+top5.map((i,n)=>(n+1)+'. ['+i.section+'] '+i.name+' — '+i.qty+' '+i.unit+' × (работа '+i.work+'₽ + материал '+i.mat+'₽) = '+i.sum.toLocaleString()+' ₽ ('+(total>0?Math.round(i.sum/total*100):0)+'%)'+i.cmp).join('\n')+'\n\n'
+                      +'ВСЕ ПОЗИЦИИ:\n'+allItems.map(i=>'- ['+i.section+'] '+i.name+' | '+i.qty+' '+i.unit+' | работа '+i.work+'₽ материал '+i.mat+'₽ итого '+i.sum.toLocaleString()+'₽'+i.cmp).join('\n')+'\n\n'
+                      +'ТРЕБОВАНИЯ К ОТВЕТУ:\n'
+                      +'1. Используй ТОЛЬКО цифры из данных выше. Не выдумывай суммы.\n'
+                      +'2. Все суммы пиши с пробелом-разделителем (2 450 000 ₽).\n'
+                      +'3. Структура:\n\n'
+                      +'## Топ-5 дорогих позиций\n(каждая с конкретной суммой и долей от сметы)\n\n'
+                      +'## Подозрительные места\n(позиции с пометкой [в прайсе ...] где разница >20%, странные объёмы, возможные дубли. Если ничего — "явных рисков не выявлено")\n\n'
+                      +'## Конкретные действия\n(3-5 пунктов: что сделать с какой позицией/разделом, оценка экономии в рублях если возможно. Без общих фраз про "найти поставщиков".)';
                     setAiMessages([{role:'user',content:prompt}]);
                     setShowAiChat(true);
                     setAiLoading(true);

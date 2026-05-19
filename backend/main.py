@@ -1667,10 +1667,10 @@ def ai_chat(data: dict):
     try:
         response = client.responses.create(
             model="gpt://"+FOLDER_ID+"/yandexgpt-5.1/latest",
-            temperature=0.3,
+            temperature=0.2,
             instructions=context,
             input=user_text,
-            max_output_tokens=500
+            max_output_tokens=2000
         )
         answer = response.output_text
     except Exception as e:
