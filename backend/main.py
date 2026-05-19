@@ -1670,9 +1670,10 @@ def ai_chat(data: dict):
     import openai as oa
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     user_text = messages[-1].get("content","") if messages else ""
+    model_name = "qwen3.6-35b-a3b/latest" if json_only else "yandexgpt-5.1/latest"
     try:
         response = client.responses.create(
-            model="gpt://"+FOLDER_ID+"/yandexgpt-5.1/latest",
+            model="gpt://"+FOLDER_ID+"/"+model_name,
             temperature=0.1 if json_only else 0.2,
             instructions=context,
             input=user_text,
