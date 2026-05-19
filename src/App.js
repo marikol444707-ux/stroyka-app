@@ -1602,20 +1602,6 @@ function App() {
               <b style={{color:C.info,fontSize:'13px'}}>📄 Согласие на обработку ПД</b>
               <div style={{display:'flex',gap:'8px',margin:'10px 0'}}>
                 <button onClick={()=>showPreview(PD_CONSENT_TEXT({fullName:profileData.fullName,passport:profileData.passport,inn:profileData.inn}),'Согласие на ПД')} style={btnB}><Eye size={14}/>Просмотр</button>
-                  <button onClick={async()=>{
-                    const items=(selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:i.quantity,work:Number(i.priceWork||0),mat:Number(i.priceMaterial||0)})));
-                    const total=items.reduce((s,i)=>s+i.work+i.mat,0);
-                    const prompt='Смета: '+selectedEstimate.name+'\nИтого: '+total.toLocaleString()+' руб\nПозиций: '+items.length+'\n\nПозиции:\n'+items.map(i=>i.section+' | '+i.name+' | '+i.unit+' '+i.qty+' | работы '+i.work+' руб | материалы '+i.mat+' руб').join('\n')+'\n\nПроанализируй смету: самые дорогие разделы, соотношение работ и материалов, рекомендации по оптимизации.';
-                    setAiMessages([{role:'user',content:prompt}]);
-                    setShowAiChat(true);
-                    setAiLoading(true);
-                    try{
-                      const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}]})});
-                      const data=await res.json();
-                      setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name},{role:'assistant',content:data.response||data.error||'Ошибка'}]);
-                    }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
-                    setAiLoading(false);
-                  }} style={{...btnB,backgroundColor:'#7c3aed'}}><Bot size={14}/>ИИ Анализ</button>
                 <button onClick={()=>doPrint(PD_CONSENT_TEXT({fullName:profileData.fullName,passport:profileData.passport,inn:profileData.inn}))} style={btnO}><Printer size={14}/>Распечатать</button>
               </div>
               <label style={{display:'flex',alignItems:'flex-start',gap:'12px',cursor:'pointer'}}>
@@ -3834,6 +3820,20 @@ function App() {
                   <b style={{color:C.text,fontSize:'15px'}}>{selectedEstimate.name}</b>
                   <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Цена мат.</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="7"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Number(it.priceMaterial||0).toLocaleString()}</td><td>${(Number(it.quantity||0)*(Number(it.priceWork||0)+Number(it.priceMaterial||0))).toLocaleString()}</td></tr>`)]).join('')+'<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
                   <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
+                  <button onClick={async()=>{
+                    const items=(selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:i.quantity,work:Number(i.priceWork||0),mat:Number(i.priceMaterial||0)})));
+                    const total=items.reduce((s,i)=>s+i.work+i.mat,0);
+                    const prompt='Смета: '+selectedEstimate.name+'\nИтого: '+total.toLocaleString()+' руб\nПозиций: '+items.length+'\n\nПозиции:\n'+items.map(i=>i.section+' | '+i.name+' | '+i.unit+' '+i.qty+' | работы '+i.work+' руб | материалы '+i.mat+' руб').join('\n')+'\n\nПроанализируй смету: самые дорогие разделы, соотношение работ и материалов, рекомендации по оптимизации.';
+                    setAiMessages([{role:'user',content:prompt}]);
+                    setShowAiChat(true);
+                    setAiLoading(true);
+                    try{
+                      const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}]})});
+                      const data=await res.json();
+                      setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name},{role:'assistant',content:data.response||data.error||'Ошибка'}]);
+                    }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
+                    setAiLoading(false);
+                  }} style={{...btnB,backgroundColor:'#7c3aed'}}><Bot size={14}/>ИИ Анализ</button>
                 </div>
                 <div style={{...card,padding:'16px',marginBottom:'16px'}}>
                   <div style={{display:'flex',gap:'8px',marginBottom:'10px',alignItems:'center'}}>
