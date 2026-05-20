@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import LoginPage from './pages/LoginPage';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, Star, AlertTriangle, CheckCircle, Clock, FileText, Briefcase, Wrench, Archive, CloudSun, QrCode, Calculator, Building2, Settings, Scan, CreditCard, Bot, Camera } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
@@ -128,7 +128,6 @@ const MATERIAL_CATEGORIES = [
 ];
 
 const UNITS = ['шт','мешок','м','м2','м3','кг','т','л','рулон','лист','упак','компл','пог.м','ящик','бутылка','банка','труба','секция','пара','набор','пачка','флакон','ведро','бухта'];
-const PROJECT_TABS = ['Общее','Этапы','График','Смета','Журнал','Помещения','Чек-листы','Непредвиденные','Наряды','Материалы','Чат','Финансы','Предписания','Журнал ТБ'];
 const CRM_STAGES = ['Новый','Переговоры','КП отправлено','Договор','Отказ'];
 const SUPPLIER_CATEGORIES = [
   'Сыпучие и бетон','Кровельные','Металл и арматура','Отделочные','Сантехника','Электрика',
@@ -137,9 +136,6 @@ const SUPPLIER_CATEGORIES = [
 const SURFACES = ['Стены','Потолок','Пол','Откосы оконные','Откосы дверные','Фасад','Цоколь'];
 const TOOL_STATUSES = ['На складе','На объекте','У мастера','На ремонте','Списан'];
 const VAT_OPTIONS = ['Без НДС','С НДС 22%'];
-const CEILING_TYPES = ['Простой','Гипсокартон','Натяжной','Армстронг','Реечный'];
-const WALL_MATERIALS = ['Штукатурка','Плитка','Гипсокартон','Панели','Обои','Покраска'];
-const FLOOR_MATERIALS = ['Стяжка','Плитка','Ламинат','Паркет','Линолеум','Наливной пол'];
 const WINDOW_TYPES = ['ПВХ','Алюминий','Дерево','Комбинированное'];
 const DOOR_TYPES = ['Деревянная','ПВХ','Алюминий','Металлическая','МДФ'];
 const DOOR_PURPOSES = ['Входная','Межкомнатная','Балконная','Техническая'];
@@ -289,16 +285,13 @@ function App() {
   const [contracts, setContracts] = useState([]);
   const [interimActs, setInterimActs] = useState([]);
   const [timesheet, setTimesheet] = useState({});
-  const [expenses, setExpenses] = useState([]);
   const [unexpectedWorksList, setUnexpectedWorksList] = useState([]);
   const [brigadeContracts, setBrigadeContracts] = useState([]);
   const [selectedBrigadeContract, setSelectedBrigadeContract] = useState(null);
   const [brigadeContractItems, setBrigadeContractItems] = useState([]);
-  const [brigadeActs, setBrigadeActs] = useState([]);
   const [showBrigadeForm, setShowBrigadeForm] = useState(false);
   const [newBrigadeContract, setNewBrigadeContract] = useState({projectId:'',projectName:'',brigadeName:'',contractorType:'Своя бригада',contractorId:'',notes:''});
   const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});
-  const [brigadeActForm, setBrigadeActForm] = useState({periodFrom:'',periodTo:''});
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
   const [masterReportPhotos, setMasterReportPhotos] = useState([]);
   const [supplierCatalog, setSupplierCatalog] = useState([]);
@@ -324,7 +317,6 @@ function App() {
     setShowReceiveDialog(true);
   };
   const [scanningInvoice, setScanningInvoice] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState([]);
   const [projectPayments, setProjectPayments] = useState([]);
   const [accountablePayments, setAccountablePayments] = useState([]);
   const [showAccountableForm, setShowAccountableForm] = useState(false);
@@ -342,9 +334,6 @@ function App() {
   const [newOwnExpense, setNewOwnExpense] = useState({projectName:'',description:'',amount:'',photoUrl:'',date:''});
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
-  const [showDistributeModal, setShowDistributeModal] = useState(false);
-  const [distributeEstimate, setDistributeEstimate] = useState(null);
-  const [selectedDistributeItems, setSelectedDistributeItems] = useState([]);
   const [checklists, setChecklists] = useState([]);
   const [checklistItems, setChecklistItems] = useState({});
   const [projectStages, setProjectStages] = useState([]);
@@ -359,9 +348,9 @@ function App() {
   const [archivedProjects, setArchivedProjects] = useState([]);
   const [tbJournal, setTbJournal] = useState([]);
   const [geoCheckins, setGeoCheckins] = useState([]);
-  const [signedDocs, setSignedDocs] = useState({});
+  const [, setSignedDocs] = useState({});
   const [rooms, setRooms] = useState([]);
-  const [roomWorks, setRoomWorks] = useState([]);
+  const [, setRoomWorks] = useState([]);
   const [roomWindows, setRoomWindows] = useState([]);
   const [roomDoors, setRoomDoors] = useState([]);
   const [tools, setTools] = useState([]);
@@ -384,7 +373,6 @@ function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showRoomForm, setShowRoomForm] = useState(false);
-  const [showTimesheet, setShowTimesheet] = useState(false);
   const [showPiecework, setShowPiecework] = useState(false);
   const [showInvites, setShowInvites] = useState(false);
   const [showOffers, setShowOffers] = useState(null);
@@ -399,12 +387,10 @@ function App() {
   const [consentChecked, setConsentChecked] = useState(false);
   const [accountingTab, setAccountingTab] = useState('contracts');
   const [accountingDocProject, setAccountingDocProject] = useState('');
-  const [accountingDocSection, setAccountingDocSection] = useState('');
   const [suppliersTab, setSuppliersTab] = useState('active');
   const [personnelTab, setPersonnelTab] = useState('masters');
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
-  const [selectedWarehouse, setSelectedWarehouse] = useState(null);
   const [toolsTab, setToolsTab] = useState('list');
   const [estimatesTab, setEstimatesTab] = useState('list');
   const [weatherTab, setWeatherTab] = useState('log');
@@ -417,9 +403,7 @@ function App() {
   const [inlineEditPrice, setInlineEditPrice] = useState('');
   const [editingWindow, setEditingWindow] = useState(null);
   const [editingDoor, setEditingDoor] = useState(null);
-  const [selectedStaff, setSelectedStaff] = useState(null);
   const [selectedPricelist, setSelectedPricelist] = useState(null);
-  const [selectedRoom, setSelectedRoom] = useState(null);
   const [selectedInventory, setSelectedInventory] = useState(null);
   const [selectedEstimate, setSelectedEstimate] = useState(null);
   const [selectedChecklist, setSelectedChecklist] = useState(null);
@@ -551,19 +535,6 @@ function App() {
     setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:'smooth'}),100);
   };
 
-  const recognizeInvoice = async (file) => {
-    const reader = new FileReader();
-    return new Promise(resolve => {
-      reader.onload = async e => {
-        const base64 = e.target.result.split(',')[1];
-        const res = await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:'Распознай накладную. Верни только JSON без комментариев: {"supplier":"название поставщика","items":[{"name":"наименование товара","quantity":число,"unit":"единица","price":число}],"total":число}. Base64 изображение: '+base64}]})});
-        const data = await res.json();
-        try { resolve(JSON.parse((data.text||'').replace(/```json|```/g,'').trim())); } catch { resolve(null); }
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
   const getNotifPage = (type) => {
     const map = {work:'projects',material:'warehouse',stock:'warehouse',supply:'suppliers',delivery:'suppliers',invoice:'accounting',act:'accounting',contract:'accounting',unexpected:'dashboard',prescription:'projects',project:'projects',crm:'crm'};
     return map[type]||'dashboard';
@@ -610,15 +581,13 @@ function App() {
       const pingOnline = async () => {
         try {
           await fetch(API+'/online',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,userName:user.name,userRole:user.role,lastSeen:new Date().toISOString()})});
-          const res = await fetch(API+'/online');
-          const data = await res.json();
-          setOnlineUsers(Array.isArray(data)?data:[]);
         } catch(e){}
       };
       pingOnline();
       const pingInterval = setInterval(pingOnline, 30000);
       return ()=>clearInterval(pingInterval);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const loadAll = async () => {
@@ -718,13 +687,6 @@ function App() {
     } catch(e) {}
   };
 
-  const loadTimesheet = async (staffId) => {
-    const res = await fetch(API+'/timesheet/'+staffId).then(r=>r.json());
-    const ts = {};
-    res.days.forEach(d => ts[staffId+'-'+d] = true);
-    setTimesheet(prev => ({...prev,...ts}));
-  };
-
   const uploadPhoto = async (file) => {
     const fd = new FormData(); fd.append('file',file);
     try { const res = await fetch(API+'/upload-photo',{method:'POST',body:fd}); const data = await res.json(); return data.url; } catch { return ''; }
@@ -808,7 +770,6 @@ function App() {
     }
     const photoUrl = newInvoice.photos && newInvoice.photos.length>0 ? newInvoice.photos[0] : '';
     const inv = {id:Date.now(),number:newInvoice.number,date:newInvoice.date,supplierId:Number(supplierId)||0,supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',acceptedBy:newInvoice.acceptedBy||user.name,location:newInvoice.location,project:newInvoice.project,vat:newInvoice.vat,photoUrl,photos:newInvoice.photos||[],items:validItems,totalBase:vatCalc.base,totalVat:vatCalc.vat,totalWithVat:vatCalc.total,status:'Принята',addedBy:user.name};
-    const updated = [...invoices, inv];
     await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...inv,project:newInvoice.location!=='Основной склад'?newInvoice.location:''})});
     notify('Накладная №'+newInvoice.number+' принята','invoice');
     addActivity('Принята накладная №'+newInvoice.number);
@@ -1181,7 +1142,6 @@ function App() {
     else { await fetch(API+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); notify('Создан проект: '+newProject.name,'project'); }
     await loadAll(); addActivity((editingItem?'Обновил':'Создал')+' проект: '+newProject.name);
     if (!editingItem && newProject.clientEmail && newProject.clientPassword) {
-      const savedProject = projects.find(p=>p.name===newProject.name) || {name:newProject.name};
       await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newProject.client||newProject.name,email:newProject.clientEmail,password:newProject.clientPassword,role:'заказчик',projectName:newProject.name})});
       alert('Заказчик создан! Логин: '+newProject.clientEmail+' Пароль: '+newProject.clientPassword);
     }
@@ -1195,10 +1155,10 @@ function App() {
     for(const bc of contracts){
       const res = await fetch(API+'/brigade-contract-items/'+bc.id);
       const items = await res.json();
-      items.forEach(item=>{
+      for(const item of items){
         totalQty += Number(item.quantity||0);
         doneQty += Number(item.doneQuantity||0);
-      });
+      }
     }
     const pct = totalQty>0 ? Math.round(doneQty/totalQty*100) : 0;
     const proj = projects.find(p=>p.name===projectName);
@@ -1604,12 +1564,11 @@ function App() {
       setShowPiecework(false); setSelectedPricelist(null); setPricelistItems([]);
       setShowInvites(false); setShowOffers(null);
       setShowSearch(false); setGlobalSearch(''); setShowArchive(false);
-      setSelectedRoom(null); setSelectedInventory(null); setSidebarVisible(false);
+      setSelectedInventory(null); setSidebarVisible(false);
       setSelectedWarehouseProject(null); setInlineEditPl(null); setShowRoomForm(false);
     }
   };
 
-  const plCategories = selectedPricelist ? [...new Set(pricelistItems.map(i=>i.category).filter(Boolean))] : [];
   const searchResults = globalSearch.length>=2 ? [
     ...projects.filter(p=>p.name.toLowerCase().includes(globalSearch.toLowerCase())).map(p=>({icon:'📋',title:p.name,subtitle:p.client,page:'projects'})),
     ...clients.filter(c=>c.name.toLowerCase().includes(globalSearch.toLowerCase())).map(c=>({icon:'👥',title:c.name,subtitle:c.phone,page:'clients'})),
@@ -1703,7 +1662,7 @@ function App() {
                       for(const file of files){const url=await uploadPhoto(file);urls.push(url);}
                       setMasterReportPhotos(urls);
                     }} style={{fontSize:'12px'}}/>
-                    {masterReportPhotos&&masterReportPhotos.length>0&&(<div style={{display:'flex',gap:'6px',marginTop:'6px',flexWrap:'wrap'}}>{masterReportPhotos.map((url,i)=>(<img key={i} src={url} style={{width:'60px',height:'60px',objectFit:'cover',borderRadius:'6px'}}/>))}</div>)}
+                    {masterReportPhotos&&masterReportPhotos.length>0&&(<div style={{display:'flex',gap:'6px',marginTop:'6px',flexWrap:'wrap'}}>{masterReportPhotos.map((url,i)=>(<img key={i} src={url} alt='' style={{width:'60px',height:'60px',objectFit:'cover',borderRadius:'6px'}}/>))}</div>)}
                   </div>
                   <button onClick={async()=>{
                       const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
@@ -2437,7 +2396,7 @@ function App() {
                           </div>))}
                         </div>
                         {activeGroup&&(<div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}}>
-                          {activeGroup.tabs.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'6px 12px',border:'none',backgroundColor:activeProjectTab===tab?C.accent:'white',cursor:'pointer',fontSize:'12px',fontWeight:activeProjectTab===tab?'700':'400',color:activeProjectTab===tab?'white':C.textSec,borderRadius:'20px',border:'1.5px solid '+(activeProjectTab===tab?C.accent:C.border)}}>{tab}</button>))}
+                          {activeGroup.tabs.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'6px 12px',backgroundColor:activeProjectTab===tab?C.accent:'white',cursor:'pointer',fontSize:'12px',fontWeight:activeProjectTab===tab?'700':'400',color:activeProjectTab===tab?'white':C.textSec,borderRadius:'20px',border:'1.5px solid '+(activeProjectTab===tab?C.accent:C.border)}}>{tab}</button>))}
                         </div>)}
                       </div>);
                     })()}
@@ -2496,7 +2455,7 @@ function App() {
                       {user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&(()=>{
                         const projSmeta=estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
                         const smetaItems=projSmeta?(projSmeta.sections||[]).flatMap(s=>(s.items||[]).map(i=>({...i,section:s.name}))):[];
-                        const norm=(s)=>(s||'').toLowerCase().replace(/[.,;:()«»"'\-]/g,' ').replace(/\s+/g,' ').trim();
+                        const norm=(s)=>(s||'').toLowerCase().replace(/[.,;:()«»"'-]/g,' ').replace(/\s+/g,' ').trim();
                         const matchScore=(a,b)=>{const aw=norm(a).split(' ').filter(w=>w.length>=3);const bw=new Set(norm(b).split(' ').filter(w=>w.length>=3));if(!aw.length||!bw.size) return 0;const common=aw.filter(w=>bw.has(w)).length;return common/Math.max(aw.length,1);};
                         const projJournal=workJournal.filter(j=>j.project===p.name);
                         const projMaterials=materials.filter(m=>m.project===p.name);
@@ -2526,7 +2485,6 @@ function App() {
                         let _h=0;for(let i=0;i<payloadStr.length;i++){_h=((_h*31)+payloadStr.charCodeAt(i))|0;}
                         const currentHash=(_h>>>0).toString(16);
                         const cached=projectAiSummaries[p.name];
-                        const isStale=cached&&cached.payloadHash!==currentHash;
                         const isFresh=cached&&cached.payloadHash===currentHash;
                         const fmtAgo=(iso)=>{if(!iso) return '';const d=new Date(iso);const m=Math.floor((Date.now()-d.getTime())/60000);if(m<1) return 'только что';if(m<60) return m+' мин назад';const h=Math.floor(m/60);if(h<24) return h+' ч назад';return Math.floor(h/24)+' дн назад';};
                         const runAiSummary=async()=>{
@@ -3396,7 +3354,7 @@ function App() {
                             let report='📊 СВЕРКА НАКЛАДНОЙ СО СМЕТОЙ\n';
                             report+='Смета: '+est.name+'\n\n';
                             invoiceItems.forEach(invItem=>{
-                              const norm=(s)=>s.toLowerCase().replace(/[хx×]/g,'x').replace(/[,\.]/g,'.').replace(/\s+/g,' ').trim();const smetaItem=smetaItems.find(si=>norm(si.name).includes(norm(invItem.name))||norm(invItem.name).includes(norm(si.name))||norm(si.name).split(' ').filter(w=>w.length>3).every(w=>norm(invItem.name).includes(w)));
+                              const norm=(s)=>s.toLowerCase().replace(/[хx×]/g,'x').replace(/[,.]/g,'.').replace(/\s+/g,' ').trim();const smetaItem=smetaItems.find(si=>norm(si.name).includes(norm(invItem.name))||norm(invItem.name).includes(norm(si.name))||norm(si.name).split(' ').filter(w=>w.length>3).every(w=>norm(invItem.name).includes(w)));
                               if(smetaItem){
                                 const need=Number(smetaItem.quantity||0);
                                 const got=Number(invItem.quantity||0);
@@ -4509,7 +4467,7 @@ function App() {
           }} style={{...btnO,padding:'8px 14px'}}>➤</button>
         </div>
       </div>)}
-      <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:'flex',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',display:'flex'}}>
+      <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:'flex',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
         {[{id:'dashboard',icon:<LayoutDashboard size={20}/>,label:'Главная'},{id:'projects',icon:<FolderKanban size={20}/>,label:'Объекты'},{id:'warehouse',icon:<Package size={20}/>,label:'Склад'},{id:'companychat',icon:<MessageSquare size={20}/>,label:'Чат',isPanel:true},{id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else if(item.id==='companychat'){setShowChatPanel(s=>!s);setShowMobileMenu(false);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#6b7280'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
       {reportingPayment&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -4523,7 +4481,7 @@ function App() {
         <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
           <span style={{fontSize:'12px',color:C.textSec}}>📷 Фото чека:</span>
           <input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewExpense(prev=>({...prev,photoUrl:url}));}}}/>
-          {newExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid #e5e7eb'}}><img src={newExpense.photoUrl.startsWith('http')?newExpense.photoUrl:API+newExpense.photoUrl} style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'20px',textAlign:'center',marginTop:'6px',color:C.textMuted}}>Нажмите чтобы загрузить</div>}
+          {newExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid #e5e7eb'}}><img src={newExpense.photoUrl.startsWith('http')?newExpense.photoUrl:API+newExpense.photoUrl} alt='' style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'20px',textAlign:'center',marginTop:'6px',color:C.textMuted}}>Нажмите чтобы загрузить</div>}
         </label>
         <div style={{display:'flex',gap:'8px'}}>
           <button onClick={async()=>{
@@ -4824,7 +4782,7 @@ function App() {
         <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
           <span style={{fontSize:'12px',color:C.textSec}}>📷 Фото чека:</span>
           <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewOwnExpense(prev=>({...prev,photoUrl:url}));}}}/>
-          {newOwnExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid '+C.border}}><img src={newOwnExpense.photoUrl.startsWith('http')?newOwnExpense.photoUrl:API+newOwnExpense.photoUrl} style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',marginTop:'6px',color:C.textMuted,fontSize:'12px'}}>Нажмите чтобы загрузить фото чека</div>}
+          {newOwnExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid '+C.border}}><img src={newOwnExpense.photoUrl.startsWith('http')?newOwnExpense.photoUrl:API+newOwnExpense.photoUrl} alt='' style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',marginTop:'6px',color:C.textMuted,fontSize:'12px'}}>Нажмите чтобы загрузить фото чека</div>}
         </label>
         <div style={{display:'flex',gap:'8px'}}>
           <button onClick={async()=>{
