@@ -1862,6 +1862,7 @@ function App() {
     {id:'personnel',icon:<UserCheck size={18}/>,label:'Персонал'},
     
     {id:'estimates',icon:<Calculator size={18}/>,label:'Сметы'},
+    {id:'pricelists',icon:<Tag size={18}/>,label:'Прайс-листы'},
     {id:'weather',icon:<CloudSun size={18}/>,label:'Погода / ЖПР'},
     
     {id:'activitylog',icon:<ScrollText size={18}/>,label:'Журнал'},
