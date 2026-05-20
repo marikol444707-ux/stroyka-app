@@ -4090,15 +4090,33 @@ function App() {
                     <button onClick={()=>{if(!newEstimateSection.name) return;const section={id:Date.now(),name:newEstimateSection.name,items:[]};const updated={...selectedEstimate,sections:[...(selectedEstimate.sections||[]),section]};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));setNewEstimateSection({name:''});}} style={btnO}><Plus size={14}/>Раздел</button>
                   </div>
                 </div>
-                {(selectedEstimate.sections||[]).map((section,si)=>(<div key={section.id} style={{...card,marginBottom:'12px'}}>
+                {(selectedEstimate.sections||[]).map((section,si)=>{
+                  const itemKind=(it)=>it.itemType||(Number(it.priceMaterial||0)>0&&Number(it.priceWork||0)===0?'material':'work');
+                  const sumOf=(it)=>it.isImported?Number(it.priceWork||0)+Number(it.priceMaterial||0):Number(it.quantity||0)*(Number(it.priceWork||0)+Number(it.priceMaterial||0));
+                  const allItems=section.items||[];
+                  const works=allItems.map((i,idx)=>({...i,_idx:idx})).filter(i=>itemKind(i)==='work');
+                  const mats=allItems.map((i,idx)=>({...i,_idx:idx})).filter(i=>itemKind(i)==='material');
+                  const total=allItems.reduce((s,i)=>s+sumOf(i),0);
+                  const totalW=works.reduce((s,i)=>s+sumOf(i),0);
+                  const totalM=mats.reduce((s,i)=>s+sumOf(i),0);
+                  const removeAt=(idx)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).filter((_,i)=>i!==idx)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));};
+                  const renderGroup=(title,emoji,list,groupTotal,accent)=>(<div style={{marginBottom:'10px'}}>
+                    <div style={{padding:'6px 10px',backgroundColor:accent+'15',borderRadius:'6px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px',borderLeft:'3px solid '+accent}}>
+                      <b style={{color:accent,fontSize:'12px'}}>{emoji+' '+title+' ('+list.length+')'}</b>
+                      <b style={{color:accent,fontSize:'12px'}}>{groupTotal.toLocaleString('ru-RU')+' ₽'}</b>
+                    </div>
+                    {list.length>0?(<table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена работ</th><th style={tblH}>Цена мат.</th><th style={tblH}>Итого</th><th style={tblH}></th></tr></thead><tbody>
+                      {list.map(item=>(<tr key={item.id||item._idx}><td style={tblC}>{item.name}</td><td style={tblC}>{item.unit}</td><td style={tblC}>{item.quantity}</td><td style={tblC}>{Number(item.priceWork||0).toLocaleString('ru-RU')+' ₽'}</td><td style={tblC}>{Number(item.priceMaterial||0).toLocaleString('ru-RU')+' ₽'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td><td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td></tr>))}
+                    </tbody></table>):(<p style={{fontSize:'11px',color:C.textMuted,padding:'6px 10px'}}>Нет позиций</p>)}
+                  </div>);
+                  return(<div key={section.id} style={{...card,marginBottom:'12px'}}>
                   <div style={{padding:'12px 16px',backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1.5px solid '+C.border}}>
                     <b style={{color:C.accent,fontSize:'13px'}}>{'📁 '+section.name}</b>
-                    <b style={{color:C.text,fontSize:'13px'}}>{(section.items||[]).reduce((s,i)=>s+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0).toLocaleString()+' ₽'}</b>
+                    <b style={{color:C.text,fontSize:'13px'}}>{total.toLocaleString('ru-RU')+' ₽'}</b>
                   </div>
                   <div style={{padding:'12px 16px'}}>
-                    <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>{selectedEstimate&&selectedEstimate.sections&&selectedEstimate.sections[0]&&selectedEstimate.sections[0].items&&selectedEstimate.sections[0].items[0]&&selectedEstimate.sections[0].items[0].isImported?'Стоимость':'Цена работ'}</th><th style={tblH}>{selectedEstimate&&selectedEstimate.sections&&selectedEstimate.sections[0]&&selectedEstimate.sections[0].items&&selectedEstimate.sections[0].items[0]&&selectedEstimate.sections[0].items[0].isImported?'':'Цена мат.'}</th><th style={tblH}>Итого</th><th style={tblH}></th></tr></thead><tbody>
-                      {(section.items||[]).map((item,ii)=>(<tr key={item.id||ii}><td style={tblC}>{item.name}</td><td style={tblC}>{item.unit}</td><td style={tblC}>{item.quantity}</td><td style={tblC}>{item.totalFixed?(item.quantity>0?Math.round(item.totalFixed/item.quantity):item.totalFixed).toLocaleString():Number(item.priceWork||0).toLocaleString()+' ₽'}</td><td style={tblC}>{Number(item.priceMaterial||0).toLocaleString()+' ₽'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{(item.isImported?Number(item.priceWork||0):Number(item.quantity||0)*(Number(item.priceWork||0)+Number(item.priceMaterial||0))).toLocaleString()+' ₽'}</td><td style={tblC}><button onClick={()=>{const sections=(selectedEstimate.sections||[]).map((s,idx)=>idx===si?{...s,items:(s.items||[]).filter((_,i)=>i!==ii)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));}} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td></tr>))}
-                    </tbody></table>
+                    {renderGroup('Работы','🔨',works,totalW,C.accent)}
+                    {renderGroup('Материалы','📦',mats,totalM,C.info)}
                     <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr auto',gap:'6px',marginTop:'10px',alignItems:'center'}}>
                       <input placeholder="Наименование работы *" value={newEstimateItem.sectionId===section.id?newEstimateItem.name:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                       <select value={newEstimateItem.sectionId===section.id?newEstimateItem.unit:'м2'} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
@@ -4108,7 +4126,7 @@ function App() {
                       <button onClick={()=>{if(!newEstimateItem.name||newEstimateItem.sectionId!==section.id) return;const item={id:Date.now(),name:newEstimateItem.name,unit:newEstimateItem.unit,quantity:newEstimateItem.quantity,priceWork:newEstimateItem.priceWork,priceMaterial:newEstimateItem.priceMaterial};const sections=(selectedEstimate.sections||[]).map((s,idx)=>idx===si?{...s,items:[...(s.items||[]),item]}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));setNewEstimateItem({sectionId:'',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});}} style={{...btnO,padding:'7px 12px'}}><Plus size={13}/></button>
                     </div>
                   </div>
-                </div>))}
+                </div>);})}
                 <div style={{...card,padding:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                     <b style={{color:C.text,fontSize:'14px'}}>ИТОГО по смете:</b>
@@ -4147,7 +4165,9 @@ function App() {
                       const sections={};
                       (data.items||[]).forEach(item=>{
                         if(!sections[item.section]) sections[item.section]={id:Date.now()+Math.random(),name:item.section,items:[]};
-                        sections[item.section].items.push({id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:item.type==='material'?0:item.total,priceMaterial:item.type==='material'?item.total:0,isImported:true,itemType:item.type||'work'});
+                        const tw=Number(item.totalWork||0);
+                        const tm=Number(item.totalMaterial||0);
+                        sections[item.section].items.push({id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:tw>0||tm===0?(tw||item.total):0,priceMaterial:tm>0?tm:0,isImported:true,itemType:item.type||'work'});
                       });
                       const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',sections:Object.values(sections)};
                       const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик'};setEstimatesList(prev=>[...prev,estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');

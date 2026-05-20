@@ -2047,9 +2047,15 @@ async def parse_smeta(file: UploadFile = File(...)):
                 
                 if file_type == "lsr":
                     if "Всего по позиции" in name_col:
-                        if results and results[-1]["total"] == 0:
+                        if results and results[-1].get("total", 0) == 0:
                             try:
-                                results[-1]["total"] = round(float(row[13]), 2) if len(row) > 13 and row[13] and isinstance(row[13], (int,float)) else 0
+                                v = round(float(row[13]), 2) if len(row) > 13 and row[13] and isinstance(row[13], (int,float)) else 0
+                                if v > 0:
+                                    results[-1]["total"] = v
+                                    if results[-1].get("type") == "work":
+                                        results[-1]["totalWork"] = v
+                                    else:
+                                        results[-1]["totalMaterial"] = v
                             except:
                                 pass
                         continue
@@ -2078,21 +2084,28 @@ async def parse_smeta(file: UploadFile = File(...)):
                     
                     unit = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
                     qty = float(row[8]) if len(row) > 8 and isinstance(row[8], (int,float)) else 0
-                    
-                    # Для материалов стоимость в col[15]
+
+                    work_total = 0
                     mat_total = 0
-                    if item_type == "material":
-                        try:
-                            mat_total = round(float(row[15]), 2) if len(row) > 15 and row[15] and isinstance(row[15], (int,float)) else 0
-                        except:
-                            pass
-                    
+                    try:
+                        if item_type == "work" and len(row) > 13 and row[13] and isinstance(row[13], (int,float)):
+                            work_total = round(float(row[13]), 2)
+                    except:
+                        pass
+                    try:
+                        if item_type == "material" and len(row) > 15 and row[15] and isinstance(row[15], (int,float)):
+                            mat_total = round(float(row[15]), 2)
+                    except:
+                        pass
+
                     results.append({
                         "section": current_section,
                         "name": name_col,
                         "unit": unit,
                         "quantity": round(qty, 4),
-                        "total": mat_total,
+                        "total": mat_total if item_type == "material" else work_total,
+                        "totalWork": work_total,
+                        "totalMaterial": mat_total,
                         "type": item_type
                     })
                 
