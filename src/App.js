@@ -1266,7 +1266,9 @@ function App() {
       const ppu = item.price*coeff;
       const total = Number(workData.quantity)*ppu;
       await fetch(API+'/piecework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({staffId:String(user.id),description:item.name,unit:item.unit,quantity:Number(workData.quantity),pricePerUnit:ppu,total,project:project.name,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||''})});
-      await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:Number(workData.quantity),pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||''})});
+      const usedMats=(workData.materials||[]).filter(m=>m.name&&Number(m.quantity)>0).map(m=>({name:m.name,quantity:Number(m.quantity),unit:m.unit||'шт'}));
+      const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:Number(workData.quantity),pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats})});
+      if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось списать материалы: '+(er.detail||'ошибка'));return;}
       if (workData.roomId) {
         await fetch(API+'/room-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({roomId:Number(workData.roomId),project:project.name,roomName:workData.roomName||'',masterId:user.id,masterName:user.name,description:item.name,surface:workData.surface||'Стены',unit:item.unit,quantity:Number(workData.quantity),pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],photoUrl:workData.photoUrl||''})});
       }
@@ -1698,7 +1700,7 @@ function App() {
                     return(<div key={item.id} style={{padding:'12px',marginBottom:'8px',borderRadius:'10px',border:'1.5px solid '+(isSel?C.accent:C.border),backgroundColor:isSel?C.accentLight:C.bgWhite}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                         <label style={{display:'flex',alignItems:'center',gap:'12px',cursor:'pointer',flex:1}}>
-                          <input type="checkbox" checked={isSel} onChange={e=>{if(e.target.checked) setSelectedWorks(prev=>({...prev,[item.id]:{quantity:'',comment:'',photoUrl:'',roomId:'',roomName:'',surface:'Стены'}}));else{const u={...selectedWorks};delete u[item.id];setSelectedWorks(u);}}} style={{width:'18px',height:'18px',accentColor:C.accent}}/>
+                          <input type="checkbox" checked={isSel} onChange={e=>{if(e.target.checked) setSelectedWorks(prev=>({...prev,[item.id]:{quantity:'',comment:'',photoUrl:'',roomId:'',roomName:'',surface:'Стены',materials:[]}}));else{const u={...selectedWorks};delete u[item.id];setSelectedWorks(u);}}} style={{width:'18px',height:'18px',accentColor:C.accent}}/>
                           <span style={{fontWeight:isSel?'600':'400',fontSize:'13px',color:C.text}}>{item.name}</span>
                         </label>
                         <span style={{color:C.accent,fontWeight:'700',fontSize:'12px',whiteSpace:'nowrap'}}>{price.toLocaleString()+' ₽/'+item.unit}</span>
@@ -1708,6 +1710,30 @@ function App() {
                         {projectRooms.length>0&&(<><select value={selectedWorks[item.id]?.roomId||''} onChange={e=>{const room=projectRooms.find(r=>r.id===Number(e.target.value));setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],roomId:e.target.value,roomName:room?.name||''}}));}} style={inp}><option value="">Выберите помещение</option>{projectRooms.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select><select value={selectedWorks[item.id]?.surface||'Стены'} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],surface:e.target.value}}))} style={inp}>{SURFACES.map(s=><option key={s}>{s}</option>)}</select></>)}
                         <input placeholder="Комментарий" value={selectedWorks[item.id]?.comment||''} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],comment:e.target.value}}))} style={inp}/>
                         <input type="file" accept="image/*" onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],photoUrl:url}}));}}} style={{...inp,padding:'8px'}}/>
+                        {(()=>{
+                          const proj=projects.find(pp=>pp.id===Number(masterProjectId));
+                          const projMats=proj?materials.filter(m=>m.project===proj.name&&Number(m.quantity||0)>0):[];
+                          const used=selectedWorks[item.id]?.materials||[];
+                          const usedMap={};used.forEach(u=>{usedMap[u.name]=u;});
+                          if(!projMats.length) return null;
+                          return(<div style={{marginTop:'8px',padding:'8px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
+                            <p style={{fontSize:'11px',color:C.textSec,margin:'0 0 6px'}}>📦 Использованные материалы (опционально, спишутся со склада объекта):</p>
+                            <div style={{maxHeight:'150px',overflowY:'auto'}}>
+                              {projMats.map(m=>{const checked=!!usedMap[m.name];return(<div key={m.id} style={{display:'flex',alignItems:'center',gap:'6px',padding:'4px 0',fontSize:'11px'}}>
+                                <input type='checkbox' checked={checked} onChange={e=>{
+                                  const next=e.target.checked?[...used,{name:m.name,quantity:'',unit:m.unit}]:used.filter(u=>u.name!==m.name);
+                                  setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],materials:next}}));
+                                }} style={{width:'14px',height:'14px',cursor:'pointer'}}/>
+                                <span style={{flex:1,color:C.text}}>{m.name}</span>
+                                <span style={{color:C.textSec}}>остаток {m.quantity} {m.unit}</span>
+                                {checked&&<input type='number' placeholder='кол-во' value={usedMap[m.name].quantity} max={m.quantity} onChange={e=>{
+                                  const next=used.map(u=>u.name===m.name?{...u,quantity:e.target.value}:u);
+                                  setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],materials:next}}));
+                                }} style={{width:'70px',padding:'3px 6px',border:'1px solid '+C.border,borderRadius:'4px',fontSize:'11px'}}/>}
+                              </div>);})}
+                            </div>
+                          </div>);
+                        })()}
                       <button onClick={async()=>{
                       const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
                       if(!doneItems.length){alert('Введите выполненные объёмы');return;}

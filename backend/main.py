@@ -355,6 +355,7 @@ def init_db():
             summary TEXT,
             updated_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS materials_used TEXT;
     """)
     cur.execute("""
         INSERT INTO users (name, email, password, role)
@@ -529,6 +530,7 @@ class WorkJournalModel(BaseModel):
     date: str
     comment: str = ""
     photoUrl: str = ""
+    materialsUsed: list = []
 
 class MasterProfileModel(BaseModel):
     userId: int
@@ -1208,20 +1210,49 @@ def update_supply_history(id: int, data: dict):
 def get_work_journal():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,description,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,comment,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",confirmed_at as \"confirmedAt\" FROM work_journal ORDER BY id DESC")
+    cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,description,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,comment,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",confirmed_at as \"confirmedAt\",materials_used as \"materialsUsed\" FROM work_journal ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/work-journal")
 def create_work_journal(w: WorkJournalModel):
+    used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
+
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO work_journal (master_id,master_name,project,description,unit,quantity,price_per_unit,total,date,comment,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (w.masterId,w.masterName,w.project,w.description,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,w.comment,w.photoUrl))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row)
+    try:
+        for m in used:
+            name = m["name"]
+            qty = float(m["quantity"])
+            cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, w.project))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=400, detail="Материал «"+name+"» не найден на складе объекта «"+w.project+"»")
+            stock_qty = float(row["quantity"] or 0)
+            if stock_qty < qty:
+                raise HTTPException(status_code=400, detail="На складе «"+w.project+"» только "+str(stock_qty)+" "+(m.get("unit") or "")+" «"+name+"», запрошено "+str(qty))
+            cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, row["id"]))
+            cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (name, "расход (работа)", qty, w.date or None, w.project, w.masterName or "", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+
+        import json as _json
+        materials_json = _json.dumps(used, ensure_ascii=False) if used else None
+        cur.execute("INSERT INTO work_journal (master_id,master_name,project,description,unit,quantity,price_per_unit,total,date,comment,photo_url,materials_used) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                    (w.masterId,w.masterName,w.project,w.description,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,w.comment,w.photoUrl,materials_json))
+        row = cur.fetchone()
+        conn.commit()
+        return dict(row)
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/work-journal/{id}")
 def update_work_journal(id: int, data: dict):
