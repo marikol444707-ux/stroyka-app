@@ -317,6 +317,12 @@ function App() {
   const [companyChatInput, setCompanyChatInput] = useState('');
   const [showScanInvoice, setShowScanInvoice] = useState(false);
   const [showScannedInvoiceForm, setShowScannedInvoiceForm] = useState(false);
+  const [showReceiveDialog, setShowReceiveDialog] = useState(false);
+
+  const openReceiveInvoice = (preselectedLocation) => {
+    setNewInvoice({number:'',date:new Date().toISOString().split('T')[0],supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:user?.name||'',location:preselectedLocation||'',project:preselectedLocation&&preselectedLocation!=='Основной склад'?preselectedLocation:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}],supplier:'',totalWithVat:0});
+    setShowReceiveDialog(true);
+  };
   const [scanningInvoice, setScanningInvoice] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [projectPayments, setProjectPayments] = useState([]);
@@ -2954,13 +2960,16 @@ function App() {
             <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Объём</th><th style={{...tblH,display:isFinanceRole()?'':'none'}}>Цена смета</th><th style={tblH}>Цена бригаде</th><th style={tblH}>Выполнено</th><th style={tblH}>%</th><th style={tblH}>К оплате</th><th style={{...tblH,display:isFinanceRole()?'':'none'}}>Экономия</th><th style={tblH}></th></tr></thead><tbody>{brigadeContractItems.map((item,idx)=>{const pct=item.quantity>0?Math.round(item.doneQuantity/item.quantity*100):0;const toPay=Math.round(item.doneQuantity*item.priceBrigade);const economy=Math.round(item.doneQuantity*(item.priceSmeta-item.priceBrigade));return(<tr key={item.id||idx}><td style={tblC}>{item.name}</td><td style={tblC}>{item.unit}</td><td style={tblC}>{item.quantity}</td><td style={{...tblC,display:isFinanceRole()?'':'none'}}>{Number(item.priceSmeta||0).toLocaleString()+' руб.'}</td><td style={tblC}>{Number(item.priceBrigade||0).toLocaleString()+' руб.'}</td><td style={tblC}><input type='number' value={item.doneQuantity||0} onChange={async e=>{const val=Math.min(Number(e.target.value),Number(item.quantity));const updated={...item,doneQuantity:val,status:val>=item.quantity?'Выполнено':val>0?'В работе':'Не начато'};setBrigadeContractItems(prev=>prev.map((it,i)=>i===idx?updated:it));await fetch(API+'/brigade-contract-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});}} style={{...inp,marginBottom:0,width:'80px',fontSize:'12px',padding:'4px 6px'}}/></td><td style={tblC}><span style={{padding:'2px 6px',borderRadius:'4px',fontSize:'11px',backgroundColor:pct>=100?C.successLight:pct>0?C.warningLight:C.bg,color:pct>=100?C.success:pct>0?C.warning:C.textMuted}}>{pct+'%'}</span></td><td style={{...tblC,fontWeight:'600',color:C.accent}}>{toPay.toLocaleString()+' руб.'}</td><td style={{...tblC,fontWeight:'600',color:C.success,display:isFinanceRole()?'':'none'}}>{economy.toLocaleString()+' руб.'}</td><td style={tblC}><button onClick={async()=>{await fetch(API+'/brigade-contract-items/'+item.id,{method:'DELETE'});setBrigadeContractItems(prev=>prev.filter((_,i)=>i!==idx));}} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td></tr>);})}</tbody></table>{brigadeContractItems.length>0&&(<div style={{...card,padding:'16px',marginTop:'16px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}><div><b style={{color:C.text,fontSize:'14px'}}>К оплате бригаде:</b></div><div style={{textAlign:'right'}}><b style={{color:C.accent,fontSize:'18px',display:'block'}}>{brigadeContractItems.reduce((s,i)=>s+Math.round(i.doneQuantity*i.priceBrigade),0).toLocaleString()+' руб.'}</b><b style={{color:C.success,fontSize:'13px'}}>{'+'+brigadeContractItems.reduce((s,i)=>s+Math.round(i.doneQuantity*(i.priceSmeta-i.priceBrigade)),0).toLocaleString()+' руб. экономия'}</b></div></div><button onClick={()=>{const items=brigadeContractItems.filter(i=>i.doneQuantity>0);if(!items.length){alert('Нет выполненных работ');return;}const total=items.reduce((s,i)=>s+Math.round(i.doneQuantity*i.priceBrigade),0);const html='<h2>АКТ ВЫПОЛНЕННЫХ РАБОТ</h2><p>Объект: '+p.name+'</p><p>Исполнитель: '+selectedBrigadeContract.brigadeName+'</p><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Выполнено</th><th>Цена</th><th>Сумма</th></tr>'+items.map((it,i)=>'<tr><td>'+(i+1)+'</td><td>'+it.name+'</td><td>'+it.unit+'</td><td>'+it.doneQuantity+'</td><td>'+Number(it.priceBrigade).toLocaleString()+'</td><td>'+Math.round(it.doneQuantity*it.priceBrigade).toLocaleString()+'</td></tr>').join('')+'<tr><td colspan=5><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+' руб.</b></td></tr></table>';showPreview(html,'Акт');}} style={{...btnO,width:'100%',justifyContent:'center'}}><ScrollText size={14}/>Сформировать акт</button></div>)}</div>):(<div>{brigadeContracts.filter(bc=>bc.projectName===p.name).map(bc=>(<div key={bc.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={async()=>{setSelectedBrigadeContract(bc);const res=await fetch(API+'/brigade-contract-items/'+bc.id);const items=await res.json();setBrigadeContractItems(items);}}><div><b style={{color:C.text,fontSize:'13px'}}>{bc.brigadeName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{bc.contractorType+' - '+bc.status}</p></div><div style={{display:'flex',gap:'8px',alignItems:'center'}}><ChevronRight size={16} color={C.textMuted}/><button onClick={async e=>{e.stopPropagation();if(!window.confirm('Удалить наряд?')) return;await fetch(API+'/brigade-contracts/'+bc.id,{method:'DELETE'});setBrigadeContracts(prev=>prev.filter(b=>b.id!==bc.id));}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div></div>))}{!brigadeContracts.filter(bc=>bc.projectName===p.name).length&&(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Users size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Нарядов нет</p></div>)}</div>)}</div>)}
                     {activeProjectTab==='Материалы'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Передача материалов</b>
-                        <button onClick={async()=>{
-                          const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(p.name));
-                          const data=await res.json();
-                          setMaterialTransfers(Array.isArray(data)?data:[]);
-                          setShowTransferForm(!showTransferForm);
-                        }} style={btnO}><Plus size={14}/>Передать материал</button>
+                        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Материалы объекта</b>
+                        <div style={{display:'flex',gap:'8px'}}>
+                          <button onClick={()=>openReceiveInvoice(p.name)} style={btnB}><Plus size={14}/>Принять материал</button>
+                          <button onClick={async()=>{
+                            const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(p.name));
+                            const data=await res.json();
+                            setMaterialTransfers(Array.isArray(data)?data:[]);
+                            setShowTransferForm(!showTransferForm);
+                          }} style={btnO}><Plus size={14}/>Передать материал</button>
+                        </div>
                       </div>
 
                       {showTransferForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
@@ -3248,7 +3257,7 @@ function App() {
                   <h3 style={{color:C.text,margin:0,fontSize:'15px',fontWeight:'700'}}>{selectedWarehouseProject}</h3>
                 </div>
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px'}}>
-                  <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewMaterial({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',project:selectedWarehouseProject,category:''});}} style={btnO}><Plus size={14}/>Добавить</button>
+                  <button onClick={()=>openReceiveInvoice(selectedWarehouseProject)} style={btnO}><Plus size={14}/>Принять материал</button>
                   <button onClick={()=>exportToExcel(materials.filter(m=>m.project===selectedWarehouseProject).map(m=>({Наименование:m.name,Единица:m.unit,Количество:m.quantity,Цена:m.price,Сумма:m.quantity*m.price,Проект:m.project})),'Склад_'+selectedWarehouseProject)} style={btnG}><Download size={14}/>Excel</button>
                 </div>
                 {showForm&&(<div style={{...card,padding:'20px',marginBottom:'15px'}}>
@@ -3277,7 +3286,7 @@ function App() {
 
             {warehouseTab==='main'&&(<div>
               <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewMainMaterial({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',category:''});}} style={btnO}><Plus size={14}/>Добавить</button>
+                <button onClick={()=>openReceiveInvoice('Основной склад')} style={btnO}><Plus size={14}/>Принять материал</button>
                 <button onClick={()=>exportToExcel(warehouseMain.map(m=>({Наименование:m.name,Единица:m.unit,Количество:m.quantity,Цена:m.price,Сумма:m.quantity*m.price})),'Основной_склад')} style={btnG}><Download size={14}/>Excel</button>
               </div>
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'15px'}}>
@@ -4484,33 +4493,50 @@ function App() {
         </div>
       </div>
     </div>)}
+    {showReceiveDialog&&(<div onClick={()=>setShowReceiveDialog(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{...card,padding:'24px',width:'320px',margin:'20px'}}>
+        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'4px'}}>📥 Принять материал</b>
+        <p style={{color:C.textSec,fontSize:'12px',marginBottom:'18px'}}>Выберите как заполнить накладную</p>
+        <button onClick={()=>{setShowReceiveDialog(false);setShowScanInvoice(true);}} style={{...btnB,width:'100%',padding:'14px',justifyContent:'center',marginBottom:'10px',fontSize:'14px'}}><Scan size={16}/>📷 Сканировать накладную</button>
+        <button onClick={()=>{setShowReceiveDialog(false);setShowScannedInvoiceForm(true);}} style={{...btnG,width:'100%',padding:'14px',justifyContent:'center',fontSize:'14px'}}><Edit2 size={14}/>✍️ Ввести вручную</button>
+        <button onClick={()=>setShowReceiveDialog(false)} style={{width:'100%',marginTop:'10px',padding:'8px',backgroundColor:'transparent',border:'none',color:C.textSec,cursor:'pointer',fontSize:'13px'}}>Отмена</button>
+      </div>
+    </div>)}
     {showScannedInvoiceForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{...card,padding:'20px',width:'360px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
-        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'4px'}}>📋 Накладная распознана</b>
-        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>Проверьте данные и выберите объект</p>
-        <input placeholder='Поставщик' value={newInvoice.supplier||''} onChange={e=>setNewInvoice({...newInvoice,supplier:e.target.value})} style={inp}/>
-        <select value={newInvoice.location||''} onChange={e=>setNewInvoice({...newInvoice,location:e.target.value})} style={inp}>
-          <option value=''>Выберите объект *</option>
-          <option value='Основной склад'>Основной склад</option>
-          {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+      <div style={{...card,padding:'20px',width:'380px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'4px'}}>📋 Накладная</b>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>Проверьте данные и сохраните</p>
+        <input placeholder='Номер накладной *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inp}/>
+        <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>setNewInvoice({...newInvoice,supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inp}/>
+        <select value={newInvoice.location||''} onChange={e=>setNewInvoice({...newInvoice,location:e.target.value,project:e.target.value!=='Основной склад'?e.target.value:''})} style={inp}>
+          <option value=''>Выберите склад *</option>
+          <option value='Основной склад'>📦 Основной склад</option>
+          {projects.map(p=><option key={p.id} value={p.name}>🏗️ {p.name}</option>)}
         </select>
         <input type='date' value={newInvoice.date||new Date().toISOString().split('T')[0]} onChange={e=>setNewInvoice({...newInvoice,date:e.target.value})} style={inp}/>
         <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Позиции:</b>
-        {(newInvoice.items||[]).map((item,idx)=>(<div key={idx} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr',gap:'6px',marginBottom:'6px'}}>
-          <input value={item.name} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],name:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-          <input type='number' value={item.quantity} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],quantity:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-          <input type='number' value={item.price} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],price:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+        {(newInvoice.items||[]).map((item,idx)=>(<div key={idx} style={{display:'grid',gridTemplateColumns:'2fr 0.7fr 0.7fr 1fr 24px',gap:'4px',marginBottom:'6px'}}>
+          <input placeholder='Название' value={item.name} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],name:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+          <input placeholder='Кол.' type='number' value={item.quantity} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],quantity:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+          <select value={item.unit||'шт'} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],unit:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'11px',padding:'6px 4px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+          <input placeholder='Цена' type='number' value={item.price} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],price:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+          <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push({name:'',quantity:'',unit:'шт',price:'',category:''});setNewInvoice({...newInvoice,items});}} style={{...btnR,padding:'4px 6px',fontSize:'11px'}}><X size={12}/></button>
         </div>))}
+        <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),{name:'',quantity:'',unit:'шт',price:'',category:''}]})} style={{...btnG,fontSize:'12px',padding:'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'8px 0'}}>
-          <b style={{color:C.text,fontSize:'13px'}}>Итого: {Number(newInvoice.totalWithVat||0).toLocaleString()} ₽</b>
+          <b style={{color:C.text,fontSize:'13px'}}>Итого: {(newInvoice.items||[]).reduce((s,i)=>s+Number(i.quantity||0)*Number(i.price||0),0).toLocaleString()} ₽</b>
         </div>
         <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
           <button onClick={async()=>{
-            if(!newInvoice.location) return alert('Выберите объект!');
-            await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newInvoice,addedBy:user.name,status:'Принята',date:newInvoice.date||new Date().toISOString().split('T')[0]})});
-            setShowScannedInvoiceForm(false);
-            await loadAll();
-            alert('Накладная сохранена!');
+            if(!newInvoice.number) return alert('Укажите номер накладной');
+            if(!newInvoice.location) return alert('Выберите склад');
+            const validItems=(newInvoice.items||[]).filter(i=>i.name&&Number(i.quantity)>0);
+            if(!validItems.length) return alert('Добавьте хотя бы одну позицию');
+            try{
+              await saveInvoiceNew();
+              setShowScannedInvoiceForm(false);
+              alert('Накладная принята, материалы оприходованы!');
+            }catch(e){alert('Ошибка: '+(e.message||e));}
           }} style={btnO}><Check size={14}/>Сохранить</button>
           <button onClick={()=>setShowScannedInvoiceForm(false)} style={btnG}><X size={14}/>Отмена</button>
         </div>
