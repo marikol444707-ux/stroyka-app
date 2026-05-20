@@ -374,6 +374,7 @@ def init_db():
             content TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS pricelist_id INT;
     """)
     cur.execute("""
         INSERT INTO users (name, email, password, role)
@@ -2269,19 +2270,19 @@ def get_brigade_contracts(project_name: str = None):
     conn = get_db()
     cur = conn.cursor()
     if project_name:
-        cur.execute("SELECT id,project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,signed_at,notes,created_at FROM brigade_contracts WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        cur.execute("SELECT id,project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,signed_at,notes,created_at,pricelist_id FROM brigade_contracts WHERE project_name=%s ORDER BY id DESC", (project_name,))
     else:
-        cur.execute("SELECT id,project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,signed_at,notes,created_at FROM brigade_contracts ORDER BY id DESC")
+        cur.execute("SELECT id,project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,signed_at,notes,created_at,pricelist_id FROM brigade_contracts ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],"totalAmount":float(r[6] or 0),"status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10])} for r in rows]
+    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],"totalAmount":float(r[6] or 0),"status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10]),"pricelistId":r[11]} for r in rows]
 
 @app.post("/brigade-contracts")
 def create_brigade_contract(data: dict):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO brigade_contracts (project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId") or None,data.get("projectName",""),data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("contractorId") or None,data.get("totalAmount",0),data.get("status","Черновик"),data.get("notes","")))
+    cur.execute("INSERT INTO brigade_contracts (project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,notes,pricelist_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectId") or None,data.get("projectName",""),data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("contractorId") or None,data.get("totalAmount",0),data.get("status","Черновик"),data.get("notes",""),data.get("pricelistId") or None))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -2291,8 +2292,8 @@ def create_brigade_contract(data: dict):
 def update_brigade_contract(id: int, data: dict):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s WHERE id=%s",
-        (data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("totalAmount",0),data.get("status","Черновик"),data.get("signedAt") or None,data.get("notes",""),id))
+    cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s,pricelist_id=%s WHERE id=%s",
+        (data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("totalAmount",0),data.get("status","Черновик"),data.get("signedAt") or None,data.get("notes",""),data.get("pricelistId") or None,id))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
