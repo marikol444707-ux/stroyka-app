@@ -2744,6 +2744,128 @@ def save_project_ai_summary(data: dict):
     cur.close(); conn.close()
     return {"ok": True}
 
+@app.post("/ai-generate-estimate")
+def ai_generate_estimate(data: dict):
+    import openai as oa
+    import json as _json
+    description = (data.get("description") or "").strip()
+    project_id = data.get("projectId")
+    pricelist_id = data.get("pricelistId")
+    name_hint = (data.get("name") or "Сгенерированная смета").strip()
+    area = data.get("area")
+    if not description:
+        raise HTTPException(status_code=400, detail="Опишите объект — поле обязательно")
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    pricelist_items = []
+    project_name = ""
+    if project_id:
+        try:
+            cur.execute("SELECT name, pricelist_id FROM projects WHERE id=%s", (int(project_id),))
+            r = cur.fetchone()
+            if r:
+                project_name = r[0] or ""
+                if not pricelist_id and r[1]:
+                    pricelist_id = r[1]
+        except Exception:
+            pass
+    if pricelist_id:
+        cur.execute("SELECT id, name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s ORDER BY category, name LIMIT 400", (int(pricelist_id),))
+        pricelist_items = [{"id": r[0], "name": r[1], "unit": r[2], "price": float(r[3] or 0), "category": r[4] or ""} for r in cur.fetchall()]
+
+    parts = []
+    parts.append("Ты опытный сметчик. Составь смету для объекта на основе описания. ВЕРНИ СТРОГО ВАЛИДНЫЙ JSON без markdown.")
+    parts.append("\nОПИСАНИЕ ОБЪЕКТА:\n" + description)
+    if area:
+        parts.append("Площадь: " + str(area) + " м²")
+    if project_name:
+        parts.append("Проект: " + project_name)
+    if pricelist_items:
+        parts.append("\nИспользуй ТОЛЬКО позиции из этого прайс-листа (поле name копируй точно):")
+        for it in pricelist_items:
+            parts.append("- ["+str(it["category"])+"] "+it["name"]+" — "+it["unit"]+" — "+str(int(it["price"]))+"₽")
+    else:
+        parts.append("\nПрайс-листа нет — используй типовые работы и материалы для подобных объектов с рыночными ценами по РФ 2026.")
+
+    parts.append("""
+ФОРМАТ ОТВЕТА — ровно такой JSON:
+{
+  "name": "название сметы одной строкой",
+  "sections": [
+    {"name": "Раздел 1. ...", "items": [
+      {"name": "...", "unit": "м2|шт|кг|...", "quantity": число, "priceWork": число, "priceMaterial": число, "itemType": "work" или "material"}
+    ]}
+  ]
+}
+
+ПРАВИЛА:
+1. Раздели смету на 4-8 разделов по этапам работ (демонтаж, основание, отделка, сантехника и т.д.).
+2. В каждом разделе сначала идут работы (itemType="work" с priceWork>0, priceMaterial=0), затем материалы (itemType="material" с priceMaterial>0, priceWork=0).
+3. Объёмы (quantity) прикинь реалистично по площади и описанию.
+4. Если в прайсе нет нужной позиции — добавь её всё равно (только в крайнем случае) с рыночной ценой.
+5. Числа БЕЗ пробелов и валюты — только цифры. quantity может быть дробным.
+6. ТОЛЬКО валидный JSON. Никакого текста до или после.""")
+    full_prompt = "\n".join(parts)
+
+    instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, ```, никакого текста до или после JSON. Только сам JSON."
+
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+    try:
+        response = client.responses.create(
+            model="gpt://" + YANDEX_FOLDER_ID + "/qwen3.6-35b-a3b/latest",
+            temperature=0.2,
+            instructions=instructions,
+            input=full_prompt,
+            max_output_tokens=6000,
+        )
+        raw = (response.output_text or "").strip()
+    except Exception as e:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=500, detail="Ошибка ИИ: " + str(e))
+
+    clean = raw
+    if clean.startswith("```"):
+        clean = clean.split("```", 2)[-1] if clean.count("```") >= 2 else clean.lstrip("`")
+        clean = clean.lstrip("json").strip()
+    s_idx = clean.find("{")
+    e_idx = clean.rfind("}")
+    parsed = None
+    if s_idx >= 0 and e_idx > s_idx:
+        try:
+            parsed = _json.loads(clean[s_idx:e_idx+1])
+        except Exception:
+            parsed = None
+    if not parsed or not isinstance(parsed.get("sections"), list):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=500, detail="Не удалось распознать ответ ИИ как JSON. Попробуйте ещё раз или измените описание.")
+
+    sections = []
+    import time as _time
+    for i, s in enumerate(parsed.get("sections") or []):
+        items = []
+        for j, it in enumerate(s.get("items") or []):
+            items.append({
+                "id": int(_time.time()*1000) + i*100 + j,
+                "name": str(it.get("name") or ""),
+                "unit": str(it.get("unit") or "шт"),
+                "quantity": float(it.get("quantity") or 0),
+                "priceWork": float(it.get("priceWork") or 0),
+                "priceMaterial": float(it.get("priceMaterial") or 0),
+                "itemType": str(it.get("itemType") or ("material" if float(it.get("priceMaterial") or 0) > 0 and float(it.get("priceWork") or 0) == 0 else "work")),
+            })
+        sections.append({"id": int(_time.time()*1000) + i, "name": str(s.get("name") or ("Раздел " + str(i+1))), "items": items})
+
+    final_name = (parsed.get("name") or name_hint or "Сгенерированная смета")
+    cur.execute("INSERT INTO estimates (project_id, project_name, name, version, sections_json) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (int(project_id) if project_id else None, project_name, final_name, "1.0", _json.dumps(sections, ensure_ascii=False)))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close(); conn.close()
+
+    return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "sections": sections}
+
 @app.get("/estimates/{estimate_id}/chat-history")
 def get_estimate_chat(estimate_id: int):
     conn = get_db()

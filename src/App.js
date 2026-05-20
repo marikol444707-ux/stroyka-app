@@ -473,6 +473,9 @@ function App() {
   const [estimateChatMessages, setEstimateChatMessages] = useState([]);
   const [estimateChatInput, setEstimateChatInput] = useState('');
   const [estimateChatLoading, setEstimateChatLoading] = useState(false);
+  const [showGenerateEstimate, setShowGenerateEstimate] = useState(false);
+  const [generateForm, setGenerateForm] = useState({description:'',projectId:'',pricelistId:'',area:'',name:''});
+  const [generating, setGenerating] = useState(false);
 
   const sendEstimateChatMessage = async () => {
     if (!selectedEstimate || !estimateChatInput.trim() || estimateChatLoading) return;
@@ -3960,7 +3963,10 @@ function App() {
             {estimatesTab==='list'&&(<div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
                 <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сметы</b>
-                <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая смета</button>
+                <div style={{display:'flex',gap:'8px'}}>
+                  <button onClick={()=>{setGenerateForm({description:'',projectId:'',pricelistId:'',area:'',name:''});setShowGenerateEstimate(true);}} style={{...btnB,backgroundColor:'#7c3aed'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
+                  <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая смета</button>
+                </div>
               </div>
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
@@ -4575,6 +4581,47 @@ function App() {
           }} style={btnO}><Check size={14}/>Выдать</button>
           <button onClick={()=>{setShowAccountableForm(false);setNewAccountable({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:'',projectName:''});}} style={btnG}><X size={14}/>Отмена</button>
         </div>
+      </div>
+    </div>)}
+    {showGenerateEstimate&&(<div onClick={()=>!generating&&setShowGenerateEstimate(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{...card,padding:'22px',width:'520px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'4px'}}>
+          <span style={{fontSize:'22px'}}>🤖</span>
+          <b style={{color:C.text,fontSize:'15px'}}>Сгенерировать смету через ИИ</b>
+        </div>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>ИИ соберёт черновик из позиций прайс-листа на основе вашего описания. Объёмы и цены потом можно поправить вручную.</p>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}}>
+          <select value={generateForm.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));setGenerateForm({...generateForm,projectId:e.target.value,pricelistId:p&&p.pricelistId?String(p.pricelistId):generateForm.pricelistId,name:p?'Смета — '+p.name:generateForm.name});}} style={{...inp,marginBottom:0}}>
+            <option value=''>Без привязки к проекту</option>
+            {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select value={generateForm.pricelistId} onChange={e=>setGenerateForm({...generateForm,pricelistId:e.target.value})} style={{...inp,marginBottom:0}}>
+            <option value=''>Без прайс-листа</option>
+            {pricelists.map(pl=><option key={pl.id} value={pl.id}>📋 {pl.name}</option>)}
+          </select>
+          <input placeholder='Название сметы' value={generateForm.name} onChange={e=>setGenerateForm({...generateForm,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+          <input placeholder='Площадь (м²)' type='number' value={generateForm.area} onChange={e=>setGenerateForm({...generateForm,area:e.target.value})} style={{...inp,marginBottom:0}}/>
+        </div>
+        <textarea placeholder='Опишите объект как можно подробнее: тип помещения, что нужно сделать, материалы, особенности. Например: "Квартира 3-комн 75 м² в новостройке без отделки. Стяжка, штукатурка/шпатлёвка/окраска стен, плитка в санузле и кухне, ламинат в комнатах, натяжные потолки. Установка межкомнатных дверей (4 шт), сантехника под ключ."' rows={6} value={generateForm.description} onChange={e=>setGenerateForm({...generateForm,description:e.target.value})} style={{...inp,marginBottom:'10px',resize:'vertical',fontFamily:'inherit',fontSize:'13px',lineHeight:'1.5'}}/>
+        <div style={{display:'flex',gap:'8px',justifyContent:'flex-end',marginTop:'8px'}}>
+          <button onClick={()=>setShowGenerateEstimate(false)} disabled={generating} style={btnG}><X size={14}/>Отмена</button>
+          <button disabled={generating||!generateForm.description.trim()} onClick={async()=>{
+            if(!generateForm.description.trim()) return;
+            setGenerating(true);
+            try{
+              const res=await fetch(API+'/ai-generate-estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(generateForm)});
+              const data=await res.json();
+              if(!res.ok||!data.ok){alert('ИИ не справился: '+(data.detail||'попробуйте ещё раз с более детальным описанием'));setGenerating(false);return;}
+              const est={id:data.id,name:data.name,projectId:data.projectId||'',projectName:data.projectName||'',version:'1.0',sections:data.sections};
+              setEstimatesList(prev=>[...prev,est]);
+              setSelectedEstimate(est);
+              setShowGenerateEstimate(false);
+              setGenerating(false);
+              alert('Смета создана! Проверьте позиции и объёмы — можно редактировать вручную.');
+            }catch(e){alert('Ошибка: '+e.message);setGenerating(false);}
+          }} style={{...btnO,backgroundColor:'#7c3aed'}}>{generating?'⏳ ИИ думает... (15-40 сек)':'✨ Сгенерировать'}</button>
+        </div>
+        {generating&&<p style={{color:C.textMuted,fontSize:'11px',marginTop:'10px',textAlign:'center'}}>Не закрывайте окно. ИИ собирает разделы и позиции.</p>}
       </div>
     </div>)}
     {showEstimateChat&&selectedEstimate&&(<div onClick={()=>setShowEstimateChat(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
