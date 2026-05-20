@@ -2431,6 +2431,98 @@ function App() {
                         </div>
                         {(p.tasks||[]).map((t,i)=>(<div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><span style={{fontSize:'13px',color:C.text}}>{'• '+t}</span><button onClick={()=>removeTask(p,i)} style={{...btnR,padding:'3px 7px',fontSize:'10px'}}><X size={10}/></button></div>))}
                       </div>
+
+                      {user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&(()=>{
+                        const projSmeta=estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
+                        const smetaItems=projSmeta?(projSmeta.sections||[]).flatMap(s=>(s.items||[]).map(i=>({...i,section:s.name}))):[];
+                        const norm=(s)=>(s||'').toLowerCase().replace(/[.,;:()«»"'\-]/g,' ').replace(/\s+/g,' ').trim();
+                        const matchScore=(a,b)=>{const aw=norm(a).split(' ').filter(w=>w.length>=3);const bw=new Set(norm(b).split(' ').filter(w=>w.length>=3));if(!aw.length||!bw.size) return 0;const common=aw.filter(w=>bw.has(w)).length;return common/Math.max(aw.length,1);};
+                        const projJournal=workJournal.filter(j=>j.project===p.name);
+                        const projMaterials=materials.filter(m=>m.project===p.name);
+                        const projTransfers=materialTransfers.filter(t=>t.projectName===p.name);
+                        const workProgress=smetaItems.map(it=>{
+                          const plan=Number(it.quantity||0);
+                          const done=projJournal.filter(j=>matchScore(j.description,it.name)>=0.4).reduce((s,j)=>s+Number(j.quantity||0),0);
+                          const left=Math.max(0,plan-done);
+                          const pct=plan>0?Math.min(100,Math.round(done/plan*100)):0;
+                          return {name:it.name,section:it.section,unit:it.unit,plan,done,left,pct};
+                        });
+                        const matPlan=smetaItems.filter(i=>Number(i.priceMaterial||0)>0).map(it=>{
+                          const plan=Number(it.quantity||0);
+                          const bought=projMaterials.filter(m=>matchScore(m.name,it.name)>=0.4).reduce((s,m)=>s+Number(m.quantity||0),0);
+                          return {name:it.name,unit:it.unit,plan,bought,need:Math.max(0,plan-bought)};
+                        });
+                        const fmt=(n)=>Number(n||0).toLocaleString('ru-RU');
+                        return(<div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+                            <b style={{color:C.text,fontSize:'14px'}}>📊 Контроль объекта</b>
+                            <button onClick={async()=>{
+                              const payload={
+                                project:p.name,
+                                total:smetaItems.reduce((s,i)=>s+Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0)),0),
+                                workProgress:workProgress.filter(w=>w.plan>0),
+                                materials:matPlan,
+                                stock:projMaterials.map(m=>({name:m.name,qty:Number(m.quantity||0),unit:m.unit})),
+                                transfers:projTransfers.slice(0,20).map(t=>({name:t.materialName,qty:Number(t.quantity||0),unit:t.unit,to:t.toPerson,date:t.transferDate}))
+                              };
+                              const prompt='Объект "'+p.name+'". Проанализируй прогресс и материальный учёт. Данные ниже.\n\n'+JSON.stringify(payload,null,1)+'\n\nОТВЕТЬ СТРОГО JSON (без markdown):\n{\n  "summary":"одна-две фразы общего впечатления",\n  "progress":[{"what":"что","status":"в норме|отставание|опережение","note":"что заметил"}],\n  "materials":[{"what":"материал","problem":"нехватка|избыток|пропажа|норма","action":"что сделать","amount":число_или_0}],\n  "alerts":[{"type":"критично|внимание|совет","text":"что"}]\n}\nИспользуй только данные из payload. Если данных мало — пиши "недостаточно данных".';
+                              setShowAiChat(true);
+                              setAiMessages([{role:'user',content:'Контроль объекта: '+p.name}]);
+                              setAiLoading(true);
+                              try{
+                                const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],jsonOnly:true})});
+                                const data=await res.json();
+                                const raw=(data.response||data.error||'').trim();
+                                let parsed=null;
+                                try{const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();const s=clean.indexOf('{'),e=clean.lastIndexOf('}');if(s>=0&&e>s) parsed=JSON.parse(clean.slice(s,e+1));}catch(e){}
+                                let out;
+                                if(parsed){
+                                  const ln=[];
+                                  if(parsed.summary) ln.push('📋 '+parsed.summary,'');
+                                  if(Array.isArray(parsed.alerts)&&parsed.alerts.length){ln.push('🚨 ВНИМАНИЕ');parsed.alerts.forEach((a,n)=>ln.push((n+1)+'. ['+(a.type||'')+'] '+(a.text||'')));ln.push('');}
+                                  if(Array.isArray(parsed.progress)&&parsed.progress.length){ln.push('🔨 РАБОТЫ');parsed.progress.forEach((q,n)=>ln.push((n+1)+'. '+(q.what||'?')+' — '+(q.status||'?')+(q.note?': '+q.note:'')));ln.push('');}
+                                  if(Array.isArray(parsed.materials)&&parsed.materials.length){ln.push('📦 МАТЕРИАЛЫ');parsed.materials.forEach((m,n)=>ln.push((n+1)+'. '+(m.what||'?')+' — '+(m.problem||'?')+(m.action?' → '+m.action:'')+(m.amount?' ('+fmt(m.amount)+')':'')));}
+                                  out=ln.join('\n');
+                                }else out=raw||'Ошибка ответа ИИ';
+                                setAiMessages([{role:'user',content:'Контроль объекта: '+p.name},{role:'assistant',content:out}]);
+                              }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
+                              setAiLoading(false);
+                            }} style={{...btnB,backgroundColor:'#7c3aed',fontSize:'12px'}}><Bot size={13}/>AI-сводка</button>
+                          </div>
+                          {!projSmeta&&<p style={{color:C.textMuted,fontSize:'12px',padding:'10px',textAlign:'center'}}>У объекта нет сметы — нечего сравнивать. Добавьте смету в разделе «Сметы».</p>}
+                          {projSmeta&&(<>
+                          <div style={{marginBottom:'14px'}}>
+                            <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>📋 Прогресс по смете (работы)</b>
+                            <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Позиция</th><th style={tblH}>План</th><th style={tblH}>Выполнено</th><th style={tblH}>Осталось</th><th style={tblH}>%</th></tr></thead><tbody>
+                              {workProgress.filter(w=>w.plan>0).slice(0,15).map((w,i)=>(<tr key={i}><td style={{...tblC,fontSize:'11px'}}>{w.name}</td><td style={{...tblC,fontSize:'11px'}}>{w.plan} {w.unit}</td><td style={{...tblC,fontSize:'11px',color:w.done>0?C.success:C.textMuted}}>{w.done} {w.unit}</td><td style={{...tblC,fontSize:'11px',color:w.left>0?C.warning:C.success}}>{w.left} {w.unit}</td><td style={{...tblC,fontSize:'11px',fontWeight:'600',color:w.pct>=100?C.success:w.pct>=50?C.info:C.warning}}>{w.pct}%</td></tr>))}
+                            </tbody></table>
+                            {!workProgress.filter(w=>w.plan>0).length&&<p style={{color:C.textMuted,fontSize:'11px',padding:'8px'}}>В смете нет позиций работ</p>}
+                          </div>
+                          <div style={{marginBottom:'14px'}}>
+                            <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>📥 Материалы — план vs закуплено</b>
+                            <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>По смете</th><th style={tblH}>Закуплено</th><th style={tblH}>Не хватает</th></tr></thead><tbody>
+                              {matPlan.slice(0,15).map((m,i)=>(<tr key={i}><td style={{...tblC,fontSize:'11px'}}>{m.name}</td><td style={{...tblC,fontSize:'11px'}}>{m.plan} {m.unit}</td><td style={{...tblC,fontSize:'11px',color:m.bought>=m.plan?C.success:C.info}}>{m.bought} {m.unit}</td><td style={{...tblC,fontSize:'11px',color:m.need>0?C.danger:C.success}}>{m.need>0?m.need+' '+m.unit:'✅'}</td></tr>))}
+                            </tbody></table>
+                            {!matPlan.length&&<p style={{color:C.textMuted,fontSize:'11px',padding:'8px'}}>В смете нет материалов</p>}
+                          </div>
+                          </>)}
+                          <div style={{marginBottom:'14px'}}>
+                            <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>📤 Выдачи мастерам ({projTransfers.length})</b>
+                            <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>Кол-во</th><th style={tblH}>Кому</th><th style={tblH}>Дата</th></tr></thead><tbody>
+                              {projTransfers.slice(0,10).map((t,i)=>(<tr key={i}><td style={{...tblC,fontSize:'11px'}}>{t.materialName}</td><td style={{...tblC,fontSize:'11px'}}>{t.quantity} {t.unit}</td><td style={{...tblC,fontSize:'11px'}}>{t.toPerson}</td><td style={{...tblC,fontSize:'11px'}}>{t.transferDate}</td></tr>))}
+                            </tbody></table>
+                            {!projTransfers.length&&<p style={{color:C.textMuted,fontSize:'11px',padding:'8px'}}>Передач ещё не было</p>}
+                          </div>
+                          <div>
+                            <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>🏬 Остатки на складе объекта ({projMaterials.filter(m=>Number(m.quantity||0)>0).length})</b>
+                            <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>Остаток</th><th style={tblH}>Категория</th></tr></thead><tbody>
+                              {projMaterials.filter(m=>Number(m.quantity||0)>0).slice(0,15).map((m,i)=>(<tr key={i}><td style={{...tblC,fontSize:'11px'}}>{m.name}</td><td style={{...tblC,fontSize:'11px',fontWeight:'600',color:C.success}}>{m.quantity} {m.unit}</td><td style={{...tblC,fontSize:'11px',color:C.textSec}}>{m.category||''}</td></tr>))}
+                            </tbody></table>
+                            {!projMaterials.filter(m=>Number(m.quantity||0)>0).length&&<p style={{color:C.textMuted,fontSize:'11px',padding:'8px'}}>Склад объекта пуст</p>}
+                          </div>
+                        </div>);
+                      })()}
+
                     <button onClick={async()=>{
                       const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
                       if(!doneItems.length){alert('Введите выполненные объёмы');return;}
