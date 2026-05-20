@@ -469,6 +469,9 @@ function App() {
   const [showGeneratePricelist, setShowGeneratePricelist] = useState(false);
   const [generatePricelistForm, setGeneratePricelistForm] = useState({description:'',name:'',forWho:'',coefficient:1.0});
   const [generatingPricelist, setGeneratingPricelist] = useState(false);
+  const [showFromEstimate, setShowFromEstimate] = useState(false);
+  const [fromEstimateForm, setFromEstimateForm] = useState({estimateId:'',name:'',forWho:'',coefficient:1.0});
+  const [creatingFromEstimate, setCreatingFromEstimate] = useState(false);
 
   const sendEstimateChatMessage = async () => {
     if (!selectedEstimate || !estimateChatInput.trim() || estimateChatLoading) return;
@@ -3816,6 +3819,7 @@ function App() {
               <div style={{width:'280px',flexShrink:0,display:'flex',flexDirection:'column',gap:'10px',overflowY:'auto'}}>
                 <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewPricelist({name:'',description:'',forWho:'',coefficient:1.0});setSelectedPricelist(null);setPricelistItems([]);}} style={{...btnO,justifyContent:'center'}}><Plus size={14}/>Новый прайс-лист</button>
                 <button onClick={()=>{setGeneratePricelistForm({description:'',name:'',forWho:'',coefficient:1.0});setShowGeneratePricelist(true);}} style={{...btnB,backgroundColor:'#7c3aed',justifyContent:'center'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
+                <button onClick={()=>{setFromEstimateForm({estimateId:'',name:'',forWho:'',coefficient:1.0});setShowFromEstimate(true);}} style={{...btnB,justifyContent:'center'}}><FileText size={14}/>📋 Из сметы</button>
                 {showForm&&!selectedPricelist&&(<div style={{...card,padding:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newPricelist.name} onChange={e=>setNewPricelist({...newPricelist,name:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPricelist.forWho} onChange={e=>setNewPricelist({...newPricelist,forWho:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Для кого</option>{['Электрики','Сантехники','Каменщики','Отделочники','Кровельщики','Монтажники','Общий'].map(r=><option key={r}>{r}</option>)}</select></div><label style={{color:C.textSec,fontSize:'13px',display:'block',marginTop:'10px',marginBottom:'4px'}}>{'Коэффициент: ×'+newPricelist.coefficient}</label><input type="range" min="0.5" max="3" step="0.1" value={newPricelist.coefficient} onChange={e=>setNewPricelist({...newPricelist,coefficient:Number(e.target.value)})} style={{width:'100%',marginBottom:'12px',accentColor:C.accent}}/><div style={{display:'flex',gap:'10px'}}><button onClick={savePricelist} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
                 {pricelists.map(pl=>(<div key={pl.id} onClick={async()=>{setSelectedPricelist(pl);await loadPricelistItems(pl.id);setShowForm(false);setEditingPlItem(null);}} style={{...card,padding:'14px',cursor:'pointer',border:'1.5px solid '+(selectedPricelist?.id===pl.id?C.accent:C.border),backgroundColor:selectedPricelist?.id===pl.id?C.accentLight:C.bgWhite}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
@@ -4549,6 +4553,43 @@ function App() {
             await loadAll();
           }} style={btnO}><Check size={14}/>Выдать</button>
           <button onClick={()=>{setShowAccountableForm(false);setNewAccountable({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:'',projectName:''});}} style={btnG}><X size={14}/>Отмена</button>
+        </div>
+      </div>
+    </div>)}
+    {showFromEstimate&&(<div onClick={()=>!creatingFromEstimate&&setShowFromEstimate(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:'22px',width:'480px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'4px'}}>
+          <span style={{fontSize:'22px'}}>📋</span>
+          <b style={{color:C.text,fontSize:'15px'}}>Создать прайс-лист из сметы</b>
+        </div>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>Все позиции выбранной сметы попадут в прайс. Категория = название раздела сметы. Цены подтянутся из сметы — потом можно поправить вручную.</p>
+        <select value={fromEstimateForm.estimateId} onChange={e=>{const est=estimatesList.find(es=>String(es.id)===e.target.value);setFromEstimateForm({...fromEstimateForm,estimateId:e.target.value,name:est?'Прайс из «'+est.name+'»':fromEstimateForm.name});}} style={inp}>
+          <option value=''>Выберите смету *</option>
+          {estimatesList.map(e=><option key={e.id} value={e.id}>{e.name}{e.projectName?' — '+e.projectName:''}</option>)}
+        </select>
+        <input placeholder='Название прайс-листа' value={fromEstimateForm.name} onChange={e=>setFromEstimateForm({...fromEstimateForm,name:e.target.value})} style={inp}/>
+        <select value={fromEstimateForm.forWho} onChange={e=>setFromEstimateForm({...fromEstimateForm,forWho:e.target.value})} style={inp}>
+          <option value=''>Для кого (необязательно)</option>
+          {['Общий','Электрики','Сантехники','Каменщики','Отделочники','Кровельщики','Монтажники'].map(r=><option key={r}>{r}</option>)}
+        </select>
+        <label style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'4px'}}>{'Коэффициент: ×'+fromEstimateForm.coefficient}</label>
+        <input type='range' min='0.5' max='3' step='0.1' value={fromEstimateForm.coefficient} onChange={e=>setFromEstimateForm({...fromEstimateForm,coefficient:Number(e.target.value)})} style={{width:'100%',marginBottom:'10px',accentColor:C.accent}}/>
+        <div style={{display:'flex',gap:'8px',justifyContent:'flex-end',marginTop:'8px'}}>
+          <button onClick={()=>setShowFromEstimate(false)} disabled={creatingFromEstimate} style={btnG}><X size={14}/>Отмена</button>
+          <button disabled={creatingFromEstimate||!fromEstimateForm.estimateId} onClick={async()=>{
+            setCreatingFromEstimate(true);
+            try{
+              const res=await fetch(API+'/pricelists/from-estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(fromEstimateForm)});
+              const data=await res.json();
+              if(!res.ok||!data.ok){alert('Не удалось создать: '+(data.detail||'ошибка'));setCreatingFromEstimate(false);return;}
+              await loadAll();
+              const newPl=await fetch(API+'/pricelists').then(r=>r.json()).then(arr=>(Array.isArray(arr)?arr.find(p=>p.id===data.id):null));
+              if(newPl){setSelectedPricelist(newPl);await loadPricelistItems(newPl.id);}
+              setShowFromEstimate(false);
+              setCreatingFromEstimate(false);
+              alert('Прайс-лист «'+data.name+'» создан! Позиций: '+data.itemsCount);
+            }catch(e){alert('Ошибка: '+e.message);setCreatingFromEstimate(false);}
+          }} style={btnO}>{creatingFromEstimate?'⏳ Создаю...':'✨ Создать'}</button>
         </div>
       </div>
     </div>)}

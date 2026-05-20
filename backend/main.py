@@ -2899,6 +2899,68 @@ def ai_generate_estimate(data: dict):
 
     return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "sections": sections}
 
+@app.post("/pricelists/from-estimate")
+def pricelist_from_estimate(data: dict):
+    import json as _json
+    estimate_id = data.get("estimateId")
+    name = (data.get("name") or "").strip()
+    for_who = (data.get("forWho") or "").strip()
+    coefficient = float(data.get("coefficient") or 1.0)
+    if not estimate_id:
+        raise HTTPException(status_code=400, detail="Выберите смету")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT name, sections_json FROM estimates WHERE id=%s", (int(estimate_id),))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    estimate_name = row[0] or ""
+    try:
+        sections = _json.loads(row[1]) if row[1] else []
+    except Exception:
+        sections = []
+
+    final_name = name or ("Прайс из сметы — " + estimate_name)
+    cur.execute("INSERT INTO pricelists (name, description, for_who, coefficient) VALUES (%s, %s, %s, %s) RETURNING id",
+                (final_name, "Создан из сметы: " + estimate_name, for_who, coefficient))
+    pricelist_id = cur.fetchone()[0]
+
+    inserted = 0
+    seen = set()
+    for s in sections:
+        category = str(s.get("name") or "")
+        for it in (s.get("items") or []):
+            nm = str(it.get("name") or "").strip()
+            if not nm:
+                continue
+            key = (nm.lower(), category.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            unit = str(it.get("unit") or "шт")
+            item_type = str(it.get("itemType") or "")
+            try:
+                price_work = float(it.get("priceWork") or 0)
+                price_material = float(it.get("priceMaterial") or 0)
+                qty = float(it.get("quantity") or 0)
+            except Exception:
+                price_work = price_material = qty = 0
+            is_imported = bool(it.get("isImported"))
+            if item_type == "material" or (price_material > 0 and price_work == 0):
+                # for materials: price per unit
+                price = price_material if not is_imported or qty == 0 else (price_material / qty if qty > 0 else price_material)
+            else:
+                price = price_work if not is_imported or qty == 0 else (price_work / qty if qty > 0 else price_work)
+            cur.execute("INSERT INTO pricelist_items (pricelist_id, name, unit, price, category, specialization) VALUES (%s, %s, %s, %s, %s, %s)",
+                        (pricelist_id, nm, unit, round(price, 2), category, for_who))
+            inserted += 1
+
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "id": pricelist_id, "name": final_name, "itemsCount": inserted}
+
 @app.post("/ai-generate-pricelist")
 def ai_generate_pricelist(data: dict):
     import openai as oa
