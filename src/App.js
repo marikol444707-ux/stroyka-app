@@ -463,7 +463,12 @@ function App() {
   const [newDoor, setNewDoor] = useState({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});
   const [newInventory, setNewInventory] = useState({project:'',date:'',notes:''});
   const [newWeather, setNewWeather] = useState({projectName:'',date:'',temperature:'',condition:'Ясно',windSpeed:'',notes:''});
-  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик'});
+  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',templateId:''});
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [estimateVersions, setEstimateVersions] = useState([]);
+  const [selectedVersionsToCompare, setSelectedVersionsToCompare] = useState([]);
+  const [importValidationWarnings, setImportValidationWarnings] = useState([]);
+  const [importValidating, setImportValidating] = useState(false);
   const [newEstimateSection, setNewEstimateSection] = useState({name:''});
   const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});
   const [newStage, setNewStage] = useState({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
@@ -3930,15 +3935,55 @@ function App() {
                   <select value={newEstimate.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));setNewEstimate({...newEstimate,projectId:e.target.value,projectName:p?p.name:'',name:p?'Смета — '+p.name:''});}} style={{...inp,marginBottom:0}}><option value="">Выберите проект</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
                   <input placeholder="Название сметы *" value={newEstimate.name} onChange={e=>setNewEstimate({...newEstimate,name:e.target.value})} style={{...inp,marginBottom:0}}/>
                   <input placeholder="Версия" value={newEstimate.version} onChange={e=>setNewEstimate({...newEstimate,version:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  {estimatesList.filter(e=>e.isTemplate).length>0&&(<select value={newEstimate.templateId||''} onChange={e=>setNewEstimate({...newEstimate,templateId:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
+                    <option value=''>📄 Пустая смета</option>
+                    {estimatesList.filter(e=>e.isTemplate).map(t=>(<option key={t.id} value={t.id}>⭐ Из шаблона: {t.name}</option>))}
+                  </select>)}
                 </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{if(!newEstimate.name) return;const res=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections:[]})});const est=await res.json();const newEst={...newEstimate,id:est.id,sections:[]};const updated=[...estimatesList,newEst];setEstimatesList(updated);setSelectedEstimate(newEst);setShowForm(false);setNewEstimate({projectId:'',projectName:'',name:'',version:'1.0'});}} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
+                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{
+                  if(!newEstimate.name) return;
+                  let sections=[];
+                  if(newEstimate.templateId){
+                    const tmpl=estimatesList.find(e=>String(e.id)===String(newEstimate.templateId));
+                    if(tmpl) sections=(tmpl.sections||[]).map(s=>({...s,id:Date.now()+Math.random(),items:(s.items||[]).map(i=>({...i,id:Date.now()+Math.random()}))}));
+                  }
+                  const res=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections})});
+                  const est=await res.json();
+                  const newEst={...newEstimate,id:est.id,sections};
+                  setEstimatesList([...estimatesList,newEst]);
+                  setSelectedEstimate(newEst);
+                  setShowForm(false);
+                  setNewEstimate({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',templateId:''});
+                }} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
               {selectedEstimate?(<div>
+                {(importValidating||importValidationWarnings.length>0)&&(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:importValidating?C.infoLight:(importValidationWarnings.some(w=>w.severity==='критично')?C.dangerLight:C.warningLight),border:'1.5px solid '+(importValidating?C.infoBorder:(importValidationWarnings.some(w=>w.severity==='критично')?C.dangerBorder:C.warningBorder))}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                    <b style={{fontSize:'13px',color:importValidating?C.info:(importValidationWarnings.some(w=>w.severity==='критично')?C.danger:C.warning)}}>{importValidating?'🤖 ИИ проверяет смету...':('⚠️ Найдено замечаний: '+importValidationWarnings.length)}</b>
+                    {!importValidating&&<button onClick={()=>setImportValidationWarnings([])} style={{background:'none',border:'none',cursor:'pointer',fontSize:'16px',color:C.textSec}}>×</button>}
+                  </div>
+                  {importValidationWarnings.length>0&&(<div>{importValidationWarnings.map((w,i)=>(<div key={i} style={{padding:'6px 8px',marginBottom:'4px',backgroundColor:'rgba(255,255,255,0.6)',borderRadius:'6px',borderLeft:'3px solid '+(w.severity==='критично'?C.danger:w.severity==='внимание'?C.warning:C.info)}}><b style={{fontSize:'11px',color:C.text}}>{(w.severity==='критично'?'🔴 ':w.severity==='внимание'?'🟡 ':'💡 ')+(w.where||'?')}</b><p style={{fontSize:'11px',color:C.textSec,margin:'2px 0 0'}}>{w.message||''}</p></div>))}</div>)}
+                </div>)}
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center'}}>
                   <button onClick={()=>setSelectedEstimate(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
                   <b style={{color:C.text,fontSize:'15px'}}>{selectedEstimate.name}</b>
                   <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Цена мат.</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="7"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Number(it.priceMaterial||0).toLocaleString()}</td><td>${(Number(it.quantity||0)*(Number(it.priceWork||0)+Number(it.priceMaterial||0))).toLocaleString()}</td></tr>`)]).join('')+'<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
                   <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
+                  <button onClick={async()=>{
+                    const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/toggle-template',{method:'PUT'});
+                    const data=await res.json();
+                    setEstimatesList(prev=>prev.map(e=>e.id===selectedEstimate.id?{...e,isTemplate:data.isTemplate}:e));
+                    setSelectedEstimate(prev=>({...prev,isTemplate:data.isTemplate}));
+                    alert(data.isTemplate?'Смета помечена как шаблон — её можно использовать при создании новых смет':'Смета больше не шаблон');
+                  }} style={selectedEstimate.isTemplate?{...btnO,backgroundColor:'#facc15',color:'#1f2937'}:btnG}>⭐ {selectedEstimate.isTemplate?'Шаблон':'В шаблон'}</button>
+                  <button onClick={async()=>{
+                    try{
+                      const versions=await fetch(API+'/estimates/'+selectedEstimate.id+'/versions').then(r=>r.json());
+                      setEstimateVersions(Array.isArray(versions)?versions:[]);
+                      setSelectedVersionsToCompare([]);
+                      setShowVersionHistory(true);
+                    }catch(e){alert('Не удалось загрузить историю');}
+                  }} style={btnG}>📜 История</button>
                   <button onClick={async()=>{
                     let plMap={};
                     const proj=projects.find(p=>p.id===Number(selectedEstimate.projectId));
@@ -4105,7 +4150,21 @@ function App() {
                         sections[item.section].items.push({id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:item.type==='material'?0:item.total,priceMaterial:item.type==='material'?item.total:0,isImported:true,itemType:item.type||'work'});
                       });
                       const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',sections:Object.values(sections)};
-                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик'};setEstimatesList(prev=>[...prev,estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');alert('Импортировано '+data.count+' позиций!');
+                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик'};setEstimatesList(prev=>[...prev,estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');
+                      setImportValidating(true);
+                      setImportValidationWarnings([]);
+                      try{
+                        const items=Object.values(sections).flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:Number(i.quantity||0)})));
+                        const valPrompt='Проверь смету "'+est.name+'" на типовые проблемы при импорте из Гранд Сметы. Позиции:\n'+JSON.stringify(items,null,1)+'\n\nИЩИ:\n- Забытые сопутствующие работы (например штукатурка без грунтовки)\n- Возможные дубликаты позиций\n- Подозрительно большие или маленькие объёмы\n- Странные единицы измерения\n\nОТВЕТЬ СТРОГО JSON:\n{"warnings":[{"type":"забыто|дубль|объём|единица|другое","where":"раздел или позиция","message":"что не так","severity":"критично|внимание|совет"}]}\nЕсли всё хорошо — пиши {"warnings":[]}. Только JSON.';
+                        const r=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:valPrompt}],jsonOnly:true})});
+                        const d=await r.json();
+                        const raw=(d.response||'').trim();
+                        const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+                        const s=clean.indexOf('{'),en=clean.lastIndexOf('}');
+                        if(s>=0&&en>s){const p=JSON.parse(clean.slice(s,en+1));if(Array.isArray(p.warnings))setImportValidationWarnings(p.warnings);}
+                      }catch(err){}
+                      setImportValidating(false);
+                      alert('Импортировано '+data.count+' позиций! ИИ проверяет смету в фоне — результат появится сверху.');
                     } catch(err){alert('Ошибка импорта');}
                   }}/>
                 </label>
@@ -4457,6 +4516,67 @@ function App() {
           }} style={btnO}><Check size={14}/>Выдать</button>
           <button onClick={()=>{setShowAccountableForm(false);setNewAccountable({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:'',projectName:''});}} style={btnG}><X size={14}/>Отмена</button>
         </div>
+      </div>
+    </div>)}
+    {showVersionHistory&&selectedEstimate&&(<div onClick={()=>setShowVersionHistory(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'520px',margin:'20px',maxHeight:'85vh',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+          <b style={{color:C.text,fontSize:'15px'}}>📜 История версий: {selectedEstimate.name}</b>
+          <button onClick={()=>setShowVersionHistory(false)} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',color:C.textSec}}>×</button>
+        </div>
+        {estimateVersions.length===0?(<p style={{color:C.textMuted,fontSize:'13px',padding:'20px',textAlign:'center'}}>История пуста. Снимки сохраняются автоматически при сохранении изменений сметы.</p>):(<>
+          <p style={{color:C.textSec,fontSize:'12px',marginBottom:'10px'}}>Отметьте 2 версии чтобы сравнить через ИИ:</p>
+          <div style={{maxHeight:'320px',overflowY:'auto',marginBottom:'12px'}}>
+            {estimateVersions.map(v=>{const sel=selectedVersionsToCompare.includes(v.id);return(<div key={v.id} style={{padding:'10px',marginBottom:'6px',borderRadius:'8px',border:'1.5px solid '+(sel?C.accent:C.border),backgroundColor:sel?C.accentLight:C.bg,display:'flex',alignItems:'center',gap:'10px'}}>
+              <input type='checkbox' checked={sel} onChange={e=>{if(e.target.checked){if(selectedVersionsToCompare.length<2)setSelectedVersionsToCompare([...selectedVersionsToCompare,v.id]);}else{setSelectedVersionsToCompare(selectedVersionsToCompare.filter(id=>id!==v.id));}}} style={{width:'16px',height:'16px',accentColor:C.accent}}/>
+              <div style={{flex:1}}>
+                <b style={{fontSize:'12px',color:C.text}}>v{v.versionLabel||'?'} — {Number(v.total||0).toLocaleString('ru-RU')} ₽</b>
+                <p style={{fontSize:'11px',color:C.textSec,margin:'2px 0'}}>{new Date(v.createdAt).toLocaleString('ru-RU')}{v.createdBy?' · '+v.createdBy:''}</p>
+                {v.comment&&<p style={{fontSize:'11px',color:C.textMuted,margin:'2px 0'}}>{v.comment}</p>}
+              </div>
+              <button onClick={async()=>{
+                if(!window.confirm('Восстановить эту версию? Текущие данные будут сохранены как новая запись в истории.')) return;
+                const ver=await fetch(API+'/estimate-version/'+v.id).then(r=>r.json());
+                if(ver&&ver.sections){
+                  const updated={...selectedEstimate,sections:ver.sections};
+                  await fetch(API+'/estimates/'+selectedEstimate.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...updated,versionComment:'Восстановление из v'+(v.versionLabel||''),updatedBy:user.name})});
+                  setSelectedEstimate(updated);
+                  setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
+                  setShowVersionHistory(false);
+                  alert('Версия восстановлена');
+                }
+              }} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>↶ Восстановить</button>
+            </div>);})}
+          </div>
+          {selectedVersionsToCompare.length===2&&(<button onClick={async()=>{
+            const [aId,bId]=selectedVersionsToCompare;
+            const [a,b]=await Promise.all([fetch(API+'/estimate-version/'+aId).then(r=>r.json()),fetch(API+'/estimate-version/'+bId).then(r=>r.json())]);
+            const totalOf=(secs)=>secs.flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0);
+            const flatten=(secs)=>secs.flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:Number(i.quantity||0),work:Number(i.priceWork||0),mat:Number(i.priceMaterial||0),sum:i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))})));
+            const payload={a:{label:a.versionLabel,total:totalOf(a.sections||[]),items:flatten(a.sections||[])},b:{label:b.versionLabel,total:totalOf(b.sections||[]),items:flatten(b.sections||[])}};
+            const prompt='Сравни две версии сметы. Версия A (старая) и B (новая). Данные:\n'+JSON.stringify(payload,null,1)+'\n\nОТВЕТЬ СТРОГО JSON:\n{"summary":"одной фразой что произошло (стало дороже/дешевле и насколько)","changes":[{"what":"конкретная позиция или раздел","kind":"добавлена|удалена|объём|цена","detail":"что изменилось","impact":число_в_рублях}]}\nИспользуй только данные.';
+            setShowVersionHistory(false);
+            setShowAiChat(true);
+            setAiMessages([{role:'user',content:'Сравнение версий v'+a.versionLabel+' ↔ v'+b.versionLabel}]);
+            setAiLoading(true);
+            try{
+              const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],jsonOnly:true})});
+              const data=await res.json();
+              const raw=(data.response||data.error||'').trim();
+              let parsed=null;
+              try{const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();const s=clean.indexOf('{'),e=clean.lastIndexOf('}');if(s>=0&&e>s) parsed=JSON.parse(clean.slice(s,e+1));}catch(e){}
+              let out;
+              if(parsed){
+                const ln=[];
+                if(parsed.summary) ln.push('📋 '+parsed.summary,'');
+                if(Array.isArray(parsed.changes)&&parsed.changes.length){ln.push('🔍 ИЗМЕНЕНИЯ');parsed.changes.forEach((c,n)=>ln.push((n+1)+'. ['+(c.kind||'?')+'] '+(c.what||'?')+': '+(c.detail||'')+(c.impact?' ('+(c.impact>0?'+':'')+Number(c.impact).toLocaleString('ru-RU')+' ₽)':'')));}
+                out=ln.join('\n');
+              }else out=raw||'Ошибка';
+              setAiMessages([{role:'user',content:'Сравнение v'+a.versionLabel+' ↔ v'+b.versionLabel},{role:'assistant',content:out}]);
+            }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
+            setAiLoading(false);
+          }} style={{...btnO,backgroundColor:'#7c3aed',width:'100%',justifyContent:'center'}}><Bot size={14}/>🤖 Сравнить через ИИ</button>)}
+        </>)}
       </div>
     </div>)}
     {showReceiveDialog&&(<div onClick={()=>setShowReceiveDialog(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center'}}>

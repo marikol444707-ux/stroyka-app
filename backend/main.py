@@ -356,6 +356,17 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS materials_used TEXT;
+        ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS estimate_versions (
+            id SERIAL PRIMARY KEY,
+            estimate_id INT NOT NULL,
+            version_label VARCHAR(100),
+            sections_json TEXT,
+            total NUMERIC(14,2) DEFAULT 0,
+            comment TEXT,
+            created_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
     """)
     cur.execute("""
         INSERT INTO users (name, email, password, role)
@@ -2124,7 +2135,7 @@ async def parse_smeta(file: UploadFile = File(...)):
 def get_estimates():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,project_id,project_name,name,version,sections_json,status FROM estimates ORDER BY id DESC")
+    cur.execute("SELECT id,project_id,project_name,name,version,sections_json,status,COALESCE(is_template,FALSE) FROM estimates ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
@@ -2134,7 +2145,7 @@ def get_estimates():
             sections = j.loads(r[5]) if r[5] else []
         except:
             sections = []
-        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик"})
+        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","isTemplate":bool(r[7])})
     return result
 
 @app.post("/estimates")
@@ -2154,11 +2165,62 @@ def update_estimate(id: int, data: dict):
     import json as j
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT sections_json, version FROM estimates WHERE id=%s", (id,))
+    prev = cur.fetchone()
+    if prev and prev[0]:
+        try:
+            old_sections = j.loads(prev[0]) if prev[0] else []
+            total = 0
+            for s in old_sections:
+                for it in (s.get("items") or []):
+                    if it.get("isImported"):
+                        total += float(it.get("priceWork") or 0)
+                    else:
+                        total += float(it.get("quantity") or 0) * (float(it.get("priceWork") or 0) + float(it.get("priceMaterial") or 0))
+            cur.execute("INSERT INTO estimate_versions (estimate_id, version_label, sections_json, total, comment, created_by) VALUES (%s,%s,%s,%s,%s,%s)",
+                (id, prev[1] or "", prev[0], total, data.get("versionComment",""), data.get("updatedBy","")))
+        except Exception:
+            pass
     cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s WHERE id=%s",
         (data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),id))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+@app.put("/estimates/{id}/toggle-template")
+def toggle_estimate_template(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE estimates SET is_template = NOT COALESCE(is_template,FALSE) WHERE id=%s RETURNING is_template", (id,))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"ok": True, "isTemplate": bool(row[0]) if row else False}
+
+@app.get("/estimates/{id}/versions")
+def get_estimate_versions(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, version_label, total, comment, created_by, created_at FROM estimate_versions WHERE estimate_id=%s ORDER BY id DESC", (id,))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"versionLabel":r[1] or "","total":float(r[2] or 0),"comment":r[3] or "","createdBy":r[4] or "","createdAt":str(r[5])} for r in rows]
+
+@app.get("/estimate-version/{version_id}")
+def get_estimate_version_detail(version_id: int):
+    import json as j
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, estimate_id, version_label, sections_json, total, comment, created_by, created_at FROM estimate_versions WHERE id=%s", (version_id,))
+    r = cur.fetchone()
+    cur.close(); conn.close()
+    if not r:
+        raise HTTPException(status_code=404, detail="version not found")
+    try:
+        sections = j.loads(r[3]) if r[3] else []
+    except:
+        sections = []
+    return {"id":r[0],"estimateId":r[1],"versionLabel":r[2] or "","sections":sections,"total":float(r[4] or 0),"comment":r[5] or "","createdBy":r[6] or "","createdAt":str(r[7])}
 
 @app.delete("/estimates/{id}")
 def delete_estimate(id: int):
