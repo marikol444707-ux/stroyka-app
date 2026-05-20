@@ -737,6 +737,7 @@ function App() {
 
   const saveInvoiceNew = async () => {
     if (!newInvoice.number || newInvoice.items.filter(i=>i.name&&i.quantity).length===0) { alert('Заполните номер накладной и материалы'); return; }
+    if (!newInvoice.location) { alert('Выберите куда оприходовать (основной склад или объект)'); return; }
     let supplierId = newInvoice.supplierId;
     if (newInvoice.isNewSupplier && newInvoice.newSupplierName) {
       const res = await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newInvoice.newSupplierName,phone:'',email:'',specialization:'',category:'Прочее',rating:5.0,status:'Активный'})});
@@ -751,7 +752,7 @@ function App() {
         if (existing) await fetch(API+'/warehouse-main/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
         else await fetch(API+'/warehouse-main',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:Number(item.price||0),minQuantity:0,category:item.category||''})});
       } else {
-        const existing = materials.find(m=>m.name.toLowerCase()===item.name.toLowerCase()&&m.project===newInvoice.project);
+        const existing = materials.find(m=>m.name.toLowerCase()===item.name.toLowerCase()&&m.project===newInvoice.location);
         if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
         else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:Number(item.price||0),minQuantity:0,project:newInvoice.location,category:item.category||''})});
       }
@@ -2849,7 +2850,7 @@ function App() {
                             <input placeholder='Кол-во *' type='number' value={newTransfer.quantity} onChange={e=>setNewTransfer({...newTransfer,quantity:e.target.value})} style={{...inp,marginBottom:0,width:'120px'}}/>
                             <span style={{fontSize:'12px',color:C.textSec}}>{newTransfer.unit}</span>
                             <span style={{fontSize:'11px',color:C.warning}}>
-                              Остаток: {warehouseMain.find(m=>m.name===newTransfer.materialName)?.quantity||0} {newTransfer.unit}
+                              Остаток: {(newTransfer.fromLocation==='Основной склад'?warehouseMain.find(m=>m.name===newTransfer.materialName):materials.find(m=>m.name===newTransfer.materialName&&m.project===newTransfer.fromLocation))?.quantity||0} {newTransfer.unit}
                             </span>
                   </div>)}
                           <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={{...inp,marginBottom:0}}>
@@ -2867,7 +2868,14 @@ function App() {
                             const data={...newTransfer,projectName:p.name,createdBy:user.name};
                             const res=await fetch(API+'/material-transfers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
                             const saved=await res.json();
+                            if(!res.ok||!saved.ok){alert('Ошибка: '+(saved.detail||saved.error||'не удалось списать со склада'));return;}
                             setMaterialTransfers(prev=>[{...data,id:saved.id,signed:false},...prev]);
+                            const qty=Number(newTransfer.quantity);
+                            if(newTransfer.fromLocation==='Основной склад'){
+                              setWarehouseMain(prev=>prev.map(m=>m.name===newTransfer.materialName?{...m,quantity:Number(m.quantity||0)-qty}:m));
+                            }else{
+                              setMaterials(prev=>prev.map(m=>(m.name===newTransfer.materialName&&m.project===newTransfer.fromLocation)?{...m,quantity:Number(m.quantity||0)-qty}:m));
+                            }
                             setNewTransfer({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
                             setShowTransferForm(false);
                           }} style={btnO}><Check size={14}/>Передать</button>
@@ -4448,13 +4456,13 @@ function App() {
       <b style={{color:'#111827',fontSize:'14px',display:'block',marginBottom:'12px'}}>⚡ Быстрые действия</b>
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
         {[
-          {icon:<Scan size={24}/>,label:'Скан накладной',color:'#f97316',action:()=>{setShowQuickActions(false);setShowScanInvoice(true);}},
+          {icon:<Scan size={24}/>,label:'Скан накладной',color:'#f97316',action:()=>{setShowQuickActions(false);setShowScanInvoice(true);},roles:['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец']},
           {icon:<CreditCard size={24}/>,label:'Мои траты',color:'#22c55e',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
           {icon:<MessageSquare size={24}/>,label:'Чат',color:'#3b82f6',action:()=>{setShowQuickActions(false);setActivePage('companychat');}},
           {icon:<FolderKanban size={24}/>,label:'Объекты',color:'#f59e0b',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
           {icon:<Package size={24}/>,label:'Склад',color:'#8b5cf6',action:()=>{setShowQuickActions(false);setActivePage('warehouse');}},
           {icon:<Bot size={24}/>,label:'ИИ',color:'#f97316',action:()=>{setShowQuickActions(false);setShowAiAssistant(true);}},
-        ].map((btn,i)=>(<div key={i} onClick={btn.action} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'14px 8px',borderRadius:'16px',cursor:'pointer',background:'rgba(30,41,59,0.6)',border:'1px solid rgba(148,163,184,0.12)'}}>
+        ].filter(btn=>!btn.roles||(user&&btn.roles.includes(user.role))).map((btn,i)=>(<div key={i} onClick={btn.action} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'14px 8px',borderRadius:'16px',cursor:'pointer',background:'rgba(30,41,59,0.6)',border:'1px solid rgba(148,163,184,0.12)'}}>
           <div style={{width:'48px',height:'48px',borderRadius:'14px',background:`rgba(${btn.color==='#f97316'?'249,115,22':btn.color==='#22c55e'?'34,197,94':btn.color==='#3b82f6'?'59,130,246':btn.color==='#f59e0b'?'245,158,11':btn.color==='#8b5cf6'?'139,92,246':'249,115,22'},.15)`,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:'8px',color:btn.color}}>{btn.icon}</div>
           <span style={{fontSize:'11px',color:'#94a3b8',fontWeight:'600',textAlign:'center'}}>{btn.label}</span>
         </div>))}

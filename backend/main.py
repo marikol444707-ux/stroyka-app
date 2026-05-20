@@ -2250,14 +2250,53 @@ def get_material_transfers(project_name: str = None):
 
 @app.post("/material-transfers")
 def create_material_transfer(data: dict):
+    from_location = data.get("fromLocation", "Основной склад")
+    material_name = data.get("materialName", "")
+    qty = float(data.get("quantity", 0) or 0)
+    if not material_name or qty <= 0:
+        raise HTTPException(status_code=400, detail="Укажите материал и количество больше 0")
+
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    cur.execute("INSERT INTO material_transfers (project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,notes,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectName",""),data.get("fromLocation","Основной склад"),data.get("toPerson",""),data.get("toPersonRole",""),data.get("materialName",""),data.get("quantity",0),data.get("unit","шт"),data.get("transferDate") or None,data.get("notes",""),data.get("createdBy","")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
+    try:
+        if from_location == "Основной склад":
+            cur.execute("SELECT id, quantity FROM warehouse_main WHERE name=%s FOR UPDATE", (material_name,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
+            stock_id, stock_qty = row[0], float(row[1] or 0)
+            if stock_qty < qty:
+                raise HTTPException(status_code=400, detail="На основном складе только "+str(stock_qty)+", запрошено "+str(qty))
+            cur.execute("UPDATE warehouse_main SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
+        else:
+            cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (material_name, from_location))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»")
+            stock_id, stock_qty = row[0], float(row[1] or 0)
+            if stock_qty < qty:
+                raise HTTPException(status_code=400, detail="На складе «"+from_location+"» только "+str(stock_qty)+", запрошено "+str(qty))
+            cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
+
+        cur.execute("INSERT INTO material_transfers (project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,notes,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (data.get("projectName",""), from_location, data.get("toPerson",""), data.get("toPersonRole",""), material_name, qty, data.get("unit","шт"), data.get("transferDate") or None, data.get("notes",""), data.get("createdBy","")))
+        new_id = cur.fetchone()[0]
+
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (material_name, "расход", qty, data.get("transferDate") or None, from_location, data.get("createdBy",""), __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+
+        conn.commit()
+        return {"id": new_id, "ok": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/material-transfers/{id}/sign")
 def sign_material_transfer(id: int):
