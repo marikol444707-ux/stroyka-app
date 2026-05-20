@@ -3855,15 +3855,17 @@ function App() {
                       +'ВСЕ ПОЗИЦИИ:\n'+allItems.map(i=>'- ['+i.section+'] '+i.name+' | '+i.qty+' '+i.unit+' | '+fmt(i.sum)+'₽'+(i.plPrice?' (прайс '+fmt(i.plPrice)+'₽, '+(i.diff>0?'+':'')+i.diff+'%)':'')).join('\n')+'\n\n'
                       +'ОТВЕТЬ СТРОГО В ФОРМАТЕ JSON (без markdown, без ```, только сырой JSON):\n'
                       +'{\n'
-                      +'  "top": [{"name":"конкретное название позиции","section":"раздел","sum":число_в_рублях,"share":процент_от_сметы,"why":"одна фраза почему дорого"}],\n'
-                      +'  "risks": [{"where":"конкретная позиция или раздел","problem":"что не так","impact":число_в_рублях_или_0}],\n'
-                      +'  "actions": [{"do":"конкретное действие","target":"что/где менять","savings":число_в_рублях_или_0}]\n'
+                      +'  "top": [{"name":"название позиции","section":"раздел","sum":число,"share":процент,"why":"почему дорого"}],\n'
+                      +'  "sections": [{"name":"полное название раздела","sum":число,"share":процент,"summary":"что в разделе","note":"на что обратить внимание или норма"}],\n'
+                      +'  "risks": [{"where":"конкретная позиция или раздел","problem":"что не так","impact":число_или_0}],\n'
+                      +'  "actions": [{"do":"конкретное действие","target":"что/где менять","savings":число_или_0}]\n'
                       +'}\n\n'
                       +'ПРАВИЛА:\n'
-                      +'• top — 5 позиций из ТОП-5 выше, скопируй цифры точно.\n'
-                      +'• risks — позиции с отклонением от прайса >20%, странные объёмы, возможные дубли. Минимум 1, максимум 5. Если ничего не нашёл — пиши [].\n'
-                      +'• actions — 3-5 КОНКРЕТНЫХ шагов с привязкой к позиции из сметы. НЕ "найти поставщиков", а "заменить X на Y в позиции Z". savings — оценка экономии в рублях или 0 если не уверен.\n'
-                      +'• Все числа — без пробелов, без "руб", только цифры. Например 1260000 а не "1 260 000 руб".\n'
+                      +'• top — 5 позиций из ТОП-5 выше, цифры из данных точно.\n'
+                      +'• sections — ОБЯЗАТЕЛЬНО по КАЖДОМУ из '+shares.length+' разделов (не пропускай ни один). Для каждого: summary одной фразой (например "штукатурка, шпатлёвка, окраска"), note — что важного увидел (отклонения, странные объёмы) или просто "норма".\n'
+                      +'• risks — позиции с отклонением от прайса >20%, странные объёмы, возможные дубли, забытые сопутствующие работы. Минимум 0, максимум 7. Если ничего — [].\n'
+                      +'• actions — 3-6 КОНКРЕТНЫХ шагов с привязкой к позиции или разделу. НЕ "найти поставщиков", а "заменить X на Y в позиции Z". savings — оценка экономии в рублях или 0.\n'
+                      +'• Все числа — без пробелов, без "руб", только цифры. 1260000 а не "1 260 000 руб".\n'
                       +'• Только валидный JSON. Никакого текста до или после.';
                     setShowAiChat(true);
                     setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name}]);
@@ -3879,13 +3881,22 @@ function App() {
                         if(start>=0&&end>start) parsed=JSON.parse(clean.slice(start,end+1));
                       }catch(e){}
                       let out;
-                      if(parsed&&(parsed.top||parsed.risks||parsed.actions)){
+                      if(parsed&&(parsed.top||parsed.sections||parsed.risks||parsed.actions)){
                         const lines=[];
                         lines.push('💰 Общая сумма: '+fmt(total)+' ₽');
                         lines.push('');
                         if(Array.isArray(parsed.top)&&parsed.top.length){
                           lines.push('🔝 ТОП ДОРОГИХ ПОЗИЦИЙ');
                           parsed.top.forEach((t,n)=>{lines.push((n+1)+'. '+(t.name||'?')+(t.section?' ['+t.section+']':''));lines.push('   '+fmt(t.sum)+' ₽'+(t.share?' ('+t.share+'%)':'')+(t.why?' — '+t.why:''));});
+                          lines.push('');
+                        }
+                        if(Array.isArray(parsed.sections)&&parsed.sections.length){
+                          lines.push('📊 ПО РАЗДЕЛАМ');
+                          parsed.sections.forEach((s,n)=>{
+                            lines.push((n+1)+'. '+(s.name||'?')+' — '+fmt(s.sum)+' ₽'+(s.share?' ('+s.share+'%)':''));
+                            if(s.summary) lines.push('   '+s.summary);
+                            if(s.note&&s.note.toLowerCase()!=='норма') lines.push('   ⚡ '+s.note);
+                          });
                           lines.push('');
                         }
                         if(Array.isArray(parsed.risks)&&parsed.risks.length){

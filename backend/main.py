@@ -1677,7 +1677,7 @@ def ai_chat(data: dict):
             temperature=0.1 if json_only else 0.2,
             instructions=context,
             input=user_text,
-            max_output_tokens=2500
+            max_output_tokens=4000 if json_only else 2000
         )
         answer = response.output_text
     except Exception as e:
