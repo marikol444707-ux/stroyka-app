@@ -354,7 +354,6 @@ function App() {
   const [leads, setLeads] = useState([]);
   const [masterRatings, setMasterRatings] = useState({});
   const [activityLog, setActivityLog] = useState([]);
-  const [materialIssues, setMaterialIssues] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [archivedProjects, setArchivedProjects] = useState([]);
@@ -564,8 +563,8 @@ function App() {
       loadAll();
       if (['мастер','субподрядчик'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
       const saved = localStorage.getItem('companyName'); if (saved) setCompanyName(saved);
-      const keys = ['leads','masterRatings','activityLog','materialIssues','invoices','notifications','archivedProjects','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
-      const setters = [setLeads,setMasterRatings,setActivityLog,setMaterialIssues,setNotifications,setArchivedProjects,setTbJournal,setGeoCheckins,setSignedDocs,setActPayments,setWeatherLog];
+      const keys = ['leads','masterRatings','activityLog','notifications','archivedProjects','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
+      const setters = [setLeads,setMasterRatings,setActivityLog,setNotifications,setArchivedProjects,setTbJournal,setGeoCheckins,setSignedDocs,setActPayments,setWeatherLog];
       keys.forEach((k,i) => { const v=localStorage.getItem(k); if(v) setters[i](JSON.parse(v)); });
       requestPushPermission().then(granted => setPushEnabled(granted));
       const pingOnline = async () => {
@@ -644,6 +643,10 @@ function App() {
       try {
         const msgs = await fetch(API+'/messages').then(r=>r.json()).catch(()=>[]);
         setCompanyMessages(Array.isArray(msgs)?msgs:[]);
+      } catch(e) {}
+      try {
+        const mt = await fetch(API+'/material-transfers').then(r=>r.json()).catch(()=>[]);
+        setMaterialTransfers(Array.isArray(mt)?mt:[]);
       } catch(e) {}
     } catch(e) { console.log('Load error:',e); }
   };
@@ -1061,7 +1064,10 @@ function App() {
 
   const deleteLead = (id) => { const updated=leads.filter(l=>l.id!==id); setLeads(updated); localStorage.setItem('leads',JSON.stringify(updated)); };
   const ratemaster = (masterId, rating) => { const updated={...masterRatings,[masterId]:rating}; setMasterRatings(updated); localStorage.setItem('masterRatings',JSON.stringify(updated)); };
-  const confirmMaterialReceipt = (issueId) => { const updated=materialIssues.map(i=>i.id===issueId?{...i,confirmed:true}:i); setMaterialIssues(updated); localStorage.setItem('materialIssues',JSON.stringify(updated)); };
+  const confirmMaterialReceipt = async (transferId) => {
+    await fetch(API+'/material-transfers/'+transferId+'/sign',{method:'PUT'});
+    setMaterialTransfers(prev=>prev.map(t=>t.id===transferId?{...t,signed:true}:t));
+  };
 
   const handleLogin = async () => {
     try {
@@ -1610,7 +1616,7 @@ function App() {
 
     const myWorks = piecework.filter(p=>Number(p.staffId)===user.id);
     const myTotal = myWorks.reduce((s,p)=>s+p.total,0);
-    const myIssues = materialIssues.filter(i=>i.masterName===user.name);
+    const myIssues = materialTransfers.filter(t=>t.toPerson===user.name).map(t=>({id:t.id,materialName:t.materialName,quantity:t.quantity,unit:t.unit,project:t.projectName,confirmed:t.signed}));
     const categories = [...new Set(pricelistItems.map(i=>i.category))];
     const myProjects = [...new Set(myWorks.map(w=>w.project))];
     const myContract = contracts.find(c=>c.masterId===user.id);
