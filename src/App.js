@@ -419,6 +419,7 @@ function App() {
   const [selectedEstimate, setSelectedEstimate] = useState(null);
   const [selectedChecklist, setSelectedChecklist] = useState(null);
   const [expandedProject, setExpandedProject] = useState(null);
+  const [projectAiSummaries, setProjectAiSummaries] = useState({});
   const [expandedClient, setExpandedClient] = useState(null);
   const [expandedGroup, setExpandedGroup] = useState(null);
   const [expandedMaster, setExpandedMaster] = useState(null);
@@ -2338,7 +2339,7 @@ function App() {
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
               const sc=statusColors[p.status]||statusColors['Планирование'];
               return(<div key={p.id} style={{...card,marginBottom:'12px',overflow:'visible'}}>
-                <div style={{padding:'14px 16px',cursor:'pointer'}} onClick={()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');}}}>
+                <div style={{padding:'14px 16px',cursor:'pointer'}} onClick={async()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');if(user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&!projectAiSummaries[p.name]){try{const r=await fetch(API+'/project-ai-summary/'+encodeURIComponent(p.name));const d=await r.json();if(d&&d.exists)setProjectAiSummaries(prev=>({...prev,[p.name]:d}));}catch(e){}}}}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                     <div style={{flex:1}}>
                       <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px'}}>
@@ -2453,42 +2454,59 @@ function App() {
                           return {name:it.name,unit:it.unit,plan,bought,need:Math.max(0,plan-bought)};
                         });
                         const fmt=(n)=>Number(n||0).toLocaleString('ru-RU');
+                        const payload={
+                          project:p.name,
+                          total:smetaItems.reduce((s,i)=>s+Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0)),0),
+                          workProgress:workProgress.filter(w=>w.plan>0),
+                          materials:matPlan,
+                          stock:projMaterials.map(m=>({name:m.name,qty:Number(m.quantity||0),unit:m.unit})),
+                          transfers:projTransfers.slice(0,20).map(t=>({name:t.materialName,qty:Number(t.quantity||0),unit:t.unit,to:t.toPerson,date:t.transferDate}))
+                        };
+                        const payloadStr=JSON.stringify(payload);
+                        let _h=0;for(let i=0;i<payloadStr.length;i++){_h=((_h*31)+payloadStr.charCodeAt(i))|0;}
+                        const currentHash=(_h>>>0).toString(16);
+                        const cached=projectAiSummaries[p.name];
+                        const isStale=cached&&cached.payloadHash!==currentHash;
+                        const isFresh=cached&&cached.payloadHash===currentHash;
+                        const fmtAgo=(iso)=>{if(!iso) return '';const d=new Date(iso);const m=Math.floor((Date.now()-d.getTime())/60000);if(m<1) return 'только что';if(m<60) return m+' мин назад';const h=Math.floor(m/60);if(h<24) return h+' ч назад';return Math.floor(h/24)+' дн назад';};
+                        const runAiSummary=async()=>{
+                          const prompt='Объект "'+p.name+'". Проанализируй прогресс и материальный учёт. Данные ниже.\n\n'+JSON.stringify(payload,null,1)+'\n\nОТВЕТЬ СТРОГО JSON (без markdown):\n{\n  "summary":"одна-две фразы общего впечатления",\n  "progress":[{"what":"что","status":"в норме|отставание|опережение","note":"что заметил"}],\n  "materials":[{"what":"материал","problem":"нехватка|избыток|пропажа|норма","action":"что сделать","amount":число_или_0}],\n  "alerts":[{"type":"критично|внимание|совет","text":"что"}]\n}\nИспользуй только данные из payload. Если данных мало — пиши "недостаточно данных".';
+                          setShowAiChat(true);
+                          setAiMessages([{role:'user',content:'Контроль объекта: '+p.name}]);
+                          setAiLoading(true);
+                          try{
+                            const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],jsonOnly:true})});
+                            const data=await res.json();
+                            const raw=(data.response||data.error||'').trim();
+                            let parsed=null;
+                            try{const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();const s=clean.indexOf('{'),e=clean.lastIndexOf('}');if(s>=0&&e>s) parsed=JSON.parse(clean.slice(s,e+1));}catch(e){}
+                            let out;
+                            if(parsed){
+                              const ln=[];
+                              if(parsed.summary) ln.push('📋 '+parsed.summary,'');
+                              if(Array.isArray(parsed.alerts)&&parsed.alerts.length){ln.push('🚨 ВНИМАНИЕ');parsed.alerts.forEach((a,n)=>ln.push((n+1)+'. ['+(a.type||'')+'] '+(a.text||'')));ln.push('');}
+                              if(Array.isArray(parsed.progress)&&parsed.progress.length){ln.push('🔨 РАБОТЫ');parsed.progress.forEach((q,n)=>ln.push((n+1)+'. '+(q.what||'?')+' — '+(q.status||'?')+(q.note?': '+q.note:'')));ln.push('');}
+                              if(Array.isArray(parsed.materials)&&parsed.materials.length){ln.push('📦 МАТЕРИАЛЫ');parsed.materials.forEach((m,n)=>ln.push((n+1)+'. '+(m.what||'?')+' — '+(m.problem||'?')+(m.action?' → '+m.action:'')+(m.amount?' ('+fmt(m.amount)+')':'')));}
+                              out=ln.join('\n');
+                            }else out=raw||'Ошибка ответа ИИ';
+                            setAiMessages([{role:'user',content:'Контроль объекта: '+p.name},{role:'assistant',content:out}]);
+                            try{await fetch(API+'/project-ai-summary',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,payloadHash:currentHash,summary:out})});setProjectAiSummaries(prev=>({...prev,[p.name]:{exists:true,payloadHash:currentHash,summary:out,updatedAt:new Date().toISOString()}}));}catch(e){}
+                          }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
+                          setAiLoading(false);
+                        };
                         return(<div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
                             <b style={{color:C.text,fontSize:'14px'}}>📊 Контроль объекта</b>
-                            <button onClick={async()=>{
-                              const payload={
-                                project:p.name,
-                                total:smetaItems.reduce((s,i)=>s+Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0)),0),
-                                workProgress:workProgress.filter(w=>w.plan>0),
-                                materials:matPlan,
-                                stock:projMaterials.map(m=>({name:m.name,qty:Number(m.quantity||0),unit:m.unit})),
-                                transfers:projTransfers.slice(0,20).map(t=>({name:t.materialName,qty:Number(t.quantity||0),unit:t.unit,to:t.toPerson,date:t.transferDate}))
-                              };
-                              const prompt='Объект "'+p.name+'". Проанализируй прогресс и материальный учёт. Данные ниже.\n\n'+JSON.stringify(payload,null,1)+'\n\nОТВЕТЬ СТРОГО JSON (без markdown):\n{\n  "summary":"одна-две фразы общего впечатления",\n  "progress":[{"what":"что","status":"в норме|отставание|опережение","note":"что заметил"}],\n  "materials":[{"what":"материал","problem":"нехватка|избыток|пропажа|норма","action":"что сделать","amount":число_или_0}],\n  "alerts":[{"type":"критично|внимание|совет","text":"что"}]\n}\nИспользуй только данные из payload. Если данных мало — пиши "недостаточно данных".';
-                              setShowAiChat(true);
-                              setAiMessages([{role:'user',content:'Контроль объекта: '+p.name}]);
-                              setAiLoading(true);
-                              try{
-                                const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],jsonOnly:true})});
-                                const data=await res.json();
-                                const raw=(data.response||data.error||'').trim();
-                                let parsed=null;
-                                try{const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();const s=clean.indexOf('{'),e=clean.lastIndexOf('}');if(s>=0&&e>s) parsed=JSON.parse(clean.slice(s,e+1));}catch(e){}
-                                let out;
-                                if(parsed){
-                                  const ln=[];
-                                  if(parsed.summary) ln.push('📋 '+parsed.summary,'');
-                                  if(Array.isArray(parsed.alerts)&&parsed.alerts.length){ln.push('🚨 ВНИМАНИЕ');parsed.alerts.forEach((a,n)=>ln.push((n+1)+'. ['+(a.type||'')+'] '+(a.text||'')));ln.push('');}
-                                  if(Array.isArray(parsed.progress)&&parsed.progress.length){ln.push('🔨 РАБОТЫ');parsed.progress.forEach((q,n)=>ln.push((n+1)+'. '+(q.what||'?')+' — '+(q.status||'?')+(q.note?': '+q.note:'')));ln.push('');}
-                                  if(Array.isArray(parsed.materials)&&parsed.materials.length){ln.push('📦 МАТЕРИАЛЫ');parsed.materials.forEach((m,n)=>ln.push((n+1)+'. '+(m.what||'?')+' — '+(m.problem||'?')+(m.action?' → '+m.action:'')+(m.amount?' ('+fmt(m.amount)+')':'')));}
-                                  out=ln.join('\n');
-                                }else out=raw||'Ошибка ответа ИИ';
-                                setAiMessages([{role:'user',content:'Контроль объекта: '+p.name},{role:'assistant',content:out}]);
-                              }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
-                              setAiLoading(false);
-                            }} style={{...btnB,backgroundColor:'#7c3aed',fontSize:'12px'}}><Bot size={13}/>AI-сводка</button>
+                            <button onClick={runAiSummary} style={{...btnB,backgroundColor:'#7c3aed',fontSize:'12px'}}><Bot size={13}/>{cached?'Обновить ИИ':'AI-сводка'}</button>
                           </div>
+                          {cached&&(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:isFresh?C.successLight:C.warningLight,border:'1.5px solid '+(isFresh?C.successBorder:C.warningBorder)}}>
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                              <b style={{fontSize:'12px',color:isFresh?C.success:C.warning}}>🤖 {isFresh?'AI-сводка актуальна':'⚠️ Данные изменились — нужно обновить'}</b>
+                              <span style={{fontSize:'11px',color:C.textSec}}>{fmtAgo(cached.updatedAt)}</span>
+                            </div>
+                            <div style={{fontSize:'12px',color:C.text,whiteSpace:'pre-wrap',lineHeight:'1.5'}}>{cached.summary}</div>
+                          </div>)}
+                          {!cached&&<p style={{fontSize:'12px',color:C.textMuted,marginBottom:'12px',padding:'8px',backgroundColor:C.bg,borderRadius:'8px'}}>💡 AI-сводка ещё не делалась. Нажмите «AI-сводка» — анализ сохранится в системе.</p>}
                           {!projSmeta&&<p style={{color:C.textMuted,fontSize:'12px',padding:'10px',textAlign:'center'}}>У объекта нет сметы — нечего сравнивать. Добавьте смету в разделе «Сметы».</p>}
                           {projSmeta&&(<>
                           <div style={{marginBottom:'14px'}}>

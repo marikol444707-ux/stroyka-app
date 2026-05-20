@@ -349,6 +349,12 @@ def init_db():
             scan_url VARCHAR(255),
             uploaded_by VARCHAR(255)
         );
+        CREATE TABLE IF NOT EXISTS project_ai_summary (
+            project_name VARCHAR(255) PRIMARY KEY,
+            payload_hash VARCHAR(64),
+            summary TEXT,
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
     """)
     cur.execute("""
         INSERT INTO users (name, email, password, role)
@@ -2594,6 +2600,36 @@ def create_expense(data: dict):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+@app.get("/project-ai-summary/{project_name}")
+def get_project_ai_summary(project_name: str):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT payload_hash, summary, updated_at FROM project_ai_summary WHERE project_name=%s", (project_name,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    if not row:
+        return {"exists": False}
+    return {"exists": True, "payloadHash": row[0], "summary": row[1] or "", "updatedAt": str(row[2])}
+
+@app.post("/project-ai-summary")
+def save_project_ai_summary(data: dict):
+    project_name = data.get("projectName", "")
+    if not project_name:
+        raise HTTPException(status_code=400, detail="projectName required")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO project_ai_summary (project_name, payload_hash, summary, updated_at)
+        VALUES (%s, %s, %s, NOW())
+        ON CONFLICT (project_name) DO UPDATE SET
+            payload_hash = EXCLUDED.payload_hash,
+            summary = EXCLUDED.summary,
+            updated_at = NOW()
+    """, (project_name, data.get("payloadHash", ""), data.get("summary", "")))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.post("/scan-invoice")
 def scan_invoice(data: dict):
