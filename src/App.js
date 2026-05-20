@@ -1862,7 +1862,6 @@ function App() {
     {id:'personnel',icon:<UserCheck size={18}/>,label:'Персонал'},
     
     {id:'estimates',icon:<Calculator size={18}/>,label:'Сметы'},
-    {id:'pricelists',icon:<Tag size={18}/>,label:'Прайс-листы'},
     {id:'weather',icon:<CloudSun size={18}/>,label:'Погода / ЖПР'},
     
     {id:'activitylog',icon:<ScrollText size={18}/>,label:'Журнал'},
@@ -3922,7 +3921,8 @@ function App() {
           </div>)}
           {activePage==='estimates'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['list','import'].map(tab=>(<button key={tab} onClick={()=>setEstimatesTab(tab)} style={{...estimatesTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{list:'Сметы',import:'Импорт Гранд Смета'}[tab]}</button>))}
+              {['list','import'].map(tab=>(<button key={tab} onClick={()=>setEstimatesTab(tab)} style={{...estimatesTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{list:'📋 Сметы',import:'📥 Импорт Гранд Смета'}[tab]}</button>))}
+              <button onClick={()=>setActivePage('pricelists')} style={{...btnG,fontSize:'12px',padding:'7px 14px'}}>🏷️ Прайс-листы</button>
             </div>
 
             {estimatesTab==='list'&&(<div>
