@@ -249,6 +249,12 @@ const tbl = {width:'100%',borderCollapse:'collapse',fontSize:'13px'};
 const tblH = {padding:'8px 12px',backgroundColor:C.bg,color:C.textSec,fontWeight:'600',fontSize:'11px',textTransform:'uppercase',borderBottom:'1.5px solid '+C.border,textAlign:'left'};
 const tblC = {padding:'8px 12px',borderBottom:'1px solid '+C.border,color:C.text,fontSize:'13px'};
 function App() {
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [user, setUser] = useState(null);
   const [page, setPage] = useState('login');
   const [email, setEmail] = useState('');
@@ -4414,7 +4420,7 @@ function App() {
         <button onClick={()=>setSverkaModal(null)} style={{...btnO,marginTop:'16px',width:'100%',justifyContent:'center'}}>Закрыть</button>
       </div>
     </div>)}
-    {showAiChat&&(<div style={{position:'fixed',bottom:'80px',right:'20px',width:'480px',height:'620px',backgroundColor:C.bgWhite,borderRadius:'16px',boxShadow:'0 8px 32px rgba(0,0,0,0.15)',border:'1.5px solid '+C.border,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+    {showAiChat&&(<div style={isMobile?{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:C.bgWhite,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}:{position:'fixed',bottom:'80px',right:'20px',width:'480px',height:'620px',backgroundColor:C.bgWhite,borderRadius:'16px',boxShadow:'0 8px 32px rgba(0,0,0,0.15)',border:'1.5px solid '+C.border,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}}>
         <div style={{padding:'14px 16px',backgroundColor:C.accent,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
             <span style={{fontSize:'20px'}}>🤖</span>
@@ -4471,7 +4477,7 @@ function App() {
         {[{id:'dashboard',icon:<LayoutDashboard size={20}/>,label:'Главная'},{id:'projects',icon:<FolderKanban size={20}/>,label:'Объекты'},{id:'warehouse',icon:<Package size={20}/>,label:'Склад'},{id:'companychat',icon:<MessageSquare size={20}/>,label:'Чат',isPanel:true},{id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else if(item.id==='companychat'){setShowChatPanel(s=>!s);setShowMobileMenu(false);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#6b7280'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
       {reportingPayment&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+      <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💵 Отчёт о трате</b>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Выдано: '+Number(reportingPayment.amount).toLocaleString()+' ₽ · Остаток: '+(Number(reportingPayment.amount)-Number(reportingPayment.spentAmount||0)).toLocaleString()+' ₽'}</p>
         <select value={newExpense.projectName||reportingPayment.projectName} onChange={e=>setNewExpense({...newExpense,projectName:e.target.value})} style={inp}><option value=''>Проект *</option>{projects.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
@@ -4499,7 +4505,7 @@ function App() {
       </div>
     </div>)}
     {addExpenseProject&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+      <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>➕ Добавить расход</b>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Проект: '+addExpenseProject}</p>
         <select value={newManualExpense.category} onChange={e=>setNewManualExpense({...newManualExpense,category:e.target.value})} style={inp}>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
@@ -4519,7 +4525,7 @@ function App() {
       </div>
     </div>)}
     {showAccountableForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+      <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💵 Выдать подотчёт</b>
         {newAccountable.projectName?<p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Объект: '+newAccountable.projectName}</p>:<select value={newAccountable.projectName||''} onChange={e=>setNewAccountable({...newAccountable,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{projects.map(pr=><option key={pr.id} value={pr.name}>{pr.name}</option>)}</select>}
         <select value={newAccountable.givenTo} onChange={e=>setNewAccountable({...newAccountable,givenTo:e.target.value})} style={inp}><option value=''>Кому выдать *</option>{users.filter(u=>['прораб','мастер','снабженец','кладовщик'].includes(u.role)).map(u=><option key={u.id} value={u.name}>{u.name}</option>)}</select>
@@ -4542,7 +4548,7 @@ function App() {
       </div>
     </div>)}
     {showGenerateEstimate&&(<div onClick={()=>!generating&&setShowGenerateEstimate(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} style={{...card,padding:'22px',width:'520px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+      <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:'22px',width:'520px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'4px'}}>
           <span style={{fontSize:'22px'}}>🤖</span>
           <b style={{color:C.text,fontSize:'15px'}}>Сгенерировать смету через ИИ</b>
@@ -4583,7 +4589,7 @@ function App() {
       </div>
     </div>)}
     {showEstimateChat&&selectedEstimate&&(<div onClick={()=>setShowEstimateChat(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'640px',height:'700px',margin:'20px',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:0,width:'640px',height:'700px',margin:'20px',display:'flex',flexDirection:'column',overflow:'hidden'}}>
         <div style={{padding:'14px 18px',backgroundColor:'#0ea5e9',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
             <span style={{fontSize:'22px'}}>💬</span>
@@ -4618,7 +4624,7 @@ function App() {
       </div>
     </div>)}
     {showVersionHistory&&selectedEstimate&&(<div onClick={()=>setShowVersionHistory(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'520px',margin:'20px',maxHeight:'85vh',overflowY:'auto'}}>
+      <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:'20px',width:'520px',margin:'20px',maxHeight:'85vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
           <b style={{color:C.text,fontSize:'15px'}}>📜 История версий: {selectedEstimate.name}</b>
           <button onClick={()=>setShowVersionHistory(false)} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',color:C.textSec}}>×</button>
@@ -4679,7 +4685,7 @@ function App() {
       </div>
     </div>)}
     {showReceiveDialog&&(<div onClick={()=>setShowReceiveDialog(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} style={{...card,padding:'24px',width:'320px',margin:'20px'}}>
+      <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:'24px',width:'320px',margin:'20px'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'4px'}}>📥 Принять материал</b>
         <p style={{color:C.textSec,fontSize:'12px',marginBottom:'18px'}}>Выберите как заполнить накладную</p>
         <button onClick={()=>{setShowReceiveDialog(false);setShowScanInvoice(true);}} style={{...btnB,width:'100%',padding:'14px',justifyContent:'center',marginBottom:'10px',fontSize:'14px'}}><Scan size={16}/>📷 Сканировать накладную</button>
@@ -4688,7 +4694,7 @@ function App() {
       </div>
     </div>)}
     {showScannedInvoiceForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{...card,padding:'20px',width:'380px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+      <div className='mobile-modal' style={{...card,padding:'20px',width:'380px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'4px'}}>📋 Накладная</b>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>Проверьте данные и сохраните</p>
         <input placeholder='Номер накладной *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inp}/>
@@ -4728,7 +4734,7 @@ function App() {
       </div>
     </div>)}
     {showScanInvoice&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+      <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>📷 Сканировать накладную</b>
         <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
           <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={async e=>{
@@ -4773,7 +4779,7 @@ function App() {
       </div>
     </div>)}
     {showOwnExpenseForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+      <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
         <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{projects.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
         <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>

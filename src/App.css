@@ -80,3 +80,26 @@
 .premium-timeline-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--p-border)}
 .premium-dot{width:10px;height:10px;border-radius:50%;margin-top:4px;background:#f97316;box-shadow:0 0 14px rgba(249,115,22,.8);flex-shrink:0}
 @media(max-width:900px){.premium-grid-3,.premium-grid-2{grid-template-columns:1fr}.premium-title{font-size:22px}}
+
+* { box-sizing: border-box; }
+html, body { max-width: 100vw; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+button { touch-action: manipulation; }
+
+@media (max-width: 768px) {
+  input[type="text"], input[type="number"], input[type="email"], input[type="password"], input[type="tel"], input[type="date"], textarea, select { font-size: 16px !important; }
+  table { font-size: 11px !important; }
+  table th, table td { padding: 6px 4px !important; }
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+
+.mobile-modal {
+  width: min(640px, 95vw) !important;
+  max-width: 95vw !important;
+  max-height: 92vh !important;
+  margin: 12px !important;
+}
+@media (max-width: 768px) {
+  .mobile-modal { width: 95vw !important; height: auto !important; max-height: 92vh !important; }
+  .grid-2-mobile-1 { grid-template-columns: 1fr !important; }
+  .grid-3-mobile-1 { grid-template-columns: 1fr !important; }
+}
