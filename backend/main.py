@@ -1725,20 +1725,33 @@ def ai_chat(data: dict):
     import openai as oa
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     user_text = messages[-1].get("content","") if messages else ""
-    model_name = "qwen3.6-35b-a3b/latest" if json_only else "yandexgpt-5.1/latest"
-    try:
-        response = client.responses.create(
-            model="gpt://"+FOLDER_ID+"/"+model_name,
-            temperature=0.1 if json_only else 0.2,
-            instructions=context,
-            input=user_text,
-            max_output_tokens=4000 if json_only else 2000
-        )
-        answer = response.output_text
-    except Exception as e:
-        answer = "Ошибка: "+str(e)
-        print("AI ERROR:", str(e))
-    print("AI ANSWER:", answer[:100])
+
+    def _call(model_id, max_tokens):
+        try:
+            r = client.responses.create(
+                model="gpt://"+FOLDER_ID+"/"+model_id,
+                temperature=0.1 if json_only else 0.2,
+                instructions=context,
+                input=user_text,
+                max_output_tokens=max_tokens,
+            )
+            return (r.output_text or ""), None
+        except Exception as e:
+            return "", str(e)
+
+    primary_model = "qwen3.6-35b-a3b/latest" if json_only else "yandexgpt-5.1/latest"
+    primary_tokens = 4000 if json_only else 2000
+    answer, err = _call(primary_model, primary_tokens)
+    if not (answer or "").strip():
+        print("AI PRIMARY EMPTY model=" + primary_model + " err=" + str(err))
+        fallback_model = "yandexgpt-5.1/latest" if json_only else "qwen3.6-35b-a3b/latest"
+        print("AI FALLBACK trying " + fallback_model)
+        answer, err = _call(fallback_model, primary_tokens)
+        if not (answer or "").strip():
+            print("AI FALLBACK ALSO EMPTY err=" + str(err))
+            answer = "Ошибка: ИИ вернул пустой ответ. Попробуйте ещё раз или сократите запрос."
+    print("AI ANSWER LEN:", len(answer or ""))
+    print("AI ANSWER HEAD:", (answer or "")[:200])
     return {"response": answer}
 
 
