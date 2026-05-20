@@ -367,6 +367,13 @@ def init_db():
             created_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS estimate_chat_messages (
+            id SERIAL PRIMARY KEY,
+            estimate_id INT NOT NULL,
+            role VARCHAR(20) NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
     """)
     cur.execute("""
         INSERT INTO users (name, email, password, role)
@@ -2733,6 +2740,76 @@ def save_project_ai_summary(data: dict):
             summary = EXCLUDED.summary,
             updated_at = NOW()
     """, (project_name, data.get("payloadHash", ""), data.get("summary", "")))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.get("/estimates/{estimate_id}/chat-history")
+def get_estimate_chat(estimate_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, role, content, created_at FROM estimate_chat_messages WHERE estimate_id=%s ORDER BY id ASC", (estimate_id,))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id": r[0], "role": r[1], "content": r[2], "createdAt": str(r[3])} for r in rows]
+
+@app.post("/estimate-chat")
+def estimate_chat(data: dict):
+    import openai as oa
+    estimate_id = data.get("estimateId")
+    user_message = (data.get("message") or "").strip()
+    context = (data.get("context") or "").strip()
+    history = data.get("history") or []
+    if not estimate_id or not user_message:
+        raise HTTPException(status_code=400, detail="estimateId and message required")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO estimate_chat_messages (estimate_id, role, content) VALUES (%s, %s, %s) RETURNING id, created_at",
+                (estimate_id, "user", user_message))
+    user_row = cur.fetchone()
+    conn.commit()
+
+    prompt_lines = []
+    if context:
+        prompt_lines.append("КОНТЕКСТ СМЕТЫ:\n" + context)
+    if history:
+        prompt_lines.append("\nПРЕДЫДУЩИЙ ДИАЛОГ:")
+        for m in history[-20:]:
+            r = m.get("role", "user")
+            c = m.get("content", "")
+            prompt_lines.append(("Пользователь: " if r == "user" else "Ассистент: ") + c)
+    prompt_lines.append("\nНОВЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ:\n" + user_message)
+    prompt_lines.append("\nОтветь по-русски, используя факты из контекста сметы. Если для ответа недостаточно данных — скажи об этом. Если вопрос требует расчёта — приведи цифры явно.")
+    full_prompt = "\n".join(prompt_lines)
+
+    instructions = "Ты эксперт по строительным сметам. Помогаешь анализировать конкретную смету в формате диалога. Отвечаешь только по данной смете, не выдумываешь позиции. Используй конкретные числа из контекста."
+
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+    try:
+        response = client.responses.create(
+            model="gpt://" + YANDEX_FOLDER_ID + "/yandexgpt-5.1/latest",
+            temperature=0.3,
+            instructions=instructions,
+            input=full_prompt,
+            max_output_tokens=1500,
+        )
+        answer = response.output_text or ""
+    except Exception as e:
+        answer = "Ошибка ИИ: " + str(e)
+
+    cur.execute("INSERT INTO estimate_chat_messages (estimate_id, role, content) VALUES (%s, %s, %s) RETURNING id, created_at",
+                (estimate_id, "assistant", answer))
+    asst_row = cur.fetchone()
+    conn.commit()
+    cur.close(); conn.close()
+    return {"response": answer, "userMessageId": user_row[0], "assistantMessageId": asst_row[0]}
+
+@app.delete("/estimates/{estimate_id}/chat-history")
+def clear_estimate_chat(estimate_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM estimate_chat_messages WHERE estimate_id=%s", (estimate_id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}

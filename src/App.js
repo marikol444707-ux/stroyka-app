@@ -469,6 +469,38 @@ function App() {
   const [selectedVersionsToCompare, setSelectedVersionsToCompare] = useState([]);
   const [importValidationWarnings, setImportValidationWarnings] = useState([]);
   const [importValidating, setImportValidating] = useState(false);
+  const [showEstimateChat, setShowEstimateChat] = useState(false);
+  const [estimateChatMessages, setEstimateChatMessages] = useState([]);
+  const [estimateChatInput, setEstimateChatInput] = useState('');
+  const [estimateChatLoading, setEstimateChatLoading] = useState(false);
+
+  const sendEstimateChatMessage = async () => {
+    if (!selectedEstimate || !estimateChatInput.trim() || estimateChatLoading) return;
+    const msg = estimateChatInput.trim();
+    setEstimateChatInput('');
+    const localHistory = [...estimateChatMessages, {role:'user', content:msg, id:Date.now()}];
+    setEstimateChatMessages(localHistory);
+    setEstimateChatLoading(true);
+    try {
+      const fmt = (n) => Number(n||0).toLocaleString('ru-RU');
+      let total = 0;
+      const itemLines = (selectedEstimate.sections||[]).flatMap(s => (s.items||[]).map(i => {
+        const work = Number(i.priceWork||0);
+        const mat = Number(i.priceMaterial||0);
+        const qty = Number(i.quantity||0);
+        const sum = i.isImported ? work + mat : qty * (work + mat);
+        total += sum;
+        return '['+s.name+'] '+i.name+' | '+qty+' '+i.unit+' | работа '+work+'₽ материал '+mat+'₽ итого '+sum+'₽';
+      }));
+      const context = 'Смета "'+selectedEstimate.name+'"\nИтого: '+fmt(total)+' ₽\nПозиций: '+itemLines.length+'\n\nПОЗИЦИИ:\n'+itemLines.join('\n');
+      const res = await fetch(API+'/estimate-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estimateId:selectedEstimate.id,message:msg,context,history:estimateChatMessages.map(m=>({role:m.role,content:m.content}))})});
+      const data = await res.json();
+      setEstimateChatMessages([...localHistory,{role:'assistant',content:data.response||'Ошибка ответа',id:data.assistantMessageId||Date.now()+1}]);
+    } catch(err) {
+      setEstimateChatMessages([...localHistory,{role:'assistant',content:'Ошибка соединения',id:Date.now()+1}]);
+    }
+    setEstimateChatLoading(false);
+  };
   const [newEstimateSection, setNewEstimateSection] = useState({name:''});
   const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});
   const [newStage, setNewStage] = useState({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
@@ -3985,6 +4017,13 @@ function App() {
                     }catch(e){alert('Не удалось загрузить историю');}
                   }} style={btnG}>📜 История</button>
                   <button onClick={async()=>{
+                    try{
+                      const h=await fetch(API+'/estimates/'+selectedEstimate.id+'/chat-history').then(r=>r.json());
+                      setEstimateChatMessages(Array.isArray(h)?h:[]);
+                    }catch(e){setEstimateChatMessages([]);}
+                    setShowEstimateChat(true);
+                  }} style={{...btnB,backgroundColor:'#0ea5e9'}}><MessageSquare size={14}/>Чат</button>
+                  <button onClick={async()=>{
                     let plMap={};
                     const proj=projects.find(p=>p.id===Number(selectedEstimate.projectId));
                     if(proj&&proj.pricelistId){
@@ -4535,6 +4574,41 @@ function App() {
             await loadAll();
           }} style={btnO}><Check size={14}/>Выдать</button>
           <button onClick={()=>{setShowAccountableForm(false);setNewAccountable({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:'',projectName:''});}} style={btnG}><X size={14}/>Отмена</button>
+        </div>
+      </div>
+    </div>)}
+    {showEstimateChat&&selectedEstimate&&(<div onClick={()=>setShowEstimateChat(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'640px',height:'700px',margin:'20px',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{padding:'14px 18px',backgroundColor:'#0ea5e9',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+            <span style={{fontSize:'22px'}}>💬</span>
+            <div>
+              <b style={{color:'white',fontSize:'14px',display:'block'}}>Чат по смете</b>
+              <p style={{color:'rgba(255,255,255,0.85)',fontSize:'11px',margin:0}}>{selectedEstimate.name}</p>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+            <button onClick={async()=>{if(window.confirm('Очистить историю чата?')){await fetch(API+'/estimates/'+selectedEstimate.id+'/chat-history',{method:'DELETE'});setEstimateChatMessages([]);}}} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.4)',color:'white',cursor:'pointer',padding:'4px 10px',borderRadius:'6px',fontSize:'11px'}}>🗑️ Очистить</button>
+            <button onClick={()=>setShowEstimateChat(false)} style={{background:'none',border:'none',cursor:'pointer',color:'white',fontSize:'22px',padding:'0 6px'}}>×</button>
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:'16px',display:'flex',flexDirection:'column',gap:'10px',backgroundColor:C.bg}}>
+          {estimateChatMessages.length===0&&!estimateChatLoading&&(<div style={{textAlign:'center',padding:'30px',color:C.textMuted}}>
+            <div style={{fontSize:'40px',marginBottom:'10px'}}>💬</div>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'8px'}}>Задайте вопрос по смете</b>
+            <p style={{fontSize:'12px',marginBottom:'14px'}}>ИИ помнит контекст этой сметы и предыдущие вопросы</p>
+            <div style={{display:'flex',flexDirection:'column',gap:'6px',maxWidth:'420px',margin:'0 auto'}}>
+              {['Какая самая дорогая позиция?','А если убрать раздел 5?','Чем заменить дорогие материалы?','Помоги объяснить клиенту почему смета подорожала'].map(q=>(<button key={q} onClick={()=>setEstimateChatInput(q)} style={{...btnG,fontSize:'12px',textAlign:'left',justifyContent:'flex-start',padding:'8px 12px'}}>💭 {q}</button>))}
+            </div>
+          </div>)}
+          {estimateChatMessages.map((m,i)=>(<div key={m.id||i} style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}>
+            <div style={{maxWidth:'85%',padding:'10px 14px',borderRadius:m.role==='user'?'14px 14px 4px 14px':'14px 14px 14px 4px',backgroundColor:m.role==='user'?C.accent:'white',color:m.role==='user'?'white':C.text,fontSize:'13px',lineHeight:'1.5',boxShadow:'0 1px 3px rgba(0,0,0,0.08)',border:m.role==='user'?'none':'1.5px solid '+C.border,whiteSpace:'pre-wrap'}}>{m.content}</div>
+          </div>))}
+          {estimateChatLoading&&(<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{padding:'10px 14px',borderRadius:'14px 14px 14px 4px',backgroundColor:'white',border:'1.5px solid '+C.border,fontSize:'13px',color:C.textSec}}>⏳ Думаю над вопросом…</div></div>)}
+        </div>
+        <div style={{padding:'12px 14px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bgWhite,display:'flex',gap:'8px'}}>
+          <input value={estimateChatInput} onChange={e=>setEstimateChatInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendEstimateChatMessage();}}} placeholder='Спросите по смете... (Enter — отправить)' disabled={estimateChatLoading} style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}}/>
+          <button disabled={estimateChatLoading||!estimateChatInput.trim()} onClick={sendEstimateChatMessage} style={{...btnO,padding:'10px 16px'}}>➤</button>
         </div>
       </div>
     </div>)}
