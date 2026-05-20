@@ -2823,23 +2823,43 @@ def ai_generate_estimate(data: dict):
         raw = (response.output_text or "").strip()
     except Exception as e:
         cur.close(); conn.close()
+        print("AI-GENERATE EXCEPTION:", str(e))
         raise HTTPException(status_code=500, detail="Ошибка ИИ: " + str(e))
 
-    clean = raw
-    if clean.startswith("```"):
-        clean = clean.split("```", 2)[-1] if clean.count("```") >= 2 else clean.lstrip("`")
-        clean = clean.lstrip("json").strip()
+    print("AI-GENERATE RAW LEN:", len(raw))
+    print("AI-GENERATE RAW HEAD:", raw[:300])
+    print("AI-GENERATE RAW TAIL:", raw[-300:] if len(raw) > 300 else "")
+
+    import re as _re
+    clean = raw.strip()
+    clean = _re.sub(r"^```(?:json|JSON)?\s*", "", clean)
+    clean = _re.sub(r"\s*```\s*$", "", clean)
+    clean = clean.strip()
+
     s_idx = clean.find("{")
     e_idx = clean.rfind("}")
     parsed = None
+    parse_error = None
     if s_idx >= 0 and e_idx > s_idx:
+        candidate = clean[s_idx:e_idx + 1]
         try:
-            parsed = _json.loads(clean[s_idx:e_idx+1])
-        except Exception:
-            parsed = None
+            parsed = _json.loads(candidate)
+        except Exception as pe:
+            parse_error = str(pe)
+            # Trailing-junk fallback: cut from the last } backwards
+            for cut in range(e_idx, s_idx, -1):
+                if clean[cut] == "}":
+                    try:
+                        parsed = _json.loads(clean[s_idx:cut + 1])
+                        parse_error = None
+                        break
+                    except Exception:
+                        continue
+
     if not parsed or not isinstance(parsed.get("sections"), list):
         cur.close(); conn.close()
-        raise HTTPException(status_code=500, detail="Не удалось распознать ответ ИИ как JSON. Попробуйте ещё раз или измените описание.")
+        print("AI-GENERATE PARSE FAILED. parse_error:", parse_error)
+        raise HTTPException(status_code=500, detail="Не удалось распознать ответ ИИ как JSON. Попробуйте ещё раз или измените описание. Подробности в логах backend.")
 
     sections = []
     import time as _time
