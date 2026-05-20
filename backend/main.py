@@ -2899,6 +2899,114 @@ def ai_generate_estimate(data: dict):
 
     return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "sections": sections}
 
+@app.post("/ai-generate-pricelist")
+def ai_generate_pricelist(data: dict):
+    import openai as oa
+    import json as _json
+    description = (data.get("description") or "").strip()
+    name_hint = (data.get("name") or "Прайс-лист (ИИ)").strip()
+    for_who = (data.get("forWho") or "").strip()
+    coefficient = float(data.get("coefficient") or 1.0)
+    if not description:
+        raise HTTPException(status_code=400, detail="Опишите для каких работ нужен прайс — поле обязательно")
+
+    instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, ```, никакого текста до или после JSON. Только сам JSON."
+
+    parts = []
+    parts.append("Ты опытный сметчик. Составь прайс-лист с реалистичными рыночными ценами по РФ 2026.")
+    parts.append("\nОПИСАНИЕ:\n" + description)
+    if for_who:
+        parts.append("Для специализации: " + for_who)
+    parts.append("""
+ФОРМАТ ОТВЕТА — ровно такой JSON:
+{
+  "name": "название прайс-листа",
+  "items": [
+    {"name": "название позиции", "unit": "м2|шт|кг|м|м.п.|т|...", "price": число, "category": "категория"}
+  ]
+}
+
+ПРАВИЛА:
+1. 25-60 позиций, охватывающих описание.
+2. Группируй позиции по категориям ("Демонтаж","Стены","Полы","Потолок","Сантехника","Электрика","Отделка","Прочее" и т.д.).
+3. Цены — за единицу (за м², за шт, за кг). Без пробелов, без валюты, только цифры. Дробные значения допускаются.
+4. Если работа сложная — указывай отдельные позиции по этапам.
+5. ТОЛЬКО валидный JSON, никакого текста до/после.""")
+    full_prompt = "\n".join(parts)
+
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+
+    def _call(model_id):
+        try:
+            r = client.responses.create(
+                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
+                temperature=0.2,
+                instructions=instructions,
+                input=full_prompt,
+                max_output_tokens=5000,
+            )
+            return (r.output_text or "").strip(), None
+        except Exception as e:
+            return "", str(e)
+
+    raw, err = _call("qwen3.6-35b-a3b/latest")
+    if not raw.strip():
+        print("AI-PRICELIST PRIMARY EMPTY, err=" + str(err))
+        raw, err = _call("yandexgpt-5.1/latest")
+    print("AI-PRICELIST RAW LEN:", len(raw))
+    print("AI-PRICELIST RAW HEAD:", raw[:300])
+    if not raw.strip():
+        raise HTTPException(status_code=500, detail="ИИ вернул пустой ответ. Попробуйте ещё раз.")
+
+    import re as _re
+    clean = raw.strip()
+    clean = _re.sub(r"^```(?:json|JSON)?\s*", "", clean)
+    clean = _re.sub(r"\s*```\s*$", "", clean)
+    clean = clean.strip()
+    s_idx = clean.find("{")
+    e_idx = clean.rfind("}")
+    parsed = None
+    if s_idx >= 0 and e_idx > s_idx:
+        candidate = clean[s_idx:e_idx + 1]
+        try:
+            parsed = _json.loads(candidate)
+        except Exception:
+            for cut in range(e_idx, s_idx, -1):
+                if clean[cut] == "}":
+                    try:
+                        parsed = _json.loads(clean[s_idx:cut + 1])
+                        break
+                    except Exception:
+                        continue
+    if not parsed or not isinstance(parsed.get("items"), list) or not parsed.get("items"):
+        print("AI-PRICELIST PARSE FAILED")
+        raise HTTPException(status_code=500, detail="Не удалось распознать ответ ИИ как JSON. Попробуйте ещё раз или измените описание.")
+
+    final_name = parsed.get("name") or name_hint
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO pricelists (name, description, for_who, coefficient) VALUES (%s, %s, %s, %s) RETURNING id",
+                (final_name, description[:500], for_who, coefficient))
+    pricelist_id = cur.fetchone()[0]
+    inserted = 0
+    for it in parsed.get("items") or []:
+        nm = str(it.get("name") or "").strip()
+        if not nm:
+            continue
+        unit = str(it.get("unit") or "шт")
+        try:
+            price = float(it.get("price") or 0)
+        except Exception:
+            price = 0
+        category = str(it.get("category") or "")
+        cur.execute("INSERT INTO pricelist_items (pricelist_id, name, unit, price, category, specialization) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (pricelist_id, nm, unit, price, category, for_who))
+        inserted += 1
+    conn.commit()
+    cur.close(); conn.close()
+
+    return {"ok": True, "id": pricelist_id, "name": final_name, "itemsCount": inserted}
+
 @app.get("/estimates/{estimate_id}/chat-history")
 def get_estimate_chat(estimate_id: int):
     conn = get_db()
