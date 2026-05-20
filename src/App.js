@@ -473,6 +473,13 @@ function App() {
   const [fromEstimateForm, setFromEstimateForm] = useState({estimateId:'',name:'',forWho:'',coefficient:1.0});
   const [creatingFromEstimate, setCreatingFromEstimate] = useState(false);
 
+  const persistEstimate = async (est) => {
+    if (!est || !est.id) return;
+    try {
+      await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});
+    } catch(e) {}
+  };
+
   const sendEstimateChatMessage = async () => {
     if (!selectedEstimate || !estimateChatInput.trim() || estimateChatLoading) return;
     const msg = estimateChatInput.trim();
@@ -4117,14 +4124,25 @@ function App() {
                   const total=allItems.reduce((s,i)=>s+sumOf(i),0);
                   const totalW=works.reduce((s,i)=>s+sumOf(i),0);
                   const totalM=mats.reduce((s,i)=>s+sumOf(i),0);
-                  const removeAt=(idx)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).filter((_,i)=>i!==idx)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));};
+                  const removeAt=(idx)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).filter((_,i)=>i!==idx)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
+                  const updateItem=(idx,field,val)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map((it,i)=>i===idx?{...it,[field]:val,isImported:field==='quantity'||field==='priceWork'||field==='priceMaterial'?false:it.isImported}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));};
+                  const persist=()=>persistEstimate(selectedEstimate);
+                  const inpCell={padding:'4px 6px',border:'1px solid '+C.border,borderRadius:'4px',fontSize:'11px',width:'100%',backgroundColor:C.bgWhite,outline:'none'};
                   const renderGroup=(title,emoji,list,groupTotal,accent)=>(<div style={{marginBottom:'10px'}}>
                     <div style={{padding:'6px 10px',backgroundColor:accent+'15',borderRadius:'6px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px',borderLeft:'3px solid '+accent}}>
                       <b style={{color:accent,fontSize:'12px'}}>{emoji+' '+title+' ('+list.length+')'}</b>
                       <b style={{color:accent,fontSize:'12px'}}>{groupTotal.toLocaleString('ru-RU')+' ₽'}</b>
                     </div>
-                    {list.length>0?(<table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена работ</th><th style={tblH}>Цена мат.</th><th style={tblH}>Итого</th><th style={tblH}></th></tr></thead><tbody>
-                      {list.map(item=>(<tr key={item.id||item._idx}><td style={tblC}>{item.name}</td><td style={tblC}>{item.unit}</td><td style={tblC}>{item.quantity}</td><td style={tblC}>{Number(item.priceWork||0).toLocaleString('ru-RU')+' ₽'}</td><td style={tblC}>{Number(item.priceMaterial||0).toLocaleString('ru-RU')+' ₽'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td><td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td></tr>))}
+                    {list.length>0?(<table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={{...tblH,width:'70px'}}>Ед.</th><th style={{...tblH,width:'80px'}}>Кол-во</th><th style={{...tblH,width:'100px'}}>Цена работ</th><th style={{...tblH,width:'100px'}}>Цена мат.</th><th style={tblH}>Итого</th><th style={{...tblH,width:'36px'}}></th></tr></thead><tbody>
+                      {list.map(item=>(<tr key={item.id||item._idx}>
+                        <td style={tblC}><input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></td>
+                        <td style={tblC}><select value={item.unit||'шт'} onChange={e=>{updateItem(item._idx,'unit',e.target.value);setTimeout(persist,100);}} style={inpCell}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
+                        <td style={tblC}><input type='number' value={item.quantity||''} onChange={e=>updateItem(item._idx,'quantity',e.target.value)} onBlur={persist} style={inpCell}/></td>
+                        <td style={tblC}><input type='number' value={item.priceWork||''} onChange={e=>updateItem(item._idx,'priceWork',e.target.value)} onBlur={persist} style={inpCell}/></td>
+                        <td style={tblC}><input type='number' value={item.priceMaterial||''} onChange={e=>updateItem(item._idx,'priceMaterial',e.target.value)} onBlur={persist} style={inpCell}/></td>
+                        <td style={{...tblC,fontWeight:'600',color:C.success}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
+                        <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
+                      </tr>))}
                     </tbody></table>):(<p style={{fontSize:'11px',color:C.textMuted,padding:'6px 10px'}}>Нет позиций</p>)}
                   </div>);
                   return(<div key={section.id} style={{...card,marginBottom:'12px'}}>
