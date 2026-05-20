@@ -445,8 +445,6 @@ function App() {
   const [newPiecework, setNewPiecework] = useState({staffId:'',description:'',unit:'м2',quantity:'',pricePerUnit:'',project:''});
   const [newProject, setNewProject] = useState({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null});
   const [newClient, setNewClient] = useState({name:'',phone:'',email:'',status:'Активный',notes:''});
-  const [newMaterial, setNewMaterial] = useState({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',project:'',category:''});
-  const [newMainMaterial, setNewMainMaterial] = useState({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',category:''});
   const [newWarehouse, setNewWarehouse] = useState({name:'',city:'',address:'',notes:''});
   const [newMovement, setNewMovement] = useState({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
   const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}]});
@@ -1178,23 +1176,7 @@ function App() {
 
   const deleteClient = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/clients/'+id,{method:'DELETE'}); await loadAll(); } };
 
-  const saveMaterial = async () => {
-    if (!newMaterial.name) return;
-    const data = {...newMaterial,quantity:Number(newMaterial.quantity),price:Number(newMaterial.price),minQuantity:Number(newMaterial.minQuantity)};
-    if (editingItem) await fetch(API+'/materials/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    await loadAll(); setNewMaterial({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',project:'',category:''}); setEditingItem(null); setShowForm(false);
-  };
-
   const deleteMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/materials/'+id,{method:'DELETE'}); await loadAll(); } };
-
-  const saveMainMaterial = async () => {
-    if (!newMainMaterial.name) return;
-    const data = {...newMainMaterial,quantity:Number(newMainMaterial.quantity),price:Number(newMainMaterial.price),minQuantity:Number(newMainMaterial.minQuantity)};
-    if (editingItem) await fetch(API+'/warehouse-main/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    else await fetch(API+'/warehouse-main',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    await loadAll(); setNewMainMaterial({name:'',unit:'шт',quantity:'',price:'',minQuantity:'',category:''}); setEditingItem(null); setShowForm(false);
-  };
 
   const deleteMainMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/warehouse-main/'+id,{method:'DELETE'}); await loadAll(); } };
 
@@ -3260,17 +3242,6 @@ function App() {
                   <button onClick={()=>openReceiveInvoice(selectedWarehouseProject)} style={btnO}><Plus size={14}/>Принять материал</button>
                   <button onClick={()=>exportToExcel(materials.filter(m=>m.project===selectedWarehouseProject).map(m=>({Наименование:m.name,Единица:m.unit,Количество:m.quantity,Цена:m.price,Сумма:m.quantity*m.price,Проект:m.project})),'Склад_'+selectedWarehouseProject)} style={btnG}><Download size={14}/>Excel</button>
                 </div>
-                {showForm&&(<div style={{...card,padding:'20px',marginBottom:'15px'}}>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                    <input placeholder="Название *" value={newMaterial.name} onChange={e=>setNewMaterial({...newMaterial,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <select value={newMaterial.unit} onChange={e=>setNewMaterial({...newMaterial,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                    <input placeholder="Количество" type="number" value={newMaterial.quantity} onChange={e=>setNewMaterial({...newMaterial,quantity:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder="Цена (₽)" type="number" value={newMaterial.price} onChange={e=>setNewMaterial({...newMaterial,price:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder="Мин. остаток" type="number" value={newMaterial.minQuantity} onChange={e=>setNewMaterial({...newMaterial,minQuantity:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <select value={newMaterial.category} onChange={e=>setNewMaterial({...newMaterial,category:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Категория</option>{MATERIAL_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select>
-                  </div>
-                  <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveMaterial} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
-                </div>)}
                 <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Кат.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}></th></tr></thead><tbody>
                   {materials.filter(m=>m.project===selectedWarehouseProject).map(m=>(<tr key={m.id} style={{backgroundColor:m.minQuantity&&m.quantity<m.minQuantity?C.dangerLight:'transparent'}}>
                     <td style={tblC}><b style={{fontSize:'13px'}}>{m.name}</b>{m.minQuantity&&m.quantity<m.minQuantity&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),marginLeft:'6px',fontSize:'10px'}}>Мало!</span>}</td>
@@ -3278,7 +3249,7 @@ function App() {
                     <td style={tblC}>{m.quantity+' '+m.unit}</td>
                     <td style={tblC}>{m.price.toLocaleString()+' ₽'}</td>
                     <td style={{...tblC,fontWeight:'600'}}>{(m.price*m.quantity).toLocaleString()+' ₽'}</td>
-                    <td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(m);setNewMaterial({...m,quantity:String(m.quantity),price:String(m.price),minQuantity:String(m.minQuantity||'')});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteMaterial(m.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td>
+                    <td style={tblC}><button onClick={()=>deleteMaterial(m.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
                   </tr>))}
                 </tbody></table>
               </div>)}
@@ -3289,17 +3260,6 @@ function App() {
                 <button onClick={()=>openReceiveInvoice('Основной склад')} style={btnO}><Plus size={14}/>Принять материал</button>
                 <button onClick={()=>exportToExcel(warehouseMain.map(m=>({Наименование:m.name,Единица:m.unit,Количество:m.quantity,Цена:m.price,Сумма:m.quantity*m.price})),'Основной_склад')} style={btnG}><Download size={14}/>Excel</button>
               </div>
-              {showForm&&(<div style={{...card,padding:'20px',marginBottom:'15px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <input placeholder="Название *" value={newMainMaterial.name} onChange={e=>setNewMainMaterial({...newMainMaterial,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newMainMaterial.unit} onChange={e=>setNewMainMaterial({...newMainMaterial,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                  <input placeholder="Количество" type="number" value={newMainMaterial.quantity} onChange={e=>setNewMainMaterial({...newMainMaterial,quantity:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Цена (₽)" type="number" value={newMainMaterial.price} onChange={e=>setNewMainMaterial({...newMainMaterial,price:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Мин. остаток" type="number" value={newMainMaterial.minQuantity} onChange={e=>setNewMainMaterial({...newMainMaterial,minQuantity:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newMainMaterial.category} onChange={e=>setNewMainMaterial({...newMainMaterial,category:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Категория</option>{MATERIAL_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveMainMaterial} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
-              </div>)}
               <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Категория</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}></th></tr></thead><tbody>
                 {warehouseMain.map(m=>(<tr key={m.id} style={{backgroundColor:m.minQuantity&&m.quantity<m.minQuantity?C.dangerLight:'transparent'}}>
                   <td style={tblC}><b style={{fontSize:'13px'}}>{m.name}</b>{m.minQuantity&&m.quantity<m.minQuantity&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),marginLeft:'6px',fontSize:'10px'}}>Мало!</span>}</td>
@@ -3307,7 +3267,7 @@ function App() {
                   <td style={tblC}>{m.quantity+' '+m.unit}</td>
                   <td style={tblC}>{m.price.toLocaleString()+' ₽'}</td>
                   <td style={{...tblC,fontWeight:'600'}}>{(m.price*m.quantity).toLocaleString()+' ₽'}</td>
-                  <td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(m);setNewMainMaterial({...m,quantity:String(m.quantity),price:String(m.price),minQuantity:String(m.minQuantity||'')});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteMainMaterial(m.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td>
+                  <td style={tblC}><button onClick={()=>deleteMainMaterial(m.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
                 </tr>))}
               </tbody></table>
               {warehouseMain.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Склад пуст</p>}
