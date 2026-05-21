@@ -437,7 +437,7 @@ function App() {
   const [newWarehouse, setNewWarehouse] = useState({name:'',city:'',address:'',notes:''});
   const [newMovement, setNewMovement] = useState({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
   const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}]});
-  const [newStaff, setNewStaff] = useState({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад'});
+  const [newStaff, setNewStaff] = useState({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:''});
   const [newUser, setNewUser] = useState({name:'',email:'',password:'',role:'прораб'});
   const [newPricelist, setNewPricelist] = useState({name:'',description:'',forWho:'',coefficient:1.0});
   const [newPlItem, setNewPlItem] = useState({name:'',unit:'м2',price:'',category:''});
@@ -1253,10 +1253,18 @@ function App() {
 
   const saveStaff = async () => {
     if (!newStaff.name) return;
-    const data = {...newStaff,salary:Number(newStaff.salary)};
+    const data = {name:newStaff.name,role:newStaff.role||newStaff.systemRole||'',phone:newStaff.phone,salary:Number(newStaff.salary),project:newStaff.project,payType:newStaff.payType};
     if (editingItem) await fetch(API+'/staff/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     else await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    await loadAll(); setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад'}); setEditingItem(null); setShowForm(false);
+    if (newStaff.email && newStaff.password && newStaff.systemRole) {
+      const existing = users.find(u=>u.email===newStaff.email);
+      if (!existing) {
+        try {
+          await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newStaff.name,email:newStaff.email,password:newStaff.password,role:newStaff.systemRole,projectName:newStaff.project||''})});
+        } catch(e) {}
+      }
+    }
+    await loadAll(); setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:''}); setEditingItem(null); setShowForm(false);
   };
 
   const deleteStaff = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/staff/'+id,{method:'DELETE'}); await loadAll(); } };
@@ -3771,16 +3779,28 @@ function App() {
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                   <input placeholder="ФИО *" value={newStaff.name} onChange={e=>setNewStaff({...newStaff,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Должность" value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder="Должность (свободно)" value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})} style={{...inp,marginBottom:0}}/>
                   <input placeholder="Телефон" value={newStaff.phone} onChange={e=>setNewStaff({...newStaff,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
                   <select value={newStaff.payType} onChange={e=>setNewStaff({...newStaff,payType:e.target.value})} style={{...inp,marginBottom:0}}><option value="оклад">Оклад</option><option value="сдельно">Сдельно</option></select>
                   {newStaff.payType==='оклад'&&<input placeholder="Оклад (₽)" type="number" value={newStaff.salary} onChange={e=>setNewStaff({...newStaff,salary:e.target.value})} style={{...inp,marginBottom:0}}/>}
                   <select value={newStaff.project} onChange={e=>setNewStaff({...newStaff,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Проект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
                 </div>
+                {!editingItem&&(<div style={{marginTop:'12px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px dashed '+C.border}}>
+                  <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>🔐 Доступ в систему (опционально)</b>
+                  <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Заполните чтобы сотрудник мог входить в приложение через email/пароль.</p>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                    <select value={newStaff.systemRole} onChange={e=>setNewStaff({...newStaff,systemRole:e.target.value})} style={{...inp,marginBottom:0}}>
+                      <option value=''>Системная роль</option>
+                      {Object.keys(ROLE_LABELS).filter(r=>r!=='заказчик'&&r!=='поставщик').map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                    </select>
+                    <input type='email' placeholder='Email для входа' value={newStaff.email} onChange={e=>setNewStaff({...newStaff,email:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input type='text' placeholder='Пароль' value={newStaff.password} onChange={e=>setNewStaff({...newStaff,password:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                  </div>
+                </div>)}
                 <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveStaff} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
-              <table style={tbl}><thead><tr><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Объект</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Зарплата</th><th style={tblH}></th></tr></thead><tbody>
-                {staff.map(s=>(<tr key={s.id}><td style={tblC}><b style={{fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.phone}</p></td><td style={tblC}>{s.role}</td><td style={tblC}>{s.project||'—'}</td><td style={tblC}>{s.payType==='сдельно'?'Сдельно':'Оклад: '+s.salary.toLocaleString()+' ₽'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{calcSalary(s).toLocaleString()+' ₽'}</td><td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(s);setNewStaff({...s,salary:String(s.salary)});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td></tr>))}
+              <table style={tbl}><thead><tr><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Объект</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Зарплата</th><th style={tblH}>Доступ</th><th style={tblH}></th></tr></thead><tbody>
+                {staff.map(s=>{const hasAccess=users.find(u=>u.name===s.name);return(<tr key={s.id}><td style={tblC}><b style={{fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.phone}</p></td><td style={tblC}>{s.role}</td><td style={tblC}>{s.project||'—'}</td><td style={tblC}>{s.payType==='сдельно'?'Сдельно':'Оклад: '+s.salary.toLocaleString()+' ₽'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{calcSalary(s).toLocaleString()+' ₽'}</td><td style={tblC}>{hasAccess?<span style={{padding:'2px 8px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'11px',fontWeight:'600'}}>✅ {hasAccess.email||'есть'}</span>:<button onClick={()=>{const email=prompt('Email для входа:');if(!email) return;const password=prompt('Пароль:');if(!password) return;const role=prompt('Системная роль (директор/зам_директора/бухгалтер/прораб/мастер/субподрядчик/кладовщик/снабженец):','мастер');if(!role) return;fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name,email,password,role,projectName:s.project||''})}).then(()=>loadAll()).then(()=>alert('Доступ выдан: '+email));}} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}>🔐 Выдать</button>}</td><td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(s);setNewStaff({...s,salary:String(s.salary),email:'',password:'',systemRole:''});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td></tr>);})}
               </tbody></table>
             </div>)}
 
