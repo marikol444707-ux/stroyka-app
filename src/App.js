@@ -3855,8 +3855,8 @@ function App() {
                     </div>
                     {editingPlItem&&<button onClick={()=>{setEditingPlItem(null);setNewPlItem({name:'',unit:'м2',price:'',category:''});}} style={{...btnG,marginTop:'8px',fontSize:'12px'}}><X size={12}/>Отменить</button>}
                   </div>
-                  {Object.keys(PRICELISTS_DATA).concat(['']).map(cat=>{
-                    const catItems=pricelistItems.filter(i=>(i.category||'')===(cat||''));
+                  {[...new Set(pricelistItems.map(i=>(i.category||'').trim()))].sort((a,b)=>a==='' ? 1 : b==='' ? -1 : a.localeCompare(b,'ru')).map(cat=>{
+                    const catItems=pricelistItems.filter(i=>(i.category||'').trim()===cat);
                     if(catItems.length===0) return null;
                     return(<div key={cat||'nocat'} style={{marginBottom:'20px'}}>
                       {cat&&<div style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,marginBottom:'8px',display:'flex',alignItems:'center',gap:'8px'}}><b style={{color:C.accent,fontSize:'12px',textTransform:'uppercase'}}>{'🔧 '+cat}</b><span style={{color:C.textSec,fontSize:'11px'}}>{'('+catItems.length+' позиций)'}</span></div>}
