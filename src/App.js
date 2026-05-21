@@ -1756,7 +1756,7 @@ function App() {
                   </div>)}
                 </div>))}
               </div>)}
-              {pricelistItems.length>0&&(<>
+              {pricelistItems.length>0&&!selectedBrigadeContract&&(<>
                 {categories.map(cat=>(<div key={cat} style={{marginBottom:'15px'}}>
                   <div style={{color:C.accent,fontSize:'11px',fontWeight:'700',marginBottom:'8px',borderBottom:'1.5px solid '+C.border,paddingBottom:'5px',textTransform:'uppercase'}}>{cat}</div>
                   {pricelistItems.filter(i=>i.category===cat).map(item=>{
