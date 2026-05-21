@@ -472,6 +472,11 @@ function App() {
   const [showFromEstimate, setShowFromEstimate] = useState(false);
   const [fromEstimateForm, setFromEstimateForm] = useState({estimateId:'',name:'',forWho:'',coefficient:1.0});
   const [creatingFromEstimate, setCreatingFromEstimate] = useState(false);
+  const [showDistribute, setShowDistribute] = useState(false);
+  const [distributeAssignments, setDistributeAssignments] = useState({});
+  const [distributeBrigades, setDistributeBrigades] = useState([]);
+  const [newDistributeBrigade, setNewDistributeBrigade] = useState({brigadeName:'',contractorType:'Своя бригада',pricelistId:''});
+  const [distributing, setDistributing] = useState(false);
 
   const persistEstimate = async (est) => {
     if (!est || !est.id) return;
@@ -4009,6 +4014,12 @@ function App() {
                     }catch(e){setEstimateChatMessages([]);}
                     setShowEstimateChat(true);
                   }} style={{...btnB,backgroundColor:'#0ea5e9'}}><MessageSquare size={14}/>Чат</button>
+                  <button onClick={()=>{
+                    setDistributeAssignments({});
+                    const existing=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName);
+                    setDistributeBrigades(existing.length?existing.map(bc=>({name:bc.brigadeName,contractorType:bc.contractorType,pricelistId:bc.pricelistId||''})):[]);
+                    setShowDistribute(true);
+                  }} style={{...btnO,backgroundColor:'#16a34a'}}><Users size={14}/>👷 Распределить</button>
                   <button onClick={async()=>{
                     let plMap={};
                     const proj=projects.find(p=>p.id===Number(selectedEstimate.projectId));
@@ -4571,6 +4582,87 @@ function App() {
             await loadAll();
           }} style={btnO}><Check size={14}/>Выдать</button>
           <button onClick={()=>{setShowAccountableForm(false);setNewAccountable({givenTo:'',amount:'',paymentMethod:'Наличные',purpose:'',date:'',projectName:''});}} style={btnG}><X size={14}/>Отмена</button>
+        </div>
+      </div>
+    </div>)}
+    {showDistribute&&selectedEstimate&&(<div onClick={()=>!distributing&&setShowDistribute(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:'22px',width:'720px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'4px'}}>
+          <span style={{fontSize:'22px'}}>👷</span>
+          <b style={{color:C.text,fontSize:'15px'}}>Распределить смету по бригадам</b>
+        </div>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>Каждой позиции выбери бригаду. Из этого автоматически создадутся наряды с пересчётом цен по коэффициенту бригадного прайса (или 0.6 по умолчанию).</p>
+        <div style={{...card,padding:'10px',marginBottom:'10px',backgroundColor:C.bg}}>
+          <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'6px'}}>Бригады, которым раздаём:</b>
+          <div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'8px'}}>
+            {distributeBrigades.map((b,i)=>(<span key={i} style={{padding:'4px 10px',borderRadius:'12px',backgroundColor:C.accentLight,color:C.accent,fontSize:'11px',display:'flex',alignItems:'center',gap:'6px'}}>{b.name}<button onClick={()=>setDistributeBrigades(prev=>prev.filter((_,idx)=>idx!==i))} style={{background:'none',border:'none',cursor:'pointer',color:C.danger}}>×</button></span>))}
+            {distributeBrigades.length===0&&<span style={{fontSize:'11px',color:C.textMuted}}>Пока пусто — добавь бригады ниже</span>}
+          </div>
+          <div style={{display:'flex',gap:'4px'}}>
+            <input placeholder='Название бригады' value={newDistributeBrigade.brigadeName} onChange={e=>setNewDistributeBrigade({...newDistributeBrigade,brigadeName:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px',flex:1}}/>
+            <select value={newDistributeBrigade.pricelistId} onChange={e=>setNewDistributeBrigade({...newDistributeBrigade,pricelistId:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px',width:'160px'}}><option value=''>Прайс (необязат.)</option>{pricelists.map(pl=><option key={pl.id} value={pl.id}>{pl.name}</option>)}</select>
+            <button onClick={()=>{if(!newDistributeBrigade.brigadeName.trim()) return;setDistributeBrigades(prev=>[...prev,{name:newDistributeBrigade.brigadeName.trim(),contractorType:newDistributeBrigade.contractorType,pricelistId:newDistributeBrigade.pricelistId}]);setNewDistributeBrigade({brigadeName:'',contractorType:'Своя бригада',pricelistId:''});}} style={{...btnO,fontSize:'12px',padding:'6px 10px'}}><Plus size={12}/>Добавить</button>
+          </div>
+        </div>
+        <div style={{maxHeight:'380px',overflowY:'auto',marginBottom:'10px'}}>
+          {(selectedEstimate.sections||[]).map((s,si)=>(<div key={si} style={{marginBottom:'10px'}}>
+            <div style={{padding:'4px 8px',backgroundColor:C.accentLight,borderRadius:'4px',marginBottom:'4px'}}><b style={{fontSize:'11px',color:C.accent}}>{s.name}</b></div>
+            {(s.items||[]).map((it,ii)=>{const key=si+'-'+ii;return(<div key={ii} style={{display:'grid',gridTemplateColumns:'1fr 70px 80px 1fr',gap:'6px',padding:'4px 8px',alignItems:'center',fontSize:'11px',borderBottom:'1px solid '+C.border}}>
+              <span style={{color:C.text}}>{it.name}</span>
+              <span style={{color:C.textSec}}>{it.quantity} {it.unit}</span>
+              <span style={{color:C.textMuted}}>{Number(it.priceWork||0).toLocaleString('ru-RU')}₽</span>
+              <select value={distributeAssignments[key]||''} onChange={e=>setDistributeAssignments(prev=>({...prev,[key]:e.target.value}))} style={{...inp,marginBottom:0,fontSize:'11px',padding:'3px 6px'}}>
+                <option value=''>— не назначено —</option>
+                {distributeBrigades.map((b,bi)=><option key={bi} value={b.name}>{b.name}</option>)}
+              </select>
+            </div>);})}
+          </div>))}
+        </div>
+        <div style={{display:'flex',gap:'8px',justifyContent:'space-between',marginTop:'12px'}}>
+          <button onClick={async()=>{
+            if(distributeBrigades.length===0){alert('Сначала добавьте бригады');return;}
+            setDistributing(true);
+            try{
+              const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/ai-distribute-suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({brigadeNames:distributeBrigades.map(b=>b.name)})});
+              const data=await res.json();
+              if(data.ok&&Array.isArray(data.assignments)){
+                const newAssign={};
+                let flatIdx=0;
+                (selectedEstimate.sections||[]).forEach((s,si)=>(s.items||[]).forEach((it,ii)=>{
+                  const a=data.assignments.find(a=>a.itemIndex===flatIdx);
+                  if(a) newAssign[si+'-'+ii]=a.brigadeName;
+                  flatIdx++;
+                }));
+                setDistributeAssignments(newAssign);
+                alert('ИИ распределил позиции — проверьте и поправьте если нужно');
+              }else alert('ИИ не справился, распределите вручную');
+            }catch(e){alert('Ошибка ИИ: '+e.message);}
+            setDistributing(false);
+          }} disabled={distributing||distributeBrigades.length===0} style={{...btnB,backgroundColor:'#7c3aed',fontSize:'12px'}}><Bot size={13}/>🤖 ИИ распределит</button>
+          <div style={{display:'flex',gap:'8px'}}>
+            <button onClick={()=>setShowDistribute(false)} disabled={distributing} style={btnG}><X size={14}/>Отмена</button>
+            <button disabled={distributing||Object.keys(distributeAssignments).length===0} onClick={async()=>{
+              const assignments=[];
+              (selectedEstimate.sections||[]).forEach((s,si)=>(s.items||[]).forEach((it,ii)=>{
+                const bname=distributeAssignments[si+'-'+ii];
+                if(bname){
+                  const bdata=distributeBrigades.find(b=>b.name===bname);
+                  assignments.push({section:s.name,name:it.name,unit:it.unit||'шт',quantity:Number(it.quantity||0),priceSmeta:Number(it.priceWork||0),brigadeName:bname,contractorType:bdata?.contractorType||'Своя бригада',pricelistId:bdata?.pricelistId||null});
+                }
+              }));
+              if(!assignments.length){alert('Ничего не назначено');return;}
+              setDistributing(true);
+              try{
+                const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/distribute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignments,defaultCoefficient:0.6})});
+                const data=await res.json();
+                if(!res.ok||!data.ok){alert('Ошибка: '+(data.detail||'не удалось'));setDistributing(false);return;}
+                await loadAll();
+                setShowDistribute(false);
+                setDistributing(false);
+                alert('Создано нарядов: '+data.createdContracts.length+'\n\n'+data.createdContracts.map(c=>'• '+c.brigadeName+' ('+c.itemsCount+' поз., '+Math.round(c.totalAmount).toLocaleString('ru-RU')+' ₽)').join('\n'));
+              }catch(e){alert('Ошибка: '+e.message);setDistributing(false);}
+            }} style={btnO}>{distributing?'⏳...':'✨ Создать наряды'}</button>
+          </div>
         </div>
       </div>
     </div>)}

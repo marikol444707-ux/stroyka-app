@@ -2307,6 +2307,153 @@ def delete_brigade_contract(id: int):
     cur.close(); conn.close()
     return {"ok":True}
 
+@app.post("/estimates/{estimate_id}/distribute")
+def distribute_estimate_to_brigades(estimate_id: int, data: dict):
+    import json as _json
+    assignments = data.get("assignments") or []
+    default_coef = float(data.get("defaultCoefficient") or 0.6)
+    if not assignments:
+        raise HTTPException(status_code=400, detail="Нет распределений")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT name, project_id, project_name FROM estimates WHERE id=%s", (estimate_id,))
+    est = cur.fetchone()
+    if not est:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    estimate_name, project_id, project_name = est[0] or "", est[1], est[2] or ""
+
+    # group assignments by brigade
+    brigades_map = {}
+    for a in assignments:
+        bname = (a.get("brigadeName") or "").strip()
+        if not bname:
+            continue
+        key = bname.lower()
+        if key not in brigades_map:
+            brigades_map[key] = {
+                "brigadeName": bname,
+                "contractorType": a.get("contractorType") or "Своя бригада",
+                "contractorId": a.get("contractorId"),
+                "pricelistId": a.get("pricelistId"),
+                "items": [],
+            }
+        brigades_map[key]["items"].append(a)
+
+    # Load pricelists once for coefficient lookup
+    cur.execute("SELECT id, coefficient FROM pricelists")
+    pl_coef = {r[0]: float(r[1] or 1.0) for r in cur.fetchall()}
+
+    created = []
+    for bdata in brigades_map.values():
+        # find coefficient
+        pl_id = bdata.get("pricelistId")
+        try:
+            pl_id = int(pl_id) if pl_id else None
+        except Exception:
+            pl_id = None
+        coef = pl_coef.get(pl_id, default_coef) if pl_id else default_coef
+        # create brigade_contract
+        cur.execute("""INSERT INTO brigade_contracts (project_id, project_name, brigade_name, contractor_type, contractor_id, total_amount, status, notes, pricelist_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (project_id or None, project_name, bdata["brigadeName"], bdata["contractorType"], bdata.get("contractorId") or None, 0, "Черновик", "Создан из сметы: " + estimate_name, pl_id))
+        contract_id = cur.fetchone()[0]
+        total = 0
+        for it in bdata["items"]:
+            qty = float(it.get("quantity") or 0)
+            price_smeta = float(it.get("priceSmeta") or it.get("priceWork") or 0)
+            price_brigade = round(price_smeta * coef, 2)
+            cur.execute("""INSERT INTO brigade_contract_items (contract_id, estimate_section, name, unit, quantity, price_smeta, price_brigade, done_quantity, status)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (contract_id, it.get("section",""), it.get("name",""), it.get("unit","шт"), qty, price_smeta, price_brigade, 0, "Не начато"))
+            total += qty * price_brigade
+        cur.execute("UPDATE brigade_contracts SET total_amount=%s WHERE id=%s", (round(total, 2), contract_id))
+        created.append({"id": contract_id, "brigadeName": bdata["brigadeName"], "totalAmount": round(total, 2), "itemsCount": len(bdata["items"])})
+
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "createdContracts": created}
+
+@app.post("/estimates/{estimate_id}/ai-distribute-suggest")
+def ai_suggest_distribution(estimate_id: int, data: dict):
+    import openai as oa
+    import json as _json
+    brigade_names = data.get("brigadeNames") or []
+    if not brigade_names:
+        raise HTTPException(status_code=400, detail="Передайте список бригад (brigadeNames)")
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT name, sections_json FROM estimates WHERE id=%s", (estimate_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    try:
+        sections = _json.loads(row[1]) if row[1] else []
+    except Exception:
+        sections = []
+    cur.close(); conn.close()
+
+    # Flatten items
+    items = []
+    for s in sections:
+        for it in (s.get("items") or []):
+            items.append({"section": s.get("name",""), "name": it.get("name",""), "unit": it.get("unit",""), "quantity": it.get("quantity",0)})
+
+    if not items:
+        return {"ok": True, "assignments": []}
+
+    instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, ```, только сам JSON."
+    prompt = ("Распредели позиции сметы между бригадами по специализации.\n\nБРИГАДЫ:\n" +
+              "\n".join("- " + b for b in brigade_names) +
+              "\n\nПОЗИЦИИ:\n" +
+              "\n".join(str(i+1) + ". [" + it["section"] + "] " + it["name"] for i, it in enumerate(items)) +
+              "\n\nОТВЕТЬ JSON формате:\n{\"assignments\": [{\"index\": номер_позиции_с_1, \"brigadeName\": \"имя бригады из списка выше\"}]}\n" +
+              "Привязывай позицию к бригаде по специализации. Если непонятно — выбирай 'Общестроительные' или первую общестроительную бригаду из списка.")
+
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+    raw = ""
+    for model_id in ("qwen3.6-35b-a3b/latest", "yandexgpt-5.1/latest"):
+        try:
+            r = client.responses.create(
+                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
+                temperature=0.1,
+                instructions=instructions,
+                input=prompt,
+                max_output_tokens=4000,
+            )
+            raw = (r.output_text or "").strip()
+            if raw:
+                break
+        except Exception as e:
+            print("AI-DISTRIBUTE ERROR:", str(e))
+
+    if not raw:
+        raise HTTPException(status_code=500, detail="ИИ не ответил")
+
+    import re as _re
+    clean = _re.sub(r"^```(?:json)?\s*", "", raw).strip()
+    clean = _re.sub(r"\s*```\s*$", "", clean).strip()
+    s_idx = clean.find("{"); e_idx = clean.rfind("}")
+    parsed = None
+    if s_idx >= 0 and e_idx > s_idx:
+        try:
+            parsed = _json.loads(clean[s_idx:e_idx+1])
+        except Exception:
+            parsed = None
+    if not parsed or not isinstance(parsed.get("assignments"), list):
+        raise HTTPException(status_code=500, detail="ИИ вернул не JSON")
+
+    # Map index -> brigade
+    result = []
+    for a in parsed["assignments"]:
+        idx = int(a.get("index", 0)) - 1
+        if 0 <= idx < len(items):
+            result.append({"itemIndex": idx, "brigadeName": str(a.get("brigadeName") or "")})
+    return {"ok": True, "assignments": result, "items": items}
+
 @app.get("/brigade-contract-items/{contract_id}")
 def get_brigade_contract_items(contract_id: int):
     conn = get_db()
