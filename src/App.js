@@ -439,6 +439,31 @@ function App() {
   const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}]});
   const [newStaff, setNewStaff] = useState({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:''});
   const [staffExpandedSections, setStaffExpandedSections] = useState({access:false,docs:false,finance:false,extra:false});
+  const [expandedStaffId, setExpandedStaffId] = useState(null);
+  const [staffProfile, setStaffProfile] = useState(null);
+  const [staffProfileLoading, setStaffProfileLoading] = useState(false);
+  const [newStaffDoc, setNewStaffDoc] = useState({docType:'другое',title:'',fileUrl:'',signedAt:'',expiresAt:'',notes:''});
+  const [showStaffDocForm, setShowStaffDocForm] = useState(false);
+
+  const openStaffProfile = async (s) => {
+    if (expandedStaffId === s.id) {setExpandedStaffId(null); setStaffProfile(null); return;}
+    setExpandedStaffId(s.id);
+    setStaffProfileLoading(true);
+    try {
+      const data = await fetch(API+'/staff/'+s.id+'/profile').then(r=>r.json());
+      setStaffProfile(data);
+    } catch(e) {setStaffProfile(null);}
+    setStaffProfileLoading(false);
+  };
+
+  const addStaffDoc = async (staffId) => {
+    if (!newStaffDoc.title) return alert('Укажите название документа');
+    await fetch(API+'/staff/'+staffId+'/documents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newStaffDoc,createdBy:user?.name||''})});
+    const data = await fetch(API+'/staff/'+staffId+'/profile').then(r=>r.json());
+    setStaffProfile(data);
+    setNewStaffDoc({docType:'другое',title:'',fileUrl:'',signedAt:'',expiresAt:'',notes:''});
+    setShowStaffDocForm(false);
+  };
   const [newUser, setNewUser] = useState({name:'',email:'',password:'',role:'прораб'});
   const [newPricelist, setNewPricelist] = useState({name:'',description:'',forWho:'',coefficient:1.0});
   const [newPlItem, setNewPlItem] = useState({name:'',unit:'м2',price:'',category:''});
@@ -3861,8 +3886,85 @@ function App() {
                   <button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button>
                 </div>
               </div>)}
-              <table style={tbl}><thead><tr><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Объект</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Зарплата</th><th style={tblH}>Доступ</th><th style={tblH}></th></tr></thead><tbody>
-                {staff.map(s=>{const hasAccess=users.find(u=>u.name===s.name);return(<tr key={s.id}><td style={tblC}><b style={{fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.phone}</p></td><td style={tblC}>{s.role}</td><td style={tblC}>{s.project||'—'}</td><td style={tblC}>{s.payType==='сдельно'?'Сдельно':'Оклад: '+s.salary.toLocaleString()+' ₽'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{calcSalary(s).toLocaleString()+' ₽'}</td><td style={tblC}>{hasAccess?<span style={{padding:'2px 8px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'11px',fontWeight:'600'}}>✅ {hasAccess.email||'есть'}</span>:<button onClick={()=>{const email=prompt('Email для входа:');if(!email) return;const password=prompt('Пароль:');if(!password) return;const role=prompt('Системная роль (директор/зам_директора/бухгалтер/прораб/мастер/субподрядчик/кладовщик/снабженец):','мастер');if(!role) return;fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name,email,password,role,projectName:s.project||''})}).then(()=>loadAll()).then(()=>alert('Доступ выдан: '+email));}} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}>🔐 Выдать</button>}</td><td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(s);setNewStaff({...s,salary:String(s.salary),email:'',password:'',systemRole:''});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td></tr>);})}
+              <table style={tbl}><thead><tr><th style={tblH}></th><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Объект</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Зарплата</th><th style={tblH}>Доступ</th><th style={tblH}></th></tr></thead><tbody>
+                {staff.map(s=>{const hasAccess=users.find(u=>u.name===s.name);const isExp=expandedStaffId===s.id;return(<React.Fragment key={s.id}>
+                  <tr style={{cursor:'pointer',backgroundColor:isExp?C.bg:'transparent'}} onClick={()=>openStaffProfile(s)}>
+                    <td style={{...tblC,width:'24px',textAlign:'center'}}>{isExp?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</td>
+                    <td style={tblC}><b style={{fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.phone}</p></td>
+                    <td style={tblC}>{s.role}{s.specialization?' · '+s.specialization:''}</td>
+                    <td style={tblC}>{s.project||'—'}</td>
+                    <td style={tblC}>{s.payType==='сдельно'?'Сдельно':'Оклад: '+(s.salary||0).toLocaleString()+' ₽'}</td>
+                    <td style={{...tblC,fontWeight:'600',color:C.success}}>{calcSalary(s).toLocaleString()+' ₽'}</td>
+                    <td style={tblC} onClick={e=>e.stopPropagation()}>{hasAccess?<span style={{padding:'2px 8px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'11px',fontWeight:'600'}}>✅ {hasAccess.email||'есть'}</span>:<button onClick={()=>{const email=prompt('Email для входа:');if(!email) return;const password=prompt('Пароль:');if(!password) return;const role=prompt('Системная роль (директор/зам_директора/бухгалтер/прораб/мастер/субподрядчик/кладовщик/снабженец):','мастер');if(!role) return;fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name,email,password,role,projectName:s.project||''})}).then(()=>loadAll()).then(()=>alert('Доступ выдан: '+email));}} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}>🔐 Выдать</button>}</td>
+                    <td style={tblC} onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(s);setNewStaff({...s,salary:String(s.salary||''),email:'',password:'',systemRole:''});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td>
+                  </tr>
+                  {isExp&&(<tr><td colSpan='8' style={{padding:'14px 18px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}>
+                    {staffProfileLoading?<p style={{color:C.textMuted,fontSize:'12px'}}>⏳ Загрузка профиля...</p>:staffProfile?(<div>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                        <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Тип занятости</p><b style={{fontSize:'12px',color:C.text}}>{s.employmentType||'не указан'}</b></div>
+                        <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Паспорт</p><b style={{fontSize:'12px',color:C.text}}>{s.passportSeries||s.passportNumber?(s.passportSeries+' '+s.passportNumber):'не заполнен'}</b></div>
+                        <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>ИНН</p><b style={{fontSize:'12px',color:C.text}}>{s.inn||'не заполнен'}</b></div>
+                        <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Банк</p><b style={{fontSize:'12px',color:C.text}}>{s.bankName||'не указан'}</b></div>
+                      </div>
+
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
+                        <div style={{...card,padding:'12px'}}>
+                          <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>📄 Договоры ({staffProfile.contracts.length})</b>
+                          {staffProfile.contracts.length===0?<p style={{color:C.textMuted,fontSize:'11px'}}>Договоров нет</p>:staffProfile.contracts.map(c=>(<div key={c.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'11px'}}><b>№{c.contractNumber}</b> · {c.project} · {c.status||'-'}</div>))}
+                        </div>
+                        <div style={{...card,padding:'12px'}}>
+                          <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>📋 Акты ({staffProfile.acts.length})</b>
+                          {staffProfile.acts.length===0?<p style={{color:C.textMuted,fontSize:'11px'}}>Актов нет</p>:staffProfile.acts.map(a=>(<div key={a.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between'}}><span>№{a.actNumber} · {a.project}</span><b style={{color:C.success}}>{a.totalAmount.toLocaleString()} ₽</b></div>))}
+                        </div>
+                        <div style={{...card,padding:'12px'}}>
+                          <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>✅ Согласия на ПД ({staffProfile.pdConsents.length})</b>
+                          {staffProfile.pdConsents.length===0?<p style={{color:C.warning,fontSize:'11px'}}>⚠️ Не подписано</p>:staffProfile.pdConsents.map(p=>(<div key={p.id} style={{padding:'6px 0',fontSize:'11px',color:C.success}}>✓ Подписано {p.signedAt}</div>))}
+                        </div>
+                        <div style={{...card,padding:'12px'}}>
+                          <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>🔒 Инструктажи ТБ ({staffProfile.tbJournal.length})</b>
+                          {staffProfile.tbJournal.length===0?<p style={{color:C.warning,fontSize:'11px'}}>⚠️ Инструктажей нет</p>:staffProfile.tbJournal.slice(0,5).map(t=>(<div key={t.id} style={{padding:'4px 0',fontSize:'11px'}}><b>{t.instructionType}</b> · {t.projectName} · {t.date}</div>))}
+                        </div>
+                      </div>
+
+                      <div style={{...card,padding:'12px',marginTop:'14px'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                          <b style={{fontSize:'12px',color:C.text}}>📎 Прочие документы ({staffProfile.customDocuments.length})</b>
+                          <button onClick={()=>setShowStaffDocForm(true)} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Plus size={11}/>Добавить</button>
+                        </div>
+                        {showStaffDocForm&&(<div style={{marginBottom:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}>
+                          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'6px'}}>
+                            <select value={newStaffDoc.docType} onChange={e=>setNewStaffDoc({...newStaffDoc,docType:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>
+                              {['Трудовой договор','Договор ГПХ','Договор с самозанятым','Договор с ИП','Приказ','Должн. инструкция','Мед. книжка','Справка о статусе самозанятого','Чек НПД','Прочее'].map(t=><option key={t}>{t}</option>)}
+                            </select>
+                            <input placeholder='Название/Номер' value={newStaffDoc.title} onChange={e=>setNewStaffDoc({...newStaffDoc,title:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                          </div>
+                          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'6px'}}>
+                            <input type='file' accept='image/*,.pdf' onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewStaffDoc({...newStaffDoc,fileUrl:url});}}} style={{fontSize:'11px'}}/>
+                            <input type='date' value={newStaffDoc.signedAt} onChange={e=>setNewStaffDoc({...newStaffDoc,signedAt:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                            <input type='date' placeholder='Истекает' value={newStaffDoc.expiresAt} onChange={e=>setNewStaffDoc({...newStaffDoc,expiresAt:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                          </div>
+                          <div style={{display:'flex',gap:'6px'}}>
+                            <button onClick={()=>addStaffDoc(s.id)} style={{...btnO,fontSize:'11px',padding:'4px 10px'}}><Check size={11}/>Сохранить</button>
+                            <button onClick={()=>setShowStaffDocForm(false)} style={{...btnG,fontSize:'11px',padding:'4px 10px'}}><X size={11}/>Отмена</button>
+                          </div>
+                        </div>)}
+                        {staffProfile.customDocuments.map(d=>(<div key={d.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                          <div style={{flex:1}}><b>{d.docType}</b> · {d.title}{d.signedAt?' · подписан '+d.signedAt:''}{d.expiresAt?' · истекает '+d.expiresAt:''}</div>
+                          <div style={{display:'flex',gap:'4px'}}>
+                            {d.fileUrl&&<a href={d.fileUrl.startsWith('http')?d.fileUrl:API+d.fileUrl} target='_blank' rel='noreferrer' style={{...btnB,padding:'2px 8px',fontSize:'10px',textDecoration:'none'}}>👁️</a>}
+                            <button onClick={async()=>{if(window.confirm('Удалить документ?')){await fetch(API+'/staff-documents/'+d.id,{method:'DELETE'});const data=await fetch(API+'/staff/'+s.id+'/profile').then(r=>r.json());setStaffProfile(data);}}} style={{...btnR,padding:'2px 7px'}}><Trash2 size={10}/></button>
+                          </div>
+                        </div>))}
+                        {staffProfile.customDocuments.length===0&&<p style={{color:C.textMuted,fontSize:'11px',padding:'4px'}}>Нет загруженных документов</p>}
+                      </div>
+
+                      {staffProfile.workJournal.length>0&&(<div style={{...card,padding:'12px',marginTop:'14px'}}>
+                        <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>💼 Последние работы ({staffProfile.workJournal.length})</b>
+                        {staffProfile.workJournal.slice(0,8).map((w,i)=>(<div key={i} style={{padding:'4px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between'}}><span>{w.project} · {w.description} · {w.quantity} {w.unit}</span><b style={{color:C.success}}>{w.total.toLocaleString()} ₽</b></div>))}
+                      </div>)}
+                    </div>):<p style={{color:C.textMuted,fontSize:'12px'}}>Не удалось загрузить профиль</p>}
+                  </td></tr>)}
+                </React.Fragment>);})}
               </tbody></table>
             </div>)}
 

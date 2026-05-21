@@ -406,6 +406,19 @@ def init_db():
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS card_number VARCHAR(20);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS signature_url VARCHAR(255);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS notes TEXT;
+        CREATE TABLE IF NOT EXISTS staff_documents (
+            id SERIAL PRIMARY KEY,
+            staff_id INT NOT NULL,
+            doc_type VARCHAR(50) NOT NULL,
+            title VARCHAR(255),
+            file_url VARCHAR(500),
+            status VARCHAR(50) DEFAULT 'действует',
+            signed_at DATE,
+            expires_at DATE,
+            notes TEXT,
+            created_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
     """)
     cur.execute("""
         INSERT INTO users (name, email, password, role)
@@ -1024,6 +1037,87 @@ def delete_staff(id: int):
     cur = conn.cursor()
     cur.execute("DELETE FROM staff WHERE id=%s", (id,))
     conn.close()
+    return {"ok": True}
+
+@app.get("/staff/{staff_id}/profile")
+def get_staff_profile(staff_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM staff WHERE id=%s", (staff_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Сотрудник не найден")
+    staff_name = row[1] or ""
+
+    cur.execute("SELECT id, doc_type, title, file_url, status, signed_at, expires_at, notes, created_at FROM staff_documents WHERE staff_id=%s ORDER BY id DESC", (staff_id,))
+    custom = [{"id": r[0], "docType": r[1], "title": r[2] or "", "fileUrl": r[3] or "", "status": r[4] or "", "signedAt": str(r[5]) if r[5] else "", "expiresAt": str(r[6]) if r[6] else "", "notes": r[7] or "", "createdAt": str(r[8])} for r in cur.fetchall()]
+
+    # Match user by name (legacy linkage)
+    cur.execute("SELECT id FROM users WHERE name=%s LIMIT 1", (staff_name,))
+    u = cur.fetchone()
+    user_id = u[0] if u else None
+
+    contracts_list = []
+    if user_id is not None:
+        cur.execute("SELECT id, contract_number, project, start_date, end_date, signed_at, status FROM contracts WHERE master_id=%s ORDER BY id DESC", (user_id,))
+        for r in cur.fetchall():
+            contracts_list.append({"id": r[0], "contractNumber": r[1] or "", "project": r[2] or "", "startDate": str(r[3]) if r[3] else "", "endDate": str(r[4]) if r[4] else "", "signedAt": str(r[5]) if r[5] else "", "status": r[6] or ""})
+
+    acts_list = []
+    if user_id is not None:
+        cur.execute("SELECT id, act_number, project, period_from, period_to, total_amount, paid_amount, status, created_at FROM interim_acts WHERE master_id=%s ORDER BY id DESC", (user_id,))
+        for r in cur.fetchall():
+            acts_list.append({"id": r[0], "actNumber": r[1] or "", "project": r[2] or "", "periodFrom": str(r[3]) if r[3] else "", "periodTo": str(r[4]) if r[4] else "", "totalAmount": float(r[5] or 0), "paidAmount": float(r[6] or 0), "status": r[7] or "", "createdAt": str(r[8])})
+
+    pd_consents = []
+    if user_id is not None:
+        cur.execute("SELECT id, signed_at, scan_url, uploaded_by FROM pd_consents WHERE user_id=%s ORDER BY id DESC", (user_id,))
+        for r in cur.fetchall():
+            pd_consents.append({"id": r[0], "signedAt": r[1] or "", "scanUrl": r[2] or "", "uploadedBy": r[3] or ""})
+
+    tb_entries = []
+    cur.execute("SELECT id, project_name, instructor, instruction_type, date FROM tb_journal WHERE master_name=%s ORDER BY id DESC LIMIT 20", (staff_name,))
+    for r in cur.fetchall():
+        tb_entries.append({"id": r[0], "projectName": r[1] or "", "instructor": r[2] or "", "instructionType": r[3] or "", "date": str(r[4]) if r[4] else ""})
+
+    works = []
+    cur.execute("SELECT project, description, quantity, unit, total, date, status FROM work_journal WHERE master_name=%s ORDER BY id DESC LIMIT 50", (staff_name,))
+    for r in cur.fetchall():
+        works.append({"project": r[0] or "", "description": r[1] or "", "quantity": float(r[2] or 0), "unit": r[3] or "", "total": float(r[4] or 0), "date": str(r[5]) if r[5] else "", "status": r[6] or ""})
+
+    cur.close(); conn.close()
+    return {
+        "staffId": staff_id,
+        "staffName": staff_name,
+        "userId": user_id,
+        "customDocuments": custom,
+        "contracts": contracts_list,
+        "acts": acts_list,
+        "pdConsents": pd_consents,
+        "tbJournal": tb_entries,
+        "workJournal": works,
+    }
+
+@app.post("/staff/{staff_id}/documents")
+def add_staff_document(staff_id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO staff_documents (staff_id, doc_type, title, file_url, status, signed_at, expires_at, notes, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+        (staff_id, data.get("docType","другое"), data.get("title",""), data.get("fileUrl","") or None,
+         data.get("status","действует"), data.get("signedAt") or None, data.get("expiresAt") or None,
+         data.get("notes",""), data.get("createdBy","")))
+    new_id = cur.fetchone()[0]
+    conn.commit(); cur.close(); conn.close()
+    return {"id": new_id, "ok": True}
+
+@app.delete("/staff-documents/{doc_id}")
+def delete_staff_document(doc_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM staff_documents WHERE id=%s", (doc_id,))
+    conn.commit(); cur.close(); conn.close()
     return {"ok": True}
 
 @app.get("/piecework")
