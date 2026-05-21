@@ -2744,8 +2744,8 @@ def create_brigade_contract_item(data: dict):
 def update_brigade_contract_item(id: int, data: dict):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE brigade_contract_items SET price_brigade=%s,done_quantity=%s WHERE id=%s",
-        (data.get("priceBrigade",0),data.get("doneQuantity",0),id))
+    cur.execute("UPDATE brigade_contract_items SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s WHERE id=%s",
+        (data.get("quantity",0),data.get("priceBrigade",0),data.get("priceSmeta",0),data.get("doneQuantity",0),id))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
