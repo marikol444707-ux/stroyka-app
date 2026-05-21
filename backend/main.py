@@ -2504,8 +2504,8 @@ def create_brigade_contract(data: dict):
             cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s", (pl_id_int,))
             for it in cur.fetchall():
                 price = float(it[2] or 0)
-                cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, name, unit, quantity, price_smeta, price_brigade, done_quantity, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (new_id, it[3] or "", it[0], it[1] or "шт", 0, price, round(price * coef, 2), 0, "Не начато"))
+                cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (new_id, it[3] or "", it[0], it[1] or "шт", 0, price, round(price * coef, 2), 0))
                 inserted += 1
             conn.commit()
         except Exception as e:
@@ -2526,7 +2526,7 @@ def load_brigade_items_from_pricelist(contract_id: int):
     cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id,))
     cr = cur.fetchone()
     coef = float(cr[0] or 1.0) if cr else 1.0
-    cur.execute("SELECT name FROM brigade_contract_items WHERE contract_id=%s", (contract_id,))
+    cur.execute("SELECT description FROM brigade_contract_items WHERE contract_id=%s", (contract_id,))
     existing_names = {row[0] for row in cur.fetchall()}
     cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s", (pl_id,))
     inserted = 0
@@ -2534,8 +2534,8 @@ def load_brigade_items_from_pricelist(contract_id: int):
         if it[0] in existing_names:
             continue
         price = float(it[2] or 0)
-        cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, name, unit, quantity, price_smeta, price_brigade, done_quantity, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (contract_id, it[3] or "", it[0], it[1] or "шт", 0, price, round(price * coef, 2), 0, "Не начато"))
+        cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (contract_id, it[3] or "", it[0], it[1] or "шт", 0, price, round(price * coef, 2), 0))
         inserted += 1
     conn.commit(); cur.close(); conn.close()
     return {"ok": True, "itemsLoaded": inserted}
@@ -2616,9 +2616,9 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict):
             qty = float(it.get("quantity") or 0)
             price_smeta = float(it.get("priceSmeta") or it.get("priceWork") or 0)
             price_brigade = round(price_smeta * coef, 2)
-            cur.execute("""INSERT INTO brigade_contract_items (contract_id, estimate_section, name, unit, quantity, price_smeta, price_brigade, done_quantity, status)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (contract_id, it.get("section",""), it.get("name",""), it.get("unit","шт"), qty, price_smeta, price_brigade, 0, "Не начато"))
+            cur.execute("""INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (contract_id, it.get("section",""), it.get("name",""), it.get("unit","шт"), qty, price_smeta, price_brigade, 0))
             total += qty * price_brigade
         cur.execute("UPDATE brigade_contracts SET total_amount=%s WHERE id=%s", (round(total, 2), contract_id))
         created.append({"id": contract_id, "brigadeName": bdata["brigadeName"], "totalAmount": round(total, 2), "itemsCount": len(bdata["items"])})
@@ -2710,17 +2710,27 @@ def ai_suggest_distribution(estimate_id: int, data: dict):
 def get_brigade_contract_items(contract_id: int):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,contract_id,estimate_section,name,unit,quantity,price_smeta,price_brigade,done_quantity,status FROM brigade_contract_items WHERE contract_id=%s ORDER BY id", (contract_id,))
+    cur.execute("SELECT id,contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity FROM brigade_contract_items WHERE contract_id=%s ORDER BY id", (contract_id,))
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"contractId":r[1],"estimateSection":r[2],"name":r[3],"unit":r[4],"quantity":float(r[5] or 0),"priceSmeta":float(r[6] or 0),"priceBrigade":float(r[7] or 0),"doneQuantity":float(r[8] or 0),"status":r[9]} for r in rows]
+    def _status(q, done):
+        try:
+            q = float(q or 0); done = float(done or 0)
+        except Exception:
+            return "Не начато"
+        if q > 0 and done >= q:
+            return "Выполнено"
+        if done > 0:
+            return "В работе"
+        return "Не начато"
+    return [{"id":r[0],"contractId":r[1],"estimateSection":r[2],"name":r[3],"unit":r[4],"quantity":float(r[5] or 0),"priceSmeta":float(r[6] or 0),"priceBrigade":float(r[7] or 0),"doneQuantity":float(r[8] or 0),"status":_status(r[5], r[8])} for r in rows]
 
 @app.post("/brigade-contract-items")
 def create_brigade_contract_item(data: dict):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,name,unit,quantity,price_smeta,price_brigade,done_quantity,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("contractId"),data.get("estimateSection",""),data.get("name",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0),data.get("status","Не начато")))
+    cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("contractId"),data.get("estimateSection",""),data.get("name","") or data.get("description",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0)))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -2730,8 +2740,8 @@ def create_brigade_contract_item(data: dict):
 def update_brigade_contract_item(id: int, data: dict):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE brigade_contract_items SET price_brigade=%s,done_quantity=%s,status=%s WHERE id=%s",
-        (data.get("priceBrigade",0),data.get("doneQuantity",0),data.get("status","Не начато"),id))
+    cur.execute("UPDATE brigade_contract_items SET price_brigade=%s,done_quantity=%s WHERE id=%s",
+        (data.get("priceBrigade",0),data.get("doneQuantity",0),id))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
