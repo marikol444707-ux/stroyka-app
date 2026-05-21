@@ -2488,12 +2488,57 @@ def get_brigade_contracts(project_name: str = None):
 def create_brigade_contract(data: dict):
     conn = get_db()
     cur = conn.cursor()
+    pricelist_id = data.get("pricelistId") or None
     cur.execute("INSERT INTO brigade_contracts (project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,notes,pricelist_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId") or None,data.get("projectName",""),data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("contractorId") or None,data.get("totalAmount",0),data.get("status","Черновик"),data.get("notes",""),data.get("pricelistId") or None))
+        (data.get("projectId") or None,data.get("projectName",""),data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("contractorId") or None,data.get("totalAmount",0),data.get("status","Черновик"),data.get("notes",""),pricelist_id))
     conn.commit()
     row = cur.fetchone()
+    new_id = row[0]
+    inserted = 0
+    if pricelist_id:
+        try:
+            pl_id_int = int(pricelist_id)
+            cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id_int,))
+            cr = cur.fetchone()
+            coef = float(cr[0] or 1.0) if cr else 1.0
+            cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s", (pl_id_int,))
+            for it in cur.fetchall():
+                price = float(it[2] or 0)
+                cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, name, unit, quantity, price_smeta, price_brigade, done_quantity, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (new_id, it[3] or "", it[0], it[1] or "шт", 0, price, round(price * coef, 2), 0, "Не начато"))
+                inserted += 1
+            conn.commit()
+        except Exception as e:
+            print("AUTO-LOAD FROM PRICELIST ERROR:", str(e))
     cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
+    return {"id": new_id, "ok": True, "itemsLoaded": inserted}
+
+@app.post("/brigade-contracts/{contract_id}/load-from-pricelist")
+def load_brigade_items_from_pricelist(contract_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT pricelist_id FROM brigade_contracts WHERE id=%s", (contract_id,))
+    r = cur.fetchone()
+    if not r or not r[0]:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="К наряду не привязан прайс-лист")
+    pl_id = int(r[0])
+    cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id,))
+    cr = cur.fetchone()
+    coef = float(cr[0] or 1.0) if cr else 1.0
+    cur.execute("SELECT name FROM brigade_contract_items WHERE contract_id=%s", (contract_id,))
+    existing_names = {row[0] for row in cur.fetchall()}
+    cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s", (pl_id,))
+    inserted = 0
+    for it in cur.fetchall():
+        if it[0] in existing_names:
+            continue
+        price = float(it[2] or 0)
+        cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, name, unit, quantity, price_smeta, price_brigade, done_quantity, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (contract_id, it[3] or "", it[0], it[1] or "шт", 0, price, round(price * coef, 2), 0, "Не начато"))
+        inserted += 1
+    conn.commit(); cur.close(); conn.close()
+    return {"ok": True, "itemsLoaded": inserted}
 
 @app.put("/brigade-contracts/{id}")
 def update_brigade_contract(id: int, data: dict):
