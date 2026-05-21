@@ -394,7 +394,7 @@ function App() {
   const [accountingTab, setAccountingTab] = useState('contracts');
   const [accountingDocProject, setAccountingDocProject] = useState('');
   const [suppliersTab, setSuppliersTab] = useState('active');
-  const [personnelTab, setPersonnelTab] = useState('masters');
+  const [personnelTab, setPersonnelTab] = useState('staff');
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
   const [toolsTab, setToolsTab] = useState('list');
@@ -3693,7 +3693,7 @@ function App() {
           </div>)}
           {activePage==='personnel'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['masters','staff','timesheet','piecework'].map(tab=>(<button key={tab} onClick={()=>{setPersonnelTab(tab);setShowForm(false);}} style={{...personnelTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{masters:'Мастера',staff:'Штат',timesheet:'Табель',piecework:'Сдельные'}[tab]}</button>))}
+              {['staff','timesheet','piecework'].map(tab=>(<button key={tab} onClick={()=>{setPersonnelTab(tab);setShowForm(false);}} style={{...personnelTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{staff:'👥 Сотрудники',timesheet:'📅 Табель',piecework:'💵 Сдельные'}[tab]}</button>))}
             </div>
 
             {personnelTab==='masters'&&(<div>
@@ -3773,7 +3773,7 @@ function App() {
 
             {personnelTab==='staff'&&(<div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Штатные сотрудники</b>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сотрудники компании</b>
                 <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад'});}} style={btnO}><Plus size={14}/>Добавить</button>
               </div>
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
