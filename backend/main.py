@@ -406,6 +406,7 @@ def init_db():
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS card_number VARCHAR(20);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS signature_url VARCHAR(255);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS notes TEXT;
+        ALTER TABLE pricelist_items ADD COLUMN IF NOT EXISTS item_type VARCHAR(20);
         CREATE TABLE IF NOT EXISTS staff_documents (
             id SERIAL PRIMARY KEY,
             staff_id INT NOT NULL,
@@ -2501,7 +2502,7 @@ def create_brigade_contract(data: dict):
             cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id_int,))
             cr = cur.fetchone()
             coef = float(cr[0] or 1.0) if cr else 1.0
-            cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s", (pl_id_int,))
+            cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id_int,))
             for it in cur.fetchall():
                 price = float(it[2] or 0)
                 cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
@@ -2514,7 +2515,7 @@ def create_brigade_contract(data: dict):
     return {"id": new_id, "ok": True, "itemsLoaded": inserted}
 
 @app.post("/brigade-contracts/{contract_id}/load-from-pricelist")
-def load_brigade_items_from_pricelist(contract_id: int):
+def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = False):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT pricelist_id FROM brigade_contracts WHERE id=%s", (contract_id,))
@@ -2528,7 +2529,10 @@ def load_brigade_items_from_pricelist(contract_id: int):
     coef = float(cr[0] or 1.0) if cr else 1.0
     cur.execute("SELECT description FROM brigade_contract_items WHERE contract_id=%s", (contract_id,))
     existing_names = {row[0] for row in cur.fetchall()}
-    cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s", (pl_id,))
+    if with_materials:
+        cur.execute("SELECT name, unit, price, category, item_type FROM pricelist_items WHERE pricelist_id=%s", (pl_id,))
+    else:
+        cur.execute("SELECT name, unit, price, category, item_type FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id,))
     inserted = 0
     for it in cur.fetchall():
         if it[0] in existing_names:
@@ -3359,12 +3363,13 @@ def pricelist_from_estimate(data: dict):
                 price_work = price_material = qty = 0
             is_imported = bool(it.get("isImported"))
             if item_type == "material" or (price_material > 0 and price_work == 0):
-                # for materials: price per unit
+                kind = "material"
                 price = price_material if not is_imported or qty == 0 else (price_material / qty if qty > 0 else price_material)
             else:
+                kind = "work"
                 price = price_work if not is_imported or qty == 0 else (price_work / qty if qty > 0 else price_work)
-            cur.execute("INSERT INTO pricelist_items (pricelist_id, name, unit, price, category, specialization) VALUES (%s, %s, %s, %s, %s, %s)",
-                        (pricelist_id, nm, unit, round(price, 2), category, for_who))
+            cur.execute("INSERT INTO pricelist_items (pricelist_id, name, unit, price, category, specialization, item_type) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (pricelist_id, nm, unit, round(price, 2), category, for_who, kind))
             inserted += 1
 
     conn.commit()
