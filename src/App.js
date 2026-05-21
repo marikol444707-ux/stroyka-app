@@ -1278,19 +1278,35 @@ function App() {
   };
 
   const saveStaff = async () => {
-    if (!newStaff.name) return;
-    const data = {name:newStaff.name,role:newStaff.role||newStaff.systemRole||'',phone:newStaff.phone,salary:Number(newStaff.salary),project:newStaff.project,payType:newStaff.payType};
+    if (!newStaff.name && !newStaff.lastName && !newStaff.firstName) { alert('Заполните хотя бы фамилию и имя'); return; }
+    const fullName = newStaff.name || [newStaff.lastName, newStaff.firstName, newStaff.middleName].filter(Boolean).join(' ');
+    const hasEmail = !!newStaff.email;
+    const hasPassword = !!newStaff.password;
+    const hasRole = !!newStaff.systemRole;
+    if ((hasEmail || hasPassword || hasRole) && !(hasEmail && hasPassword && hasRole)) {
+      alert('Для выдачи доступа нужны ВСЕ три поля: системная роль + email + пароль. Сейчас заполнено не всё — заполните или очистите все три.');
+      return;
+    }
+    const data = {...newStaff,name:fullName,salary:Number(newStaff.salary)||0,role:newStaff.role||newStaff.systemRole||''};
     if (editingItem) await fetch(API+'/staff/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     else await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    if (newStaff.email && newStaff.password && newStaff.systemRole) {
+    if (hasEmail && hasPassword && hasRole) {
       const existing = users.find(u=>u.email===newStaff.email);
-      if (!existing) {
+      if (existing) {
+        alert('Пользователь с email '+newStaff.email+' уже существует — доступ не создан, сотрудник сохранён.');
+      } else {
         try {
-          await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newStaff.name,email:newStaff.email,password:newStaff.password,role:newStaff.systemRole,projectName:newStaff.project||''})});
-        } catch(e) {}
+          const r = await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:fullName,email:newStaff.email,password:newStaff.password,role:newStaff.systemRole,projectName:newStaff.project||''})});
+          if (!r.ok) {
+            const err = await r.json().catch(()=>({detail:'неизвестная ошибка'}));
+            alert('Сотрудник сохранён, но доступ создать не удалось: '+(err.detail||r.status));
+          }
+        } catch(e) {
+          alert('Сотрудник сохранён, но доступ создать не удалось: '+e.message);
+        }
       }
     }
-    await loadAll(); setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:''}); setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:''}); setEditingItem(null); setShowForm(false);
   };
 
   const deleteStaff = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/staff/'+id,{method:'DELETE'}); await loadAll(); } };
