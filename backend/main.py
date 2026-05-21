@@ -2516,33 +2516,66 @@ def create_brigade_contract(data: dict):
 
 @app.post("/brigade-contracts/{contract_id}/load-from-pricelist")
 def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = False):
+    import json as _json
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT pricelist_id FROM brigade_contracts WHERE id=%s", (contract_id,))
+    cur.execute("SELECT pricelist_id, project_name FROM brigade_contracts WHERE id=%s", (contract_id,))
     r = cur.fetchone()
     if not r or not r[0]:
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="К наряду не привязан прайс-лист")
     pl_id = int(r[0])
+    project_name = r[1] or ""
+
     cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id,))
     cr = cur.fetchone()
     coef = float(cr[0] or 1.0) if cr else 1.0
+
+    # Build estimate name -> qty lookup for this project
+    estimate_lookup = {}
+    if project_name:
+        cur.execute("SELECT sections_json FROM estimates WHERE project_name=%s ORDER BY id DESC LIMIT 1", (project_name,))
+        est_row = cur.fetchone()
+        if est_row and est_row[0]:
+            try:
+                sections = _json.loads(est_row[0])
+                for s in sections:
+                    for it in (s.get("items") or []):
+                        nm = (it.get("name") or "").strip().lower()
+                        if nm and nm not in estimate_lookup:
+                            estimate_lookup[nm] = float(it.get("quantity") or 0)
+            except Exception:
+                pass
+
     cur.execute("SELECT description FROM brigade_contract_items WHERE contract_id=%s", (contract_id,))
     existing_names = {row[0] for row in cur.fetchall()}
     if with_materials:
         cur.execute("SELECT name, unit, price, category, item_type FROM pricelist_items WHERE pricelist_id=%s", (pl_id,))
     else:
         cur.execute("SELECT name, unit, price, category, item_type FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id,))
+    rows = cur.fetchall()
     inserted = 0
-    for it in cur.fetchall():
+    matched = 0
+    for it in rows:
         if it[0] in existing_names:
             continue
         price = float(it[2] or 0)
+        nm_low = (it[0] or "").strip().lower()
+        # Try exact match first
+        qty = estimate_lookup.get(nm_low, 0)
+        # Try substring match if exact fails
+        if not qty and estimate_lookup:
+            for est_nm, est_qty in estimate_lookup.items():
+                if est_nm and (nm_low in est_nm or est_nm in nm_low):
+                    qty = est_qty
+                    break
+        if qty:
+            matched += 1
         cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-            (contract_id, it[3] or "", it[0], it[1] or "шт", 0, price, round(price * coef, 2), 0))
+            (contract_id, it[3] or "", it[0], it[1] or "шт", qty, price, round(price * coef, 2), 0))
         inserted += 1
     conn.commit(); cur.close(); conn.close()
-    return {"ok": True, "itemsLoaded": inserted}
+    return {"ok": True, "itemsLoaded": inserted, "matchedFromEstimate": matched}
 
 @app.put("/brigade-contracts/{id}")
 def update_brigade_contract(id: int, data: dict):
