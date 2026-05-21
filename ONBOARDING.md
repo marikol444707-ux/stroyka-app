@@ -1,6 +1,6 @@
 # ONBOARDING — stroyka-app
 
-Короткий гайд для новой сессии Claude. Прочитай это первым делом — потом сможешь сразу работать.
+Короткий гайд для новой сессии Claude. Прочитай первым делом — потом сможешь сразу работать.
 
 ## О пользователе
 
@@ -8,99 +8,161 @@
 - **Общаться:** по-русски, простыми словами, без жаргона
 - **Объяснять:** что от чего зависит, логику решений с аналогиями
 - **Не задавать вопросы:** требующие технических знаний — выбирать самому и объяснять почему
-- Полная памятка: см. файлы в `/Users/nikolas/.claude/projects/-Users-nikolas-stroyka-app/memory/`
+- **Решения принимаю я**, кроме продуктовых развилок ("общий прайс или по специализациям") и destructive операций (push, force, mass delete)
+- Полная памятка: `/Users/nikolas/.claude/projects/-Users-nikolas-stroyka-app/memory/`
 
-## Что за проект
+## Контекст проекта
 
-**stroyka-app** — система учёта для строительной компании «СтройКа». Сметы, склад, выдача материалов мастерам, AI-помощник.
+**stroyka-app** — система учёта для строительной компании «СтройКа». Сметы, склад, выдача материалов, наряды бригадам, AI-помощник.
+
+**Размер бизнеса:** ~40 сотрудников, разные бригады по специализациям, работа с ТД / ГПХ / Самозанятыми / ИП.
 
 **Домен:** https://stroyka26.pro
-**Репозиторий:** https://github.com/marikol444707-ux/stroyka-app (был публичный, рекомендовали сделать приватным — не подтверждено)
+**Репозиторий:** https://github.com/marikol444707-ux/stroyka-app (публичный — рекомендовали приватный)
+**Воркфлоу:** работаем в worktree `claude/cool-bohr-af2b82`, fast-forward merge в main, push в origin. Деплой делает пользователь сам.
 
 ## Стек
 
-- **Frontend:** React 19 (CRA) — монолит `src/App.js` ~4800 строк, inline-стили в JS
-- **Backend:** Python FastAPI + PostgreSQL — `backend/main.py` ~110 KB монолит
-- **AI:** YandexGPT-5.1 и qwen3.6-35b-a3b через OpenAI SDK (base_url=ai.api.cloud.yandex.net)
+- **Frontend:** React 19 (CRA) — монолит `src/App.js` ~5000 строк, inline-стили в JS, минимум классов в `src/App.css`
+- **Backend:** Python FastAPI + PostgreSQL — `backend/main.py` ~120 KB монолит
+- **AI:** YandexGPT-5.1 и qwen3.6-35b-a3b через OpenAI SDK (base_url=ai.api.cloud.yandex.net). Fallback между моделями встроен в `/ai-chat`
 - **Сервер:** Ubuntu 24.04 (msk-1-vm-zh4n), nginx + systemd service `stroyka`, uvicorn на 8001
-- **Деплой:** `cd /var/www/stroyka-app && bash deploy.sh` — git pull + npm build + restart
+- **Деплой:** `cd /var/www/stroyka-app && bash deploy.sh` → git pull + npm build + systemctl restart
 
 ## Архитектура секретов
 
-- `backend/.env` (gitignored) содержит `YANDEX_API_KEY`, `YANDEX_FOLDER_ID`, `DB_*`
+- `backend/.env` (gitignored): `YANDEX_API_KEY`, `YANDEX_FOLDER_ID`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
 - Мини-загрузчик в начале `backend/main.py` (без python-dotenv)
-- `deploy.sh` БОЛЬШЕ НЕ патчит main.py через sed — креды теперь только из .env
+- `deploy.sh` БОЛЬШЕ НЕ патчит main.py через sed — креды только из .env
+
+## Nginx whitelist
+
+В `/etc/nginx/sites-enabled/stroyka` есть `location ~* ^/(endpoints|здесь|перечислены|...)`. **При добавлении нового endpoint** — обязательно проверь покрывает ли его префикс в whitelist, иначе nginx вернёт HTML вместо JSON (классическая ошибка `Unexpected token '<'`). `proxy_read_timeout 300s` для долгих AI запросов, `client_max_body_size 25m` для сканирования фото.
 
 ## Роли и доступ
 
-В коде `const ROLES` (около строки 55 App.js):
+`const ROLES` (около строки 55 App.js):
 - `директор`, `зам_директора`, `бухгалтер` — полный доступ
-- `прораб` — объекты + материалы + сканер накладных + контроль объекта
-- `мастер`, `субподрядчик` — свои работы, видят выдачи материалов
+- `прораб` — объекты + материалы + сканер накладных + контроль объекта + наряды
+- `мастер`, `субподрядчик` — свои работы и наряды, выдачи материалов
 - `кладовщик`, `снабженец` — склад
-- `заказчик` — портал клиента (свой проект)
+- `заказчик` — портал клиента
 - `поставщик` — каталог + офферы
 
-Дефолтные тестовые аккаунты:
+**Дефолтные тестовые аккаунты:**
 - `admin@stroyka.ru` / `admin123` (директор)
 - `prorab@stroyka.ru` / `prorab123` (прораб)
 - `master@stroyka.ru` / `master123` (мастер)
 - `buh@stroyka.ru` / `buh123` (бухгалтер)
+- `zxc@mail.ru` / `12345` (мастер, создан вручную через SQL)
 
 ## Что готово (по фичам)
 
-### Сметы
-- Импорт LSR/Grand Smeta из Excel — `/parse-smeta` (backend/main.py:1998)
+### 📋 Сметы
+- Импорт LSR/Grand Smeta из Excel (`/parse-smeta` `backend/main.py:1998`)
 - Парсер берёт цены работ из col[13], материалов из col[15], делает totalWork/totalMaterial раздельно
-- В UI каждый раздел сметы делится на **🔨 Работы** и **📦 Материалы**
-- ⭐ Шаблоны смет (`is_template` flag, копирование структуры при создании)
-- 📜 История версий — таблица `estimate_versions`, snapshot при каждом PUT
-- 🤖 AI-сравнение версий — `jsonOnly` через qwen, выдаёт diff
-- 🤖 AI-генерация сметы из описания — `/ai-generate-estimate` (qwen + парсер с фолбэком)
-- 🤖 AI-анализ сметы — структурированный JSON: top / sections / risks / actions
-- 🤖 AI-проверка при импорте — фоновый запрос после парсинга, плашка с warnings
-- 💬 Чат по смете — таблица `estimate_chat_messages`, диалог с памятью на 20 turns
+- В UI каждый раздел делится на **🔨 Работы** и **📦 Материалы**
+- **Inline-редактирование** каждой позиции (имя, ед, кол-во, цены) — PUT на blur
+- ⭐ Шаблоны смет (`is_template`, выбор при создании)
+- 📜 История версий — `estimate_versions`, snapshot при каждом PUT, восстановление
+- 🤖 AI-сравнение версий — `jsonOnly` qwen, выдаёт diff
+- 🤖 AI-генерация сметы из описания — `/ai-generate-estimate`
+- 🤖 AI-анализ сметы — структурированный JSON: top/sections/risks/actions
+- 🤖 AI-проверка при импорте — фоновый запрос, плашка с warnings
+- 💬 Чат по смете — `estimate_chat_messages`, диалог с памятью на 20 turns
+- 👷 **Распределение сметы по бригадам** — POST `/estimates/:id/distribute` создаёт `brigade_contract` per бригаду + `brigade_contract_items` с copy позиций. Есть AI-suggest распределения
 
-### Материалы и склад
-- Единый поток: кнопка **«Принять материал»** → диалог **📷 Скан / ✍️ Вручную** → форма накладной
-- Сканер накладных через qwen → `/scan-invoice` → авто-заполнение формы
-- При сохранении накладной материалы попадают на склад (warehouse_main или materials по project)
-- Старые «примитивные» формы добавления материала удалены
-- **Передача мастеру списывает со склада** (POST `/material-transfers` в транзакции, блокирует выдачу >stock)
-- При работе мастер может указать использованные материалы — `materials_used` в work_journal, тоже списываются с транзакцией
-- Подтверждение получения мастером — в БД через `material_transfers.signed`, не в localStorage
+### 🏷️ Прайс-листы
+- Доступ через вкладку в Сметах (не в сайдбаре)
+- 4 способа создания:
+  1. Ручной ✏️
+  2. 🤖 AI-генерация из описания (`/ai-generate-pricelist`)
+  3. 📋 Из сметы (`/pricelists/from-estimate`) — копирует позиции сметы как прайс, категория = раздел сметы
+  4. Копирование существующего
+- Каждая позиция имеет `item_type`: 'work' / 'material'
+- При создании из сметы тип определяется автоматически по `itemType` или `priceWork`/`priceMaterial` сплиту
+- Группировка в UI по фактическим категориям (не только хардкод-списку)
 
-### Объект (Контроль)
+### 👷 Наряды бригадам (brigade_contracts)
+- Опциональная привязка прайс-листа (`pricelist_id`)
+- **Авто-подгрузка позиций из прайса** при создании наряда с прайсом
+- **Кнопка «Подгрузить из прайса»** для существующих нарядов
+- При подгрузке **берутся только работы** (item_type='work' или NULL), материалы пропускаются по умолчанию
+- При подгрузке **объёмы берутся из сметы** этого проекта (fuzzy match по имени)
+- **Inline-редактирование** план/факт прямо в таблице
+- **Alert при превышении плана** ("Нельзя превышать план — это перебор по смете")
+- Дублирование прайса в работах мастера скрыто когда наряд открыт
+
+### 📦 Материалы и склад
+- Единый поток: **«Принять материал»** → диалог **📷 Скан / ✍️ Вручную** → форма накладной
+- Сканер накладных через qwen (`/scan-invoice`) → авто-заполнение формы
+- При сохранении накладной материалы попадают на склад
+- **Передача мастеру списывает со склада** (POST `/material-transfers` в транзакции, отказ если не хватает)
+- При работе мастер может указать использованные материалы — `materials_used` в work_journal, автосписание
+- Подтверждение получения мастером — в БД через `material_transfers.signed`
+
+### 🏗 Контроль объекта
 - Блок «📊 Контроль объекта» на вкладке «Общее» проекта (только для leadership)
 - 4 таблицы: прогресс по смете / план vs закуплено / выдачи / остаток на складе
-- Матчинг work_journal ↔ estimate items через fuzzy token overlap (≥40% общих слов длиной ≥3)
+- Матчинг work_journal ↔ estimate items через fuzzy token overlap (≥40% общих слов ≥3 символа)
 - AI-сводка с кешем — таблица `project_ai_summary`, hash payload для определения свежести
-- Кнопка «AI-сводка» становится «Обновить ИИ» при наличии кеша, плашка зелёная/жёлтая
+- Кнопка «AI-сводка» → «Обновить ИИ» при наличии кеша, плашка зелёная/жёлтая
 
-### Сервис
-- Все API endpoints прописаны в nginx whitelist в `/etc/nginx/sites-enabled/stroyka`
-- `proxy_read_timeout 300s` (для долгих AI запросов)
-- `client_max_body_size 25m` (для сканирования с фото)
-- AI-чат имеет **fallback на вторую модель** если первая возвращает пустоту
+### 👥 Персонал (объединённый раздел)
+- **Вкладки:** 👥 Сотрудники / 📅 Табель / 💵 Сдельные (вкладка «Мастера» удалена — слилась с «Штатом»)
+- **Расширенная форма** сотрудника со свёртываемыми секциями:
+  - Базовое: ФИО (Фам/Имя/Отч), должность, специализация, телефон, объект, тип оплаты, статус, тип занятости
+  - 🔐 Доступ в систему (опционально) — системная роль + email + пароль. **Валидация: либо все три, либо ничего**
+  - 📄 Документы — паспорт, ИНН, СНИЛС
+  - 💰 Финансы — банк, счёт, БИК
+  - 📝 Дополнительно — даты, бригада, заметки
+- **Раскрываемая карточка сотрудника** при клике на строку:
+  - 4-картовая сводка (тип занятости, паспорт, ИНН, банк)
+  - Договоры / Акты / Согласия ПД / Инструктажи ТБ (агрегированы из всех источников)
+  - **Прочие документы** (custom `staff_documents`) — добавить с типом, файлом, датами
+  - Последние работы
+- **Раздел «Пользователи» удалён** из сайдбара — слился с Персоналом
+- Кнопка «🔐 Выдать доступ» в строке если ещё нет user
 
 ## Структура БД (ключевые таблицы)
 
-```
+```sql
+projects(id, name, client, status, budget, deadline, progress, tasks, pricelist_id, floors, liters)
 estimates(id, project_id, project_name, name, version, sections_json, is_template)
 estimate_versions(id, estimate_id, version_label, sections_json, total, comment, created_at)
 estimate_chat_messages(id, estimate_id, role, content, created_at)
-project_ai_summary(project_name PK, payload_hash, summary, updated_at)
-work_journal(id, master_id, project, description, quantity, materials_used, ...)
-material_transfers(id, project_name, from_location, to_person, material_name, quantity, signed)
-materials(id, name, project, quantity, unit, price, category)
-warehouse_main(id, name, quantity, unit, price)
+pricelists(id, name, description, for_who, coefficient)
+pricelist_items(id, pricelist_id, name, unit, price, category, specialization, item_type)
+brigade_contracts(id, project_id, project_name, brigade_name, contractor_type, contractor_id,
+                  total_amount, status, signed_at, notes, pricelist_id, created_at)
+brigade_contract_items(id, contract_id, description, unit, quantity, price_smeta,
+                       price_brigade, done_quantity, estimate_section, created_at)
+                       -- NB: description, не name! Нет колонки status!
+materials(id, name, project, quantity, unit, price, category, min_quantity)
+warehouse_main(id, name, unit, quantity, price, min_quantity, category)
+warehouse_invoices(...)
 warehouse_history(material, type, quantity, date, project, issued_by, date_time)
+material_transfers(id, project_name, from_location, to_person, to_person_role,
+                   material_name, quantity, unit, transfer_date, signed, notes)
+work_journal(id, master_id, master_name, project, description, quantity, unit,
+             price_per_unit, total, date, status, materials_used, photo_url)
+staff(id, name, role, phone, salary, project, pay_type,
+      ... 31 поле для расширенной карточки)
+staff_documents(id, staff_id, doc_type, title, file_url, status, signed_at, expires_at, notes)
+project_ai_summary(project_name PK, payload_hash, summary, updated_at)
+users(id, name, email, password, role, project_id, project_name)
+master_profiles(id, user_id, full_name, passport, inn, contract_type, ogrnip, bank_account,
+                bank_name, phone, specialization)
+contracts(id, master_id, contract_number, project, start_date, end_date, signed_at, status)
+interim_acts(id, master_id, act_number, project, period_from, period_to,
+             total_amount, paid_amount, status)
+pd_consents(id, user_id, signed_at, scan_url, uploaded_by)
+tb_journal(id, project_name, instructor, instruction_type, date, master_name, ...)
 ```
 
-## Особенности БД (важно при ошибках)
+## Особенности БД (ловушки)
 
-- Раньше таблицы создавались от `postgres`, потом приложение начало подключаться как `stroyka`
-- Если backend падает с `must be owner of table` — выполнить от postgres:
+- **Таблицы создавались от `postgres`**, потом приложение начало подключаться как `stroyka`. Если backend падает с `must be owner of table`:
   ```sql
   DO $$ DECLARE r RECORD; BEGIN
     FOR r IN SELECT tablename FROM pg_tables WHERE schemaname='public' LOOP
@@ -111,41 +173,60 @@ warehouse_history(material, type, quantity, date, project, issued_by, date_time)
     END LOOP;
   END $$;
   ```
+- **`brigade_contract_items` использует `description`, не `name`!** Также нет колонки `status` — статус вычисляется на лету по `done_quantity` vs `quantity`. Это legacy таблица созданная вручную раньше моих правок.
+- **`work_journal` уже имеет колонку `description`** (не `name`).
+- При ALTER TABLE моих новых колонок — использовать `ADD COLUMN IF NOT EXISTS` чтобы не сломать существующее.
 
-## Точки входа в API (новые после серии правок)
+## API endpoints (новые/важные)
 
-- `/ai-chat` — общий AI, поддерживает `jsonOnly:true` и `skipContext:true`, с fallback
+- `/ai-chat` — общий AI, `jsonOnly:true` → qwen, иначе yandexgpt; с fallback на другую модель
 - `/ai-generate-estimate` — генерация сметы из описания
+- `/ai-generate-pricelist` — генерация прайс-листа из описания
+- `/pricelists/from-estimate` — копирование сметы в прайс
+- `/estimates/:id/distribute` — распределение позиций сметы по бригадам (POST с assignments)
+- `/estimates/:id/ai-distribute-suggest` — AI предлагает распределение по бригадам
+- `/brigade-contracts/:id/load-from-pricelist` — копирует позиции прайса в наряд, объёмы берутся из сметы проекта (`?with_materials=1` чтобы включить материалы)
 - `/estimate-chat`, `/estimates/:id/chat-history` — чат по смете
 - `/estimates/:id/versions`, `/estimate-version/:id`, `/estimates/:id/toggle-template`
-- `/material-transfers` — передача (POST списывает со склада)
+- `/material-transfers` — передача мастеру (POST списывает со склада)
 - `/project-ai-summary`, `/project-ai-summary/:name` — кеш AI-сводки
+- `/staff/:id/profile` — досье сотрудника (все документы из всех источников)
+- `/staff/:id/documents`, DELETE `/staff-documents/:id` — custom документы
 
-## Известные нерешённые
+## Известные нерешённые / отложенные
 
-- App.js — монолит, не разбит на компоненты
-- main.py — монолит, не разбит на роутеры
-- 2 eslint warnings в App.js помечены `eslint-disable-next-line` (useEffect dep, loop func)
+- App.js — монолит ~5000 строк, не разбит на компоненты
+- main.py — монолит ~120 KB, не разбит на роутеры
+- 2 eslint warnings с `eslint-disable-next-line` (useEffect dep, loop func)
 - Тёмная тема — не сделана
 - Push-уведомления — не сделаны
 - Боковое меню/sidebar на мобиле — не доадаптировано после общей mobile-правки
+- Stage 2 карточки сотрудника: AI-проверка документов, генератор договоров, импорт из Excel — не сделано
+- Контроль общей суммы нарядов vs смета по объекту (чтобы суммарно по нарядам не превысило смету) — пока только на уровне отдельного наряда
 
-## Известные пользовательские проблемы
+## Известные пользовательские особенности
 
-- Repo пока публичный (по словам пользователя — не подтверждено приватизировано)
+- Repo пока публичный (по словам пользователя — приватизация не подтверждена)
 - Старый Yandex API-ключ был отозван, новый в `backend/.env`
 - На сервере иногда падает web-консоль провайдера — лучше работать через SSH
+- Сам пользователь иногда вводит команды на экране входа в систему вместо терминала — нужно вначале объяснить про login
 
-## Текущий приоритет (по запросу пользователя)
+## Текущий приоритет
 
-Закончили рефакторинг (чистка warnings, mobile adaptation). Готовимся к дизайну: тёмная тема + единый стиль карточек.
+После большой серии работы по нарядам/прайсам/персоналу — пользователь сейчас активно тестирует. Следующие шаги (если он решит):
+- Stage 2 карточки сотрудника (AI-проверка документов, генератор договоров)
+- Тёмная тема
+- Push-уведомления
+- Доделка мобильной адаптации
 
 ## Workflow
 
-- Работаем в worktree `claude/cool-bohr-af2b82`, мерджим в main, пушим в origin
-- Деплой делает пользователь сам (`bash deploy.sh` на сервере)
-- Не коммитить без явного «давай коммить»
-- При проблеме спрашивать у пользователя что он видит на сайте + логи `journalctl -u stroyka -f`
+- Worktree `claude/cool-bohr-af2b82`, fast-forward merge в main, push в origin
+- Деплой — пользователь сам через `bash deploy.sh` на сервере
+- **Не коммитить без явного «давай коммить»** — кроме случаев когда явно идёт работа над фичей
+- При проблеме спрашивать что видит на сайте + логи `journalctl -u stroyka -f`
+- **Скриншоты** — пользователь умеет (Cmd+Shift+4 на маке)
+- Часто использовать **AskUserQuestion** для развилок где нужно его мнение
 
 ## Полезные команды на сервере
 
@@ -156,14 +237,26 @@ cd /var/www/stroyka-app && bash deploy.sh
 # Логи в реальном времени
 journalctl -u stroyka -f
 
-# Статус сервиса
-systemctl status stroyka
+# Последние 30 строк логов
+journalctl -u stroyka -n 30 --no-pager
 
-# Тест nginx
+# Статус сервиса
+systemctl status stroyka | head -10
+
+# Тест и перезагрузка nginx
 nginx -t && systemctl reload nginx
 
 # psql от postgres
 su - postgres -c "psql stroyka"
+
+# Быстрая SQL-команда от postgres
+su - postgres -c "psql stroyka -c \"SELECT ...\""
+
+# Просмотр пользователей
+su - postgres -c "psql stroyka -c \"SELECT id, email, role, name FROM users ORDER BY id;\""
+
+# Создать тестового мастера
+su - postgres -c "psql stroyka -c \"INSERT INTO users (name, email, password, role) VALUES ('Имя', 'email@x.ru', 'pass', 'мастер');\""
 ```
 
 ## Стиль общения с пользователем
@@ -172,23 +265,55 @@ su - postgres -c "psql stroyka"
 - Аналогии из быта: склад=мешок, рефакторинг=уборка в шкафу.
 - Перед изменением: «я меняю X, это повлияет на Y, потому что Z».
 - После: «что от чего зависит» + команды для сервера.
-- Использовать **скриншоты** для диагностики UI-проблем — он умеет.
+- Используй **скриншоты** для диагностики UI-проблем — пользователь умеет их делать.
+- **AskUserQuestion** — для развилок где нужен его выбор; не использовать для технических вопросов
 
-## Полная история коммитов (последние)
+## Полная история коммитов (последние, для ориентации)
 
-См. `git log --oneline -40` для актуального списка. Ключевые:
-- `54b37fd` Прайс-листы → вкладка в Сметах
-- `bea891c` AI-fallback при пустом ответе
-- `f9d673c` Логи и устойчивый парсинг AI-генерации
-- `7c66763` Мобильная адаптация
-- `5bdb04b` Чистка warnings
-- `4161b99` AI-генерация сметы
-- `96c50ec` Чат по смете с памятью
-- `3339a7d` Шаблоны + история версий + AI diff + AI import check
-- `fcbd971` Списание материалов при работе
-- `2f9ce88` Кеш AI-сводки контроля объекта
-- `96444df` Дашборд «Контроль объекта»
-- `db3e9c5` Списание материалов при передаче + ограничение сканера
-- `271d3bc` Переключение анализа сметы на qwen
-- `25c9f34` DB-креды в .env
-- `4570dd7` Yandex-ключи в .env
+См. `git log --oneline -50` для актуального списка. Ключевые вехи:
+
+**UI/UX полировка:**
+- `a519f9b` UI polish: tabs, sums card, brigade button gradient
+
+**Карточка сотрудника и Персонал:**
+- `5e02254` Employee profile expandable card with documents (Stage 1)
+- `6cf48f6` Collapse Masters tab, single employees list
+- `98f5c2a` saveStaff validate access trio, surface errors
+- `17054a8` Merge users into staff form
+
+**Наряды и прайсы:**
+- `56bc820` Alert when done > plan
+- `816d672` Load-from-pricelist pulls qty from estimate
+- `f9cfcde` Hide duplicate pricelist on works page
+- `58b8fbc` Editable planned qty, fix done input when plan=0
+- `d968d2a` Pricelist items: work vs material, filter brigade autoload
+- `a0c78b7` Fix brigade_contract_items column mismatch
+- `22cc8b3` Auto-load brigade items from pricelist
+- `7e17be0` Distribute estimate items to brigades
+- `2d2c10c` Brigade pricelist binding
+- `c102f51` Pricelist from estimate
+- `605c590` AI-generated pricelist
+
+**Сметы:**
+- `c127ef4` Inline edit estimate items
+- `1403d91` Parser cost capture, split works/materials in UI
+- `3339a7d` Templates + history + AI diff + AI import check
+- `96c50ec` Estimate chat with memory
+- `4161b99` AI-generate-estimate
+
+**Склад / материалы:**
+- `fcbd971` Deduct materials on work entry
+- `db3e9c5` Material transfer deducts stock, scan role-gated
+- `0141c80` Unified receipt flow scan/manual
+
+**Контроль объекта:**
+- `2f9ce88` Cache AI summary per project
+- `96444df` Object control dashboard
+
+**Безопасность и инфра:**
+- `25c9f34` DB creds to .env
+- `4570dd7` Yandex keys to .env
+
+**Чистка:**
+- `5bdb04b` Cleanup warnings
+- `7c66763` Mobile adaptation
