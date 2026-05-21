@@ -1715,8 +1715,41 @@ function App() {
             <div style={{...card,padding:'20px',marginBottom:'15px'}}>
               <h4 style={{marginBottom:'15px',color:C.text,fontSize:'14px',fontWeight:'600'}}>Добавить работы</h4>
               <select value={masterProjectId} onChange={async e=>{const pid=e.target.value;setMasterProjectId(pid);setSelectedWorks({});const proj=projects.find(p=>p.id===Number(pid));if(proj&&proj.pricelistId) await loadPricelistItems(proj.pricelistId);else setPricelistItems([]);}} style={inp}><option value="">Выберите объект</option>{projects.filter(p=>p.status==='В работе').map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              {masterProjectId&&(()=>{
+                const projName=projects.find(p=>p.id===Number(masterProjectId))?.name||'';
+                const projEstimates=estimatesList.filter(e=>e.projectName===projName);
+                const myItems=[];
+                projEstimates.forEach(est=>(est.sections||[]).forEach((s,si)=>(s.items||[]).forEach((it,ii)=>{
+                  if(it.brigadeName&&(it.brigadeName===user.name||(user.brigade&&it.brigadeName===user.brigade))){
+                    myItems.push({estId:est.id,estName:est.name,sectionIdx:si,itemIdx:ii,section:s.name,...it});
+                  }
+                })));
+                if(myItems.length===0) return null;
+                return(<div style={{...card,padding:'14px',marginBottom:'15px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
+                  <b style={{color:C.accent,fontSize:'13px',display:'block',marginBottom:'10px'}}>🎯 Мои работы по смете ({myItems.length})</b>
+                  {myItems.map((mi,n)=>{const qty=Number(mi.quantity)||0;const done=Number(mi.doneQuantity)||0;const remain=Math.max(0,qty-done);return(<div key={n} style={{padding:'10px',marginBottom:'6px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
+                      <div style={{flex:1}}>
+                        <b style={{fontSize:'12px',color:C.text}}>{mi.name}</b>
+                        <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{mi.section+' · план '+qty+' '+mi.unit+' · сделано '+done+' · осталось '+remain+' '+mi.unit}</p>
+                      </div>
+                      <input type='number' placeholder={'+'+mi.unit} value={mi.doneQuantity||''} onChange={async e=>{
+                        const raw=Number(e.target.value);
+                        if(qty>0&&raw>qty){alert('План '+qty+' '+mi.unit+'. Нельзя поставить больше.');return;}
+                        const est=estimatesList.find(e=>e.id===mi.estId);
+                        if(!est) return;
+                        const newSections=est.sections.map((s,si)=>si===mi.sectionIdx?{...s,items:s.items.map((it,ii)=>ii===mi.itemIdx?{...it,doneQuantity:raw}:it)}:s);
+                        const updated={...est,sections:newSections};
+                        setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
+                        await persistEstimate(updated);
+                      }} style={{...inp,marginBottom:0,width:'80px',fontSize:'12px',padding:'4px 6px'}}/>
+                      <span style={{fontSize:'11px',color:C.success,fontWeight:'600',whiteSpace:'nowrap'}}>{(done*(Number(mi.priceWork||0)+Number(mi.priceMaterial||0))).toLocaleString('ru-RU')+' ₽'}</span>
+                    </div>
+                  </div>);})}
+                </div>);
+              })()}
               {masterProjectId&&brigadeContracts.filter(bc=>bc.projectName===(projects.find(p=>p.id===Number(masterProjectId))?.name)).length>0&&(<div style={{marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Наряды по объекту:</b>
+                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Наряды по объекту (старая система):</b>
                 {brigadeContracts.filter(bc=>bc.projectName===(projects.find(p=>p.id===Number(masterProjectId))?.name)).map(bc=>(<div key={bc.id} style={{...card,padding:'12px',marginBottom:'8px',cursor:'pointer',border:'1.5px solid '+C.border}} onClick={async()=>{const res=await fetch(API+'/brigade-contract-items/'+bc.id);const items=await res.json();setSelectedBrigadeContract(bc);setBrigadeContractItems(items);if(bc.pricelistId) await loadPricelistItems(bc.pricelistId);}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                     <div><b style={{fontSize:'13px',color:C.text}}>{bc.brigadeName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{bc.contractorType+' · '+bc.status}</p></div>
@@ -4342,21 +4375,34 @@ function App() {
                   const updateItem=(idx,field,val)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map((it,i)=>i===idx?{...it,[field]:val,isImported:field==='quantity'||field==='priceWork'||field==='priceMaterial'?false:it.isImported}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));};
                   const persist=()=>persistEstimate(selectedEstimate);
                   const inpCell={padding:'4px 6px',border:'1px solid '+C.border,borderRadius:'4px',fontSize:'11px',width:'100%',backgroundColor:C.bgWhite,outline:'none'};
+                  const projBrigades=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName).map(bc=>bc.brigadeName).filter(Boolean);
                   const renderGroup=(title,emoji,list,groupTotal,accent)=>(<div style={{marginBottom:'10px'}}>
                     <div style={{padding:'6px 10px',backgroundColor:accent+'15',borderRadius:'6px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px',borderLeft:'3px solid '+accent}}>
                       <b style={{color:accent,fontSize:'12px'}}>{emoji+' '+title+' ('+list.length+')'}</b>
                       <b style={{color:accent,fontSize:'12px'}}>{groupTotal.toLocaleString('ru-RU')+' ₽'}</b>
                     </div>
-                    {list.length>0?(<table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={{...tblH,width:'70px'}}>Ед.</th><th style={{...tblH,width:'80px'}}>Кол-во</th><th style={{...tblH,width:'100px'}}>Цена работ</th><th style={{...tblH,width:'100px'}}>Цена мат.</th><th style={tblH}>Итого</th><th style={{...tblH,width:'36px'}}></th></tr></thead><tbody>
-                      {list.map(item=>(<tr key={item.id||item._idx}>
+                    {list.length>0?(<table style={tbl}><thead><tr>
+                      <th style={tblH}>Наименование</th>
+                      <th style={{...tblH,width:'60px'}}>Ед.</th>
+                      <th style={{...tblH,width:'70px'}}>План</th>
+                      <th style={{...tblH,width:'90px'}}>👷 Кому</th>
+                      <th style={{...tblH,width:'70px'}}>✅ Сделано</th>
+                      <th style={{...tblH,width:'70px'}}>📉 Осталось</th>
+                      <th style={{...tblH,width:'90px'}}>Цена</th>
+                      <th style={tblH}>Сумма</th>
+                      <th style={{...tblH,width:'36px'}}></th>
+                    </tr></thead><tbody>
+                      {list.map(item=>{const qty=Number(item.quantity)||0;const done=Number(item.doneQuantity)||0;const remain=Math.max(0,qty-done);return(<tr key={item.id||item._idx}>
                         <td style={tblC}><input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></td>
                         <td style={tblC}><select value={item.unit||'шт'} onChange={e=>{updateItem(item._idx,'unit',e.target.value);setTimeout(persist,100);}} style={inpCell}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
                         <td style={tblC}><input type='number' value={item.quantity||''} onChange={e=>updateItem(item._idx,'quantity',e.target.value)} onBlur={persist} style={inpCell}/></td>
-                        <td style={tblC}><input type='number' value={item.priceWork||''} onChange={e=>updateItem(item._idx,'priceWork',e.target.value)} onBlur={persist} style={inpCell}/></td>
-                        <td style={tblC}><input type='number' value={item.priceMaterial||''} onChange={e=>updateItem(item._idx,'priceMaterial',e.target.value)} onBlur={persist} style={inpCell}/></td>
+                        <td style={tblC}><select value={item.brigadeName||''} onChange={e=>{updateItem(item._idx,'brigadeName',e.target.value);setTimeout(persist,100);}} style={inpCell}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
+                        <td style={tblC}><input type='number' value={item.doneQuantity||''} onChange={e=>{const raw=Number(e.target.value);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+qty+' '+item.unit+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text}}/></td>
+                        <td style={{...tblC,color:qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted,fontWeight:'600',fontSize:'11px'}}>{qty>0?remain+' '+item.unit:'—'}</td>
+                        <td style={tblC}><input type='number' value={item.priceWork||item.priceMaterial||''} onChange={e=>{const v=e.target.value;if(itemKind(item)==='material')updateItem(item._idx,'priceMaterial',v);else updateItem(item._idx,'priceWork',v);}} onBlur={persist} style={inpCell}/></td>
                         <td style={{...tblC,fontWeight:'600',color:C.success}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
                         <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
-                      </tr>))}
+                      </tr>);})}
                     </tbody></table>):(<p style={{fontSize:'11px',color:C.textMuted,padding:'6px 10px'}}>Нет позиций</p>)}
                   </div>);
                   return(<div key={section.id} style={{...card,marginBottom:'12px'}}>
