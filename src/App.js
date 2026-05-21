@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import LoginPage from './pages/LoginPage';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, Shield, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
@@ -53,7 +53,7 @@ const PreviewModal = ({content, title, onClose}) => (
 );
 
 const ROLES = {
-  директор: ['dashboard','projects','clients','warehouse','staff','users','pricelists','suppliers','accounting','analytics','personnel','crm','activitylog','companychat','estimates','weather','settings'],
+  директор: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','accounting','analytics','personnel','crm','activitylog','companychat','estimates','weather','settings'],
   зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','analytics','accounting','personnel','crm','activitylog','companychat','estimates','weather','settings'],
   главный_инженер: ['dashboard','projects','warehouse','staff','companychat','estimates','weather'],
   прораб: ['dashboard','projects','warehouse','suppliers','staff','companychat','weather'],
@@ -437,7 +437,8 @@ function App() {
   const [newWarehouse, setNewWarehouse] = useState({name:'',city:'',address:'',notes:''});
   const [newMovement, setNewMovement] = useState({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
   const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}]});
-  const [newStaff, setNewStaff] = useState({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:''});
+  const [newStaff, setNewStaff] = useState({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:''});
+  const [staffExpandedSections, setStaffExpandedSections] = useState({access:false,docs:false,finance:false,extra:false});
   const [newUser, setNewUser] = useState({name:'',email:'',password:'',role:'прораб'});
   const [newPricelist, setNewPricelist] = useState({name:'',description:'',forWho:'',coefficient:1.0});
   const [newPlItem, setNewPlItem] = useState({name:'',unit:'м2',price:'',category:''});
@@ -1892,7 +1893,6 @@ function App() {
     
     {id:'activitylog',icon:<ScrollText size={18}/>,label:'Журнал'},
     {id:'settings',icon:<Settings size={18}/>,label:'Настройки'},
-    {id:'users',icon:<Shield size={18}/>,label:'Пользователи'},
   ];
 
 
@@ -3777,27 +3777,89 @@ function App() {
                 <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад'});}} style={btnO}><Plus size={14}/>Добавить</button>
               </div>
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <input placeholder="ФИО *" value={newStaff.name} onChange={e=>setNewStaff({...newStaff,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Должность (свободно)" value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Телефон" value={newStaff.phone} onChange={e=>setNewStaff({...newStaff,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newStaff.payType} onChange={e=>setNewStaff({...newStaff,payType:e.target.value})} style={{...inp,marginBottom:0}}><option value="оклад">Оклад</option><option value="сдельно">Сдельно</option></select>
-                  {newStaff.payType==='оклад'&&<input placeholder="Оклад (₽)" type="number" value={newStaff.salary} onChange={e=>setNewStaff({...newStaff,salary:e.target.value})} style={{...inp,marginBottom:0}}/>}
-                  <select value={newStaff.project} onChange={e=>setNewStaff({...newStaff,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Проект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
+                <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>👤 Основное</b>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',marginBottom:'10px'}}>
+                  <input placeholder='Фамилия *' value={newStaff.lastName} onChange={e=>setNewStaff({...newStaff,lastName:e.target.value,name:[e.target.value,newStaff.firstName,newStaff.middleName].filter(Boolean).join(' ')})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Имя *' value={newStaff.firstName} onChange={e=>setNewStaff({...newStaff,firstName:e.target.value,name:[newStaff.lastName,e.target.value,newStaff.middleName].filter(Boolean).join(' ')})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Отчество' value={newStaff.middleName} onChange={e=>setNewStaff({...newStaff,middleName:e.target.value,name:[newStaff.lastName,newStaff.firstName,e.target.value].filter(Boolean).join(' ')})} style={{...inp,marginBottom:0}}/>
                 </div>
-                {!editingItem&&(<div style={{marginTop:'12px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px dashed '+C.border}}>
-                  <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>🔐 Доступ в систему (опционально)</b>
-                  <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Заполните чтобы сотрудник мог входить в приложение через email/пароль.</p>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'10px'}}>
+                  <input placeholder='Должность (напр. штукатур)' value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Специализация' value={newStaff.specialization} onChange={e=>setNewStaff({...newStaff,specialization:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Телефон' value={newStaff.phone} onChange={e=>setNewStaff({...newStaff,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <select value={newStaff.project} onChange={e=>setNewStaff({...newStaff,project:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
+                  <select value={newStaff.payType} onChange={e=>setNewStaff({...newStaff,payType:e.target.value})} style={{...inp,marginBottom:0}}><option value='оклад'>Оклад</option><option value='сдельно'>Сдельно</option><option value='почасово'>Почасово</option></select>
+                  {newStaff.payType!=='сдельно'&&<input placeholder={newStaff.payType==='почасово'?'Ставка ₽/ч':'Оклад (₽)'} type='number' value={newStaff.salary} onChange={e=>setNewStaff({...newStaff,salary:e.target.value})} style={{...inp,marginBottom:0}}/>}
+                  <select value={newStaff.status} onChange={e=>setNewStaff({...newStaff,status:e.target.value})} style={{...inp,marginBottom:0}}><option>Активен</option><option>Отпуск</option><option>Больничный</option><option>Уволен</option></select>
+                  <select value={newStaff.employmentType} onChange={e=>setNewStaff({...newStaff,employmentType:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Тип занятости</option><option>Трудовой договор</option><option>ГПХ</option><option>Самозанятый</option><option>ИП</option><option>ООО</option></select>
+                </div>
+
+                <div onClick={()=>setStaffExpandedSections(s=>({...s,access:!s.access}))} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <b style={{fontSize:'12px',color:C.text}}>🔐 Доступ в систему</b>
+                  <span style={{fontSize:'14px',color:C.textSec}}>{staffExpandedSections.access?'▾':'▸'}</span>
+                </div>
+                {staffExpandedSections.access&&(<div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
+                  <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Чтобы сотрудник мог входить в приложение — заполните все три поля.</p>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                    <select value={newStaff.systemRole} onChange={e=>setNewStaff({...newStaff,systemRole:e.target.value})} style={{...inp,marginBottom:0}}>
-                      <option value=''>Системная роль</option>
-                      {Object.keys(ROLE_LABELS).filter(r=>r!=='заказчик'&&r!=='поставщик').map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-                    </select>
-                    <input type='email' placeholder='Email для входа' value={newStaff.email} onChange={e=>setNewStaff({...newStaff,email:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <select value={newStaff.systemRole} onChange={e=>setNewStaff({...newStaff,systemRole:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Системная роль</option>{Object.keys(ROLE_LABELS).filter(r=>r!=='заказчик'&&r!=='поставщик').map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>
+                    <input type='email' placeholder='Email для входа' value={newStaff.email} onChange={e=>setNewStaff({...newStaff,email:e.target.value,emailWork:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input type='text' placeholder='Пароль' value={newStaff.password} onChange={e=>setNewStaff({...newStaff,password:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                   </div>
                 </div>)}
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveStaff} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
+
+                <div onClick={()=>setStaffExpandedSections(s=>({...s,docs:!s.docs}))} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <b style={{fontSize:'12px',color:C.text}}>📄 Документы</b>
+                  <span style={{fontSize:'14px',color:C.textSec}}>{staffExpandedSections.docs?'▾':'▸'}</span>
+                </div>
+                {staffExpandedSections.docs&&(<div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                    <input placeholder='Паспорт серия' value={newStaff.passportSeries} onChange={e=>setNewStaff({...newStaff,passportSeries:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='Паспорт номер' value={newStaff.passportNumber} onChange={e=>setNewStaff({...newStaff,passportNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='Кем выдан' value={newStaff.passportIssuedBy} onChange={e=>setNewStaff({...newStaff,passportIssuedBy:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                    <input type='date' placeholder='Дата выдачи' value={newStaff.passportIssuedDate} onChange={e=>setNewStaff({...newStaff,passportIssuedDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input type='date' placeholder='Дата рождения' value={newStaff.birthDate} onChange={e=>setNewStaff({...newStaff,birthDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='ИНН' value={newStaff.inn} onChange={e=>setNewStaff({...newStaff,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='СНИЛС' value={newStaff.snils} onChange={e=>setNewStaff({...newStaff,snils:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='Гражданство' value={newStaff.citizenship} onChange={e=>setNewStaff({...newStaff,citizenship:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='Адрес проживания' value={newStaff.address} onChange={e=>setNewStaff({...newStaff,address:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                  </div>
+                </div>)}
+
+                <div onClick={()=>setStaffExpandedSections(s=>({...s,finance:!s.finance}))} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <b style={{fontSize:'12px',color:C.text}}>💰 Финансы (для выплат)</b>
+                  <span style={{fontSize:'14px',color:C.textSec}}>{staffExpandedSections.finance?'▾':'▸'}</span>
+                </div>
+                {staffExpandedSections.finance&&(<div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                    <input placeholder='Расчётный счёт' value={newStaff.bankAccount} onChange={e=>setNewStaff({...newStaff,bankAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='Банк' value={newStaff.bankName} onChange={e=>setNewStaff({...newStaff,bankName:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='БИК' value={newStaff.bankBik} onChange={e=>setNewStaff({...newStaff,bankBik:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='Кор/счёт' value={newStaff.bankCorr} onChange={e=>setNewStaff({...newStaff,bankCorr:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    {(newStaff.employmentType==='ИП'||newStaff.employmentType==='ООО')&&<input placeholder='ОГРНИП / ОГРН' value={newStaff.ogrnip} onChange={e=>setNewStaff({...newStaff,ogrnip:e.target.value})} style={{...inp,marginBottom:0}}/>}
+                    <input placeholder='Номер карты' value={newStaff.cardNumber} onChange={e=>setNewStaff({...newStaff,cardNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  </div>
+                </div>)}
+
+                <div onClick={()=>setStaffExpandedSections(s=>({...s,extra:!s.extra}))} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <b style={{fontSize:'12px',color:C.text}}>📝 Дополнительно</b>
+                  <span style={{fontSize:'14px',color:C.textSec}}>{staffExpandedSections.extra?'▾':'▸'}</span>
+                </div>
+                {staffExpandedSections.extra&&(<div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                    <input placeholder='Email личный' value={newStaff.emailPersonal} onChange={e=>setNewStaff({...newStaff,emailPersonal:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='Доп. телефон (родственник)' value={newStaff.phoneExtra} onChange={e=>setNewStaff({...newStaff,phoneExtra:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input type='date' placeholder='Дата приёма' value={newStaff.hiredDate} onChange={e=>setNewStaff({...newStaff,hiredDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input type='date' placeholder='Дата увольнения' value={newStaff.firedDate} onChange={e=>setNewStaff({...newStaff,firedDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='Бригада/Подразделение' value={newStaff.brigade} onChange={e=>setNewStaff({...newStaff,brigade:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <input placeholder='Категория/разряд' value={newStaff.category} onChange={e=>setNewStaff({...newStaff,category:e.target.value})} style={{...inp,marginBottom:0}}/>
+                    <textarea placeholder='Заметки' value={newStaff.notes} onChange={e=>setNewStaff({...newStaff,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',minHeight:'60px',fontFamily:'inherit'}}/>
+                  </div>
+                </div>)}
+
+                <div style={{display:'flex',gap:'8px',marginTop:'14px'}}>
+                  <button onClick={saveStaff} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button>
+                  <button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button>
+                </div>
               </div>)}
               <table style={tbl}><thead><tr><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Объект</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Зарплата</th><th style={tblH}>Доступ</th><th style={tblH}></th></tr></thead><tbody>
                 {staff.map(s=>{const hasAccess=users.find(u=>u.name===s.name);return(<tr key={s.id}><td style={tblC}><b style={{fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.phone}</p></td><td style={tblC}>{s.role}</td><td style={tblC}>{s.project||'—'}</td><td style={tblC}>{s.payType==='сдельно'?'Сдельно':'Оклад: '+s.salary.toLocaleString()+' ₽'}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{calcSalary(s).toLocaleString()+' ₽'}</td><td style={tblC}>{hasAccess?<span style={{padding:'2px 8px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'11px',fontWeight:'600'}}>✅ {hasAccess.email||'есть'}</span>:<button onClick={()=>{const email=prompt('Email для входа:');if(!email) return;const password=prompt('Пароль:');if(!password) return;const role=prompt('Системная роль (директор/зам_директора/бухгалтер/прораб/мастер/субподрядчик/кладовщик/снабженец):','мастер');if(!role) return;fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name,email,password,role,projectName:s.project||''})}).then(()=>loadAll()).then(()=>alert('Доступ выдан: '+email));}} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}>🔐 Выдать</button>}</td><td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(s);setNewStaff({...s,salary:String(s.salary),email:'',password:'',systemRole:''});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td></tr>);})}

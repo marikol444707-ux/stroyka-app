@@ -375,6 +375,37 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS pricelist_id INT;
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS middle_name VARCHAR(100);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS birth_date DATE;
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS citizenship VARCHAR(50);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS address TEXT;
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS photo_url VARCHAR(255);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS email_work VARCHAR(255);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS email_personal VARCHAR(255);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS phone_extra VARCHAR(50);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS passport_series VARCHAR(10);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS passport_number VARCHAR(20);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS passport_issued_by VARCHAR(255);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS passport_issued_date DATE;
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS inn VARCHAR(20);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS snils VARCHAR(20);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS specialization VARCHAR(100);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS category VARCHAR(50);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS employment_type VARCHAR(50);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS hired_date DATE;
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS fired_date DATE;
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS status VARCHAR(50);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS brigade VARCHAR(100);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS bank_account VARCHAR(50);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS bank_name VARCHAR(255);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS bank_bik VARCHAR(20);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS bank_corr VARCHAR(50);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS ogrnip VARCHAR(20);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS card_number VARCHAR(20);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS signature_url VARCHAR(255);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS notes TEXT;
     """)
     cur.execute("""
         INSERT INTO users (name, email, password, role)
@@ -451,6 +482,37 @@ class StaffModel(BaseModel):
     salary: float = 0
     project: str = ""
     payType: str = "оклад"
+    lastName: Optional[str] = ""
+    firstName: Optional[str] = ""
+    middleName: Optional[str] = ""
+    birthDate: Optional[str] = ""
+    citizenship: Optional[str] = ""
+    address: Optional[str] = ""
+    photoUrl: Optional[str] = ""
+    emailWork: Optional[str] = ""
+    emailPersonal: Optional[str] = ""
+    phoneExtra: Optional[str] = ""
+    passportSeries: Optional[str] = ""
+    passportNumber: Optional[str] = ""
+    passportIssuedBy: Optional[str] = ""
+    passportIssuedDate: Optional[str] = ""
+    inn: Optional[str] = ""
+    snils: Optional[str] = ""
+    specialization: Optional[str] = ""
+    category: Optional[str] = ""
+    employmentType: Optional[str] = ""
+    hiredDate: Optional[str] = ""
+    firedDate: Optional[str] = ""
+    status: Optional[str] = "Активен"
+    brigade: Optional[str] = ""
+    bankAccount: Optional[str] = ""
+    bankName: Optional[str] = ""
+    bankBik: Optional[str] = ""
+    bankCorr: Optional[str] = ""
+    ogrnip: Optional[str] = ""
+    cardNumber: Optional[str] = ""
+    signatureUrl: Optional[str] = ""
+    notes: Optional[str] = ""
 
 class PieceworkModel(BaseModel):
     staffId: str
@@ -877,32 +939,83 @@ def create_warehouse_history(h: WarehouseHistoryModel):
     conn.close()
     return dict(row)
 
+STAFF_COLUMNS = """id, name, role, phone, salary, project, pay_type as "payType",
+    last_name as "lastName", first_name as "firstName", middle_name as "middleName",
+    birth_date as "birthDate", citizenship, address, photo_url as "photoUrl",
+    email_work as "emailWork", email_personal as "emailPersonal", phone_extra as "phoneExtra",
+    passport_series as "passportSeries", passport_number as "passportNumber",
+    passport_issued_by as "passportIssuedBy", passport_issued_date as "passportIssuedDate",
+    inn, snils, specialization, category,
+    employment_type as "employmentType", hired_date as "hiredDate", fired_date as "firedDate",
+    status, brigade, bank_account as "bankAccount", bank_name as "bankName",
+    bank_bik as "bankBik", bank_corr as "bankCorr", ogrnip, card_number as "cardNumber",
+    signature_url as "signatureUrl", notes"""
+
+def _staff_tuple(s):
+    def d(v):
+        return v if v else None
+    return (s.name, s.role, s.phone, s.salary, s.project, s.payType,
+            s.lastName or None, s.firstName or None, s.middleName or None,
+            d(s.birthDate), s.citizenship or None, s.address or None, s.photoUrl or None,
+            s.emailWork or None, s.emailPersonal or None, s.phoneExtra or None,
+            s.passportSeries or None, s.passportNumber or None,
+            s.passportIssuedBy or None, d(s.passportIssuedDate),
+            s.inn or None, s.snils or None, s.specialization or None, s.category or None,
+            s.employmentType or None, d(s.hiredDate), d(s.firedDate),
+            s.status or "Активен", s.brigade or None,
+            s.bankAccount or None, s.bankName or None, s.bankBik or None, s.bankCorr or None,
+            s.ogrnip or None, s.cardNumber or None, s.signatureUrl or None, s.notes or None)
+
+STAFF_INSERT_COLS = """name, role, phone, salary, project, pay_type,
+    last_name, first_name, middle_name, birth_date, citizenship, address, photo_url,
+    email_work, email_personal, phone_extra,
+    passport_series, passport_number, passport_issued_by, passport_issued_date,
+    inn, snils, specialization, category,
+    employment_type, hired_date, fired_date, status, brigade,
+    bank_account, bank_name, bank_bik, bank_corr, ogrnip, card_number,
+    signature_url, notes"""
+STAFF_PLACEHOLDERS = ",".join(["%s"] * 37)
+
 @app.get("/staff")
 def get_staff():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,role,phone,salary,project,pay_type as \"payType\" FROM staff")
+    cur.execute("SELECT " + STAFF_COLUMNS + " FROM staff ORDER BY id")
     rows = cur.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        d = dict(r)
+        for k in ("birthDate", "passportIssuedDate", "hiredDate", "firedDate"):
+            d[k] = str(d[k]) if d.get(k) else ""
+        for k in list(d.keys()):
+            if d[k] is None:
+                d[k] = ""
+        result.append(d)
+    return result
 
 @app.post("/staff")
 def create_staff(s: StaffModel):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO staff (name,role,phone,salary,project,pay_type) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,name,role,phone,salary,project,pay_type as \"payType\"",
-                (s.name,s.role,s.phone,s.salary,s.project,s.payType))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO staff (" + STAFF_INSERT_COLS + ") VALUES (" + STAFF_PLACEHOLDERS + ") RETURNING id", _staff_tuple(s))
+    new_id = cur.fetchone()[0]
+    conn.commit(); conn.close()
+    return {"id": new_id, "ok": True}
 
 @app.put("/staff/{id}")
 def update_staff(id: int, s: StaffModel):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE staff SET name=%s,role=%s,phone=%s,salary=%s,project=%s,pay_type=%s WHERE id=%s",
-                (s.name,s.role,s.phone,s.salary,s.project,s.payType,id))
-    conn.close()
+    cur.execute("""UPDATE staff SET name=%s, role=%s, phone=%s, salary=%s, project=%s, pay_type=%s,
+        last_name=%s, first_name=%s, middle_name=%s, birth_date=%s, citizenship=%s, address=%s, photo_url=%s,
+        email_work=%s, email_personal=%s, phone_extra=%s,
+        passport_series=%s, passport_number=%s, passport_issued_by=%s, passport_issued_date=%s,
+        inn=%s, snils=%s, specialization=%s, category=%s,
+        employment_type=%s, hired_date=%s, fired_date=%s, status=%s, brigade=%s,
+        bank_account=%s, bank_name=%s, bank_bik=%s, bank_corr=%s, ogrnip=%s, card_number=%s,
+        signature_url=%s, notes=%s WHERE id=%s""", _staff_tuple(s) + (id,))
+    conn.commit(); conn.close()
     return {"ok": True}
 
 @app.delete("/staff/{id}")
