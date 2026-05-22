@@ -101,7 +101,7 @@ const EXPENSE_CATEGORIES = [
   {id:'delivery',label:'Доставка материалов',color:'#3b82f6'},
   {id:'fuel',label:'Топливо и транспорт',color:'#06b6d4'},
   {id:'equipment',label:'Аренда техники',color:'#8b5cf6'},
-  {id:'tools',label:'Инструменты и оснастка',color:'#7c3aed'},
+  {id:'tools',label:'Инструменты и оснастка',color:'#475569'},
   {id:'docs',label:'Документация и разрешения',color:'#0891b2'},
   {id:'electricity',label:'Электроэнергия на объекте',color:'#f59e0b'},
   {id:'utilities',label:'Коммунальные расходы',color:'#84cc16'},
@@ -2436,7 +2436,7 @@ function App() {
               </div>
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {act.aiFilled&&(<div style={{marginBottom:'14px',padding:'10px 12px',backgroundColor:'#f3e8ff',border:'1.5px solid #7c3aed',borderRadius:'10px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'20px'}}>🤖</span><span style={{fontSize:'12px',color:C.text,lineHeight:1.4}}><b>Черновик заполнен AI.</b> Проверьте формулировки перед подписью — при сохранении после правки метка снимется.</span></div>)}
+              {act.aiFilled&&(<div style={{marginBottom:'14px',padding:'10px 12px',backgroundColor:'#d1fae5',border:'1.5px solid #10b981',borderRadius:'10px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'20px'}}>🤖</span><span style={{fontSize:'12px',color:C.text,lineHeight:1.4}}><b>Черновик заполнен AI.</b> Проверьте формулировки перед подписью — при сохранении после правки метка снимется.</span></div>)}
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
                 <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize:'13px',color:C.text}}>{act.sectionName||'—'}</b></div>
                 <div><p style={labelStyle}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{act.workName}</b></div>
@@ -2481,7 +2481,7 @@ function App() {
             <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
               <button onClick={()=>{showPreview(buildHiddenActContent(act),'АОСР № '+act.actNumber);}} style={btnB}><Eye size={14}/>🖨️ Печать по СНиП</button>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button disabled={!!act.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#7c3aed',opacity:act.__aiLoading?0.6:1,cursor:act.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{act.__aiLoading?'AI работает…':(act.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
+                <button disabled={!!act.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#10b981',opacity:act.__aiLoading?0.6:1,cursor:act.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{act.__aiLoading?'AI работает…':(act.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
                 <button onClick={()=>setEditingAct(null)} style={btnG}>Отмена</button>
                 <button onClick={saveAct} style={btnO}><Check size={14}/>Сохранить</button>
               </div>
@@ -2796,7 +2796,7 @@ function App() {
                         return(<div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
                             <b style={{color:C.text,fontSize:'14px'}}>📊 Контроль объекта</b>
-                            <button onClick={runAiSummary} style={{...btnB,backgroundColor:'#7c3aed',fontSize:'12px'}}><Bot size={13}/>{cached?'Обновить ИИ':'AI-сводка'}</button>
+                            <button onClick={runAiSummary} style={{...btnB,backgroundColor:'#10b981',fontSize:'12px'}}><Bot size={13}/>{cached?'Обновить ИИ':'AI-сводка'}</button>
                           </div>
                           {cached&&(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:isFresh?C.successLight:C.warningLight,border:'1.5px solid '+(isFresh?C.successBorder:C.warningBorder)}}>
                             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
@@ -4291,7 +4291,7 @@ function App() {
             <div style={{display:'flex',gap:'16px',height:'calc(100vh - 120px)'}}>
               <div style={{width:'280px',flexShrink:0,display:'flex',flexDirection:'column',gap:'10px',overflowY:'auto'}}>
                 <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewPricelist({name:'',description:'',forWho:'',coefficient:1.0});setSelectedPricelist(null);setPricelistItems([]);}} style={{...btnO,justifyContent:'center'}}><Plus size={14}/>Новый прайс-лист</button>
-                <button onClick={()=>{setGeneratePricelistForm({description:'',name:'',forWho:'',coefficient:1.0});setShowGeneratePricelist(true);}} style={{...btnB,backgroundColor:'#7c3aed',justifyContent:'center'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
+                <button onClick={()=>{setGeneratePricelistForm({description:'',name:'',forWho:'',coefficient:1.0});setShowGeneratePricelist(true);}} style={{...btnB,backgroundColor:'#10b981',justifyContent:'center'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
                 <button onClick={()=>{setFromEstimateForm({estimateId:'',name:'',forWho:'',coefficient:1.0});setShowFromEstimate(true);}} style={{...btnB,justifyContent:'center'}}><FileText size={14}/>📋 Из сметы</button>
                 {showForm&&!selectedPricelist&&(<div style={{...card,padding:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newPricelist.name} onChange={e=>setNewPricelist({...newPricelist,name:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPricelist.forWho} onChange={e=>setNewPricelist({...newPricelist,forWho:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Для кого</option>{['Электрики','Сантехники','Каменщики','Отделочники','Кровельщики','Монтажники','Общий'].map(r=><option key={r}>{r}</option>)}</select></div><label style={{color:C.textSec,fontSize:'13px',display:'block',marginTop:'10px',marginBottom:'4px'}}>{'Коэффициент: ×'+newPricelist.coefficient}</label><input type="range" min="0.5" max="3" step="0.1" value={newPricelist.coefficient} onChange={e=>setNewPricelist({...newPricelist,coefficient:Number(e.target.value)})} style={{width:'100%',marginBottom:'12px',accentColor:C.accent}}/><div style={{display:'flex',gap:'10px'}}><button onClick={savePricelist} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
                 {pricelists.map(pl=>(<div key={pl.id} onClick={async()=>{setSelectedPricelist(pl);await loadPricelistItems(pl.id);setShowForm(false);setEditingPlItem(null);}} style={{...card,padding:'14px',cursor:'pointer',border:'1.5px solid '+(selectedPricelist?.id===pl.id?C.accent:C.border),backgroundColor:selectedPricelist?.id===pl.id?C.accentLight:C.bgWhite}}>
@@ -4410,7 +4410,7 @@ function App() {
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
                 <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сметы</b>
                 <div style={{display:'flex',gap:'8px'}}>
-                  <button onClick={()=>{setGenerateForm({description:'',projectId:'',pricelistId:'',area:'',name:''});setShowGenerateEstimate(true);}} style={{...btnB,backgroundColor:'#7c3aed'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
+                  <button onClick={()=>{setGenerateForm({description:'',projectId:'',pricelistId:'',area:'',name:''});setShowGenerateEstimate(true);}} style={{...btnB,backgroundColor:'#10b981'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
                   <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая смета</button>
                 </div>
               </div>
@@ -4579,7 +4579,7 @@ function App() {
                       setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name},{role:'assistant',content:out}]);
                     }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
                     setAiLoading(false);
-                  }} style={{...btnB,backgroundColor:'#7c3aed'}}><Bot size={14}/>ИИ Анализ</button>
+                  }} style={{...btnB,backgroundColor:'#10b981'}}><Bot size={14}/>ИИ Анализ</button>
                 </div>
                 <div style={{...card,padding:'16px',marginBottom:'16px'}}>
                   <div style={{display:'flex',gap:'8px',marginBottom:'10px',alignItems:'center'}}>
@@ -5112,7 +5112,7 @@ function App() {
               }else alert('ИИ не справился, распределите вручную');
             }catch(e){alert('Ошибка ИИ: '+e.message);}
             setDistributing(false);
-          }} disabled={distributing||distributeBrigades.length===0} style={{...btnB,backgroundColor:'#7c3aed',fontSize:'12px'}}><Bot size={13}/>🤖 ИИ распределит</button>
+          }} disabled={distributing||distributeBrigades.length===0} style={{...btnB,backgroundColor:'#10b981',fontSize:'12px'}}><Bot size={13}/>🤖 ИИ распределит</button>
           <div style={{display:'flex',gap:'8px'}}>
             <button onClick={()=>setShowDistribute(false)} disabled={distributing} style={btnG}><X size={14}/>Отмена</button>
             <button disabled={distributing||Object.keys(distributeAssignments).length===0} onClick={async()=>{
@@ -5210,7 +5210,7 @@ function App() {
               setGeneratingPricelist(false);
               alert('Прайс-лист «'+data.name+'» создан! Позиций: '+data.itemsCount+'. Проверьте цены — можно редактировать вручную.');
             }catch(e){alert('Ошибка: '+e.message);setGeneratingPricelist(false);}
-          }} style={{...btnO,backgroundColor:'#7c3aed'}}>{generatingPricelist?'⏳ ИИ думает... (15-40 сек)':'✨ Сгенерировать'}</button>
+          }} style={{...btnO,backgroundColor:'#10b981'}}>{generatingPricelist?'⏳ ИИ думает... (15-40 сек)':'✨ Сгенерировать'}</button>
         </div>
         {generatingPricelist&&<p style={{color:C.textMuted,fontSize:'11px',marginTop:'10px',textAlign:'center'}}>Не закрывайте окно. ИИ собирает позиции прайс-листа.</p>}
       </div>
@@ -5251,7 +5251,7 @@ function App() {
               setGenerating(false);
               alert('Смета создана! Проверьте позиции и объёмы — можно редактировать вручную.');
             }catch(e){alert('Ошибка: '+e.message);setGenerating(false);}
-          }} style={{...btnO,backgroundColor:'#7c3aed'}}>{generating?'⏳ ИИ думает... (15-40 сек)':'✨ Сгенерировать'}</button>
+          }} style={{...btnO,backgroundColor:'#10b981'}}>{generating?'⏳ ИИ думает... (15-40 сек)':'✨ Сгенерировать'}</button>
         </div>
         {generating&&<p style={{color:C.textMuted,fontSize:'11px',marginTop:'10px',textAlign:'center'}}>Не закрывайте окно. ИИ собирает разделы и позиции.</p>}
       </div>
@@ -5348,7 +5348,7 @@ function App() {
               setAiMessages([{role:'user',content:'Сравнение v'+a.versionLabel+' ↔ v'+b.versionLabel},{role:'assistant',content:out}]);
             }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
             setAiLoading(false);
-          }} style={{...btnO,backgroundColor:'#7c3aed',width:'100%',justifyContent:'center'}}><Bot size={14}/>🤖 Сравнить через ИИ</button>)}
+          }} style={{...btnO,backgroundColor:'#10b981',width:'100%',justifyContent:'center'}}><Bot size={14}/>🤖 Сравнить через ИИ</button>)}
         </>)}
       </div>
     </div>)}
