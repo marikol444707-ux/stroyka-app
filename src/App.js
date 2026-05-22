@@ -2393,12 +2393,25 @@ function App() {
         const upd=(k,v)=>setEditingAct({...editingAct,[k]:v});
         const photosArr=(act.photos||'').split(',').filter(Boolean);
         const certsArr=(act.certificates||'').split(',').filter(Boolean);
+        const fillByAI=async()=>{
+          setEditingAct(prev=>({...prev,__aiLoading:true}));
+          try{
+            const res=await fetch(API+'/hidden-works-acts/'+act.id+'/ai-prefill',{method:'POST'});
+            if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||('HTTP '+res.status));}
+            const d=await res.json();
+            setEditingAct(prev=>({...prev,conclusion:d.conclusion||prev.conclusion,projectDocs:d.projectDocs||prev.projectDocs,aiFilled:true,__aiLoading:false}));
+            setHiddenActs(prevList=>prevList.map(a=>a.id===act.id?{...a,conclusion:d.conclusion||a.conclusion,projectDocs:d.projectDocs||a.projectDocs,aiFilled:true}:a));
+          }catch(e){
+            alert('Не получилось получить ответ от AI: '+e.message);
+            setEditingAct(prev=>({...prev,__aiLoading:false}));
+          }
+        };
         const saveAct=async()=>{
           const body={status:act.status||'Черновик',signedCustomer:act.signedCustomer||'',signedSupervisor:act.signedSupervisor||'',signedContractor:act.signedContractor||'',signedSubcontractor:act.signedSubcontractor||'',signedCustomerAt:act.signedCustomerAt||'',signedSupervisorAt:act.signedSupervisorAt||'',signedContractorAt:act.signedContractorAt||'',signedSubcontractorAt:act.signedSubcontractorAt||'',conclusion:act.conclusion||'',comments:act.comments||'',materialsUsed:act.materialsUsed||'',projectDocs:act.projectDocs||'',photos:act.photos||'',certificates:act.certificates||'',city:act.city||''};
           const res=await fetch(API+'/hidden-works-acts/'+act.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
           const data=await res.json().catch(()=>({}));
           const newStatus=data.status||act.status;
-          const updated={...act,status:newStatus};
+          const updated={...act,status:newStatus,aiFilled:false};
           setHiddenActs(prev=>prev.map(a=>a.id===act.id?updated:a));
           setEditingAct(null);
         };
@@ -2423,6 +2436,7 @@ function App() {
               </div>
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+              {act.aiFilled&&(<div style={{marginBottom:'14px',padding:'10px 12px',backgroundColor:'#f3e8ff',border:'1.5px solid #7c3aed',borderRadius:'10px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'20px'}}>🤖</span><span style={{fontSize:'12px',color:C.text,lineHeight:1.4}}><b>Черновик заполнен AI.</b> Проверьте формулировки перед подписью — при сохранении после правки метка снимется.</span></div>)}
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
                 <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize:'13px',color:C.text}}>{act.sectionName||'—'}</b></div>
                 <div><p style={labelStyle}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{act.workName}</b></div>
@@ -2437,8 +2451,8 @@ function App() {
                 <div><label style={labelStyle}>Статус (вручную)</label><select value={act.status||'Черновик'} onChange={e=>upd('status',e.target.value)} style={inp}><option>Черновик</option><option>На подписи</option><option>Подписан</option><option>Аннулирован</option></select></div>
               </div>
               <div style={sectionStyle}><label style={labelStyle}>Использованные материалы (марки, сертификаты)</label><textarea value={act.materialsUsed||''} onChange={e=>upd('materialsUsed',e.target.value)} placeholder='Напр.: арматура А500С по ГОСТ 5781-82, сертификат №...; бетон В25 W6, паспорт №...' style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
-              <div style={sectionStyle}><label style={labelStyle}>Проектная документация (чертежи, разделы)</label><textarea value={act.projectDocs||''} onChange={e=>upd('projectDocs',e.target.value)} placeholder='Напр.: раздел КЖ, лист 12; раздел АР, узел 4' style={{...inp,minHeight:'60px',resize:'vertical'}}/></div>
-              <div style={sectionStyle}><label style={labelStyle}>Заключение комиссии</label><textarea value={act.conclusion||''} onChange={e=>upd('conclusion',e.target.value)} placeholder='Работы выполнены в соответствии с проектной документацией. Разрешается производство последующих работ.' style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
+              <div style={sectionStyle}><label style={labelStyle}>Проектная документация (чертежи, разделы){act.aiFilled?' 🤖':''}</label><textarea value={act.projectDocs||''} onChange={e=>upd('projectDocs',e.target.value)} placeholder='Напр.: раздел КЖ, лист 12; раздел АР, узел 4' style={{...inp,minHeight:'60px',resize:'vertical'}}/></div>
+              <div style={sectionStyle}><label style={labelStyle}>Заключение комиссии{act.aiFilled?' 🤖':''}</label><textarea value={act.conclusion||''} onChange={e=>upd('conclusion',e.target.value)} placeholder='Работы выполнены в соответствии с проектной документацией. Разрешается производство последующих работ.' style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
               <div style={{...sectionStyle,padding:'14px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
                 <b style={{display:'block',marginBottom:'10px',color:C.text,fontSize:'13px'}}>✍️ Подписи комиссии (ФИО + дата)</b>
                 {[{role:'Заказчик',f:'signedCustomer',d:'signedCustomerAt'},{role:'Технадзор',f:'signedSupervisor',d:'signedSupervisorAt'},{role:'Генподрядчик',f:'signedContractor',d:'signedContractorAt'},{role:'Субподрядчик',f:'signedSubcontractor',d:'signedSubcontractorAt'}].map(s=>(<div key={s.f} style={{display:'grid',gridTemplateColumns:'140px 1fr 140px',gap:'8px',marginBottom:'8px',alignItems:'center'}}>
@@ -2466,7 +2480,8 @@ function App() {
             </div>
             <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
               <button onClick={()=>{showPreview(buildHiddenActContent(act),'АОСР № '+act.actNumber);}} style={btnB}><Eye size={14}/>🖨️ Печать по СНиП</button>
-              <div style={{display:'flex',gap:'8px'}}>
+              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                <button disabled={!!act.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#7c3aed',opacity:act.__aiLoading?0.6:1,cursor:act.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{act.__aiLoading?'AI работает…':(act.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
                 <button onClick={()=>setEditingAct(null)} style={btnG}>Отмена</button>
                 <button onClick={saveAct} style={btnO}><Check size={14}/>Сохранить</button>
               </div>

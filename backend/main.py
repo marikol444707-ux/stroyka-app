@@ -445,6 +445,7 @@ def init_db():
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS photos TEXT;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS certificates TEXT;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS city VARCHAR(100);
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS ai_filled BOOLEAN DEFAULT FALSE;
         CREATE TABLE IF NOT EXISTS staff_documents (
             id SERIAL PRIMARY KEY,
             staff_id INT NOT NULL,
@@ -3618,7 +3619,7 @@ def list_hidden_works_acts(project_name: str = None):
               signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
               signed_customer_at, signed_supervisor_at, signed_contractor_at, signed_subcontractor_at,
               conclusion, comments, materials_used, project_docs,
-              photos, certificates, city, created_at"""
+              photos, certificates, city, ai_filled, created_at"""
     if project_name:
         cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name=%s ORDER BY id DESC", (project_name,))
     else:
@@ -3635,7 +3636,8 @@ def list_hidden_works_acts(project_name: str = None):
              "conclusion":r[21] or "","comments":r[22] or "",
              "materialsUsed":r[23] or "","projectDocs":r[24] or "",
              "photos":r[25] or "","certificates":r[26] or "","city":r[27] or "",
-             "createdAt":str(r[28])} for r in rows]
+             "aiFilled":bool(r[28]),
+             "createdAt":str(r[29])} for r in rows]
 
 @app.put("/hidden-works-acts/{act_id}")
 def update_hidden_works_act(act_id: int, data: dict):
@@ -3652,7 +3654,8 @@ def update_hidden_works_act(act_id: int, data: dict):
                    signed_customer=%s, signed_supervisor=%s, signed_contractor=%s, signed_subcontractor=%s,
                    signed_customer_at=%s, signed_supervisor_at=%s, signed_contractor_at=%s, signed_subcontractor_at=%s,
                    conclusion=%s, comments=%s, project_docs=%s, materials_used=%s,
-                   photos=%s, certificates=%s, city=%s
+                   photos=%s, certificates=%s, city=%s,
+                   ai_filled=FALSE
                    WHERE id=%s""",
         (auto_status,
          sc, ss, sk, sb,
@@ -3672,6 +3675,88 @@ def delete_hidden_works_act(act_id: int):
     cur.execute("DELETE FROM hidden_works_acts WHERE id=%s", (act_id,))
     conn.commit(); cur.close(); conn.close()
     return {"ok": True}
+
+@app.post("/hidden-works-acts/{act_id}/ai-prefill")
+def ai_prefill_hidden_works_act(act_id: int):
+    import openai as oa, json as j, re
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT work_name, section_name, brigade, materials_used, unit, quantity, project_name
+                   FROM hidden_works_acts WHERE id=%s""", (act_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="act not found")
+    work_name, section_name, brigade, materials_used, unit, quantity, project_name = row
+    cur.close()
+
+    user_text = (
+        "Работа: " + (work_name or "—") + "\n"
+        "Раздел сметы: " + (section_name or "—") + "\n"
+        "Бригада: " + (brigade or "—") + "\n"
+        "Объём: " + str(quantity or 0) + " " + (unit or "") + "\n"
+        "Использованные материалы (если указаны): " + (materials_used or "—") + "\n\n"
+        "Верни СТРОГО JSON-объект с тремя полями (без markdown, без тройных кавычек):\n"
+        '{"conclusion": "...", "normatives": "...", "projectDocs": "..."}\n'
+        "Где:\n"
+        "- conclusion: формальная формулировка заключения комиссии о качестве работ "
+        "со ссылкой на нормативы и проектные документы; разрешение на производство последующих работ; "
+        "официальный канцелярский русский, 2-4 предложения.\n"
+        "- normatives: перечень применимых СНиП/СП/ГОСТ через запятую (только реально применимые к этому виду работ).\n"
+        "- projectDocs: перечень типовых проектных документов (разделы, листы), к которым относится эта работа."
+    )
+
+    instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек, никакого текста до или после JSON. Только сам JSON."
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+
+    def _call(model_id):
+        try:
+            r = client.responses.create(
+                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
+                temperature=0.1,
+                instructions=instructions,
+                input=user_text,
+                max_output_tokens=2000,
+            )
+            return (r.output_text or ""), None
+        except Exception as e:
+            return "", str(e)
+
+    answer, err = _call("qwen3.6-35b-a3b/latest")
+    if not (answer or "").strip():
+        print("AI-PREFILL primary empty, fallback. err=" + str(err))
+        answer, err = _call("yandexgpt-5.1/latest")
+    if not (answer or "").strip():
+        conn.close()
+        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
+
+    text = answer.strip()
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        text = m.group(0)
+    try:
+        parsed = j.loads(text)
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=502, detail="AI вернул невалидный JSON: " + str(e)[:200])
+
+    conclusion = (parsed.get("conclusion") or "").strip()
+    normatives = (parsed.get("normatives") or "").strip()
+    project_docs = (parsed.get("projectDocs") or "").strip()
+
+    if normatives:
+        full_conclusion = "Применимые нормативные документы: " + normatives + "\n\n" + conclusion
+    else:
+        full_conclusion = conclusion
+
+    cur = conn.cursor()
+    cur.execute("""UPDATE hidden_works_acts
+                   SET conclusion=%s, project_docs=%s, ai_filled=TRUE
+                   WHERE id=%s""",
+                (full_conclusion, project_docs, act_id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "conclusion": full_conclusion, "projectDocs": project_docs, "normatives": normatives, "aiFilled": True}
 
 @app.get("/estimates/{estimate_id}/chat-history")
 def get_estimate_chat(estimate_id: int):
