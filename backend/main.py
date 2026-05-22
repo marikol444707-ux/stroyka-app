@@ -356,6 +356,17 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS materials_used TEXT;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS estimate_id INT;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS section_name VARCHAR(255);
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS responsible_itr VARCHAR(255);
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS weather VARCHAR(255);
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS time_start VARCHAR(10);
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS time_end VARCHAR(10);
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS hidden_work BOOLEAN DEFAULT FALSE;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS quality_status VARCHAR(50);
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS normatives TEXT;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS project_docs TEXT;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS ai_filled BOOLEAN DEFAULT FALSE;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         CREATE TABLE IF NOT EXISTS estimate_versions (
             id SERIAL PRIMARY KEY,
@@ -665,6 +676,16 @@ class WorkJournalModel(BaseModel):
     comment: str = ""
     photoUrl: str = ""
     materialsUsed: list = []
+    estimateId: int | None = None
+    sectionName: str = ""
+    responsibleItr: str = ""
+    weather: str = ""
+    timeStart: str = ""
+    timeEnd: str = ""
+    hiddenWork: bool = False
+    qualityStatus: str = ""
+    normatives: str = ""
+    projectDocs: str = ""
 
 class MasterProfileModel(BaseModel):
     userId: int
@@ -1476,7 +1497,17 @@ def update_supply_history(id: int, data: dict):
 def get_work_journal():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,description,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,comment,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",confirmed_at as \"confirmedAt\",materials_used as \"materialsUsed\" FROM work_journal ORDER BY id DESC")
+    cur.execute("""SELECT id,master_id as "masterId",master_name as "masterName",project,description,unit,quantity,
+                          price_per_unit as "pricePerUnit",total,date,status,comment,
+                          photo_url as "photoUrl",confirmed_by as "confirmedBy",confirmed_at as "confirmedAt",
+                          materials_used as "materialsUsed",
+                          estimate_id as "estimateId", section_name as "sectionName",
+                          responsible_itr as "responsibleItr", weather,
+                          time_start as "timeStart", time_end as "timeEnd",
+                          hidden_work as "hiddenWork", quality_status as "qualityStatus",
+                          normatives, project_docs as "projectDocs",
+                          ai_filled as "aiFilled"
+                   FROM work_journal ORDER BY id DESC""")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -1505,8 +1536,16 @@ def create_work_journal(w: WorkJournalModel):
 
         import json as _json
         materials_json = _json.dumps(used, ensure_ascii=False) if used else None
-        cur.execute("INSERT INTO work_journal (master_id,master_name,project,description,unit,quantity,price_per_unit,total,date,comment,photo_url,materials_used) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                    (w.masterId,w.masterName,w.project,w.description,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,w.comment,w.photoUrl,materials_json))
+        cur.execute("""INSERT INTO work_journal
+                       (master_id,master_name,project,description,unit,quantity,price_per_unit,total,date,
+                        comment,photo_url,materials_used,
+                        estimate_id,section_name,responsible_itr,weather,time_start,time_end,
+                        hidden_work,quality_status,normatives,project_docs)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                    (w.masterId,w.masterName,w.project,w.description,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,
+                     w.comment,w.photoUrl,materials_json,
+                     w.estimateId,w.sectionName,w.responsibleItr,w.weather,w.timeStart,w.timeEnd,
+                     w.hiddenWork,w.qualityStatus,w.normatives,w.projectDocs))
         row = cur.fetchone()
         conn.commit()
         return dict(row)
@@ -1524,14 +1563,117 @@ def create_work_journal(w: WorkJournalModel):
 def update_work_journal(id: int, data: dict):
     conn = get_db()
     cur = conn.cursor()
-    status = data.get('status','')
-    confirmed_by = data.get('confirmedBy','')
-    confirmed_at = data.get('confirmedAt','')
-    comment = data.get('comment','')
-    cur.execute("UPDATE work_journal SET status=%s,confirmed_by=%s,confirmed_at=%s,comment=%s WHERE id=%s",
-                (status,confirmed_by,confirmed_at,comment,id))
-    conn.close()
+    # Динамически обновляем только переданные поля. Старая логика (status/confirmedBy/...) продолжает работать.
+    fields_map = [
+        ('status', 'status'),
+        ('confirmedBy', 'confirmed_by'),
+        ('confirmedAt', 'confirmed_at'),
+        ('comment', 'comment'),
+        ('responsibleItr', 'responsible_itr'),
+        ('weather', 'weather'),
+        ('timeStart', 'time_start'),
+        ('timeEnd', 'time_end'),
+        ('qualityStatus', 'quality_status'),
+        ('normatives', 'normatives'),
+        ('projectDocs', 'project_docs'),
+        ('sectionName', 'section_name'),
+        ('hiddenWork', 'hidden_work'),
+    ]
+    sets, vals = [], []
+    ai_resetting_fields = {'responsibleItr','weather','timeStart','timeEnd','qualityStatus','normatives','projectDocs'}
+    reset_ai = False
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            vals.append(data[js_key])
+            if js_key in ai_resetting_fields:
+                reset_ai = True
+    if reset_ai:
+        sets.append("ai_filled=FALSE")
+    if not sets:
+        cur.close(); conn.close()
+        return {"ok": True}
+    vals.append(id)
+    cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
     return {"ok": True}
+
+@app.post("/work-journal/{id}/ai-prefill")
+def ai_prefill_work_journal(id: int):
+    import openai as oa, json as j, re
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT description, section_name, unit, quantity, materials_used, project, hidden_work
+                   FROM work_journal WHERE id=%s""", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="запись не найдена")
+    description, section_name, unit, quantity, materials_used, project, hidden_work = row
+    cur.close()
+
+    user_text = (
+        "Описание работы: " + (description or "—") + "\n"
+        "Раздел сметы: " + (section_name or "—") + "\n"
+        "Объект: " + (project or "—") + "\n"
+        "Объём: " + str(quantity or 0) + " " + (unit or "") + "\n"
+        "Скрытые работы: " + ("да" if hidden_work else "нет") + "\n"
+        "Использованные материалы: " + (materials_used or "—") + "\n\n"
+        "Верни СТРОГО JSON с тремя полями (без markdown, без тройных кавычек):\n"
+        '{"normatives": "...", "projectDocs": "...", "qualityNote": "..."}\n'
+        "Где:\n"
+        "- normatives: перечень применимых СНиП/СП/ГОСТ через запятую (только реально применимые к виду работ)\n"
+        "- projectDocs: типовые проектные документы (разделы рабочего проекта, листы)\n"
+        "- qualityNote: краткая формулировка о соответствии работ нормативной/проектной документации, "
+        "официальный канцелярский русский, 1-2 предложения."
+    )
+    instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек, никакого текста до или после JSON. Только сам JSON."
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+
+    def _call(model_id):
+        try:
+            r = client.responses.create(
+                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
+                temperature=0.1, instructions=instructions, input=user_text, max_output_tokens=2000,
+            )
+            return (r.output_text or ""), None
+        except Exception as e:
+            return "", str(e)
+
+    answer, err = _call("qwen3.6-35b-a3b/latest")
+    if not (answer or "").strip():
+        print("AI-PREFILL work_journal primary empty, fallback. err=" + str(err))
+        answer, err = _call("yandexgpt-5.1/latest")
+    if not (answer or "").strip():
+        conn.close()
+        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
+
+    text = answer.strip()
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        text = m.group(0)
+    try:
+        parsed = j.loads(text)
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=502, detail="AI вернул невалидный JSON: " + str(e)[:200])
+
+    normatives = (parsed.get("normatives") or "").strip()
+    project_docs = (parsed.get("projectDocs") or "").strip()
+    quality_note = (parsed.get("qualityNote") or "").strip()
+
+    cur = conn.cursor()
+    # qualityNote дописываем в comment (если comment пустой), нормативы и проектные доки — в свои поля
+    cur.execute("""UPDATE work_journal
+                   SET normatives=%s, project_docs=%s,
+                       comment = CASE WHEN COALESCE(comment,'')='' THEN %s ELSE comment END,
+                       ai_filled=TRUE
+                   WHERE id=%s""",
+                (normatives, project_docs, quality_note, id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "normatives": normatives, "projectDocs": project_docs, "qualityNote": quality_note, "aiFilled": True}
 
 @app.get("/master-profiles")
 def get_master_profiles():
@@ -2493,11 +2635,14 @@ def update_estimate(id: int, data: dict):
             unit = it.get("unit") or "шт"
             price = float(it.get("priceWork") or 0) + float(it.get("priceMaterial") or 0)
             try:
-                cur.execute("""INSERT INTO work_journal (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                cur.execute("""INSERT INTO work_journal
+                               (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
+                                estimate_id, section_name, hidden_work)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (None, brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, price, round(delta*price,2), today,
                      "Автоматически из сметы",
-                     "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id)))
+                     "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id),
+                     id, s.get("name",""), bool(it.get("hiddenWork"))))
                 journal_added += 1
             except Exception as e:
                 print("AUTO-JOURNAL ERROR:", str(e))
