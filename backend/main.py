@@ -427,10 +427,24 @@ def init_db():
             signed_supervisor VARCHAR(255),
             signed_contractor VARCHAR(255),
             signed_subcontractor VARCHAR(255),
+            signed_customer_at DATE,
+            signed_supervisor_at DATE,
+            signed_contractor_at DATE,
+            signed_subcontractor_at DATE,
+            photos TEXT,
+            certificates TEXT,
+            city VARCHAR(100),
             status VARCHAR(50) DEFAULT 'Черновик',
             comments TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS signed_customer_at DATE;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS signed_supervisor_at DATE;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS signed_contractor_at DATE;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS signed_subcontractor_at DATE;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS photos TEXT;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS certificates TEXT;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS city VARCHAR(100);
         CREATE TABLE IF NOT EXISTS staff_documents (
             id SERIAL PRIMARY KEY,
             staff_id INT NOT NULL,
@@ -3599,18 +3613,16 @@ def ai_generate_pricelist(data: dict):
 def list_hidden_works_acts(project_name: str = None):
     conn = get_db()
     cur = conn.cursor()
+    cols = """id, project_name, estimate_id, act_number, work_name, section_name, brigade,
+              quantity, unit, price_per_unit, total, work_date, status,
+              signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
+              signed_customer_at, signed_supervisor_at, signed_contractor_at, signed_subcontractor_at,
+              conclusion, comments, materials_used, project_docs,
+              photos, certificates, city, created_at"""
     if project_name:
-        cur.execute("""SELECT id, project_name, estimate_id, act_number, work_name, section_name, brigade,
-                       quantity, unit, price_per_unit, total, work_date, status,
-                       signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
-                       conclusion, comments, created_at
-                       FROM hidden_works_acts WHERE project_name=%s ORDER BY id DESC""", (project_name,))
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name=%s ORDER BY id DESC", (project_name,))
     else:
-        cur.execute("""SELECT id, project_name, estimate_id, act_number, work_name, section_name, brigade,
-                       quantity, unit, price_per_unit, total, work_date, status,
-                       signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
-                       conclusion, comments, created_at
-                       FROM hidden_works_acts ORDER BY id DESC""")
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"estimateId":r[2],"actNumber":r[3],"workName":r[4],
@@ -3618,22 +3630,40 @@ def list_hidden_works_acts(project_name: str = None):
              "pricePerUnit":float(r[9] or 0),"total":float(r[10] or 0),"workDate":str(r[11]) if r[11] else "",
              "status":r[12],"signedCustomer":r[13] or "","signedSupervisor":r[14] or "",
              "signedContractor":r[15] or "","signedSubcontractor":r[16] or "",
-             "conclusion":r[17] or "","comments":r[18] or "","createdAt":str(r[19])} for r in rows]
+             "signedCustomerAt":str(r[17]) if r[17] else "","signedSupervisorAt":str(r[18]) if r[18] else "",
+             "signedContractorAt":str(r[19]) if r[19] else "","signedSubcontractorAt":str(r[20]) if r[20] else "",
+             "conclusion":r[21] or "","comments":r[22] or "",
+             "materialsUsed":r[23] or "","projectDocs":r[24] or "",
+             "photos":r[25] or "","certificates":r[26] or "","city":r[27] or "",
+             "createdAt":str(r[28])} for r in rows]
 
 @app.put("/hidden-works-acts/{act_id}")
 def update_hidden_works_act(act_id: int, data: dict):
     conn = get_db()
     cur = conn.cursor()
+    # Авто-статус: если все 4 подписи заполнены — «Подписан», иначе оставляем как пришло (или «Черновик»)
+    sc = data.get("signedCustomer","").strip()
+    ss = data.get("signedSupervisor","").strip()
+    sk = data.get("signedContractor","").strip()
+    sb = data.get("signedSubcontractor","").strip()
+    auto_status = "Подписан" if (sc and ss and sk and sb) else data.get("status","Черновик")
     cur.execute("""UPDATE hidden_works_acts SET
-                   status=%s, signed_customer=%s, signed_supervisor=%s, signed_contractor=%s,
-                   signed_subcontractor=%s, conclusion=%s, comments=%s, project_docs=%s, materials_used=%s
+                   status=%s,
+                   signed_customer=%s, signed_supervisor=%s, signed_contractor=%s, signed_subcontractor=%s,
+                   signed_customer_at=%s, signed_supervisor_at=%s, signed_contractor_at=%s, signed_subcontractor_at=%s,
+                   conclusion=%s, comments=%s, project_docs=%s, materials_used=%s,
+                   photos=%s, certificates=%s, city=%s
                    WHERE id=%s""",
-        (data.get("status","Черновик"), data.get("signedCustomer",""), data.get("signedSupervisor",""),
-         data.get("signedContractor",""), data.get("signedSubcontractor",""),
+        (auto_status,
+         sc, ss, sk, sb,
+         data.get("signedCustomerAt") or None, data.get("signedSupervisorAt") or None,
+         data.get("signedContractorAt") or None, data.get("signedSubcontractorAt") or None,
          data.get("conclusion",""), data.get("comments",""),
-         data.get("projectDocs",""), data.get("materialsUsed",""), act_id))
+         data.get("projectDocs",""), data.get("materialsUsed",""),
+         data.get("photos",""), data.get("certificates",""), data.get("city",""),
+         act_id))
     conn.commit(); cur.close(); conn.close()
-    return {"ok": True}
+    return {"ok": True, "status": auto_status}
 
 @app.delete("/hidden-works-acts/{act_id}")
 def delete_hidden_works_act(act_id: int):

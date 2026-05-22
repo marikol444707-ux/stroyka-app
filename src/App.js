@@ -293,6 +293,8 @@ function App() {
   const [timesheet, setTimesheet] = useState({});
   const [unexpectedWorksList, setUnexpectedWorksList] = useState([]);
   const [brigadeContracts, setBrigadeContracts] = useState([]);
+  const [hiddenActs, setHiddenActs] = useState([]);
+  const [editingAct, setEditingAct] = useState(null);
   const [selectedBrigadeContract, setSelectedBrigadeContract] = useState(null);
   const [brigadeContractItems, setBrigadeContractItems] = useState([]);
   const [showBrigadeForm, setShowBrigadeForm] = useState(false);
@@ -642,7 +644,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
@@ -682,6 +684,7 @@ function App() {
         fetch(API+'/unexpected-works').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/estimates').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/brigade-contracts').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/hidden-works-acts').then(r=>r.json()).catch(()=>[]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -691,7 +694,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);
       try {
         const [rwin,rdoor] = await Promise.all([
           fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]),
@@ -999,6 +1002,74 @@ function App() {
     const type = contract.contractType || 'ГПХ';
     const fn = CONTRACTS[type] || CONTRACTS['ГПХ'];
     return fn(companyRequisites&&companyRequisites.fullName?companyRequisites:companyName, profile, contract);
+  };
+
+  const buildHiddenActContent = (act) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const fmtDate = (d) => {
+      if(!d) return '«___» __________ 20__ г.';
+      const dt = new Date(d);
+      if(isNaN(dt)) return d;
+      const months=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+      return '«'+String(dt.getDate()).padStart(2,'0')+'» '+months[dt.getMonth()]+' '+dt.getFullYear()+' г.';
+    };
+    const photoCnt = (act.photos||'').split(',').filter(Boolean).length;
+    const certCnt  = (act.certificates||'').split(',').filter(Boolean).length;
+    const sig = (label, name, date) => (
+      '<div class="hwa-sig">'+
+        '<div class="hwa-sig-label">'+label+'</div>'+
+        '<div class="hwa-sig-line">'+(name||'')+'</div>'+
+        '<div class="hwa-sig-sub">(должность, ФИО, подпись)</div>'+
+        '<div class="hwa-sig-date">'+(date?fmtDate(date):'«___» __________ 20__ г.')+'</div>'+
+      '</div>'
+    );
+    const concl = act.conclusion || 'Работы выполнены в соответствии с проектной документацией, требованиями технических регламентов, СНиП и ТУ. Разрешается производство последующих работ.';
+    let html = '';
+    html += '<style>'+
+      '.hwa-meta{margin:6px 0;font-size:12px}'+
+      '.hwa-title{text-align:center;font-weight:700;font-size:14px;margin:18px 0 4px}'+
+      '.hwa-sub{text-align:center;font-size:13px;margin:0 0 18px}'+
+      '.hwa-row{display:flex;justify-content:space-between;font-size:12px;margin:4px 0}'+
+      '.hwa-item{margin:8px 0;font-size:12px;line-height:1.5}'+
+      '.hwa-item b{display:inline-block;min-width:18px}'+
+      '.hwa-val{display:inline-block;border-bottom:1px solid #333;min-width:60%;padding:1px 4px}'+
+      '.hwa-block{border-top:1px solid #333;margin-top:6px;padding-top:8px;font-size:12px;line-height:1.5}'+
+      '.hwa-sigs{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px}'+
+      '.hwa-sig{font-size:11px}'+
+      '.hwa-sig-label{font-weight:600;margin-bottom:30px}'+
+      '.hwa-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'+
+      '.hwa-sig-sub{font-size:10px;color:#555;margin-top:2px}'+
+      '.hwa-sig-date{margin-top:8px;font-size:11px}'+
+      '@media print{.hwa-title{font-size:13px}}'+
+    '</style>';
+    html += '<div class="hwa-meta"><b>'+orgName+'</b></div>';
+    html += '<div class="hwa-title">АКТ</div>';
+    html += '<div class="hwa-sub">освидетельствования скрытых работ № <b>'+act.actNumber+'</b></div>';
+    html += '<div class="hwa-row"><span>'+(act.city?act.city:'г. ____________')+'</span><span>'+fmtDate(act.workDate||new Date().toISOString().slice(0,10))+'</span></div>';
+    html += '<div class="hwa-item"><b>Объект капитального строительства:</b> <span class="hwa-val">'+(act.projectName||'')+'</span></div>';
+    html += '<div class="hwa-item"><b>Представители:</b><br/>';
+    html += '— застройщика (технического заказчика): <span class="hwa-val">'+(act.signedCustomer||'')+'</span><br/>';
+    html += '— лица, осуществляющего строительный контроль: <span class="hwa-val">'+(act.signedSupervisor||'')+'</span><br/>';
+    html += '— лица, осуществляющего строительство (генподрядчик): <span class="hwa-val">'+(act.signedContractor||'')+'</span><br/>';
+    html += '— лица, выполнившего работы, подлежащие освидетельствованию: <span class="hwa-val">'+(act.signedSubcontractor||act.brigade||'')+'</span>';
+    html += '</div>';
+    html += '<div class="hwa-item">произвели осмотр работ, выполненных <span class="hwa-val">'+(act.brigade||'')+'</span>, и составили настоящий акт о нижеследующем:</div>';
+    html += '<div class="hwa-item"><b>1.</b> К освидетельствованию предъявлены следующие работы: <span class="hwa-val">'+(act.workName||'')+'</span> в объёме <b>'+act.quantity+' '+(act.unit||'')+'</b>'+(act.sectionName?' (раздел сметы «'+act.sectionName+'»)':'')+'.</div>';
+    html += '<div class="hwa-item"><b>2.</b> Работы выполнены по проектной документации: <span class="hwa-val">'+(act.projectDocs||'_______________________________________')+'</span></div>';
+    html += '<div class="hwa-item"><b>3.</b> При выполнении работ применены: <br/><div class="hwa-block">'+(act.materialsUsed||'_______________________________________').replace(/\n/g,'<br/>')+'</div></div>';
+    html += '<div class="hwa-item"><b>4.</b> Предъявлены документы, подтверждающие соответствие работ предъявляемым к ним требованиям: фотофиксация скрытых работ — <b>'+photoCnt+'</b> шт.; сертификаты, паспорта, протоколы испытаний — <b>'+certCnt+'</b> шт. (прилагаются к настоящему акту).</div>';
+    html += '<div class="hwa-item"><b>5.</b> Освидетельствованы скрытые работы: <span class="hwa-val">'+(act.workName||'')+'</span></div>';
+    html += '<div class="hwa-item"><b>6.</b> Дата окончания работ: <b>'+fmtDate(act.workDate)+'</b></div>';
+    html += '<div class="hwa-item"><b>7.</b> Заключение:<br/><div class="hwa-block">'+concl.replace(/\n/g,'<br/>')+'</div></div>';
+    html += '<div class="hwa-sigs">';
+    html += sig('Представитель застройщика (технического заказчика):',act.signedCustomer,act.signedCustomerAt);
+    html += sig('Представитель лица, осуществляющего строительный контроль:',act.signedSupervisor,act.signedSupervisorAt);
+    html += sig('Представитель лица, осуществляющего строительство (генподрядчик):',act.signedContractor,act.signedContractorAt);
+    html += sig('Представитель лица, выполнившего работы (субподрядчик):',act.signedSubcontractor||act.brigade,act.signedSubcontractorAt);
+    html += '</div>';
+    html += '<p style="margin-top:30px;font-size:10px;color:#555;text-align:center">Форма составлена согласно СНиП 12-01-2004 (Приложение 3). Документ сопровождает приёмку скрытых работ перед их закрытием последующими конструкциями.</p>';
+    return html;
   };
 
   const buildTBContent = (entry) => {
@@ -2317,6 +2388,92 @@ function App() {
     <div style={{display:'flex',height:'100vh',backgroundColor:C.bg,position:'relative',overflow:'hidden'}}>
       {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)}/>}
       {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'12px'}}/></div>)}
+      {editingAct&&(()=>{
+        const act=editingAct;
+        const upd=(k,v)=>setEditingAct({...editingAct,[k]:v});
+        const photosArr=(act.photos||'').split(',').filter(Boolean);
+        const certsArr=(act.certificates||'').split(',').filter(Boolean);
+        const saveAct=async()=>{
+          const body={status:act.status||'Черновик',signedCustomer:act.signedCustomer||'',signedSupervisor:act.signedSupervisor||'',signedContractor:act.signedContractor||'',signedSubcontractor:act.signedSubcontractor||'',signedCustomerAt:act.signedCustomerAt||'',signedSupervisorAt:act.signedSupervisorAt||'',signedContractorAt:act.signedContractorAt||'',signedSubcontractorAt:act.signedSubcontractorAt||'',conclusion:act.conclusion||'',comments:act.comments||'',materialsUsed:act.materialsUsed||'',projectDocs:act.projectDocs||'',photos:act.photos||'',certificates:act.certificates||'',city:act.city||''};
+          const res=await fetch(API+'/hidden-works-acts/'+act.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+          const data=await res.json().catch(()=>({}));
+          const newStatus=data.status||act.status;
+          const updated={...act,status:newStatus};
+          setHiddenActs(prev=>prev.map(a=>a.id===act.id?updated:a));
+          setEditingAct(null);
+        };
+        const onUploadPhoto=async file=>{const url=await uploadPhoto(file);if(url){const next=[...photosArr,url].join(',');upd('photos',next);}};
+        const onUploadCert=async file=>{const url=await uploadPhoto(file);if(url){const next=[...certsArr,url].join(',');upd('certificates',next);}};
+        const removePhoto=i=>{const next=photosArr.filter((_,idx)=>idx!==i).join(',');upd('photos',next);};
+        const removeCert=i=>{const next=certsArr.filter((_,idx)=>idx!==i).join(',');upd('certificates',next);};
+        const absUrl=u=>u.startsWith('http')?u:API+u;
+        const labelStyle={fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px',display:'block'};
+        const sectionStyle={marginBottom:'14px'};
+        const allSigned=!!(act.signedCustomer&&act.signedSupervisor&&act.signedContractor&&act.signedSubcontractor);
+        return(<div onClick={()=>setEditingAct(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(900px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
+              <div>
+                <b style={{color:C.text,fontSize:'16px',display:'block'}}>🔒 {act.actNumber}</b>
+                <span style={{fontSize:'12px',color:C.textSec}}>Акт освидетельствования скрытых работ · {act.projectName}</span>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                <span style={{padding:'4px 10px',borderRadius:'12px',fontSize:'12px',fontWeight:'600',backgroundColor:allSigned?C.successLight:C.warningLight,color:allSigned?C.success:C.warning}}>{allSigned?'Подписан':(act.status||'Черновик')}</span>
+                <button onClick={()=>setEditingAct(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
+              </div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
+                <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize:'13px',color:C.text}}>{act.sectionName||'—'}</b></div>
+                <div><p style={labelStyle}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{act.workName}</b></div>
+                <div><p style={labelStyle}>Бригада</p><b style={{fontSize:'13px',color:C.text}}>{act.brigade||'—'}</b></div>
+                <div><p style={labelStyle}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{act.quantity+' '+(act.unit||'')}</b></div>
+                <div><p style={labelStyle}>Цена за ед.</p><b style={{fontSize:'13px',color:C.text}}>{Number(act.pricePerUnit||0).toLocaleString('ru-RU')+' ₽'}</b></div>
+                <div><p style={labelStyle}>Сумма</p><b style={{fontSize:'14px',color:C.accent}}>{Number(act.total||0).toLocaleString('ru-RU')+' ₽'}</b></div>
+                <div><p style={labelStyle}>Дата работ</p><b style={{fontSize:'13px',color:C.text}}>{act.workDate||'—'}</b></div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
+                <div><label style={labelStyle}>Город (для печати)</label><input value={act.city||''} onChange={e=>upd('city',e.target.value)} placeholder='напр. г. Барнаул' style={inp}/></div>
+                <div><label style={labelStyle}>Статус (вручную)</label><select value={act.status||'Черновик'} onChange={e=>upd('status',e.target.value)} style={inp}><option>Черновик</option><option>На подписи</option><option>Подписан</option><option>Аннулирован</option></select></div>
+              </div>
+              <div style={sectionStyle}><label style={labelStyle}>Использованные материалы (марки, сертификаты)</label><textarea value={act.materialsUsed||''} onChange={e=>upd('materialsUsed',e.target.value)} placeholder='Напр.: арматура А500С по ГОСТ 5781-82, сертификат №...; бетон В25 W6, паспорт №...' style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
+              <div style={sectionStyle}><label style={labelStyle}>Проектная документация (чертежи, разделы)</label><textarea value={act.projectDocs||''} onChange={e=>upd('projectDocs',e.target.value)} placeholder='Напр.: раздел КЖ, лист 12; раздел АР, узел 4' style={{...inp,minHeight:'60px',resize:'vertical'}}/></div>
+              <div style={sectionStyle}><label style={labelStyle}>Заключение комиссии</label><textarea value={act.conclusion||''} onChange={e=>upd('conclusion',e.target.value)} placeholder='Работы выполнены в соответствии с проектной документацией. Разрешается производство последующих работ.' style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
+              <div style={{...sectionStyle,padding:'14px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
+                <b style={{display:'block',marginBottom:'10px',color:C.text,fontSize:'13px'}}>✍️ Подписи комиссии (ФИО + дата)</b>
+                {[{role:'Заказчик',f:'signedCustomer',d:'signedCustomerAt'},{role:'Технадзор',f:'signedSupervisor',d:'signedSupervisorAt'},{role:'Генподрядчик',f:'signedContractor',d:'signedContractorAt'},{role:'Субподрядчик',f:'signedSubcontractor',d:'signedSubcontractorAt'}].map(s=>(<div key={s.f} style={{display:'grid',gridTemplateColumns:'140px 1fr 140px',gap:'8px',marginBottom:'8px',alignItems:'center'}}>
+                  <span style={{fontSize:'12px',color:C.textSec,fontWeight:'600'}}>{s.role}:</span>
+                  <input value={act[s.f]||''} onChange={e=>upd(s.f,e.target.value)} placeholder='ФИО, должность, организация' style={{...inp,marginBottom:0}}/>
+                  <input type='date' value={act[s.d]||''} onChange={e=>upd(s.d,e.target.value)} style={{...inp,marginBottom:0}}/>
+                </div>))}
+                <p style={{fontSize:'11px',color:C.textMuted,margin:'8px 0 0',lineHeight:1.4}}>Когда все 4 ФИО заполнены — статус акта автоматически станет «Подписан» при сохранении.</p>
+              </div>
+              <div style={sectionStyle}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                  <b style={{color:C.text,fontSize:'13px'}}>📷 Фото скрытых работ ({photosArr.length})</b>
+                  <label style={{...btnB,padding:'5px 10px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>Добавить фото<input type='file' accept='image/*' multiple style={{display:'none'}} onChange={async e=>{for(const f of Array.from(e.target.files)){await onUploadPhoto(f);}}}/></label>
+                </div>
+                {photosArr.length===0?<p style={{color:C.textMuted,fontSize:'12px',margin:0}}>Фотографий не загружено</p>:(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(90px,1fr))',gap:'8px'}}>{photosArr.map((u,i)=>(<div key={i} style={{position:'relative'}}><img src={absUrl(u)} alt='' onClick={()=>setShowPhotoModal(absUrl(u))} style={{width:'100%',height:'90px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/><button onClick={()=>removePhoto(i)} style={{position:'absolute',top:'2px',right:'2px',backgroundColor:'rgba(0,0,0,0.6)',color:'white',border:'none',borderRadius:'50%',width:'20px',height:'20px',cursor:'pointer',fontSize:'11px'}}>×</button></div>))}</div>)}
+              </div>
+              <div style={sectionStyle}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                  <b style={{color:C.text,fontSize:'13px'}}>📄 Сертификаты и документы ({certsArr.length})</b>
+                  <label style={{...btnB,padding:'5px 10px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>Загрузить файл<input type='file' accept='.pdf,.xlsx,.xls,.doc,.docx,image/*' multiple style={{display:'none'}} onChange={async e=>{for(const f of Array.from(e.target.files)){await onUploadCert(f);}}}/></label>
+                </div>
+                {certsArr.length===0?<p style={{color:C.textMuted,fontSize:'12px',margin:0}}>Файлов не прикреплено</p>:(<div style={{display:'flex',flexDirection:'column',gap:'4px'}}>{certsArr.map((u,i)=>{const name=u.split('/').pop()||u;return(<div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,borderRadius:'8px'}}><a href={absUrl(u)} target='_blank' rel='noreferrer' style={{color:C.accent,fontSize:'12px',textDecoration:'none',display:'flex',alignItems:'center',gap:'6px',flex:1,overflow:'hidden'}}><span>📄</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{name}</span></a><button onClick={()=>removeCert(i)} style={{...btnR,padding:'3px 7px',fontSize:'11px'}}><X size={10}/></button></div>);})}</div>)}
+              </div>
+              <div style={sectionStyle}><label style={labelStyle}>Комментарии (внутренние)</label><textarea value={act.comments||''} onChange={e=>upd('comments',e.target.value)} placeholder='Внутренние пометки, не печатаются' style={{...inp,minHeight:'50px',resize:'vertical'}}/></div>
+            </div>
+            <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
+              <button onClick={()=>{showPreview(buildHiddenActContent(act),'АОСР № '+act.actNumber);}} style={btnB}><Eye size={14}/>🖨️ Печать по СНиП</button>
+              <div style={{display:'flex',gap:'8px'}}>
+                <button onClick={()=>setEditingAct(null)} style={btnG}>Отмена</button>
+                <button onClick={saveAct} style={btnO}><Check size={14}/>Сохранить</button>
+              </div>
+            </div>
+          </div>
+        </div>);
+      })()}
       {showQRModal&&(<div onClick={()=>setShowQRModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.7)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><div style={{backgroundColor:'white',padding:'30px',borderRadius:'16px',textAlign:'center'}} onClick={e=>e.stopPropagation()}><h3 style={{color:C.text,marginBottom:'16px'}}>{showQRModal.title}</h3><img src={generateQR(showQRModal.data)} alt="QR" style={{width:'200px',height:'200px'}}/><p style={{color:C.textSec,fontSize:'12px',marginTop:'12px'}}>Сканируйте для быстрого доступа</p><button onClick={()=>setShowQRModal(null)} style={{...btnG,marginTop:'12px'}}>Закрыть</button></div></div>)}
       {rejectingEntry&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Причина отклонения</h3><textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inp,height:'100px',resize:'vertical'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>rejectJ(rejectingEntry,rejectComment)} style={btnR}><X size={14}/>Отклонить</button><button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnG}>Отмена</button></div></div></div>)}
       {showIssueToolModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{'Выдать: '+showIssueToolModal.name}</h3><select value={issueToolData.masterName} onChange={e=>setIssueToolData({...issueToolData,masterName:e.target.value})} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.fullName}>{mp.fullName}</option>)}</select><select value={issueToolData.project} onChange={e=>setIssueToolData({...issueToolData,project:e.target.value})} style={inp}><option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><select value={issueToolData.issueType} onChange={e=>setIssueToolData({...issueToolData,issueType:e.target.value})} style={inp}><option value="Временно">Временно</option><option value="В счёт зарплаты">В счёт зарплаты</option></select><div style={{display:'flex',gap:'10px'}}><button onClick={()=>issueTool(showIssueToolModal)} style={btnO}><Check size={14}/>Выдать</button><button onClick={()=>setShowIssueToolModal(null)} style={btnG}>Отмена</button></div></div></div>)}
@@ -2494,7 +2651,7 @@ function App() {
                         {id:'work',icon:'🔨',label:'Работы',tabs:['Наряды','Журнал','Непредвиденные','Чек-листы']},
                         {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
                         {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы']},
-                        {id:'docs',icon:'📋',label:'Документы',tabs:['Предписания','Журнал ТБ','Чат']},
+                        {id:'docs',icon:'📋',label:'Документы',tabs:['Предписания','Журнал ТБ','Чат','АОСР']},
                       ];
                       const activeGroup=tabGroups.find(g=>g.tabs.includes(activeProjectTab));
                       return(<div>
@@ -3273,6 +3430,59 @@ function App() {
                         </div>
                       </div>))}
                       {tbJournal.filter(e=>e.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Записей нет</p>}
+                  </div>)}
+                    {activeProjectTab==='АОСР'&&(<div>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
+                        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🔒 Акты освидетельствования скрытых работ</b>
+                        <span style={{fontSize:'11px',color:C.textMuted}}>Создаются автоматически из сметы по позициям с 🔒</span>
+                      </div>
+                      {(()=>{const actsHere=hiddenActs.filter(a=>a.projectName===p.name);if(actsHere.length===0)return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>📋</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Актов скрытых работ пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Как появятся: в смете объекта отметьте позиции переключателем 🔒.<br/>Когда по такой позиции заполнят «Сделано» — черновик акта создастся сам.</p></div>);
+                        const cntDraft=actsHere.filter(a=>a.status!=='Подписан').length;
+                        const cntSigned=actsHere.filter(a=>a.status==='Подписан').length;
+                        const sumTotal=actsHere.reduce((s,a)=>s+Number(a.total||0),0);
+                        return(<div>
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'14px'}}>
+                            <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Всего актов</p><b style={{color:C.text,fontSize:'16px'}}>{actsHere.length}</b></div>
+                            <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Черновики</p><b style={{color:C.warning,fontSize:'16px'}}>{cntDraft}</b></div>
+                            <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Подписано</p><b style={{color:C.success,fontSize:'16px'}}>{cntSigned}</b></div>
+                          </div>
+                          <div style={{...card,padding:0,overflow:'auto'}}>
+                            <table style={tbl}><thead><tr>
+                              <th style={tblH}>№ акта</th>
+                              <th style={tblH}>Раздел</th>
+                              <th style={tblH}>Работа</th>
+                              <th style={tblH}>Бригада</th>
+                              <th style={tblH}>Объём</th>
+                              <th style={tblH}>Дата</th>
+                              <th style={tblH}>Сумма</th>
+                              <th style={tblH}>Подписи</th>
+                              <th style={tblH}>Статус</th>
+                              <th style={tblH}></th>
+                            </tr></thead><tbody>
+                              {actsHere.map(act=>{const signs=[!!act.signedCustomer,!!act.signedSupervisor,!!act.signedContractor,!!act.signedSubcontractor];const labels=['Заказчик','Технадзор','Генподрядчик','Субподрядчик'];return(<tr key={act.id} style={{cursor:'pointer'}} onClick={()=>setEditingAct(act)}>
+                                <td style={tblC}><b style={{color:C.accent}}>{act.actNumber}</b></td>
+                                <td style={tblC}>{act.sectionName||'—'}</td>
+                                <td style={{...tblC,maxWidth:'280px',whiteSpace:'normal'}}>{act.workName}</td>
+                                <td style={tblC}>{act.brigade||'—'}</td>
+                                <td style={tblC}>{act.quantity+' '+(act.unit||'')}</td>
+                                <td style={tblC}>{act.workDate||'—'}</td>
+                                <td style={tblC}>{Number(act.total||0).toLocaleString('ru-RU')+' ₽'}</td>
+                                <td style={tblC}><div style={{display:'flex',gap:'3px'}}>{signs.map((ok,i)=>(<div key={i} title={labels[i]+(ok?': подписано':': нет подписи')} style={{width:'12px',height:'12px',borderRadius:'50%',backgroundColor:ok?C.success:C.border,border:'1.5px solid '+(ok?C.success:C.border)}}/>))}</div></td>
+                                <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:act.status==='Подписан'?C.successLight:C.warningLight,color:act.status==='Подписан'?C.success:C.warning}}>{act.status||'Черновик'}</span></td>
+                                <td style={tblC} onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:'4px'}}>
+                                  <button onClick={()=>setEditingAct(act)} title="Открыть карточку" style={{...btnB,padding:'3px 7px'}}>✏️</button>
+                                  <button onClick={()=>showPreview(buildHiddenActContent(act),'АОСР № '+act.actNumber)} title="Печать по СНиП" style={{...btnG,padding:'3px 7px'}}>🖨️</button>
+                                  {isLeadership()&&<button onClick={async()=>{if(!window.confirm('Удалить акт '+act.actNumber+'?')) return;await fetch(API+'/hidden-works-acts/'+act.id,{method:'DELETE'});setHiddenActs(prev=>prev.filter(a=>a.id!==act.id));}} title="Удалить" style={{...btnR,padding:'3px 7px'}}>🗑️</button>}
+                                </div></td>
+                              </tr>);})}
+                            </tbody></table>
+                          </div>
+                          <div style={{marginTop:'12px',padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,borderRadius:'10px',textAlign:'right'}}>
+                            <span style={{color:C.textSec,fontSize:'12px',marginRight:'10px'}}>Сумма по всем актам объекта:</span>
+                            <b style={{color:C.accent,fontSize:'15px'}}>{sumTotal.toLocaleString('ru-RU')+' ₽'}</b>
+                          </div>
+                        </div>);
+                      })()}
                   </div>)}
                   </div>
                 </div>)}
