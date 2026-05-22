@@ -58,11 +58,14 @@
 
 ## Что готово (по фичам)
 
-### 📋 Сметы
+### 📋 Сметы (новый источник правды для всех работ)
 - Импорт LSR/Grand Smeta из Excel (`/parse-smeta` `backend/main.py:1998`)
 - Парсер берёт цены работ из col[13], материалов из col[15], делает totalWork/totalMaterial раздельно
 - В UI каждый раздел делится на **🔨 Работы** и **📦 Материалы**
 - **Inline-редактирование** каждой позиции (имя, ед, кол-во, цены) — PUT на blur
+- **Колонки прогресса в каждой строке:** 👷 Кому (dropdown бригад) / ✅ Сделано / 📉 Осталось / 🔒 Скрытая работа (toggle)
+- **При увеличении doneQuantity** — backend автоматически пишет в `work_journal` (status='Автоматически из сметы')
+- **Если позиция помечена 🔒 (hiddenWork=true)** — backend дополнительно создаёт черновик в `hidden_works_acts` (АОСР)
 - ⭐ Шаблоны смет (`is_template`, выбор при создании)
 - 📜 История версий — `estimate_versions`, snapshot при каждом PUT, восстановление
 - 🤖 AI-сравнение версий — `jsonOnly` qwen, выдаёт diff
@@ -70,7 +73,14 @@
 - 🤖 AI-анализ сметы — структурированный JSON: top/sections/risks/actions
 - 🤖 AI-проверка при импорте — фоновый запрос, плашка с warnings
 - 💬 Чат по смете — `estimate_chat_messages`, диалог с памятью на 20 turns
-- 👷 **Распределение сметы по бригадам** — POST `/estimates/:id/distribute` создаёт `brigade_contract` per бригаду + `brigade_contract_items` с copy позиций. Есть AI-suggest распределения
+- 👷 **Распределение сметы по бригадам** — POST `/estimates/:id/distribute` создаёт `brigade_contract` per бригаду + `brigade_contract_items` (LEGACY, рабочее но избыточное)
+
+### 🎯 Работы мастера (новый flow — источник: смета)
+- На странице «Работы» секция **«🎯 Мои работы по смете»** — позиции сметы где `brigadeName === user.name || === user.brigade`
+- Мастер вводит «Сделано» — сохраняется в смету (sections_json.items[].doneQuantity)
+- Backend при сохранении сам пишет в журнал и АОСР
+- Старая секция «Наряды по объекту (старая система)» осталась для legacy
+- Свободные работы через прайс остаются доступны если наряд не выбран
 
 ### 🏷️ Прайс-листы
 - Доступ через вкладку в Сметах (не в сайдбаре)
@@ -150,6 +160,11 @@ staff(id, name, role, phone, salary, project, pay_type,
       ... 31 поле для расширенной карточки)
 staff_documents(id, staff_id, doc_type, title, file_url, status, signed_at, expires_at, notes)
 project_ai_summary(project_name PK, payload_hash, summary, updated_at)
+hidden_works_acts(id, project_name, estimate_id, act_number, work_name, section_name, brigade,
+                  quantity, unit, price_per_unit, total, work_date, materials_used, project_docs,
+                  conclusion, signed_customer, signed_supervisor, signed_contractor,
+                  signed_subcontractor, status, comments, created_at)
+                  -- АОСР: создаётся автоматически при заполнении doneQuantity по позиции с hiddenWork=true
 users(id, name, email, password, role, project_id, project_name)
 master_profiles(id, user_id, full_name, passport, inn, contract_type, ogrnip, bank_account,
                 bank_name, phone, specialization)
@@ -192,6 +207,9 @@ tb_journal(id, project_name, instructor, instruction_type, date, master_name, ..
 - `/project-ai-summary`, `/project-ai-summary/:name` — кеш AI-сводки
 - `/staff/:id/profile` — досье сотрудника (все документы из всех источников)
 - `/staff/:id/documents`, DELETE `/staff-documents/:id` — custom документы
+- `/hidden-works-acts` (GET с ?project_name=) — список АОСР
+- PUT/DELETE `/hidden-works-acts/:id` — обновление и удаление АОСР
+- PUT `/estimates/:id` — теперь дополнительно автоматически пишет в `work_journal` и `hidden_works_acts` при изменении doneQuantity. Возвращает `{ok, journalEntries, hiddenWorkActs}` с количеством созданных записей.
 
 ## Известные нерешённые / отложенные
 
@@ -211,13 +229,36 @@ tb_journal(id, project_name, instructor, instruction_type, date, master_name, ..
 - На сервере иногда падает web-консоль провайдера — лучше работать через SSH
 - Сам пользователь иногда вводит команды на экране входа в систему вместо терминала — нужно вначале объяснить про login
 
-## Текущий приоритет
+## Текущий приоритет (что обсуждается прямо сейчас)
 
-После большой серии работы по нарядам/прайсам/персоналу — пользователь сейчас активно тестирует. Следующие шаги (если он решит):
+### 🔥 Открытый вопрос: АОСР (Акт освидетельствования скрытых работ)
+Пользователь хочет чтобы при заполнении мастером «Сделано» в смете:
+- ✅ Автоматически добавлялась запись в журнал работ (`work_journal`) — **РЕАЛИЗОВАНО** в PUT /estimates/:id
+- ✅ Если позиция помечена «🔒 скрытая работа» — создавался черновик АОСР — **РЕАЛИЗОВАНО** (новая таблица `hidden_works_acts`)
+- ❌ UI для просмотра/печати/подписания АОСР — **НЕ СДЕЛАН** (стоит обсудить в новой сессии)
+
+**АОСР** — это унифицированная форма по СНиП 12-01-2004. Отдельный документ от КС-2 (`interim_acts`). Используется для приёмки работ которые закрываются другими конструкциями (армирование под бетон, гидроизоляция под облицовку, утепление под отделку и т.п.). Требует подписей: представитель заказчика / технадзор / генподрядчик / субподрядчик.
+
+**Что нужно сделать в следующей сессии:**
+1. Обсудить с пользователем какую форму нужно генерировать (стандартная по СНиП или своя)
+2. Сделать UI: вкладка «Скрытые работы» в проекте, список АОСР с возможностью открыть карточку
+3. Карточка АОСР: реквизиты, материалы, ссылки на ПД, поля для подписей, кнопка «Печать»
+4. Подпись через геолокацию / фото подписи / простая отметка
+
+### Текущая радикальная перестройка нарядов
+Сделано — смета теперь источник правды:
+- В смете у каждой позиции колонки 👷 Кому / ✅ Сделано / 📉 Осталось / 🔒 Скрытая работа
+- У мастера на странице «Работы» появилась секция «🎯 Мои работы по смете» (фильтр по brigadeName == user.name или user.brigade)
+- Старая вкладка «Наряды» в проекте переименована в «старая система», но осталась для legacy данных
+- brigade_contracts остались как реестр контактов и договоров
+
+### Следующие шаги (по выбору пользователя)
+- UI для АОСР (см. выше)
 - Stage 2 карточки сотрудника (AI-проверка документов, генератор договоров)
 - Тёмная тема
 - Push-уведомления
 - Доделка мобильной адаптации
+- Окончательное удаление старой вкладки «Наряды (старая система)» когда все привыкнут к новому flow
 
 ## Workflow
 
@@ -270,7 +311,14 @@ su - postgres -c "psql stroyka -c \"INSERT INTO users (name, email, password, ro
 
 ## Полная история коммитов (последние, для ориентации)
 
-См. `git log --oneline -50` для актуального списка. Ключевые вехи:
+См. `git log --oneline -60` для актуального списка. Ключевые вехи:
+
+**Эстимат-центричный flow (последние):**
+- `4050f9d` Auto-create work_journal entries and АОСР drafts on done qty change
+- `44e7300` Estimate-centric workflow: brigade & done qty inline in estimate
+- `613759f` Brigade contract: align row cells with reordered header
+- `f908889` Show 'Осталось' (remaining)
+- `a519f9b` UI polish: tabs, sums card, brigade button gradient
 
 **UI/UX полировка:**
 - `a519f9b` UI polish: tabs, sums card, brigade button gradient
