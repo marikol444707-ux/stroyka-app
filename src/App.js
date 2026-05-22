@@ -4393,7 +4393,7 @@ function App() {
                       <th style={{...tblH,width:'36px'}}></th>
                     </tr></thead><tbody>
                       {list.map(item=>{const qty=Number(item.quantity)||0;const done=Number(item.doneQuantity)||0;const remain=Math.max(0,qty-done);return(<tr key={item.id||item._idx}>
-                        <td style={tblC}><input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></td>
+                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}><button onClick={()=>{updateItem(item._idx,'hiddenWork',!item.hiddenWork);setTimeout(persist,100);}} title={item.hiddenWork?'Скрытая работа (для акта)':'Обычная работа'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button><input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
                         <td style={tblC}><select value={item.unit||'шт'} onChange={e=>{updateItem(item._idx,'unit',e.target.value);setTimeout(persist,100);}} style={inpCell}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
                         <td style={tblC}><input type='number' value={item.quantity||''} onChange={e=>updateItem(item._idx,'quantity',e.target.value)} onBlur={persist} style={inpCell}/></td>
                         <td style={tblC}><select value={item.brigadeName||''} onChange={e=>{updateItem(item._idx,'brigadeName',e.target.value);setTimeout(persist,100);}} style={inpCell}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>

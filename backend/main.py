@@ -407,6 +407,30 @@ def init_db():
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS signature_url VARCHAR(255);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS notes TEXT;
         ALTER TABLE pricelist_items ADD COLUMN IF NOT EXISTS item_type VARCHAR(20);
+        CREATE TABLE IF NOT EXISTS hidden_works_acts (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            estimate_id INT,
+            act_number VARCHAR(100),
+            work_name TEXT,
+            section_name VARCHAR(255),
+            brigade VARCHAR(255),
+            quantity NUMERIC(14,4),
+            unit VARCHAR(50),
+            price_per_unit NUMERIC(14,2),
+            total NUMERIC(14,2),
+            work_date DATE,
+            materials_used TEXT,
+            project_docs TEXT,
+            conclusion TEXT,
+            signed_customer VARCHAR(255),
+            signed_supervisor VARCHAR(255),
+            signed_contractor VARCHAR(255),
+            signed_subcontractor VARCHAR(255),
+            status VARCHAR(50) DEFAULT 'Черновик',
+            comments TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS staff_documents (
             id SERIAL PRIMARY KEY,
             staff_id INT NOT NULL,
@@ -2405,13 +2429,17 @@ def create_estimate(data: dict):
 @app.put("/estimates/{id}")
 def update_estimate(id: int, data: dict):
     import json as j
+    from datetime import date as _date
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT sections_json, version FROM estimates WHERE id=%s", (id,))
+    cur.execute("SELECT sections_json, version, project_name FROM estimates WHERE id=%s", (id,))
     prev = cur.fetchone()
+    project_name = (prev[2] or "") if prev else ""
+
+    old_sections = []
     if prev and prev[0]:
         try:
-            old_sections = j.loads(prev[0]) if prev[0] else []
+            old_sections = j.loads(prev[0])
             total = 0
             for s in old_sections:
                 for it in (s.get("items") or []):
@@ -2423,11 +2451,61 @@ def update_estimate(id: int, data: dict):
                 (id, prev[1] or "", prev[0], total, data.get("versionComment",""), data.get("updatedBy","")))
         except Exception:
             pass
+
+    new_sections = data.get("sections", []) or []
     cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s WHERE id=%s",
-        (data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),id))
+        (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),id))
+
+    # Build lookup of old done qty by (section name, item name)
+    old_done = {}
+    for s in old_sections:
+        for it in (s.get("items") or []):
+            key = (s.get("name",""), it.get("name",""))
+            old_done[key] = float(it.get("doneQuantity") or 0)
+
+    today = _date.today().isoformat()
+    journal_added = 0
+    acts_added = 0
+    for s in new_sections:
+        for it in (s.get("items") or []):
+            new_done = float(it.get("doneQuantity") or 0)
+            key = (s.get("name",""), it.get("name",""))
+            old_q = old_done.get(key, 0)
+            delta = new_done - old_q
+            if delta <= 0:
+                continue
+            brigade = (it.get("brigadeName") or "").strip()
+            unit = it.get("unit") or "шт"
+            price = float(it.get("priceWork") or 0) + float(it.get("priceMaterial") or 0)
+            try:
+                cur.execute("""INSERT INTO work_journal (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (None, brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, price, round(delta*price,2), today,
+                     "Автоматически из сметы",
+                     "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id)))
+                journal_added += 1
+            except Exception as e:
+                print("AUTO-JOURNAL ERROR:", str(e))
+
+            # If item flagged as hidden work — create draft АОСР (Акт освидетельствования скрытых работ)
+            if it.get("hiddenWork"):
+                try:
+                    cur.execute("SELECT COUNT(*) FROM hidden_works_acts WHERE project_name=%s", (project_name,))
+                    next_num = (cur.fetchone()[0] or 0) + 1
+                    act_number = "АОСР-"+str(next_num)+"/"+str(id)
+                    cur.execute("""INSERT INTO hidden_works_acts
+                                   (project_name, estimate_id, act_number, work_name, section_name, brigade,
+                                    quantity, unit, price_per_unit, total, work_date, status)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (project_name, id, act_number, it.get("name",""), s.get("name",""),
+                         brigade or "", delta, unit, price, round(delta*price,2), today, "Черновик"))
+                    acts_added += 1
+                except Exception as e:
+                    print("AUTO-ACT ERROR:", str(e))
+
     conn.commit()
     cur.close(); conn.close()
-    return {"ok":True}
+    return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added}
 
 @app.put("/estimates/{id}/toggle-template")
 def toggle_estimate_template(id: int):
@@ -3516,6 +3594,54 @@ def ai_generate_pricelist(data: dict):
     cur.close(); conn.close()
 
     return {"ok": True, "id": pricelist_id, "name": final_name, "itemsCount": inserted}
+
+@app.get("/hidden-works-acts")
+def list_hidden_works_acts(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    if project_name:
+        cur.execute("""SELECT id, project_name, estimate_id, act_number, work_name, section_name, brigade,
+                       quantity, unit, price_per_unit, total, work_date, status,
+                       signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
+                       conclusion, comments, created_at
+                       FROM hidden_works_acts WHERE project_name=%s ORDER BY id DESC""", (project_name,))
+    else:
+        cur.execute("""SELECT id, project_name, estimate_id, act_number, work_name, section_name, brigade,
+                       quantity, unit, price_per_unit, total, work_date, status,
+                       signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
+                       conclusion, comments, created_at
+                       FROM hidden_works_acts ORDER BY id DESC""")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1],"estimateId":r[2],"actNumber":r[3],"workName":r[4],
+             "sectionName":r[5],"brigade":r[6],"quantity":float(r[7] or 0),"unit":r[8],
+             "pricePerUnit":float(r[9] or 0),"total":float(r[10] or 0),"workDate":str(r[11]) if r[11] else "",
+             "status":r[12],"signedCustomer":r[13] or "","signedSupervisor":r[14] or "",
+             "signedContractor":r[15] or "","signedSubcontractor":r[16] or "",
+             "conclusion":r[17] or "","comments":r[18] or "","createdAt":str(r[19])} for r in rows]
+
+@app.put("/hidden-works-acts/{act_id}")
+def update_hidden_works_act(act_id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""UPDATE hidden_works_acts SET
+                   status=%s, signed_customer=%s, signed_supervisor=%s, signed_contractor=%s,
+                   signed_subcontractor=%s, conclusion=%s, comments=%s, project_docs=%s, materials_used=%s
+                   WHERE id=%s""",
+        (data.get("status","Черновик"), data.get("signedCustomer",""), data.get("signedSupervisor",""),
+         data.get("signedContractor",""), data.get("signedSubcontractor",""),
+         data.get("conclusion",""), data.get("comments",""),
+         data.get("projectDocs",""), data.get("materialsUsed",""), act_id))
+    conn.commit(); cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/hidden-works-acts/{act_id}")
+def delete_hidden_works_act(act_id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM hidden_works_acts WHERE id=%s", (act_id,))
+    conn.commit(); cur.close(); conn.close()
+    return {"ok": True}
 
 @app.get("/estimates/{estimate_id}/chat-history")
 def get_estimate_chat(estimate_id: int):
