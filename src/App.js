@@ -1584,6 +1584,92 @@ function App() {
   const _estimateForProject = (p) => estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
   const projectPlanDone = (p) => { const est=_estimateForProject(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ const q=Number(it.quantity||0), dq=Number(it.doneQuantity||0), pr=Number(it.priceWork||0)+Number(it.priceMaterial||0); pl+=q*pr; dn+=dq*pr; })); return {plan:pl,done:dn}; };
   const projectRealProgress = (p) => { if(!p) return 0; const {plan,done}=projectPlanDone(p); if(plan>0) return Math.round(done/plan*100); return Number(p.progress||0); };
+
+  // Уведомления для текущего пользователя — собираются из АОСР, непредвиденных, предписаний
+  const computeNotifications = () => {
+    if (!user) return [];
+    const out = [];
+    const today = new Date().toISOString().split('T')[0];
+    if (user.role==='бухгалтер'||user.role==='директор'||user.role==='зам_директора'){
+      hiddenActs.filter(a=>a.status==='Подписан'&&a.paidStatus!=='Оплачен').forEach(a=>{
+        out.push({type:'pay',title:'АОСР подписан — можно платить бригаде',text:a.actNumber+' · '+a.workName+' · '+Math.round(Number(a.total||0)).toLocaleString('ru-RU')+' ₽',target:'accounting',icon:'💰',color:'#10b981'});
+      });
+    }
+    if (user.role==='заказчик'){
+      (unexpectedWorksList||[]).filter(u=>u.projectName===(user.project_name||user.projectName)&&u.status==='Ожидает согласования').forEach(u=>{
+        out.push({type:'unx',title:'Доп.работа на согласование',text:u.description+' · '+(u.total||0).toLocaleString('ru-RU')+' ₽',icon:'🆕',color:'#fbbf24'});
+      });
+      hiddenActs.filter(a=>a.projectName===(user.project_name||user.projectName)&&!a.signedCustomer).forEach(a=>{
+        out.push({type:'aosr',title:'АОСР ждёт моей подписи',text:a.actNumber+' · '+a.workName,icon:'🔒',color:'#f97316'});
+      });
+    }
+    if (user.role==='технадзор'){
+      hiddenActs.filter(a=>a.projectName===(user.project_name||user.projectName)&&!a.signedSupervisor).forEach(a=>{
+        out.push({type:'aosr',title:'АОСР ждёт моей подписи',text:a.actNumber+' · '+a.workName,icon:'🔒',color:'#f97316'});
+      });
+    }
+    if (['прораб','мастер'].includes(user.role)){
+      (prescriptionsList||[]).filter(pr=>pr.responsible===user.name&&pr.status==='Открыто'&&pr.deadline&&pr.deadline<today).forEach(pr=>{
+        out.push({type:'presc',title:'Предписание просрочено',text:(pr.violation||pr.description||'').slice(0,80),icon:'⚠️',color:'#ef4444'});
+      });
+    }
+    return out;
+  };
+
+  // Хелпер: статус АОСР для записи журнала работ
+  const getActStatusForJournal = (w) => {
+    if (!w.hiddenWork) return null;
+    const act = hiddenActs.find(a=>a.projectName===w.project&&(a.workName||'').trim()===(w.description||'').trim());
+    if (!act) return {status:'none', icon:'❓', tip:'АОСР не найден'};
+    if (act.status==='Подписан') return {status:'signed', icon:'✅', tip:'АОСР подписан', act};
+    return {status:'draft', icon:'⏳', tip:'АОСР черновик — ждёт подписей', act};
+  };
+
+  // Формы М-15 (накладная на отпуск материалов) и месячного отчёта технадзора
+  const buildM15Content = (transfer) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const fmtDate = (d) => { if(!d) return ''; const dt=new Date(d); if(isNaN(dt)) return d; return ('0'+dt.getDate()).slice(-2)+'.'+('0'+(dt.getMonth()+1)).slice(-2)+'.'+dt.getFullYear(); };
+    let html = '<style>.m15-tbl{border-collapse:collapse;width:100%;font-size:11px}.m15-tbl th,.m15-tbl td{border:1px solid #333;padding:5px 6px}.m15-tbl th{background:#f3f4f6}</style>';
+    html += '<h3 style="text-align:center;margin:8px 0">Унифицированная форма № М-15</h3>';
+    html += '<h2 style="text-align:center;margin:0 0 4px">НАКЛАДНАЯ № '+transfer.id+' на отпуск материалов на сторону</h2>';
+    html += '<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
+    html += '<table class="m15-tbl"><tr><th>Организация</th><td>'+orgName+'</td><th>Дата</th><td>'+fmtDate(transfer.transferDate||transfer.date)+'</td></tr>';
+    html += '<tr><th>Отправитель</th><td>'+(transfer.fromLocation||'Основной склад')+'</td><th>Получатель</th><td>'+(transfer.toPerson||'')+' ('+(transfer.toPersonRole||'')+')</td></tr>';
+    html += '<tr><th>Объект</th><td colspan="3">'+(transfer.projectName||'')+'</td></tr></table>';
+    html += '<table class="m15-tbl" style="margin-top:12px"><tr><th>№</th><th>Наименование материала</th><th>Ед.изм.</th><th>Количество</th><th>Примечание</th></tr>';
+    html += '<tr><td>1</td><td>'+(transfer.materialName||'')+'</td><td>'+(transfer.unit||'')+'</td><td>'+(transfer.quantity||0)+'</td><td>'+(transfer.notes||'')+'</td></tr>';
+    html += '</table>';
+    html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:30px">';
+    html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Отпустил:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получил:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(transfer.toPerson||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html += '</div>';
+    return html;
+  };
+
+  const buildSupervisorMonthlyReport = (projectName, periodFrom, periodTo) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const project = projects.find(p=>p.name===projectName)||{};
+    const inRange = (d) => !d ? false : (!periodFrom||d>=periodFrom) && (!periodTo||d<=periodTo);
+    const acts = hiddenActs.filter(a=>a.projectName===projectName&&inRange(a.workDate));
+    const supActs = (supervisorActs||[]).filter(a=>a.projectName===projectName&&inRange(a.date));
+    const prescs = (prescriptionsList||[]).filter(pr=>pr.projectName===projectName&&pr.issuedByRole==='Технадзор'&&inRange(pr.deadline));
+    let html = '<h2 style="text-align:center;margin:8px 0">МЕСЯЧНЫЙ ОТЧЁТ ТЕХНАДЗОРА</h2>';
+    html += '<p style="text-align:center;font-size:12px;color:#444">Объект: <b>'+projectName+'</b> · Период: '+(periodFrom||'__.__.____')+' — '+(periodTo||'__.__.____')+'</p>';
+    html += '<p style="font-size:11px"><b>Заказчик:</b> '+(project.client||'____________')+' · <b>Подрядчик:</b> '+orgName+'</p>';
+    html += '<h3 style="margin-top:18px">1. Освидетельствование скрытых работ ('+acts.length+')</h3>';
+    if(acts.length===0) html += '<p style="font-size:11px;color:#888">За период скрытых работ не предъявлялось</p>';
+    else { html += '<table style="border-collapse:collapse;width:100%;font-size:11px"><tr style="background:#f3f4f6"><th style="border:1px solid #333;padding:4px">№ акта</th><th style="border:1px solid #333;padding:4px">Работа</th><th style="border:1px solid #333;padding:4px">Дата</th><th style="border:1px solid #333;padding:4px">Подпись технадзора</th></tr>'; acts.forEach(a=>{html+='<tr><td style="border:1px solid #333;padding:4px">'+a.actNumber+'</td><td style="border:1px solid #333;padding:4px">'+a.workName+'</td><td style="border:1px solid #333;padding:4px">'+(a.workDate||'')+'</td><td style="border:1px solid #333;padding:4px">'+(a.signedSupervisor?'✅ '+a.signedSupervisor:'⏳')+'</td></tr>';}); html += '</table>'; }
+    html += '<h3 style="margin-top:18px">2. Акты осмотра ('+supActs.length+')</h3>';
+    if(supActs.length===0) html += '<p style="font-size:11px;color:#888">За период не составлялись</p>';
+    else supActs.forEach(a=>{html+='<div style="border:1px solid #ddd;padding:10px;margin:6px 0;font-size:11px;border-radius:4px"><b>'+a.actNumber+' · '+a.actType+'</b> ('+a.date+')<br/>'+(a.description||'')+(a.findings?'<br/><b>Обнаружено:</b> '+a.findings:'')+(a.recommendations?'<br/><b>Рекомендации:</b> '+a.recommendations:'')+'</div>';});
+    html += '<h3 style="margin-top:18px">3. Предписания технадзора ('+prescs.length+')</h3>';
+    if(prescs.length===0) html += '<p style="font-size:11px;color:#888">Предписаний не выдавалось</p>';
+    else prescs.forEach(p=>{html+='<div style="border-left:3px solid '+(p.status==='Закрыто'?'#10b981':'#f59e0b')+';padding:8px 10px;margin:6px 0;font-size:11px"><b>'+(p.violation||p.description||'(пусто)')+'</b><br/>Статус: '+(p.status||'')+(p.deadline?' · до '+p.deadline:'')+'</div>';});
+    html += '<div style="margin-top:30px;display:grid;grid-template-columns:1fr;gap:30px"><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Технадзор:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(user?user.name:'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div></div>';
+    return html;
+  };
   const isLeadership = () => ['директор','зам_директора'].includes(user?user.role:'');
   const isProrab = () => ['директор','зам_директора','прораб','главный_инженер'].includes(user?user.role:'');
   const isMasterRole = () => ['мастер','субподрядчик'].includes(user?user.role:'');
@@ -2620,9 +2706,15 @@ function App() {
           {!myProject?(<div style={{...card,padding:'40px',textAlign:'center'}}><p style={{color:C.textMuted}}>Объект не найден. Обратитесь к подрядчику.</p></div>):(
             <div>
               <div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
-                <b style={{color:C.text,fontSize:'16px'}}>{myProject.name}</b>
-                <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'13px'}}>Статус: {myProject.status} · Прогресс: {projectRealProgress(myProject)}% · Выполнено: {Math.round(projectPlanDone(myProject).done).toLocaleString('ru-RU')} ₽</p>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                  <div>
+                    <b style={{color:C.text,fontSize:'16px'}}>{myProject.name}</b>
+                    <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'13px'}}>Статус: {myProject.status} · Прогресс: {projectRealProgress(myProject)}% · Выполнено: {Math.round(projectPlanDone(myProject).done).toLocaleString('ru-RU')} ₽</p>
+                  </div>
+                  <button onClick={()=>{const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildSupervisorMonthlyReport(myProject.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'Месячный отчёт технадзора');}} style={btnB}><Eye size={14}/>📊 Месячный отчёт</button>
+                </div>
               </div>
+              {(()=>{const notifs=computeNotifications();if(notifs.length===0) return null;return(<div style={{marginBottom:'16px'}}>{notifs.slice(0,5).map((n,i)=>(<div key={i} style={{padding:'10px 12px',backgroundColor:'rgba(251,191,36,0.12)',border:'1.5px solid '+n.color,borderRadius:'10px',marginBottom:'6px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'18px'}}>{n.icon}</span><div><b style={{fontSize:'12px',color:C.text,display:'block'}}>{n.title}</b><span style={{fontSize:'11px',color:C.textSec}}>{n.text}</span></div></div>))}</div>);})()}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
                 <div style={{...card,padding:'16px'}}>
                   <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>📋 Чек-листы</b>
@@ -2865,6 +2957,7 @@ function App() {
                 <b style={{color:'white',fontSize:'20px',display:'block'}}>{myProject.name}</b>
                 <p style={{color:'rgba(255,255,255,0.8)',margin:'4px 0 0',fontSize:'14px'}}>Статус: {myProject.status}</p>
               </div>
+              {(()=>{const notifs=computeNotifications();if(notifs.length===0) return null;return(<div style={{marginBottom:'16px'}}>{notifs.slice(0,5).map((n,i)=>(<div key={i} style={{padding:'10px 12px',backgroundColor:'rgba(251,191,36,0.12)',border:'1.5px solid '+n.color,borderRadius:'10px',marginBottom:'6px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'18px'}}>{n.icon}</span><div><b style={{fontSize:'12px',color:C.text,display:'block'}}>{n.title}</b><span style={{fontSize:'11px',color:C.textSec}}>{n.text}</span></div></div>))}</div>);})()}
               <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
                 <div style={{...card,padding:'16px',textAlign:'center'}}>
                   <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Прогресс</p>
@@ -3362,7 +3455,7 @@ function App() {
                       <td style={tblC}>{jw.date||'—'}</td>
                       <td style={tblC}>{jw.unexpectedWorkId?<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'700',backgroundColor:'#fbbf24',color:'#78350f'}}>🆕 вне сметы</span>:<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:C.bg,color:C.textSec}}>по смете</span>}</td>
                       <td style={tblC}>{jw.sectionName||'—'}</td>
-                      <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.hiddenWork?<span title="Скрытые работы — нужен АОСР" style={{marginLeft:'4px'}}>🔒</span>:null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
+                      <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.hiddenWork?(()=>{const st=getActStatusForJournal({...jw,project:jw.project||pn});return(<span title={st?st.tip:'Скрытые работы — нужен АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);setShowJournalTableModal(null);}}}>🔒{st?st.icon:''}</span>);})():null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
                       <td style={tblC}>{(jw.quantity||0)+' '+(jw.unit||'')}</td>
                       <td style={tblC}>{jw.masterName||'—'}</td>
                       <td style={tblC}>{jw.responsibleItr||'—'}</td>
@@ -4088,7 +4181,7 @@ function App() {
                             {Object.keys(byDate[date]).map(masterName=>(<div key={masterName} style={{marginBottom:'8px'}}>
                               <p style={{color:C.accent,fontSize:'12px',fontWeight:'600',margin:'0 0 6px'}}>{'👷 '+masterName}</p>
                               {byDate[date][masterName].map(w=>(<div key={w.id} onClick={()=>setEditingJournal(w)} style={{padding:'8px 10px',backgroundColor:w.unexpectedWorkId?'#fef3c7':C.bg,borderRadius:'8px',marginBottom:'4px',border:'1.5px solid '+(w.unexpectedWorkId?'#fbbf24':C.border),display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
-                                <div><b style={{fontSize:'12px',color:C.text}}>{w.description}{w.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px',color:C.warning}}>🆕</span>:null}{w.hiddenWork?<span title="Скрытые работы — нужен АОСР" style={{marginLeft:'4px'}}>🔒</span>:null}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
+                                <div><b style={{fontSize:'12px',color:C.text}}>{w.description}{w.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px',color:C.warning}}>🆕</span>:null}{w.hiddenWork?(()=>{const st=getActStatusForJournal(w);return(<span title={st?st.tip:'Скрытые работы — нужен АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);}}}>🔒{st?st.icon:''}</span>);})():null}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
                                 <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
                                   <b style={{color:C.success,fontSize:'12px'}}>{(w.total||0).toLocaleString()+' ₽'}</b>
                                   {isProrab()&&w.status==='На проверке'&&(<><button onClick={()=>confirmJ(w)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/></button><button onClick={()=>setRejectingEntry(w)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button></>)}
@@ -4404,6 +4497,7 @@ function App() {
                               await fetch(API+'/material-transfers/'+t.id+'/sign',{method:'PUT'});
                               setMaterialTransfers(prev=>prev.map(mt=>mt.id===t.id?{...mt,signed:true}:mt));
                             }} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Подписать</button>}
+                            <button onClick={()=>showPreview(buildM15Content(t),'М-15 № '+t.id)} style={{...btnB,padding:'4px 8px',marginLeft:'4px'}} title="Печать М-15 (накладная на отпуск)">🖨️</button>
                             <button onClick={async()=>{
                               await fetch(API+'/material-transfers/'+t.id,{method:'DELETE'});
                               setMaterialTransfers(prev=>prev.filter(mt=>mt.id!==t.id));
