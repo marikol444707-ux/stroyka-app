@@ -307,6 +307,11 @@ function App() {
   const [inspectionOrders, setInspectionOrders] = useState([]);
   const [newInspOrder, setNewInspOrder] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
+  const [journalView, setJournalView] = useState('daily');
+  const [expenseReports, setExpenseReports] = useState([]);
+  const [newExpenseReport, setNewExpenseReport] = useState(null);
+  const [supplierInvoices, setSupplierInvoices] = useState([]);
+  const [newSupplierInvoice, setNewSupplierInvoice] = useState(null);
   const [newSupervisorAct, setNewSupervisorAct] = useState({actType:'Осмотр',description:'',findings:'',recommendations:'',date:''});
   const [supervisorActPhoto, setSupervisorActPhoto] = useState('');
   const [prescriptionPhoto, setPrescriptionPhoto] = useState('');
@@ -659,7 +664,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
@@ -704,6 +709,8 @@ function App() {
         fetch(API+'/cable-journal').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/supervisor-acts').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/inspection-orders').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/expense-reports').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/supplier-invoices').then(r=>r.json()).catch(()=>[]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -713,7 +720,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);
       try {
         const [rwin,rdoor] = await Promise.all([
           fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]),
@@ -5528,7 +5535,7 @@ function App() {
 
           {activePage==='accounting'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['summary','contracts','acts','aosr','payments','documents','audit'].map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',aosr:'🔒 АОСР к оплате',payments:'💸 Платежи',documents:'🏗 По объектам',audit:'📜 Аудит'}[tab]}</button>))}
+              {['summary','contracts','acts','aosr','payments','documents','salary','expenses','supplierInv','audit'].map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 12px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',aosr:'🔒 АОСР к оплате',payments:'💸 Платежи',documents:'🏗 По объектам',salary:'👥 Зарплата',expenses:'💼 Авансовые',supplierInv:'📥 Счета постав.',audit:'📜 Аудит'}[tab]}</button>))}
             </div>
 
             {accountingTab==='summary'&&(<div>
@@ -5744,6 +5751,129 @@ function App() {
                 </div>
               </div>);})()}
               {!accountingDocProject&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Выберите проект</p>}
+            </div>)}
+
+            {accountingTab==='salary'&&(<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>👥 Расчёт зарплаты — текущий месяц</b>
+                <span style={{fontSize:'11px',color:C.textMuted}}>Оклад из staff.salary + сдельные из piecework за месяц</span>
+              </div>
+              {(()=>{const monthStart=new Date(); monthStart.setDate(1); const monthStartStr=monthStart.toISOString().split('T')[0];
+                const today=new Date().toISOString().split('T')[0];
+                const rows=staff.filter(st=>st.status!=='Уволен'&&st.status!=='Архив').map(st=>{
+                  const pw=(piecework||[]).filter(p=>Number(p.staffId)===st.id&&p.date&&p.date>=monthStartStr&&p.date<=today);
+                  const pwSum=pw.reduce((s,p)=>s+Number(p.total||0),0);
+                  const salary=Number(st.salary||0);
+                  const total=(st.payType==='Сдельная'?pwSum:(st.payType==='Оклад'?salary:salary+pwSum));
+                  return {id:st.id,name:st.name||(st.lastName||'')+' '+(st.firstName||''),role:st.role||'—',payType:st.payType||'—',salary,pwSum,total};
+                });
+                const grandTotal=rows.reduce((s,r)=>s+r.total,0);
+                return(<div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                    <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Сотрудников</p><b style={{color:C.text,fontSize:'16px'}}>{rows.length}</b></div>
+                    <div style={{...card,padding:'12px',backgroundColor:C.accentLight}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>К выплате за месяц</p><b style={{color:C.accent,fontSize:'16px'}}>{Math.round(grandTotal).toLocaleString('ru-RU')+' ₽'}</b></div>
+                  </div>
+                  <div style={{...card,padding:0,overflow:'auto'}}>
+                    <table style={tbl}><thead><tr><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Оклад</th><th style={tblH}>Сдельные за месяц</th><th style={tblH}>К выплате</th></tr></thead><tbody>
+                      {rows.map(r=>(<tr key={r.id}><td style={tblC}>{r.name}</td><td style={tblC}>{r.role}</td><td style={tblC}>{r.payType}</td><td style={tblC}>{r.salary?r.salary.toLocaleString('ru-RU')+' ₽':'—'}</td><td style={tblC}>{r.pwSum>0?Math.round(r.pwSum).toLocaleString('ru-RU')+' ₽':'—'}</td><td style={{...tblC,fontWeight:'700',color:C.accent}}>{Math.round(r.total).toLocaleString('ru-RU')+' ₽'}</td></tr>))}
+                      {rows.length===0&&<tr><td colSpan={6} style={{...tblC,textAlign:'center',color:C.textMuted}}>Активных сотрудников нет</td></tr>}
+                    </tbody></table>
+                  </div>
+                  <p style={{color:C.textMuted,fontSize:'11px',marginTop:'8px',lineHeight:1.4}}>📋 Тип оплаты «Оклад» → берётся только staff.salary. «Сдельная» → только сумма piecework за месяц. «Смешанная» → оба. Период считается от 1-го числа текущего месяца.</p>
+                </div>);
+              })()}
+            </div>)}
+
+            {accountingTab==='expenses'&&(<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>💼 Авансовые отчёты и командировочные</b>
+                <button onClick={()=>setNewExpenseReport({reportType:'Авансовый отчёт',employeeName:'',projectName:'',purpose:'',issuedAmount:'',spentAmount:'',balance:'',dateFrom:'',dateTo:''})} style={btnO}><Plus size={14}/>Новый отчёт</button>
+              </div>
+              {newExpenseReport&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                  <select value={newExpenseReport.reportType} onChange={e=>setNewExpenseReport({...newExpenseReport,reportType:e.target.value})} style={{...inp,marginBottom:0}}>{['Авансовый отчёт','Командировочные','Мелкий нал','Бензин/такси','Закупка материалов'].map(t=><option key={t}>{t}</option>)}</select>
+                  <select value={newExpenseReport.employeeName} onChange={e=>setNewExpenseReport({...newExpenseReport,employeeName:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Кому выдано *</option>{staff.map(st=><option key={st.id} value={st.name}>{st.name}</option>)}</select>
+                  <select value={newExpenseReport.projectName} onChange={e=>setNewExpenseReport({...newExpenseReport,projectName:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Объект (если по проекту)</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
+                  <input placeholder='Назначение *' value={newExpenseReport.purpose} onChange={e=>setNewExpenseReport({...newExpenseReport,purpose:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Выдано (₽) *' type='number' value={newExpenseReport.issuedAmount} onChange={e=>setNewExpenseReport({...newExpenseReport,issuedAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Потрачено (₽)' type='number' value={newExpenseReport.spentAmount} onChange={e=>setNewExpenseReport({...newExpenseReport,spentAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input type='date' value={newExpenseReport.dateFrom} onChange={e=>setNewExpenseReport({...newExpenseReport,dateFrom:e.target.value})} title='С' style={{...inp,marginBottom:0}}/>
+                  <input type='date' value={newExpenseReport.dateTo} onChange={e=>setNewExpenseReport({...newExpenseReport,dateTo:e.target.value})} title='По' style={{...inp,marginBottom:0}}/>
+                </div>
+                <div style={{display:'flex',gap:'8px'}}>
+                  <button onClick={async()=>{
+                    if(!newExpenseReport.employeeName||!newExpenseReport.purpose||!newExpenseReport.issuedAmount){alert('Заполните: кому, назначение, выдано');return;}
+                    const issued=Number(newExpenseReport.issuedAmount)||0;const spent=Number(newExpenseReport.spentAmount||0);
+                    await fetch(API+'/expense-reports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newExpenseReport,issuedAmount:issued,spentAmount:spent,totalAmount:spent||issued,balance:issued-spent,status:'На утверждении'})});
+                    await loadAll(); setNewExpenseReport(null);
+                  }} style={btnO}><Check size={14}/>Сохранить</button>
+                  <button onClick={()=>setNewExpenseReport(null)} style={btnG}>Отмена</button>
+                </div>
+              </div>)}
+              {expenseReports.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><p>Отчётов нет</p><p style={{fontSize:'11px'}}>Сотрудник съездил в командировку или потратил мелкий нал → добавьте отчёт для бухгалтерии.</p></div>:(<div>
+                {expenseReports.map(r=>(<div key={r.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(r.status==='Утверждён'?C.success:r.status==='Отклонён'?C.danger:C.warning)}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                    <div style={{flex:1,minWidth:'200px'}}>
+                      <b style={{color:C.text,fontSize:'13px'}}>{r.reportType+' · '+r.employeeName}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(r.projectName?r.projectName+' · ':'')+r.purpose}</p>
+                      <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Выдано: {Math.round(r.issuedAmount).toLocaleString('ru-RU')+' ₽'} · Потрачено: {Math.round(r.spentAmount||0).toLocaleString('ru-RU')+' ₽'} · Остаток: <b style={{color:Math.round(r.balance)>0?C.success:C.danger}}>{Math.round(r.balance).toLocaleString('ru-RU')+' ₽'}</b></p>
+                    </div>
+                    <div style={{display:'flex',gap:'4px'}}>
+                      <span style={badge(r.status==='Утверждён'?C.success:r.status==='Отклонён'?C.danger:C.warning,r.status==='Утверждён'?C.successLight:r.status==='Отклонён'?C.dangerLight:C.warningLight,r.status==='Утверждён'?C.successBorder:r.status==='Отклонён'?C.dangerBorder:C.warningBorder)}>{r.status}</span>
+                      {r.status==='На утверждении'&&<><button onClick={async()=>{await fetch(API+'/expense-reports/'+r.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button><button onClick={async()=>{await fetch(API+'/expense-reports/'+r.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}>✕</button></>}
+                      <button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/expense-reports/'+r.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
+                    </div>
+                  </div>
+                </div>))}
+              </div>)}
+            </div>)}
+
+            {accountingTab==='supplierInv'&&(<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📥 Входящие счета от поставщиков</b>
+                <button onClick={()=>setNewSupplierInvoice({supplierName:'',projectName:'',invoiceNumber:'',invoiceDate:'',amount:'',vatAmount:'',description:''})} style={btnO}><Plus size={14}/>Новый счёт</button>
+              </div>
+              {newSupplierInvoice&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                  <select value={newSupplierInvoice.supplierName} onChange={e=>{const sup=suppliers.find(s=>s.name===e.target.value);setNewSupplierInvoice({...newSupplierInvoice,supplierName:e.target.value,supplierId:sup?sup.id:null});}} style={{...inp,marginBottom:0}}><option value=''>Поставщик *</option>{(suppliers||[]).map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select>
+                  <select value={newSupplierInvoice.projectName} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,projectName:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Объект (если по проекту)</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
+                  <input placeholder='№ счёта *' value={newSupplierInvoice.invoiceNumber} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input type='date' value={newSupplierInvoice.invoiceDate} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Сумма с НДС (₽) *' type='number' value={newSupplierInvoice.amount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='В т.ч. НДС (₽)' type='number' value={newSupplierInvoice.vatAmount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,vatAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                </div>
+                <textarea placeholder='Описание (за что счёт)' value={newSupplierInvoice.description} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,description:e.target.value})} style={{...inp,minHeight:'50px',marginBottom:'8px'}}/>
+                <div style={{display:'flex',gap:'8px'}}>
+                  <button onClick={async()=>{
+                    if(!newSupplierInvoice.supplierName||!newSupplierInvoice.invoiceNumber||!newSupplierInvoice.amount){alert('Заполните: поставщик, № счёта, сумма');return;}
+                    await fetch(API+'/supplier-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newSupplierInvoice,amount:Number(newSupplierInvoice.amount)||0,vatAmount:Number(newSupplierInvoice.vatAmount||0),status:'На утверждении'})});
+                    await loadAll(); setNewSupplierInvoice(null);
+                  }} style={btnO}><Check size={14}/>Сохранить</button>
+                  <button onClick={()=>setNewSupplierInvoice(null)} style={btnG}>Отмена</button>
+                </div>
+              </div>)}
+              {(()=>{const pending=supplierInvoices.filter(i=>i.status==='На утверждении');const approved=supplierInvoices.filter(i=>i.status==='Утверждён');const paid=supplierInvoices.filter(i=>i.status==='Оплачен');const totalP=pending.reduce((s,i)=>s+Number(i.amount||0),0);return(<div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                  <div style={{...card,padding:'12px',backgroundColor:C.warningLight}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>На утверждении</p><b style={{color:C.warning,fontSize:'15px'}}>{pending.length+' · '+Math.round(totalP).toLocaleString('ru-RU')+' ₽'}</b></div>
+                  <div style={{...card,padding:'12px',backgroundColor:C.accentLight}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>Утверждены (к оплате)</p><b style={{color:C.accent,fontSize:'15px'}}>{approved.length}</b></div>
+                  <div style={{...card,padding:'12px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Оплачены</p><b style={{color:C.success,fontSize:'15px'}}>{paid.length}</b></div>
+                </div>
+                {supplierInvoices.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Счетов нет. Поставщик прислал счёт → загрузи сюда → отметишь «Утверждён» → снабженец увидит «можно закупать»</div>:supplierInvoices.map(inv=>(<div key={inv.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(inv.status==='Оплачен'?C.success:inv.status==='Утверждён'?C.accent:C.warning)}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                    <div style={{flex:1,minWidth:'200px'}}>
+                      <b style={{color:C.text,fontSize:'13px'}}>{inv.supplierName+' · № '+inv.invoiceNumber}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(inv.projectName?inv.projectName+' · ':'')+(inv.invoiceDate||'')+(inv.description?' · '+inv.description:'')}</p>
+                      <p style={{color:C.accent,margin:0,fontSize:'13px',fontWeight:'700'}}>{Math.round(Number(inv.amount||0)).toLocaleString('ru-RU')+' ₽'+(inv.vatAmount?' (НДС '+Math.round(Number(inv.vatAmount)).toLocaleString('ru-RU')+' ₽)':'')}</p>
+                    </div>
+                    <div style={{display:'flex',gap:'4px',alignItems:'center'}}>
+                      <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Утверждён'?C.accent:C.warning,inv.status==='Оплачен'?C.successLight:inv.status==='Утверждён'?C.accentLight:C.warningLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Утверждён'?C.accentBorder:C.warningBorder)}>{inv.status}</span>
+                      {inv.status==='На утверждении'&&<button onClick={async()=>{await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();alert('Утверждено. Уведомление снабженцу: можно закупать.');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅ Утвердить</button>}
+                      {inv.status==='Утверждён'&&<button onClick={async()=>{if(!window.confirm('Отметить как оплачено '+Math.round(Number(inv.amount||0)).toLocaleString('ru-RU')+' ₽?')) return;await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Оплачен',paidBy:user.name,paidAt:new Date().toISOString().split('T')[0],paidNote:'Оплата счёта №'+inv.invoiceNumber})});if(inv.projectName){await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:inv.projectName,amount:inv.amount,note:'Оплата счёта '+inv.supplierName+' №'+inv.invoiceNumber,date:new Date().toISOString().split('T')[0],paidBy:user.name})});}await loadAll();}} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 Оплатить</button>}
+                      <button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/supplier-invoices/'+inv.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
+                    </div>
+                  </div>
+                </div>))}
+              </div>);})()}
             </div>)}
 
             {accountingTab==='audit'&&(<div>

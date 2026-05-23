@@ -154,6 +154,46 @@ def init_db():
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS participants_json TEXT;
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS photo_url VARCHAR(500);
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS ai_filled BOOLEAN DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS expense_reports (
+            id SERIAL PRIMARY KEY,
+            employee_id INT,
+            employee_name VARCHAR(255),
+            project_name VARCHAR(255),
+            report_type VARCHAR(50) DEFAULT 'Авансовый отчёт',
+            purpose TEXT,
+            total_amount NUMERIC(14,2),
+            issued_amount NUMERIC(14,2),
+            spent_amount NUMERIC(14,2),
+            balance NUMERIC(14,2),
+            items_json TEXT,
+            photo_url TEXT,
+            date_from DATE,
+            date_to DATE,
+            status VARCHAR(50) DEFAULT 'На утверждении',
+            approved_by VARCHAR(255),
+            approved_at DATE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS supplier_invoices (
+            id SERIAL PRIMARY KEY,
+            supplier_id INT,
+            supplier_name VARCHAR(255),
+            project_name VARCHAR(255),
+            invoice_number VARCHAR(100),
+            invoice_date DATE,
+            amount NUMERIC(14,2),
+            vat_amount NUMERIC(14,2),
+            description TEXT,
+            file_url TEXT,
+            photo_url TEXT,
+            status VARCHAR(50) DEFAULT 'На утверждении',
+            approved_by VARCHAR(255),
+            approved_at DATE,
+            paid_at DATE,
+            paid_by VARCHAR(255),
+            paid_note TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS inspection_orders (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -3918,6 +3958,160 @@ def update_inspection_order(id: int, data: dict):
         return {"ok": True}
     vals.append(id)
     cur.execute("UPDATE inspection_orders SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.get("/expense-reports")
+def list_expense_reports(employee_id: int = None, project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    cols = "id, employee_id, employee_name, project_name, report_type, purpose, total_amount, issued_amount, spent_amount, balance, items_json, photo_url, date_from, date_to, status, approved_by, approved_at, created_at"
+    where, params = [], []
+    if employee_id: where.append("employee_id=%s"); params.append(employee_id)
+    if project_name: where.append("project_name=%s"); params.append(project_name)
+    q = f"SELECT {cols} FROM expense_reports"
+    if where: q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY id DESC"
+    cur.execute(q, params)
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    import json as j
+    out = []
+    for r in rows:
+        try: items = j.loads(r[10]) if r[10] else []
+        except: items = []
+        out.append({"id":r[0],"employeeId":r[1],"employeeName":r[2] or "",
+             "projectName":r[3] or "","reportType":r[4] or "Авансовый отчёт",
+             "purpose":r[5] or "","totalAmount":float(r[6] or 0),"issuedAmount":float(r[7] or 0),
+             "spentAmount":float(r[8] or 0),"balance":float(r[9] or 0),"items":items,
+             "photoUrl":r[11] or "","dateFrom":str(r[12]) if r[12] else "",
+             "dateTo":str(r[13]) if r[13] else "","status":r[14] or "На утверждении",
+             "approvedBy":r[15] or "","approvedAt":str(r[16]) if r[16] else "",
+             "createdAt":str(r[17])})
+    return out
+
+@app.post("/expense-reports")
+def create_expense_report(data: dict):
+    import json as j
+    conn = get_db()
+    cur = conn.cursor()
+    items = j.dumps(data.get("items") or [], ensure_ascii=False)
+    cur.execute("""INSERT INTO expense_reports
+                   (employee_id, employee_name, project_name, report_type, purpose,
+                    total_amount, issued_amount, spent_amount, balance, items_json, photo_url,
+                    date_from, date_to, status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (data.get("employeeId"), data.get("employeeName",""), data.get("projectName",""),
+                 data.get("reportType","Авансовый отчёт"), data.get("purpose",""),
+                 float(data.get("totalAmount",0)), float(data.get("issuedAmount",0)),
+                 float(data.get("spentAmount",0)), float(data.get("balance",0)),
+                 items, data.get("photoUrl",""), data.get("dateFrom") or None,
+                 data.get("dateTo") or None, data.get("status","На утверждении")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id": row[0], "ok": True}
+
+@app.put("/expense-reports/{id}")
+def update_expense_report(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
+                  ('spentAmount','spent_amount'),('balance','balance'),('purpose','purpose')]
+    sets, vals = [], []
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            v = data[js_key]
+            if js_key == 'approvedAt' and not v: v = None
+            vals.append(v)
+    if not sets:
+        cur.close(); conn.close(); return {"ok": True}
+    vals.append(id)
+    cur.execute("UPDATE expense_reports SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/expense-reports/{id}")
+def delete_expense_report(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM expense_reports WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.get("/supplier-invoices")
+def list_supplier_invoices(project_name: str = None, status: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at"
+    where, params = [], []
+    if project_name: where.append("project_name=%s"); params.append(project_name)
+    if status: where.append("status=%s"); params.append(status)
+    q = f"SELECT {cols} FROM supplier_invoices"
+    if where: q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY id DESC"
+    cur.execute(q, params)
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"supplierId":r[1],"supplierName":r[2] or "",
+             "projectName":r[3] or "","invoiceNumber":r[4] or "",
+             "invoiceDate":str(r[5]) if r[5] else "","amount":float(r[6] or 0),
+             "vatAmount":float(r[7] or 0),"description":r[8] or "",
+             "fileUrl":r[9] or "","photoUrl":r[10] or "",
+             "status":r[11] or "На утверждении","approvedBy":r[12] or "",
+             "approvedAt":str(r[13]) if r[13] else "","paidAt":str(r[14]) if r[14] else "",
+             "paidBy":r[15] or "","paidNote":r[16] or "",
+             "createdAt":str(r[17])} for r in rows]
+
+@app.post("/supplier-invoices")
+def create_supplier_invoice(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO supplier_invoices
+                   (supplier_id, supplier_name, project_name, invoice_number, invoice_date,
+                    amount, vat_amount, description, file_url, photo_url, status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (data.get("supplierId"), data.get("supplierName",""), data.get("projectName",""),
+                 data.get("invoiceNumber",""), data.get("invoiceDate") or None,
+                 float(data.get("amount",0)), float(data.get("vatAmount",0)),
+                 data.get("description",""), data.get("fileUrl",""), data.get("photoUrl",""),
+                 data.get("status","На утверждении")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id": row[0], "ok": True}
+
+@app.put("/supplier-invoices/{id}")
+def update_supplier_invoice(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
+                  ('paidAt','paid_at'),('paidBy','paid_by'),('paidNote','paid_note'),
+                  ('description','description'),('amount','amount'),('vatAmount','vat_amount')]
+    sets, vals = [], []
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            v = data[js_key]
+            if js_key in ('approvedAt','paidAt') and not v: v = None
+            vals.append(v)
+    if not sets:
+        cur.close(); conn.close(); return {"ok": True}
+    vals.append(id)
+    cur.execute("UPDATE supplier_invoices SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/supplier-invoices/{id}")
+def delete_supplier_invoice(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
