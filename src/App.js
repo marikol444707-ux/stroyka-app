@@ -301,6 +301,8 @@ function App() {
   const [showJournalTableModal, setShowJournalTableModal] = useState(null);
   const [materialInspections, setMaterialInspections] = useState([]);
   const [editingInspection, setEditingInspection] = useState(null);
+  const [cableJournal, setCableJournal] = useState([]);
+  const [editingCable, setEditingCable] = useState(null);
   const [selectedBrigadeContract, setSelectedBrigadeContract] = useState(null);
   const [brigadeContractItems, setBrigadeContractItems] = useState([]);
   const [showBrigadeForm, setShowBrigadeForm] = useState(false);
@@ -650,7 +652,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
@@ -692,6 +694,7 @@ function App() {
         fetch(API+'/brigade-contracts').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/hidden-works-acts').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/material-inspection').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/cable-journal').then(r=>r.json()).catch(()=>[]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -701,7 +704,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);
       try {
         const [rwin,rdoor] = await Promise.all([
           fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]),
@@ -1230,6 +1233,80 @@ function App() {
     html += '<div class="mic-sigs">';
     html += '<div><div class="mic-sig-label">Ответственное за входной контроль лицо:</div><div class="mic-sig-line"></div><div class="mic-sig-sub">(должность, подпись, ФИО)</div></div>';
     html += '<div><div class="mic-sig-label">Представитель технического надзора заказчика:</div><div class="mic-sig-line"></div><div class="mic-sig-sub">(должность, подпись, ФИО)</div></div>';
+    html += '</div>';
+    return html;
+  };
+
+  const buildCableJournalContent = (records, projectName, dateFrom, dateTo) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const project = projects.find(p=>p.name===projectName)||{};
+    const fmtDate = (d) => { if(!d) return ''; const dt=new Date(d); if(isNaN(dt)) return d; return ('0'+dt.getDate()).slice(-2)+'.'+('0'+(dt.getMonth()+1)).slice(-2)+'.'+dt.getFullYear(); };
+    let html = '<style>'
+      + '.cab-meta{margin:6px 0;font-size:11px}'
+      + '.cab-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
+      + '.cab-sub{text-align:center;font-size:12px;margin:0 0 14px;color:#444}'
+      + '.cab-info{display:grid;grid-template-columns:160px 1fr;gap:4px 10px;font-size:11px;margin:10px 0}'
+      + '.cab-tbl{border-collapse:collapse;width:100%;font-size:10px;margin-top:10px}'
+      + '.cab-tbl th,.cab-tbl td{border:1px solid #333;padding:4px 5px;vertical-align:top}'
+      + '.cab-tbl th{background:#f3f4f6;font-weight:600;text-align:center}'
+      + '.cab-tbl td.num{text-align:right;white-space:nowrap}'
+      + '.cab-foot{margin-top:18px;font-size:11px;color:#444}'
+      + '.cab-sigs{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:30px}'
+      + '.cab-sig-label{font-weight:600;margin-bottom:30px;font-size:11px}'
+      + '.cab-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
+      + '.cab-sig-sub{font-size:9px;color:#555;margin-top:2px}'
+      + '</style>';
+    html += '<div class="cab-meta"><b>'+orgName+'</b></div>';
+    html += '<div class="cab-title">ЖУРНАЛ КАБЕЛЬНОЙ ПРОДУКЦИИ</div>';
+    html += '<div class="cab-sub">по СП 76.13330 «Электротехнические устройства» и ПУЭ</div>';
+    html += '<div class="cab-info">';
+    html += '<span>Заказчик:</span><b>'+(project.client||'____________')+'</b>';
+    html += '<span>Подрядчик:</span><b>'+orgName+'</b>';
+    html += '<span>Объект:</span><b>'+(projectName||'____________')+'</b>';
+    html += '<span>Период:</span><b>'+(dateFrom?fmtDate(dateFrom):'__.__.____')+' — '+(dateTo?fmtDate(dateTo):'__.__.____')+'</b>';
+    html += '</div>';
+    html += '<table class="cab-tbl"><thead><tr>';
+    html += '<th style="width:22px">№</th>';
+    html += '<th style="width:54px">Дата приёмки</th>';
+    html += '<th>Марка кабеля</th>';
+    html += '<th style="width:42px">Сечение, мм²</th>';
+    html += '<th style="width:32px">Жил</th>';
+    html += '<th style="width:50px">Длина, м (с барабана)</th>';
+    html += '<th style="width:50px">№ барабана/бухты</th>';
+    html += '<th style="width:80px">Изготовитель</th>';
+    html += '<th style="width:80px">Сертификат №</th>';
+    html += '<th style="width:42px">R изоляции ДО, МΩ</th>';
+    html += '<th style="width:42px">R изоляции ПОСЛЕ, МΩ</th>';
+    html += '<th>Место прокладки</th>';
+    html += '<th style="width:80px">Способ прокладки</th>';
+    html += '<th style="width:54px">Дата монтажа</th>';
+    html += '<th style="width:90px">Ответств. ИТР</th>';
+    html += '</tr></thead><tbody>';
+    records.forEach((r,i)=>{
+      html += '<tr>';
+      html += '<td class="num">'+(i+1)+'</td>';
+      html += '<td>'+fmtDate(r.receivedAt)+'</td>';
+      html += '<td>'+(r.cableBrand||'')+'</td>';
+      html += '<td class="num">'+(r.crossSection||'—')+'</td>';
+      html += '<td class="num">'+(r.coresCount||'—')+'</td>';
+      html += '<td class="num">'+(r.lengthReceived||0)+'</td>';
+      html += '<td>'+(r.drumNumber||'—')+'</td>';
+      html += '<td>'+(r.manufacturer||'—')+'</td>';
+      html += '<td>'+(r.certificateNumber||'—')+'</td>';
+      html += '<td class="num">'+(r.insulationBefore||'—')+'</td>';
+      html += '<td class="num">'+(r.insulationAfter||'—')+'</td>';
+      html += '<td>'+(r.installationLocation||'—')+'</td>';
+      html += '<td>'+(r.installationMethod||'—')+'</td>';
+      html += '<td>'+fmtDate(r.installedAt)+'</td>';
+      html += '<td>'+(r.responsibleItr||'—')+'</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div class="cab-foot">Журнал ведётся в соответствии с СП 76.13330 «Электротехнические устройства», ПУЭ (изд. 7), ГОСТ Р 50571 (электроустановки зданий). Перед сдачей электромонтажных работ — обязательны измерения сопротивления изоляции мегаомметром.</div>';
+    html += '<div class="cab-sigs">';
+    html += '<div><div class="cab-sig-label">Ответственный за электромонтажные работы (ИТР):</div><div class="cab-sig-line"></div><div class="cab-sig-sub">(должность, подпись, ФИО)</div></div>';
+    html += '<div><div class="cab-sig-label">Представитель технического надзора заказчика:</div><div class="cab-sig-line"></div><div class="cab-sig-sub">(должность, подпись, ФИО)</div></div>';
     html += '</div>';
     return html;
   };
@@ -2902,6 +2979,105 @@ function App() {
           </div>
         </div>);
       })()}
+      {editingCable&&(()=>{
+        const cb=editingCable;
+        const upd=(k,v)=>setEditingCable({...editingCable,[k]:v});
+        const proraby=users.filter(u=>['прораб','главный_инженер','зам_директора'].includes(u.role)).map(u=>u.name).filter(Boolean);
+        const labelStyle={fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px',display:'block'};
+        const sectionStyle={marginBottom:'14px'};
+        const aiSuggest=async()=>{
+          setEditingCable(prev=>({...prev,__aiLoading:true}));
+          try{
+            const res=await fetch(API+'/cable-journal/'+cb.id+'/ai-suggest',{method:'POST'});
+            if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||('HTTP '+res.status));}
+            const d=await res.json();
+            setEditingCable(prev=>({...prev,normatives:d.normatives||prev.normatives,aiFilled:true,__aiLoading:false}));
+            setCableJournal(prev=>prev.map(x=>x.id===cb.id?{...x,normatives:d.normatives||x.normatives,aiFilled:true}:x));
+          }catch(e){
+            alert('Не получилось получить ответ от AI: '+e.message);
+            setEditingCable(prev=>({...prev,__aiLoading:false}));
+          }
+        };
+        const saveCable=async()=>{
+          const body={
+            drumNumber:cb.drumNumber||'',
+            manufacturer:cb.manufacturer||'',
+            certificateNumber:cb.certificateNumber||'',
+            passportNumber:cb.passportNumber||'',
+            insulationBefore:Number(cb.insulationBefore)||0,
+            insulationAfter:Number(cb.insulationAfter)||0,
+            lengthInstalled:Number(cb.lengthInstalled)||0,
+            installationLocation:cb.installationLocation||'',
+            installationMethod:cb.installationMethod||'',
+            installedAt:cb.installedAt||'',
+            responsibleItr:cb.responsibleItr||'',
+            normatives:cb.normatives||'',
+          };
+          await fetch(API+'/cable-journal/'+cb.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+          setCableJournal(prev=>prev.map(x=>x.id===cb.id?{...x,...body,aiFilled:false}:x));
+          setEditingCable(null);
+        };
+        return(<div onClick={()=>setEditingCable(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(900px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
+              <div>
+                <b style={{color:C.text,fontSize:'16px',display:'block'}}>⚡ Запись журнала кабельной продукции</b>
+                <span style={{fontSize:'12px',color:C.textSec}}>{(cb.cableBrand||'—')+' · '+(cb.crossSection?cb.crossSection+' мм² × '+(cb.coresCount||'?')+' жил':'—')+' · '+(cb.lengthReceived||0)+' м'}</span>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                <span style={{padding:'4px 10px',borderRadius:'12px',fontSize:'12px',fontWeight:'600',backgroundColor:cb.installedAt?C.successLight:C.warningLight,color:cb.installedAt?C.success:C.warning}}>{cb.installedAt?'Проложен':'На складе'}</span>
+                <button onClick={()=>setEditingCable(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
+              </div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+              {cb.aiFilled&&(<div style={{marginBottom:'14px',padding:'10px 12px',backgroundColor:'#d1fae5',border:'1.5px solid #10b981',borderRadius:'10px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'20px'}}>🤖</span><span style={{fontSize:'12px',color:C.text,lineHeight:1.4}}><b>Нормативы и мин. R подсказаны AI.</b> Проверь и сохрани — при правке поля метка снимется.</span></div>)}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
+                <div><p style={labelStyle}>Марка кабеля</p><b style={{fontSize:'13px',color:C.text}}>{cb.cableBrand||'—'}</b></div>
+                <div><p style={labelStyle}>Сечение жилы</p><b style={{fontSize:'13px',color:C.text}}>{cb.crossSection?cb.crossSection+' мм²':'—'}</b></div>
+                <div><p style={labelStyle}>Кол-во жил</p><b style={{fontSize:'13px',color:C.text}}>{cb.coresCount||'—'}</b></div>
+                <div><p style={labelStyle}>Длина с барабана</p><b style={{fontSize:'13px',color:C.text}}>{(cb.lengthReceived||0)+' м'}</b></div>
+                <div><p style={labelStyle}>Поставщик</p><b style={{fontSize:'13px',color:C.text}}>{cb.supplier||'—'}</b></div>
+                <div><p style={labelStyle}>Дата приёмки</p><b style={{fontSize:'13px',color:C.text}}>{cb.receivedAt||'—'}</b></div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
+                <div><label style={labelStyle}>№ барабана / бухты</label><input value={cb.drumNumber||''} onChange={e=>upd('drumNumber',e.target.value)} placeholder="напр. барабан №47" style={inp}/></div>
+                <div><label style={labelStyle}>Изготовитель</label><input value={cb.manufacturer||''} onChange={e=>upd('manufacturer',e.target.value)} placeholder="напр. Камкабель, Севкабель" style={inp}/></div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
+                <div><label style={labelStyle}>Сертификат соответствия №</label><input value={cb.certificateNumber||''} onChange={e=>upd('certificateNumber',e.target.value)} style={inp}/></div>
+                <div><label style={labelStyle}>Паспорт качества №</label><input value={cb.passportNumber||''} onChange={e=>upd('passportNumber',e.target.value)} style={inp}/></div>
+              </div>
+              <div style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border,marginBottom:'14px'}}>
+                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>🔌 Замеры сопротивления изоляции (мегаомметр)</b>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                  <div><label style={labelStyle}>R изоляции ДО прокладки, МΩ</label><input type="number" step="0.1" value={cb.insulationBefore||''} onChange={e=>upd('insulationBefore',e.target.value)} placeholder="напр. 500" style={inp}/></div>
+                  <div><label style={labelStyle}>R изоляции ПОСЛЕ прокладки, МΩ</label><input type="number" step="0.1" value={cb.insulationAfter||''} onChange={e=>upd('insulationAfter',e.target.value)} placeholder="напр. 480" style={inp}/></div>
+                </div>
+                <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>По ПУЭ для большинства силовых кабелей мин. R изоляции = 0.5 МΩ. AI-подсказка ниже даст точное значение для этой марки.</p>
+              </div>
+              <div style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border,marginBottom:'14px'}}>
+                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>🔧 Монтаж</b>
+                <div style={sectionStyle}><label style={labelStyle}>Место прокладки (объект, этаж, помещение)</label><textarea value={cb.installationLocation||''} onChange={e=>upd('installationLocation',e.target.value)} placeholder="напр. этаж 2, эл.щитовая → коридор → квартиры 21-25" style={{...inp,minHeight:'50px',resize:'vertical'}}/></div>
+                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:'10px'}}>
+                  <div><label style={labelStyle}>Способ прокладки</label><select value={cb.installationMethod||''} onChange={e=>upd('installationMethod',e.target.value)} style={inp}><option value="">— не указано —</option><option>Открыто</option><option>В кабель-канале</option><option>В трубе</option><option>По лотку</option><option>На скобах</option><option>В земле</option><option>Под штукатуркой</option></select></div>
+                  <div><label style={labelStyle}>Длина проложенная, м</label><input type="number" step="0.1" value={cb.lengthInstalled||''} onChange={e=>upd('lengthInstalled',e.target.value)} style={inp}/></div>
+                  <div><label style={labelStyle}>Дата монтажа</label><input type="date" value={cb.installedAt||''} onChange={e=>upd('installedAt',e.target.value)} style={inp}/></div>
+                </div>
+              </div>
+              <div style={sectionStyle}><label style={labelStyle}>Ответственный ИТР (электрик-инженер)</label><input list="cable-itr-list" value={cb.responsibleItr||''} onChange={e=>upd('responsibleItr',e.target.value)} placeholder="ФИО" style={inp}/><datalist id="cable-itr-list">{proraby.map(n=><option key={n} value={n}/>)}</datalist></div>
+              <div style={sectionStyle}><label style={labelStyle}>Применимые нормативы (ГОСТ/СП/ПУЭ){cb.aiFilled?' 🤖':''}</label><textarea value={cb.normatives||''} onChange={e=>upd('normatives',e.target.value)} placeholder="Напр.: ПУЭ 7-е изд., ГОСТ Р 53769 (кабели силовые), СП 76.13330" style={{...inp,minHeight:'80px',resize:'vertical'}}/></div>
+            </div>
+            <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
+              <button onClick={()=>showPreview(buildCableJournalContent([cb],cb.projectName,cb.receivedAt,cb.installedAt||cb.receivedAt),'Запись кабеля')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
+              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                <button disabled={!!cb.__aiLoading} onClick={aiSuggest} style={{...btnB,backgroundColor:'#10b981',opacity:cb.__aiLoading?0.6:1,cursor:cb.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{cb.__aiLoading?'AI работает…':'🤖 AI-подсказка нормативов и R изоляции'}</button>
+                <button onClick={()=>setEditingCable(null)} style={btnG}>Отмена</button>
+                <button onClick={saveCable} style={btnO}><Check size={14}/>Сохранить</button>
+              </div>
+            </div>
+          </div>
+        </div>);
+      })()}
       {showQRModal&&(<div onClick={()=>setShowQRModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.7)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><div style={{backgroundColor:'white',padding:'30px',borderRadius:'16px',textAlign:'center'}} onClick={e=>e.stopPropagation()}><h3 style={{color:C.text,marginBottom:'16px'}}>{showQRModal.title}</h3><img src={generateQR(showQRModal.data)} alt="QR" style={{width:'200px',height:'200px'}}/><p style={{color:C.textSec,fontSize:'12px',marginTop:'12px'}}>Сканируйте для быстрого доступа</p><button onClick={()=>setShowQRModal(null)} style={{...btnG,marginTop:'12px'}}>Закрыть</button></div></div>)}
       {rejectingEntry&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Причина отклонения</h3><textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inp,height:'100px',resize:'vertical'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>rejectJ(rejectingEntry,rejectComment)} style={btnR}><X size={14}/>Отклонить</button><button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnG}>Отмена</button></div></div></div>)}
       {showIssueToolModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{'Выдать: '+showIssueToolModal.name}</h3><select value={issueToolData.masterName} onChange={e=>setIssueToolData({...issueToolData,masterName:e.target.value})} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.fullName}>{mp.fullName}</option>)}</select><select value={issueToolData.project} onChange={e=>setIssueToolData({...issueToolData,project:e.target.value})} style={inp}><option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><select value={issueToolData.issueType} onChange={e=>setIssueToolData({...issueToolData,issueType:e.target.value})} style={inp}><option value="Временно">Временно</option><option value="В счёт зарплаты">В счёт зарплаты</option></select><div style={{display:'flex',gap:'10px'}}><button onClick={()=>issueTool(showIssueToolModal)} style={btnO}><Check size={14}/>Выдать</button><button onClick={()=>setShowIssueToolModal(null)} style={btnG}>Отмена</button></div></div></div>)}
@@ -3079,7 +3255,7 @@ function App() {
                         {id:'work',icon:'🔨',label:'Работы',tabs:['Наряды','Непредвиденные','Чек-листы']},
                         {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
                         {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы']},
-                        {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Журнал ТБ','Погода','Предписания','Чат']},
+                        {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
                         {id:'docs',icon:'📋',label:'Документы',tabs:['КС-2','КС-3','Паспорт','Акты технадзора']},
                       ];
                       const activeGroup=tabGroups.find(g=>g.tabs.includes(activeProjectTab));
@@ -3924,6 +4100,7 @@ function App() {
                         {tab:'Производство работ',icon:'📖',label:'Производство работ',hint:'Журнал по форме КС-6а',count:workJournal.filter(jw=>jw.project===p.name).length},
                         {tab:'АОСР',icon:'🔒',label:'Скрытые работы (АОСР)',hint:'СНиП 12-01-2004',count:hiddenActs.filter(a=>a.projectName===p.name).length},
                         {tab:'Входной контроль',icon:'📦',label:'Входной контроль материалов',hint:'СП 48.13330.2019',count:materialInspections.filter(mi=>mi.projectName===p.name).length},
+                        {tab:'Кабельная продукция',icon:'⚡',label:'Кабельная продукция',hint:'СП 76.13330 · ПУЭ',count:cableJournal.filter(c=>c.projectName===p.name).length},
                         {tab:'Журнал ТБ',icon:'🛡️',label:'Техника безопасности',hint:'ГОСТ 12.0.004-2015',count:(tbJournal||[]).filter(e=>e.project===p.name).length},
                         {tab:'Погода',icon:'🌤',label:'Погода',hint:'Метеоусловия по дням',count:(weatherLog||[]).filter(w=>w.projectName===p.name).length},
                         {tab:'Предписания',icon:'⚠️',label:'Предписания',hint:'От технадзора и стройконтроля',count:(prescriptionsList||[]).filter(pr=>pr.projectName===p.name).length},
@@ -4020,6 +4197,57 @@ function App() {
                               <td style={tblC}>{mi.certificateNumber||(mi.passportNumber?'паспорт '+mi.passportNumber:'—')}</td>
                               <td style={tblC}>{mi.visualInspectionResult||'—'}</td>
                               <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:mi.inspected?(mi.visualInspectionResult==='Не соответствует'?C.dangerLight:C.successLight):C.warningLight,color:mi.inspected?(mi.visualInspectionResult==='Не соответствует'?C.danger:C.success):C.warning}}>{mi.inspected?'Проверено':'Ждёт проверки'}</span></td>
+                            </tr>))}
+                          </tbody></table>
+                        </div>
+                      </div>);
+                    })()}
+                  </div>)}
+                  {activeProjectTab==='Кабельная продукция'&&(<div>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
+                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>⚡ Журнал кабельной продукции</b>
+                      <span style={{fontSize:'11px',color:C.textMuted}}>СП 76.13330 · ПУЭ · автоопределение по марке</span>
+                    </div>
+                    {(()=>{
+                      const here=cableJournal.filter(cb=>cb.projectName===p.name);
+                      if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>⚡</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при приходе кабеля (по накладной).<br/>Система распознаёт марки: ВВГ / АВВГ / КВВГ / СИП / UTP / FTP / NYM и др.</p></div>);
+                      const cntInstalled=here.filter(cb=>cb.installedAt).length;
+                      const cntPending=here.length-cntInstalled;
+                      const totalLength=here.reduce((s,cb)=>s+Number(cb.lengthReceived||0),0);
+                      return(<div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                          <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Записей</p><b style={{color:C.text,fontSize:'16px'}}>{here.length}</b></div>
+                          <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Ждут монтажа</p><b style={{color:C.warning,fontSize:'16px'}}>{cntPending}</b></div>
+                          <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Проложено</p><b style={{color:C.success,fontSize:'16px'}}>{cntInstalled}</b></div>
+                          <div style={{...card,padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>Общая длина</p><b style={{color:C.accent,fontSize:'16px'}}>{totalLength.toLocaleString('ru-RU')+' м'}</b></div>
+                        </div>
+                        <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'10px'}}>
+                          <button onClick={()=>showPreview(buildCableJournalContent(here,p.name,'',''),'Журнал кабельной продукции — '+p.name)} style={{...btnB,fontSize:'12px',padding:'7px 12px'}}><Eye size={13}/>🖨 Печать журнала</button>
+                        </div>
+                        <div style={{...card,padding:0,overflow:'auto'}}>
+                          <table style={tbl}><thead><tr>
+                            <th style={tblH}>Дата</th>
+                            <th style={tblH}>Марка</th>
+                            <th style={tblH}>Сечение</th>
+                            <th style={tblH}>Жил</th>
+                            <th style={tblH}>Длина</th>
+                            <th style={tblH}>Барабан №</th>
+                            <th style={tblH}>R изол. ДО</th>
+                            <th style={tblH}>R изол. ПОСЛЕ</th>
+                            <th style={tblH}>Место прокладки</th>
+                            <th style={tblH}>Статус</th>
+                          </tr></thead><tbody>
+                            {here.map(cb=>(<tr key={cb.id} style={{cursor:'pointer'}} onClick={()=>setEditingCable(cb)}>
+                              <td style={tblC}>{cb.receivedAt||'—'}</td>
+                              <td style={{...tblC,maxWidth:'220px',whiteSpace:'normal'}}>{cb.cableBrand}{cb.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
+                              <td style={tblC}>{cb.crossSection?cb.crossSection+' мм²':'—'}</td>
+                              <td style={tblC}>{cb.coresCount||'—'}</td>
+                              <td style={tblC}>{(cb.lengthReceived||0)+' м'}</td>
+                              <td style={tblC}>{cb.drumNumber||'—'}</td>
+                              <td style={tblC}>{cb.insulationBefore?cb.insulationBefore+' МΩ':'—'}</td>
+                              <td style={tblC}>{cb.insulationAfter?cb.insulationAfter+' МΩ':'—'}</td>
+                              <td style={{...tblC,maxWidth:'220px',whiteSpace:'normal'}}>{cb.installationLocation||'—'}</td>
+                              <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:cb.installedAt?C.successLight:C.warningLight,color:cb.installedAt?C.success:C.warning}}>{cb.installedAt?'Проложен':'На складе'}</span></td>
                             </tr>))}
                           </tbody></table>
                         </div>

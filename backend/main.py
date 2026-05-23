@@ -390,6 +390,31 @@ def init_db():
             ai_filled BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS cable_journal (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            invoice_id INT,
+            cable_brand VARCHAR(255),
+            cross_section NUMERIC(8,2),
+            cores_count INT,
+            length_received NUMERIC(10,2),
+            length_installed NUMERIC(10,2),
+            drum_number VARCHAR(100),
+            manufacturer VARCHAR(255),
+            supplier VARCHAR(255),
+            certificate_number VARCHAR(100),
+            passport_number VARCHAR(100),
+            insulation_before NUMERIC(8,2),
+            insulation_after NUMERIC(8,2),
+            installation_location TEXT,
+            installation_method VARCHAR(255),
+            installed_at DATE,
+            received_at DATE,
+            responsible_itr VARCHAR(255),
+            normatives TEXT,
+            ai_filled BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         CREATE TABLE IF NOT EXISTS estimate_versions (
             id SERIAL PRIMARY KEY,
@@ -3269,22 +3294,43 @@ def create_warehouse_invoice(data: dict):
     proj = data.get("project","")
     sup = data.get("supplierName","")
     rcv_date = data.get("date") or None
+    import re as _re
+    cable_prefixes = ['ВВГ','АВВГ','ВБбШв','ПвВ','ПвС','СИП','КВВГ','КГ','ТППэп','ТПВ','UTP','FTP','КВПЭФ','NYM','NYY']
     inspections_added = 0
+    cables_added = 0
     for it in items_list:
         name = (it.get("name") or "").strip()
         if not name:
             continue
+        qty = float(it.get("quantity",0) or 0)
+        unit = it.get("unit","шт")
         try:
             cur.execute("""INSERT INTO material_inspection_journal
                            (project_name, invoice_id, material_name, unit, quantity, supplier, received_at)
                            VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                        (proj, invoice_id, name, it.get("unit","шт"), float(it.get("quantity",0) or 0), sup, rcv_date))
+                        (proj, invoice_id, name, unit, qty, sup, rcv_date))
             inspections_added += 1
         except Exception as e:
             print("INSPECTION INSERT ERROR:", str(e))
+        # Автоопределение: это кабель?
+        nu = name.upper().replace(' ','')
+        is_cable = any(nu.startswith(p.upper()) for p in cable_prefixes) or 'КАБЕЛЬ' in name.upper()
+        if is_cable:
+            m = _re.search(r'(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)', name, _re.IGNORECASE)
+            cores = int(m.group(1)) if m else None
+            section = float(m.group(2).replace(',', '.')) if m else None
+            try:
+                cur.execute("""INSERT INTO cable_journal
+                               (project_name, invoice_id, cable_brand, cross_section, cores_count,
+                                length_received, supplier, received_at)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (proj, invoice_id, name, section, cores, qty, sup, rcv_date))
+                cables_added += 1
+            except Exception as e:
+                print("CABLE INSERT ERROR:", str(e))
     conn.commit()
     cur.close(); conn.close()
-    return {"id": invoice_id, "ok": True, "inspectionsAdded": inspections_added}
+    return {"id": invoice_id, "ok": True, "inspectionsAdded": inspections_added, "cablesAdded": cables_added}
 
 @app.delete("/warehouse-invoices/{id}")
 def delete_warehouse_invoice(id: int):
@@ -3417,6 +3463,140 @@ def ai_suggest_material_inspection(id: int):
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True, "normatives": normatives, "requiredDocs": required_docs, "aiFilled": True}
+
+@app.get("/cable-journal")
+def list_cable_journal(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    cols = """id, project_name, invoice_id, cable_brand, cross_section, cores_count,
+              length_received, length_installed, drum_number, manufacturer, supplier,
+              certificate_number, passport_number, insulation_before, insulation_after,
+              installation_location, installation_method,
+              installed_at, received_at, responsible_itr, normatives, ai_filled, created_at"""
+    if project_name:
+        cur.execute(f"SELECT {cols} FROM cable_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute(f"SELECT {cols} FROM cable_journal ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1] or "","invoiceId":r[2],
+             "cableBrand":r[3] or "","crossSection":float(r[4] or 0),"coresCount":r[5],
+             "lengthReceived":float(r[6] or 0),"lengthInstalled":float(r[7] or 0),
+             "drumNumber":r[8] or "","manufacturer":r[9] or "","supplier":r[10] or "",
+             "certificateNumber":r[11] or "","passportNumber":r[12] or "",
+             "insulationBefore":float(r[13] or 0),"insulationAfter":float(r[14] or 0),
+             "installationLocation":r[15] or "","installationMethod":r[16] or "",
+             "installedAt":str(r[17]) if r[17] else "","receivedAt":str(r[18]) if r[18] else "",
+             "responsibleItr":r[19] or "","normatives":r[20] or "",
+             "aiFilled":bool(r[21]),"createdAt":str(r[22])} for r in rows]
+
+@app.put("/cable-journal/{id}")
+def update_cable_journal(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    fields_map = [
+        ('cableBrand','cable_brand'),
+        ('crossSection','cross_section'),
+        ('coresCount','cores_count'),
+        ('lengthReceived','length_received'),
+        ('lengthInstalled','length_installed'),
+        ('drumNumber','drum_number'),
+        ('manufacturer','manufacturer'),
+        ('certificateNumber','certificate_number'),
+        ('passportNumber','passport_number'),
+        ('insulationBefore','insulation_before'),
+        ('insulationAfter','insulation_after'),
+        ('installationLocation','installation_location'),
+        ('installationMethod','installation_method'),
+        ('installedAt','installed_at'),
+        ('responsibleItr','responsible_itr'),
+        ('normatives','normatives'),
+    ]
+    sets, vals = [], []
+    ai_resetting_fields = {'insulationBefore','insulationAfter','installationLocation','installationMethod','normatives','drumNumber'}
+    reset_ai = False
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            v = data[js_key]
+            if js_key == 'installedAt' and not v:
+                v = None
+            vals.append(v)
+            if js_key in ai_resetting_fields:
+                reset_ai = True
+    if reset_ai:
+        sets.append("ai_filled=FALSE")
+    if not sets:
+        cur.close(); conn.close()
+        return {"ok": True}
+    vals.append(id)
+    cur.execute("UPDATE cable_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.post("/cable-journal/{id}/ai-suggest")
+def ai_suggest_cable_journal(id: int):
+    import openai as oa, json as j, re
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT cable_brand, cross_section, cores_count, length_received FROM cable_journal WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="запись не найдена")
+    brand, section, cores, length = row[0] or "", float(row[1] or 0), row[2], float(row[3] or 0)
+    cur.close()
+
+    user_text = (
+        "Марка кабеля: " + brand + "\n"
+        "Сечение жилы (мм²): " + str(section) + "\n"
+        "Количество жил: " + (str(cores) if cores else "—") + "\n"
+        "Длина с барабана/бухты (м): " + str(length) + "\n\n"
+        "Верни СТРОГО JSON с тремя полями (без markdown, без тройных кавычек):\n"
+        '{"normatives": "...", "minInsulation": "...", "recommendations": "..."}\n'
+        "Где:\n"
+        "- normatives: применимые ГОСТ/СП/ПУЭ для этой марки кабеля и его монтажа через запятую\n"
+        "- minInsulation: минимальное сопротивление изоляции в МΩ по ПУЭ для этой марки (одно число или диапазон)\n"
+        "- recommendations: 1-2 предложения по способу прокладки и испытаниям перед сдачей."
+    )
+    instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек."
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+    def _call(model_id):
+        try:
+            r = client.responses.create(model="gpt://"+YANDEX_FOLDER_ID+"/"+model_id, temperature=0.1, instructions=instructions, input=user_text, max_output_tokens=1500)
+            return (r.output_text or ""), None
+        except Exception as e:
+            return "", str(e)
+    answer, err = _call("qwen3.6-35b-a3b/latest")
+    if not (answer or "").strip():
+        print("AI-SUGGEST cable primary empty, fallback. err=" + str(err))
+        answer, err = _call("yandexgpt-5.1/latest")
+    if not (answer or "").strip():
+        conn.close()
+        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
+    text = answer.strip()
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        text = m.group(0)
+    try:
+        parsed = j.loads(text)
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=502, detail="AI вернул невалидный JSON: " + str(e)[:200])
+    normatives = (parsed.get("normatives") or "").strip()
+    min_insulation = (parsed.get("minInsulation") or "").strip()
+    recommendations = (parsed.get("recommendations") or "").strip()
+    full_normatives = normatives
+    if min_insulation:
+        full_normatives = "Мин. R изоляции по ПУЭ: " + min_insulation + " МΩ. " + normatives
+    if recommendations:
+        full_normatives = (full_normatives + "\n\nРекомендации: " + recommendations).strip()
+    cur = conn.cursor()
+    cur.execute("UPDATE cable_journal SET normatives=%s, ai_filled=TRUE WHERE id=%s", (full_normatives, id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "normatives": full_normatives, "minInsulation": min_insulation, "recommendations": recommendations, "aiFilled": True}
 
 # Хранилище онлайн статусов
 online_users = {}
