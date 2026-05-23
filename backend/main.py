@@ -368,6 +368,28 @@ def init_db():
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS project_docs TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS ai_filled BOOLEAN DEFAULT FALSE;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS unexpected_work_id INT;
+        CREATE TABLE IF NOT EXISTS material_inspection_journal (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            invoice_id INT,
+            material_name VARCHAR(255),
+            unit VARCHAR(50),
+            quantity NUMERIC(14,4),
+            supplier VARCHAR(255),
+            batch_number VARCHAR(100),
+            passport_number VARCHAR(100),
+            certificate_number VARCHAR(100),
+            test_protocol_number VARCHAR(100),
+            visual_inspection_result VARCHAR(50),
+            remarks TEXT,
+            inspector_name VARCHAR(255),
+            received_at DATE,
+            inspected_at DATE,
+            inspected BOOLEAN DEFAULT FALSE,
+            normatives TEXT,
+            ai_filled BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         CREATE TABLE IF NOT EXISTS estimate_versions (
             id SERIAL PRIMARY KEY,
@@ -3241,10 +3263,28 @@ def create_warehouse_invoice(data: dict):
     cur = conn.cursor()
     cur.execute("INSERT INTO warehouse_invoices (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),data.get("location",""),data.get("project",""),data.get("vat","Без НДС"),j.dumps(data.get("items",[]),ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl","")))
+    invoice_id = cur.fetchone()[0]
+    # Авто-создание записей в журнале входного контроля материалов (по СП 48.13330)
+    items_list = data.get("items", []) or []
+    proj = data.get("project","")
+    sup = data.get("supplierName","")
+    rcv_date = data.get("date") or None
+    inspections_added = 0
+    for it in items_list:
+        name = (it.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            cur.execute("""INSERT INTO material_inspection_journal
+                           (project_name, invoice_id, material_name, unit, quantity, supplier, received_at)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                        (proj, invoice_id, name, it.get("unit","шт"), float(it.get("quantity",0) or 0), sup, rcv_date))
+            inspections_added += 1
+        except Exception as e:
+            print("INSPECTION INSERT ERROR:", str(e))
     conn.commit()
-    row = cur.fetchone()
     cur.close(); conn.close()
-    return {"id":row[0],"ok":True}
+    return {"id": invoice_id, "ok": True, "inspectionsAdded": inspections_added}
 
 @app.delete("/warehouse-invoices/{id}")
 def delete_warehouse_invoice(id: int):
@@ -3254,6 +3294,129 @@ def delete_warehouse_invoice(id: int):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+@app.get("/material-inspection")
+def list_material_inspections(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    cols = """id, project_name, invoice_id, material_name, unit, quantity, supplier,
+              batch_number, passport_number, certificate_number, test_protocol_number,
+              visual_inspection_result, remarks, inspector_name,
+              received_at, inspected_at, inspected, normatives, ai_filled, created_at"""
+    if project_name:
+        cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute(f"SELECT {cols} FROM material_inspection_journal ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1] or "","invoiceId":r[2],"materialName":r[3] or "",
+             "unit":r[4] or "","quantity":float(r[5] or 0),"supplier":r[6] or "",
+             "batchNumber":r[7] or "","passportNumber":r[8] or "","certificateNumber":r[9] or "",
+             "testProtocolNumber":r[10] or "","visualInspectionResult":r[11] or "",
+             "remarks":r[12] or "","inspectorName":r[13] or "",
+             "receivedAt":str(r[14]) if r[14] else "","inspectedAt":str(r[15]) if r[15] else "",
+             "inspected":bool(r[16]),"normatives":r[17] or "",
+             "aiFilled":bool(r[18]),"createdAt":str(r[19])} for r in rows]
+
+@app.put("/material-inspection/{id}")
+def update_material_inspection(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    fields_map = [
+        ('batchNumber', 'batch_number'),
+        ('passportNumber', 'passport_number'),
+        ('certificateNumber', 'certificate_number'),
+        ('testProtocolNumber', 'test_protocol_number'),
+        ('visualInspectionResult', 'visual_inspection_result'),
+        ('remarks', 'remarks'),
+        ('inspectorName', 'inspector_name'),
+        ('inspectedAt', 'inspected_at'),
+        ('inspected', 'inspected'),
+        ('normatives', 'normatives'),
+    ]
+    sets, vals = [], []
+    ai_resetting_fields = {'visualInspectionResult','remarks','passportNumber','certificateNumber','testProtocolNumber','normatives'}
+    reset_ai = False
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            v = data[js_key]
+            if js_key == 'inspectedAt' and not v:
+                v = None
+            vals.append(v)
+            if js_key in ai_resetting_fields:
+                reset_ai = True
+    if reset_ai:
+        sets.append("ai_filled=FALSE")
+    if not sets:
+        cur.close(); conn.close()
+        return {"ok": True}
+    vals.append(id)
+    cur.execute("UPDATE material_inspection_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.post("/material-inspection/{id}/ai-suggest")
+def ai_suggest_material_inspection(id: int):
+    import openai as oa, json as j, re
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT material_name, unit, quantity FROM material_inspection_journal WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="запись не найдена")
+    material_name, unit, quantity = row[0] or "", row[1] or "", float(row[2] or 0)
+    cur.close()
+
+    user_text = (
+        "Материал: " + material_name + "\n"
+        "Единица: " + unit + "\n"
+        "Количество: " + str(quantity) + "\n\n"
+        "Верни СТРОГО JSON с двумя полями (без markdown, без тройных кавычек):\n"
+        '{"normatives": "...", "requiredDocs": "..."}\n'
+        "Где:\n"
+        "- normatives: перечень применимых ГОСТ/СП/СНиП для входного контроля этого материала через запятую\n"
+        "- requiredDocs: какие документы качества должны быть у поставщика "
+        "(паспорт качества, сертификат соответствия, протокол испытаний, декларация). 1-2 предложения."
+    )
+    instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек."
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+    def _call(model_id):
+        try:
+            r = client.responses.create(model="gpt://"+YANDEX_FOLDER_ID+"/"+model_id, temperature=0.1, instructions=instructions, input=user_text, max_output_tokens=1500)
+            return (r.output_text or ""), None
+        except Exception as e:
+            return "", str(e)
+    answer, err = _call("qwen3.6-35b-a3b/latest")
+    if not (answer or "").strip():
+        print("AI-SUGGEST inspection primary empty, fallback. err=" + str(err))
+        answer, err = _call("yandexgpt-5.1/latest")
+    if not (answer or "").strip():
+        conn.close()
+        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
+    text = answer.strip()
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        text = m.group(0)
+    try:
+        parsed = j.loads(text)
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=502, detail="AI вернул невалидный JSON: " + str(e)[:200])
+    normatives = (parsed.get("normatives") or "").strip()
+    required_docs = (parsed.get("requiredDocs") or "").strip()
+    cur = conn.cursor()
+    cur.execute("""UPDATE material_inspection_journal
+                   SET normatives=%s,
+                       remarks = CASE WHEN COALESCE(remarks,'')='' THEN %s ELSE remarks END,
+                       ai_filled=TRUE
+                   WHERE id=%s""",
+                (normatives, ("Требуемые документы: " + required_docs) if required_docs else "", id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "normatives": normatives, "requiredDocs": required_docs, "aiFilled": True}
 
 # Хранилище онлайн статусов
 online_users = {}

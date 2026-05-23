@@ -299,6 +299,8 @@ function App() {
   const [journalFilter, setJournalFilter] = useState({from:'',to:'',masterName:'',sectionName:'',status:''});
   const [showJournalPrintDialog, setShowJournalPrintDialog] = useState(null);
   const [showJournalTableModal, setShowJournalTableModal] = useState(null);
+  const [materialInspections, setMaterialInspections] = useState([]);
+  const [editingInspection, setEditingInspection] = useState(null);
   const [selectedBrigadeContract, setSelectedBrigadeContract] = useState(null);
   const [brigadeContractItems, setBrigadeContractItems] = useState([]);
   const [showBrigadeForm, setShowBrigadeForm] = useState(false);
@@ -648,7 +650,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
@@ -689,6 +691,7 @@ function App() {
         fetch(API+'/estimates').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/brigade-contracts').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/hidden-works-acts').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/material-inspection').then(r=>r.json()).catch(()=>[]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -698,7 +701,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);
       try {
         const [rwin,rdoor] = await Promise.all([
           fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]),
@@ -1155,6 +1158,78 @@ function App() {
     html += '<div class="wj-sigs">';
     html += '<div><div class="wj-sig-label">Должностное лицо, ответственное за совершение операций и правильность их оформления:</div><div class="wj-sig-line"></div><div class="wj-sig-sub">(должность, подпись, ФИО)</div></div>';
     html += '<div><div class="wj-sig-label">Представитель технического надзора заказчика:</div><div class="wj-sig-line"></div><div class="wj-sig-sub">(должность, подпись, ФИО)</div></div>';
+    html += '</div>';
+    return html;
+  };
+
+  const buildMaterialInspectionContent = (records, projectName, dateFrom, dateTo) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const project = projects.find(p=>p.name===projectName)||{};
+    const fmtDate = (d) => { if(!d) return ''; const dt=new Date(d); if(isNaN(dt)) return d; return ('0'+dt.getDate()).slice(-2)+'.'+('0'+(dt.getMonth()+1)).slice(-2)+'.'+dt.getFullYear(); };
+    let html = '<style>'
+      + '.mic-meta{margin:6px 0;font-size:11px}'
+      + '.mic-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
+      + '.mic-sub{text-align:center;font-size:12px;margin:0 0 14px;color:#444}'
+      + '.mic-info{display:grid;grid-template-columns:160px 1fr;gap:4px 10px;font-size:11px;margin:10px 0}'
+      + '.mic-tbl{border-collapse:collapse;width:100%;font-size:10px;margin-top:10px}'
+      + '.mic-tbl th,.mic-tbl td{border:1px solid #333;padding:4px 5px;vertical-align:top}'
+      + '.mic-tbl th{background:#f3f4f6;font-weight:600;text-align:center}'
+      + '.mic-tbl td.num{text-align:right;white-space:nowrap}'
+      + '.mic-foot{margin-top:18px;font-size:11px;color:#444}'
+      + '.mic-sigs{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:30px}'
+      + '.mic-sig-label{font-weight:600;margin-bottom:30px;font-size:11px}'
+      + '.mic-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
+      + '.mic-sig-sub{font-size:9px;color:#555;margin-top:2px}'
+      + '</style>';
+    html += '<div class="mic-meta"><b>'+orgName+'</b></div>';
+    html += '<div class="mic-title">ЖУРНАЛ ВХОДНОГО КОНТРОЛЯ МАТЕРИАЛОВ, КОНСТРУКЦИЙ И ИЗДЕЛИЙ</div>';
+    html += '<div class="mic-sub">по СП 48.13330.2019 «Организация строительства», §7.1</div>';
+    html += '<div class="mic-info">';
+    html += '<span>Заказчик:</span><b>'+(project.client||'____________')+'</b>';
+    html += '<span>Подрядчик:</span><b>'+orgName+'</b>';
+    html += '<span>Объект:</span><b>'+(projectName||'____________')+'</b>';
+    html += '<span>Период:</span><b>'+(dateFrom?fmtDate(dateFrom):'__.__.____')+' — '+(dateTo?fmtDate(dateTo):'__.__.____')+'</b>';
+    html += '</div>';
+    html += '<table class="mic-tbl"><thead><tr>';
+    html += '<th style="width:24px">№</th>';
+    html += '<th style="width:60px">Дата приёмки</th>';
+    html += '<th>Наименование материала</th>';
+    html += '<th style="width:36px">Ед.</th>';
+    html += '<th style="width:50px">Кол-во</th>';
+    html += '<th style="width:110px">Поставщик</th>';
+    html += '<th style="width:70px">Партия №</th>';
+    html += '<th style="width:80px">Паспорт №</th>';
+    html += '<th style="width:80px">Сертификат №</th>';
+    html += '<th style="width:80px">Протокол №</th>';
+    html += '<th style="width:90px">Результат осмотра</th>';
+    html += '<th style="width:90px">Проверил (ФИО)</th>';
+    html += '<th style="width:60px">Дата осмотра</th>';
+    html += '<th>Замечания</th>';
+    html += '</tr></thead><tbody>';
+    records.forEach((r,i)=>{
+      html += '<tr>';
+      html += '<td class="num">'+(i+1)+'</td>';
+      html += '<td>'+fmtDate(r.receivedAt)+'</td>';
+      html += '<td>'+(r.materialName||'')+'</td>';
+      html += '<td>'+(r.unit||'')+'</td>';
+      html += '<td class="num">'+(r.quantity||0)+'</td>';
+      html += '<td>'+(r.supplier||'—')+'</td>';
+      html += '<td>'+(r.batchNumber||'—')+'</td>';
+      html += '<td>'+(r.passportNumber||'—')+'</td>';
+      html += '<td>'+(r.certificateNumber||'—')+'</td>';
+      html += '<td>'+(r.testProtocolNumber||'—')+'</td>';
+      html += '<td>'+(r.visualInspectionResult||'—')+'</td>';
+      html += '<td>'+(r.inspectorName||'—')+'</td>';
+      html += '<td>'+fmtDate(r.inspectedAt)+'</td>';
+      html += '<td>'+(r.remarks||'')+'</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div class="mic-foot">Журнал ведётся в соответствии с СП 48.13330.2019 «Организация строительства» и ГОСТ 24297-2013 «Верификация закупленной продукции. Организация и методы контроля».</div>';
+    html += '<div class="mic-sigs">';
+    html += '<div><div class="mic-sig-label">Ответственное за входной контроль лицо:</div><div class="mic-sig-line"></div><div class="mic-sig-sub">(должность, подпись, ФИО)</div></div>';
+    html += '<div><div class="mic-sig-label">Представитель технического надзора заказчика:</div><div class="mic-sig-line"></div><div class="mic-sig-sub">(должность, подпись, ФИО)</div></div>';
     html += '</div>';
     return html;
   };
@@ -2741,6 +2816,92 @@ function App() {
           </div>
         </div>);
       })()}
+      {editingInspection&&(()=>{
+        const mi=editingInspection;
+        const upd=(k,v)=>setEditingInspection({...editingInspection,[k]:v});
+        const labelStyle={fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px',display:'block'};
+        const sectionStyle={marginBottom:'14px'};
+        const aiSuggest=async()=>{
+          setEditingInspection(prev=>({...prev,__aiLoading:true}));
+          try{
+            const res=await fetch(API+'/material-inspection/'+mi.id+'/ai-suggest',{method:'POST'});
+            if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||('HTTP '+res.status));}
+            const d=await res.json();
+            setEditingInspection(prev=>({...prev,normatives:d.normatives||prev.normatives,remarks:(prev.remarks&&prev.remarks.trim())?prev.remarks:('Требуемые документы: '+(d.requiredDocs||'')),aiFilled:true,__aiLoading:false}));
+            setMaterialInspections(prev=>prev.map(x=>x.id===mi.id?{...x,normatives:d.normatives||x.normatives,aiFilled:true}:x));
+          }catch(e){
+            alert('Не получилось получить ответ от AI: '+e.message);
+            setEditingInspection(prev=>({...prev,__aiLoading:false}));
+          }
+        };
+        const saveInspection=async()=>{
+          const body={
+            batchNumber:mi.batchNumber||'',
+            passportNumber:mi.passportNumber||'',
+            certificateNumber:mi.certificateNumber||'',
+            testProtocolNumber:mi.testProtocolNumber||'',
+            visualInspectionResult:mi.visualInspectionResult||'',
+            remarks:mi.remarks||'',
+            inspectorName:mi.inspectorName||'',
+            inspectedAt:mi.inspectedAt||'',
+            inspected:!!mi.inspected,
+            normatives:mi.normatives||'',
+          };
+          await fetch(API+'/material-inspection/'+mi.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+          setMaterialInspections(prev=>prev.map(x=>x.id===mi.id?{...x,...body,aiFilled:false}:x));
+          setEditingInspection(null);
+        };
+        return(<div onClick={()=>setEditingInspection(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(820px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
+              <div>
+                <b style={{color:C.text,fontSize:'16px',display:'block'}}>📦 Входной контроль материала</b>
+                <span style={{fontSize:'12px',color:C.textSec}}>{(mi.materialName||'—')+' · '+(mi.quantity||0)+' '+(mi.unit||'')+' · '+(mi.supplier||'—')}</span>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                <span style={{padding:'4px 10px',borderRadius:'12px',fontSize:'12px',fontWeight:'600',backgroundColor:mi.inspected?C.successLight:C.warningLight,color:mi.inspected?C.success:C.warning}}>{mi.inspected?'Проверено':'Ждёт проверки'}</span>
+                <button onClick={()=>setEditingInspection(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
+              </div>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+              {mi.aiFilled&&(<div style={{marginBottom:'14px',padding:'10px 12px',backgroundColor:'#d1fae5',border:'1.5px solid #10b981',borderRadius:'10px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'20px'}}>🤖</span><span style={{fontSize:'12px',color:C.text,lineHeight:1.4}}><b>Поле «Нормативы» подсказано AI.</b> Проверь и сохрани — при правке метка снимется.</span></div>)}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
+                <div><p style={labelStyle}>Материал</p><b style={{fontSize:'13px',color:C.text}}>{mi.materialName||'—'}</b></div>
+                <div><p style={labelStyle}>Количество</p><b style={{fontSize:'13px',color:C.text}}>{(mi.quantity||0)+' '+(mi.unit||'')}</b></div>
+                <div><p style={labelStyle}>Поставщик</p><b style={{fontSize:'13px',color:C.text}}>{mi.supplier||'—'}</b></div>
+                <div><p style={labelStyle}>Дата приёмки</p><b style={{fontSize:'13px',color:C.text}}>{mi.receivedAt||'—'}</b></div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
+                <div><label style={labelStyle}>№ партии (на упаковке/паспорте)</label><input value={mi.batchNumber||''} onChange={e=>upd('batchNumber',e.target.value)} placeholder="напр. №147" style={inp}/></div>
+                <div><label style={labelStyle}>Паспорт качества №</label><input value={mi.passportNumber||''} onChange={e=>upd('passportNumber',e.target.value)} placeholder="напр. ПК-2026/05/12" style={inp}/></div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
+                <div><label style={labelStyle}>Сертификат соответствия №</label><input value={mi.certificateNumber||''} onChange={e=>upd('certificateNumber',e.target.value)} placeholder="напр. РОСС RU.AB12.H00000" style={inp}/></div>
+                <div><label style={labelStyle}>Протокол испытаний №</label><input value={mi.testProtocolNumber||''} onChange={e=>upd('testProtocolNumber',e.target.value)} placeholder="напр. ПИ-15 от 14.05.2026" style={inp}/></div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
+                <div><label style={labelStyle}>Результат визуального осмотра</label><select value={mi.visualInspectionResult||''} onChange={e=>upd('visualInspectionResult',e.target.value)} style={inp}><option value="">— не указано —</option><option>Соответствует</option><option>С замечаниями</option><option>Не соответствует</option></select></div>
+                <div><label style={labelStyle}>Дата осмотра</label><input type='date' value={mi.inspectedAt||''} onChange={e=>upd('inspectedAt',e.target.value)} style={inp}/></div>
+              </div>
+              <div style={sectionStyle}><label style={labelStyle}>ФИО лица, проводившего входной контроль</label><input value={mi.inspectorName||''} onChange={e=>upd('inspectorName',e.target.value)} placeholder="ФИО прораба или кладовщика" style={inp}/></div>
+              <div style={sectionStyle}><label style={labelStyle}>Применимые нормативы (ГОСТ/СП/СНиП){mi.aiFilled?' 🤖':''}</label><textarea value={mi.normatives||''} onChange={e=>upd('normatives',e.target.value)} placeholder="Напр.: ГОСТ 7473-2010 (бетон), ГОСТ 5781-82 (арматура)" style={{...inp,minHeight:'60px',resize:'vertical'}}/></div>
+              <div style={sectionStyle}><label style={labelStyle}>Замечания / комментарий</label><textarea value={mi.remarks||''} onChange={e=>upd('remarks',e.target.value)} placeholder="Замечания по качеству, упаковке, документам" style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
+              <div style={{padding:'10px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,display:'flex',alignItems:'center',gap:'10px'}}>
+                <input type='checkbox' id='mi-checked' checked={!!mi.inspected} onChange={e=>upd('inspected',e.target.checked)} style={{width:'18px',height:'18px',cursor:'pointer'}}/>
+                <label htmlFor='mi-checked' style={{fontSize:'13px',color:C.text,cursor:'pointer',fontWeight:'600'}}>Входной контроль завершён — материал можно выдавать на работы</label>
+              </div>
+            </div>
+            <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
+              <button onClick={()=>showPreview(buildMaterialInspectionContent([mi],mi.projectName,mi.receivedAt,mi.receivedAt),'Запись входного контроля')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
+              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                <button disabled={!!mi.__aiLoading} onClick={aiSuggest} style={{...btnB,backgroundColor:'#10b981',opacity:mi.__aiLoading?0.6:1,cursor:mi.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{mi.__aiLoading?'AI работает…':'🤖 AI-подсказка нормативов'}</button>
+                <button onClick={()=>setEditingInspection(null)} style={btnG}>Отмена</button>
+                <button onClick={saveInspection} style={btnO}><Check size={14}/>Сохранить</button>
+              </div>
+            </div>
+          </div>
+        </div>);
+      })()}
       {showQRModal&&(<div onClick={()=>setShowQRModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.7)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><div style={{backgroundColor:'white',padding:'30px',borderRadius:'16px',textAlign:'center'}} onClick={e=>e.stopPropagation()}><h3 style={{color:C.text,marginBottom:'16px'}}>{showQRModal.title}</h3><img src={generateQR(showQRModal.data)} alt="QR" style={{width:'200px',height:'200px'}}/><p style={{color:C.textSec,fontSize:'12px',marginTop:'12px'}}>Сканируйте для быстрого доступа</p><button onClick={()=>setShowQRModal(null)} style={{...btnG,marginTop:'12px'}}>Закрыть</button></div></div>)}
       {rejectingEntry&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Причина отклонения</h3><textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inp,height:'100px',resize:'vertical'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>rejectJ(rejectingEntry,rejectComment)} style={btnR}><X size={14}/>Отклонить</button><button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnG}>Отмена</button></div></div></div>)}
       {showIssueToolModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{'Выдать: '+showIssueToolModal.name}</h3><select value={issueToolData.masterName} onChange={e=>setIssueToolData({...issueToolData,masterName:e.target.value})} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.fullName}>{mp.fullName}</option>)}</select><select value={issueToolData.project} onChange={e=>setIssueToolData({...issueToolData,project:e.target.value})} style={inp}><option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><select value={issueToolData.issueType} onChange={e=>setIssueToolData({...issueToolData,issueType:e.target.value})} style={inp}><option value="Временно">Временно</option><option value="В счёт зарплаты">В счёт зарплаты</option></select><div style={{display:'flex',gap:'10px'}}><button onClick={()=>issueTool(showIssueToolModal)} style={btnO}><Check size={14}/>Выдать</button><button onClick={()=>setShowIssueToolModal(null)} style={btnG}>Отмена</button></div></div></div>)}
@@ -2918,7 +3079,7 @@ function App() {
                         {id:'work',icon:'🔨',label:'Работы',tabs:['Наряды','Непредвиденные','Чек-листы']},
                         {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
                         {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы']},
-                        {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Журнал ТБ','Погода','Предписания','Чат']},
+                        {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Журнал ТБ','Погода','Предписания','Чат']},
                         {id:'docs',icon:'📋',label:'Документы',tabs:['КС-2','КС-3','Паспорт','Акты технадзора']},
                       ];
                       const activeGroup=tabGroups.find(g=>g.tabs.includes(activeProjectTab));
@@ -3762,6 +3923,7 @@ function App() {
                       const cards=[
                         {tab:'Производство работ',icon:'📖',label:'Производство работ',hint:'Журнал по форме КС-6а',count:workJournal.filter(jw=>jw.project===p.name).length},
                         {tab:'АОСР',icon:'🔒',label:'Скрытые работы (АОСР)',hint:'СНиП 12-01-2004',count:hiddenActs.filter(a=>a.projectName===p.name).length},
+                        {tab:'Входной контроль',icon:'📦',label:'Входной контроль материалов',hint:'СП 48.13330.2019',count:materialInspections.filter(mi=>mi.projectName===p.name).length},
                         {tab:'Журнал ТБ',icon:'🛡️',label:'Техника безопасности',hint:'ГОСТ 12.0.004-2015',count:(tbJournal||[]).filter(e=>e.project===p.name).length},
                         {tab:'Погода',icon:'🌤',label:'Погода',hint:'Метеоусловия по дням',count:(weatherLog||[]).filter(w=>w.projectName===p.name).length},
                         {tab:'Предписания',icon:'⚠️',label:'Предписания',hint:'От технадзора и стройконтроля',count:(prescriptionsList||[]).filter(pr=>pr.projectName===p.name).length},
@@ -3816,6 +3978,53 @@ function App() {
                       <p style={{color:C.textMuted,fontSize:'12px',margin:'0 0 6px'}}>Раздел в разработке — будет реализован в фазе Ф4.</p>
                       <p style={{color:C.textMuted,fontSize:'11px',margin:0}}>Здесь будет: загруженные технадзором акты осмотра/обследования, фотофиксация, месячный отчёт.</p>
                     </div>
+                  </div>)}
+                  {activeProjectTab==='Входной контроль'&&(<div>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
+                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📦 Журнал входного контроля материалов</b>
+                      <span style={{fontSize:'11px',color:C.textMuted}}>СП 48.13330.2019 · автозаполняется из накладных</span>
+                    </div>
+                    {(()=>{
+                      const here=materialInspections.filter(mi=>mi.projectName===p.name);
+                      if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>📦</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при оформлении приходной накладной (📦 Материалы → 📷 Принять материал).<br/>Затем здесь прораб/кладовщик дополняет паспорт, сертификат и отметку об осмотре.</p></div>);
+                      const cntInsp=here.filter(r=>r.inspected).length;
+                      const cntPending=here.length-cntInsp;
+                      const cntOk=here.filter(r=>r.visualInspectionResult==='Соответствует').length;
+                      return(<div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                          <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Записей</p><b style={{color:C.text,fontSize:'16px'}}>{here.length}</b></div>
+                          <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Ждут проверки</p><b style={{color:C.warning,fontSize:'16px'}}>{cntPending}</b></div>
+                          <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Проверено</p><b style={{color:C.success,fontSize:'16px'}}>{cntInsp}</b></div>
+                          <div style={{...card,padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>Соответствует</p><b style={{color:C.accent,fontSize:'16px'}}>{cntOk}</b></div>
+                        </div>
+                        <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'10px'}}>
+                          <button onClick={()=>showPreview(buildMaterialInspectionContent(here,p.name,'',''),'Журнал входного контроля — '+p.name)} style={{...btnB,fontSize:'12px',padding:'7px 12px'}}><Eye size={13}/>🖨 Печать журнала</button>
+                        </div>
+                        <div style={{...card,padding:0,overflow:'auto'}}>
+                          <table style={tbl}><thead><tr>
+                            <th style={tblH}>Дата приёмки</th>
+                            <th style={tblH}>Материал</th>
+                            <th style={tblH}>Кол-во</th>
+                            <th style={tblH}>Поставщик</th>
+                            <th style={tblH}>Партия</th>
+                            <th style={tblH}>Сертификат</th>
+                            <th style={tblH}>Результат осмотра</th>
+                            <th style={tblH}>Статус</th>
+                          </tr></thead><tbody>
+                            {here.map(mi=>(<tr key={mi.id} style={{cursor:'pointer'}} onClick={()=>setEditingInspection(mi)}>
+                              <td style={tblC}>{mi.receivedAt||'—'}</td>
+                              <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{mi.materialName}{mi.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
+                              <td style={tblC}>{(mi.quantity||0)+' '+(mi.unit||'')}</td>
+                              <td style={tblC}>{mi.supplier||'—'}</td>
+                              <td style={tblC}>{mi.batchNumber||'—'}</td>
+                              <td style={tblC}>{mi.certificateNumber||(mi.passportNumber?'паспорт '+mi.passportNumber:'—')}</td>
+                              <td style={tblC}>{mi.visualInspectionResult||'—'}</td>
+                              <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:mi.inspected?(mi.visualInspectionResult==='Не соответствует'?C.dangerLight:C.successLight):C.warningLight,color:mi.inspected?(mi.visualInspectionResult==='Не соответствует'?C.danger:C.success):C.warning}}>{mi.inspected?'Проверено':'Ждёт проверки'}</span></td>
+                            </tr>))}
+                          </tbody></table>
+                        </div>
+                      </div>);
+                    })()}
                   </div>)}
                   </div>
                 </div>)}
