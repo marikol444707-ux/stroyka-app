@@ -135,6 +135,38 @@ def init_db():
             photo_url VARCHAR(500),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS tb_journal (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            master_name VARCHAR(255),
+            instructor VARCHAR(255),
+            instruction_type VARCHAR(100),
+            program TEXT,
+            instruction_text TEXT,
+            participants_json TEXT,
+            photo_url VARCHAR(500),
+            date DATE,
+            ai_filled BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS program TEXT;
+        ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS instruction_text TEXT;
+        ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS participants_json TEXT;
+        ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS photo_url VARCHAR(500);
+        ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS ai_filled BOOLEAN DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id SERIAL PRIMARY KEY,
+            user_id INT,
+            user_name VARCHAR(255),
+            user_role VARCHAR(100),
+            action VARCHAR(100),
+            entity_type VARCHAR(100),
+            entity_id INT,
+            description TEXT,
+            project_name VARCHAR(255),
+            ip VARCHAR(50),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS pricelists (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -3701,6 +3733,122 @@ def delete_supervisor_act(id: int):
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
+
+@app.get("/tb-journal")
+def list_tb_journal(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    cols = "id, project_name, master_name, instructor, instruction_type, program, instruction_text, participants_json, photo_url, date, ai_filled, created_at"
+    if project_name:
+        cur.execute(f"SELECT {cols} FROM tb_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute(f"SELECT {cols} FROM tb_journal ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    import json as j
+    out = []
+    for r in rows:
+        try: participants = j.loads(r[7]) if r[7] else []
+        except: participants = []
+        out.append({"id":r[0],"projectName":r[1] or "","masterName":r[2] or "",
+             "instructor":r[3] or "","instructionType":r[4] or "",
+             "program":r[5] or "","instructionText":r[6] or "",
+             "participants":participants,"photoUrl":r[8] or "",
+             "date":str(r[9]) if r[9] else "","aiFilled":bool(r[10]),
+             "createdAt":str(r[11])})
+    return out
+
+@app.post("/tb-journal")
+def create_tb_entry(data: dict):
+    import json as j
+    conn = get_db()
+    cur = conn.cursor()
+    parts = j.dumps(data.get("participants") or [], ensure_ascii=False)
+    cur.execute("""INSERT INTO tb_journal
+                   (project_name, master_name, instructor, instruction_type, program, instruction_text,
+                    participants_json, photo_url, date, ai_filled)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (data.get("projectName",""), data.get("masterName",""),
+                 data.get("instructor",""), data.get("instructionType","Первичный инструктаж"),
+                 data.get("program",""), data.get("instructionText",""),
+                 parts, data.get("photoUrl",""), data.get("date") or None,
+                 bool(data.get("aiFilled", False))))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id": row[0], "ok": True}
+
+@app.delete("/tb-journal/{id}")
+def delete_tb_entry(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM tb_journal WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.post("/tb-journal/ai-generate")
+def ai_generate_tb_instruction(data: dict):
+    """AI генерирует текст инструктажа по ГОСТ 12.0.004-2015 для указанного типа работ."""
+    import openai as oa
+    instruction_type = data.get("instructionType", "Первичный инструктаж")
+    work_context = data.get("workContext", "")
+    project_name = data.get("projectName", "")
+
+    user_text = (
+        "Тип инструктажа: " + instruction_type + "\n"
+        "Объект: " + project_name + "\n"
+        "Контекст работ: " + (work_context or "общие строительно-монтажные работы") + "\n\n"
+        "Сгенерируй текст инструктажа по охране труда по ГОСТ 12.0.004-2015. "
+        "Включи: 1) программу (3-5 пунктов), 2) основные требования техники безопасности под этот тип работ, "
+        "3) последовательность действий при ЧП. "
+        "Используй официальный канцелярский русский. Объём 8-15 строк."
+    )
+    instructions = "Ты эксперт по охране труда в строительстве. Отвечай прямым связным текстом, без markdown."
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+    def _call(model_id):
+        try:
+            r = client.responses.create(
+                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
+                temperature=0.2, instructions=instructions, input=user_text, max_output_tokens=2000,
+            )
+            return (r.output_text or ""), None
+        except Exception as e:
+            return "", str(e)
+    answer, err = _call("yandexgpt-5.1/latest")
+    if not (answer or "").strip():
+        print("AI-TB primary empty, fallback. err=" + str(err))
+        answer, err = _call("qwen3.6-35b-a3b/latest")
+    if not (answer or "").strip():
+        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
+    return {"ok": True, "instructionText": answer.strip()}
+
+@app.get("/audit-log")
+def list_audit_log(limit: int = 200):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, user_id, user_name, user_role, action, entity_type, entity_id, description, project_name, created_at FROM audit_log ORDER BY id DESC LIMIT %s", (limit,))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"userId":r[1],"userName":r[2] or "","userRole":r[3] or "",
+             "action":r[4] or "","entityType":r[5] or "","entityId":r[6],
+             "description":r[7] or "","projectName":r[8] or "",
+             "createdAt":str(r[9])} for r in rows]
+
+@app.post("/audit-log")
+def create_audit_entry(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO audit_log
+                   (user_id, user_name, user_role, action, entity_type, entity_id, description, project_name)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (data.get("userId"), data.get("userName",""), data.get("userRole",""),
+                 data.get("action",""), data.get("entityType",""), data.get("entityId"),
+                 data.get("description",""), data.get("projectName","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id": row[0], "ok": True}
 
 # Хранилище онлайн статусов
 online_users = {}
