@@ -323,6 +323,8 @@ function App() {
   const [newExpenseReport, setNewExpenseReport] = useState(null);
   const [supplierInvoices, setSupplierInvoices] = useState([]);
   const [newSupplierInvoice, setNewSupplierInvoice] = useState(null);
+  const [warrantyDefects, setWarrantyDefects] = useState([]);
+  const [newWarrantyDefect, setNewWarrantyDefect] = useState(null);
   const [newSupervisorAct, setNewSupervisorAct] = useState({actType:'Осмотр',description:'',findings:'',recommendations:'',date:''});
   const [supervisorActPhoto, setSupervisorActPhoto] = useState('');
   const [prescriptionPhoto, setPrescriptionPhoto] = useState('');
@@ -675,7 +677,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
@@ -722,6 +724,7 @@ function App() {
         fetch(API+'/inspection-orders').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/expense-reports').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/supplier-invoices').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/warranty-defects').then(r=>r.json()).catch(()=>[]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -731,7 +734,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);
       try {
         const [rwin,rdoor] = await Promise.all([
           fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]),
@@ -4241,7 +4244,7 @@ function App() {
                         {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
                         {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы']},
                         {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
-                        {id:'docs',icon:'📋',label:'Документы',tabs:['КС-2','КС-3','Паспорт','Акты технадзора','Замечания ГСН']},
+                        {id:'docs',icon:'📋',label:'Документы',tabs:['КС-2','КС-3','Паспорт','Акты технадзора','Замечания ГСН','Гарантия']},
                       ];
                       const activeGroup=tabGroups.find(g=>g.tabs.includes(activeProjectTab));
                       return(<div>
@@ -5208,6 +5211,61 @@ function App() {
                             <span style={badge(o.status==='Закрыто'?C.success:C.danger,o.status==='Закрыто'?C.successLight:C.dangerLight,o.status==='Закрыто'?C.successBorder:C.dangerBorder)}>{o.status||'Открыто'}</span>
                             {o.status!=='Закрыто'&&<button onClick={async()=>{const resp=prompt('Опишите как устранили / ответ органу:');if(!resp) return;await fetch(API+'/inspection-orders/'+o.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Закрыто',response:resp,responseDate:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Закрыть</button>}
                             <button onClick={async()=>{if(!window.confirm('Удалить замечание?')) return;await fetch(API+'/inspection-orders/'+o.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
+                          </div>
+                        </div>
+                      </div>))}
+                    </div>);})()}
+                  </div>)}
+                  {activeProjectTab==='Гарантия'&&(<div>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
+                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🛠 Гарантийный период и дефекты</b>
+                      <button onClick={()=>setNewWarrantyDefect({description:'',foundAt:new Date().toISOString().split('T')[0],reportedBy:'',reporterPhone:'',severity:'Средний'})} style={btnO}><Plus size={14}/>Зафиксировать дефект</button>
+                    </div>
+                    <div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
+                      <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>📋 Условия гарантии</b>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',fontSize:'12px'}}>
+                        <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Начало гарантии</p><b style={{color:C.text}}>{p.warrantyStartDate||p.warranty_start_date||'не задано'}</b></div>
+                        <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Окончание</p><b style={{color:C.text}}>{p.warrantyEndDate||p.warranty_end_date||'обычно +1 год'}</b></div>
+                        <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Контакт по гарантии</p><b style={{color:C.text}}>{p.warrantyContact||p.warranty_contact||(p.foreman||'—')}</b></div>
+                      </div>
+                      <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0',lineHeight:1.4}}>Срок гарантии устанавливается договором подряда (обычно 1-5 лет). В период гарантии устранение дефектов — за счёт подрядчика, если они вызваны его работой.</p>
+                    </div>
+                    {newWarrantyDefect&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.warningBorder}}>
+                      <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>📝 Новый дефект</b>
+                      <textarea placeholder='Описание дефекта *' value={newWarrantyDefect.description} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,description:e.target.value})} style={{...inp,minHeight:'60px',marginBottom:'8px'}}/>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                        <input type='date' value={newWarrantyDefect.foundAt} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,foundAt:e.target.value})} title='Когда обнаружено' style={{...inp,marginBottom:0}}/>
+                        <select value={newWarrantyDefect.severity} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,severity:e.target.value})} style={{...inp,marginBottom:0}}>{['Низкий','Средний','Высокий','Критический'].map(s=><option key={s}>{s}</option>)}</select>
+                        <input placeholder='ФИО кто обнаружил' value={newWarrantyDefect.reportedBy} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,reportedBy:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        <input placeholder='Телефон для связи' value={newWarrantyDefect.reporterPhone} onChange={e=>setNewWarrantyDefect({...newWarrantyDefect,reporterPhone:e.target.value})} style={{...inp,marginBottom:0}}/>
+                      </div>
+                      <div style={{display:'flex',gap:'8px'}}>
+                        <button onClick={async()=>{
+                          if(!newWarrantyDefect.description){alert('Опишите дефект');return;}
+                          await fetch(API+'/warranty-defects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newWarrantyDefect,projectName:p.name,status:'Открыт'})});
+                          await loadAll(); setNewWarrantyDefect(null);
+                        }} style={btnO}><Check size={14}/>Сохранить</button>
+                        <button onClick={()=>setNewWarrantyDefect(null)} style={btnG}>Отмена</button>
+                      </div>
+                    </div>)}
+                    {(()=>{const here=warrantyDefects.filter(d=>d.projectName===p.name);if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Дефектов нет — гарантийных обращений по объекту не было.</div>);const open=here.filter(d=>d.status!=='Закрыт').length;const fixed=here.filter(d=>d.status==='Закрыт').length;return(<div>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'12px'}}>
+                        <div style={{...card,padding:'10px',backgroundColor:C.dangerLight}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>Открытых</p><b style={{color:C.danger,fontSize:'16px'}}>{open}</b></div>
+                        <div style={{...card,padding:'10px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Устранено</p><b style={{color:C.success,fontSize:'16px'}}>{fixed}</b></div>
+                        <div style={{...card,padding:'10px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Всего</p><b style={{color:C.text,fontSize:'16px'}}>{here.length}</b></div>
+                      </div>
+                      {here.map(d=>(<div key={d.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(d.status==='Закрыт'?C.success:d.severity==='Критический'?C.danger:d.severity==='Высокий'?C.warning:C.textSec)}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                          <div style={{flex:1,minWidth:'200px'}}>
+                            <b style={{color:C.text,fontSize:'13px'}}>{d.description}</b>
+                            <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>Обнаружено: {d.foundAt}{d.reportedBy?' · '+d.reportedBy:''}{d.reporterPhone?' · '+d.reporterPhone:''}</p>
+                            <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Уровень: <b>{d.severity||'—'}</b></p>
+                            {d.fixNotes&&<div style={{marginTop:'6px',padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',fontSize:'11px',color:C.success}}><b>Устранено ({d.fixedAt||'—'}):</b> {d.fixNotes}</div>}
+                          </div>
+                          <div style={{display:'flex',gap:'4px',alignItems:'flex-start'}}>
+                            <span style={badge(d.status==='Закрыт'?C.success:d.severity==='Критический'?C.danger:C.warning,d.status==='Закрыт'?C.successLight:d.severity==='Критический'?C.dangerLight:C.warningLight,d.status==='Закрыт'?C.successBorder:d.severity==='Критический'?C.dangerBorder:C.warningBorder)}>{d.status||'Открыт'}</span>
+                            {d.status!=='Закрыт'&&<button onClick={async()=>{const notes=prompt('Опишите как устранили:');if(!notes) return;await fetch(API+'/warranty-defects/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Закрыт',fixNotes:notes,fixedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Устранено</button>}
+                            <button onClick={async()=>{if(!window.confirm('Удалить дефект?')) return;await fetch(API+'/warranty-defects/'+d.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
                           </div>
                         </div>
                       </div>))}

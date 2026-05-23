@@ -154,6 +154,24 @@ def init_db():
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS participants_json TEXT;
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS photo_url VARCHAR(500);
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS ai_filled BOOLEAN DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS warranty_defects (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            description TEXT,
+            found_at DATE,
+            reported_by VARCHAR(255),
+            reporter_phone VARCHAR(50),
+            status VARCHAR(50) DEFAULT 'Открыт',
+            assigned_to VARCHAR(255),
+            fix_notes TEXT,
+            fixed_at DATE,
+            photo_url TEXT,
+            severity VARCHAR(50),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS warranty_start_date DATE;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS warranty_end_date DATE;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS warranty_contact VARCHAR(255);
         CREATE TABLE IF NOT EXISTS expense_reports (
             id SERIAL PRIMARY KEY,
             employee_id INT,
@@ -4122,6 +4140,72 @@ def delete_supplier_invoice(id: int):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.get("/warranty-defects")
+def list_warranty_defects(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    cols = "id, project_name, description, found_at, reported_by, reporter_phone, status, assigned_to, fix_notes, fixed_at, photo_url, severity, created_at"
+    if project_name:
+        cur.execute(f"SELECT {cols} FROM warranty_defects WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute(f"SELECT {cols} FROM warranty_defects ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1] or "","description":r[2] or "",
+             "foundAt":str(r[3]) if r[3] else "","reportedBy":r[4] or "",
+             "reporterPhone":r[5] or "","status":r[6] or "Открыт","assignedTo":r[7] or "",
+             "fixNotes":r[8] or "","fixedAt":str(r[9]) if r[9] else "",
+             "photoUrl":r[10] or "","severity":r[11] or "",
+             "createdAt":str(r[12])} for r in rows]
+
+@app.post("/warranty-defects")
+def create_warranty_defect(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO warranty_defects
+                   (project_name, description, found_at, reported_by, reporter_phone,
+                    status, assigned_to, photo_url, severity)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (data.get("projectName",""), data.get("description",""),
+                 data.get("foundAt") or None, data.get("reportedBy",""),
+                 data.get("reporterPhone",""), data.get("status","Открыт"),
+                 data.get("assignedTo",""), data.get("photoUrl",""),
+                 data.get("severity","")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id": row[0], "ok": True}
+
+@app.put("/warranty-defects/{id}")
+def update_warranty_defect(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    fields_map = [('status','status'),('assignedTo','assigned_to'),('fixNotes','fix_notes'),
+                  ('fixedAt','fixed_at'),('severity','severity'),('photoUrl','photo_url')]
+    sets, vals = [], []
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            v = data[js_key]
+            if js_key == 'fixedAt' and not v: v = None
+            vals.append(v)
+    if not sets:
+        cur.close(); conn.close(); return {"ok": True}
+    vals.append(id)
+    cur.execute("UPDATE warranty_defects SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/warranty-defects/{id}")
+def delete_warranty_defect(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM warranty_defects WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
