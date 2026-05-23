@@ -2815,19 +2815,219 @@ function App() {
                 ))}
                 {projectStages.filter(s=>s.projectName===myProject.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Этапы не добавлены</p>}
               </div>
+              {/* АОСР на подпись заказчика */}
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>🔒 Акты освидетельствования скрытых работ (АОСР)</b>
+                {(()=>{
+                  const here=hiddenActs.filter(a=>a.projectName===myProject.name);
+                  if(here.length===0) return <p style={{color:C.textMuted,fontSize:'12px'}}>Актов пока нет. Появятся по ходу работ.</p>;
+                  const need=here.filter(a=>!a.signedCustomer);
+                  return(<div>
+                    {need.length>0&&<p style={{color:C.warning,fontSize:'12px',marginBottom:'8px',fontWeight:'600'}}>⏳ {need.length} акт(ов) ждут моей подписи</p>}
+                    {here.slice(0,10).map(a=>(<div key={a.id} onClick={()=>setEditingAct(a)} style={{padding:'10px 12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
+                      <div style={{flex:1,overflow:'hidden'}}>
+                        <b style={{fontSize:'12px',color:C.text}}>{a.actNumber+' · '+a.workName}</b>
+                        <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(a.quantity||0).toLocaleString('ru-RU')+' '+(a.unit||'')+' · '+(a.workDate||'')}</p>
+                      </div>
+                      <span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'10px',fontWeight:'600',backgroundColor:a.signedCustomer?C.successLight:C.warningLight,color:a.signedCustomer?C.success:C.warning}}>{a.signedCustomer?'✅ Я подписал':'⏳ Ждёт моей подписи'}</span>
+                    </div>))}
+                  </div>);
+                })()}
+              </div>
+              {/* Непредвиденные на согласование */}
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>🆕 Дополнительные работы (вне сметы)</b>
+                {(()=>{
+                  const pending=(unexpectedWorksList||[]).filter(u=>u.projectName===myProject.name&&u.status==='Ожидает согласования');
+                  const approved=(unexpectedWorksList||[]).filter(u=>u.projectName===myProject.name&&u.status==='Утверждено');
+                  if(pending.length===0&&approved.length===0) return <p style={{color:C.textMuted,fontSize:'12px'}}>Дополнительных работ нет — всё по смете.</p>;
+                  return(<div>
+                    {pending.length>0&&<div style={{marginBottom:'10px'}}>
+                      <b style={{color:C.warning,fontSize:'12px'}}>⏳ Ждут моего согласования ({pending.length}):</b>
+                      {pending.map(u=>(<div key={u.id} style={{padding:'12px',backgroundColor:'#fef3c7',borderRadius:'8px',marginTop:'6px',border:'1.5px solid #fbbf24'}}>
+                        <b style={{fontSize:'13px',color:'#78350f'}}>{u.description}</b>
+                        <p style={{color:'#78350f',margin:'4px 0',fontSize:'12px'}}>{(u.quantity||0)+' '+u.unit+(u.price>0?' · '+u.price.toLocaleString('ru-RU')+' ₽/'+u.unit:'')+(u.total>0?' · итого '+u.total.toLocaleString('ru-RU')+' ₽':'')}</p>
+                        <p style={{color:'#92400e',margin:'0 0 8px',fontSize:'11px'}}>{'Запросил: '+u.addedBy}</p>
+                        <div style={{display:'flex',gap:'6px'}}>
+                          <button onClick={async()=>{if(!window.confirm('Согласовать дополнительную работу «'+u.description+'» на '+(u.total||0).toLocaleString('ru-RU')+' ₽?')) return;await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено',price:u.price,total:u.total,approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();alert('Согласовано. Подрядчик может приступать.');}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Согласовать</button>
+                          <button onClick={async()=>{if(!window.confirm('Отказать в выполнении «'+u.description+'»?')) return;await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><X size={11}/>Отказать</button>
+                        </div>
+                      </div>))}
+                    </div>}
+                    {approved.length>0&&<div>
+                      <b style={{color:C.success,fontSize:'12px'}}>✅ Согласовано ранее ({approved.length}):</b>
+                      {approved.slice(0,5).map(u=>(<div key={u.id} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'6px',marginTop:'4px',fontSize:'11px',color:C.textSec}}>{u.description+' · '+(u.total||0).toLocaleString('ru-RU')+' ₽ · '+u.approvedAt}</div>))}
+                    </div>}
+                  </div>);
+                })()}
+              </div>
+              {/* Смета */}
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📐 Смета объекта</b>
+                {(()=>{
+                  const est=_estimateForProject(myProject);
+                  if(!est) return <p style={{color:C.textMuted,fontSize:'12px'}}>Смета подрядчиком ещё не загружена.</p>;
+                  const pd=projectPlanDone(myProject);
+                  return(<div>
+                    <p style={{color:C.text,fontSize:'13px',margin:'0 0 8px'}}><b>{est.name}</b> · v{est.version||'1.0'}</p>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}}>
+                      <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>По смете</p><b style={{color:C.text,fontSize:'14px'}}>{Math.round(pd.plan).toLocaleString('ru-RU')+' ₽'}</b></div>
+                      <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px'}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Выполнено</p><b style={{color:C.success,fontSize:'14px'}}>{Math.round(pd.done).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    </div>
+                    <button onClick={()=>{const sections=_sectionsOfEst(est);let html='<h2>Смета: '+est.name+'</h2><p>Объект: '+myProject.name+'</p><table><tr><th>Раздел</th><th>Работа</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';sections.forEach(s=>(s.items||[]).forEach(it=>{const price=Number(it.priceWork||0)+Number(it.priceMaterial||0);html+='<tr><td>'+(s.name||'')+'</td><td>'+(it.name||'')+'</td><td>'+(it.unit||'')+'</td><td>'+(it.quantity||0)+'</td><td>'+price.toLocaleString('ru-RU')+'</td><td>'+Math.round(Number(it.quantity||0)*price).toLocaleString('ru-RU')+'</td></tr>';}));html+='<tr><td colspan=5><b>ИТОГО:</b></td><td><b>'+Math.round(pd.plan).toLocaleString('ru-RU')+' ₽</b></td></tr></table>';showPreview(html,'Смета — '+est.name);}} style={btnB}><Eye size={14}/>📄 Посмотреть смету</button>
+                  </div>);
+                })()}
+              </div>
+              {/* КС-2 / КС-3 */}
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Акты КС-2 и КС-3 на согласование</b>
+                <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                  <button onClick={()=>showKS2(myProject)} style={btnO}><Eye size={14}/>📄 КС-2 (приёмка работ)</button>
+                  <button onClick={()=>showPreview(buildKS3Content(myProject),'КС-3 — '+myProject.name)} style={btnB}><Eye size={14}/>📋 КС-3 (стоимость)</button>
+                </div>
+                <p style={{color:C.textMuted,fontSize:'11px',marginTop:'10px',lineHeight:1.4}}>Формируются автоматически из выполненных позиций сметы. Включают раздел «Дополнительные работы» (если есть согласованные доп.соглашения).</p>
+              </div>
+              {/* Фото-отчёт */}
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📷 Фото-отчёт</b>
+                {(()=>{
+                  const photos=workJournal.filter(j=>j.project===myProject.name&&j.photoUrl).slice(0,12);
+                  if(photos.length===0) return <p style={{color:C.textMuted,fontSize:'12px'}}>Подрядчик пока не загружал фото работ.</p>;
+                  return(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'6px'}}>
+                    {photos.map((j,i)=>{const url=j.photoUrl.startsWith('http')?j.photoUrl:API+j.photoUrl;return(<img key={i} src={url} alt='' onClick={()=>setShowPhotoModal(url)} title={j.description+' · '+j.date} style={{width:'100%',height:'80px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/>);})}
+                  </div>);
+                })()}
+              </div>
+              {/* Журнал работ */}
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📖 Журнал производства работ (последние 10)</b>
+                {workJournal.filter(j=>j.project===myProject.name).slice(0,10).map(j=>(
+                  <div key={j.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border}}>
+                    <b style={{fontSize:'12px',color:C.text}}>{j.description}{j.unexpectedWorkId?<span title="Допработа" style={{marginLeft:'4px'}}>🆕</span>:null}{j.hiddenWork?<span title="Скрытая работа" style={{marginLeft:'4px'}}>🔒</span>:null}</b>
+                    <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(j.masterName||'')+' · '+(j.date||'')+' · '+(j.status||'')}</p>
+                  </div>
+                ))}
+                {workJournal.filter(j=>j.project===myProject.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Записей нет</p>}
+              </div>
+              {/* Замечания заказчика */}
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚠️ Мои замечания подрядчику</b>
+                <textarea id='client_remark' placeholder='Опишите замечание...' style={{...inp,height:'70px'}}/>
+                <button onClick={async()=>{
+                  const t=document.getElementById('client_remark').value;
+                  if(!t.trim()) return;
+                  await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,violation:t,priority:'Замечание заказчика',issuedBy:user.name,issuedByRole:'Заказчик',status:'Открыто'})});
+                  await loadAll();
+                  document.getElementById('client_remark').value='';
+                  alert('Замечание передано подрядчику');
+                }} style={btnO}><Plus size={14}/>Отправить</button>
+                <div style={{marginTop:'12px'}}>
+                  {(prescriptionsList||[]).filter(pr=>pr.projectName===myProject.name&&(pr.issuedBy===user.name||pr.issuedByRole==='Заказчик')).slice(0,10).map(pr=>(
+                    <div key={pr.id} style={{padding:'8px 10px',backgroundColor:C.bg,borderRadius:'6px',marginTop:'4px',border:'1px solid '+C.border}}>
+                      <b style={{fontSize:'12px',color:C.text}}>{pr.violation||pr.description||'(пусто)'}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(pr.status||'')+(pr.deadline?' · до '+pr.deadline:'')}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {/* История платежей */}
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>💰 Платежи по объекту</b>
+                {(()=>{
+                  const pp=(projectPayments||[]).filter(x=>x.projectName===myProject.name);
+                  const paid=pp.reduce((s,x)=>s+Number(x.amount||0),0);
+                  const budget=Number(myProject.budget||0);
+                  const remain=budget-paid;
+                  return(<div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px',marginBottom:'10px'}}>
+                      <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Бюджет</p><b style={{color:C.text,fontSize:'13px'}}>{Math.round(budget).toLocaleString('ru-RU')+' ₽'}</b></div>
+                      <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px'}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 4px'}}>Оплачено</p><b style={{color:C.success,fontSize:'13px'}}>{Math.round(paid).toLocaleString('ru-RU')+' ₽'}</b></div>
+                      <div style={{padding:'10px',backgroundColor:C.warningLight,borderRadius:'8px'}}><p style={{color:C.warning,fontSize:'10px',margin:'0 0 4px'}}>Остаток</p><b style={{color:C.warning,fontSize:'13px'}}>{Math.round(remain).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    </div>
+                    {pp.slice(0,8).map((p,i)=>(<div key={i} style={{padding:'6px 10px',backgroundColor:C.bg,borderRadius:'6px',marginTop:'4px',display:'flex',justifyContent:'space-between',fontSize:'11px'}}><span>{(p.date||'')+(p.note?' · '+p.note:'')}</span><b style={{color:C.success}}>{Math.round(Number(p.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}
+                    {pp.length===0&&<p style={{color:C.textMuted,fontSize:'11px',textAlign:'center',padding:'8px'}}>Платежей пока нет</p>}
+                  </div>);
+                })()}
+              </div>
+              {/* Договоры */}
               <div style={{...card,padding:'20px'}}>
-                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Документы</b>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Договоры</b>
                 {contracts.filter(c=>c.projectName===myProject.name||c.client===user.name).map(c=>(
                   <div key={c.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid '+C.border}}>
                     <div><b style={{fontSize:'13px',color:C.text}}>Договор № {c.number}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(c.totalAmount||0).toLocaleString()+' ₽ · '+c.status}</p></div>
                     <button onClick={()=>showPreview('<h2>Договор №'+c.number+'</h2><p>Заказчик: '+c.client+'</p><p>Сумма: '+Number(c.totalAmount||0).toLocaleString()+' ₽</p>','Договор')} style={{...btnB,padding:'4px 10px',fontSize:'11px'}}><Eye size={11}/>Открыть</button>
                   </div>
                 ))}
-                {contracts.filter(c=>c.projectName===myProject.name||c.client===user.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Документов нет</p>}
+                {contracts.filter(c=>c.projectName===myProject.name||c.client===user.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Договоров нет</p>}
               </div>
             </div>
           )}
         </div>
+        {/* Модалка АОСР для подписи заказчика */}
+        {editingAct&&(()=>{
+          const a=editingAct;
+          const upd=(k,v)=>setEditingAct({...editingAct,[k]:v});
+          const allSigned=!!(a.signedCustomer&&a.signedSupervisor&&a.signedContractor&&a.signedSubcontractor);
+          const saveSign=async()=>{
+            const body={
+              status:allSigned?'Подписан':(a.status||'Черновик'),
+              signedCustomer:a.signedCustomer||'',signedSupervisor:a.signedSupervisor||'',
+              signedContractor:a.signedContractor||'',signedSubcontractor:a.signedSubcontractor||'',
+              signedCustomerAt:a.signedCustomerAt||'',signedSupervisorAt:a.signedSupervisorAt||'',
+              signedContractorAt:a.signedContractorAt||'',signedSubcontractorAt:a.signedSubcontractorAt||'',
+              conclusion:a.conclusion||'',comments:a.comments||'',
+              materialsUsed:a.materialsUsed||'',projectDocs:a.projectDocs||'',
+              photos:a.photos||'',certificates:a.certificates||'',city:a.city||'',
+            };
+            const res=await fetch(API+'/hidden-works-acts/'+a.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+            const data=await res.json().catch(()=>({}));
+            setHiddenActs(prev=>prev.map(x=>x.id===a.id?{...x,...body,status:data.status||body.status}:x));
+            setEditingAct(null);
+          };
+          return(<div onClick={()=>setEditingAct(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+            <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(640px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+              <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <b style={{color:C.text,fontSize:'15px',display:'block'}}>🔒 {a.actNumber}</b>
+                  <span style={{fontSize:'11px',color:C.textSec}}>Акт освидетельствования скрытых работ</span>
+                </div>
+                <button onClick={()=>setEditingAct(null)} style={{...btnG,padding:'5px 10px'}}>✕</button>
+              </div>
+              <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
+                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{a.workName}</b></div>
+                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{Number(a.quantity||0).toLocaleString('ru-RU')+' '+(a.unit||'')}</b></div>
+                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Бригада</p><b style={{fontSize:'13px',color:C.text}}>{a.brigade||'—'}</b></div>
+                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Дата</p><b style={{fontSize:'13px',color:C.text}}>{a.workDate||'—'}</b></div>
+                </div>
+                <p style={{fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px'}}>Материалы</p>
+                <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'12px',color:C.textSec,whiteSpace:'pre-wrap',marginBottom:'14px',minHeight:'40px'}}>{a.materialsUsed||'(не указаны подрядчиком)'}</div>
+                <p style={{fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px'}}>Заключение комиссии</p>
+                <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'12px',color:C.textSec,whiteSpace:'pre-wrap',marginBottom:'14px',minHeight:'40px'}}>{a.conclusion||'(подрядчик ещё не заполнил)'}</div>
+                <div style={{padding:'14px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,borderRadius:'10px'}}>
+                  <b style={{display:'block',marginBottom:'10px',color:C.accent,fontSize:'13px'}}>✍️ Моя подпись (Заказчик)</b>
+                  <input value={a.signedCustomer||''} onChange={e=>upd('signedCustomer',e.target.value)} placeholder='ФИО, должность, организация' style={{...inp,marginBottom:'8px'}}/>
+                  <input type='date' value={a.signedCustomerAt||''} onChange={e=>upd('signedCustomerAt',e.target.value)} style={inp}/>
+                </div>
+                <div style={{marginTop:'14px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'11px'}}>
+                  <b style={{color:C.text,fontSize:'12px'}}>Подписи 4 сторон:</b>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
+                    <div><span style={{color:a.signedCustomer?C.success:C.textMuted}}>{a.signedCustomer?'✅':'⏳'} Заказчик:</span> {a.signedCustomer||'—'}</div>
+                    <div><span style={{color:a.signedSupervisor?C.success:C.textMuted}}>{a.signedSupervisor?'✅':'⏳'} Технадзор:</span> {a.signedSupervisor||'—'}</div>
+                    <div><span style={{color:a.signedContractor?C.success:C.textMuted}}>{a.signedContractor?'✅':'⏳'} Генподрядчик:</span> {a.signedContractor||'—'}</div>
+                    <div><span style={{color:a.signedSubcontractor?C.success:C.textMuted}}>{a.signedSubcontractor?'✅':'⏳'} Субподрядчик:</span> {a.signedSubcontractor||'—'}</div>
+                  </div>
+                </div>
+              </div>
+              <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'flex-end'}}>
+                <button onClick={()=>setEditingAct(null)} style={btnG}>Отмена</button>
+                <button onClick={saveSign} style={btnO}>✍️ Подписать</button>
+              </div>
+            </div>
+          </div>);
+        })()}
+        {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'12px'}}/></div>)}
+        {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)}/>}
       </div>
     );
   }
