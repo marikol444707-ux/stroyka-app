@@ -390,6 +390,23 @@ def init_db():
             ai_filled BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS supervisor_acts (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            act_number VARCHAR(100),
+            act_type VARCHAR(100),
+            description TEXT,
+            findings TEXT,
+            recommendations TEXT,
+            issued_by VARCHAR(255),
+            issued_by_role VARCHAR(50),
+            date DATE,
+            photo_url TEXT,
+            file_url TEXT,
+            status VARCHAR(50) DEFAULT 'Открыт',
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS photo_url TEXT;
         CREATE TABLE IF NOT EXISTS cable_journal (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -3597,6 +3614,74 @@ def ai_suggest_cable_journal(id: int):
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True, "normatives": full_normatives, "minInsulation": min_insulation, "recommendations": recommendations, "aiFilled": True}
+
+@app.get("/supervisor-acts")
+def list_supervisor_acts(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    cols = "id, project_name, act_number, act_type, description, findings, recommendations, issued_by, issued_by_role, date, photo_url, file_url, status, created_at"
+    if project_name:
+        cur.execute(f"SELECT {cols} FROM supervisor_acts WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute(f"SELECT {cols} FROM supervisor_acts ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1] or "","actNumber":r[2] or "","actType":r[3] or "",
+             "description":r[4] or "","findings":r[5] or "","recommendations":r[6] or "",
+             "issuedBy":r[7] or "","issuedByRole":r[8] or "",
+             "date":str(r[9]) if r[9] else "","photoUrl":r[10] or "","fileUrl":r[11] or "",
+             "status":r[12] or "Открыт","createdAt":str(r[13])} for r in rows]
+
+@app.post("/supervisor-acts")
+def create_supervisor_act(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO supervisor_acts
+                   (project_name, act_number, act_type, description, findings, recommendations,
+                    issued_by, issued_by_role, date, photo_url, file_url, status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (data.get("projectName",""), data.get("actNumber","") or ("САО-"+str(int(__import__("datetime").datetime.now().timestamp()))[-6:]),
+                 data.get("actType","Осмотр"), data.get("description",""), data.get("findings",""),
+                 data.get("recommendations",""),
+                 data.get("issuedBy",""), data.get("issuedByRole","Технадзор"),
+                 data.get("date") or None, data.get("photoUrl",""), data.get("fileUrl",""),
+                 data.get("status","Открыт")))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id": row[0], "ok": True}
+
+@app.put("/supervisor-acts/{id}")
+def update_supervisor_act(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    fields_map = [
+        ('actType','act_type'),('description','description'),('findings','findings'),
+        ('recommendations','recommendations'),('photoUrl','photo_url'),('fileUrl','file_url'),
+        ('status','status'),
+    ]
+    sets, vals = [], []
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            vals.append(data[js_key])
+    if not sets:
+        cur.close(); conn.close()
+        return {"ok": True}
+    vals.append(id)
+    cur.execute("UPDATE supervisor_acts SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/supervisor-acts/{id}")
+def delete_supervisor_act(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM supervisor_acts WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 # Хранилище онлайн статусов
 online_users = {}

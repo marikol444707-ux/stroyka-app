@@ -303,6 +303,10 @@ function App() {
   const [editingInspection, setEditingInspection] = useState(null);
   const [cableJournal, setCableJournal] = useState([]);
   const [editingCable, setEditingCable] = useState(null);
+  const [supervisorActs, setSupervisorActs] = useState([]);
+  const [newSupervisorAct, setNewSupervisorAct] = useState({actType:'Осмотр',description:'',findings:'',recommendations:'',date:''});
+  const [supervisorActPhoto, setSupervisorActPhoto] = useState('');
+  const [prescriptionPhoto, setPrescriptionPhoto] = useState('');
   const [selectedBrigadeContract, setSelectedBrigadeContract] = useState(null);
   const [brigadeContractItems, setBrigadeContractItems] = useState([]);
   const [showBrigadeForm, setShowBrigadeForm] = useState(false);
@@ -652,7 +656,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
@@ -695,6 +699,7 @@ function App() {
         fetch(API+'/hidden-works-acts').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/material-inspection').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/cable-journal').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/supervisor-acts').then(r=>r.json()).catch(()=>[]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -704,7 +709,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);
       try {
         const [rwin,rdoor] = await Promise.all([
           fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]),
@@ -2530,16 +2535,106 @@ function App() {
                   </select>
                   <input type='date' id='pres_date_tn' style={{...inp,marginBottom:0}} defaultValue={new Date().toISOString().split('T')[0]}/>
                 </div>
+                <div style={{display:'flex',gap:'8px',alignItems:'center',marginTop:'10px'}}>
+                  <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>{prescriptionPhoto?'📷 Фото добавлено':'📷 Прикрепить фото'}<input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(f){const url=await uploadPhoto(f);if(url) setPrescriptionPhoto(url);}}}/></label>
+                  {prescriptionPhoto&&<button onClick={()=>setPrescriptionPhoto('')} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><X size={11}/></button>}
+                </div>
                 <button onClick={async()=>{
                   const desc=document.getElementById('pres_desc_tn').value;
                   if(!desc){alert('Введите описание');return;}
                   const priority=document.getElementById('pres_priority_tn').value;
                   const deadline=document.getElementById('pres_date_tn').value;
-                  await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,description:desc,priority,deadline,issuedBy:user.name,issuedByRole:'Технадзор',status:'Открыто'})});
+                  await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,description:desc,priority,deadline,issuedBy:user.name,issuedByRole:'Технадзор',status:'Открыто',photoUrl:prescriptionPhoto})});
                   await loadAll();
                   document.getElementById('pres_desc_tn').value='';
+                  setPrescriptionPhoto('');
                   alert('Предписание выдано!');
                 }} style={{...btnO,marginTop:'12px'}}><Plus size={14}/>Выдать предписание</button>
+              </div>
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>🔒 Акты освидетельствования скрытых работ (АОСР)</b>
+                {(()=>{
+                  const here=hiddenActs.filter(a=>a.projectName===myProject.name);
+                  if(here.length===0) return <p style={{color:C.textMuted,fontSize:'12px'}}>АОСР пока нет — появятся когда мастер закроет позиции 🔒 в смете объекта.</p>;
+                  return(<div>
+                    {here.slice(0,10).map(a=>(<div key={a.id} onClick={()=>setEditingAct(a)} style={{padding:'10px 12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
+                      <div style={{flex:1,overflow:'hidden'}}>
+                        <b style={{fontSize:'12px',color:C.text}}>{a.actNumber+' · '+a.workName}</b>
+                        <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(a.quantity||0)+' '+(a.unit||'')+' · '+(a.workDate||'')}</p>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',gap:'6px',flexShrink:0}}>
+                        {a.signedSupervisor?<span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'10px',fontWeight:'600',backgroundColor:C.successLight,color:C.success}}>✅ Я подписал</span>:<span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'10px',fontWeight:'600',backgroundColor:C.warningLight,color:C.warning}}>⏳ Ждёт моей подписи</span>}
+                        <ChevronRight size={14} color={C.textMuted}/>
+                      </div>
+                    </div>))}
+                    <p style={{fontSize:'11px',color:C.textMuted,marginTop:'8px'}}>Клик по строке → откроется карточка акта. В поле «Технадзор» впиши свои ФИО и дату, сохрани — подпись зафиксируется.</p>
+                  </div>);
+                })()}
+              </div>
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+                  <b style={{color:C.text,fontSize:'14px'}}>📝 Мои акты осмотра / обследования</b>
+                  <button onClick={()=>setShowForm(showForm==='svact'?false:'svact')} style={{...btnO,padding:'5px 10px',fontSize:'11px'}}><Plus size={11}/>Новый акт</button>
+                </div>
+                {showForm==='svact'&&(<div style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'10px',border:'1.5px solid '+C.border}}>
+                  <select value={newSupervisorAct.actType} onChange={e=>setNewSupervisorAct({...newSupervisorAct,actType:e.target.value})} style={{...inp,marginBottom:'8px'}}>
+                    <option>Осмотр</option><option>Обследование</option><option>Акт промежуточной приёмки</option><option>Акт по результатам контроля</option>
+                  </select>
+                  <textarea placeholder='Предмет осмотра (что проверяли)' value={newSupervisorAct.description} onChange={e=>setNewSupervisorAct({...newSupervisorAct,description:e.target.value})} style={{...inp,minHeight:'60px',marginBottom:'8px'}}/>
+                  <textarea placeholder='Результат / что обнаружили' value={newSupervisorAct.findings} onChange={e=>setNewSupervisorAct({...newSupervisorAct,findings:e.target.value})} style={{...inp,minHeight:'60px',marginBottom:'8px'}}/>
+                  <textarea placeholder='Рекомендации / требования' value={newSupervisorAct.recommendations} onChange={e=>setNewSupervisorAct({...newSupervisorAct,recommendations:e.target.value})} style={{...inp,minHeight:'50px',marginBottom:'8px'}}/>
+                  <div style={{display:'flex',gap:'8px',marginBottom:'8px',alignItems:'center'}}>
+                    <input type='date' value={newSupervisorAct.date} onChange={e=>setNewSupervisorAct({...newSupervisorAct,date:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/>
+                    <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>{supervisorActPhoto?'📷 Фото':'📷 Прикрепить'}<input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(f){const url=await uploadPhoto(f);if(url) setSupervisorActPhoto(url);}}}/></label>
+                    {supervisorActPhoto&&<button onClick={()=>setSupervisorActPhoto('')} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><X size={11}/></button>}
+                  </div>
+                  <div style={{display:'flex',gap:'8px'}}>
+                    <button onClick={async()=>{
+                      if(!newSupervisorAct.description){alert('Опишите предмет осмотра');return;}
+                      await fetch(API+'/supervisor-acts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,actType:newSupervisorAct.actType,description:newSupervisorAct.description,findings:newSupervisorAct.findings,recommendations:newSupervisorAct.recommendations,issuedBy:user.name,issuedByRole:'Технадзор',photoUrl:supervisorActPhoto,date:newSupervisorAct.date||new Date().toISOString().split('T')[0]})});
+                      await loadAll();
+                      setNewSupervisorAct({actType:'Осмотр',description:'',findings:'',recommendations:'',date:''});
+                      setSupervisorActPhoto('');
+                      setShowForm(false);
+                      alert('Акт сохранён');
+                    }} style={btnO}><Check size={14}/>Сохранить</button>
+                    <button onClick={()=>{setShowForm(false);setNewSupervisorAct({actType:'Осмотр',description:'',findings:'',recommendations:'',date:''});setSupervisorActPhoto('');}} style={btnG}>Отмена</button>
+                  </div>
+                </div>)}
+                {(()=>{
+                  const here=supervisorActs.filter(a=>a.projectName===myProject.name);
+                  if(here.length===0) return <p style={{color:C.textMuted,fontSize:'12px'}}>Актов осмотра пока нет. Нажми «Новый акт» чтобы зафиксировать обследование.</p>;
+                  return here.slice(0,10).map(a=>(<div key={a.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}}>
+                      <div style={{flex:1}}>
+                        <b style={{fontSize:'12px',color:C.text}}>{a.actNumber+' · '+a.actType}</b>
+                        <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px'}}>{a.description}</p>
+                        {a.findings&&<p style={{color:C.text,margin:'4px 0 0',fontSize:'11px'}}><b>Обнаружено:</b> {a.findings}</p>}
+                        {a.recommendations&&<p style={{color:C.text,margin:'4px 0 0',fontSize:'11px'}}><b>Рекомендации:</b> {a.recommendations}</p>}
+                        <p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'10px'}}>{a.date}</p>
+                      </div>
+                      {a.photoUrl&&<img src={a.photoUrl.startsWith('http')?a.photoUrl:API+a.photoUrl} alt='' onClick={()=>setShowPhotoModal(a.photoUrl.startsWith('http')?a.photoUrl:API+a.photoUrl)} style={{width:'56px',height:'56px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',flexShrink:0}}/>}
+                    </div>
+                  </div>));
+                })()}
+              </div>
+              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📦 Входной контроль материалов</b>
+                {(()=>{
+                  const here=materialInspections.filter(mi=>mi.projectName===myProject.name);
+                  if(here.length===0) return <p style={{color:C.textMuted,fontSize:'12px'}}>Записей нет. Появятся когда подрядчик примет накладную на материал.</p>;
+                  const pending=here.filter(r=>!r.inspected).length;
+                  return(<div>
+                    {pending>0&&<p style={{color:C.warning,fontSize:'12px',marginBottom:'8px'}}>⏳ {pending} материала ждут отметки о входном контроле</p>}
+                    {here.slice(0,8).map(mi=>(<div key={mi.id} style={{padding:'8px 10px',backgroundColor:C.bg,borderRadius:'6px',marginBottom:'4px',border:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <div style={{flex:1,overflow:'hidden'}}>
+                        <b style={{fontSize:'11px',color:C.text}}>{mi.materialName}</b>
+                        <p style={{color:C.textSec,margin:'2px 0',fontSize:'10px'}}>{(mi.quantity||0)+' '+(mi.unit||'')+' · '+(mi.supplier||'—')+' · '+(mi.receivedAt||'')}</p>
+                      </div>
+                      <span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'10px',fontWeight:'600',backgroundColor:mi.inspected?C.successLight:C.warningLight,color:mi.inspected?C.success:C.warning}}>{mi.inspected?'✅':'⏳'}</span>
+                    </div>))}
+                  </div>);
+                })()}
               </div>
               <div style={{...card,padding:'20px'}}>
                 <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📖 Журнал работ</b>
