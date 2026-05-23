@@ -1,6 +1,78 @@
-import React from 'react';
+import React, {useState} from 'react';
+
+const API = process.env.REACT_APP_API_URL || (window.location.hostname==='localhost'?'http://localhost:8001':'');
 
 const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginError, setLoginError, setPage}) => {
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotStep, setForgotStep] = useState(1);
+  const [resetCode, setResetCode] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [forgotMsg, setForgotMsg] = useState('');
+  const [forgotErr, setForgotErr] = useState('');
+  const [devCode, setDevCode] = useState('');
+
+  const requestReset = async () => {
+    setForgotErr(''); setForgotMsg('');
+    if(!email){setForgotErr('Введите email');return;}
+    try {
+      const res = await fetch(API+'/password-reset-request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});
+      const d = await res.json();
+      if(!res.ok){setForgotErr(d.detail||'Ошибка');return;}
+      setForgotStep(2);
+      setForgotMsg(d.message||'Код сгенерирован');
+      if(d._devCode) setDevCode(d._devCode);
+    } catch(e){ setForgotErr('Ошибка соединения'); }
+  };
+
+  const doReset = async () => {
+    setForgotErr(''); setForgotMsg('');
+    if(!resetCode||!newPass){setForgotErr('Заполни код и новый пароль');return;}
+    if(newPass.length<5){setForgotErr('Пароль не короче 5 символов');return;}
+    try {
+      const res = await fetch(API+'/password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,code:resetCode,newPassword:newPass})});
+      const d = await res.json();
+      if(!res.ok){setForgotErr(d.detail||'Ошибка');return;}
+      setForgotStep(3);
+      setForgotMsg('Пароль изменён. Войди с новым паролем.');
+      setPassword(newPass);
+    } catch(e){ setForgotErr('Ошибка соединения'); }
+  };
+
+  if (forgotMode) return (
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
+      <div style={{width:'100%',maxWidth:'400px',borderRadius:'34px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',padding:'32px 28px',color:'#e5e5ea'}}>
+        <h2 style={{margin:'0 0 8px',fontSize:'22px',fontWeight:'800',color:'#fff'}}>🔑 Восстановление пароля</h2>
+        <p style={{margin:'0 0 20px',fontSize:'13px',color:'#8e8e93'}}>{forgotStep===1?'Введи свой email — мы сгенерируем код':forgotStep===2?'Введи 6-значный код и новый пароль':'Готово!'}</p>
+        {forgotStep===1&&(<div>
+          <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
+            <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>E-mail</span>
+            <input type='email' value={email} onChange={e=>setEmail(e.target.value)} placeholder='you@stroyka.ru' style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
+          </div>
+          <button onClick={requestReset} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',color:'white',fontSize:'15px',fontWeight:'700'}}>Получить код</button>
+        </div>)}
+        {forgotStep===2&&(<div>
+          {devCode&&<div style={{padding:'10px 14px',borderRadius:'10px',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.26)',color:'#86efac',fontSize:'12px',marginBottom:'10px'}}>🔧 Dev-режим: код <b style={{fontSize:'16px',letterSpacing:'2px'}}>{devCode}</b><br/><span style={{fontSize:'10px',opacity:0.7}}>В production отправляется на email</span></div>}
+          <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
+            <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>Код из email (6 цифр)</span>
+            <input type='text' value={resetCode} onChange={e=>setResetCode(e.target.value)} placeholder='123456' maxLength={6} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'18px',letterSpacing:'4px',width:'100%'}}/>
+          </div>
+          <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
+            <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>Новый пароль (≥5 символов)</span>
+            <input type='password' value={newPass} onChange={e=>setNewPass(e.target.value)} placeholder='••••••' style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
+          </div>
+          <button onClick={doReset} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',color:'white',fontSize:'15px',fontWeight:'700'}}>Сменить пароль</button>
+        </div>)}
+        {forgotStep===3&&(<div>
+          <div style={{padding:'14px 16px',borderRadius:'12px',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.26)',color:'#86efac',fontSize:'14px',marginBottom:'14px'}}>✅ Пароль успешно изменён</div>
+          <button onClick={()=>{setForgotMode(false);setForgotStep(1);setResetCode('');setNewPass('');setForgotMsg('');setForgotErr('');setDevCode('');}} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',color:'white',fontSize:'15px',fontWeight:'700'}}>Войти</button>
+        </div>)}
+        {forgotErr&&<p style={{color:'#fca5a5',fontSize:'13px',marginTop:'10px',padding:'10px',background:'rgba(239,68,68,.12)',borderRadius:'8px'}}>{forgotErr}</p>}
+        {forgotMsg&&!forgotErr&&<p style={{color:'#86efac',fontSize:'12px',marginTop:'10px'}}>{forgotMsg}</p>}
+        <button onClick={()=>{setForgotMode(false);setForgotStep(1);}} style={{marginTop:'14px',background:'none',border:'none',color:'#636366',fontSize:'13px',cursor:'pointer',width:'100%',textAlign:'center'}}>← Назад ко входу</button>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
       <div style={{position:'absolute',width:'260px',height:'260px',borderRadius:'50%',background:'rgba(234,88,12,.35)',filter:'blur(70px)',top:'-90px',left:'-70px',pointerEvents:'none'}}/>
@@ -42,7 +114,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginEr
               <div style={{width:'20px',height:'20px',borderRadius:'50%',background:'radial-gradient(circle at 38% 35%,#ffb84d,#FF6A00 70%)',boxShadow:'0 0 10px rgba(255,106,0,0.55)'}}/>
               <span style={{fontSize:'13px',color:'#e5e5ea'}}>Запомнить меня</span>
             </div>
-            <button style={{fontSize:'13px',color:'#FF6A00',fontWeight:'500',background:'none',border:'none',cursor:'pointer'}}>Забыли пароль?</button>
+            <button onClick={()=>{setForgotMode(true);setLoginError('');}} style={{fontSize:'13px',color:'#FF6A00',fontWeight:'500',background:'none',border:'none',cursor:'pointer'}}>Забыли пароль?</button>
           </div>
           <button onClick={handleLogin} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px',boxShadow:'0 4px 24px rgba(255,100,0,0.45)'}}>
             <span style={{color:'#fff',fontSize:'15px',fontWeight:'700'}}>Войти в систему</span>

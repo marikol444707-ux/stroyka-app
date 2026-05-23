@@ -124,6 +124,10 @@ def init_db():
         );
         ALTER TABLE users ADD COLUMN IF NOT EXISTS project_id INT;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS project_name VARCHAR(255);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(20);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INT DEFAULT 0;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP;
         CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
             chat_type VARCHAR(50) DEFAULT 'company',
@@ -1002,14 +1006,105 @@ class PdConsentModel(BaseModel):
 
 @app.post("/login")
 def login(data: LoginModel):
+    from datetime import datetime as _dt, timedelta as _td
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # Проверяем не заблокирован ли пользователь
+    cur.execute("SELECT id, failed_login_count, locked_until FROM users WHERE email=%s", (data.email,))
+    user_check = cur.fetchone()
+    if user_check and user_check.get('locked_until'):
+        if user_check['locked_until'] > _dt.now():
+            mins_left = int((user_check['locked_until'] - _dt.now()).total_seconds() / 60) + 1
+            conn.close()
+            raise HTTPException(status_code=429, detail="Аккаунт временно заблокирован после 5 неверных попыток. Попробуйте через "+str(mins_left)+" мин.")
+        else:
+            # Срок блокировки истёк — сбрасываем
+            cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user_check['id'],))
+            conn.commit()
+    # Логинимся
     cur.execute("SELECT * FROM users WHERE email=%s AND password=%s", (data.email, data.password))
     user = cur.fetchone()
-    conn.close()
     if not user:
+        # Увеличиваем счётчик неудачных попыток
+        if user_check:
+            new_count = (user_check.get('failed_login_count') or 0) + 1
+            if new_count >= 5:
+                lock_until = _dt.now() + _td(minutes=15)
+                cur.execute("UPDATE users SET failed_login_count=%s, locked_until=%s WHERE id=%s", (new_count, lock_until, user_check['id']))
+                conn.commit()
+                conn.close()
+                raise HTTPException(status_code=429, detail="Превышено количество попыток. Аккаунт заблокирован на 15 минут.")
+            else:
+                cur.execute("UPDATE users SET failed_login_count=%s WHERE id=%s", (new_count, user_check['id']))
+                conn.commit()
+        conn.close()
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
+    # Успех — сбрасываем счётчик
+    cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user['id'],))
+    conn.commit()
+    conn.close()
+    log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
+              action="login", entity_type="user", entity_id=user['id'],
+              description="Успешный вход в систему")
     return dict(user)
+
+@app.post("/password-reset-request")
+def password_reset_request(data: dict):
+    """Генерирует 6-значный код для восстановления пароля. Действителен 30 минут."""
+    from datetime import datetime as _dt, timedelta as _td
+    import random
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Введите email")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM users WHERE LOWER(email)=%s", (email,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        # Не палим существование email для безопасности
+        return {"ok": True, "message": "Если такой email зарегистрирован, код отправлен"}
+    code = str(random.randint(100000, 999999))
+    expires = _dt.now() + _td(minutes=30)
+    cur.execute("UPDATE users SET reset_token=%s, reset_token_expires=%s WHERE id=%s", (code, expires, row[0]))
+    conn.commit()
+    cur.close(); conn.close()
+    # В реальной системе тут отправляется email/SMS. Пока выводим в ответе для админа (в логах сервера)
+    print(f"PASSWORD RESET CODE for {email}: {code} (valid 30 min)")
+    log_audit(user_name=row[1] or "—", user_role="—",
+              action="password_reset_request", entity_type="user", entity_id=row[0],
+              description="Запрошен код восстановления пароля")
+    return {"ok": True, "message": "Код отправлен на email (или его выдаст администратор из логов)", "_devCode": code}
+
+@app.post("/password-reset")
+def password_reset(data: dict):
+    """Меняет пароль по коду восстановления."""
+    from datetime import datetime as _dt
+    email = (data.get("email") or "").strip().lower()
+    code = (data.get("code") or "").strip()
+    new_password = data.get("newPassword") or ""
+    if not email or not code or not new_password:
+        raise HTTPException(status_code=400, detail="Заполните email, код и новый пароль")
+    if len(new_password) < 5:
+        raise HTTPException(status_code=400, detail="Пароль должен быть не короче 5 символов")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, reset_token, reset_token_expires FROM users WHERE LOWER(email)=%s", (email,))
+    row = cur.fetchone()
+    if not row or not row[1] or row[1] != code:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=401, detail="Неверный код или email")
+    if row[2] and row[2] < _dt.now():
+        cur.close(); conn.close()
+        raise HTTPException(status_code=401, detail="Код истёк — запросите новый")
+    cur.execute("UPDATE users SET password=%s, reset_token=NULL, reset_token_expires=NULL, failed_login_count=0, locked_until=NULL WHERE id=%s",
+                (new_password, row[0]))
+    conn.commit()
+    cur.close(); conn.close()
+    log_audit(user_name="—", user_role="—",
+              action="password_reset", entity_type="user", entity_id=row[0],
+              description="Сброс пароля через код восстановления")
+    return {"ok": True, "message": "Пароль изменён, можно входить"}
 
 @app.post("/register")
 def register(data: RegisterModel):
