@@ -154,6 +154,33 @@ def init_db():
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS participants_json TEXT;
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS photo_url VARCHAR(500);
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS ai_filled BOOLEAN DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS inspection_orders (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            order_number VARCHAR(100),
+            body VARCHAR(100),
+            inspector VARCHAR(255),
+            description TEXT,
+            recommendations TEXT,
+            deadline DATE,
+            status VARCHAR(50) DEFAULT 'Открыто',
+            photo_url TEXT,
+            file_url TEXT,
+            date DATE,
+            response TEXT,
+            response_date DATE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS document_versions (
+            id SERIAL PRIMARY KEY,
+            document_type VARCHAR(100),
+            document_id INT,
+            version_label VARCHAR(50),
+            snapshot_json TEXT,
+            changed_by VARCHAR(255),
+            change_reason TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS audit_log (
             id SERIAL PRIMARY KEY,
             user_id INT,
@@ -3834,6 +3861,75 @@ def list_audit_log(limit: int = 200):
              "action":r[4] or "","entityType":r[5] or "","entityId":r[6],
              "description":r[7] or "","projectName":r[8] or "",
              "createdAt":str(r[9])} for r in rows]
+
+@app.get("/inspection-orders")
+def list_inspection_orders(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    cols = "id, project_name, order_number, body, inspector, description, recommendations, deadline, status, photo_url, file_url, date, response, response_date, created_at"
+    if project_name:
+        cur.execute(f"SELECT {cols} FROM inspection_orders WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute(f"SELECT {cols} FROM inspection_orders ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1] or "","orderNumber":r[2] or "","body":r[3] or "",
+             "inspector":r[4] or "","description":r[5] or "","recommendations":r[6] or "",
+             "deadline":str(r[7]) if r[7] else "","status":r[8] or "Открыто",
+             "photoUrl":r[9] or "","fileUrl":r[10] or "",
+             "date":str(r[11]) if r[11] else "","response":r[12] or "",
+             "responseDate":str(r[13]) if r[13] else "",
+             "createdAt":str(r[14])} for r in rows]
+
+@app.post("/inspection-orders")
+def create_inspection_order(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO inspection_orders
+                   (project_name, order_number, body, inspector, description, recommendations,
+                    deadline, status, photo_url, file_url, date)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (data.get("projectName",""), data.get("orderNumber","") or ("ГСН-"+str(int(__import__("datetime").datetime.now().timestamp()))[-6:]),
+                 data.get("body","ГСН"), data.get("inspector",""), data.get("description",""),
+                 data.get("recommendations",""), data.get("deadline") or None,
+                 data.get("status","Открыто"), data.get("photoUrl",""),
+                 data.get("fileUrl",""), data.get("date") or None))
+    conn.commit()
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"id": row[0], "ok": True}
+
+@app.put("/inspection-orders/{id}")
+def update_inspection_order(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    fields_map = [('status','status'),('response','response'),('responseDate','response_date'),
+                  ('recommendations','recommendations'),('photoUrl','photo_url'),('fileUrl','file_url')]
+    sets, vals = [], []
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            v = data[js_key]
+            if js_key == 'responseDate' and not v:
+                v = None
+            vals.append(v)
+    if not sets:
+        cur.close(); conn.close()
+        return {"ok": True}
+    vals.append(id)
+    cur.execute("UPDATE inspection_orders SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/inspection-orders/{id}")
+def delete_inspection_order(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM inspection_orders WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.post("/audit-log")
 def create_audit_entry(data: dict):

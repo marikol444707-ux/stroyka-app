@@ -304,6 +304,8 @@ function App() {
   const [cableJournal, setCableJournal] = useState([]);
   const [editingCable, setEditingCable] = useState(null);
   const [supervisorActs, setSupervisorActs] = useState([]);
+  const [inspectionOrders, setInspectionOrders] = useState([]);
+  const [auditLog, setAuditLog] = useState([]);
   const [newSupervisorAct, setNewSupervisorAct] = useState({actType:'Осмотр',description:'',findings:'',recommendations:'',date:''});
   const [supervisorActPhoto, setSupervisorActPhoto] = useState('');
   const [prescriptionPhoto, setPrescriptionPhoto] = useState('');
@@ -656,7 +658,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
@@ -700,6 +702,7 @@ function App() {
         fetch(API+'/material-inspection').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/cable-journal').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/supervisor-acts').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/inspection-orders').then(r=>r.json()).catch(()=>[]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -709,7 +712,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);
       try {
         const [rwin,rdoor] = await Promise.all([
           fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]),
@@ -1644,6 +1647,149 @@ function App() {
     html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Отпустил:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
     html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получил:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(transfer.toPerson||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
     html += '</div>';
+    return html;
+  };
+
+  const buildAOSKContent = (projectName) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const project = projects.find(p=>p.name===projectName)||{};
+    const acts = hiddenActs.filter(a=>a.projectName===projectName);
+    const responsibleActs = acts.filter(a=>{const wn=(a.workName||'').toLowerCase();return wn.includes('фундамент')||wn.includes('арматур')||wn.includes('бетон')||wn.includes('каркас')||wn.includes('несущ')||wn.includes('перекрыт')||wn.includes('колонн')||wn.includes('балк');});
+    const fmtDate=(d)=>{if(!d)return '«___» __________ 20__ г.';const dt=new Date(d);if(isNaN(dt))return d;const m=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];return '«'+String(dt.getDate()).padStart(2,'0')+'» '+m[dt.getMonth()]+' '+dt.getFullYear()+' г.';};
+    let html='<style>.aosk-title{text-align:center;font-weight:700;font-size:14px;margin:18px 0 4px}.aosk-sub{text-align:center;font-size:13px;margin:0 0 14px}.aosk-item{margin:8px 0;font-size:12px;line-height:1.5}.aosk-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.aosk-tbl th,.aosk-tbl td{border:1px solid #333;padding:4px 6px}.aosk-tbl th{background:#f3f4f6}</style>';
+    html+='<div style="margin:6px 0;font-size:12px"><b>'+orgName+'</b></div>';
+    html+='<div class="aosk-title">АКТ</div><div class="aosk-sub">освидетельствования ответственных конструкций</div>';
+    html+='<div class="aosk-item"><b>Объект:</b> '+(projectName||'')+'</div>';
+    html+='<div class="aosk-item"><b>Заказчик:</b> '+(project.client||'____________')+'</div>';
+    html+='<div class="aosk-item"><b>Подрядчик:</b> '+orgName+'</div>';
+    html+='<div class="aosk-item"><b>Дата:</b> '+fmtDate(new Date().toISOString().slice(0,10))+'</div>';
+    html+='<p style="font-size:12px;margin:14px 0 8px">Комиссия в составе представителей застройщика, технадзора, генподрядчика и субподрядчика провела освидетельствование следующих ответственных конструкций:</p>';
+    if (responsibleActs.length===0){
+      html+='<p style="text-align:center;color:#888;font-size:11px;padding:14px">Записей по ответственным конструкциям нет — ведутся через АОСР (СНиП 12-01-2004)</p>';
+    } else {
+      html+='<table class="aosk-tbl"><tr><th>№</th><th>Конструкция</th><th>Объём</th><th>Раздел сметы</th><th>Подписан</th><th>Связан с АОСР</th></tr>';
+      responsibleActs.forEach((a,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+(a.workName||'')+'</td><td>'+(a.quantity||0)+' '+(a.unit||'')+'</td><td>'+(a.sectionName||'—')+'</td><td>'+(a.status==='Подписан'?'✅':'⏳ '+(a.status||''))+'</td><td>'+a.actNumber+'</td></tr>';});
+      html+='</table>';
+    }
+    html+='<p style="font-size:12px;margin:14px 0">При выполнении конструкций соблюдены требования: СНиП 3.03.01 (бетонные и железобетонные конструкции), ГОСТ 26633 (бетоны тяжёлые), ГОСТ 5781 (арматура).</p>';
+    html+='<p style="font-size:12px"><b>Заключение комиссии:</b> ответственные конструкции выполнены в соответствии с проектной документацией и техническими регламентами. Разрешается производство последующих работ.</p>';
+    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель застройщика (заказчика):</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель технического надзора:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель генподрядчика:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель проектной организации:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html+='</div>';
+    html+='<p style="margin-top:20px;font-size:10px;color:#555;text-align:center">Форма соответствует СНиП 12-01-2004 (Приложение 4). Документ обязателен для приёмки несущих/ответственных конструкций.</p>';
+    return html;
+  };
+
+  const buildKS11Content = (project) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const fmtDate=(d)=>{if(!d)return '«___» __________ 20__ г.';const dt=new Date(d);if(isNaN(dt))return d;const m=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];return '«'+String(dt.getDate()).padStart(2,'0')+'» '+m[dt.getMonth()]+' '+dt.getFullYear()+' г.';};
+    const pd=projectPlanDone(project);
+    const aosrTotal=hiddenActs.filter(a=>a.projectName===project.name&&a.status==='Подписан').length;
+    const aosrAll=hiddenActs.filter(a=>a.projectName===project.name).length;
+    let html='<style>.ks-tbl{border-collapse:collapse;width:100%;font-size:11px}.ks-tbl th,.ks-tbl td{border:1px solid #333;padding:5px 6px}.ks-tbl th{background:#f3f4f6}</style>';
+    html+='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № КС-11</h3>';
+    html+='<h2 style="text-align:center;margin:0 0 4px">АКТ ПРИЁМКИ ЗАКОНЧЕННОГО СТРОИТЕЛЬСТВОМ ОБЪЕКТА</h2>';
+    html+='<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
+    html+='<p style="font-size:12px"><b>Объект:</b> '+project.name+'</p>';
+    html+='<p style="font-size:12px"><b>Адрес:</b> '+(project.address||project.city||'____________')+'</p>';
+    html+='<p style="font-size:12px"><b>Заказчик:</b> '+(project.client||'____________')+'</p>';
+    html+='<p style="font-size:12px"><b>Подрядчик:</b> '+orgName+'</p>';
+    html+='<p style="font-size:12px"><b>Дата подписания:</b> '+fmtDate(new Date().toISOString().slice(0,10))+'</p>';
+    html+='<h3 style="margin-top:14px;font-size:13px">1. Характеристики выполненных работ:</h3>';
+    html+='<table class="ks-tbl"><tr><td>Бюджет по договору</td><td>'+Math.round(Number(project.budget||0)).toLocaleString("ru-RU")+' ₽</td></tr>';
+    html+='<tr><td>Выполнено по смете</td><td>'+Math.round(pd.done).toLocaleString("ru-RU")+' ₽</td></tr>';
+    html+='<tr><td>Срок строительства</td><td>'+(project.startDate||'____')+' — '+(project.deadline||'____')+'</td></tr>';
+    html+='<tr><td>АОСР подписанных / всего</td><td>'+aosrTotal+' / '+aosrAll+'</td></tr></table>';
+    html+='<h3 style="margin-top:14px;font-size:13px">2. Заключение приёмочной комиссии:</h3>';
+    html+='<p style="font-size:12px">Объект <b>'+project.name+'</b> выполнен в соответствии с проектной документацией, техническими регламентами и условиями договора подряда. Все скрытые работы освидетельствованы и приняты согласно АОСР. Объект пригоден к эксплуатации.</p>';
+    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Заказчик:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(project.client||'')+'</div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Подрядчик:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||orgName)+'</div></div>';
+    html+='</div>';
+    return html;
+  };
+
+  const buildKS14Content = (project) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    let html='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № КС-14</h3>';
+    html+='<h2 style="text-align:center;margin:0 0 4px">АКТ ПРИЁМКИ ОБЪЕКТА ГОСУДАРСТВЕННОЙ ПРИЁМОЧНОЙ КОМИССИЕЙ</h2>';
+    html+='<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
+    html+='<p style="font-size:12px;margin:14px 0"><b>Объект:</b> '+project.name+' · <b>Адрес:</b> '+(project.address||project.city||'____________')+'</p>';
+    html+='<p style="font-size:12px"><b>Заказчик:</b> '+(project.client||'____________')+' · <b>Подрядчик:</b> '+orgName+'</p>';
+    html+='<p style="font-size:12px;margin:14px 0">Государственная приёмочная комиссия в составе:</p>';
+    html+='<ul style="font-size:12px"><li>Председатель комиссии (представитель заказчика)</li><li>Представитель государственного строительного надзора</li><li>Представитель пожарного надзора</li><li>Представитель санитарно-эпидемиологической службы</li><li>Представитель проектной организации</li><li>Представитель генподрядчика — '+orgName+'</li></ul>';
+    html+='<p style="font-size:12px;margin:14px 0">Произвела осмотр законченного строительством объекта и установила, что объект соответствует утверждённому проекту, требованиям технических регламентов и нормативной документации. Объект <b>принят</b> в эксплуатацию.</p>';
+    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Председатель комиссии:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель ГСН:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель пожнадзора:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель СЭС:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Проектная организация:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Генподрядчик:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||orgName)+'</div></div>';
+    html+='</div>';
+    return html;
+  };
+
+  const buildIGDContent = (projectName) => {
+    const project = projects.find(p=>p.name===projectName)||{};
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    let html='<h2 style="text-align:center;margin:8px 0">ИСПОЛНИТЕЛЬНАЯ ГЕОДЕЗИЧЕСКАЯ ДОКУМЕНТАЦИЯ</h2>';
+    html+='<p style="text-align:center;font-size:11px;color:#444">по СП 126.13330 «Геодезические работы в строительстве»</p>';
+    html+='<p style="font-size:12px"><b>Объект:</b> '+projectName+'</p>';
+    html+='<p style="font-size:12px"><b>Подрядчик:</b> '+orgName+'</p>';
+    html+='<h3 style="margin-top:14px;font-size:13px">Перечень исполнительных схем (составляется геодезистом):</h3>';
+    html+='<ul style="font-size:12px;line-height:1.7">';
+    html+='<li>Схема расположения главных осей здания</li>';
+    html+='<li>Схема расположения свай / фундамента (с отклонениями от проекта)</li>';
+    html+='<li>Высотная схема цоколя и фундаментной плиты</li>';
+    html+='<li>Схема расположения колонн каждого этажа</li>';
+    html+='<li>Схема геодезической разбивки внутренних осей</li>';
+    html+='<li>Поэтажные планы с фактическими размерами</li>';
+    html+='<li>Профиль наружных сетей</li>';
+    html+='<li>Сводный план фактического положения объекта на участке</li>';
+    html+='</ul>';
+    html+='<p style="font-size:11px;color:#666;margin-top:14px">⚠️ Схемы выполняются на бумаге/AutoCAD по СП 126.13330.2017. Должны содержать: фактические координаты, отметки, отклонения от проекта, подписи геодезиста и прораба.</p>';
+    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Геодезист:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Производитель работ:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='</div>';
+    return html;
+  };
+
+  const buildExecPackageContent = (project) => {
+    const acts=hiddenActs.filter(a=>a.projectName===project.name);
+    const inspections=(materialInspections||[]).filter(mi=>mi.projectName===project.name);
+    const cables=(cableJournal||[]).filter(c=>c.projectName===project.name);
+    const tb=(tbJournal||[]).filter(t=>t.project===project.name);
+    const presc=(prescriptionsList||[]).filter(pr=>pr.projectName===project.name);
+    let html='<h2 style="text-align:center;margin:8px 0">ПАКЕТ ИСПОЛНИТЕЛЬНОЙ ДОКУМЕНТАЦИИ</h2>';
+    html+='<p style="text-align:center;font-size:11px;color:#444">для сдачи объекта в Госстройнадзор</p>';
+    html+='<p style="font-size:12px;text-align:center;margin:14px 0"><b>'+project.name+'</b></p>';
+    html+='<h3 style="margin-top:14px;font-size:13px">Состав пакета:</h3>';
+    html+='<table style="border-collapse:collapse;width:100%;font-size:11px"><tr style="background:#f3f4f6"><th style="border:1px solid #333;padding:5px 6px">№</th><th style="border:1px solid #333;padding:5px 6px">Документ</th><th style="border:1px solid #333;padding:5px 6px">Кол-во</th><th style="border:1px solid #333;padding:5px 6px">Норматив</th></tr>';
+    const items=[
+      ['Общий журнал работ (РД-11-05-2007, форма ЖПР)','1','РД-11-05-2007'],
+      ['Акты освидетельствования скрытых работ (АОСР)',acts.length+' ('+acts.filter(a=>a.status==='Подписан').length+' подп.)','СНиП 12-01-2004'],
+      ['Акты освидетельствования ответственных конструкций (АОСК)','см. АОСР','СНиП 12-01-2004'],
+      ['Журнал входного контроля материалов',inspections.length,'СП 48.13330.2019'],
+      ['Журнал кабельной продукции',cables.length,'СП 76.13330'],
+      ['Журнал инструктажей ТБ',tb.length,'ГОСТ 12.0.004-2015'],
+      ['Исполнительная геодезическая документация (ИГД)','см. ИГД','СП 126.13330'],
+      ['Сертификаты и паспорта на материалы','см. журнал входного контроля','—'],
+      ['Акт КС-11 (приёмка законченного объекта)','1','Госкомстат № 71а'],
+      ['Акт КС-14 (госприёмка)','1 (если ФЗ-44)','Госкомстат № 71а'],
+      ['Предписания и ответы на них',presc.length,'МДС 12-46.2008'],
+    ];
+    items.forEach((it,i)=>{html+='<tr><td style="border:1px solid #333;padding:5px 6px">'+(i+1)+'</td><td style="border:1px solid #333;padding:5px 6px">'+it[0]+'</td><td style="border:1px solid #333;padding:5px 6px">'+it[1]+'</td><td style="border:1px solid #333;padding:5px 6px">'+it[2]+'</td></tr>';});
+    html+='</table>';
+    html+='<p style="font-size:11px;color:#666;margin-top:18px">⚠️ Перед сдачей в Госстройнадзор все журналы распечатать, прошить, пронумеровать страницы. АОСР должны быть подписаны 4 сторонами. Сертификаты на материалы — оригиналы или заверенные копии.</p>';
     return html;
   };
 
@@ -5321,7 +5467,7 @@ function App() {
 
           {activePage==='accounting'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['summary','contracts','acts','aosr','payments','documents'].map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',aosr:'🔒 АОСР к оплате',payments:'💸 Платежи',documents:'🏗 По объектам'}[tab]}</button>))}
+              {['summary','contracts','acts','aosr','payments','documents','audit'].map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',aosr:'🔒 АОСР к оплате',payments:'💸 Платежи',documents:'🏗 По объектам',audit:'📜 Аудит'}[tab]}</button>))}
             </div>
 
             {accountingTab==='summary'&&(<div>
@@ -5519,7 +5665,7 @@ function App() {
               </div>
               {accountingDocProject&&(()=>{const proj=projects.find(pr=>pr.name===accountingDocProject);if(!proj) return null;const pd=projectPlanDone(proj);const budget=Number(proj.budget||0);const ownExp=(ownExpenses||[]).filter(e=>e.projectName===accountingDocProject).reduce((s,e)=>s+Number(e.amount||0),0);const accExp=(accountablePayments||[]).filter(a=>a.projectName===accountingDocProject).reduce((s,a)=>s+Number(a.amount||0),0);const aosrPaid=hiddenActs.filter(a=>a.projectName===accountingDocProject&&a.paidStatus==='Оплачен').reduce((s,a)=>s+Number(a.paidAmount||a.total||0),0);const factCost=ownExp+accExp+aosrPaid;const margin=pd.done-factCost;return(<div>
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                  {['Паспорт','КС-2','КС-3','ЖПР','М-29'].map(doc=>(<button key={doc} onClick={()=>{const p=proj;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showKS2(p);if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');if(doc==='М-29'){const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildM29Content(p.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-29 — '+p.name);}}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
+                  {['Паспорт','КС-2','КС-3','ЖПР','М-29','АОСК','КС-11','КС-14','ИГД','📦 Пакет'].map(doc=>(<button key={doc} onClick={()=>{const p=proj;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showKS2(p);if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');if(doc==='М-29'){const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildM29Content(p.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-29 — '+p.name);}if(doc==='АОСК') showPreview(buildAOSKContent(p.name),'АОСК — '+p.name);if(doc==='КС-11') showPreview(buildKS11Content(p),'КС-11 — '+p.name);if(doc==='КС-14') showPreview(buildKS14Content(p),'КС-14 — '+p.name);if(doc==='ИГД') showPreview(buildIGDContent(p.name),'ИГД — '+p.name);if(doc==='📦 Пакет') showPreview(buildExecPackageContent(p),'Пакет исполнительной — '+p.name);}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
                 </div>
                 <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
                   <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>💰 Себестоимость объекта (план vs факт)</b>
@@ -5537,6 +5683,32 @@ function App() {
                 </div>
               </div>);})()}
               {!accountingDocProject&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Выберите проект</p>}
+            </div>)}
+
+            {accountingTab==='audit'&&(<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📜 Журнал действий пользователей (Audit log)</b>
+                <button onClick={()=>fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[]))} style={{...btnB,fontSize:'12px',padding:'7px 12px'}}>🔄 Обновить</button>
+              </div>
+              {auditLog.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><p>Записей нет</p><p style={{fontSize:'11px'}}>Записи появляются по мере действий пользователей. Интеграция с endpoints — в Ф6.1.</p></div>:(<div style={{...card,padding:0,overflow:'auto'}}>
+                <table style={tbl}><thead><tr>
+                  <th style={tblH}>Время</th>
+                  <th style={tblH}>Пользователь</th>
+                  <th style={tblH}>Действие</th>
+                  <th style={tblH}>Объект изменения</th>
+                  <th style={tblH}>Проект</th>
+                  <th style={tblH}>Описание</th>
+                </tr></thead><tbody>
+                  {auditLog.slice(0,100).map(a=>(<tr key={a.id}>
+                    <td style={tblC}>{a.createdAt||'—'}</td>
+                    <td style={tblC}>{(a.userName||'—')+(a.userRole?' ('+a.userRole+')':'')}</td>
+                    <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:C.bg,color:C.textSec}}>{a.action||'—'}</span></td>
+                    <td style={tblC}>{(a.entityType||'')+(a.entityId?' №'+a.entityId:'')}</td>
+                    <td style={tblC}>{a.projectName||'—'}</td>
+                    <td style={{...tblC,maxWidth:'300px',whiteSpace:'normal'}}>{a.description||''}</td>
+                  </tr>))}
+                </tbody></table>
+              </div>)}
             </div>)}
           </div>)}
           {activePage==='personnel'&&(<div>
