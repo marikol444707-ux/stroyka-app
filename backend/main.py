@@ -1130,7 +1130,7 @@ def register(data: RegisterModel):
 def get_projects():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters FROM projects")
+    cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,warranty_start_date as \"warrantyStartDate\",warranty_end_date as \"warrantyEndDate\",warranty_contact as \"warrantyContact\" FROM projects")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -1146,12 +1146,31 @@ def create_project(p: ProjectModel):
     return dict(row)
 
 @app.put("/projects/{id}")
-def update_project(id: int, p: ProjectModel):
+def update_project(id: int, data: dict):
+    fields_map = [
+        ('name','name'),('client','client'),('status','status'),('budget','budget'),
+        ('deadline','deadline'),('progress','progress'),('tasks','tasks'),
+        ('pricelistId','pricelist_id'),('floors','floors'),('liters','liters'),
+        ('warrantyStartDate','warranty_start_date'),
+        ('warrantyEndDate','warranty_end_date'),
+        ('warrantyContact','warranty_contact'),
+    ]
+    sets, vals = [], []
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            v = data[js_key]
+            if db_col in ('warranty_start_date','warranty_end_date','deadline') and not v:
+                v = None
+            vals.append(v)
+    if not sets:
+        return {"ok": True}
+    vals.append(id)
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE projects SET name=%s,client=%s,status=%s,budget=%s,deadline=%s,progress=%s,tasks=%s,pricelist_id=%s,floors=%s,liters=%s WHERE id=%s",
-                (p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,id))
-    conn.close()
+    cur.execute("UPDATE projects SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.commit()
+    cur.close(); conn.close()
     return {"ok": True}
 
 @app.delete("/projects/{id}")

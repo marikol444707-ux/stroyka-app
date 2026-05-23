@@ -331,6 +331,7 @@ function App() {
   const [newSupplierInvoice, setNewSupplierInvoice] = useState(null);
   const [warrantyDefects, setWarrantyDefects] = useState([]);
   const [newWarrantyDefect, setNewWarrantyDefect] = useState(null);
+  const [warrantyEditForm, setWarrantyEditForm] = useState(null);
   const [newSupervisorAct, setNewSupervisorAct] = useState({actType:'Осмотр',description:'',findings:'',recommendations:'',date:''});
   const [supervisorActPhoto, setSupervisorActPhoto] = useState('');
   const [prescriptionPhoto, setPrescriptionPhoto] = useState('');
@@ -5363,12 +5364,30 @@ function App() {
                       <button onClick={()=>setNewWarrantyDefect({description:'',foundAt:new Date().toISOString().split('T')[0],reportedBy:'',reporterPhone:'',severity:'Средний'})} style={btnO}><Plus size={14}/>Зафиксировать дефект</button>
                     </div>
                     <div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
-                      <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>📋 Условия гарантии</b>
-                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',fontSize:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',flexWrap:'wrap',gap:'6px'}}>
+                        <b style={{color:C.text,fontSize:'13px'}}>📋 Условия гарантии</b>
+                        {warrantyEditForm?.__projectId!==p.id&&(['директор','зам_директора','бухгалтер','прораб'].includes(user.role))&&(
+                          <button onClick={()=>setWarrantyEditForm({__projectId:p.id,warrantyStartDate:p.warrantyStartDate||p.warranty_start_date||'',warrantyEndDate:p.warrantyEndDate||p.warranty_end_date||'',warrantyContact:p.warrantyContact||p.warranty_contact||''})} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>✏️ Редактировать</button>
+                        )}
+                      </div>
+                      {warrantyEditForm?.__projectId===p.id?(<div>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',marginBottom:'8px'}}>
+                          <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Начало гарантии</p><input type='date' value={warrantyEditForm.warrantyStartDate||''} onChange={e=>setWarrantyEditForm({...warrantyEditForm,warrantyStartDate:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+                          <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Окончание</p><input type='date' value={warrantyEditForm.warrantyEndDate||''} onChange={e=>setWarrantyEditForm({...warrantyEditForm,warrantyEndDate:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+                          <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Контакт</p><input type='text' placeholder='ФИО + телефон' value={warrantyEditForm.warrantyContact||''} onChange={e=>setWarrantyEditForm({...warrantyEditForm,warrantyContact:e.target.value})} style={{...inp,marginBottom:0}}/></div>
+                        </div>
+                        <div style={{display:'flex',gap:'8px'}}>
+                          <button onClick={async()=>{
+                            await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({warrantyStartDate:warrantyEditForm.warrantyStartDate||null,warrantyEndDate:warrantyEditForm.warrantyEndDate||null,warrantyContact:warrantyEditForm.warrantyContact||''})});
+                            await loadAll(); setWarrantyEditForm(null);
+                          }} style={btnO}><Check size={14}/>Сохранить</button>
+                          <button onClick={()=>setWarrantyEditForm(null)} style={btnG}>Отмена</button>
+                        </div>
+                      </div>):(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',fontSize:'12px'}}>
                         <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Начало гарантии</p><b style={{color:C.text}}>{p.warrantyStartDate||p.warranty_start_date||'не задано'}</b></div>
                         <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Окончание</p><b style={{color:C.text}}>{p.warrantyEndDate||p.warranty_end_date||'обычно +1 год'}</b></div>
                         <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Контакт по гарантии</p><b style={{color:C.text}}>{p.warrantyContact||p.warranty_contact||(p.foreman||'—')}</b></div>
-                      </div>
+                      </div>)}
                       <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0',lineHeight:1.4}}>Срок гарантии устанавливается договором подряда (обычно 1-5 лет). В период гарантии устранение дефектов — за счёт подрядчика, если они вызваны его работой.</p>
                     </div>
                     {newWarrantyDefect&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.warningBorder}}>
