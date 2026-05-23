@@ -367,6 +367,7 @@ def init_db():
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS normatives TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS project_docs TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS ai_filled BOOLEAN DEFAULT FALSE;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS unexpected_work_id INT;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         CREATE TABLE IF NOT EXISTS estimate_versions (
             id SERIAL PRIMARY KEY,
@@ -2399,11 +2400,39 @@ def create_unexpected_work(data: dict):
 def update_unexpected_work(id: int, data: dict):
     conn = get_db()
     cur = conn.cursor()
+    new_status = data.get("status","")
+    price = float(data.get("price",0))
+    total = float(data.get("total",0))
+    # Считываем текущее состояние и описательные поля до апдейта
+    cur.execute("SELECT status, project_name, description, unit, quantity, added_by FROM unexpected_works WHERE id=%s", (id,))
+    row = cur.fetchone()
+    old_status = row[0] if row else ""
     cur.execute("UPDATE unexpected_works SET status=%s,price=%s,total=%s,approved_by=%s,approved_at=%s WHERE id=%s",
-        (data.get("status",""),float(data.get("price",0)),float(data.get("total",0)),data.get("approvedBy",""),data.get("approvedAt",""),id))
+        (new_status, price, total, data.get("approvedBy",""), data.get("approvedAt",""), id))
+    # Если работа стала «Утверждено» и записи в журнале ещё нет — авто-создаём
+    auto_journal_id = None
+    if row and new_status == "Утверждено" and old_status != "Утверждено":
+        proj, desc, unit, qty, added_by = row[1] or "", row[2] or "", row[3] or "шт", float(row[4] or 0), row[5] or ""
+        cur.execute("SELECT id FROM work_journal WHERE unexpected_work_id=%s LIMIT 1", (id,))
+        existing = cur.fetchone()
+        if not existing and desc:
+            from datetime import date as _date
+            today = _date.today().isoformat()
+            try:
+                cur.execute("""INSERT INTO work_journal
+                               (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
+                                unexpected_work_id)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                            (None, added_by or "(непредвиденная)", proj, desc, unit, qty, price, total, today,
+                             "На проверке",
+                             "Авто-запись по утверждённой непредвиденной работе №"+str(id),
+                             id))
+                auto_journal_id = cur.fetchone()[0]
+            except Exception as e:
+                print("UNEXPECTED→JOURNAL ERROR:", str(e))
     conn.commit()
     cur.close(); conn.close()
-    return {"ok":True}
+    return {"ok": True, "journalId": auto_journal_id}
 
 @app.post("/parse-smeta")
 async def parse_smeta(file: UploadFile = File(...)):

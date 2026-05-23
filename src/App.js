@@ -298,6 +298,7 @@ function App() {
   const [editingJournal, setEditingJournal] = useState(null);
   const [journalFilter, setJournalFilter] = useState({from:'',to:'',masterName:'',sectionName:'',status:''});
   const [showJournalPrintDialog, setShowJournalPrintDialog] = useState(null);
+  const [showJournalTableModal, setShowJournalTableModal] = useState(null);
   const [selectedBrigadeContract, setSelectedBrigadeContract] = useState(null);
   const [brigadeContractItems, setBrigadeContractItems] = useState([]);
   const [showBrigadeForm, setShowBrigadeForm] = useState(false);
@@ -960,13 +961,28 @@ function App() {
       allBrigadeItems = [...allBrigadeItems, ...items.filter(i=>i.doneQuantity>0)];
     }
     const pw = workJournal.filter(j=>j.project===project.name&&j.status==='Подтверждено');
-    const sourceItems = allBrigadeItems.length>0 ? allBrigadeItems.map(item=>({description:item.name,unit:item.unit,quantity:item.doneQuantity,pricePerUnit:Number(item.priceSmeta||0),total:Math.round(item.doneQuantity*Number(item.priceSmeta||0))})) : pw;
+    const sourceItems = allBrigadeItems.length>0
+      ? allBrigadeItems.map(item=>({description:item.name,unit:item.unit,quantity:item.doneQuantity,pricePerUnit:Number(item.priceSmeta||0),total:Math.round(item.doneQuantity*Number(item.priceSmeta||0))}))
+      : pw.filter(j=>!j.unexpectedWorkId);
+    const unexpectedItems = pw.filter(j=>j.unexpectedWorkId).map(j=>({description:j.description,unit:j.unit,quantity:j.quantity,pricePerUnit:Number(j.pricePerUnit||0),total:Math.round(Number(j.quantity||0)*Number(j.pricePerUnit||0))}));
     const req = companyRequisites||{};
     let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА КС-2</h2><h3 style="text-align:center">АКТ О ПРИЁМКЕ ВЫПОЛНЕННЫХ РАБОТ</h3>';
     html += '<table><tr><th>Организация</th><td>'+(req.fullName||companyName||'')+'</td><th>Объект</th><td>'+project.name+'</td></tr></table>';
+    html += '<h3>Раздел 1. Основные работы (по смете)</h3>';
     html += '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
     sourceItems.forEach((wk,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+Number(wk.pricePerUnit).toLocaleString()+'</td><td>'+Number(wk.total).toLocaleString()+'</td></tr>';});
-    html += '<tr><td colspan="5"><b>ИТОГО:</b></td><td><b>'+sourceItems.reduce((s,wk)=>s+Number(wk.total||0),0).toLocaleString()+' руб.</b></td></tr></table>';
+    const mainTotal=sourceItems.reduce((s,wk)=>s+Number(wk.total||0),0);
+    html += '<tr><td colspan="5"><b>Итого по разделу 1:</b></td><td><b>'+mainTotal.toLocaleString()+' руб.</b></td></tr></table>';
+    if(unexpectedItems.length>0){
+      html += '<h3>Раздел 2. Дополнительные работы (доп.соглашения)</h3>';
+      html += '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
+      unexpectedItems.forEach((wk,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+Number(wk.pricePerUnit).toLocaleString()+'</td><td>'+Number(wk.total).toLocaleString()+'</td></tr>';});
+      const unxTotal=unexpectedItems.reduce((s,wk)=>s+Number(wk.total||0),0);
+      html += '<tr><td colspan="5"><b>Итого по разделу 2:</b></td><td><b>'+unxTotal.toLocaleString()+' руб.</b></td></tr></table>';
+      html += '<p style="text-align:right;font-size:14px"><b>ВСЕГО к оплате: '+(mainTotal+unxTotal).toLocaleString()+' руб.</b></p>';
+    } else {
+      html += '<p style="text-align:right;font-size:14px"><b>ВСЕГО к оплате: '+mainTotal.toLocaleString()+' руб.</b></p>';
+    }
     html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал: '+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Принял:</div></div></div>';
     showPreview(html,'КС-2 — '+project.name);
   };
@@ -2637,12 +2653,90 @@ function App() {
               {j.hiddenWork&&<div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',fontSize:'12px',color:C.warning,marginBottom:'10px'}}>🔒 Это скрытые работы — для них должен быть оформлен Акт освидетельствования скрытых работ (АОСР). Проверь вкладку «АОСР».</div>}
             </div>
             <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
-              <button onClick={()=>showPreview(buildWorkJournalContent([j],j.project,j.date,j.date),'Запись журнала')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
+              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                <button onClick={()=>showPreview(buildWorkJournalContent([j],j.project,j.date,j.date),'Запись журнала')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
+                {j.hiddenWork&&(<button onClick={()=>{const matchingAct=hiddenActs.find(a=>a.projectName===j.project&&(a.workName||'').trim()===(j.description||'').trim());if(matchingAct){setEditingJournal(null);setEditingAct(matchingAct);}else{alert('Акт скрытых работ для этой записи не найден. Он создаётся автоматически из сметы — отметь позицию переключателем 🔒 и заполни «Сделано».');}}} style={{...btnB,backgroundColor:'#10b981'}}>🔒 Открыть АОСР</button>)}
+              </div>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
                 <button disabled={!!j.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#10b981',opacity:j.__aiLoading?0.6:1,cursor:j.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{j.__aiLoading?'AI работает…':(j.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
                 <button onClick={()=>setEditingJournal(null)} style={btnG}>Отмена</button>
                 <button onClick={saveJournal} style={btnO}><Check size={14}/>Сохранить</button>
               </div>
+            </div>
+          </div>
+        </div>);
+      })()}
+      {showJournalTableModal&&(()=>{
+        const pn=showJournalTableModal;
+        const journalHere=workJournal.filter(jw=>jw.project===pn);
+        let filtered=journalHere;
+        if(journalFilter.from) filtered=filtered.filter(r=>(r.date||'')>=journalFilter.from);
+        if(journalFilter.to) filtered=filtered.filter(r=>(r.date||'')<=journalFilter.to);
+        if(journalFilter.masterName) filtered=filtered.filter(r=>(r.masterName||'')===journalFilter.masterName);
+        if(journalFilter.sectionName) filtered=filtered.filter(r=>(r.sectionName||'')===journalFilter.sectionName);
+        if(journalFilter.status) filtered=filtered.filter(r=>r.status===journalFilter.status);
+        const sections=[...new Set(journalHere.map(r=>r.sectionName).filter(Boolean))];
+        const masters=[...new Set(journalHere.map(r=>r.masterName).filter(Boolean))];
+        const sumF=filtered.reduce((s,r)=>s+Number(r.total||0),0);
+        const cntDraft=filtered.filter(r=>r.status==='На проверке').length;
+        const cntOk=filtered.filter(r=>r.status==='Подтверждено').length;
+        return(<div onClick={()=>setShowJournalTableModal(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(1100px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
+              <div>
+                <b style={{color:C.text,fontSize:'16px',display:'block'}}>📋 Журнал работ — Таблица КС-6а</b>
+                <span style={{fontSize:'12px',color:C.textSec}}>{pn+' · РД-11-05-2007 · СП 48.13330.2019'}</span>
+              </div>
+              <button onClick={()=>setShowJournalTableModal(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+              {journalHere.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Записей в журнале пока нет</div>:(<div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:'8px',marginBottom:'12px'}}>
+                  <input type="date" value={journalFilter.from} onChange={e=>setJournalFilter({...journalFilter,from:e.target.value})} title="Период с" style={{...inp,marginBottom:0,fontSize:'11px'}}/>
+                  <input type="date" value={journalFilter.to} onChange={e=>setJournalFilter({...journalFilter,to:e.target.value})} title="Период по" style={{...inp,marginBottom:0,fontSize:'11px'}}/>
+                  <select value={journalFilter.sectionName} onChange={e=>setJournalFilter({...journalFilter,sectionName:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px'}}><option value="">Все разделы</option>{sections.map(s=><option key={s} value={s}>{s}</option>)}</select>
+                  <select value={journalFilter.masterName} onChange={e=>setJournalFilter({...journalFilter,masterName:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px'}}><option value="">Все исполнители</option>{masters.map(m=><option key={m} value={m}>{m}</option>)}</select>
+                  <select value={journalFilter.status} onChange={e=>setJournalFilter({...journalFilter,status:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px'}}><option value="">Все статусы</option><option>На проверке</option><option>Подтверждено</option><option>Отклонено</option></select>
+                  <button onClick={()=>showPreview(buildWorkJournalContent(filtered,pn,journalFilter.from,journalFilter.to),'КС-6а — '+pn)} style={{...btnB,fontSize:'11px',padding:'7px 10px'}}><Eye size={12}/>🖨 Печать КС-6а</button>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'14px'}}>
+                  <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Записей</p><b style={{color:C.text,fontSize:'16px'}}>{filtered.length}</b></div>
+                  <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>На проверке</p><b style={{color:C.warning,fontSize:'16px'}}>{cntDraft}</b></div>
+                  <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Подтверждено</p><b style={{color:C.success,fontSize:'16px'}}>{cntOk}</b></div>
+                </div>
+                <div style={{...card,padding:0,overflow:'auto'}}>
+                  <table style={tbl}><thead><tr>
+                    <th style={tblH}>Дата</th>
+                    <th style={tblH}>Раздел</th>
+                    <th style={tblH}>Работа</th>
+                    <th style={tblH}>Объём</th>
+                    <th style={tblH}>Исполнитель</th>
+                    <th style={tblH}>ИТР</th>
+                    <th style={tblH}>Погода</th>
+                    <th style={tblH}>Качество</th>
+                    <th style={tblH}>Статус</th>
+                    <th style={tblH}>Сумма</th>
+                  </tr></thead><tbody>
+                    {filtered.map(jw=>(<tr key={jw.id} style={{cursor:'pointer'}} onClick={()=>{setEditingJournal(jw);setShowJournalTableModal(null);}}>
+                      <td style={tblC}>{jw.date||'—'}</td>
+                      <td style={tblC}>{jw.sectionName||'—'}</td>
+                      <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px'}}>🆕</span>:null}{jw.hiddenWork?<span title="Скрытые работы — нужен АОСР" style={{marginLeft:'4px'}}>🔒</span>:null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
+                      <td style={tblC}>{(jw.quantity||0)+' '+(jw.unit||'')}</td>
+                      <td style={tblC}>{jw.masterName||'—'}</td>
+                      <td style={tblC}>{jw.responsibleItr||'—'}</td>
+                      <td style={tblC}>{jw.weather||'—'}</td>
+                      <td style={tblC}>{jw.qualityStatus||'—'}</td>
+                      <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:jw.status==='Подтверждено'?C.successLight:jw.status==='Отклонено'?C.dangerLight:C.warningLight,color:jw.status==='Подтверждено'?C.success:jw.status==='Отклонено'?C.danger:C.warning}}>{jw.status||'—'}</span></td>
+                      <td style={tblC}>{Number(jw.total||0).toLocaleString('ru-RU')+' ₽'}</td>
+                    </tr>))}
+                    {filtered.length===0&&<tr><td colSpan={10} style={{...tblC,textAlign:'center',color:C.textMuted}}>По выбранным фильтрам записей нет</td></tr>}
+                  </tbody></table>
+                </div>
+                <div style={{marginTop:'12px',padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,borderRadius:'10px',textAlign:'right'}}>
+                  <span style={{color:C.textSec,fontSize:'12px',marginRight:'10px'}}>Сумма по фильтру:</span>
+                  <b style={{color:C.accent,fontSize:'15px'}}>{sumF.toLocaleString('ru-RU')+' ₽'}</b>
+                </div>
+              </div>)}
             </div>
           </div>
         </div>);
@@ -2821,14 +2915,15 @@ function App() {
                   <div style={{display:'flex',gap:0,overflowX:'auto',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'0 16px'}}>
                     {(()=>{
                       const tabGroups=[
-                        {id:'work',icon:'🔨',label:'Работы',tabs:['Наряды','Журнал','Непредвиденные','Чек-листы']},
+                        {id:'work',icon:'🔨',label:'Работы',tabs:['Наряды','Непредвиденные','Чек-листы']},
                         {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
                         {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы']},
-                        {id:'docs',icon:'📋',label:'Документы',tabs:['Предписания','Журнал ТБ','Чат','АОСР','Журнал работ']},
+                        {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Журнал ТБ','Погода','Предписания','Чат']},
+                        {id:'docs',icon:'📋',label:'Документы',tabs:['КС-2','КС-3','Паспорт','Акты технадзора']},
                       ];
                       const activeGroup=tabGroups.find(g=>g.tabs.includes(activeProjectTab));
                       return(<div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'6px',marginBottom:'10px'}}>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(80px,1fr))',gap:'6px',marginBottom:'10px'}}>
                           {tabGroups.map(g=>(<div key={g.id} onClick={()=>{setActiveTabGroup(activeTabGroup===g.id?null:g.id);if(g.tabs.length>0)setActiveProjectTab(g.tabs[0]);}} style={{padding:'12px 6px',borderRadius:'12px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'4px',backgroundColor:activeGroup&&activeGroup.id===g.id?C.accentLight:C.bg,border:'1.5px solid '+(activeGroup&&activeGroup.id===g.id?C.accentBorder:C.border),transition:'all 0.15s',minHeight:'70px'}}>
                             <div style={{fontSize:'22px',lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center'}}>{g.icon}</div>
                             <div style={{fontSize:'11px',fontWeight:activeGroup&&activeGroup.id===g.id?'700':'500',color:activeGroup&&activeGroup.id===g.id?C.accent:C.textSec,textAlign:'center',lineHeight:1.2}}>{g.label}</div>
@@ -3138,11 +3233,12 @@ function App() {
                       })()}
                   </div>)}
 
-                    {activeProjectTab==='Журнал'&&(<div>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
+                    {activeProjectTab==='Производство работ'&&(<div>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
                         <b style={{color:C.text}}>Журнал производства работ</b>
-                        <div style={{display:'flex',gap:'8px'}}>
-                          <button onClick={()=>showPreview(buildJPRContent(p.name),'ЖПР — '+p.name)} style={btnB}><ScrollText size={14}/>ЖПР</button>
+                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                          <button onClick={()=>setShowJournalTableModal(p.name)} style={btnB}><FileText size={14}/>📋 Таблица КС-6а</button>
+                          <button onClick={()=>showPreview(buildJPRContent(p.name),'ЖПР — '+p.name)} style={btnG}><ScrollText size={14}/>ЖПР</button>
                           <button onClick={()=>showKS2(p)} style={btnG}><FileText size={14}/>КС-2</button>
                         </div>
                       </div>
@@ -3160,7 +3256,7 @@ function App() {
                             {Object.keys(byDate[date]).map(masterName=>(<div key={masterName} style={{marginBottom:'8px'}}>
                               <p style={{color:C.accent,fontSize:'12px',fontWeight:'600',margin:'0 0 6px'}}>{'👷 '+masterName}</p>
                               {byDate[date][masterName].map(w=>(<div key={w.id} style={{padding:'8px 10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'4px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                                <div><b style={{fontSize:'12px',color:C.text}}>{w.description}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
+                                <div><b style={{fontSize:'12px',color:C.text}}>{w.description}{w.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px',color:C.warning}}>🆕</span>:null}{w.hiddenWork?<span title="Скрытые работы — нужен АОСР" style={{marginLeft:'4px'}}>🔒</span>:null}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
                                 <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
                                   <b style={{color:C.success,fontSize:'12px'}}>{(w.total||0).toLocaleString()+' ₽'}</b>
                                   {isProrab()&&w.status==='На проверке'&&(<><button onClick={()=>confirmJ(w)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/></button><button onClick={()=>setRejectingEntry(w)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button></>)}
@@ -3657,73 +3753,69 @@ function App() {
                         </div>);
                       })()}
                   </div>)}
-                  {activeProjectTab==='Журнал работ'&&(<div>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
-                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📖 Журнал производства работ</b>
-                      <span style={{fontSize:'11px',color:C.textMuted}}>Унифицированная форма КС-6а · РД-11-05-2007 · СП 48.13330.2019</span>
+                  {activeProjectTab==='Главный'&&(<div>
+                    <div style={{marginBottom:'15px'}}>
+                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📚 Журналы объекта</b>
+                      <p style={{color:C.textMuted,fontSize:'12px',margin:'4px 0 0'}}>Клик по карточке откроет соответствующий журнал.</p>
                     </div>
                     {(()=>{
-                      const journalHere=workJournal.filter(jw=>jw.project===p.name);
-                      if(journalHere.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>📖</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей в журнале пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически из сметы (при заполнении «Сделано»)<br/>или вручную мастером в его панели «📋 Мои работы».</p></div>);
-                      let filtered=journalHere;
-                      if(journalFilter.from) filtered=filtered.filter(r=>(r.date||'')>=journalFilter.from);
-                      if(journalFilter.to) filtered=filtered.filter(r=>(r.date||'')<=journalFilter.to);
-                      if(journalFilter.masterName) filtered=filtered.filter(r=>(r.masterName||'')===journalFilter.masterName);
-                      if(journalFilter.sectionName) filtered=filtered.filter(r=>(r.sectionName||'')===journalFilter.sectionName);
-                      if(journalFilter.status) filtered=filtered.filter(r=>r.status===journalFilter.status);
-                      const sections=[...new Set(journalHere.map(r=>r.sectionName).filter(Boolean))];
-                      const masters=[...new Set(journalHere.map(r=>r.masterName).filter(Boolean))];
-                      const sumF=filtered.reduce((s,r)=>s+Number(r.total||0),0);
-                      const cntDraft=filtered.filter(r=>r.status==='На проверке').length;
-                      const cntOk=filtered.filter(r=>r.status==='Подтверждено').length;
-                      return(<div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:'8px',marginBottom:'12px'}}>
-                          <input type="date" value={journalFilter.from} onChange={e=>setJournalFilter({...journalFilter,from:e.target.value})} title="Период с" style={{...inp,marginBottom:0,fontSize:'11px'}}/>
-                          <input type="date" value={journalFilter.to} onChange={e=>setJournalFilter({...journalFilter,to:e.target.value})} title="Период по" style={{...inp,marginBottom:0,fontSize:'11px'}}/>
-                          <select value={journalFilter.sectionName} onChange={e=>setJournalFilter({...journalFilter,sectionName:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px'}}><option value="">Все разделы</option>{sections.map(s=><option key={s} value={s}>{s}</option>)}</select>
-                          <select value={journalFilter.masterName} onChange={e=>setJournalFilter({...journalFilter,masterName:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px'}}><option value="">Все исполнители</option>{masters.map(m=><option key={m} value={m}>{m}</option>)}</select>
-                          <select value={journalFilter.status} onChange={e=>setJournalFilter({...journalFilter,status:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px'}}><option value="">Все статусы</option><option>На проверке</option><option>Подтверждено</option><option>Отклонено</option></select>
-                          <button onClick={()=>showPreview(buildWorkJournalContent(filtered,p.name,journalFilter.from,journalFilter.to),'КС-6а — '+p.name)} style={{...btnB,fontSize:'11px',padding:'7px 10px'}}><Eye size={12}/>🖨 Печать КС-6а</button>
-                        </div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'14px'}}>
-                          <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Записей</p><b style={{color:C.text,fontSize:'16px'}}>{filtered.length}</b></div>
-                          <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>На проверке</p><b style={{color:C.warning,fontSize:'16px'}}>{cntDraft}</b></div>
-                          <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Подтверждено</p><b style={{color:C.success,fontSize:'16px'}}>{cntOk}</b></div>
-                        </div>
-                        <div style={{...card,padding:0,overflow:'auto'}}>
-                          <table style={tbl}><thead><tr>
-                            <th style={tblH}>Дата</th>
-                            <th style={tblH}>Раздел</th>
-                            <th style={tblH}>Работа</th>
-                            <th style={tblH}>Объём</th>
-                            <th style={tblH}>Исполнитель</th>
-                            <th style={tblH}>ИТР</th>
-                            <th style={tblH}>Погода</th>
-                            <th style={tblH}>Качество</th>
-                            <th style={tblH}>Статус</th>
-                            <th style={tblH}>Сумма</th>
-                          </tr></thead><tbody>
-                            {filtered.map(jw=>(<tr key={jw.id} style={{cursor:'pointer'}} onClick={()=>setEditingJournal(jw)}>
-                              <td style={tblC}>{jw.date||'—'}</td>
-                              <td style={tblC}>{jw.sectionName||'—'}</td>
-                              <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.hiddenWork?<span title="Скрытые работы — нужен АОСР" style={{marginLeft:'4px'}}>🔒</span>:null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
-                              <td style={tblC}>{(jw.quantity||0)+' '+(jw.unit||'')}</td>
-                              <td style={tblC}>{jw.masterName||'—'}</td>
-                              <td style={tblC}>{jw.responsibleItr||'—'}</td>
-                              <td style={tblC}>{jw.weather||'—'}</td>
-                              <td style={tblC}>{jw.qualityStatus||'—'}</td>
-                              <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:jw.status==='Подтверждено'?C.successLight:jw.status==='Отклонено'?C.dangerLight:C.warningLight,color:jw.status==='Подтверждено'?C.success:jw.status==='Отклонено'?C.danger:C.warning}}>{jw.status||'—'}</span></td>
-                              <td style={tblC}>{Number(jw.total||0).toLocaleString('ru-RU')+' ₽'}</td>
-                            </tr>))}
-                            {filtered.length===0&&<tr><td colSpan={10} style={{...tblC,textAlign:'center',color:C.textMuted}}>По выбранным фильтрам записей нет</td></tr>}
-                          </tbody></table>
-                        </div>
-                        <div style={{marginTop:'12px',padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,borderRadius:'10px',textAlign:'right'}}>
-                          <span style={{color:C.textSec,fontSize:'12px',marginRight:'10px'}}>Сумма по фильтру:</span>
-                          <b style={{color:C.accent,fontSize:'15px'}}>{sumF.toLocaleString('ru-RU')+' ₽'}</b>
-                        </div>
+                      const cards=[
+                        {tab:'Производство работ',icon:'📖',label:'Производство работ',hint:'Журнал по форме КС-6а',count:workJournal.filter(jw=>jw.project===p.name).length},
+                        {tab:'АОСР',icon:'🔒',label:'Скрытые работы (АОСР)',hint:'СНиП 12-01-2004',count:hiddenActs.filter(a=>a.projectName===p.name).length},
+                        {tab:'Журнал ТБ',icon:'🛡️',label:'Техника безопасности',hint:'ГОСТ 12.0.004-2015',count:(tbJournal||[]).filter(e=>e.project===p.name).length},
+                        {tab:'Погода',icon:'🌤',label:'Погода',hint:'Метеоусловия по дням',count:(weatherLog||[]).filter(w=>w.projectName===p.name).length},
+                        {tab:'Предписания',icon:'⚠️',label:'Предписания',hint:'От технадзора и стройконтроля',count:(prescriptionsList||[]).filter(pr=>pr.projectName===p.name).length},
+                        {tab:'Чат',icon:'💬',label:'Чат проекта',hint:'Переписка по объекту',count:0},
+                      ];
+                      return(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'12px'}}>
+                        {cards.map(c=>(<div key={c.tab} onClick={()=>setActiveProjectTab(c.tab)} style={{...card,padding:'16px',cursor:'pointer',border:'1.5px solid '+C.border}}><div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px'}}><span style={{fontSize:'24px'}}>{c.icon}</span><b style={{color:C.text,fontSize:'13px'}}>{c.label}</b></div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 6px'}}>{c.hint}</p><b style={{color:C.accent,fontSize:'13px'}}>{c.count+' '+(c.count===1?'запись':c.count>=2&&c.count<=4?'записи':'записей')}</b></div>))}
                       </div>);
                     })()}
+                  </div>)}
+                  {activeProjectTab==='Погода'&&(<div>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
+                      <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🌤 Журнал погоды</b>
+                      <span style={{fontSize:'11px',color:C.textMuted}}>Метеоусловия по дням строительства</span>
+                    </div>
+                    {(()=>{
+                      const here=(weatherLog||[]).filter(w=>w.projectName===p.name).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+                      if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Записей о погоде нет. Логируйте погоду из глобального раздела «Погода» — она автоматически появится здесь по этому объекту.</div>);
+                      return(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'10px'}}>
+                        {here.map((w,i)=>(<div key={i} style={{...card,padding:'12px'}}><b style={{color:C.text,fontSize:'13px'}}>{w.date}</b><p style={{color:C.textSec,margin:'4px 0 0',fontSize:'12px'}}>{(w.condition||'—')+' · '+(w.temperature!=null?w.temperature+'°C':'—')+(w.windSpeed?' · ветер '+w.windSpeed+' м/с':'')}</p>{w.notes&&<p style={{color:C.textMuted,fontSize:'11px',margin:'4px 0 0',fontStyle:'italic'}}>{w.notes}</p>}</div>))}
+                      </div>);
+                    })()}
+                  </div>)}
+                  {activeProjectTab==='КС-2'&&(<div>
+                    <div style={{...card,padding:'24px',textAlign:'center'}}>
+                      <div style={{fontSize:'40px',marginBottom:'10px'}}>📄</div>
+                      <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'6px'}}>Акт о приёмке выполненных работ (КС-2)</b>
+                      <p style={{color:C.textMuted,fontSize:'12px',margin:'0 0 16px'}}>Унифицированная форма по ОКУД 0322005. Формируется из выполненных позиций сметы и подтверждённых работ. Включает разделы «Основные работы» и «Дополнительные работы» (непредвиденные).</p>
+                      <button onClick={()=>showKS2(p)} style={btnO}><Eye size={14}/>🖨 Открыть КС-2</button>
+                    </div>
+                  </div>)}
+                  {activeProjectTab==='КС-3'&&(<div>
+                    <div style={{...card,padding:'24px',textAlign:'center'}}>
+                      <div style={{fontSize:'40px',marginBottom:'10px'}}>📋</div>
+                      <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'6px'}}>Справка о стоимости выполненных работ (КС-3)</b>
+                      <p style={{color:C.textMuted,fontSize:'12px',margin:'0 0 16px'}}>Унифицированная форма по ОКУД 0322001. Подаётся вместе с КС-2 за отчётный период.</p>
+                      <button onClick={()=>showPreview(buildKS3Content(p),'КС-3 — '+p.name)} style={btnO}><Eye size={14}/>🖨 Открыть КС-3</button>
+                    </div>
+                  </div>)}
+                  {activeProjectTab==='Паспорт'&&(<div>
+                    <div style={{...card,padding:'24px',textAlign:'center'}}>
+                      <div style={{fontSize:'40px',marginBottom:'10px'}}>📘</div>
+                      <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'6px'}}>Паспорт объекта</b>
+                      <p style={{color:C.textMuted,fontSize:'12px',margin:'0 0 16px'}}>Сводная карточка объекта с основными характеристиками и реквизитами.</p>
+                      <button onClick={()=>showPreview(buildPassportContent(p),'Паспорт — '+p.name)} style={btnO}><Eye size={14}/>🖨 Открыть Паспорт</button>
+                    </div>
+                  </div>)}
+                  {activeProjectTab==='Акты технадзора'&&(<div>
+                    <div style={{...card,padding:'24px',textAlign:'center'}}>
+                      <div style={{fontSize:'40px',marginBottom:'10px'}}>🚧</div>
+                      <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'6px'}}>Акты технадзора</b>
+                      <p style={{color:C.textMuted,fontSize:'12px',margin:'0 0 6px'}}>Раздел в разработке — будет реализован в фазе Ф4.</p>
+                      <p style={{color:C.textMuted,fontSize:'11px',margin:0}}>Здесь будет: загруженные технадзором акты осмотра/обследования, фотофиксация, месячный отчёт.</p>
+                    </div>
                   </div>)}
                   </div>
                 </div>)}
