@@ -1782,6 +1782,103 @@ function App() {
     return html;
   };
 
+  const buildM2Content = (supplier, items, projectName, recipientName, recipientPassport) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const fmtDate=(d)=>{if(!d)return '«___» __________ 20__ г.';const dt=new Date(d);if(isNaN(dt))return d;const m=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];return '«'+String(dt.getDate()).padStart(2,'0')+'» '+m[dt.getMonth()]+' '+dt.getFullYear()+' г.';};
+    const num=String(Date.now()).slice(-6);
+    const today=new Date().toISOString().split('T')[0];
+    const validUntil=new Date(Date.now()+15*24*3600*1000).toISOString().split('T')[0];
+    let html='<style>.m2-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.m2-tbl th,.m2-tbl td{border:1px solid #333;padding:5px 6px}.m2-tbl th{background:#f3f4f6}</style>';
+    html+='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-2</h3>';
+    html+='<h2 style="text-align:center;margin:0 0 6px">ДОВЕРЕННОСТЬ № '+num+'</h2>';
+    html+='<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
+    html+='<p style="font-size:12px"><b>Дата выдачи:</b> '+fmtDate(today)+'</p>';
+    html+='<p style="font-size:12px"><b>Действительна по:</b> '+fmtDate(validUntil)+' (срок 15 дней)</p>';
+    html+='<p style="font-size:12px"><b>Доверитель (организация):</b> '+orgName+'</p>';
+    if (req.inn) html+='<p style="font-size:12px"><b>ИНН:</b> '+req.inn+(req.kpp?' · КПП: '+req.kpp:'')+'</p>';
+    html+='<p style="font-size:12px"><b>Поставщик:</b> '+(supplier?supplier.name||supplier:'____________')+(supplier&&supplier.inn?' · ИНН: '+supplier.inn:'')+'</p>';
+    if (projectName) html+='<p style="font-size:12px"><b>Объект назначения:</b> '+projectName+'</p>';
+    html+='<p style="font-size:12px;margin:10px 0">Уполномачивает гражданина <b>'+(recipientName||'____________')+'</b>'+(recipientPassport?', паспорт: '+recipientPassport:'')+' получить от поставщика следующие материальные ценности:</p>';
+    html+='<table class="m2-tbl"><tr><th>№</th><th>Наименование</th><th>Ед.изм.</th><th>Кол-во (цифрами)</th><th>Кол-во (прописью)</th></tr>';
+    (items||[]).forEach((it,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+(it.name||'')+'</td><td>'+(it.unit||'')+'</td><td>'+(it.quantity||0)+'</td><td>'+(it.qtyText||'')+'</td></tr>';});
+    if ((items||[]).length===0) html+='<tr><td>1</td><td colspan="4" style="color:#888">(укажите материалы)</td></tr>';
+    html+='</table>';
+    html+='<p style="font-size:12px;margin:16px 0">Доверенность недействительна без предъявления документа, удостоверяющего личность.</p>';
+    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Руководитель:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(подпись, ФИО)</div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Главный бухгалтер:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.accountantName||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(подпись, ФИО)</div></div>';
+    html+='</div>';
+    html+='<p style="margin-top:20px;font-size:10px;text-align:center">М.П.</p>';
+    html+='<p style="margin-top:16px;font-size:11px;text-align:center;color:#555"><b>Подпись получателя</b>, удостоверяющая образец подписи: ___________________________</p>';
+    return html;
+  };
+
+  const buildM8Content = (projectName, masterName, periodFrom, periodTo) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const inRange=(d)=>!d?false:(!periodFrom||d>=periodFrom)&&(!periodTo||d<=periodTo);
+    const transfers=(materialTransfers||[]).filter(t=>t.projectName===projectName&&(!masterName||t.toPerson===masterName)&&inRange(t.transferDate||t.date));
+    const byMat={};
+    transfers.forEach(t=>{const k=(t.materialName||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:t.materialName,unit:t.unit||'',limit:0,issued:0};byMat[k].issued+=Number(t.quantity||0);});
+    // Лимит = объём по смете (priceMaterial>0 или itemType='material')
+    const project=projects.find(p=>p.name===projectName)||{};
+    const est=_estimateForProject(project);
+    if (est) _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if((it.itemType||'')==='material'||Number(it.priceMaterial||0)>0){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:it.name,unit:it.unit||'',limit:0,issued:0};byMat[k].limit+=Number(it.quantity||0);}}));
+    const rows=Object.values(byMat).sort((a,b)=>(b.issued/b.limit||0)-(a.issued/a.limit||0));
+    let html='<style>.m8-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.m8-tbl th,.m8-tbl td{border:1px solid #333;padding:5px 6px}.m8-tbl th{background:#f3f4f6}.m8-over{background:#fee2e2}.m8-ok{background:#dcfce7}</style>';
+    html+='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-8</h3>';
+    html+='<h2 style="text-align:center;margin:0 0 6px">ЛИМИТНО-ЗАБОРНАЯ КАРТА</h2>';
+    html+='<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
+    html+='<p style="font-size:12px"><b>Организация:</b> '+orgName+'</p>';
+    html+='<p style="font-size:12px"><b>Объект:</b> '+projectName+(masterName?' · <b>Получатель:</b> '+masterName:'')+'</p>';
+    html+='<p style="font-size:12px"><b>Период:</b> '+(periodFrom||'__.__.____')+' — '+(periodTo||'__.__.____')+'</p>';
+    if (rows.length===0) html+='<p style="text-align:center;color:#888;font-size:11px;padding:14px">Нет данных за период</p>';
+    else {
+      html+='<table class="m8-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>Лимит (по смете)</th><th>Отпущено за период</th><th>Остаток лимита</th></tr>';
+      rows.forEach((r,i)=>{const rem=r.limit-r.issued;const cls=r.limit>0&&r.issued>r.limit?'m8-over':rem>=0?'m8-ok':'';html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+'</td><td>'+r.unit+'</td><td>'+r.limit.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+rem.toLocaleString('ru-RU')+'</td></tr>';});
+      html+='</table>';
+    }
+    html+='<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Установил лимит (главный инженер):</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получатель:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(masterName||'')+'</div></div>';
+    html+='</div>';
+    html+='<p style="margin-top:18px;font-size:10px;color:#666;text-align:center">Превышение лимита (красные строки) требует утверждения у главного инженера и письменного обоснования.</p>';
+    return html;
+  };
+
+  const buildMaterialRequirementContent = (projectName) => {
+    const project=projects.find(p=>p.name===projectName)||{};
+    const est=_estimateForProject(project);
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const items={};
+    if (est) _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if((it.itemType||'')==='material'||Number(it.priceMaterial||0)>0){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:it.name,unit:it.unit||'',planQty:0,planSum:0,sections:[]};items[k].planQty+=Number(it.quantity||0);items[k].planSum+=Number(it.quantity||0)*Number(it.priceMaterial||0);if(!items[k].sections.includes(s.name||''))items[k].sections.push(s.name||'');}}));
+    // Уже принято/выдано
+    (materialTransfers||[]).filter(t=>t.projectName===projectName).forEach(t=>{const k=(t.materialName||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:t.materialName,unit:t.unit||'',planQty:0,planSum:0,sections:[]};items[k].issued=(items[k].issued||0)+Number(t.quantity||0);});
+    (invoices||[]).filter(inv=>inv.project===projectName).forEach(inv=>{(inv.items||[]).forEach(invIt=>{const k=(invIt.name||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:invIt.name,unit:invIt.unit||'',planQty:0,planSum:0,sections:[]};items[k].received=(items[k].received||0)+Number(invIt.quantity||0);});});
+    const rows=Object.values(items).map(r=>({...r,toBuy:Math.max(0,(r.planQty||0)-(r.received||0))})).sort((a,b)=>(b.toBuy)-(a.toBuy));
+    let html='<style>.mr-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.mr-tbl th,.mr-tbl td{border:1px solid #333;padding:5px 6px}.mr-tbl th{background:#f3f4f6}.mr-need{background:#fef3c7;font-weight:700}</style>';
+    html+='<h2 style="text-align:center;margin:6px 0">ВЕДОМОСТЬ ПОТРЕБНОСТИ МАТЕРИАЛОВ</h2>';
+    html+='<p style="text-align:center;font-size:11px;color:#444">по смете объекта (план / закуплено / выдано / нужно докупить)</p>';
+    html+='<p style="font-size:12px"><b>Объект:</b> '+projectName+' · <b>Подрядчик:</b> '+orgName+'</p>';
+    if (!est) html+='<p style="color:#dc2626;font-size:12px;text-align:center;padding:14px">⚠️ Смета не загружена — план посчитать невозможно</p>';
+    if (rows.length===0) html+='<p style="text-align:center;color:#888;font-size:11px;padding:14px">Материалов в смете нет</p>';
+    else {
+      html+='<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Раздел</th><th>Ед.</th><th>План (смета)</th><th>Закуплено (накладные)</th><th>Выдано (со склада)</th><th>Нужно докупить</th></tr>';
+      rows.forEach((r,i)=>{const cls=r.toBuy>0?'mr-need':'';html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+'</td><td>'+(r.sections||[]).join(', ')+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+(r.received||0).toLocaleString('ru-RU')+'</td><td>'+(r.issued||0).toLocaleString('ru-RU')+'</td><td>'+r.toBuy.toLocaleString('ru-RU')+'</td></tr>';});
+      const totalSum=rows.reduce((s,r)=>s+(r.planSum||0),0);
+      html+='<tr style="background:#f3f4f6"><td colspan="4"><b>ИТОГО плановая стоимость материалов:</b></td><td colspan="4"><b>'+Math.round(totalSum).toLocaleString('ru-RU')+' ₽</b></td></tr>';
+      html+='</table>';
+    }
+    html+='<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Сметчик / производитель работ:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Снабженец:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
+    html+='</div>';
+    html+='<p style="margin-top:16px;font-size:10px;color:#666;text-align:center">Жёлтые строки — позиции, по которым закупка ещё не покрывает план сметы.</p>';
+    return html;
+  };
+
   const buildVATBookContent = (periodFrom, periodTo) => {
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
@@ -5838,7 +5935,7 @@ function App() {
               </div>
               {accountingDocProject&&(()=>{const proj=projects.find(pr=>pr.name===accountingDocProject);if(!proj) return null;const pd=projectPlanDone(proj);const budget=Number(proj.budget||0);const ownExp=(ownExpenses||[]).filter(e=>e.projectName===accountingDocProject).reduce((s,e)=>s+Number(e.amount||0),0);const accExp=(accountablePayments||[]).filter(a=>a.projectName===accountingDocProject).reduce((s,a)=>s+Number(a.amount||0),0);const aosrPaid=hiddenActs.filter(a=>a.projectName===accountingDocProject&&a.paidStatus==='Оплачен').reduce((s,a)=>s+Number(a.paidAmount||a.total||0),0);const factCost=ownExp+accExp+aosrPaid;const margin=pd.done-factCost;return(<div>
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                  {['Паспорт','КС-2','КС-3','ЖПР','М-29','АОСК','КС-11','КС-14','ИГД','📦 Пакет','📋 НДС'].map(doc=>(<button key={doc} onClick={()=>{const p=proj;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showKS2(p);if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');if(doc==='М-29'){const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildM29Content(p.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-29 — '+p.name);}if(doc==='АОСК') showPreview(buildAOSKContent(p.name),'АОСК — '+p.name);if(doc==='КС-11') showPreview(buildKS11Content(p),'КС-11 — '+p.name);if(doc==='КС-14') showPreview(buildKS14Content(p),'КС-14 — '+p.name);if(doc==='ИГД') showPreview(buildIGDContent(p.name),'ИГД — '+p.name);if(doc==='📦 Пакет') showPreview(buildExecPackageContent(p),'Пакет исполнительной — '+p.name);if(doc==='📋 НДС'){const today=new Date();const qStart=new Date(today.getFullYear(),Math.floor(today.getMonth()/3)*3,1);showPreview(buildVATBookContent(qStart.toISOString().split('T')[0],today.toISOString().split('T')[0]),'Книга НДС — текущий квартал');}}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
+                  {['Паспорт','КС-2','КС-3','ЖПР','М-29','АОСК','КС-11','КС-14','ИГД','📦 Пакет','📋 НДС','М-2','М-8','📦 Потребность'].map(doc=>(<button key={doc} onClick={()=>{const p=proj;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showKS2(p);if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');if(doc==='М-29'){const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildM29Content(p.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-29 — '+p.name);}if(doc==='АОСК') showPreview(buildAOSKContent(p.name),'АОСК — '+p.name);if(doc==='КС-11') showPreview(buildKS11Content(p),'КС-11 — '+p.name);if(doc==='КС-14') showPreview(buildKS14Content(p),'КС-14 — '+p.name);if(doc==='ИГД') showPreview(buildIGDContent(p.name),'ИГД — '+p.name);if(doc==='📦 Пакет') showPreview(buildExecPackageContent(p),'Пакет исполнительной — '+p.name);if(doc==='📋 НДС'){const today=new Date();const qStart=new Date(today.getFullYear(),Math.floor(today.getMonth()/3)*3,1);showPreview(buildVATBookContent(qStart.toISOString().split('T')[0],today.toISOString().split('T')[0]),'Книга НДС — текущий квартал');}if(doc==='М-2'){const supName=prompt('Поставщик (название):','');if(!supName)return;const recName=prompt('Кому выдаётся доверенность (ФИО):','');const recPass=prompt('Паспорт получателя (серия, номер):','');const sup=(suppliers||[]).find(s=>s.name===supName)||{name:supName};showPreview(buildM2Content(sup,[],p.name,recName||'',recPass||''),'М-2 Доверенность');}if(doc==='М-8'){const today=new Date();const monthStart=new Date(today.getFullYear(),today.getMonth(),1);showPreview(buildM8Content(p.name,'',monthStart.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-8 Лимитно-заборная — '+p.name);}if(doc==='📦 Потребность') showPreview(buildMaterialRequirementContent(p.name),'Потребность материалов — '+p.name);}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
                 </div>
                 <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
                   <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>💰 Себестоимость объекта (план vs факт)</b>
