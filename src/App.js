@@ -4591,21 +4591,29 @@ function App() {
                 </div>
                 <div style={{display:'flex',gap:'8px'}}><button onClick={saveInvoiceNew} style={btnO}><Check size={14}/>Сохранить и оприходовать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
-              {invoices.map(inv=>(<div key={inv.id} style={{...card,padding:'16px',marginBottom:'10px'}}>
+              {invoices.map(inv=>{const items=Array.isArray(inv.items)?inv.items:[];return(<div key={inv.id} style={{...card,padding:'16px',marginBottom:'10px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                   <div>
                     <b style={{color:C.text,fontSize:'14px'}}>{'Накладная № '+inv.number}</b>
                     <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{inv.date+' · '+inv.supplierName+' · '+(inv.location==='Основной склад'?'Основной склад':inv.project||'')}</p>
-                    <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat}</p>
+                    <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat+' · позиций: '+items.length}</p>
                   </div>
                   <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
                     <b style={{color:C.success,fontSize:'14px'}}>{(inv.totalWithVat||inv.totalBase||0).toLocaleString()+' ₽'}</b>
-                    <button onClick={()=>showPreview(buildInvoiceContent(inv),'Накладная № '+inv.number)} style={btnB}><Eye size={13}/></button>
-                    <button onClick={()=>setShowQRModal({title:'QR накладной №'+inv.number,data:window.location.origin+'/?invoice='+inv.id})} style={btnG}><QrCode size={13}/></button>
+                    <button onClick={()=>showPreview(buildInvoiceContent(inv),'Накладная № '+inv.number)} style={btnB} title="Печать"><Eye size={13}/></button>
+                    <button onClick={()=>setShowQRModal({title:'QR накладной №'+inv.number,data:window.location.origin+'/?invoice='+inv.id})} style={btnG} title="QR-код накладной — отсканировав, можно быстро открыть на телефоне на стройке"><QrCode size={13}/></button>
                   </div>
                 </div>
+                {items.length>0&&(<details style={{marginTop:'10px'}}>
+                  <summary style={{cursor:'pointer',color:C.accent,fontSize:'12px',fontWeight:'600',padding:'4px 0'}}>📋 Показать материалы ({items.length})</summary>
+                  <div style={{marginTop:'8px',overflowX:'auto'}}>
+                    <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th></tr></thead><tbody>
+                      {items.map((it,i)=>(<tr key={i}><td style={tblC}>{it.name||''}</td><td style={tblC}>{it.unit||''}</td><td style={tblC}>{it.quantity||0}</td><td style={tblC}>{Number(it.price||0).toLocaleString('ru-RU')+' ₽'}</td><td style={tblC}>{Number((it.quantity||0)*(it.price||0)).toLocaleString('ru-RU')+' ₽'}</td></tr>))}
+                    </tbody></table>
+                  </div>
+                </details>)}
                 {(inv.photos||[]).length>0&&(<div style={{display:'flex',gap:'6px',marginTop:'10px',flexWrap:'wrap'}}>{(inv.photos||[]).map((url,i)=>(<img key={i} src={url} alt="" onClick={()=>setShowPhotoModal(url)} style={{width:'50px',height:'50px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/>))}</div>)}
-              </div>))}
+              </div>);})}
               {invoices.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Накладных нет</p>}
             </div>)}
 
