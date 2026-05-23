@@ -3796,6 +3796,7 @@ function App() {
                           <button onClick={()=>showKS2(p)} style={btnG}><FileText size={14}/>КС-2</button>
                         </div>
                       </div>
+                      {(()=>{const unx=workJournal.filter(j=>j.project===p.name&&j.unexpectedWorkId);if(unx.length===0) return null;const unxSum=unx.reduce((s,j)=>s+Number(j.total||0),0);return(<div style={{marginBottom:'12px',padding:'10px 12px',backgroundColor:'#fef3c7',border:'1.5px solid #fbbf24',borderRadius:'10px',fontSize:'13px',color:'#78350f'}}>🆕 <b>Работы вне сметы:</b> {unx.length} позиц. на <b>{Math.round(unxSum).toLocaleString('ru-RU')+' ₽'}</b> (оформлены доп.соглашениями) — подсвечены жёлтым в списке ниже</div>);})()}
                       {(()=>{
                         const works=workJournal.filter(j=>j.project===p.name);
                         const byDate={};
@@ -3809,7 +3810,7 @@ function App() {
                             </div>
                             {Object.keys(byDate[date]).map(masterName=>(<div key={masterName} style={{marginBottom:'8px'}}>
                               <p style={{color:C.accent,fontSize:'12px',fontWeight:'600',margin:'0 0 6px'}}>{'👷 '+masterName}</p>
-                              {byDate[date][masterName].map(w=>(<div key={w.id} onClick={()=>setEditingJournal(w)} style={{padding:'8px 10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'4px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
+                              {byDate[date][masterName].map(w=>(<div key={w.id} onClick={()=>setEditingJournal(w)} style={{padding:'8px 10px',backgroundColor:w.unexpectedWorkId?'#fef3c7':C.bg,borderRadius:'8px',marginBottom:'4px',border:'1.5px solid '+(w.unexpectedWorkId?'#fbbf24':C.border),display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
                                 <div><b style={{fontSize:'12px',color:C.text}}>{w.description}{w.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px',color:C.warning}}>🆕</span>:null}{w.hiddenWork?<span title="Скрытые работы — нужен АОСР" style={{marginLeft:'4px'}}>🔒</span>:null}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
                                 <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
                                   <b style={{color:C.success,fontSize:'12px'}}>{(w.total||0).toLocaleString()+' ₽'}</b>
