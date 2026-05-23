@@ -3217,7 +3217,12 @@ function App() {
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
           {activePage==='dashboard'&&(()=>{
             const risks=[...lowStock.map(m=>'⚠️ Мало: '+m.name),...lowMainStock.map(m=>'⚠️ Склад: '+m.name)].slice(0,4);
-            const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+Number(p.progress||0),0)/projects.length):0;
+            const _sectionsOf=(est)=>{ try{ return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; }catch(e){ return []; } };
+            const _estFor=(p)=>estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
+            const _planDoneOf=(p)=>{ const est=_estFor(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOf(est).forEach(s=>(s.items||[]).forEach(it=>{ const q=Number(it.quantity||0), dq=Number(it.doneQuantity||0), pr=Number(it.priceWork||0)+Number(it.priceMaterial||0); pl+=q*pr; dn+=dq*pr; })); return {plan:pl,done:dn}; };
+            const _projProgress=(p)=>{ const {plan,done}=_planDoneOf(p); if(plan>0) return Math.round(done/plan*100); return Number(p.progress||0); };
+            const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+_projProgress(p),0)/projects.length):0;
+            const totalDone=projects.reduce((s,p)=>s+_planDoneOf(p).done,0);
             return(
             <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'28px',flexWrap:'wrap',gap:'12px'}}>
@@ -3237,10 +3242,11 @@ function App() {
                   <button onClick={()=>setShowQuickActions(true)} style={{background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'14px',padding:'10px 18px',color:'white',fontWeight:'700',cursor:'pointer',fontSize:'13px',boxShadow:'0 8px 24px rgba(234,88,12,.35)'}}>⚡ Быстро</button>
                 </div>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'16px',marginBottom:'20px'}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'16px',marginBottom:'20px'}}>
                 {[{label:'Объекты',value:projects.filter(p=>p.status!=='Завершён').length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)'},
-                  {label:'Прогресс',value:avgProg+'%',sub:'среднее выполнение',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)'},
-                  {label:'Бюджет',value:Math.round(projects.reduce((s,p)=>s+Number(p.budget||0),0)/1000000)+' млн',sub:'общий бюджет',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)'}
+                  {label:'Прогресс',value:avgProg+'%',sub:'среднее по сметам',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)'},
+                  {label:'Выполнено',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'по сметам ₽',color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)'},
+                  {label:'Бюджет',value:(()=>{const t=projects.reduce((s,p)=>s+Number(p.budget||0),0);return t>=1000000?Math.round(t/1000000)+' млн':Math.round(t/1000)+' тыс';})(),sub:'общий бюджет ₽',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)'}
                 ].map((k,i)=>(
                   <div key={i} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
                     <span style={{display:'inline-flex',borderRadius:'999px',padding:'5px 10px',fontSize:'11px',fontWeight:'700',background:k.bg,color:k.color,border:'1px solid '+k.border}}>{k.label}</span>
@@ -3687,7 +3693,7 @@ function App() {
                             </div>
                             {Object.keys(byDate[date]).map(masterName=>(<div key={masterName} style={{marginBottom:'8px'}}>
                               <p style={{color:C.accent,fontSize:'12px',fontWeight:'600',margin:'0 0 6px'}}>{'👷 '+masterName}</p>
-                              {byDate[date][masterName].map(w=>(<div key={w.id} style={{padding:'8px 10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'4px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                              {byDate[date][masterName].map(w=>(<div key={w.id} onClick={()=>setEditingJournal(w)} style={{padding:'8px 10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'4px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
                                 <div><b style={{fontSize:'12px',color:C.text}}>{w.description}{w.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px',color:C.warning}}>🆕</span>:null}{w.hiddenWork?<span title="Скрытые работы — нужен АОСР" style={{marginLeft:'4px'}}>🔒</span>:null}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
                                 <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
                                   <b style={{color:C.success,fontSize:'12px'}}>{(w.total||0).toLocaleString()+' ₽'}</b>
@@ -3869,6 +3875,10 @@ function App() {
                           <input placeholder="Кол-во" type="number" value={newUnexpected.quantity} onChange={e=>setNewUnexpected({...newUnexpected,quantity:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <select value={newUnexpected.unit} onChange={e=>setNewUnexpected({...newUnexpected,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
                           <input placeholder="Цена (₽)" type="number" value={newUnexpected.price} onChange={e=>setNewUnexpected({...newUnexpected,price:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div style={{display:'flex',gap:'8px',alignItems:'center',marginTop:'8px'}}>
+                          <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>{newUnexpected.photoUrl?'📷 Фото добавлено':'📷 Прикрепить фото'}<input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(f){const url=await uploadPhoto(f);if(url) setNewUnexpected({...newUnexpected,photoUrl:url});}}}/></label>
+                          {newUnexpected.photoUrl&&<button onClick={()=>setNewUnexpected({...newUnexpected,photoUrl:''})} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><X size={11}/></button>}
                         </div>
                         <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={()=>saveUnexpectedWork(p.name)} style={btnO}><Check size={14}/>Отправить</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
                   </div>)}

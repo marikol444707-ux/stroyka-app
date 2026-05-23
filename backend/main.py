@@ -122,6 +122,19 @@ def init_db():
             password VARCHAR(255),
             role VARCHAR(100)
         );
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS project_id INT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS project_name VARCHAR(255);
+        CREATE TABLE IF NOT EXISTS messages (
+            id SERIAL PRIMARY KEY,
+            chat_type VARCHAR(50) DEFAULT 'company',
+            project_id INT,
+            author_id INT,
+            author_name VARCHAR(255),
+            author_role VARCHAR(100),
+            text TEXT,
+            photo_url VARCHAR(500),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS pricelists (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -1576,7 +1589,8 @@ def get_work_journal():
                           time_start as "timeStart", time_end as "timeEnd",
                           hidden_work as "hiddenWork", quality_status as "qualityStatus",
                           normatives, project_docs as "projectDocs",
-                          ai_filled as "aiFilled"
+                          ai_filled as "aiFilled",
+                          unexpected_work_id as "unexpectedWorkId"
                    FROM work_journal ORDER BY id DESC""")
     rows = cur.fetchall()
     conn.close()
