@@ -4125,6 +4125,19 @@ def delete_inspection_order(id: int):
     cur.close(); conn.close()
     return {"ok": True}
 
+def log_audit(user_name="", user_role="", action="", entity_type="", entity_id=None, description="", project_name=""):
+    """Запись действия в audit_log. Тихо игнорирует ошибки чтобы не ломать основные операции."""
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""INSERT INTO audit_log (user_name, user_role, action, entity_type, entity_id, description, project_name)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                    (user_name, user_role, action, entity_type, entity_id, description, project_name))
+        conn.commit()
+        cur.close(); conn.close()
+    except Exception as e:
+        print("AUDIT LOG ERROR:", str(e))
+
 @app.post("/audit-log")
 def create_audit_entry(data: dict):
     conn = get_db()
@@ -4729,6 +4742,9 @@ def update_hidden_works_act(act_id: int, data: dict):
          data.get("photos",""), data.get("certificates",""), data.get("city",""),
          act_id))
     conn.commit(); cur.close(); conn.close()
+    log_audit(user_name=data.get("_actor","система"), user_role="—",
+              action="update", entity_type="hidden_works_act", entity_id=act_id,
+              description="Изменён АОСР, статус: "+auto_status, project_name=data.get("_project",""))
     return {"ok": True, "status": auto_status}
 
 @app.post("/hidden-works-acts/{act_id}/pay")
@@ -4764,6 +4780,10 @@ def pay_hidden_works_act(act_id: int, data: dict):
         print("PAYMENT INSERT WARN:", str(e))
     conn.commit()
     cur.close(); conn.close()
+    log_audit(user_name=paid_by or "—", user_role="—",
+              action="pay", entity_type="hidden_works_act", entity_id=act_id,
+              description="Оплачен АОСР "+act_no+" на сумму "+str(amount)+" ₽",
+              project_name=proj)
     return {"ok": True, "paidStatus": "Оплачен", "paidAmount": amount, "paidAt": paid_at}
 
 @app.delete("/hidden-works-acts/{act_id}")

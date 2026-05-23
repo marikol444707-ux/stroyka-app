@@ -1771,6 +1771,73 @@ function App() {
     return html;
   };
 
+  const buildVATBookContent = (periodFrom, periodTo) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const inRange = (d) => !d ? false : (!periodFrom||d>=periodFrom) && (!periodTo||d<=periodTo);
+    const purchases = (supplierInvoices||[]).filter(i=>(i.status==='Оплачен'||i.status==='Утверждён')&&inRange(i.invoiceDate));
+    const sales = (interimActs||[]).filter(a=>inRange(a.periodEnd||a.periodStart));
+    const totalPurchase = purchases.reduce((s,i)=>s+Number(i.amount||0),0);
+    const totalPurchaseVAT = purchases.reduce((s,i)=>s+Number(i.vatAmount||0),0);
+    const totalSales = sales.reduce((s,a)=>s+Number(a.totalAmount||0),0);
+    const estVATSales = Math.round(totalSales/120*20);
+    let html = '<style>.vat-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.vat-tbl th,.vat-tbl td{border:1px solid #333;padding:5px 6px}.vat-tbl th{background:#f3f4f6}</style>';
+    html += '<h2 style="text-align:center;margin:6px 0">КНИГА ПОКУПОК И ПРОДАЖ (НДС)</h2>';
+    html += '<p style="text-align:center;font-size:11px;color:#444">Налогоплательщик: <b>'+orgName+'</b> · ИНН: '+(req.inn||'____________')+'</p>';
+    html += '<p style="text-align:center;font-size:11px;color:#444">Период: '+(periodFrom||'__.__.____')+' — '+(periodTo||'__.__.____')+'</p>';
+    html += '<h3 style="margin-top:14px;font-size:13px">Книга покупок (входящие счета от поставщиков)</h3>';
+    if(purchases.length===0) html += '<p style="font-size:11px;color:#888">За период покупок нет</p>';
+    else {
+      html += '<table class="vat-tbl"><tr><th>№</th><th>Дата</th><th>Поставщик</th><th>№ счёта</th><th>Сумма с НДС</th><th>В т.ч. НДС</th><th>Статус</th></tr>';
+      purchases.forEach((p,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+(p.invoiceDate||'')+'</td><td>'+(p.supplierName||'')+'</td><td>'+(p.invoiceNumber||'')+'</td><td style="text-align:right">'+Math.round(Number(p.amount||0)).toLocaleString('ru-RU')+'</td><td style="text-align:right">'+Math.round(Number(p.vatAmount||0)).toLocaleString('ru-RU')+'</td><td>'+p.status+'</td></tr>';});
+      html += '<tr style="background:#fef3c7"><td colspan="4"><b>ИТОГО покупки:</b></td><td style="text-align:right"><b>'+Math.round(totalPurchase).toLocaleString('ru-RU')+' ₽</b></td><td style="text-align:right"><b>'+Math.round(totalPurchaseVAT).toLocaleString('ru-RU')+' ₽</b></td><td></td></tr>';
+      html += '</table>';
+    }
+    html += '<h3 style="margin-top:14px;font-size:13px">Книга продаж (выставленные акты выполненных работ)</h3>';
+    if(sales.length===0) html += '<p style="font-size:11px;color:#888">За период продаж нет</p>';
+    else {
+      html += '<table class="vat-tbl"><tr><th>№</th><th>Период</th><th>Объект</th><th>Контрагент</th><th>Сумма</th><th>НДС (20%)</th></tr>';
+      sales.forEach((s,i)=>{const v=Math.round(Number(s.totalAmount||0)/120*20);html+='<tr><td>'+(i+1)+'</td><td>'+((s.periodStart||'')+' — '+(s.periodEnd||''))+'</td><td>'+(s.project||'')+'</td><td>'+(s.masterName||'')+'</td><td style="text-align:right">'+Math.round(Number(s.totalAmount||0)).toLocaleString('ru-RU')+'</td><td style="text-align:right">'+v.toLocaleString('ru-RU')+'</td></tr>';});
+      html += '<tr style="background:#d1fae5"><td colspan="4"><b>ИТОГО продажи:</b></td><td style="text-align:right"><b>'+Math.round(totalSales).toLocaleString('ru-RU')+' ₽</b></td><td style="text-align:right"><b>'+estVATSales.toLocaleString('ru-RU')+' ₽</b></td></tr>';
+      html += '</table>';
+    }
+    html += '<div style="margin-top:20px;padding:14px;background:#f3f4f6;border-radius:8px;font-size:12px">';
+    html += '<b>Итог по НДС за период:</b><br/>';
+    html += 'НДС к вычету (покупки): <b>'+Math.round(totalPurchaseVAT).toLocaleString('ru-RU')+' ₽</b><br/>';
+    html += 'НДС к начислению (продажи): <b>'+estVATSales.toLocaleString('ru-RU')+' ₽</b><br/>';
+    html += '<b style="color:'+(estVATSales-totalPurchaseVAT>0?'#dc2626':'#059669')+'">НДС к уплате в бюджет: '+(estVATSales-totalPurchaseVAT).toLocaleString('ru-RU')+' ₽</b>';
+    html += '</div>';
+    html += '<p style="margin-top:14px;font-size:10px;color:#666;text-align:center">Расчёт ориентировочный. Финальные суммы определяются по налоговой декларации (ст.169-172 НК РФ). Для ОСН.</p>';
+    return html;
+  };
+
+  const buildSupplementaryAgreementContent = (unx, project) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const fmtDate=(d)=>{if(!d)return '«___» __________ 20__ г.';const dt=new Date(d);if(isNaN(dt))return d;const m=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];return '«'+String(dt.getDate()).padStart(2,'0')+'» '+m[dt.getMonth()]+' '+dt.getFullYear()+' г.';};
+    const num=unx.id||'____';
+    const total=Math.round(Number(unx.total||0)).toLocaleString('ru-RU');
+    let html='<h2 style="text-align:center;margin:6px 0">ДОПОЛНИТЕЛЬНОЕ СОГЛАШЕНИЕ № '+num+'</h2>';
+    html+='<p style="text-align:center;font-size:11px;color:#444">к договору подряда на объект «'+project.name+'»</p>';
+    html+='<div style="display:flex;justify-content:space-between;font-size:11px;margin:14px 0"><span>г. '+(project.city||'____________')+'</span><span>'+fmtDate(unx.approvedAt||new Date().toISOString().slice(0,10))+'</span></div>';
+    html+='<p style="font-size:12px;line-height:1.6">'+(project.client||'____________')+', именуемый в дальнейшем <b>«Заказчик»</b>, в лице руководителя, с одной стороны, и '+orgName+', именуемый <b>«Подрядчик»</b>, в лице '+(req.directorName||'руководителя')+', с другой стороны, заключили настоящее дополнительное соглашение о нижеследующем:</p>';
+    html+='<h3 style="font-size:13px;margin-top:14px">1. Предмет соглашения</h3>';
+    html+='<p style="font-size:12px">Стороны согласовали выполнение Подрядчиком дополнительных работ, не предусмотренных основной сметой:</p>';
+    html+='<table style="border-collapse:collapse;width:100%;font-size:11px;margin:8px 0"><tr style="background:#f3f4f6"><th style="border:1px solid #333;padding:5px 6px">Наименование работ</th><th style="border:1px solid #333;padding:5px 6px">Ед.</th><th style="border:1px solid #333;padding:5px 6px">Кол-во</th><th style="border:1px solid #333;padding:5px 6px">Цена</th><th style="border:1px solid #333;padding:5px 6px">Сумма</th></tr>';
+    html+='<tr><td style="border:1px solid #333;padding:5px 6px">'+(unx.description||'')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(unx.unit||'')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(unx.quantity||0)+'</td><td style="border:1px solid #333;padding:5px 6px">'+Math.round(Number(unx.price||0)).toLocaleString('ru-RU')+'</td><td style="border:1px solid #333;padding:5px 6px">'+total+'</td></tr></table>';
+    html+='<h3 style="font-size:13px;margin-top:14px">2. Стоимость и порядок оплаты</h3>';
+    html+='<p style="font-size:12px">Общая стоимость дополнительных работ по настоящему соглашению составляет <b>'+total+' ₽</b>. Оплата производится Заказчиком после фактического выполнения работ и подписания акта приёмки.</p>';
+    html+='<h3 style="font-size:13px;margin-top:14px">3. Сроки выполнения</h3>';
+    html+='<p style="font-size:12px">Подрядчик обязуется выполнить работы в течение 30 (тридцати) дней с даты подписания настоящего соглашения.</p>';
+    html+='<h3 style="font-size:13px;margin-top:14px">4. Прочие условия</h3>';
+    html+='<p style="font-size:12px">В остальном применяются условия основного договора подряда. Соглашение составлено в 2 экземплярах — по одному для каждой стороны.</p>';
+    html+='<div style="margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:30px">';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">ЗАКАЗЧИК:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(project.client||'')+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html+='<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">ПОДРЯДЧИК:</div><div style="border-bottom:1px solid #333;min-height:18px">'+(req.directorName||orgName)+'</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html+='</div>';
+    return html;
+  };
+
   const buildExecPackageContent = (project) => {
     const acts=hiddenActs.filter(a=>a.projectName===project.name);
     const inspections=(materialInspections||[]).filter(mi=>mi.projectName===project.name);
@@ -3228,7 +3295,10 @@ function App() {
                     </div>}
                     {approved.length>0&&<div>
                       <b style={{color:C.success,fontSize:'12px'}}>✅ Согласовано ранее ({approved.length}):</b>
-                      {approved.slice(0,5).map(u=>(<div key={u.id} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'6px',marginTop:'4px',fontSize:'11px',color:C.textSec}}>{u.description+' · '+(u.total||0).toLocaleString('ru-RU')+' ₽ · '+u.approvedAt}</div>))}
+                      {approved.slice(0,5).map(u=>(<div key={u.id} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'6px',marginTop:'4px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',fontSize:'11px'}}>
+                        <span style={{color:C.textSec}}>{u.description+' · '+(u.total||0).toLocaleString('ru-RU')+' ₽ · '+u.approvedAt}</span>
+                        <button onClick={()=>showPreview(buildSupplementaryAgreementContent(u,myProject),'Доп.соглашение № '+u.id)} style={{...btnB,padding:'3px 8px',fontSize:'10px'}} title="Распечатать доп.соглашение"><Eye size={10}/>📜</button>
+                      </div>))}
                     </div>}
                   </div>);
                 })()}
@@ -5733,7 +5803,7 @@ function App() {
               </div>
               {accountingDocProject&&(()=>{const proj=projects.find(pr=>pr.name===accountingDocProject);if(!proj) return null;const pd=projectPlanDone(proj);const budget=Number(proj.budget||0);const ownExp=(ownExpenses||[]).filter(e=>e.projectName===accountingDocProject).reduce((s,e)=>s+Number(e.amount||0),0);const accExp=(accountablePayments||[]).filter(a=>a.projectName===accountingDocProject).reduce((s,a)=>s+Number(a.amount||0),0);const aosrPaid=hiddenActs.filter(a=>a.projectName===accountingDocProject&&a.paidStatus==='Оплачен').reduce((s,a)=>s+Number(a.paidAmount||a.total||0),0);const factCost=ownExp+accExp+aosrPaid;const margin=pd.done-factCost;return(<div>
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                  {['Паспорт','КС-2','КС-3','ЖПР','М-29','АОСК','КС-11','КС-14','ИГД','📦 Пакет'].map(doc=>(<button key={doc} onClick={()=>{const p=proj;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showKS2(p);if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');if(doc==='М-29'){const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildM29Content(p.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-29 — '+p.name);}if(doc==='АОСК') showPreview(buildAOSKContent(p.name),'АОСК — '+p.name);if(doc==='КС-11') showPreview(buildKS11Content(p),'КС-11 — '+p.name);if(doc==='КС-14') showPreview(buildKS14Content(p),'КС-14 — '+p.name);if(doc==='ИГД') showPreview(buildIGDContent(p.name),'ИГД — '+p.name);if(doc==='📦 Пакет') showPreview(buildExecPackageContent(p),'Пакет исполнительной — '+p.name);}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
+                  {['Паспорт','КС-2','КС-3','ЖПР','М-29','АОСК','КС-11','КС-14','ИГД','📦 Пакет','📋 НДС'].map(doc=>(<button key={doc} onClick={()=>{const p=proj;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showKS2(p);if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');if(doc==='М-29'){const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildM29Content(p.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-29 — '+p.name);}if(doc==='АОСК') showPreview(buildAOSKContent(p.name),'АОСК — '+p.name);if(doc==='КС-11') showPreview(buildKS11Content(p),'КС-11 — '+p.name);if(doc==='КС-14') showPreview(buildKS14Content(p),'КС-14 — '+p.name);if(doc==='ИГД') showPreview(buildIGDContent(p.name),'ИГД — '+p.name);if(doc==='📦 Пакет') showPreview(buildExecPackageContent(p),'Пакет исполнительной — '+p.name);if(doc==='📋 НДС'){const today=new Date();const qStart=new Date(today.getFullYear(),Math.floor(today.getMonth()/3)*3,1);showPreview(buildVATBookContent(qStart.toISOString().split('T')[0],today.toISOString().split('T')[0]),'Книга НДС — текущий квартал');}}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
                 </div>
                 <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
                   <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>💰 Себестоимость объекта (план vs факт)</b>
