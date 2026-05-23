@@ -4427,6 +4427,42 @@ def save_doc_version(document_type, document_id, snapshot_json, changed_by="", c
         print("VERSION SAVE ERROR:", str(e))
         return None
 
+@app.get("/document-versions")
+def list_document_versions(document_type: str = None, document_id: int = None):
+    conn = get_db()
+    cur = conn.cursor()
+    cols = "id, document_type, document_id, version_label, changed_by, change_reason, created_at"
+    if document_type and document_id is not None:
+        cur.execute(f"SELECT {cols} FROM document_versions WHERE document_type=%s AND document_id=%s ORDER BY created_at DESC",
+                    (document_type, document_id))
+    elif document_type:
+        cur.execute(f"SELECT {cols} FROM document_versions WHERE document_type=%s ORDER BY created_at DESC LIMIT 200",
+                    (document_type,))
+    else:
+        cur.execute(f"SELECT {cols} FROM document_versions ORDER BY created_at DESC LIMIT 200")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"documentType":r[1],"documentId":r[2],"versionLabel":r[3],
+             "changedBy":r[4] or "","changeReason":r[5] or "","createdAt":str(r[6])} for r in rows]
+
+@app.get("/document-versions/{vid}")
+def get_document_version(vid: int):
+    import json as _j
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT id, document_type, document_id, version_label, snapshot_json,
+                          changed_by, change_reason, created_at
+                   FROM document_versions WHERE id=%s""", (vid,))
+    r = cur.fetchone()
+    cur.close(); conn.close()
+    if not r:
+        return {"error": "not found"}
+    try: snap = _j.loads(r[4]) if r[4] else {}
+    except: snap = {}
+    return {"id":r[0],"documentType":r[1],"documentId":r[2],"versionLabel":r[3],
+            "snapshot":snap,"changedBy":r[5] or "","changeReason":r[6] or "",
+            "createdAt":str(r[7])}
+
 @app.post("/audit-log")
 def create_audit_entry(data: dict):
     conn = get_db()

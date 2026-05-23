@@ -756,6 +756,12 @@ function App() {
         const mt = await fetch(API+'/material-transfers').then(r=>r.json()).catch(()=>[]);
         setMaterialTransfers(Array.isArray(mt)?mt:[]);
       } catch(e) {}
+      try {
+        const tb = await fetch(API+'/tb-journal').then(r=>r.json()).catch(()=>[]);
+        const tbNorm = (Array.isArray(tb)?tb:[]).map(t=>({...t, project: t.projectName, type: t.instructionType}));
+        setTbJournal(tbNorm);
+        try { localStorage.setItem('tbJournal', JSON.stringify(tbNorm)); } catch(e){}
+      } catch(e) {}
     } catch(e) { console.log('Load error:',e); }
   };
 
@@ -3670,6 +3676,26 @@ function App() {
           setHiddenActs(prev=>prev.map(a=>a.id===act.id?updated:a));
           setEditingAct(null);
         };
+        const openHistory=async()=>{
+          setEditingAct(prev=>({...prev,__versionsLoading:true,__versionsOpen:true}));
+          try{
+            const res=await fetch(API+'/document-versions?document_type=hidden_works_act&document_id='+act.id);
+            const list=await res.json();
+            setEditingAct(prev=>({...prev,__versionsList:Array.isArray(list)?list:[],__versionsLoading:false,__viewingVer:null}));
+          }catch(e){
+            setEditingAct(prev=>({...prev,__versionsList:[],__versionsLoading:false}));
+          }
+        };
+        const viewVersion=async(vid)=>{
+          setEditingAct(prev=>({...prev,__viewingVerLoading:true}));
+          try{
+            const res=await fetch(API+'/document-versions/'+vid);
+            const ver=await res.json();
+            setEditingAct(prev=>({...prev,__viewingVer:ver,__viewingVerLoading:false}));
+          }catch(e){
+            setEditingAct(prev=>({...prev,__viewingVerLoading:false}));
+          }
+        };
         const onUploadPhoto=async file=>{const url=await uploadPhoto(file);if(url){const next=[...photosArr,url].join(',');upd('photos',next);}};
         const onUploadCert=async file=>{const url=await uploadPhoto(file);if(url){const next=[...certsArr,url].join(',');upd('certificates',next);}};
         const removePhoto=i=>{const next=photosArr.filter((_,idx)=>idx!==i).join(',');upd('photos',next);};
@@ -3678,7 +3704,7 @@ function App() {
         const labelStyle={fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px',display:'block'};
         const sectionStyle={marginBottom:'14px'};
         const allSigned=!!(act.signedCustomer&&act.signedSupervisor&&act.signedContractor&&act.signedSubcontractor);
-        return(<div onClick={()=>setEditingAct(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+        return(<><div onClick={()=>setEditingAct(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
           <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(900px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
             <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
               <div>
@@ -3687,6 +3713,7 @@ function App() {
               </div>
               <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
                 <span style={{padding:'4px 10px',borderRadius:'12px',fontSize:'12px',fontWeight:'600',backgroundColor:allSigned?C.successLight:C.warningLight,color:allSigned?C.success:C.warning}}>{allSigned?'Подписан':(act.status||'Черновик')}</span>
+                <button onClick={openHistory} style={{...btnG,padding:'5px 10px',fontSize:'12px'}} title="История изменений">📜 История</button>
                 <button onClick={()=>setEditingAct(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
               </div>
             </div>
@@ -3742,7 +3769,49 @@ function App() {
               </div>
             </div>
           </div>
-        </div>);
+        </div>
+        {act.__versionsOpen&&(<div onClick={()=>setEditingAct(prev=>({...prev,__versionsOpen:false,__viewingVer:null}))} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.6)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(900px,100%)',maxHeight:'88vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <b style={{color:C.text,fontSize:'15px',display:'block'}}>📜 История версий</b>
+                <span style={{fontSize:'11px',color:C.textSec}}>АОСР № {act.actNumber} · {(act.__versionsList||[]).length} снимков</span>
+              </div>
+              <button onClick={()=>setEditingAct(prev=>({...prev,__versionsOpen:false,__viewingVer:null}))} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
+            </div>
+            <div style={{flex:1,overflowY:'auto',display:'flex'}}>
+              <div style={{width:'320px',borderRight:'1.5px solid '+C.border,overflowY:'auto'}}>
+                {act.__versionsLoading?(<p style={{color:C.textMuted,padding:'16px',fontSize:'12px',textAlign:'center'}}>Загрузка…</p>):
+                  (act.__versionsList||[]).length===0?(<p style={{color:C.textMuted,padding:'16px',fontSize:'12px',textAlign:'center'}}>История пуста.<br/>Снимки делаются при каждом изменении акта.</p>):
+                  (act.__versionsList||[]).map(v=>(<div key={v.id} onClick={()=>viewVersion(v.id)} style={{padding:'10px 14px',borderBottom:'1px solid '+C.border,cursor:'pointer',backgroundColor:act.__viewingVer&&act.__viewingVer.id===v.id?C.infoLight:'transparent'}}>
+                    <b style={{fontSize:'12px',color:C.text,display:'block'}}>{v.versionLabel}</b>
+                    <span style={{fontSize:'10px',color:C.textSec,display:'block'}}>{v.createdAt}</span>
+                    {v.changedBy&&<span style={{fontSize:'10px',color:C.textMuted,display:'block'}}>👤 {v.changedBy}</span>}
+                    {v.changeReason&&<span style={{fontSize:'10px',color:C.textMuted,display:'block'}}>📝 {v.changeReason}</span>}
+                  </div>))}
+              </div>
+              <div style={{flex:1,overflowY:'auto',padding:'14px 18px',backgroundColor:C.bg}}>
+                {act.__viewingVerLoading?(<p style={{color:C.textMuted,fontSize:'12px'}}>Загрузка снимка…</p>):
+                  !act.__viewingVer?(<p style={{color:C.textMuted,fontSize:'12px'}}>← Выберите версию слева чтобы посмотреть состояние акта на тот момент</p>):
+                  (()=>{const s=act.__viewingVer.snapshot||{};const rows=[
+                    ['Номер акта',s.act_number],['Проект',s.project_name],['Работа',s.work_name],['Раздел',s.section_name],
+                    ['Бригада',s.brigade],['Объём',(s.quantity||'')+' '+(s.unit||'')],['Цена',s.price_per_unit],['Итого',s.total],
+                    ['Дата работы',s.work_date],['Статус',s.status],
+                    ['Заказчик',s.signed_customer],['Технадзор',s.signed_supervisor],
+                    ['Подрядчик',s.signed_contractor],['Субподряд',s.signed_subcontractor],
+                    ['Заключение',s.conclusion],['Комментарии',s.comments],
+                    ['Материалы',s.materials_used],['Проектная док.',s.project_docs],
+                  ];return(<div>
+                    <b style={{fontSize:'13px',color:C.text,display:'block',marginBottom:'10px'}}>Снимок {act.__viewingVer.versionLabel}</b>
+                    <table style={{width:'100%',fontSize:'11px',borderCollapse:'collapse'}}>
+                      <tbody>{rows.filter(([_,v])=>v!==undefined&&v!==null&&v!=='').map(([k,v],i)=>(<tr key={i} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'5px 6px',color:C.textSec,fontWeight:'600',width:'130px',verticalAlign:'top'}}>{k}</td><td style={{padding:'5px 6px',color:C.text}}>{String(v)}</td></tr>))}</tbody>
+                    </table>
+                  </div>);})()}
+              </div>
+            </div>
+          </div>
+        </div>)}
+        </>);
       })()}
       {editingJournal&&(()=>{
         const j=editingJournal;
