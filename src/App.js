@@ -4757,12 +4757,39 @@ function App() {
                         <b style={{color:C.text}}>Непредвиденные работы</b>
                         <button onClick={()=>setShowForm(showForm==='unexpected'?false:'unexpected')} style={btnO}><Plus size={14}/>Добавить</button>
                       </div>
+                      {(()=>{const budget=Number(p.budget||0);if(budget<=0) return null;const approved=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Утверждено').reduce((s,u)=>s+Number(u.total||0),0);const pending=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Ожидает согласования').reduce((s,u)=>s+Number(u.total||0),0);const pct=Math.round(approved/budget*100*10)/10;const LIMIT=10;const overLimit=pct>LIMIT;if(approved===0&&pending===0) return null;return(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:overLimit?C.dangerLight:pct>LIMIT*0.7?C.warningLight:C.bg,border:'1.5px solid '+(overLimit?C.dangerBorder:pct>LIMIT*0.7?C.warningBorder:C.border)}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                          <div>
+                            <b style={{color:C.text,fontSize:'13px'}}>📊 Лимит непредвиденных: {pct}% от бюджета (порог {LIMIT}%)</b>
+                            <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>Утверждено: {Math.round(approved).toLocaleString('ru-RU')+' ₽'} {pending>0?'· Ждут: '+Math.round(pending).toLocaleString('ru-RU')+' ₽':''}</p>
+                          </div>
+                          {overLimit&&<span style={{padding:'4px 10px',backgroundColor:C.danger,color:'white',borderRadius:'10px',fontSize:'11px',fontWeight:'700'}}>⚠️ ПРЕВЫШЕН ЛИМИТ</span>}
+                        </div>
+                        {overLimit&&<p style={{color:C.danger,margin:'8px 0 0',fontSize:'11px',lineHeight:1.4}}>Превышены 10% от бюджета — требуется особое согласование заказчика и доп.соглашение с увеличением общей суммы договора.</p>}
+                      </div>);})()}
                       {showForm==='unexpected'&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
                         <textarea placeholder="Описание работы *" value={newUnexpected.description} onChange={e=>setNewUnexpected({...newUnexpected,description:e.target.value})} style={{...inp,height:'80px',resize:'vertical'}}/>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
                           <input placeholder="Кол-во" type="number" value={newUnexpected.quantity} onChange={e=>setNewUnexpected({...newUnexpected,quantity:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <select value={newUnexpected.unit} onChange={e=>setNewUnexpected({...newUnexpected,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
                           <input placeholder="Цена (₽)" type="number" value={newUnexpected.price} onChange={e=>setNewUnexpected({...newUnexpected,price:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div style={{display:'flex',gap:'8px',marginTop:'6px',flexWrap:'wrap'}}>
+                          <button disabled={!newUnexpected.description||!!newUnexpected.__aiLoading} onClick={async()=>{
+                            setNewUnexpected(prev=>({...prev,__aiLoading:true}));
+                            try {
+                              // Создаём временную запись чтобы AI имел id
+                              const tmpRes = await fetch(API+'/unexpected-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,description:newUnexpected.description,unit:newUnexpected.unit||'шт',quantity:Number(newUnexpected.quantity||0),price:0,total:0,addedBy:user.name,addedByRole:user.role,status:'_ai_temp_'})});
+                              const tmp = await tmpRes.json();
+                              const aiRes = await fetch(API+'/unexpected-works/'+tmp.id+'/ai-estimate',{method:'POST'});
+                              if(!aiRes.ok){const e=await aiRes.json().catch(()=>({}));throw new Error(e.detail||'Ошибка');}
+                              const d = await aiRes.json();
+                              // Удаляем временную
+                              await fetch(API+'/unexpected-works/'+tmp.id,{method:'DELETE'}).catch(()=>{});
+                              setNewUnexpected(prev=>({...prev,price:Math.round(d.pricePerUnit),__aiLoading:false,__aiNote:d.justification}));
+                            } catch(e){alert('AI: '+e.message);setNewUnexpected(prev=>({...prev,__aiLoading:false}));}
+                          }} style={{...btnB,backgroundColor:'#10b981',fontSize:'12px',padding:'7px 12px',opacity:newUnexpected.__aiLoading?0.6:1}}><Bot size={13}/>{newUnexpected.__aiLoading?'…':'🤖 Оценить через ИИ'}</button>
+                          {newUnexpected.__aiNote&&<span style={{fontSize:'11px',color:C.textSec,flex:1,fontStyle:'italic'}}>{newUnexpected.__aiNote}</span>}
                         </div>
                         <div style={{display:'flex',gap:'8px',alignItems:'center',marginTop:'8px'}}>
                           <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>{newUnexpected.photoUrl?'📷 Фото добавлено':'📷 Прикрепить фото'}<input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(f){const url=await uploadPhoto(f);if(url) setNewUnexpected({...newUnexpected,photoUrl:url});}}}/></label>

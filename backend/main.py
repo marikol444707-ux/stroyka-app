@@ -4210,6 +4210,84 @@ def delete_warranty_defect(id: int):
     cur.close(); conn.close()
     return {"ok": True}
 
+@app.post("/unexpected-works/{id}/ai-estimate")
+def ai_estimate_unexpected_work(id: int):
+    """AI оценивает стоимость непредвиденной работы по аналогии со сметой и прайсами."""
+    import openai as oa, json as j, re
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT description, unit, quantity, project_name FROM unexpected_works WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="запись не найдена")
+    desc, unit, qty, proj_name = row[0] or "", row[1] or "", float(row[2] or 0), row[3] or ""
+    # Подбираем похожие позиции из смет и прайсов как контекст
+    cur.execute("""SELECT name, unit, price_per_unit FROM (
+                       SELECT name, unit, price as price_per_unit FROM pricelist_items WHERE LOWER(name) LIKE %s
+                   ) sub LIMIT 10""", ('%' + desc.lower().split()[0][:5] + '%',))
+    similar = cur.fetchall()
+    cur.close(); conn.close()
+
+    similar_lines = [s[0]+' · '+(s[1] or '')+' · '+str(s[2] or 0)+' ₽/'+(s[1] or 'шт') for s in similar]
+    user_text = (
+        "Описание работы: " + desc + "\n"
+        "Единица: " + unit + "\n"
+        "Объём: " + str(qty) + "\n\n"
+        "Похожие позиции из прайсов (для ориентира):\n" + ('\n'.join(similar_lines) if similar_lines else '(нет данных)') + "\n\n"
+        "Верни СТРОГО JSON: {\"pricePerUnit\": число, \"justification\": \"строка\"}\n"
+        "pricePerUnit — оценочная цена за единицу в рублях для строительных работ в России в 2026 году.\n"
+        "justification — 1-2 строки обоснования (например: «аналог из прайса 850 ₽/м², увеличено на 15% за сложность ручной работы»)."
+    )
+    instructions = "Ты эксперт по строительной смете. Отвечай СТРОГО JSON без markdown."
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+    def _call(model_id):
+        try:
+            r = client.responses.create(model="gpt://"+YANDEX_FOLDER_ID+"/"+model_id, temperature=0.2, instructions=instructions, input=user_text, max_output_tokens=800)
+            return (r.output_text or ""), None
+        except Exception as e:
+            return "", str(e)
+    answer, err = _call("qwen3.6-35b-a3b/latest")
+    if not (answer or "").strip():
+        answer, err = _call("yandexgpt-5.1/latest")
+    if not (answer or "").strip():
+        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: "+str(err))
+    text = answer.strip()
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m: text = m.group(0)
+    try:
+        parsed = j.loads(text)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail="AI вернул невалидный JSON")
+    price = float(parsed.get("pricePerUnit") or 0)
+    justification = (parsed.get("justification") or "").strip()
+    estimated_total = round(price * qty, 2)
+    return {"ok": True, "pricePerUnit": price, "estimatedTotal": estimated_total, "justification": justification, "similar": similar_lines}
+
+@app.get("/unexpected-works/limit-check")
+def check_unexpected_limit(project_name: str):
+    """Проверка превышения лимита % непредвиденных работ от бюджета проекта."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT budget FROM projects WHERE name=%s", (project_name,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="проект не найден")
+    budget = float(row[0] or 0)
+    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status='Утверждено'", (project_name,))
+    approved_sum = float(cur.fetchone()[0] or 0)
+    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status='Ожидает согласования'", (project_name,))
+    pending_sum = float(cur.fetchone()[0] or 0)
+    cur.close(); conn.close()
+    LIMIT_PCT = 10.0  # лимит 10% от бюджета без особого согласования
+    percent = (approved_sum / budget * 100) if budget > 0 else 0
+    over_limit = percent > LIMIT_PCT
+    return {"projectName": project_name, "budget": budget, "approvedSum": approved_sum,
+            "pendingSum": pending_sum, "percentOfBudget": round(percent, 2),
+            "limitPct": LIMIT_PCT, "overLimit": over_limit,
+            "warning": "Утверждённые непредвиденные превысили "+str(LIMIT_PCT)+"% от бюджета — требуется особое согласование заказчика" if over_limit else None}
+
 @app.delete("/inspection-orders/{id}")
 def delete_inspection_order(id: int):
     conn = get_db()
