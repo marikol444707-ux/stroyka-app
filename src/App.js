@@ -152,13 +152,24 @@ const CHECKLIST_TEMPLATES = {
   'Сдача объекта': ['Уборка объекта','Все работы завершены','Документация готова','Ключи переданы','Подпись заказчика','Фото объекта'],
 };
 
+// Типы инструктажа по ГОСТ 12.0.004-2015
+const TB_TYPES_GOST = [
+  {value:'Вводный инструктаж',freq:'однократно при приёме',legal:'ГОСТ 12.0.004-2015 п.2.1.2'},
+  {value:'Первичный инструктаж на рабочем месте',freq:'однократно перед началом работ',legal:'ГОСТ 12.0.004-2015 п.2.1.4'},
+  {value:'Повторный инструктаж',freq:'не реже 1 раза в 6 месяцев (опасные работы — 3 мес)',legal:'ГОСТ 12.0.004-2015 п.2.1.5'},
+  {value:'Внеплановый инструктаж',freq:'при изменении технологии, после ЧП, после длительного перерыва',legal:'ГОСТ 12.0.004-2015 п.2.1.6'},
+  {value:'Целевой инструктаж',freq:'при разовых работах, ликвидации ЧС',legal:'ГОСТ 12.0.004-2015 п.2.1.7'},
+];
+
 const TB_INSTRUCTIONS = {
   'Вводный инструктаж': '<h3>ВВОДНЫЙ ИНСТРУКТАЖ ПО ОХРАНЕ ТРУДА</h3><p>1. Работник обязан соблюдать правила внутреннего трудового распорядка.</p><p>2. Запрещается появляться на рабочем месте в состоянии алкогольного опьянения.</p><p>3. Работник обязан использовать средства индивидуальной защиты (СИЗ).</p><p>4. При несчастном случае немедленно сообщить руководителю.</p><p>5. Запрещается работать неисправным инструментом.</p>',
-  'Первичный инструктаж': '<h3>ПЕРВИЧНЫЙ ИНСТРУКТАЖ НА РАБОЧЕМ МЕСТЕ</h3><p>1. Ознакомление с рабочим местом и оборудованием.</p><p>2. Порядок подготовки рабочего места к работе.</p><p>3. Безопасные методы и приёмы выполнения работ.</p><p>4. Средства индивидуальной защиты на данном рабочем месте.</p><p>5. Действия при возникновении аварийной ситуации.</p>',
+  'Первичный инструктаж на рабочем месте': '<h3>ПЕРВИЧНЫЙ ИНСТРУКТАЖ НА РАБОЧЕМ МЕСТЕ</h3><p>1. Ознакомление с рабочим местом и оборудованием.</p><p>2. Порядок подготовки рабочего места к работе.</p><p>3. Безопасные методы и приёмы выполнения работ.</p><p>4. Средства индивидуальной защиты на данном рабочем месте.</p><p>5. Действия при возникновении аварийной ситуации.</p>',
+  'Повторный инструктаж': '<h3>ПОВТОРНЫЙ ИНСТРУКТАЖ ПО ОХРАНЕ ТРУДА</h3><p>1. Повторение основных правил охраны труда на объекте.</p><p>2. Разбор нарушений, допущенных за прошедший период.</p><p>3. Порядок действий при несчастном случае или аварии.</p>',
+  'Внеплановый инструктаж': '<h3>ВНЕПЛАНОВЫЙ ИНСТРУКТАЖ</h3><p>Проводится при изменении технологии, после несчастных случаев, при перерыве в работе более 30 дней (для опасных производств — 60 дней).</p>',
+  'Целевой инструктаж': '<h3>ЦЕЛЕВОЙ ИНСТРУКТАЖ</h3><p>Проводится при разовых работах не по специальности, ликвидации последствий аварий, стихийных бедствий, проведении работ повышенной опасности.</p>',
   'Пожарная безопасность': '<h3>ИНСТРУКТАЖ ПО ПОЖАРНОЙ БЕЗОПАСНОСТИ</h3><p>1. Запрещается курить в неотведённых местах.</p><p>2. Знать расположение первичных средств пожаротушения.</p><p>3. При пожаре вызвать 101, сообщить руководителю, эвакуироваться.</p>',
   'Электробезопасность': '<h3>ИНСТРУКТАЖ ПО ЭЛЕКТРОБЕЗОПАСНОСТИ</h3><p>1. Запрещается работать с неисправной электропроводкой.</p><p>2. При поражении током — отключить питание, вызвать скорую (103).</p><p>3. Использовать диэлектрические перчатки при работе с электрооборудованием.</p>',
   'Работы на высоте': '<h3>ИНСТРУКТАЖ ПО РАБОТАМ НА ВЫСОТЕ</h3><p>1. Работы на высоте от 1.8м выполнять со страховочной привязью.</p><p>2. Запрещается работать на высоте при скорости ветра более 15 м/с.</p><p>3. Запрещается работать на высоте в одиночку.</p>',
-  'Повторный инструктаж': '<h3>ПОВТОРНЫЙ ИНСТРУКТАЖ ПО ОХРАНЕ ТРУДА</h3><p>1. Повторение основных правил охраны труда на объекте.</p><p>2. Разбор нарушений, допущенных за прошедший период.</p><p>3. Порядок действий при несчастном случае или аварии.</p>',
 };
 
 const CONTRACTS = {
@@ -571,7 +582,7 @@ function App() {
   const [companyReqForm, setCompanyReqForm] = useState({fullName:'',shortName:'',inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',phone:'',email:'',directorName:'',directorPosition:'Генеральный директор',basis:'Устава',bankName:'',bik:'',rs:'',ks:''});
   const [profileData, setProfileData] = useState({fullName:'',passport:'',inn:'',contractType:'ГПХ',bankAccount:'',bankName:'',phone:'',specialization:'',ogrnip:''});
   const [newLead, setNewLead] = useState({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});
-  const [newTbEntry, setNewTbEntry] = useState({project:'',type:'Вводный инструктаж',participants:[],date:''});
+  const [newTbEntry, setNewTbEntry] = useState({project:'',type:'Вводный инструктаж',participants:[],date:'',program:'',instructionText:'',aiLoading:false});
   const [newParticipant, setNewParticipant] = useState('');
   const notifRef = useRef(null);
   const sidebarRef = useRef(null);
@@ -2353,8 +2364,26 @@ function App() {
     setNewWeather({projectName:'',date:'',temperature:'',condition:'Ясно',windSpeed:'',notes:''});
   };
 
-  const saveTbEntry = (data) => {
-    const updated = [...tbJournal,{...data,id:Date.now(),createdBy:user.name}];
+  const saveTbEntry = async (data) => {
+    // Сохраняем в backend (новая БД) + дублируем в localStorage для совместимости со старыми экранами
+    const payload = {
+      projectName: data.project || data.projectName || '',
+      masterName: data.masterName || '',
+      instructor: data.instructor || (user?user.name:''),
+      instructionType: data.type || data.instructionType || 'Первичный инструктаж на рабочем месте',
+      program: data.program || '',
+      instructionText: data.instructionText || '',
+      participants: data.participants || [],
+      photoUrl: data.photoUrl || '',
+      date: data.date || new Date().toISOString().split('T')[0],
+    };
+    let saved = null;
+    try {
+      const res = await fetch(API+'/tb-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      saved = await res.json();
+    } catch(e){ console.error('TB save error', e); }
+    const localEntry = {...payload,id:saved?saved.id:Date.now(),createdBy:user.name,project:payload.projectName,type:payload.instructionType};
+    const updated = [...tbJournal,localEntry];
     setTbJournal(updated); localStorage.setItem('tbJournal',JSON.stringify(updated));
   };
 
@@ -4882,15 +4911,21 @@ function App() {
                         <button onClick={()=>setShowForm(showForm==='tb'?false:'tb')} style={btnO}><Plus size={14}/>Добавить</button>
                       </div>
                       {showForm==='tb'&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
-                        <select value={newTbEntry.type} onChange={e=>setNewTbEntry({...newTbEntry,type:e.target.value})} style={inp}>{Object.keys(TB_INSTRUCTIONS).map(t=><option key={t}>{t}</option>)}</select>
+                        <select value={newTbEntry.type} onChange={e=>setNewTbEntry({...newTbEntry,type:e.target.value})} style={inp}>{TB_TYPES_GOST.map(t=><option key={t.value} value={t.value}>{t.value}</option>)}{Object.keys(TB_INSTRUCTIONS).filter(k=>!TB_TYPES_GOST.find(t=>t.value===k)).map(t=><option key={t}>{t}</option>)}</select>
+                        {(()=>{const meta=TB_TYPES_GOST.find(t=>t.value===newTbEntry.type);return meta?(<p style={{fontSize:'10px',color:C.textMuted,margin:'0 0 8px',padding:'4px 8px',backgroundColor:C.bg,borderRadius:'4px'}}>📋 Периодичность: <b>{meta.freq}</b> · {meta.legal}</p>):null;})()}
                         <input type="date" value={newTbEntry.date} onChange={e=>setNewTbEntry({...newTbEntry,date:e.target.value})} style={inp}/>
+                        <textarea placeholder="Программа инструктажа (3-5 пунктов)" value={newTbEntry.program||''} onChange={e=>setNewTbEntry({...newTbEntry,program:e.target.value})} style={{...inp,minHeight:'50px',resize:'vertical'}}/>
+                        <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'6px'}}>
+                          <textarea placeholder="Текст инструктажа (можно сгенерировать ИИ →)" value={newTbEntry.instructionText||''} onChange={e=>setNewTbEntry({...newTbEntry,instructionText:e.target.value})} style={{...inp,minHeight:'80px',flex:1,marginBottom:0,resize:'vertical'}}/>
+                          <button disabled={newTbEntry.aiLoading} onClick={async()=>{setNewTbEntry(prev=>({...prev,aiLoading:true}));try{const res=await fetch(API+'/tb-journal/ai-generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instructionType:newTbEntry.type,projectName:p.name,workContext:''})});if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||'Ошибка');}const d=await res.json();setNewTbEntry(prev=>({...prev,instructionText:d.instructionText||'',aiLoading:false}));}catch(e){alert('AI: '+e.message);setNewTbEntry(prev=>({...prev,aiLoading:false}));}}} style={{...btnB,backgroundColor:'#10b981',padding:'10px 12px',fontSize:'11px',opacity:newTbEntry.aiLoading?0.6:1}} title="Сгенерировать текст по ГОСТ через ИИ"><Bot size={14}/>{newTbEntry.aiLoading?'…':'🤖 ИИ'}</button>
+                        </div>
                         <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
                           <input placeholder="ФИО участника" value={newParticipant} onChange={e=>setNewParticipant(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(setNewTbEntry({...newTbEntry,participants:[...(newTbEntry.participants||[]),newParticipant]}),setNewParticipant(''))} style={{...inp,marginBottom:0,flex:1}}/>
                           <button onClick={()=>{if(newParticipant){setNewTbEntry({...newTbEntry,participants:[...(newTbEntry.participants||[]),newParticipant]});setNewParticipant('');}}} style={btnO}><Plus size={14}/></button>
                         </div>
                         {(newTbEntry.participants||[]).map((part,i)=>(<div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 10px',backgroundColor:C.bg,borderRadius:'6px',marginBottom:'4px',border:'1px solid '+C.border}}><span style={{fontSize:'12px'}}>{part}</span><button onClick={()=>setNewTbEntry({...newTbEntry,participants:(newTbEntry.participants||[]).filter((_,idx)=>idx!==i)})} style={{...btnR,padding:'2px 6px'}}><X size={10}/></button></div>))}
                         <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
-                          <button onClick={()=>{saveTbEntry({...newTbEntry,project:p.name});setShowForm(false);setNewTbEntry({project:'',type:'Вводный инструктаж',participants:[],date:''});}} style={btnO}><Check size={14}/>Сохранить</button>
+                          <button onClick={async()=>{await saveTbEntry({...newTbEntry,project:p.name});setShowForm(false);setNewTbEntry({project:'',type:'Вводный инструктаж',participants:[],date:'',program:'',instructionText:'',aiLoading:false});}} style={btnO}><Check size={14}/>Сохранить</button>
                           <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
                         </div>
                   </div>)}

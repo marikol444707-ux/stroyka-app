@@ -2614,6 +2614,11 @@ def update_unexpected_work(id: int, data: dict):
                 print("UNEXPECTED→JOURNAL ERROR:", str(e))
     conn.commit()
     cur.close(); conn.close()
+    if row and new_status != old_status:
+        log_audit(user_name=data.get("approvedBy") or "—", user_role="—",
+                  action="status_change", entity_type="unexpected_work", entity_id=id,
+                  description="Статус: "+(old_status or "—")+" → "+new_status+", сумма: "+str(total)+" ₽",
+                  project_name=row[1] or "")
     return {"ok": True, "journalId": auto_journal_id}
 
 @app.post("/parse-smeta")
@@ -4105,6 +4110,11 @@ def update_supplier_invoice(id: int, data: dict):
     cur.execute("UPDATE supplier_invoices SET " + ", ".join(sets) + " WHERE id=%s", vals)
     conn.commit()
     cur.close(); conn.close()
+    if 'status' in data:
+        log_audit(user_name=data.get("approvedBy") or data.get("paidBy") or "—", user_role="—",
+                  action="status_change", entity_type="supplier_invoice", entity_id=id,
+                  description="Новый статус: "+data.get('status',''),
+                  project_name="")
     return {"ok": True}
 
 @app.delete("/supplier-invoices/{id}")
@@ -4137,6 +4147,28 @@ def log_audit(user_name="", user_role="", action="", entity_type="", entity_id=N
         cur.close(); conn.close()
     except Exception as e:
         print("AUDIT LOG ERROR:", str(e))
+
+def save_doc_version(document_type, document_id, snapshot_json, changed_by="", change_reason=""):
+    """Сохранить snapshot документа в document_versions. Возвращает label новой версии."""
+    try:
+        import json as _j
+        from datetime import datetime as _dt
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM document_versions WHERE document_type=%s AND document_id=%s",
+                    (document_type, document_id))
+        count = cur.fetchone()[0]
+        label = "v" + str(count+1) + "_" + _dt.now().strftime("%Y%m%d_%H%M%S")
+        snap = snapshot_json if isinstance(snapshot_json, str) else _j.dumps(snapshot_json, ensure_ascii=False, default=str)
+        cur.execute("""INSERT INTO document_versions (document_type, document_id, version_label, snapshot_json, changed_by, change_reason)
+                       VALUES (%s,%s,%s,%s,%s,%s)""",
+                    (document_type, document_id, label, snap, changed_by, change_reason))
+        conn.commit()
+        cur.close(); conn.close()
+        return label
+    except Exception as e:
+        print("VERSION SAVE ERROR:", str(e))
+        return None
 
 @app.post("/audit-log")
 def create_audit_entry(data: dict):
@@ -4719,6 +4751,16 @@ def list_hidden_works_acts(project_name: str = None):
 def update_hidden_works_act(act_id: int, data: dict):
     conn = get_db()
     cur = conn.cursor()
+    # Снапшот текущего состояния перед изменением (версионирование)
+    try:
+        cur.execute("SELECT row_to_json(t) FROM hidden_works_acts t WHERE id=%s", (act_id,))
+        prev_row = cur.fetchone()
+        if prev_row and prev_row[0]:
+            save_doc_version("hidden_works_act", act_id, prev_row[0],
+                             changed_by=data.get("_actor","—"),
+                             change_reason="PUT /hidden-works-acts/"+str(act_id))
+    except Exception as e:
+        print("VERSION snapshot skipped:", str(e))
     # Авто-статус: если все 4 подписи заполнены — «Подписан», иначе оставляем как пришло (или «Черновик»)
     sc = data.get("signedCustomer","").strip()
     ss = data.get("signedSupervisor","").strip()
