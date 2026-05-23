@@ -313,13 +313,10 @@ tb_journal(id, project_name, instructor, instruction_type, date, master_name, ..
 
 ### 🐛 Техдолг и мелочи
 
-- [ ] `App.js` — монолит 5000+ строк, разбить на компоненты
-- [ ] `backend/main.py` — монолит 120 KB+, разбить на роутеры
-- [ ] 2 eslint warnings с `eslint-disable-next-line` (useEffect dep, loop func)
-- [ ] Тёмная тема
-- [ ] Контроль общей суммы нарядов vs смета по объекту (чтобы суммарно по всем нарядам не превысило смету)
-- [ ] Дублирующие nginx-конфиги в `/etc/nginx/sites-enabled/` (warnings про conflicting server name)
-- [ ] `.claude/` добавить в `.gitignore`
+- [ ] `App.js` — монолит 7500+ строк, разбить на компоненты (большой рефакторинг, риск регрессии)
+- [ ] `backend/main.py` — монолит 130+ KB, разбить на роутеры (большой рефакторинг)
+- [ ] 1 eslint-disable в useEffect ping (по сути корректное использование, можно оставить)
+- [ ] Дублирующие nginx-конфиги в `/etc/nginx/sites-enabled/` (warnings про conflicting server name) — серверная задача
 
 ## Известные пользовательские особенности
 

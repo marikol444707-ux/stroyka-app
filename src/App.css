@@ -81,6 +81,72 @@
 .premium-dot{width:10px;height:10px;border-radius:50%;margin-top:4px;background:#f97316;box-shadow:0 0 14px rgba(249,115,22,.8);flex-shrink:0}
 @media(max-width:900px){.premium-grid-3,.premium-grid-2{grid-template-columns:1fr}.premium-title{font-size:22px}}
 
+/* Цветовые токены тем — переключаются через document.documentElement.dataset.theme */
+:root, html[data-theme="light"] {
+  --c-bg: #f8fafc;
+  --c-bg-white: #ffffff;
+  --c-bg-gray: #f1f5f9;
+  --c-border: #e2e8f0;
+  --c-border-dark: #cbd5e1;
+  --c-text: #0f172a;
+  --c-text-sec: #64748b;
+  --c-text-muted: #94a3b8;
+  --c-accent: #f97316;
+  --c-accent-dark: #ea580c;
+  --c-accent-light: #fff7ed;
+  --c-accent-border: #fed7aa;
+  --c-success: #10b981;
+  --c-success-light: #ecfdf5;
+  --c-success-border: #a7f3d0;
+  --c-danger: #ef4444;
+  --c-danger-light: #fef2f2;
+  --c-danger-border: #fecaca;
+  --c-warning: #f59e0b;
+  --c-warning-light: #fffbeb;
+  --c-warning-border: #fde68a;
+  --c-info: #3b82f6;
+  --c-info-light: #eff6ff;
+  --c-info-border: #bfdbfe;
+  --c-purple: #8b5cf6;
+  --c-purple-light: #f5f3ff;
+  --c-sidebar: #0f172a;
+  --c-sidebar-hover: #1e293b;
+}
+html[data-theme="dark"] {
+  --c-bg: #0f172a;
+  --c-bg-white: #1e293b;
+  --c-bg-gray: #1e293b;
+  --c-border: #334155;
+  --c-border-dark: #475569;
+  --c-text: #f1f5f9;
+  --c-text-sec: #cbd5e1;
+  --c-text-muted: #94a3b8;
+  --c-accent: #f97316;
+  --c-accent-dark: #ea580c;
+  --c-accent-light: rgba(249, 115, 22, 0.15);
+  --c-accent-border: rgba(249, 115, 22, 0.4);
+  --c-success: #34d399;
+  --c-success-light: rgba(16, 185, 129, 0.15);
+  --c-success-border: rgba(16, 185, 129, 0.4);
+  --c-danger: #f87171;
+  --c-danger-light: rgba(239, 68, 68, 0.15);
+  --c-danger-border: rgba(239, 68, 68, 0.4);
+  --c-warning: #fbbf24;
+  --c-warning-light: rgba(245, 158, 11, 0.15);
+  --c-warning-border: rgba(245, 158, 11, 0.4);
+  --c-info: #60a5fa;
+  --c-info-light: rgba(59, 130, 246, 0.15);
+  --c-info-border: rgba(59, 130, 246, 0.4);
+  --c-purple: #a78bfa;
+  --c-purple-light: rgba(139, 92, 246, 0.15);
+  --c-sidebar: #020617;
+  --c-sidebar-hover: #1e293b;
+}
+html[data-theme="dark"] body {
+  background-color: var(--c-bg);
+  color: var(--c-text);
+}
+
 * { box-sizing: border-box; }
 html, body { max-width: 100vw; overflow-x: hidden; -webkit-text-size-adjust: 100%; }
 button { touch-action: manipulation; }
