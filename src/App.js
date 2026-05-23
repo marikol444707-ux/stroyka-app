@@ -1316,6 +1316,44 @@ function App() {
     return html;
   };
 
+  const buildPrescriptionContent = (pr) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const project = projects.find(p=>p.name===pr.projectName)||{};
+    const fmtDate = (d) => { if(!d) return '«___» __________ 20__ г.'; const dt=new Date(d); if(isNaN(dt)) return d; const months=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']; return '«'+String(dt.getDate()).padStart(2,'0')+'» '+months[dt.getMonth()]+' '+dt.getFullYear()+' г.'; };
+    let html = '<style>'
+      + '.pr-meta{margin:6px 0;font-size:12px}'
+      + '.pr-title{text-align:center;font-weight:700;font-size:15px;margin:18px 0 6px}'
+      + '.pr-sub{text-align:center;font-size:13px;margin:0 0 18px;color:#444}'
+      + '.pr-row{display:flex;justify-content:space-between;font-size:12px;margin:4px 0}'
+      + '.pr-item{margin:10px 0;font-size:12px;line-height:1.5}'
+      + '.pr-block{border:1px solid #333;padding:10px;margin:8px 0;font-size:12px;line-height:1.5;min-height:50px;border-radius:4px}'
+      + '.pr-sigs{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:30px}'
+      + '.pr-sig-label{font-weight:600;margin-bottom:30px;font-size:11px}'
+      + '.pr-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
+      + '.pr-sig-sub{font-size:9px;color:#555;margin-top:2px}'
+      + '</style>';
+    html += '<div class="pr-meta"><b>'+orgName+'</b></div>';
+    html += '<div class="pr-title">ПРЕДПИСАНИЕ № '+(pr.number||pr.id||'____')+'</div>';
+    html += '<div class="pr-sub">об устранении выявленных нарушений на объекте строительства</div>';
+    html += '<div class="pr-row"><span>'+(project.city||'г. ____________')+'</span><span>'+fmtDate(new Date().toISOString().slice(0,10))+'</span></div>';
+    html += '<div class="pr-item"><b>Объект:</b> '+(pr.projectName||'____________')+'</div>';
+    html += '<div class="pr-item"><b>Заказчик:</b> '+(project.client||'____________')+'</div>';
+    html += '<div class="pr-item"><b>Кем выдано:</b> '+(pr.issuedBy||'____________')+' ('+(pr.issuedByRole||'____________')+')</div>';
+    html += '<div class="pr-item"><b>Приоритет:</b> '+(pr.priority||'—')+'</div>';
+    html += '<div class="pr-item"><b>Описание нарушения:</b><div class="pr-block">'+((pr.violation||pr.description||'').replace(/\n/g,'<br/>')||'(не указано)')+'</div></div>';
+    if (pr.deadline) html += '<div class="pr-item"><b>Срок устранения:</b> '+fmtDate(pr.deadline)+'</div>';
+    if (pr.responsible) html += '<div class="pr-item"><b>Ответственный за устранение:</b> '+pr.responsible+'</div>';
+    html += '<div class="pr-item"><b>Статус:</b> '+(pr.status||'Открыто')+'</div>';
+    if (pr.photoUrl) html += '<div class="pr-item"><b>Фотофиксация нарушения прилагается.</b></div>';
+    html += '<div class="pr-sigs">';
+    html += '<div><div class="pr-sig-label">Выдал предписание:</div><div class="pr-sig-line">'+(pr.issuedBy||'')+'</div><div class="pr-sig-sub">(должность, ФИО, подпись)</div></div>';
+    html += '<div><div class="pr-sig-label">Получил, обязуюсь устранить:</div><div class="pr-sig-line"></div><div class="pr-sig-sub">(должность, ФИО подрядчика, подпись)</div></div>';
+    html += '</div>';
+    html += '<p style="margin-top:30px;font-size:10px;color:#555;text-align:center">Форма соответствует методическим указаниям МДС 12-46.2008. Подлежит исполнению в указанный срок.</p>';
+    return html;
+  };
+
   const buildTBContent = (entry) => {
     const req = companyRequisites||{};
     const instruction = TB_INSTRUCTIONS[entry.type] || '<p>Общие требования безопасности.</p>';
@@ -2523,8 +2561,14 @@ function App() {
                   <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>⚠️ Предписания</b>
                   {prescriptionsList.filter(pr=>pr.projectName===myProject.name).map(pr=>(
                     <div key={pr.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border}}>
-                      <b style={{fontSize:'12px',color:C.danger}}>{pr.description}</b>
-                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{pr.status}</p>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'6px'}}>
+                        <div style={{flex:1}}>
+                          <b style={{fontSize:'12px',color:C.danger}}>{pr.violation||pr.description||'(описание не указано)'}</b>
+                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(pr.priority?pr.priority+' · ':'')+(pr.status||'Открыто')+(pr.deadline?' · до '+pr.deadline:'')}</p>
+                        </div>
+                        <button onClick={()=>showPreview(buildPrescriptionContent(pr),'Предписание')} style={{...btnB,padding:'4px 8px',fontSize:'11px'}} title="Распечатать предписание">🖨️</button>
+                      </div>
+                      {pr.photoUrl&&<img src={pr.photoUrl.startsWith('http')?pr.photoUrl:API+pr.photoUrl} alt='' onClick={()=>setShowPhotoModal(pr.photoUrl.startsWith('http')?pr.photoUrl:API+pr.photoUrl)} style={{width:'48px',height:'48px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginTop:'4px'}}/>}
                     </div>
                   ))}
                   {prescriptionsList.filter(pr=>pr.projectName===myProject.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Предписаний нет</p>}
@@ -2550,7 +2594,7 @@ function App() {
                   if(!desc){alert('Введите описание');return;}
                   const priority=document.getElementById('pres_priority_tn').value;
                   const deadline=document.getElementById('pres_date_tn').value;
-                  await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,description:desc,priority,deadline,issuedBy:user.name,issuedByRole:'Технадзор',status:'Открыто',photoUrl:prescriptionPhoto})});
+                  await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,violation:desc,priority,deadline,issuedBy:user.name,issuedByRole:'Технадзор',status:'Открыто',photoUrl:prescriptionPhoto})});
                   await loadAll();
                   document.getElementById('pres_desc_tn').value='';
                   setPrescriptionPhoto('');
