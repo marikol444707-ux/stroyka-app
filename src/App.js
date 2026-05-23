@@ -405,7 +405,7 @@ function App() {
   const [showAiAssistant, setShowAiAssistant] = useState(false);
   const [showQRModal, setShowQRModal] = useState(null);
   const [consentChecked, setConsentChecked] = useState(false);
-  const [accountingTab, setAccountingTab] = useState('contracts');
+  const [accountingTab, setAccountingTab] = useState('summary');
   const [accountingDocProject, setAccountingDocProject] = useState('');
   const [suppliersTab, setSuppliersTab] = useState('active');
   const [personnelTab, setPersonnelTab] = useState('staff');
@@ -4767,8 +4767,126 @@ function App() {
 
           {activePage==='accounting'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['contracts','acts','documents'].map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{contracts:'Договоры',acts:'Акты',documents:'Документы'}[tab]}</button>))}
+              {['summary','contracts','acts','aosr','payments','documents'].map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',aosr:'🔒 АОСР к оплате',payments:'💸 Платежи',documents:'🏗 По объектам'}[tab]}</button>))}
             </div>
+
+            {accountingTab==='summary'&&(<div>
+              <b style={{color:C.text,fontSize:'15px',fontWeight:'700',display:'block',marginBottom:'15px'}}>📊 Финансовая сводка по компании</b>
+              {(()=>{
+                const activeProj=projects.filter(pr=>pr.status==='В работе').length;
+                const totalBudget=projects.reduce((s,pr)=>s+Number(pr.budget||0),0);
+                const totalPayIn=(projectPayments||[]).reduce((s,p)=>s+Number(p.amount||0),0);
+                const totalExpOut=(ownExpenses||[]).reduce((s,e)=>s+Number(e.amount||0),0);
+                const totalAccount=(accountablePayments||[]).reduce((s,a)=>s+Number(a.amount||0),0);
+                const aosrSigned=hiddenActs.filter(a=>a.status==='Подписан');
+                const aosrPaid=hiddenActs.filter(a=>a.paidStatus==='Оплачен');
+                const aosrToPay=aosrSigned.filter(a=>a.paidStatus!=='Оплачен');
+                const toPaySum=aosrToPay.reduce((s,a)=>s+Number(a.total||0),0);
+                const aosrPaidSum=aosrPaid.reduce((s,a)=>s+Number(a.paidAmount||a.total||0),0);
+                const netProfit=totalPayIn-totalExpOut-totalAccount;
+                const cards=[
+                  {label:'Активных проектов',val:activeProj+' из '+projects.length,color:C.accent},
+                  {label:'Общий бюджет',val:Math.round(totalBudget).toLocaleString('ru-RU')+' ₽',color:C.text},
+                  {label:'Поступило от заказчиков',val:Math.round(totalPayIn).toLocaleString('ru-RU')+' ₽',color:C.success},
+                  {label:'Свои расходы',val:Math.round(totalExpOut).toLocaleString('ru-RU')+' ₽',color:C.warning},
+                  {label:'Подотчётные',val:Math.round(totalAccount).toLocaleString('ru-RU')+' ₽',color:C.warning},
+                  {label:'Чистая прибыль',val:Math.round(netProfit).toLocaleString('ru-RU')+' ₽',color:netProfit>=0?C.success:C.danger},
+                ];
+                return(<div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'20px'}}>
+                    {cards.map(c=>(<div key={c.label} style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 6px'}}>{c.label}</p><b style={{color:c.color,fontSize:'18px'}}>{c.val}</b></div>))}
+                  </div>
+                  <div style={{...card,padding:'20px',backgroundColor:C.bg,border:'1.5px solid '+C.accentBorder}}>
+                    <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>🔒 Связка АОСР → платежи (защита)</b>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:'10px'}}>
+                      <div><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Всего АОСР</p><b style={{color:C.text,fontSize:'15px'}}>{hiddenActs.length}</b></div>
+                      <div><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>К оплате (подписан)</p><b style={{color:C.warning,fontSize:'15px'}}>{aosrToPay.length+' · '+Math.round(toPaySum).toLocaleString('ru-RU')+' ₽'}</b></div>
+                      <div><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Оплачено</p><b style={{color:C.success,fontSize:'15px'}}>{aosrPaid.length+' · '+Math.round(aosrPaidSum).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    </div>
+                    {aosrToPay.length>0&&<p style={{color:C.warning,fontSize:'12px',margin:'10px 0 0'}}>⚠️ {aosrToPay.length} подписанных АОСР ждут оплаты — перейди на вкладку «🔒 АОСР к оплате»</p>}
+                  </div>
+                </div>);
+              })()}
+            </div>)}
+
+            {accountingTab==='aosr'&&(<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🔒 АОСР к оплате</b>
+                <span style={{fontSize:'11px',color:C.textMuted}}>Подписанные акты можно оплатить · оплаченные внизу</span>
+              </div>
+              {(()=>{
+                const toPay=hiddenActs.filter(a=>a.status==='Подписан'&&a.paidStatus!=='Оплачен');
+                const paid=hiddenActs.filter(a=>a.paidStatus==='Оплачен');
+                const drafts=hiddenActs.filter(a=>a.status!=='Подписан');
+                return(<div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'14px'}}>
+                    <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>К оплате</p><b style={{color:C.warning,fontSize:'16px'}}>{toPay.length}</b></div>
+                    <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Оплачено</p><b style={{color:C.success,fontSize:'16px'}}>{paid.length}</b></div>
+                    <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Черновики (ждут подписей)</p><b style={{color:C.text,fontSize:'16px'}}>{drafts.length}</b></div>
+                  </div>
+                  {toPay.length===0&&paid.length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>АОСР к оплате нет. Платить можно только подписанные акты — это защита от двойной оплаты и юридический повод требовать оплату с заказчика.</div>}
+                  {toPay.length>0&&<div style={{marginBottom:'18px'}}>
+                    <b style={{color:C.warning,fontSize:'13px',display:'block',marginBottom:'8px'}}>⏳ Ждут оплаты ({toPay.length}):</b>
+                    {toPay.map(a=>(<div key={a.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+C.warning}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                        <div style={{flex:1,minWidth:'200px'}}>
+                          <b style={{color:C.text,fontSize:'13px'}}>{a.actNumber+' · '+a.workName}</b>
+                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{a.projectName+' · '+(a.brigade||'—')+' · '+(a.quantity||0)+' '+(a.unit||'')}</p>
+                          <p style={{color:C.accent,margin:'4px 0 0',fontSize:'14px',fontWeight:'700'}}>{Math.round(Number(a.total||0)).toLocaleString('ru-RU')+' ₽'}</p>
+                        </div>
+                        <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+                          <button onClick={()=>setEditingAct(a)} style={{...btnB,padding:'5px 10px',fontSize:'11px'}}><Eye size={12}/>Открыть</button>
+                          <button onClick={async()=>{
+                            if(!window.confirm('Оплатить бригаде по АОСР '+a.actNumber+' сумму '+Math.round(Number(a.total||0)).toLocaleString('ru-RU')+' ₽?')) return;
+                            const res=await fetch(API+'/hidden-works-acts/'+a.id+'/pay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:Number(a.total||0),paidBy:user.name,paidNote:'Оплата по АОСР '+a.actNumber,paidAt:new Date().toISOString().split('T')[0]})});
+                            if(!res.ok){const e=await res.json().catch(()=>({}));alert('Ошибка: '+(e.detail||'не удалось'));return;}
+                            await loadAll();
+                            alert('Оплачено! Запись добавлена в платежи проекта.');
+                          }} style={btnO}><DollarSign size={12}/>💰 Оплатить</button>
+                        </div>
+                      </div>
+                    </div>))}
+                  </div>}
+                  {paid.length>0&&<div>
+                    <b style={{color:C.success,fontSize:'13px',display:'block',marginBottom:'8px'}}>✅ Оплачено ({paid.length}):</b>
+                    {paid.slice(0,20).map(a=>(<div key={a.id} style={{...card,padding:'10px 14px',marginBottom:'6px',borderLeft:'3px solid '+C.success,opacity:0.8}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                        <div style={{flex:1,minWidth:'200px'}}>
+                          <b style={{color:C.text,fontSize:'12px'}}>{a.actNumber+' · '+a.workName}</b>
+                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{a.projectName+' · '+a.paidAt+' · '+(a.paidBy||'—')}</p>
+                        </div>
+                        <b style={{color:C.success,fontSize:'13px'}}>{Math.round(Number(a.paidAmount||a.total||0)).toLocaleString('ru-RU')+' ₽'}</b>
+                      </div>
+                    </div>))}
+                  </div>}
+                </div>);
+              })()}
+            </div>)}
+
+            {accountingTab==='payments'&&(<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>💸 Платежи</b>
+                <span style={{fontSize:'11px',color:C.textMuted}}>Сводка по всем источникам</span>
+              </div>
+              {(()=>{
+                const inPays=(projectPayments||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+                const ownExps=(ownExpenses||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+                const accPays=(accountablePayments||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+                const inSum=inPays.reduce((s,p)=>s+Number(p.amount||0),0);
+                const ownSum=ownExps.reduce((s,e)=>s+Number(e.amount||0),0);
+                const accSum=accPays.reduce((s,a)=>s+Number(a.amount||0),0);
+                return(<div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'18px'}}>
+                    <div style={{...card,padding:'14px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Поступило (от заказчиков)</p><b style={{color:C.success,fontSize:'16px'}}>{Math.round(inSum).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{inPays.length+' платежей'}</p></div>
+                    <div style={{...card,padding:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Свои расходы</p><b style={{color:C.warning,fontSize:'16px'}}>{Math.round(ownSum).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ownExps.length+' операций'}</p></div>
+                    <div style={{...card,padding:'14px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>Подотчётные</p><b style={{color:C.danger,fontSize:'16px'}}>{Math.round(accSum).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{accPays.length+' выдач'}</p></div>
+                  </div>
+                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>📅 Последние 15 платежей по проектам:</b>
+                  {inPays.slice(0,15).map((p,i)=>(<div key={i} style={{...card,padding:'10px 14px',marginBottom:'6px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}><div style={{flex:1,minWidth:'200px'}}><b style={{color:C.text,fontSize:'12px'}}>{p.projectName||'—'}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(p.date||'')+(p.note?' · '+p.note:'')+(p.paidBy?' · '+p.paidBy:'')}</p></div><b style={{color:C.success,fontSize:'13px'}}>{Math.round(Number(p.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div></div>))}
+                  {inPays.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Платежей нет</p>}
+                </div>);
+              })()}
+            </div>)}
 
             {accountingTab==='contracts'&&(<div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>

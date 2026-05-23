@@ -522,6 +522,11 @@ def init_db():
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS certificates TEXT;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS city VARCHAR(100);
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS ai_filled BOOLEAN DEFAULT FALSE;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_status VARCHAR(50) DEFAULT 'Не оплачен';
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2);
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_at DATE;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255);
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_note TEXT;
         CREATE TABLE IF NOT EXISTS staff_documents (
             id SERIAL PRIMARY KEY,
             staff_id INT NOT NULL,
@@ -4221,7 +4226,9 @@ def list_hidden_works_acts(project_name: str = None):
               signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
               signed_customer_at, signed_supervisor_at, signed_contractor_at, signed_subcontractor_at,
               conclusion, comments, materials_used, project_docs,
-              photos, certificates, city, ai_filled, created_at"""
+              photos, certificates, city, ai_filled,
+              paid_status, paid_amount, paid_at, paid_by, paid_note,
+              created_at"""
     if project_name:
         cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name=%s ORDER BY id DESC", (project_name,))
     else:
@@ -4239,7 +4246,9 @@ def list_hidden_works_acts(project_name: str = None):
              "materialsUsed":r[23] or "","projectDocs":r[24] or "",
              "photos":r[25] or "","certificates":r[26] or "","city":r[27] or "",
              "aiFilled":bool(r[28]),
-             "createdAt":str(r[29])} for r in rows]
+             "paidStatus":r[29] or "Не оплачен","paidAmount":float(r[30] or 0),
+             "paidAt":str(r[31]) if r[31] else "","paidBy":r[32] or "","paidNote":r[33] or "",
+             "createdAt":str(r[34])} for r in rows]
 
 @app.put("/hidden-works-acts/{act_id}")
 def update_hidden_works_act(act_id: int, data: dict):
@@ -4269,6 +4278,41 @@ def update_hidden_works_act(act_id: int, data: dict):
          act_id))
     conn.commit(); cur.close(); conn.close()
     return {"ok": True, "status": auto_status}
+
+@app.post("/hidden-works-acts/{act_id}/pay")
+def pay_hidden_works_act(act_id: int, data: dict):
+    """Отметить АОСР как оплаченный + создать запись в project_payments."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT project_name, act_number, total, status FROM hidden_works_acts WHERE id=%s", (act_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="акт не найден")
+    proj, act_no, default_total, act_status = row[0] or "", row[1] or "", float(row[2] or 0), row[3] or ""
+    if act_status != "Подписан":
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Оплата невозможна — акт не подписан всеми сторонами")
+    amount = float(data.get("amount") or default_total)
+    paid_by = (data.get("paidBy") or "").strip()
+    paid_note = (data.get("paidNote") or "Оплата по АОСР " + act_no).strip()
+    paid_at = data.get("paidAt") or __import__("datetime").date.today().isoformat()
+    # Обновляем акт
+    cur.execute("""UPDATE hidden_works_acts
+                   SET paid_status='Оплачен', paid_amount=%s, paid_at=%s, paid_by=%s, paid_note=%s
+                   WHERE id=%s""",
+                (amount, paid_at, paid_by, paid_note, act_id))
+    # Создаём связанную запись в project_payments (если таблица существует)
+    try:
+        cur.execute("""INSERT INTO project_payments (project_name, amount, note, date, paid_by)
+                       VALUES (%s,%s,%s,%s,%s)""",
+                    (proj, amount, paid_note, paid_at, paid_by))
+    except Exception as e:
+        # Если структура project_payments отличается — не падаем, просто логируем
+        print("PAYMENT INSERT WARN:", str(e))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "paidStatus": "Оплачен", "paidAmount": amount, "paidAt": paid_at}
 
 @app.delete("/hidden-works-acts/{act_id}")
 def delete_hidden_works_act(act_id: int):
