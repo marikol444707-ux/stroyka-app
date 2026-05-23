@@ -316,7 +316,6 @@ tb_journal(id, project_name, instructor, instruction_type, date, master_name, ..
 - [ ] `App.js` — монолит 7500+ строк, разбить на компоненты (большой рефакторинг, риск регрессии)
 - [ ] `backend/main.py` — монолит 130+ KB, разбить на роутеры (большой рефакторинг)
 - [ ] 1 eslint-disable в useEffect ping (по сути корректное использование, можно оставить)
-- [ ] Дублирующие nginx-конфиги в `/etc/nginx/sites-enabled/` (warnings про conflicting server name) — серверная задача
 
 ## Известные пользовательские особенности
 
@@ -356,6 +355,8 @@ tb_journal(id, project_name, instructor, instruction_type, date, master_name, ..
 - При проблеме спрашивать что видит на сайте + логи `journalctl -u stroyka -f`
 - **Скриншоты** — пользователь умеет (Cmd+Shift+4 на маке)
 - Часто использовать **AskUserQuestion** для развилок где нужно его мнение
+- ⚠️ **При обновлении nginx whitelist** — бэкапы класть в `/etc/nginx/backups/`, НЕ в `/etc/nginx/sites-enabled/` (иначе nginx подхватит их и будут conflicting server warnings)
+- Бэкап БД работает через cron 03:00 ежедневно — `/root/backup-stroyka.sh` → `/var/backups/stroyka/`
 
 ## Полезные команды на сервере
 
