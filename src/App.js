@@ -1647,6 +1647,54 @@ function App() {
     return html;
   };
 
+  const buildM29Content = (projectName, periodFrom, periodTo) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    const project = projects.find(p=>p.name===projectName)||{};
+    const est = _estimateForProject(project);
+    // План из сметы по материалам (priceMaterial)
+    const planByName = {};
+    if (est) _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+      if ((it.itemType||'material')==='material' || Number(it.priceMaterial||0)>0) {
+        const key = (it.name||'').trim().toLowerCase();
+        if (!key) return;
+        if (!planByName[key]) planByName[key] = {name:it.name||'', unit:it.unit||'', plan:0, fact:0};
+        planByName[key].plan += Number(it.quantity||0);
+      }
+    }));
+    // Факт из material_transfers и warehouse_history по проекту
+    (materialTransfers||[]).filter(t=>t.projectName===projectName).forEach(t=>{
+      const key = (t.materialName||'').trim().toLowerCase();
+      if (!key) return;
+      if (!planByName[key]) planByName[key] = {name:t.materialName||'', unit:t.unit||'', plan:0, fact:0};
+      planByName[key].fact += Number(t.quantity||0);
+    });
+    (history||[]).filter(h=>h.project===projectName&&(h.type||'').includes('расход')).forEach(h=>{
+      const key = (h.material||'').trim().toLowerCase();
+      if (!key) return;
+      if (!planByName[key]) planByName[key] = {name:h.material||'', unit:'', plan:0, fact:0};
+      planByName[key].fact += Number(h.quantity||0);
+    });
+    const rows = Object.values(planByName).sort((a,b)=>(b.fact-b.plan)-(a.fact-a.plan));
+    let html = '<style>.m29-tbl{border-collapse:collapse;width:100%;font-size:11px;margin-top:10px}.m29-tbl th,.m29-tbl td{border:1px solid #333;padding:4px 6px}.m29-tbl th{background:#f3f4f6}.m29-over{color:#dc2626;font-weight:700}.m29-ok{color:#059669}</style>';
+    html += '<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-29</h3>';
+    html += '<h2 style="text-align:center;margin:0 0 4px">ОТЧЁТ О РАСХОДЕ ОСНОВНЫХ МАТЕРИАЛОВ</h2>';
+    html += '<p style="text-align:center;font-size:11px;color:#444">в сопоставлении с производственными нормами (план/факт)</p>';
+    html += '<p style="font-size:11px"><b>Объект:</b> '+projectName+' · <b>Подрядчик:</b> '+orgName+' · <b>Период:</b> '+(periodFrom||'__.__.____')+' — '+(periodTo||'__.__.____')+'</p>';
+    if (rows.length===0) { html += '<p style="text-align:center;color:#888;padding:20px">Нет данных — не загружена смета или нет движений по материалам</p>'; }
+    else {
+      html += '<table class="m29-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>План (смета)</th><th>Факт (списано)</th><th>Отклонение</th><th>Статус</th></tr>';
+      rows.forEach((r,i)=>{const delta=r.fact-r.plan;const over=r.plan>0&&delta>r.plan*0.05;html+='<tr><td>'+(i+1)+'</td><td>'+r.name+'</td><td>'+r.unit+'</td><td>'+r.plan.toLocaleString('ru-RU')+'</td><td>'+r.fact.toLocaleString('ru-RU')+'</td><td class="'+(over?'m29-over':'m29-ok')+'">'+(delta>0?'+':'')+delta.toLocaleString('ru-RU')+'</td><td>'+(over?'⚠️ перерасход >5%':delta<0?'✅ экономия':'≈ в норме')+'</td></tr>';});
+      html += '</table>';
+    }
+    html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:30px">';
+    html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Производитель работ:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Главный инженер / технадзор:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
+    html += '</div>';
+    html += '<p style="margin-top:18px;font-size:10px;color:#666;text-align:center">Форма утверждена приказом ЦСУ СССР № 613, действует. Перерасход выше 5% от нормы требует объяснений и согласования с заказчиком.</p>';
+    return html;
+  };
+
   const buildSupervisorMonthlyReport = (projectName, periodFrom, periodTo) => {
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
@@ -5387,6 +5435,20 @@ function App() {
                     <div style={{...card,padding:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Свои расходы</p><b style={{color:C.warning,fontSize:'16px'}}>{Math.round(ownSum).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ownExps.length+' операций'}</p></div>
                     <div style={{...card,padding:'14px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>Подотчётные</p><b style={{color:C.danger,fontSize:'16px'}}>{Math.round(accSum).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{accPays.length+' выдач'}</p></div>
                   </div>
+                  {(()=>{const unx=(unexpectedWorksList||[]).filter(u=>u.status==='Утверждено'&&!u.paidStatus);const sum=unx.reduce((s,u)=>s+Number(u.total||0),0);if(unx.length===0) return null;return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:'#fef3c7',border:'1.5px solid #fbbf24'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',flexWrap:'wrap',gap:'8px'}}>
+                      <b style={{color:'#78350f',fontSize:'13px'}}>🆕 Непредвиденные к оплате</b>
+                      <b style={{color:'#78350f',fontSize:'14px'}}>{Math.round(sum).toLocaleString('ru-RU')+' ₽'}</b>
+                    </div>
+                    {unx.slice(0,10).map(u=>(<div key={u.id} style={{padding:'8px 10px',backgroundColor:'rgba(255,255,255,0.6)',borderRadius:'6px',marginTop:'4px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                      <div style={{flex:1,minWidth:'200px'}}>
+                        <b style={{fontSize:'12px',color:'#78350f'}}>{u.description}</b>
+                        <p style={{color:'#92400e',margin:'2px 0',fontSize:'11px'}}>{u.projectName+' · '+(u.quantity||0)+' '+u.unit+(u.approvedBy?' · согл. '+u.approvedBy:'')}</p>
+                      </div>
+                      <b style={{color:'#78350f',fontSize:'13px'}}>{Math.round(Number(u.total||0)).toLocaleString('ru-RU')+' ₽'}</b>
+                      <button onClick={async()=>{if(!window.confirm('Отметить как оплачено?')) return;await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено',price:u.price,total:u.total,approvedBy:u.approvedBy,approvedAt:u.approvedAt,paidStatus:'Оплачен'})});await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:u.projectName,amount:u.total,note:'Оплата непредвиденной: '+u.description,date:new Date().toISOString().split('T')[0],paidBy:user.name})});await loadAll();}} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><DollarSign size={11}/>Оплатить</button>
+                    </div>))}
+                  </div>);})()}
                   <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>📅 Последние 15 платежей по проектам:</b>
                   {inPays.slice(0,15).map((p,i)=>(<div key={i} style={{...card,padding:'10px 14px',marginBottom:'6px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}><div style={{flex:1,minWidth:'200px'}}><b style={{color:C.text,fontSize:'12px'}}>{p.projectName||'—'}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(p.date||'')+(p.note?' · '+p.note:'')+(p.paidBy?' · '+p.paidBy:'')}</p></div><b style={{color:C.success,fontSize:'13px'}}>{Math.round(Number(p.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div></div>))}
                   {inPays.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Платежей нет</p>}
@@ -5455,15 +5517,25 @@ function App() {
               <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
                 {projects.map(p=>(<button key={p.id} onClick={()=>setAccountingDocProject(p.name)} style={{...accountingDocProject===p.name?btnO:btnG,fontSize:'12px',padding:'6px 12px'}}>{p.name}</button>))}
               </div>
-              {accountingDocProject&&(<div>
+              {accountingDocProject&&(()=>{const proj=projects.find(pr=>pr.name===accountingDocProject);if(!proj) return null;const pd=projectPlanDone(proj);const budget=Number(proj.budget||0);const ownExp=(ownExpenses||[]).filter(e=>e.projectName===accountingDocProject).reduce((s,e)=>s+Number(e.amount||0),0);const accExp=(accountablePayments||[]).filter(a=>a.projectName===accountingDocProject).reduce((s,a)=>s+Number(a.amount||0),0);const aosrPaid=hiddenActs.filter(a=>a.projectName===accountingDocProject&&a.paidStatus==='Оплачен').reduce((s,a)=>s+Number(a.paidAmount||a.total||0),0);const factCost=ownExp+accExp+aosrPaid;const margin=pd.done-factCost;return(<div>
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                  {['Паспорт','КС-2','КС-3','ЖПР'].map(doc=>(<button key={doc} onClick={()=>{const p=projects.find(pr=>pr.name===accountingDocProject);if(!p) return;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showPreview(buildKS2Content(p),'КС-2');if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
+                  {['Паспорт','КС-2','КС-3','ЖПР','М-29'].map(doc=>(<button key={doc} onClick={()=>{const p=proj;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showKS2(p);if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');if(doc==='М-29'){const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildM29Content(p.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-29 — '+p.name);}}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
+                </div>
+                <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
+                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>💰 Себестоимость объекта (план vs факт)</b>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px'}}>
+                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Бюджет (договор)</p><b style={{color:C.text,fontSize:'14px'}}>{Math.round(budget).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Выполнено по смете</p><b style={{color:C.accent,fontSize:'14px'}}>{Math.round(pd.done).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Факт расходов</p><b style={{color:C.warning,fontSize:'14px'}}>{Math.round(factCost).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Маржа</p><b style={{color:margin>=0?C.success:C.danger,fontSize:'14px'}}>{Math.round(margin).toLocaleString('ru-RU')+' ₽'}</b></div>
+                  </div>
+                  <p style={{color:C.textMuted,fontSize:'10px',margin:'8px 0 0',lineHeight:1.4}}>Факт = свои расходы ({Math.round(ownExp).toLocaleString('ru-RU')+' ₽'}) + подотчётные ({Math.round(accExp).toLocaleString('ru-RU')+' ₽'}) + оплачено по АОСР ({Math.round(aosrPaid).toLocaleString('ru-RU')+' ₽'})</p>
                 </div>
                 <div>
                   <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Акты по проекту:</b>
                   {interimActs.filter(a=>a.project===accountingDocProject).map(act=>(<div key={act.id} style={{...card,padding:'12px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{'Акт №'+act.id+' · '+act.masterName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(act.totalAmount||0).toLocaleString()+' ₽ · '+act.periodStart+' — '+act.periodEnd}</p></div><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={13}/></button></div>))}
                 </div>
-              </div>)}
+              </div>);})()}
               {!accountingDocProject&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Выберите проект</p>}
             </div>)}
           </div>)}
