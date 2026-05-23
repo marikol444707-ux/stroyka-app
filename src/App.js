@@ -2775,7 +2775,7 @@ function App() {
                 <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize:'13px',color:C.text}}>{act.sectionName||'—'}</b></div>
                 <div><p style={labelStyle}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{act.workName}</b></div>
                 <div><p style={labelStyle}>Бригада</p><b style={{fontSize:'13px',color:C.text}}>{act.brigade||'—'}</b></div>
-                <div><p style={labelStyle}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{act.quantity+' '+(act.unit||'')}</b></div>
+                <div><p style={labelStyle}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{Number(act.quantity||0).toLocaleString('ru-RU')+' '+(act.unit||'')}</b></div>
                 <div><p style={labelStyle}>Цена за ед.</p><b style={{fontSize:'13px',color:C.text}}>{Number(act.pricePerUnit||0).toLocaleString('ru-RU')+' ₽'}</b></div>
                 <div><p style={labelStyle}>Сумма</p><b style={{fontSize:'14px',color:C.accent}}>{Number(act.total||0).toLocaleString('ru-RU')+' ₽'}</b></div>
                 <div><p style={labelStyle}>Дата работ</p><b style={{fontSize:'13px',color:C.text}}>{act.workDate||'—'}</b></div>
@@ -2954,6 +2954,7 @@ function App() {
                 <div style={{...card,padding:0,overflow:'auto'}}>
                   <table style={tbl}><thead><tr>
                     <th style={tblH}>Дата</th>
+                    <th style={tblH}>Тип</th>
                     <th style={tblH}>Раздел</th>
                     <th style={tblH}>Работа</th>
                     <th style={tblH}>Объём</th>
@@ -2964,10 +2965,11 @@ function App() {
                     <th style={tblH}>Статус</th>
                     <th style={tblH}>Сумма</th>
                   </tr></thead><tbody>
-                    {filtered.map(jw=>(<tr key={jw.id} style={{cursor:'pointer'}} onClick={()=>{setEditingJournal(jw);setShowJournalTableModal(null);}}>
+                    {filtered.map(jw=>(<tr key={jw.id} style={{cursor:'pointer',backgroundColor:jw.unexpectedWorkId?'#fef3c7':undefined}} onClick={()=>{setEditingJournal(jw);setShowJournalTableModal(null);}}>
                       <td style={tblC}>{jw.date||'—'}</td>
+                      <td style={tblC}>{jw.unexpectedWorkId?<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'700',backgroundColor:'#fbbf24',color:'#78350f'}}>🆕 вне сметы</span>:<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:C.bg,color:C.textSec}}>по смете</span>}</td>
                       <td style={tblC}>{jw.sectionName||'—'}</td>
-                      <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px'}}>🆕</span>:null}{jw.hiddenWork?<span title="Скрытые работы — нужен АОСР" style={{marginLeft:'4px'}}>🔒</span>:null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
+                      <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.hiddenWork?<span title="Скрытые работы — нужен АОСР" style={{marginLeft:'4px'}}>🔒</span>:null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
                       <td style={tblC}>{(jw.quantity||0)+' '+(jw.unit||'')}</td>
                       <td style={tblC}>{jw.masterName||'—'}</td>
                       <td style={tblC}>{jw.responsibleItr||'—'}</td>
@@ -2976,7 +2978,7 @@ function App() {
                       <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:jw.status==='Подтверждено'?C.successLight:jw.status==='Отклонено'?C.dangerLight:C.warningLight,color:jw.status==='Подтверждено'?C.success:jw.status==='Отклонено'?C.danger:C.warning}}>{jw.status||'—'}</span></td>
                       <td style={tblC}>{Number(jw.total||0).toLocaleString('ru-RU')+' ₽'}</td>
                     </tr>))}
-                    {filtered.length===0&&<tr><td colSpan={10} style={{...tblC,textAlign:'center',color:C.textMuted}}>По выбранным фильтрам записей нет</td></tr>}
+                    {filtered.length===0&&<tr><td colSpan={11} style={{...tblC,textAlign:'center',color:C.textMuted}}>По выбранным фильтрам записей нет</td></tr>}
                   </tbody></table>
                 </div>
                 <div style={{marginTop:'12px',padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,borderRadius:'10px',textAlign:'right'}}>
@@ -3258,22 +3260,23 @@ function App() {
               <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:'16px'}}>
                 <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                   <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
-                  {projects.slice(0,5).map(p=>(
+                  {projects.slice(0,5).map(p=>{const pd=_planDoneOf(p);const realProg=_projProgress(p);return(
                     <div key={p.id} onClick={()=>{setExpandedProject(p.id);setActivePage('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
                         <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
-                        <span style={{display:'inline-flex',borderRadius:'999px',padding:'4px 10px',fontSize:'11px',fontWeight:'700',background:'rgba(234,88,12,.14)',color:'#fdba74',border:'1px solid rgba(234,88,12,.32)',whiteSpace:'nowrap'}}>{p.progress||0}%</span>
+                        <span style={{display:'inline-flex',borderRadius:'999px',padding:'4px 10px',fontSize:'11px',fontWeight:'700',background:'rgba(234,88,12,.14)',color:'#fdba74',border:'1px solid rgba(234,88,12,.32)',whiteSpace:'nowrap'}}>{realProg}%</span>
                       </div>
                       <div style={{height:'6px',background:'rgba(148,163,184,.16)',borderRadius:'999px',overflow:'hidden',margin:'10px 0'}}>
-                        <div style={{height:'100%',borderRadius:'999px',background:'linear-gradient(90deg,#f97316,#22c55e)',width:`${p.progress||0}%`}}/>
+                        <div style={{height:'100%',borderRadius:'999px',background:'linear-gradient(90deg,#f97316,#22c55e)',width:`${realProg}%`}}/>
                       </div>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Бюджет</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{Number(p.budget||0).toLocaleString()+' ₽'}</div></div>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
+                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Бюджет</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{(Number(p.budget||0)/1000).toFixed(0)+' тыс'}</div></div>
+                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Выполнено</div><div style={{fontWeight:'700',color:'#86efac',fontSize:'13px',marginTop:'3px'}}>{pd.done>0?(pd.done/1000).toFixed(0)+' тыс':'0'}</div></div>
                         <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Срок</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{p.deadline||'—'}</div></div>
                       </div>
-                      <div style={{marginTop:'10px',padding:'8px 12px',borderRadius:'12px',background:'rgba(234,88,12,.12)',border:'1px solid rgba(234,88,12,.24)',color:'#fed7aa',fontSize:'12px',fontWeight:'700'}}>{Number(p.progress||0)<40?'⚠️ AI: низкий темп':Number(p.progress||0)>80?'✅ AI: близко к сдаче':'🔵 AI: темп в норме'}</div>
+                      <div style={{marginTop:'10px',padding:'8px 12px',borderRadius:'12px',background:'rgba(234,88,12,.12)',border:'1px solid rgba(234,88,12,.24)',color:'#fed7aa',fontSize:'12px',fontWeight:'700'}}>{realProg<40?'⚠️ AI: низкий темп':realProg>80?'✅ AI: близко к сдаче':'🔵 AI: темп в норме'}</div>
                     </div>
-                  ))}
+                  );})}
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
                   <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
@@ -5655,6 +5658,7 @@ function App() {
                   <Upload size={20}/>Загрузить Excel файл (.xlsx)
                   <input type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={async e=>{
                     if(!e.target.files[0]) return;
+                    if(!newEstimate.projectId){alert('Сначала выберите проект — без привязки смета не сохранится');e.target.value='';return;}
                     const fd=new FormData();
                     fd.append('file',e.target.files[0]);
                     try {
