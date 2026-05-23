@@ -1463,6 +1463,12 @@ function App() {
 
   const canAccess = (p) => user && (ROLES[user.role]||[]).includes(p);
   const isFinanceRole = () => ['директор','зам_директора','бухгалтер'].includes(user?user.role:'');
+
+  // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
+  const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
+  const _estimateForProject = (p) => estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
+  const projectPlanDone = (p) => { const est=_estimateForProject(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ const q=Number(it.quantity||0), dq=Number(it.doneQuantity||0), pr=Number(it.priceWork||0)+Number(it.priceMaterial||0); pl+=q*pr; dn+=dq*pr; })); return {plan:pl,done:dn}; };
+  const projectRealProgress = (p) => { if(!p) return 0; const {plan,done}=projectPlanDone(p); if(plan>0) return Math.round(done/plan*100); return Number(p.progress||0); };
   const isLeadership = () => ['директор','зам_директора'].includes(user?user.role:'');
   const isProrab = () => ['директор','зам_директора','прораб','главный_инженер'].includes(user?user.role:'');
   const isMasterRole = () => ['мастер','субподрядчик'].includes(user?user.role:'');
@@ -2500,7 +2506,7 @@ function App() {
             <div>
               <div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
                 <b style={{color:C.text,fontSize:'16px'}}>{myProject.name}</b>
-                <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'13px'}}>Статус: {myProject.status} · Прогресс: {myProject.progress||0}%</p>
+                <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'13px'}}>Статус: {myProject.status} · Прогресс: {projectRealProgress(myProject)}% · Выполнено: {Math.round(projectPlanDone(myProject).done).toLocaleString('ru-RU')} ₽</p>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
                 <div style={{...card,padding:'16px'}}>
@@ -2675,9 +2681,9 @@ function App() {
               <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
                 <div style={{...card,padding:'16px',textAlign:'center'}}>
                   <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Прогресс</p>
-                  <b style={{color:C.accent,fontSize:'24px'}}>{myProject.progress||0}%</b>
+                  <b style={{color:C.accent,fontSize:'24px'}}>{projectRealProgress(myProject)}%</b>
                   <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'6px',marginTop:'8px'}}>
-                    <div style={{backgroundColor:C.accent,width:(myProject.progress||0)+'%',height:'100%',borderRadius:'6px'}}/>
+                    <div style={{backgroundColor:C.accent,width:projectRealProgress(myProject)+'%',height:'100%',borderRadius:'6px'}}/>
                   </div>
                 </div>
                 <div style={{...card,padding:'16px',textAlign:'center'}}>
@@ -3219,10 +3225,7 @@ function App() {
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
           {activePage==='dashboard'&&(()=>{
             const risks=[...lowStock.map(m=>'⚠️ Мало: '+m.name),...lowMainStock.map(m=>'⚠️ Склад: '+m.name)].slice(0,4);
-            const _sectionsOf=(est)=>{ try{ return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; }catch(e){ return []; } };
-            const _estFor=(p)=>estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
-            const _planDoneOf=(p)=>{ const est=_estFor(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOf(est).forEach(s=>(s.items||[]).forEach(it=>{ const q=Number(it.quantity||0), dq=Number(it.doneQuantity||0), pr=Number(it.priceWork||0)+Number(it.priceMaterial||0); pl+=q*pr; dn+=dq*pr; })); return {plan:pl,done:dn}; };
-            const _projProgress=(p)=>{ const {plan,done}=_planDoneOf(p); if(plan>0) return Math.round(done/plan*100); return Number(p.progress||0); };
+            const _planDoneOf=projectPlanDone; const _projProgress=projectRealProgress;
             const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+_projProgress(p),0)/projects.length):0;
             const totalDone=projects.reduce((s,p)=>s+_planDoneOf(p).done,0);
             return(
