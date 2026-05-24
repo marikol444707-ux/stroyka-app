@@ -3221,6 +3221,32 @@ def delete_brigade_contract(id: int):
     cur.close(); conn.close()
     return {"ok":True}
 
+@app.get("/brigade-contract-items-all")
+def list_all_brigade_contract_items(project_name: str = None):
+    """Все позиции нарядов сразу — для подсчёта прогресса по бюджету."""
+    conn = get_db()
+    cur = conn.cursor()
+    if project_name:
+        cur.execute("""SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
+                              bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
+                              bc.project_name
+                       FROM brigade_contract_items bci
+                       JOIN brigade_contracts bc ON bc.id = bci.contract_id
+                       WHERE bc.project_name=%s ORDER BY bci.id DESC""", (project_name,))
+    else:
+        cur.execute("""SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
+                              bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
+                              bc.project_name
+                       FROM brigade_contract_items bci
+                       JOIN brigade_contracts bc ON bc.id = bci.contract_id
+                       ORDER BY bci.id DESC""")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"contractId":r[1],"name":r[2] or "","unit":r[3] or "",
+             "quantity":float(r[4] or 0),"priceSmeta":float(r[5] or 0),
+             "priceBrigade":float(r[6] or 0),"doneQuantity":float(r[7] or 0),
+             "estimateSection":r[8] or "","projectName":r[9] or ""} for r in rows]
+
 @app.post("/estimates/{estimate_id}/distribute")
 def distribute_estimate_to_brigades(estimate_id: int, data: dict):
     import json as _json

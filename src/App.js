@@ -338,6 +338,7 @@ function App() {
   const [prescriptionPhoto, setPrescriptionPhoto] = useState('');
   const [selectedBrigadeContract, setSelectedBrigadeContract] = useState(null);
   const [brigadeContractItems, setBrigadeContractItems] = useState([]);
+  const [allBrigadeItems, setAllBrigadeItems] = useState([]);
   const [showBrigadeForm, setShowBrigadeForm] = useState(false);
   const [newBrigadeContract, setNewBrigadeContract] = useState({projectId:'',projectName:'',brigadeName:'',contractorType:'Своя бригада',contractorId:'',notes:'',pricelistId:''});
   const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});
@@ -763,6 +764,10 @@ function App() {
         const tbNorm = (Array.isArray(tb)?tb:[]).map(t=>({...t, project: t.projectName, type: t.instructionType}));
         setTbJournal(tbNorm);
         try { localStorage.setItem('tbJournal', JSON.stringify(tbNorm)); } catch(e){}
+      } catch(e) {}
+      try {
+        const abi = await fetch(API+'/brigade-contract-items-all').then(r=>r.json()).catch(()=>[]);
+        setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       } catch(e) {}
     } catch(e) { console.log('Load error:',e); }
   };
@@ -1639,12 +1644,24 @@ function App() {
   const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
   const _estimateForProject = (p) => estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
   const projectPlanDone = (p) => { const est=_estimateForProject(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ const q=Number(it.quantity||0), dq=Number(it.doneQuantity||0), pr=Number(it.priceWork||0)+Number(it.priceMaterial||0); pl+=q*pr; dn+=dq*pr; })); return {plan:pl,done:dn}; };
-  // Фактически освоено по проекту: журнал работ + материалы на объекте
+  // Фактически освоено по проекту: журнал работ + наряды бригадные (по приёмке) + материалы на объекте
   const projectFactSpent = (p) => {
     if(!p) return {works:0,materials:0,total:0};
-    const works=(workJournal||[]).filter(w=>w.project===p.name).reduce((s,w)=>s+Number(w.total||0),0);
+    const journal=(workJournal||[]).filter(w=>w.project===p.name).reduce((s,w)=>s+Number(w.total||0),0);
+    const brigades=(allBrigadeItems||[]).filter(it=>it.projectName===p.name&&Number(it.doneQuantity||0)>0).reduce((s,it)=>s+Number(it.doneQuantity||0)*Number(it.priceSmeta||0),0);
+    // Берём максимум — журнал и brigade_items могут дублировать одни и те же работы
+    const works=Math.max(journal,brigades);
     const mats=(materials||[]).filter(m=>m.project===p.name).reduce((s,m)=>s+Number(m.quantity||0)*Number(m.price||0),0);
     return {works,materials:mats,total:works+mats};
+  };
+  // Полное «освоено по бюджету» = MAX(сметный done, журнал работ) + материалы на объекте + утверждённые доп.соглашения
+  const projectBudgetSpent = (p) => {
+    if(!p) return {works:0,materials:0,unexpected:0,total:0};
+    const planDone=projectPlanDone(p).done;
+    const fact=projectFactSpent(p);
+    const works=Math.max(planDone,fact.works);
+    const unx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Утверждено').reduce((s,u)=>s+Number(u.total||0),0);
+    return {works,materials:fact.materials,unexpected:unx,total:works+fact.materials+unx};
   };
   const projectRealProgress = (p) => {
     if(!p) return 0;
@@ -4260,9 +4277,11 @@ function App() {
             projects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Утверждено').reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': непредвиденные '+pct.toFixed(1)+'% от бюджета',severity:'danger'});});
             const _planDoneOf=projectPlanDone; const _projProgress=projectRealProgress;
             const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+_projProgress(p),0)/projects.length):0;
-            // Выполнено = max(сделано по смете, факт по журналу+материалам) для каждого проекта
-            const totalDone=projects.reduce((s,p)=>{const pd=_planDoneOf(p).done;const fs=projectFactSpent(p).total;return s+Math.max(pd,fs);},0);
-            const totalMaterials=projects.reduce((s,p)=>s+projectFactSpent(p).materials,0);
+            // Выполнено = работы (max сметы/журнала) + материалы + утв.доп.соглашения по всем проектам
+            const _bsAll=projects.map(p=>projectBudgetSpent(p));
+            const totalDone=_bsAll.reduce((s,bs)=>s+bs.total,0);
+            const totalMaterials=_bsAll.reduce((s,bs)=>s+bs.materials,0);
+            const totalUnexpected=_bsAll.reduce((s,bs)=>s+bs.unexpected,0);
             return(
             <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'28px',flexWrap:'wrap',gap:'12px'}}>
@@ -4286,7 +4305,7 @@ function App() {
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'16px',marginBottom:'20px'}}>
                 {[{label:'Объекты',value:projects.filter(p=>p.status!=='Завершён').length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)'},
                   {label:'Прогресс',value:avgProg+'%',sub:'среднее по объектам',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)'},
-                  {label:'Выполнено',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'работы + материалы ₽'+(totalMaterials>0?' (мат. '+(totalMaterials>=1000000?(totalMaterials/1000000).toFixed(1)+'м':Math.round(totalMaterials/1000)+'т')+')':''),color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)'},
+                  {label:'Выполнено',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'работы + материалы + ДС'+(totalMaterials>0||totalUnexpected>0?' (м.'+Math.round(totalMaterials/1000)+'т, ДС '+Math.round(totalUnexpected/1000)+'т)':''),color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)'},
                   {label:'Бюджет',value:(()=>{const t=projects.reduce((s,p)=>s+Number(p.budget||0),0);return t>=1000000?Math.round(t/1000000)+' млн':Math.round(t/1000)+' тыс';})(),sub:'общий бюджет ₽',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)'}
                 ].map((k,i)=>(
                   <div key={i} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
@@ -4299,7 +4318,7 @@ function App() {
               <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:'16px'}}>
                 <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                   <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
-                  {projects.slice(0,5).map(p=>{const pd=_planDoneOf(p);const fs=projectFactSpent(p);const factTotal=Math.max(pd.done,fs.total);const realProg=_projProgress(p);return(
+                  {projects.slice(0,5).map(p=>{const pd=_planDoneOf(p);const fs=projectFactSpent(p);const bs=projectBudgetSpent(p);const factTotal=bs.total;const realProg=_projProgress(p);return(
                     <div key={p.id} onClick={()=>{setExpandedProject(p.id);setActivePage('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
                         <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
@@ -4310,7 +4329,7 @@ function App() {
                       </div>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
                         <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Бюджет</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{(Number(p.budget||0)/1000).toFixed(0)+' тыс'}</div></div>
-                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}} title={'Работы: '+Math.round(fs.works).toLocaleString('ru-RU')+' ₽\nМатериалы: '+Math.round(fs.materials).toLocaleString('ru-RU')+' ₽'}><div style={{color:'#94a3b8',fontSize:'11px'}}>Выполнено</div><div style={{fontWeight:'700',color:'#86efac',fontSize:'13px',marginTop:'3px'}}>{factTotal>0?(factTotal/1000).toFixed(0)+' тыс':'0'}</div></div>
+                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}} title={'Работы: '+Math.round(bs.works).toLocaleString('ru-RU')+' ₽\nМатериалы: '+Math.round(bs.materials).toLocaleString('ru-RU')+' ₽'+(bs.unexpected>0?'\nДоп.соглашения: '+Math.round(bs.unexpected).toLocaleString('ru-RU')+' ₽':'')}><div style={{color:'#94a3b8',fontSize:'11px'}}>Выполнено</div><div style={{fontWeight:'700',color:'#86efac',fontSize:'13px',marginTop:'3px'}}>{factTotal>0?(factTotal/1000).toFixed(0)+' тыс':'0'}</div></div>
                         <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Срок</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{p.deadline||'—'}</div></div>
                       </div>
                       <div style={{marginTop:'10px',padding:'8px 12px',borderRadius:'12px',background:'rgba(234,88,12,.12)',border:'1px solid rgba(234,88,12,.24)',color:'#fed7aa',fontSize:'12px',fontWeight:'700'}}>{realProg<40?'⚠️ AI: низкий темп':realProg>80?'✅ AI: близко к сдаче':'🔵 AI: темп в норме'}</div>
@@ -4362,7 +4381,7 @@ function App() {
               <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveProject} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
             </div>)}
             {(showArchive?archivedProjects:projects).map(p=>{
-              const cat=expByCategory(p.name);const total=Object.values(cat).reduce((s,v)=>s+v,0);
+              const cat=expByCategory(p.name);const _bs=projectBudgetSpent(p);const total=_bs.total;
               const isOpen=expandedProject===p.id;
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
               const sc=statusColors[p.status]||statusColors['Планирование'];
@@ -4443,8 +4462,13 @@ function App() {
                         </div>
                       </div>
                       <div style={{backgroundColor:C.bg,borderRadius:'10px',padding:'14px',border:'1.5px solid '+C.border,marginBottom:'12px'}}>
-                        {isFinanceRole()&&(<><div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}><b style={{color:C.text,fontSize:'13px'}}>Прогресс бюджета</b><span style={{fontSize:'13px',color:total>p.budget?C.danger:C.success}}>{total.toLocaleString()+' из '+p.budget.toLocaleString()+' ₽'}</span></div>
-                        <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'10px'}}><div style={{backgroundColor:total>p.budget?C.danger:total>p.budget*0.8?C.warning:C.success,width:Math.min(100,p.budget>0?total/p.budget*100:0)+'%',height:'100%',borderRadius:'6px',transition:'width 0.3s'}}/></div></>)}
+                        {isFinanceRole()&&(<><div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}><b style={{color:C.text,fontSize:'13px'}}>Прогресс бюджета</b><span style={{fontSize:'13px',color:total>p.budget?C.danger:C.success}}>{Math.round(total).toLocaleString('ru-RU')+' из '+p.budget.toLocaleString()+' ₽'}</span></div>
+                        <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'10px'}}><div style={{backgroundColor:total>p.budget?C.danger:total>p.budget*0.8?C.warning:C.success,width:Math.min(100,p.budget>0?total/p.budget*100:0)+'%',height:'100%',borderRadius:'6px',transition:'width 0.3s'}}/></div>
+                        <div style={{display:'flex',gap:'12px',flexWrap:'wrap',marginTop:'8px',fontSize:'11px',color:C.textSec}}>
+                          <span>🔨 Работы: <b style={{color:C.text}}>{Math.round(_bs.works).toLocaleString('ru-RU')+' ₽'}</b></span>
+                          <span>📦 Материалы: <b style={{color:C.text}}>{Math.round(_bs.materials).toLocaleString('ru-RU')+' ₽'}</b></span>
+                          {_bs.unexpected>0&&<span>🆕 Доп.соглаш.: <b style={{color:C.warning}}>{Math.round(_bs.unexpected).toLocaleString('ru-RU')+' ₽'}</b></span>}
+                        </div></>)}
                       </div>
                       <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'16px'}}>
                         <button onClick={()=>showPreview(buildPassportContent(p),'Паспорт объекта — '+p.name)} style={btnB}><FileText size={14}/>Паспорт</button>
