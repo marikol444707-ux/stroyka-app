@@ -139,6 +139,7 @@ def init_db():
             photo_url VARCHAR(500),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_by JSONB DEFAULT '[]'::jsonb;
         CREATE TABLE IF NOT EXISTS tb_journal (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -2368,23 +2369,61 @@ def create_room_door(data: dict):
 
 @app.get("/messages")
 def get_messages():
+    import json as _j
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,chat_type,project_id,author_id,author_name,author_role,text,photo_url,created_at FROM messages ORDER BY created_at ASC LIMIT 200")
+    cur.execute("SELECT id,chat_type,project_id,author_id,author_name,author_role,text,photo_url,created_at,read_by FROM messages ORDER BY created_at ASC LIMIT 200")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"chat_type":r[1],"project_id":r[2],"author_id":r[3],"author_name":r[4],"author_role":r[5],"text":r[6],"photo_url":r[7],"created_at":str(r[8])} for r in rows]
+    out = []
+    for r in rows:
+        try: rb = r[9] if isinstance(r[9], list) else (_j.loads(r[9]) if r[9] else [])
+        except: rb = []
+        out.append({"id":r[0],"chat_type":r[1],"project_id":r[2],"author_id":r[3],"author_name":r[4],"author_role":r[5],"text":r[6],"photo_url":r[7],"created_at":str(r[8]),"readBy":rb})
+    return out
 
 @app.post("/messages")
 def create_message(data: dict):
+    import json as _j
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO messages (chat_type,project_id,author_id,author_name,author_role,text,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        (data.get('chatType','company'),data.get('projectId'),data.get('authorId'),data.get('authorName',''),data.get('authorRole',''),data.get('text',''),data.get('photoUrl','')))
+    # Автор сразу попадает в read_by
+    author_id = data.get('authorId')
+    read_by = _j.dumps([author_id] if author_id else [])
+    cur.execute("INSERT INTO messages (chat_type,project_id,author_id,author_name,author_role,text,photo_url,read_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb) RETURNING *",
+        (data.get('chatType','company'),data.get('projectId'),author_id,data.get('authorName',''),data.get('authorRole',''),data.get('text',''),data.get('photoUrl',''),read_by))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
     return row
+
+@app.post("/messages/mark-read")
+def mark_messages_read(data: dict):
+    """Помечает все сообщения как прочитанные данным пользователем.
+       data: {userId, chatType?, projectId?} — фильтры опциональны."""
+    user_id = data.get('userId')
+    if not user_id:
+        return {"ok": False, "error": "userId required"}
+    chat_type = data.get('chatType')
+    project_id = data.get('projectId')
+    conn = get_db()
+    cur = conn.cursor()
+    where = ["NOT (read_by @> %s::jsonb)"]
+    params = [str(user_id) if isinstance(user_id, int) else __import__('json').dumps([user_id])]
+    # подправим: read_by это массив id, ищем где user_id НЕ входит
+    import json as _j
+    params[0] = _j.dumps([user_id])
+    if chat_type:
+        where.append("chat_type=%s"); params.append(chat_type)
+    if project_id is not None:
+        where.append("project_id=%s"); params.append(project_id)
+    sql = "UPDATE messages SET read_by = read_by || %s::jsonb WHERE " + " AND ".join(where)
+    params.insert(0, _j.dumps([user_id]))
+    cur.execute(sql, params)
+    updated = cur.rowcount
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "updated": updated}
 
 import urllib.request
 import json as json_lib

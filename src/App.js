@@ -355,7 +355,7 @@ function App() {
   const [showAiChat, setShowAiChat] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
-  const [showChatPanel, setShowChatPanel] = useState(false);
+  const [showChatPanel, setShowChatPanelRaw] = useState(false);
   const [companyChatInput, setCompanyChatInput] = useState('');
   const [showScanInvoice, setShowScanInvoice] = useState(false);
   const [showScannedInvoiceForm, setShowScannedInvoiceForm] = useState(false);
@@ -765,6 +765,23 @@ function App() {
         try { localStorage.setItem('tbJournal', JSON.stringify(tbNorm)); } catch(e){}
       } catch(e) {}
     } catch(e) { console.log('Load error:',e); }
+  };
+
+  // Счётчик непрочитанных сообщений чата для текущего пользователя
+  const unreadMessagesCount = (companyMessages||[]).filter(m=>{
+    const rb = m.readBy||[];
+    return user && !rb.includes(user.id) && (m.author_id!==user.id);
+  }).length;
+
+  // Открыть чат-панель и сразу пометить сообщения прочитанными
+  const setShowChatPanel = (val) => {
+    const next = typeof val === 'function' ? val(showChatPanel) : val;
+    setShowChatPanelRaw(next);
+    if(next && user && unreadMessagesCount>0){
+      fetch(API+'/messages/mark-read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,chatType:'company'})})
+        .then(()=>setCompanyMessages(prev=>prev.map(m=>({...m,readBy:[...(m.readBy||[]),user.id]}))))
+        .catch(()=>{});
+    }
   };
 
   const loadMasterProfile = async () => {
@@ -1622,7 +1639,22 @@ function App() {
   const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
   const _estimateForProject = (p) => estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
   const projectPlanDone = (p) => { const est=_estimateForProject(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ const q=Number(it.quantity||0), dq=Number(it.doneQuantity||0), pr=Number(it.priceWork||0)+Number(it.priceMaterial||0); pl+=q*pr; dn+=dq*pr; })); return {plan:pl,done:dn}; };
-  const projectRealProgress = (p) => { if(!p) return 0; const {plan,done}=projectPlanDone(p); if(plan>0) return Math.round(done/plan*100); return Number(p.progress||0); };
+  // Фактически освоено по проекту: журнал работ + материалы на объекте
+  const projectFactSpent = (p) => {
+    if(!p) return {works:0,materials:0,total:0};
+    const works=(workJournal||[]).filter(w=>w.project===p.name).reduce((s,w)=>s+Number(w.total||0),0);
+    const mats=(materials||[]).filter(m=>m.project===p.name).reduce((s,m)=>s+Number(m.quantity||0)*Number(m.price||0),0);
+    return {works,materials:mats,total:works+mats};
+  };
+  const projectRealProgress = (p) => {
+    if(!p) return 0;
+    const {plan,done}=projectPlanDone(p);
+    if(plan>0) return Math.round(done/plan*100);
+    // Если нет сметы, считаем по бюджету и фактическим тратам
+    const budget=Number(p.budget||0);
+    if(budget>0){ const fact=projectFactSpent(p).total; return Math.min(100,Math.round(fact/budget*100)); }
+    return Number(p.progress||0);
+  };
 
   // Уведомления для текущего пользователя — собираются из АОСР, непредвиденных, предписаний
   const computeNotifications = () => {
@@ -2663,7 +2695,7 @@ function App() {
       <div style={{display:'flex',flexDirection:'column',minHeight:'100vh',backgroundColor:C.bg}}>
         {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'12px'}}/></div>)}
         {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)}/>}
-        <div style={{flex:1,padding:'15px',paddingBottom:'90px',overflowY:'auto'}}>
+        <div style={{flex:1,padding:'15px',paddingBottom:isMobile?'90px':'15px',overflowY:'auto'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
             <div><h2 style={{margin:0,color:C.text,fontSize:'20px',fontWeight:'800'}}>СтройКа</h2><p style={{margin:0,color:C.textSec,fontSize:'12px'}}>{user.name+' — '+(ROLE_LABELS[user.role]||user.role)}</p></div>
             <button onClick={checkinGeo} style={{...btnGr,padding:'8px 16px',fontSize:'12px'}}><MapPin size={14}/>Отметиться</button>
@@ -4211,10 +4243,26 @@ function App() {
         </div>
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
           {activePage==='dashboard'&&(()=>{
-            const risks=[...lowStock.map(m=>'⚠️ Мало: '+m.name),...lowMainStock.map(m=>'⚠️ Склад: '+m.name)].slice(0,4);
+            const _today=new Date().toISOString().split('T')[0];
+            const risks=[];
+            // Низкие остатки материалов
+            lowStock.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn'}));
+            lowMainStock.slice(0,2).forEach(m=>risks.push({icon:'🏭',text:'Мало на складе: '+m.name,severity:'warn'}));
+            // Просроченные проекты
+            projects.filter(p=>p.deadline&&p.deadline<_today&&p.status!=='Завершён').slice(0,2).forEach(p=>risks.push({icon:'⏰',text:'Срок истёк: '+p.name+' (до '+p.deadline+')',severity:'danger'}));
+            // АОСР зависшие в черновике > 7 дней
+            const _weekAgo=new Date(Date.now()-7*24*3600*1000).toISOString().split('T')[0];
+            (hiddenActs||[]).filter(a=>a.status!=='Подписан'&&a.createdAt&&String(a.createdAt).split('T')[0]<_weekAgo).slice(0,2).forEach(a=>risks.push({icon:'🔒',text:'АОСР долго без подписи: '+a.actNumber,severity:'warn'}));
+            // Открытые замечания ГСН
+            const openInsp=(inspectionOrders||[]).filter(o=>o.status!=='Закрыто').length;
+            if(openInsp>0) risks.push({icon:'🏛',text:'Открытых замечаний ГСН: '+openInsp,severity:'danger'});
+            // Превышение бюджета непредвиденными >10%
+            projects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Утверждено').reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': непредвиденные '+pct.toFixed(1)+'% от бюджета',severity:'danger'});});
             const _planDoneOf=projectPlanDone; const _projProgress=projectRealProgress;
             const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+_projProgress(p),0)/projects.length):0;
-            const totalDone=projects.reduce((s,p)=>s+_planDoneOf(p).done,0);
+            // Выполнено = max(сделано по смете, факт по журналу+материалам) для каждого проекта
+            const totalDone=projects.reduce((s,p)=>{const pd=_planDoneOf(p).done;const fs=projectFactSpent(p).total;return s+Math.max(pd,fs);},0);
+            const totalMaterials=projects.reduce((s,p)=>s+projectFactSpent(p).materials,0);
             return(
             <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'28px',flexWrap:'wrap',gap:'12px'}}>
@@ -4224,7 +4272,7 @@ function App() {
                 </div>
                 <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
                   <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'16px'}}>{darkMode?'☀️':'🌙'}</button>
-                  <button onClick={()=>setShowChatPanel(s=>!s)} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><MessageSquare size={18} color='#94a3b8'/></button>
+                  <button onClick={()=>setShowChatPanel(s=>!s)} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><MessageSquare size={18} color='#94a3b8'/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
                   <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><Bot size={18} color='#94a3b8'/></button>
                   <div ref={notifRef} style={{position:'relative'}}>
                     <button onClick={()=>setShowNotifications(!showNotifications)} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -4237,8 +4285,8 @@ function App() {
               </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'16px',marginBottom:'20px'}}>
                 {[{label:'Объекты',value:projects.filter(p=>p.status!=='Завершён').length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)'},
-                  {label:'Прогресс',value:avgProg+'%',sub:'среднее по сметам',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)'},
-                  {label:'Выполнено',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'по сметам ₽',color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)'},
+                  {label:'Прогресс',value:avgProg+'%',sub:'среднее по объектам',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)'},
+                  {label:'Выполнено',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'работы + материалы ₽'+(totalMaterials>0?' (мат. '+(totalMaterials>=1000000?(totalMaterials/1000000).toFixed(1)+'м':Math.round(totalMaterials/1000)+'т')+')':''),color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)'},
                   {label:'Бюджет',value:(()=>{const t=projects.reduce((s,p)=>s+Number(p.budget||0),0);return t>=1000000?Math.round(t/1000000)+' млн':Math.round(t/1000)+' тыс';})(),sub:'общий бюджет ₽',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)'}
                 ].map((k,i)=>(
                   <div key={i} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
@@ -4251,7 +4299,7 @@ function App() {
               <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:'16px'}}>
                 <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                   <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
-                  {projects.slice(0,5).map(p=>{const pd=_planDoneOf(p);const realProg=_projProgress(p);return(
+                  {projects.slice(0,5).map(p=>{const pd=_planDoneOf(p);const fs=projectFactSpent(p);const factTotal=Math.max(pd.done,fs.total);const realProg=_projProgress(p);return(
                     <div key={p.id} onClick={()=>{setExpandedProject(p.id);setActivePage('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
                         <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
@@ -4262,7 +4310,7 @@ function App() {
                       </div>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
                         <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Бюджет</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{(Number(p.budget||0)/1000).toFixed(0)+' тыс'}</div></div>
-                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Выполнено</div><div style={{fontWeight:'700',color:'#86efac',fontSize:'13px',marginTop:'3px'}}>{pd.done>0?(pd.done/1000).toFixed(0)+' тыс':'0'}</div></div>
+                        <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}} title={'Работы: '+Math.round(fs.works).toLocaleString('ru-RU')+' ₽\nМатериалы: '+Math.round(fs.materials).toLocaleString('ru-RU')+' ₽'}><div style={{color:'#94a3b8',fontSize:'11px'}}>Выполнено</div><div style={{fontWeight:'700',color:'#86efac',fontSize:'13px',marginTop:'3px'}}>{factTotal>0?(factTotal/1000).toFixed(0)+' тыс':'0'}</div></div>
                         <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Срок</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{p.deadline||'—'}</div></div>
                       </div>
                       <div style={{marginTop:'10px',padding:'8px 12px',borderRadius:'12px',background:'rgba(234,88,12,.12)',border:'1px solid rgba(234,88,12,.24)',color:'#fed7aa',fontSize:'12px',fontWeight:'700'}}>{realProg<40?'⚠️ AI: низкий темп':realProg>80?'✅ AI: близко к сдаче':'🔵 AI: темп в норме'}</div>
@@ -4271,12 +4319,8 @@ function App() {
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
                   <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
-                    <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>AI-инсайты</h2>
-                    <div style={{borderRadius:'16px',padding:'14px',background:'linear-gradient(135deg,rgba(234,88,12,.16),rgba(30,41,59,.7))',border:'1px solid rgba(249,115,22,.28)',marginBottom:'12px'}}>
-                      <div style={{fontWeight:'800',marginBottom:'6px',color:'#f8fafc',fontSize:'14px'}}>Construction Intelligence</div>
-                      <div style={{color:'#cbd5e1',fontSize:'13px',lineHeight:'1.5'}}>Система анализирует склад, финансы и задачи.</div>
-                    </div>
-                    {risks.length>0?risks.map((r,i)=><div key={i} style={{padding:'10px 12px',borderRadius:'12px',background:'rgba(239,68,68,.10)',border:'1px solid rgba(239,68,68,.22)',color:'#fca5a5',fontSize:'12px',marginBottom:'8px'}}>{r}</div>):<div style={{color:'#94a3b8',fontSize:'13px',padding:'8px 0'}}>Критических рисков нет ✅</div>}
+                    <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}>⚠️ Предупреждения системы {risks.length>0&&<span style={{fontSize:'12px',padding:'2px 8px',borderRadius:'10px',background:'rgba(239,68,68,.2)',color:'#fca5a5',fontWeight:'700'}}>{risks.length}</span>}</h2>
+                    {risks.length>0?risks.map((r,i)=>{const cdng=r.severity==='danger';return(<div key={i} style={{padding:'10px 12px',borderRadius:'12px',background:cdng?'rgba(239,68,68,.10)':'rgba(245,158,11,.10)',border:'1px solid '+(cdng?'rgba(239,68,68,.22)':'rgba(245,158,11,.24)'),color:cdng?'#fca5a5':'#fcd34d',fontSize:'12px',marginBottom:'8px',display:'flex',gap:'8px',alignItems:'flex-start'}}><span style={{fontSize:'14px',flexShrink:0}}>{r.icon}</span><span>{r.text}</span></div>);}):<div style={{padding:'14px',borderRadius:'14px',background:'rgba(34,197,94,.10)',border:'1px solid rgba(34,197,94,.24)',color:'#86efac',fontSize:'13px',textAlign:'center'}}>✅ Всё под контролем<br/><span style={{fontSize:'11px',color:'#94a3b8'}}>Нет просроченных проектов, дефицита материалов, открытых замечаний и непредвиденных свыше 10%</span></div>}
                   </div>
                   <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                     <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>Сегодня</h2>
@@ -7322,8 +7366,8 @@ function App() {
           }} style={{...btnO,padding:'8px 14px'}}>➤</button>
         </div>
       </div>)}
-      <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:'flex',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
-        {[{id:'dashboard',icon:<LayoutDashboard size={20}/>,label:'Главная'},{id:'projects',icon:<FolderKanban size={20}/>,label:'Объекты'},{id:'warehouse',icon:<Package size={20}/>,label:'Склад'},{id:'companychat',icon:<MessageSquare size={20}/>,label:'Чат',isPanel:true},{id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else if(item.id==='companychat'){setShowChatPanel(s=>!s);setShowMobileMenu(false);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#6b7280'}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
+      <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:isMobile?'flex':'none',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
+        {[{id:'dashboard',icon:<LayoutDashboard size={20}/>,label:'Главная'},{id:'projects',icon:<FolderKanban size={20}/>,label:'Объекты'},{id:'warehouse',icon:<Package size={20}/>,label:'Склад'},{id:'companychat',icon:<MessageSquare size={20}/>,label:'Чат',isPanel:true},{id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else if(item.id==='companychat'){setShowChatPanel(s=>!s);setShowMobileMenu(false);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#6b7280',position:'relative'}}>{item.icon}{item.id==='companychat'&&unreadMessagesCount>0&&<span style={{position:'absolute',top:'-6px',right:'-8px',backgroundColor:'#ef4444',color:'white',borderRadius:'10px',padding:'1px 5px',fontSize:'9px',fontWeight:'700',minWidth:'14px',textAlign:'center',lineHeight:'1.2'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
       {reportingPayment&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
