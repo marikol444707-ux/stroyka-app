@@ -4447,7 +4447,7 @@ function App() {
                   </div>
                 </div>
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
-                  <div style={{display:'flex',gap:0,overflowX:'auto',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'0 16px'}}>
+                  <div style={{borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'18px 16px 10px'}}>
                     {(()=>{
                       const tabGroups=[
                         {id:'work',icon:'🔨',label:'Работы',tabs:['Наряды','Непредвиденные','Чек-листы']},
@@ -4458,14 +4458,14 @@ function App() {
                       ];
                       const activeGroup=tabGroups.find(g=>g.tabs.includes(activeProjectTab));
                       return(<div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(80px,1fr))',gap:'6px',marginBottom:'10px'}}>
-                          {tabGroups.map(g=>(<div key={g.id} onClick={()=>{setActiveTabGroup(activeTabGroup===g.id?null:g.id);if(g.tabs.length>0)setActiveProjectTab(g.tabs[0]);}} style={{padding:'12px 6px',borderRadius:'12px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'4px',backgroundColor:activeGroup&&activeGroup.id===g.id?C.accentLight:C.bg,border:'1.5px solid '+(activeGroup&&activeGroup.id===g.id?C.accentBorder:C.border),transition:'all 0.15s',minHeight:'70px'}}>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'6px',marginBottom:'12px'}}>
+                          {tabGroups.map(g=>(<div key={g.id} onClick={()=>{setActiveTabGroup(activeTabGroup===g.id?null:g.id);if(g.tabs.length>0)setActiveProjectTab(g.tabs[0]);}} style={{padding:'12px 4px',borderRadius:'12px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'4px',backgroundColor:activeGroup&&activeGroup.id===g.id?C.accentLight:C.bgWhite,border:'1.5px solid '+(activeGroup&&activeGroup.id===g.id?C.accentBorder:C.border),transition:'all 0.15s',minHeight:'72px'}}>
                             <div style={{fontSize:'22px',lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center'}}>{g.icon}</div>
                             <div style={{fontSize:'11px',fontWeight:activeGroup&&activeGroup.id===g.id?'700':'500',color:activeGroup&&activeGroup.id===g.id?C.accent:C.textSec,textAlign:'center',lineHeight:1.2}}>{g.label}</div>
                           </div>))}
                         </div>
-                        {activeGroup&&(<div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}}>
-                          {activeGroup.tabs.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'6px 12px',backgroundColor:activeProjectTab===tab?C.accent:'white',cursor:'pointer',fontSize:'12px',fontWeight:activeProjectTab===tab?'700':'400',color:activeProjectTab===tab?'white':C.textSec,borderRadius:'20px',border:'1.5px solid '+(activeProjectTab===tab?C.accent:C.border)}}>{tab}</button>))}
+                        {activeGroup&&(<div style={{display:'flex',gap:'4px',overflowX:'auto',minHeight:'34px',alignItems:'center',paddingBottom:'2px'}}>
+                          {activeGroup.tabs.map(tab=>(<button key={tab} onClick={()=>setActiveProjectTab(tab)} style={{padding:'6px 12px',backgroundColor:activeProjectTab===tab?C.accent:C.bgWhite,cursor:'pointer',fontSize:'12px',fontWeight:activeProjectTab===tab?'700':'400',color:activeProjectTab===tab?'white':C.textSec,borderRadius:'20px',border:'1.5px solid '+(activeProjectTab===tab?C.accent:C.border),flexShrink:0,whiteSpace:'nowrap'}}>{tab}</button>))}
                         </div>)}
                       </div>);
                     })()}
