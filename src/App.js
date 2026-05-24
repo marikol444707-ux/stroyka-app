@@ -46,8 +46,8 @@ const PreviewModal = ({content, title, onClose}) => (
           <button onClick={onClose} style={{padding:'8px 16px',backgroundColor:'#6b7280',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}><X size={14}/>Закрыть</button>
         </div>
       </div>
-      <div style={{flex:1,overflowY:'auto',padding:'24px',backgroundColor:'white',borderRadius:'0 0 16px 16px'}}>
-        <div style={{fontFamily:'Arial',fontSize:'12px',lineHeight:'1.6'}} dangerouslySetInnerHTML={{__html:content}}/>
+      <div style={{flex:1,overflowY:'auto',padding:'24px',backgroundColor:'white',borderRadius:'0 0 16px 16px',colorScheme:'light'}}>
+        <div style={{fontFamily:'Arial',fontSize:'12px',lineHeight:'1.6',color:'#111827'}} dangerouslySetInnerHTML={{__html:content}}/>
       </div>
     </div>
   </div>
