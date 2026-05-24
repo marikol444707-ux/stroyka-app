@@ -54,19 +54,19 @@ const PreviewModal = ({content, title, onClose}) => (
 );
 
 const ROLES = {
-  директор: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','accounting','analytics','personnel','crm','activitylog','companychat','estimates','weather','settings'],
-  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','analytics','accounting','personnel','crm','activitylog','companychat','estimates','weather','settings'],
-  главный_инженер: ['dashboard','projects','warehouse','staff','companychat','estimates','weather'],
-  прораб: ['dashboard','projects','warehouse','suppliers','staff','companychat','weather'],
-  кладовщик: ['warehouse','suppliers','companychat'],
-  бухгалтер: ['dashboard','accounting','personnel','companychat','settings'],
-  снабженец: ['warehouse','suppliers','companychat'],
-  стройконтроль: ['projects','companychat'],
+  директор: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','accounting','analytics','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
+  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','analytics','accounting','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
+  главный_инженер: ['dashboard','projects','warehouse','staff','companychat','estimates','weather','myexpenses'],
+  прораб: ['dashboard','projects','warehouse','suppliers','staff','companychat','weather','myexpenses'],
+  кладовщик: ['warehouse','suppliers','companychat','myexpenses'],
+  бухгалтер: ['dashboard','accounting','personnel','companychat','settings','myexpenses'],
+  снабженец: ['warehouse','suppliers','companychat','myexpenses'],
+  стройконтроль: ['projects','companychat','myexpenses'],
   менеджер_crm: ['crm','companychat'],
   сметчик: ['estimates','projects','accounting','companychat'],
-  субподрядчик: ['works','materials','history','documents','companychat'],
-  мастер: ['works','materials','history','documents','companychat'],
-  технадзор: ['projects','companychat'],
+  субподрядчик: ['works','materials','history','documents','companychat','myexpenses'],
+  мастер: ['works','materials','history','documents','companychat','myexpenses'],
+  технадзор: ['projects','companychat','myexpenses'],
   заказчик: ['client_view'],
   поставщик: ['supplier_view'],
 };
@@ -1639,6 +1639,25 @@ function App() {
 
   const canAccess = (p) => user && (ROLES[user.role]||[]).includes(p);
   const isFinanceRole = () => ['директор','зам_директора','бухгалтер'].includes(user?user.role:'');
+  // Список названий проектов которые видит текущий пользователь (для прораба — только назначенные)
+  const myAssignedProjects = () => {
+    if(!user) return [];
+    const ap = user.assignedProjects || user.assigned_projects;
+    if(Array.isArray(ap) && ap.length>0) return ap;
+    const single = user.project_name || user.projectName;
+    return single ? [single] : [];
+  };
+  const visibleProjects = (list) => {
+    if(!user) return list||[];
+    // Руководство и финансы видят все
+    if(['директор','зам_директора','бухгалтер','сметчик','главный_инженер'].includes(user.role)) return list||[];
+    // Прораб / технадзор / стройконтроль — только назначенные (если назначены)
+    if(['прораб','технадзор','стройконтроль'].includes(user.role)){
+      const mine = myAssignedProjects();
+      if(mine.length>0) return (list||[]).filter(p=>mine.includes(p.name));
+    }
+    return list||[];
+  };
 
   // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
   const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
@@ -2291,14 +2310,24 @@ function App() {
     else await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     if (hasEmail && hasPassword && hasRole) {
       const existing = users.find(u=>u.email===newStaff.email);
+      const ap = Array.isArray(newStaff.assignedProjects)?newStaff.assignedProjects:[];
       if (existing) {
-        alert('Пользователь с email '+newStaff.email+' уже существует — доступ не создан, сотрудник сохранён.');
+        // Обновим назначенные проекты у существующего user
+        if(ap.length>0||['прораб','технадзор','стройконтроль'].includes(newStaff.systemRole)){
+          try { await fetch(API+'/users/'+existing.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})}); } catch(e){}
+        }
+        alert('Пользователь с email '+newStaff.email+' уже существует — назначенные объекты обновлены, сотрудник сохранён.');
       } else {
         try {
           const r = await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:fullName,email:newStaff.email,password:newStaff.password,role:newStaff.systemRole,projectName:newStaff.project||''})});
           if (!r.ok) {
             const err = await r.json().catch(()=>({detail:'неизвестная ошибка'}));
             alert('Сотрудник сохранён, но доступ создать не удалось: '+(err.detail||r.status));
+          } else if(ap.length>0){
+            const created = await r.json().catch(()=>null);
+            if(created&&created.id){
+              try { await fetch(API+'/users/'+created.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})}); } catch(e){}
+            }
           }
         } catch(e) {
           alert('Сотрудник сохранён, но доступ создать не удалось: '+e.message);
@@ -2729,6 +2758,7 @@ function App() {
               <h3 style={{color:C.text,margin:0,fontSize:'18px',fontWeight:'700'}}>Мои работы</h3>
               <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'8px 18px',borderRadius:'10px',fontWeight:'700',fontSize:'14px',color:'white'}}>{myTotal.toLocaleString()+' ₽'}</div>
             </div>
+            {(()=>{const myExp=(ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);const pending=myExp.filter(e=>e.status==='Ожидает');const sumP=pending.reduce((s,e)=>s+Number(e.amount||0),0);if(myExp.length===0) return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}><div><b style={{color:C.info,fontSize:'13px'}}>💸 Свои траты на стройке?</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Фиксируйте здесь чтобы бухгалтерия возместила</p></div><button onClick={()=>setShowOwnExpenseForm(true)} style={btnO}><Plus size={14}/>Новая трата</button></div>);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:pending.length>0?C.warningLight:C.successLight,border:'1.5px solid '+(pending.length>0?C.warningBorder:C.successBorder)}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'8px'}}><div><b style={{color:C.text,fontSize:'13px'}}>💸 Мои траты — {pending.length>0?'ждут возмещения':'все возмещены ✅'}</b>{pending.length>0&&<p style={{color:C.warning,margin:'2px 0 0',fontSize:'12px'}}>Сумма к возмещению: <b>{Math.round(sumP).toLocaleString('ru-RU')+' ₽'}</b> · {pending.length+' шт'}</p>}</div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>setActivePage('myexpenses')} style={{...btnG,padding:'5px 10px',fontSize:'12px'}}>📜 Все траты</button><button onClick={()=>setShowOwnExpenseForm(true)} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}><Plus size={12}/>Новая</button></div></div></div>);})()}
             <div style={{...card,padding:'20px',marginBottom:'15px'}}>
               <h4 style={{marginBottom:'15px',color:C.text,fontSize:'14px',fontWeight:'600'}}>Добавить работы</h4>
               <select value={masterProjectId} onChange={async e=>{const pid=e.target.value;setMasterProjectId(pid);setSelectedWorks({});const proj=projects.find(p=>p.id===Number(pid));if(proj&&proj.pricelistId) await loadPricelistItems(proj.pricelistId);else setPricelistItems([]);}} style={inp}><option value="">Выберите объект</option>{projects.filter(p=>p.status==='В работе').map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
@@ -2976,15 +3006,16 @@ function App() {
     {id:'analytics',icon:<BarChart3 size={18}/>,label:'Аналитика'},
     {id:'crm',icon:<Handshake size={18}/>,label:'CRM'},
     {id:'projects',icon:<FolderKanban size={18}/>,label:'Проекты'},
-    
+
     {id:'warehouse',icon:<Package size={18}/>,label:'Склад'},
     {id:'suppliers',icon:<Truck size={18}/>,label:'Поставщики'},
     {id:'accounting',icon:<DollarSign size={18}/>,label:'Бухгалтерия'},
     {id:'personnel',icon:<UserCheck size={18}/>,label:'Персонал'},
-    
+
     {id:'estimates',icon:<Calculator size={18}/>,label:'Сметы'},
     {id:'weather',icon:<CloudSun size={18}/>,label:'Погода / ЖПР'},
-    
+
+    {id:'myexpenses',icon:<CreditCard size={18}/>,label:'Мои траты'},
     {id:'activitylog',icon:<ScrollText size={18}/>,label:'Журнал'},
     {id:'settings',icon:<Settings size={18}/>,label:'Настройки'},
   ];
@@ -4281,6 +4312,9 @@ function App() {
             if(openInsp>0) risks.push({icon:'🏛',text:'Открытых замечаний ГСН: '+openInsp,severity:'danger'});
             // Превышение бюджета непредвиденными >10%
             projects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Утверждено').reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': непредвиденные '+pct.toFixed(1)+'% от бюджета',severity:'danger'});});
+            // Траты сотрудников на возмещении
+            const pendingExp=(ownExpenses||[]).filter(e=>e.status==='Ожидает');
+            if(pendingExp.length>0){const sum=pendingExp.reduce((s,e)=>s+Number(e.amount||0),0);risks.push({icon:'💸',text:'К возмещению сотрудникам: '+Math.round(sum).toLocaleString('ru-RU')+' ₽ ('+pendingExp.length+' трат)',severity:'warn'});}
             const _planDoneOf=projectPlanDone; const _projProgress=projectRealProgress;
             const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+_projProgress(p),0)/projects.length):0;
             // Выполнено = работы (max сметы/журнала) + материалы + утв.доп.соглашения по всем проектам
@@ -4386,7 +4420,7 @@ function App() {
               </div>
               <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveProject} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
             </div>)}
-            {(showArchive?archivedProjects:projects).map(p=>{
+            {visibleProjects(showArchive?archivedProjects:projects).map(p=>{
               const cat=expByCategory(p.name);const _bs=projectBudgetSpent(p);const total=_bs.total;
               const isOpen=expandedProject===p.id;
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
@@ -5039,12 +5073,13 @@ function App() {
                         <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Материалы объекта</b>
                         <div style={{display:'flex',gap:'8px'}}>
                           <button onClick={()=>openReceiveInvoice(p.name)} style={btnB}><Plus size={14}/>Принять материал</button>
+                          {(isLeadership()||user.role==='прораб'||user.role==='кладовщик')&&(
                           <button onClick={async()=>{
                             const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(p.name));
                             const data=await res.json();
                             setMaterialTransfers(Array.isArray(data)?data:[]);
                             setShowTransferForm(!showTransferForm);
-                          }} style={btnO}><Plus size={14}/>Передать материал</button>
+                          }} style={btnO}><Plus size={14}/>Передать материал</button>)}
                         </div>
                       </div>
 
@@ -5160,9 +5195,9 @@ function App() {
                         const toReimburse=ownExpenses.filter(e=>e.projectName===p.name&&e.status==='Ожидает');
                         return(<div>
                           <div style={{display:'flex',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
-                            <button onClick={()=>{const amount=prompt('Сумма оплаты от заказчика (₽):');const note=prompt('Примечание:');if(amount&&Number(amount)>0){fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,amount:Number(amount),note:note||'',date:new Date().toISOString().split('T')[0],addedBy:user.name})}).then(()=>loadAll());}}} style={{...btnO,fontSize:'12px',padding:'7px 14px'}}><Plus size={13}/>Оплата от заказчика</button>
-                            <button onClick={()=>{setAddExpenseProject(p.name);setNewManualExpense({category:'materials',amount:'',note:'',date:''});}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><Plus size={13}/>Расход по объекту</button>
-                            <button onClick={()=>{setShowAccountableForm(true);setNewAccountable({...newAccountable,projectName:p.name});}} style={{...btnG,fontSize:'12px',padding:'7px 14px'}}><Plus size={13}/>Подотчёт по объекту</button>
+                            {isFinanceRole()&&<button onClick={()=>{const amount=prompt('Сумма оплаты от заказчика (₽):');const note=prompt('Примечание:');if(amount&&Number(amount)>0){fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,amount:Number(amount),note:note||'',date:new Date().toISOString().split('T')[0],addedBy:user.name})}).then(()=>loadAll());}}} style={{...btnO,fontSize:'12px',padding:'7px 14px'}}><Plus size={13}/>Оплата от заказчика</button>}
+                            {(isFinanceRole()||user.role==='прораб')&&<button onClick={()=>{setAddExpenseProject(p.name);setNewManualExpense({category:'materials',amount:'',note:'',date:''});}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><Plus size={13}/>Расход по объекту</button>}
+                            {isFinanceRole()&&<button onClick={()=>{setShowAccountableForm(true);setNewAccountable({...newAccountable,projectName:p.name});}} style={{...btnG,fontSize:'12px',padding:'7px 14px'}}><Plus size={13}/>Подотчёт по объекту</button>}
                             {toReimburse.length>0&&<div style={{display:'flex',alignItems:'center',gap:'6px',padding:'7px 14px',backgroundColor:C.warningLight,borderRadius:'8px',border:'1.5px solid '+C.warningBorder}}><span style={{fontSize:'12px',color:C.warning,fontWeight:'600'}}>{'⏳ К возмещению: '+toReimburse.reduce((s,e)=>s+Number(e.amount),0).toLocaleString()+' ₽'}</span></div>}
                           </div>
                           <div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
@@ -6038,7 +6073,7 @@ function App() {
 
           {activePage==='accounting'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['summary','contracts','acts','aosr','payments','documents','salary','expenses','supplierInv','audit'].map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 12px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',aosr:'🔒 АОСР к оплате',payments:'💸 Платежи',documents:'🏗 По объектам',salary:'👥 Зарплата',expenses:'💼 Авансовые',supplierInv:'📥 Счета постав.',audit:'📜 Аудит'}[tab]}</button>))}
+              {['summary','contracts','acts','aosr','payments','documents','salary','expenses','supplierInv','audit'].filter(t=>t!=='audit'||isLeadership()).map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 12px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',aosr:'🔒 АОСР к оплате',payments:'💸 Платежи',documents:'🏗 По объектам',salary:'👥 Зарплата',expenses:'💼 Авансовые',supplierInv:'📥 Счета постав.',audit:'📜 Аудит'}[tab]}</button>))}
             </div>
 
             {accountingTab==='summary'&&(<div>
@@ -6519,6 +6554,11 @@ function App() {
                     <input type='email' placeholder='Email для входа' value={newStaff.email} onChange={e=>setNewStaff({...newStaff,email:e.target.value,emailWork:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input type='text' placeholder='Пароль' value={newStaff.password} onChange={e=>setNewStaff({...newStaff,password:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                   </div>
+                  {['прораб','технадзор','стройконтроль'].includes(newStaff.systemRole)&&(()=>{const ap=newStaff.assignedProjects||[];return(<div style={{marginTop:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
+                    <b style={{fontSize:'11px',color:C.text,display:'block',marginBottom:'6px'}}>📍 Назначить объекты (приказ директора)</b>
+                    <p style={{color:C.textMuted,fontSize:'10px',margin:'0 0 8px'}}>Прораб увидит только эти объекты. Если ничего не выбрано — все.</p>
+                    <div style={{maxHeight:'140px',overflowY:'auto',display:'flex',flexDirection:'column',gap:'4px'}}>{projects.filter(p=>p.status!=='Завершён').map(pr=>(<label key={pr.id} style={{display:'flex',alignItems:'center',gap:'6px',cursor:'pointer',padding:'4px 6px',borderRadius:'6px',backgroundColor:ap.includes(pr.name)?C.successLight:'transparent'}}><input type='checkbox' checked={ap.includes(pr.name)} onChange={()=>{const next=ap.includes(pr.name)?ap.filter(n=>n!==pr.name):[...ap,pr.name];setNewStaff({...newStaff,assignedProjects:next});}}/><span style={{fontSize:'12px',color:C.text}}>{pr.name}</span></label>))}</div>
+                  </div>);})()}
                 </div>)}
 
                 <div onClick={()=>setStaffExpandedSections(s=>({...s,docs:!s.docs}))} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -7177,6 +7217,45 @@ function App() {
             </div>)}
           </div>)}
 
+          {activePage==='myexpenses'&&(()=>{
+            const myExp=(ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);
+            const pending=myExp.filter(e=>e.status==='Ожидает');
+            const approved=myExp.filter(e=>e.status==='Возмещено');
+            const rejected=myExp.filter(e=>e.status==='Отклонено');
+            const sumP=pending.reduce((s,e)=>s+Number(e.amount||0),0);
+            const sumA=approved.reduce((s,e)=>s+Number(e.amount||0),0);
+            const sumR=rejected.reduce((s,e)=>s+Number(e.amount||0),0);
+            return(<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'18px',flexWrap:'wrap',gap:'10px'}}>
+                <b style={{color:C.text,fontSize:'18px',fontWeight:'700'}}>💸 Мои траты на возмещении</b>
+                <button onClick={()=>setShowOwnExpenseForm(true)} style={btnO}><Plus size={14}/>Новая трата</button>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'18px'}}>
+                <div style={{...card,padding:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>⏳ Ожидают возмещения</p><b style={{color:C.warning,fontSize:'18px'}}>{Math.round(sumP).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{pending.length+' шт'}</p></div>
+                <div style={{...card,padding:'14px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>✅ Возмещено</p><b style={{color:C.success,fontSize:'18px'}}>{Math.round(sumA).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{approved.length+' шт'}</p></div>
+                <div style={{...card,padding:'14px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>❌ Отклонено</p><b style={{color:C.danger,fontSize:'18px'}}>{Math.round(sumR).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{rejected.length+' шт'}</p></div>
+              </div>
+              <p style={{color:C.textMuted,fontSize:'12px',marginBottom:'12px'}}>Здесь видны все ваши траты собственными деньгами. После одобрения бухгалтерией сумма попадёт в расходы объекта по выбранной категории.</p>
+              {myExp.length===0?<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Трат пока нет.<br/>Нажмите «Новая трата» чтобы зафиксировать расход.</div>:
+                ['Ожидает','Возмещено','Отклонено'].map(st=>{const items=myExp.filter(e=>e.status===st);if(items.length===0) return null;const stColor=st==='Возмещено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Возмещено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;return(<div key={st} style={{marginBottom:'18px'}}>
+                  <b style={{color:stColor,fontSize:'12px',display:'block',marginBottom:'8px'}}>{st==='Ожидает'?'⏳':st==='Возмещено'?'✅':'❌'} {st} ({items.length})</b>
+                  {items.map(e=>{const cat=EXPENSE_CATEGORIES.find(c=>c.id===e.category)||{label:'Прочее',color:C.textMuted};return(<div key={e.id} style={{...card,padding:'12px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                    <div style={{flex:1,minWidth:'200px'}}>
+                      <b style={{color:C.text,fontSize:'13px'}}>{e.description}</b>
+                      <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'—'} · 📅 {e.date||e.createdAt||'—'}</p>
+                      <span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:stBg,color:cat.color,fontSize:'10px',fontWeight:'600'}}>{cat.label}</span>
+                      {e.photoUrl&&<img src={e.photoUrl.startsWith('http')?e.photoUrl:API+e.photoUrl} alt='' onClick={()=>setShowPhotoModal(e.photoUrl.startsWith('http')?e.photoUrl:API+e.photoUrl)} style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>}
+                    </div>
+                    <div style={{textAlign:'right'}}>
+                      <b style={{color:stColor,fontSize:'15px',display:'block'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
+                      {e.approvedBy&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{e.status==='Возмещено'?'Утв.':'Откл.'} {e.approvedBy}</p>}
+                    </div>
+                  </div>);})}
+                </div>);})
+              }
+            </div>);
+          })()}
+
           {activePage==='settings'&&isFinanceRole()&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
               {['requisites','documents'].map(tab=>(<button key={tab} onClick={()=>setSettingsTab(tab)} style={{...settingsTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{requisites:'Реквизиты компании',documents:'Юр. документы'}[tab]}</button>))}
@@ -7433,7 +7512,7 @@ function App() {
       <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>➕ Добавить расход</b>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Проект: '+addExpenseProject}</p>
-        <select value={newManualExpense.category} onChange={e=>setNewManualExpense({...newManualExpense,category:e.target.value})} style={inp}>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
+        <select value={newManualExpense.category} onChange={e=>setNewManualExpense({...newManualExpense,category:e.target.value})} style={inp}>{(isFinanceRole()?EXPENSE_CATEGORIES:EXPENSE_CATEGORIES.filter(c=>['materials','delivery','other'].includes(c.id))).map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
         <input placeholder='Сумма (₽) *' type='number' value={newManualExpense.amount} onChange={e=>setNewManualExpense({...newManualExpense,amount:e.target.value})} style={inp}/>
         <input placeholder='Примечание' value={newManualExpense.note} onChange={e=>setNewManualExpense({...newManualExpense,note:e.target.value})} style={inp}/>
         <input type='date' value={newManualExpense.date} onChange={e=>setNewManualExpense({...newManualExpense,date:e.target.value})} style={inp}/>

@@ -141,6 +141,7 @@ def init_db():
         );
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_by JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'other';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
         CREATE TABLE IF NOT EXISTS tb_journal (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -1526,12 +1527,41 @@ def delete_piecework(id: int):
 
 @app.get("/users")
 def get_users():
+    import json as _j
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,email,role FROM users")
+    cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects FROM users")
     rows = cur.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        ap = d.get('assigned_projects')
+        try:
+            if isinstance(ap, str): d['assignedProjects'] = _j.loads(ap)
+            elif isinstance(ap, list): d['assignedProjects'] = ap
+            else: d['assignedProjects'] = []
+        except: d['assignedProjects'] = []
+        d.pop('assigned_projects', None)
+        d['projectId'] = d.pop('project_id', None)
+        d['projectName'] = d.pop('project_name', '')
+        out.append(d)
+    return out
+
+@app.put("/users/{id}/assigned-projects")
+def update_assigned_projects(id: int, data: dict):
+    """Назначить прорабу список проектов (массив имён)."""
+    import json as _j
+    projects_list = data.get('assignedProjects') or []
+    if not isinstance(projects_list, list):
+        return {"ok": False, "error": "assignedProjects must be array"}
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET assigned_projects=%s::jsonb WHERE id=%s",
+                (_j.dumps(projects_list), id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.post("/users")
 def create_user(u: UserModel):
