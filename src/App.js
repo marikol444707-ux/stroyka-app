@@ -3765,7 +3765,7 @@ function App() {
             <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
               <button onClick={()=>{showPreview(buildHiddenActContent(act),'АОСР № '+act.actNumber);}} style={btnB}><Eye size={14}/>🖨️ Печать по СНиП</button>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button disabled={!!act.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#10b981',opacity:act.__aiLoading?0.6:1,cursor:act.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{act.__aiLoading?'AI работает…':(act.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
+                <button disabled={!!act.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',opacity:act.__aiLoading?0.6:1,cursor:act.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{act.__aiLoading?'AI работает…':(act.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
                 <button onClick={()=>setEditingAct(null)} style={btnG}>Отмена</button>
                 <button onClick={saveAct} style={btnO}><Check size={14}/>Сохранить</button>
               </div>
@@ -3894,10 +3894,10 @@ function App() {
             <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
                 <button onClick={()=>showPreview(buildWorkJournalContent([j],j.project,j.date,j.date),'Запись журнала')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
-                {j.hiddenWork&&(<button onClick={()=>{const matchingAct=hiddenActs.find(a=>a.projectName===j.project&&(a.workName||'').trim()===(j.description||'').trim());if(matchingAct){setEditingJournal(null);setEditingAct(matchingAct);}else{alert('Акт скрытых работ для этой записи не найден. Он создаётся автоматически из сметы — отметь позицию переключателем 🔒 и заполни «Сделано».');}}} style={{...btnB,backgroundColor:'#10b981'}}>🔒 Открыть АОСР</button>)}
+                {j.hiddenWork&&(<button onClick={()=>{const matchingAct=hiddenActs.find(a=>a.projectName===j.project&&(a.workName||'').trim()===(j.description||'').trim());if(matchingAct){setEditingJournal(null);setEditingAct(matchingAct);}else{alert('Акт скрытых работ для этой записи не найден. Он создаётся автоматически из сметы — отметь позицию переключателем 🔒 и заполни «Сделано».');}}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}>🔒 Открыть АОСР</button>)}
               </div>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button disabled={!!j.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#10b981',opacity:j.__aiLoading?0.6:1,cursor:j.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{j.__aiLoading?'AI работает…':(j.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
+                <button disabled={!!j.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',opacity:j.__aiLoading?0.6:1,cursor:j.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{j.__aiLoading?'AI работает…':(j.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
                 <button onClick={()=>setEditingJournal(null)} style={btnG}>Отмена</button>
                 <button onClick={saveJournal} style={btnO}><Check size={14}/>Сохранить</button>
               </div>
@@ -4060,7 +4060,7 @@ function App() {
             <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
               <button onClick={()=>showPreview(buildMaterialInspectionContent([mi],mi.projectName,mi.receivedAt,mi.receivedAt),'Запись входного контроля')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button disabled={!!mi.__aiLoading} onClick={aiSuggest} style={{...btnB,backgroundColor:'#10b981',opacity:mi.__aiLoading?0.6:1,cursor:mi.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{mi.__aiLoading?'AI работает…':'🤖 AI-подсказка нормативов'}</button>
+                <button disabled={!!mi.__aiLoading} onClick={aiSuggest} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',opacity:mi.__aiLoading?0.6:1,cursor:mi.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{mi.__aiLoading?'AI работает…':'🤖 AI-подсказка нормативов'}</button>
                 <button onClick={()=>setEditingInspection(null)} style={btnG}>Отмена</button>
                 <button onClick={saveInspection} style={btnO}><Check size={14}/>Сохранить</button>
               </div>
@@ -4159,7 +4159,7 @@ function App() {
             <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
               <button onClick={()=>showPreview(buildCableJournalContent([cb],cb.projectName,cb.receivedAt,cb.installedAt||cb.receivedAt),'Запись кабеля')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button disabled={!!cb.__aiLoading} onClick={aiSuggest} style={{...btnB,backgroundColor:'#10b981',opacity:cb.__aiLoading?0.6:1,cursor:cb.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{cb.__aiLoading?'AI работает…':'🤖 AI-подсказка нормативов и R изоляции'}</button>
+                <button disabled={!!cb.__aiLoading} onClick={aiSuggest} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',opacity:cb.__aiLoading?0.6:1,cursor:cb.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{cb.__aiLoading?'AI работает…':'🤖 AI-подсказка нормативов и R изоляции'}</button>
                 <button onClick={()=>setEditingCable(null)} style={btnG}>Отмена</button>
                 <button onClick={saveCable} style={btnO}><Check size={14}/>Сохранить</button>
               </div>
@@ -4481,7 +4481,7 @@ function App() {
                         return(<div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
                             <b style={{color:C.text,fontSize:'14px'}}>📊 Контроль объекта</b>
-                            <button onClick={runAiSummary} style={{...btnB,backgroundColor:'#10b981',fontSize:'12px'}}><Bot size={13}/>{cached?'Обновить ИИ':'AI-сводка'}</button>
+                            <button onClick={runAiSummary} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',fontSize:'12px'}}><Bot size={13}/>{cached?'Обновить ИИ':'AI-сводка'}</button>
                           </div>
                           {cached&&(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:isFresh?C.successLight:C.warningLight,border:'1.5px solid '+(isFresh?C.successBorder:C.warningBorder)}}>
                             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
@@ -4895,7 +4895,7 @@ function App() {
                               await fetch(API+'/unexpected-works/'+tmp.id,{method:'DELETE'}).catch(()=>{});
                               setNewUnexpected(prev=>({...prev,price:Math.round(d.pricePerUnit),__aiLoading:false,__aiNote:d.justification}));
                             } catch(e){alert('AI: '+e.message);setNewUnexpected(prev=>({...prev,__aiLoading:false}));}
-                          }} style={{...btnB,backgroundColor:'#10b981',fontSize:'12px',padding:'7px 12px',opacity:newUnexpected.__aiLoading?0.6:1}}><Bot size={13}/>{newUnexpected.__aiLoading?'…':'🤖 Оценить через ИИ'}</button>
+                          }} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',fontSize:'12px',padding:'7px 12px',opacity:newUnexpected.__aiLoading?0.6:1}}><Bot size={13}/>{newUnexpected.__aiLoading?'…':'🤖 Оценить через ИИ'}</button>
                           {newUnexpected.__aiNote&&<span style={{fontSize:'11px',color:C.textSec,flex:1,fontStyle:'italic'}}>{newUnexpected.__aiNote}</span>}
                         </div>
                         <div style={{display:'flex',gap:'8px',alignItems:'center',marginTop:'8px'}}>
@@ -5166,7 +5166,7 @@ function App() {
                         <textarea placeholder="Программа инструктажа (3-5 пунктов)" value={newTbEntry.program||''} onChange={e=>setNewTbEntry({...newTbEntry,program:e.target.value})} style={{...inp,minHeight:'50px',resize:'vertical'}}/>
                         <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'6px'}}>
                           <textarea placeholder="Текст инструктажа (можно сгенерировать ИИ →)" value={newTbEntry.instructionText||''} onChange={e=>setNewTbEntry({...newTbEntry,instructionText:e.target.value})} style={{...inp,minHeight:'80px',flex:1,marginBottom:0,resize:'vertical'}}/>
-                          <button disabled={newTbEntry.aiLoading} onClick={async()=>{setNewTbEntry(prev=>({...prev,aiLoading:true}));try{const res=await fetch(API+'/tb-journal/ai-generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instructionType:newTbEntry.type,projectName:p.name,workContext:''})});if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||'Ошибка');}const d=await res.json();setNewTbEntry(prev=>({...prev,instructionText:d.instructionText||'',aiLoading:false}));}catch(e){alert('AI: '+e.message);setNewTbEntry(prev=>({...prev,aiLoading:false}));}}} style={{...btnB,backgroundColor:'#10b981',padding:'10px 12px',fontSize:'11px',opacity:newTbEntry.aiLoading?0.6:1}} title="Сгенерировать текст по ГОСТ через ИИ"><Bot size={14}/>{newTbEntry.aiLoading?'…':'🤖 ИИ'}</button>
+                          <button disabled={newTbEntry.aiLoading} onClick={async()=>{setNewTbEntry(prev=>({...prev,aiLoading:true}));try{const res=await fetch(API+'/tb-journal/ai-generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instructionType:newTbEntry.type,projectName:p.name,workContext:''})});if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||'Ошибка');}const d=await res.json();setNewTbEntry(prev=>({...prev,instructionText:d.instructionText||'',aiLoading:false}));}catch(e){alert('AI: '+e.message);setNewTbEntry(prev=>({...prev,aiLoading:false}));}}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',padding:'10px 12px',fontSize:'11px',opacity:newTbEntry.aiLoading?0.6:1}} title="Сгенерировать текст по ГОСТ через ИИ"><Bot size={14}/>{newTbEntry.aiLoading?'…':'🤖 ИИ'}</button>
                         </div>
                         <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
                           <input placeholder="ФИО участника" value={newParticipant} onChange={e=>setNewParticipant(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(setNewTbEntry({...newTbEntry,participants:[...(newTbEntry.participants||[]),newParticipant]}),setNewParticipant(''))} style={{...inp,marginBottom:0,flex:1}}/>
@@ -6627,7 +6627,7 @@ function App() {
             <div style={{display:'flex',gap:'16px',height:'calc(100vh - 120px)'}}>
               <div style={{width:'280px',flexShrink:0,display:'flex',flexDirection:'column',gap:'10px',overflowY:'auto'}}>
                 <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewPricelist({name:'',description:'',forWho:'',coefficient:1.0});setSelectedPricelist(null);setPricelistItems([]);}} style={{...btnO,justifyContent:'center'}}><Plus size={14}/>Новый прайс-лист</button>
-                <button onClick={()=>{setGeneratePricelistForm({description:'',name:'',forWho:'',coefficient:1.0});setShowGeneratePricelist(true);}} style={{...btnB,backgroundColor:'#10b981',justifyContent:'center'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
+                <button onClick={()=>{setGeneratePricelistForm({description:'',name:'',forWho:'',coefficient:1.0});setShowGeneratePricelist(true);}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',justifyContent:'center'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
                 <button onClick={()=>{setFromEstimateForm({estimateId:'',name:'',forWho:'',coefficient:1.0});setShowFromEstimate(true);}} style={{...btnB,justifyContent:'center'}}><FileText size={14}/>📋 Из сметы</button>
                 {showForm&&!selectedPricelist&&(<div style={{...card,padding:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newPricelist.name} onChange={e=>setNewPricelist({...newPricelist,name:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPricelist.forWho} onChange={e=>setNewPricelist({...newPricelist,forWho:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Для кого</option>{['Электрики','Сантехники','Каменщики','Отделочники','Кровельщики','Монтажники','Общий'].map(r=><option key={r}>{r}</option>)}</select></div><label style={{color:C.textSec,fontSize:'13px',display:'block',marginTop:'10px',marginBottom:'4px'}}>{'Коэффициент: ×'+newPricelist.coefficient}</label><input type="range" min="0.5" max="3" step="0.1" value={newPricelist.coefficient} onChange={e=>setNewPricelist({...newPricelist,coefficient:Number(e.target.value)})} style={{width:'100%',marginBottom:'12px',accentColor:C.accent}}/><div style={{display:'flex',gap:'10px'}}><button onClick={savePricelist} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
                 {pricelists.map(pl=>(<div key={pl.id} onClick={async()=>{setSelectedPricelist(pl);await loadPricelistItems(pl.id);setShowForm(false);setEditingPlItem(null);}} style={{...card,padding:'14px',cursor:'pointer',border:'1.5px solid '+(selectedPricelist?.id===pl.id?C.accent:C.border),backgroundColor:selectedPricelist?.id===pl.id?C.accentLight:C.bgWhite}}>
@@ -6746,7 +6746,7 @@ function App() {
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
                 <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сметы</b>
                 <div style={{display:'flex',gap:'8px'}}>
-                  <button onClick={()=>{setGenerateForm({description:'',projectId:'',pricelistId:'',area:'',name:''});setShowGenerateEstimate(true);}} style={{...btnB,backgroundColor:'#10b981'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
+                  <button onClick={()=>{setGenerateForm({description:'',projectId:'',pricelistId:'',area:'',name:''});setShowGenerateEstimate(true);}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
                   <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая смета</button>
                 </div>
               </div>
@@ -6915,7 +6915,7 @@ function App() {
                       setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name},{role:'assistant',content:out}]);
                     }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
                     setAiLoading(false);
-                  }} style={{...btnB,backgroundColor:'#10b981'}}><Bot size={14}/>ИИ Анализ</button>
+                  }} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>ИИ Анализ</button>
                 </div>
                 <div style={{...card,padding:'16px',marginBottom:'16px'}}>
                   <div style={{display:'flex',gap:'8px',marginBottom:'10px',alignItems:'center'}}>
@@ -7449,7 +7449,7 @@ function App() {
               }else alert('ИИ не справился, распределите вручную');
             }catch(e){alert('Ошибка ИИ: '+e.message);}
             setDistributing(false);
-          }} disabled={distributing||distributeBrigades.length===0} style={{...btnB,backgroundColor:'#10b981',fontSize:'12px'}}><Bot size={13}/>🤖 ИИ распределит</button>
+          }} disabled={distributing||distributeBrigades.length===0} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',fontSize:'12px'}}><Bot size={13}/>🤖 ИИ распределит</button>
           <div style={{display:'flex',gap:'8px'}}>
             <button onClick={()=>setShowDistribute(false)} disabled={distributing} style={btnG}><X size={14}/>Отмена</button>
             <button disabled={distributing||Object.keys(distributeAssignments).length===0} onClick={async()=>{
