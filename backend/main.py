@@ -140,6 +140,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_by JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'other';
         CREATE TABLE IF NOT EXISTS tb_journal (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -4696,22 +4697,23 @@ def create_accountable_expense(data: dict):
 def get_own_expenses(project_name: str = "", employee_name: str = ""):
     conn = get_db()
     cur = conn.cursor()
+    cols = "id,project_name,employee_name,description,amount,photo_url,date,status,approved_by,category"
     if project_name:
-        cur.execute("SELECT id,project_name,employee_name,description,amount,photo_url,date,status,approved_by FROM own_expenses WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        cur.execute(f"SELECT {cols} FROM own_expenses WHERE project_name=%s ORDER BY id DESC", (project_name,))
     elif employee_name:
-        cur.execute("SELECT id,project_name,employee_name,description,amount,photo_url,date,status,approved_by FROM own_expenses WHERE employee_name=%s ORDER BY id DESC", (employee_name,))
+        cur.execute(f"SELECT {cols} FROM own_expenses WHERE employee_name=%s ORDER BY id DESC", (employee_name,))
     else:
-        cur.execute("SELECT id,project_name,employee_name,description,amount,photo_url,date,status,approved_by FROM own_expenses ORDER BY id DESC")
+        cur.execute(f"SELECT {cols} FROM own_expenses ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"employeeName":r[2],"description":r[3],"amount":float(r[4] or 0),"photoUrl":r[5] or "","date":str(r[6]) if r[6] else "","status":r[7] or "Ожидает","approvedBy":r[8] or ""} for r in rows]
+    return [{"id":r[0],"projectName":r[1],"employeeName":r[2],"description":r[3],"amount":float(r[4] or 0),"photoUrl":r[5] or "","date":str(r[6]) if r[6] else "","status":r[7] or "Ожидает","approvedBy":r[8] or "","category":r[9] or "other"} for r in rows]
 
 @app.post("/own-expenses")
 def create_own_expense(data: dict):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO own_expenses (project_name,employee_name,employee_id,description,amount,photo_url,date) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (data.get("projectName",""),data.get("employeeName",""),data.get("employeeId"),data.get("description",""),data.get("amount",0),data.get("photoUrl",""),data.get("date") or None))
+    cur.execute("INSERT INTO own_expenses (project_name,employee_name,employee_id,description,amount,photo_url,date,category) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (data.get("projectName",""),data.get("employeeName",""),data.get("employeeId"),data.get("description",""),data.get("amount",0),data.get("photoUrl",""),data.get("date") or None,data.get("category","other")))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}

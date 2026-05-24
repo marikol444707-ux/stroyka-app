@@ -381,7 +381,7 @@ function App() {
   const [customRoomTypes, setCustomRoomTypes] = useState(()=>{try{return JSON.parse(localStorage.getItem('customRoomTypes')||'[]');}catch{return [];}});
   const [manualExpenses, setManualExpenses] = useState([]);
   const [newManualExpense, setNewManualExpense] = useState({category:'materials',amount:'',note:'',date:''});
-  const [newOwnExpense, setNewOwnExpense] = useState({projectName:'',description:'',amount:'',photoUrl:'',date:''});
+  const [newOwnExpense, setNewOwnExpense] = useState({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
   const [checklists, setChecklists] = useState([]);
@@ -1654,14 +1654,13 @@ function App() {
     const mats=(materials||[]).filter(m=>m.project===p.name).reduce((s,m)=>s+Number(m.quantity||0)*Number(m.price||0),0);
     return {works,materials:mats,total:works+mats};
   };
-  // Полное «освоено по бюджету» = MAX(сметный done, журнал работ) + материалы на объекте + утверждённые доп.соглашения
+  // Себестоимость объекта = все категории из expByCategory (работы, материалы, доставка, топливо, и т.д.)
   const projectBudgetSpent = (p) => {
-    if(!p) return {works:0,materials:0,unexpected:0,total:0};
-    const planDone=projectPlanDone(p).done;
-    const fact=projectFactSpent(p);
-    const works=Math.max(planDone,fact.works);
-    const unx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Утверждено').reduce((s,u)=>s+Number(u.total||0),0);
-    return {works,materials:fact.materials,unexpected:unx,total:works+fact.materials+unx};
+    if(!p) return {works:0,materials:0,unexpected:0,other:0,total:0};
+    const cat=expByCategory(p.name);
+    const total=Object.values(cat).reduce((s,v)=>s+Number(v||0),0);
+    const other=total-(cat.works||0)-(cat.materials||0)-(cat.unexpected||0);
+    return {works:cat.works||0,materials:cat.materials||0,unexpected:cat.unexpected||0,other:other,total:total};
   };
   const projectRealProgress = (p) => {
     if(!p) return 0;
@@ -2148,8 +2147,15 @@ function App() {
   const workedDays = (id) => daysInMonth.filter(d=>timesheet[id+'-'+d]).length;
   const pwTotal = (id) => piecework.filter(p=>Number(p.staffId)===id).reduce((s,p)=>s+p.total,0);
   const calcSalary = (s) => s.payType==='сдельно'?pwTotal(s.id):Math.round((s.salary/31)*workedDays(s.id));
-  const matCost = (n) => history.filter(h=>h.project===n&&h.type==='расход').reduce((s,h)=>{const m=materials.find(m=>m.name===h.material);return s+(m?m.price*h.quantity:0);},0);
-  const labCost = (n) => staff.filter(s=>s.project===n).reduce((s,st)=>s+calcSalary(st),0)+piecework.filter(p=>p.project===n).reduce((s,p)=>s+p.total,0);
+  // Стоимость материалов на объекте (то что закуплено и привезено)
+  const matCost = (n) => (materials||[]).filter(m=>m.project===n).reduce((s,m)=>s+Number(m.quantity||0)*Number(m.price||0),0);
+  // Себестоимость работ: что должны бригадам (по priceBrigade × doneQuantity) + зарплата + сдельщина
+  const labCost = (n) => {
+    const fromBrigades = (allBrigadeItems||[]).filter(it=>it.projectName===n&&Number(it.doneQuantity||0)>0).reduce((s,it)=>s+Number(it.doneQuantity||0)*Number(it.priceBrigade||0),0);
+    const salaries = (staff||[]).filter(s=>s.project===n).reduce((s,st)=>s+calcSalary(st),0);
+    const pwSum = (piecework||[]).filter(p=>p.project===n).reduce((s,p)=>s+Number(p.total||0),0);
+    return fromBrigades + salaries + pwSum;
+  };
   const expByCategory = (pn) => {
     const r={};
     EXPENSE_CATEGORIES.forEach(c=>{r[c.id]=0;});
@@ -2161,8 +2167,8 @@ function App() {
     unexpectedWorksList.filter(u=>u.projectName===pn&&u.status==='Утверждено').forEach(u=>{r['unexpected']=(r['unexpected']||0)+u.total;});
     // Подотчётные траты (только потраченное)
     accountablePayments.filter(ac=>ac.projectName===pn).forEach(ac=>{r['accountable']=(r['accountable']||0)+Number(ac.spentAmount||0);});
-    // Возмещения своих трат
-    ownExpenses.filter(e=>e.projectName===pn&&e.status==='Возмещено').forEach(e=>{r['accountable']=(r['accountable']||0)+Number(e.amount||0);});
+    // Возмещения своих трат — по указанной категории, fallback на accountable
+    ownExpenses.filter(e=>e.projectName===pn&&e.status==='Возмещено').forEach(e=>{const c=e.category||'accountable';r[c]=(r[c]||0)+Number(e.amount||0);});
     return r;
   };
   const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
@@ -4305,7 +4311,7 @@ function App() {
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'16px',marginBottom:'20px'}}>
                 {[{label:'Объекты',value:projects.filter(p=>p.status!=='Завершён').length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)'},
                   {label:'Прогресс',value:avgProg+'%',sub:'среднее по объектам',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)'},
-                  {label:'Выполнено',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'работы + материалы + ДС'+(totalMaterials>0||totalUnexpected>0?' (м.'+Math.round(totalMaterials/1000)+'т, ДС '+Math.round(totalUnexpected/1000)+'т)':''),color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)'},
+                  {label:'Себестоимость',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'затраты по всем объектам',color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)'},
                   {label:'Бюджет',value:(()=>{const t=projects.reduce((s,p)=>s+Number(p.budget||0),0);return t>=1000000?Math.round(t/1000000)+' млн':Math.round(t/1000)+' тыс';})(),sub:'общий бюджет ₽',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)'}
                 ].map((k,i)=>(
                   <div key={i} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
@@ -4465,10 +4471,12 @@ function App() {
                         {isFinanceRole()&&(<><div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}><b style={{color:C.text,fontSize:'13px'}}>Прогресс бюджета</b><span style={{fontSize:'13px',color:total>p.budget?C.danger:C.success}}>{Math.round(total).toLocaleString('ru-RU')+' из '+p.budget.toLocaleString()+' ₽'}</span></div>
                         <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'10px'}}><div style={{backgroundColor:total>p.budget?C.danger:total>p.budget*0.8?C.warning:C.success,width:Math.min(100,p.budget>0?total/p.budget*100:0)+'%',height:'100%',borderRadius:'6px',transition:'width 0.3s'}}/></div>
                         <div style={{display:'flex',gap:'12px',flexWrap:'wrap',marginTop:'8px',fontSize:'11px',color:C.textSec}}>
-                          <span>🔨 Работы: <b style={{color:C.text}}>{Math.round(_bs.works).toLocaleString('ru-RU')+' ₽'}</b></span>
+                          <span>🔨 Работы/Бригады: <b style={{color:C.text}}>{Math.round(_bs.works).toLocaleString('ru-RU')+' ₽'}</b></span>
                           <span>📦 Материалы: <b style={{color:C.text}}>{Math.round(_bs.materials).toLocaleString('ru-RU')+' ₽'}</b></span>
-                          {_bs.unexpected>0&&<span>🆕 Доп.соглаш.: <b style={{color:C.warning}}>{Math.round(_bs.unexpected).toLocaleString('ru-RU')+' ₽'}</b></span>}
-                        </div></>)}
+                          {_bs.unexpected>0&&<span>🆕 Непредвиденные: <b style={{color:C.warning}}>{Math.round(_bs.unexpected).toLocaleString('ru-RU')+' ₽'}</b></span>}
+                          {_bs.other>0&&<span>⚙️ Прочие затраты: <b style={{color:C.text}}>{Math.round(_bs.other).toLocaleString('ru-RU')+' ₽'}</b></span>}
+                        </div>
+                        <p style={{margin:'6px 0 0',fontSize:'10px',color:C.textMuted,fontStyle:'italic'}}>Себестоимость = всё что мы потратили (наши затраты), а не бюджет заказчика</p></>)}
                       </div>
                       <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'16px'}}>
                         <button onClick={()=>showPreview(buildPassportContent(p),'Паспорт объекта — '+p.name)} style={btnB}><FileText size={14}/>Паспорт</button>
@@ -7855,6 +7863,7 @@ function App() {
       <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
         <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{projects.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
+        <select value={newOwnExpense.category||'other'} onChange={e=>setNewOwnExpense({...newOwnExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат *</option>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
         <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
         <input placeholder='Сумма (₽) *' type='number' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>
         <input type='date' value={newOwnExpense.date} onChange={e=>setNewOwnExpense({...newOwnExpense,date:e.target.value})} style={inp}/>
@@ -7867,12 +7876,12 @@ function App() {
           <button onClick={async()=>{
             if(!newOwnExpense.projectName||!newOwnExpense.description||!newOwnExpense.amount) return;
             await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newOwnExpense,amount:Number(newOwnExpense.amount),employeeName:user.name,employeeId:user.id})});
-            setNewOwnExpense({projectName:'',description:'',amount:'',photoUrl:'',date:''});
+            setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
             setShowOwnExpenseForm(false);
             await loadAll();
             alert('Отправлено на возмещение!');
           }} style={btnO}><Check size={14}/>Отправить</button>
-          <button onClick={()=>{setShowOwnExpenseForm(false);setNewOwnExpense({projectName:'',description:'',amount:'',photoUrl:'',date:''});}} style={btnG}><X size={14}/>Отмена</button>
+          <button onClick={()=>{setShowOwnExpenseForm(false);setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});}} style={btnG}><X size={14}/>Отмена</button>
         </div>
       </div>
     </div>)}
