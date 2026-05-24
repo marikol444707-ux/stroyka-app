@@ -57,7 +57,7 @@ const ROLES = {
   директор: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','accounting','analytics','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
   зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','analytics','accounting','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
   главный_инженер: ['dashboard','projects','warehouse','staff','companychat','estimates','weather','myexpenses'],
-  прораб: ['dashboard','projects','warehouse','suppliers','staff','companychat','weather','myexpenses'],
+  прораб: ['projects','companychat','weather','myexpenses'],
   кладовщик: ['warehouse','suppliers','companychat','myexpenses'],
   бухгалтер: ['dashboard','accounting','personnel','companychat','settings','myexpenses'],
   снабженец: ['warehouse','suppliers','companychat','myexpenses'],
@@ -4449,7 +4449,13 @@ function App() {
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
                   <div style={{borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'18px 16px 10px'}}>
                     {(()=>{
-                      const tabGroups=[
+                      const _isForeman=user.role==='прораб';
+                      const tabGroups=_isForeman?[
+                        {id:'work',icon:'🔨',label:'Работы',tabs:['Наряды','Непредвиденные','Чек-листы','Смета']},
+                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы','Материалы']},
+                        {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
+                        {id:'docs',icon:'📋',label:'Документы',tabs:['КС-2','Акты технадзора','Замечания ГСН','Гарантия']},
+                      ]:[
                         {id:'work',icon:'🔨',label:'Работы',tabs:['Наряды','Непредвиденные','Чек-листы']},
                         {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
                         {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы']},
@@ -4458,7 +4464,7 @@ function App() {
                       ];
                       const activeGroup=tabGroups.find(g=>g.tabs.includes(activeProjectTab));
                       return(<div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'6px',marginBottom:'12px'}}>
+                        <div style={{display:'grid',gridTemplateColumns:'repeat('+tabGroups.length+',1fr)',gap:'6px',marginBottom:'12px'}}>
                           {tabGroups.map(g=>(<div key={g.id} onClick={()=>{setActiveTabGroup(activeTabGroup===g.id?null:g.id);if(g.tabs.length>0)setActiveProjectTab(g.tabs[0]);}} style={{padding:'12px 4px',borderRadius:'12px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'4px',backgroundColor:activeGroup&&activeGroup.id===g.id?C.accentLight:C.bgWhite,border:'1.5px solid '+(activeGroup&&activeGroup.id===g.id?C.accentBorder:C.border),transition:'all 0.15s',minHeight:'72px'}}>
                             <div style={{fontSize:'22px',lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center'}}>{g.icon}</div>
                             <div style={{fontSize:'11px',fontWeight:activeGroup&&activeGroup.id===g.id?'700':'500',color:activeGroup&&activeGroup.id===g.id?C.accent:C.textSec,textAlign:'center',lineHeight:1.2}}>{g.label}</div>
@@ -4472,9 +4478,9 @@ function App() {
                   </div>
                   <div style={{padding:'20px'}}>
                     {activeProjectTab==='Общее'&&(<div>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px',marginBottom:'16px'}}>
+                      {isFinanceRole()&&(<div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px',marginBottom:'16px'}}>
                         {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'14px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
-                      </div>
+                      </div>)}
                       <div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
                         <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'12px'}}>📊 Наряды и выполнение</b>
                         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'12px'}}>
