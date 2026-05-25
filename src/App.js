@@ -676,7 +676,7 @@ function App() {
     if (['директор','зам_директора'].includes(user.role)) return notifs;
     if (user.role==='прораб') return notifs.filter(n=>['work','material','unexpected','prescription','supply'].includes(n.type));
     if (['мастер','субподрядчик'].includes(user.role)) return notifs.filter(n=>n.text&&n.text.includes(user.name));
-    if (user.role==='бухгалтер') return notifs.filter(n=>['invoice','act','contract'].includes(n.type));
+    if (user.role==='бухгалтер') return notifs.filter(n=>['invoice','act','contract','pay','expreport','ownexp','supplyinv'].includes(n.type));
     if (['кладовщик','снабженец'].includes(user.role)) return notifs.filter(n=>['stock','supply','delivery'].includes(n.type));
     return notifs;
   };
@@ -1736,6 +1736,18 @@ function App() {
     if (user.role==='бухгалтер'||user.role==='директор'||user.role==='зам_директора'){
       hiddenActs.filter(a=>a.status==='Подписан'&&a.paidStatus!=='Оплачен').forEach(a=>{
         out.push({type:'pay',title:'АОСР подписан — можно платить бригаде',text:a.actNumber+' · '+a.workName+' · '+Math.round(Number(a.total||0)).toLocaleString('ru-RU')+' ₽',target:'accounting',icon:'💰',color:'#10b981'});
+      });
+      // Авансовые отчёты на утверждение
+      (expenseReports||[]).filter(r=>r.status==='На утверждении'||r.status==='Подано'||!r.status).slice(0,5).forEach(r=>{
+        out.push({type:'expreport',title:'Авансовый отчёт на утверждение',text:(r.employeeName||'—')+' · '+Math.round(Number(r.totalAmount||0)).toLocaleString('ru-RU')+' ₽',icon:'💼',color:'#f59e0b'});
+      });
+      // Свои траты сотрудников на возмещение
+      (ownExpenses||[]).filter(e=>e.status==='Ожидает').slice(0,5).forEach(e=>{
+        out.push({type:'ownexp',title:'Возмещение «Мои траты»',text:(e.employeeName||'—')+' · '+e.description+' · '+Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽',icon:'💸',color:'#3b82f6'});
+      });
+      // Счета поставщиков не оплачены
+      (supplierInvoices||[]).filter(s=>s.status==='К оплате'||s.status==='Новый'||!s.status||s.status==='Подтверждён').slice(0,5).forEach(s=>{
+        out.push({type:'supplyinv',title:'Счёт поставщика к оплате',text:(s.supplierName||'—')+' · '+Math.round(Number(s.totalAmount||0)).toLocaleString('ru-RU')+' ₽',icon:'📥',color:'#8b5cf6'});
       });
     }
     if (user.role==='заказчик'){
@@ -5532,7 +5544,7 @@ function App() {
                               <div style={{padding:'10px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Получено от заказчика</p><b style={{color:C.success,fontSize:'15px'}}>{received.toLocaleString()+' ₽'}</b></div>
                               <div style={{padding:'10px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Все расходы</p><b style={{color:C.danger,fontSize:'15px'}}>{total.toLocaleString()+' ₽'}</b></div>
                               <div style={{padding:'10px',backgroundColor:'white',borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>В подотчёте</p><b style={{color:C.warning,fontSize:'15px'}}>{inAccountable.toLocaleString()+' ₽'}</b></div>
-                              <div style={{padding:'10px',backgroundColor:profit>=0?C.successLight:C.dangerLight,borderRadius:'8px',border:'1.5px solid '+(profit>=0?C.successBorder:C.dangerBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Прибыль</p><b style={{color:profit>=0?C.success:C.danger,fontSize:'15px'}}>{profit.toLocaleString()+' ₽'}</b></div>
+                              {isLeadership()&&<div style={{padding:'10px',backgroundColor:profit>=0?C.successLight:C.dangerLight,borderRadius:'8px',border:'1.5px solid '+(profit>=0?C.successBorder:C.dangerBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Прибыль</p><b style={{color:profit>=0?C.success:C.danger,fontSize:'15px'}}>{profit.toLocaleString()+' ₽'}</b></div>}
                             </div>
                           </div>
                           {showBalanceDetails&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
@@ -6415,7 +6427,7 @@ function App() {
 
           {activePage==='accounting'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['summary','contracts','acts','aosr','payments','documents','salary','expenses','supplierInv','audit'].filter(t=>t!=='audit'||isLeadership()).map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 12px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',aosr:'🔒 АОСР к оплате',payments:'💸 Платежи',documents:'🏗 По объектам',salary:'👥 Зарплата',expenses:'💼 Авансовые',supplierInv:'📥 Счета постав.',audit:'📜 Аудит'}[tab]}</button>))}
+              {['summary','contracts','acts','payments','documents','salary','expenses','supplierInv','audit'].filter(t=>t!=='audit'||isLeadership()).map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 12px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',payments:'💸 Платежи',documents:'🏗 По объектам',salary:'👥 Зарплата',expenses:'💼 Авансовые',supplierInv:'📥 Счета постав.',audit:'📜 Аудит'}[tab]}</button>))}
             </div>
 
             {accountingTab==='summary'&&(<div>
@@ -6436,9 +6448,9 @@ function App() {
                   {label:'Активных проектов',val:activeProj+' из '+projects.length,color:C.accent},
                   {label:'Общий бюджет',val:Math.round(totalBudget).toLocaleString('ru-RU')+' ₽',color:C.text},
                   {label:'Поступило от заказчиков',val:Math.round(totalPayIn).toLocaleString('ru-RU')+' ₽',color:C.success},
-                  {label:'Свои расходы',val:Math.round(totalExpOut).toLocaleString('ru-RU')+' ₽',color:C.warning},
-                  {label:'Подотчётные',val:Math.round(totalAccount).toLocaleString('ru-RU')+' ₽',color:C.warning},
-                  {label:'Чистая прибыль',val:Math.round(netProfit).toLocaleString('ru-RU')+' ₽',color:netProfit>=0?C.success:C.danger},
+                  {label:'Возмещения сотрудникам',val:Math.round(totalExpOut).toLocaleString('ru-RU')+' ₽',color:C.warning},
+                  {label:'Подотчётные на руках',val:Math.round(totalAccount).toLocaleString('ru-RU')+' ₽',color:C.warning},
+                  ...(isLeadership()?[{label:'Чистая прибыль',val:Math.round(netProfit).toLocaleString('ru-RU')+' ₽',color:netProfit>=0?C.success:C.danger}]:[]),
                 ];
                 return(<div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'20px'}}>
@@ -6557,8 +6569,12 @@ function App() {
               </div>
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <select value={newContract.masterId} onChange={e=>{const mp=masterProfiles.find(p=>p.userId===Number(e.target.value));setNewContract({...newContract,masterId:e.target.value,masterName:mp?mp.fullName:''});}} style={{...inp,marginBottom:0}}><option value="">Выберите мастера *</option>{masterProfiles.map(mp=><option key={mp.userId} value={mp.userId}>{mp.fullName}</option>)}</select>
-                  <select value={newContract.contractType} onChange={e=>setNewContract({...newContract,contractType:e.target.value})} style={{...inp,marginBottom:0}}>{['ГПХ','ИП','Самозанятый'].map(t=><option key={t}>{t}</option>)}</select>
+                  <select value={newContract.masterId} onChange={e=>{const val=e.target.value;const mp=masterProfiles.find(p=>p.userId===Number(val));const st=(staff||[]).find(s=>s.id===Number(val));const name=mp?mp.fullName:(st?st.name:'');setNewContract({...newContract,masterId:val,masterName:name});}} style={{...inp,marginBottom:0}}>
+                    <option value="">Выберите исполнителя *</option>
+                    {/* Группировка по типу */}
+                    {(()=>{const groups=[{label:'👷 Мастера и субподрядчики',roles:['мастер','субподрядчик','бригадир']},{label:'🔨 Прорабы',roles:['прораб','главный_инженер']},{label:'🏢 Юр.лица (ИП/ООО)',roles:['организация','ип','ооо']}];return groups.map(g=>{const items=(staff||[]).filter(s=>g.roles.includes(String(s.role||'').toLowerCase()));if(items.length===0) return null;return(<optgroup key={g.label} label={g.label}>{items.map(s=><option key={s.id} value={s.id}>{s.name+(s.specialization?' · '+s.specialization:'')+(s.category?' · '+s.category:'')}</option>)}</optgroup>);});})()}
+                  </select>
+                  <select value={newContract.contractType} onChange={e=>setNewContract({...newContract,contractType:e.target.value})} style={{...inp,marginBottom:0}}>{['ГПХ','ТД','Самозанятый','ИП','ООО','Подряд'].map(t=><option key={t}>{t}</option>)}</select>
                   <input placeholder="Номер договора *" value={newContract.contractNumber} onChange={e=>setNewContract({...newContract,contractNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
                   <select value={newContract.project} onChange={e=>setNewContract({...newContract,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Выберите объект *</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
                   <input type="date" placeholder="Начало" value={newContract.startDate} onChange={e=>setNewContract({...newContract,startDate:e.target.value})} style={{...inp,marginBottom:0}}/>
