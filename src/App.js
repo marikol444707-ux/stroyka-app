@@ -6,6 +6,30 @@ import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserC
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
 // Парсинг чисел с поддержкой запятой как разделителя (русская локаль): "0,027" → 0.027
 const toNum = (v) => { if(v===null||v===undefined||v==='') return 0; const s=String(v).replace(',', '.').replace(/\s+/g,''); const n=Number(s); return isNaN(n)?0:n; };
+// Нормализация ГЭСН-единиц: «100 м²» × 0.23 → «м²» × 23, «1000 шт» × 0.5 → «шт» × 500.
+// Это для УДОБНОГО показа мастеру/прорабу/заказчику. В БД хранится исходник.
+const normalizeMeasure = (qty, unit) => {
+  if(!unit) return {qty: toNum(qty), unit: unit||'', factor: 1};
+  // Ищем число-множитель в начале строки: "100 м²", "1000 шт", "10 м³", "100м2"
+  const m = String(unit).trim().match(/^(\d{2,})\s*(.+)$/);
+  if(!m) return {qty: toNum(qty), unit, factor: 1};
+  const factor = parseInt(m[1], 10);
+  if(factor < 10) return {qty: toNum(qty), unit, factor: 1};
+  return {qty: toNum(qty) * factor, unit: m[2].trim(), factor};
+};
+// Обратное преобразование: пользователь ввёл 23 м², а unit смета «100 м²» — сохраняем 0.23
+const denormalizeMeasure = (qty, unit) => {
+  const {factor} = normalizeMeasure(1, unit);
+  if(factor <= 1) return toNum(qty);
+  return toNum(qty) / factor;
+};
+// Красивое форматирование "qty unit" с автонормализацией
+const fmtMeasure = (qty, unit) => {
+  const n = normalizeMeasure(qty, unit);
+  const q = n.qty;
+  const qStr = Math.abs(q - Math.round(q)) < 0.001 ? String(Math.round(q)) : q.toLocaleString('ru-RU', {maximumFractionDigits: 3});
+  return qStr + ' ' + (n.unit||'');
+};
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
 
 const requestPushPermission = async () => {
@@ -2995,7 +3019,7 @@ function App() {
             </div>
             <div style={{...card,padding:'20px'}}>
               <h4 style={{marginBottom:'15px',color:C.text,fontSize:'14px',fontWeight:'600'}}>Последние работы</h4>
-              {myWorks.slice(0,5).map(w=>{const je=workJournal.find(j=>j.masterId===user.id&&j.description===w.description&&j.date===w.date);return(<div key={w.id} style={{padding:'12px 0',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{w.description}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{w.quantity+' '+w.unit+' · '+w.project+' · '+w.date}</p>{je&&<span style={badge(je.status==='Подтверждено'?C.success:je.status==='Отклонено'?C.danger:C.warning,je.status==='Подтверждено'?C.successLight:je.status==='Отклонено'?C.dangerLight:C.warningLight,je.status==='Подтверждено'?C.successBorder:je.status==='Отклонено'?C.dangerBorder:C.warningBorder)}>{je.status}</span>}</div><b style={{color:C.success,fontSize:'13px',whiteSpace:'nowrap'}}>{(w.total||0).toLocaleString()+' ₽'}</b></div>);})}
+              {myWorks.slice(0,5).map(w=>{const je=workJournal.find(j=>j.masterId===user.id&&j.description===w.description&&j.date===w.date);return(<div key={w.id} style={{padding:'12px 0',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{w.description}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{fmtMeasure(w.quantity,w.unit)+' · '+w.project+' · '+w.date}</p>{je&&<span style={badge(je.status==='Подтверждено'?C.success:je.status==='Отклонено'?C.danger:C.warning,je.status==='Подтверждено'?C.successLight:je.status==='Отклонено'?C.dangerLight:C.warningLight,je.status==='Подтверждено'?C.successBorder:je.status==='Отклонено'?C.dangerBorder:C.warningBorder)}>{je.status}</span>}</div><b style={{color:C.success,fontSize:'13px',whiteSpace:'nowrap'}}>{(w.total||0).toLocaleString()+' ₽'}</b></div>);})}
               {myWorks.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Работ пока нет</p>}
             </div>
           </div>)}
@@ -3006,7 +3030,7 @@ function App() {
               <b style={{color:'white',fontSize:'14px'}}>Всего заработано:</b>
               <b style={{color:'white',fontSize:'20px',fontWeight:'800'}}>{myTotal.toLocaleString()+' ₽'}</b>
             </div>
-            {myProjects.map(projectName=>{const projectWorks=myWorks.filter(w=>w.project===projectName);const projectTotal=projectWorks.reduce((s,w)=>s+w.total,0);const isOpen=expandedProject===projectName;return(<div key={projectName} style={{...card,marginBottom:'10px'}}><div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedProject(isOpen?null:projectName)}><div><b style={{color:C.text,fontSize:'14px'}}>{projectName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{projectWorks.length+' работ'}</p></div><div style={{display:'flex',alignItems:'center',gap:'12px'}}><b style={{color:C.success,fontSize:'15px'}}>{projectTotal.toLocaleString()+' ₽'}</b>{isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div></div>{isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 16px'}}>{projectWorks.map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{w.description}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+' · '+w.date}</p></div><b style={{color:C.success,fontSize:'13px'}}>{(w.total||0).toLocaleString()+' ₽'}</b></div>))}</div>)}</div>);})}
+            {myProjects.map(projectName=>{const projectWorks=myWorks.filter(w=>w.project===projectName);const projectTotal=projectWorks.reduce((s,w)=>s+w.total,0);const isOpen=expandedProject===projectName;return(<div key={projectName} style={{...card,marginBottom:'10px'}}><div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedProject(isOpen?null:projectName)}><div><b style={{color:C.text,fontSize:'14px'}}>{projectName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{projectWorks.length+' работ'}</p></div><div style={{display:'flex',alignItems:'center',gap:'12px'}}><b style={{color:C.success,fontSize:'15px'}}>{projectTotal.toLocaleString()+' ₽'}</b>{isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div></div>{isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 16px'}}>{projectWorks.map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{w.description}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{fmtMeasure(w.quantity,w.unit)+' · '+w.date}</p></div><b style={{color:C.success,fontSize:'13px'}}>{(w.total||0).toLocaleString()+' ₽'}</b></div>))}</div>)}</div>);})}
             {myProjects.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Нет данных</div>}
           </div>)}
 
@@ -3343,7 +3367,7 @@ function App() {
                       <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>{(w.masterName||w.master_name||'—')+' · '+(w.confirmedAt||w.date||'—')}</p>
                     </div>
                     <div style={{textAlign:'right',flexShrink:0}}>
-                      <b style={{fontSize:'12px',color:C.text}}>{Number(w.quantity||0).toLocaleString('ru-RU')+' '+(w.unit||'')}</b>
+                      <b style={{fontSize:'12px',color:C.text}}>{fmtMeasure(w.quantity,w.unit)}</b>
                       {w.photoUrl&&<button onClick={()=>setShowPhotoModal(w.photoUrl.startsWith('http')?w.photoUrl:API+w.photoUrl)} style={{...btnG,padding:'2px 6px',fontSize:'10px',marginLeft:'4px'}}>📷</button>}
                     </div>
                   </div>))}
@@ -3606,7 +3630,7 @@ function App() {
                       <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>{(w.confirmedAt||w.date||'—')}</p>
                     </div>
                     <div style={{textAlign:'right',flexShrink:0}}>
-                      <b style={{fontSize:'12px',color:C.text}}>{Number(w.quantity||0).toLocaleString('ru-RU')+' '+(w.unit||'')}</b>
+                      <b style={{fontSize:'12px',color:C.text}}>{fmtMeasure(w.quantity,w.unit)}</b>
                       {w.photoUrl&&<button onClick={()=>setShowPhotoModal(w.photoUrl.startsWith('http')?w.photoUrl:API+w.photoUrl)} style={{...btnG,padding:'2px 6px',fontSize:'10px',marginLeft:'4px'}}>📷</button>}
                     </div>
                   </div>))}
@@ -4085,7 +4109,7 @@ function App() {
                 <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize:'13px',color:C.text}}>{j.sectionName||'—'}</b></div>
                 <div><p style={labelStyle}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{j.description}</b></div>
                 <div><p style={labelStyle}>Исполнитель</p><b style={{fontSize:'13px',color:C.text}}>{j.masterName||'—'}</b></div>
-                <div><p style={labelStyle}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{(j.quantity||0)+' '+(j.unit||'')}</b></div>
+                <div><p style={labelStyle}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{fmtMeasure(j.quantity,j.unit)}</b></div>
                 <div><p style={labelStyle}>Сумма</p><b style={{fontSize:'14px',color:C.accent}}>{Number(j.total||0).toLocaleString('ru-RU')+' ₽'}</b></div>
                 <div><p style={labelStyle}>Дата</p><b style={{fontSize:'13px',color:C.text}}>{j.date||'—'}</b></div>
               </div>
@@ -4176,7 +4200,7 @@ function App() {
                       <td style={tblC}>{jw.unexpectedWorkId?<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'700',backgroundColor:'#fbbf24',color:'#78350f'}}>🆕 вне сметы</span>:<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:C.bg,color:C.textSec}}>по смете</span>}</td>
                       <td style={tblC}>{jw.sectionName||'—'}</td>
                       <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.hiddenWork?(()=>{const st=getActStatusForJournal({...jw,project:jw.project||pn});return(<span title={st?st.tip:'Скрытые работы — нужен АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);setShowJournalTableModal(null);}}}>🔒{st?st.icon:''}</span>);})():null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
-                      <td style={tblC}>{(jw.quantity||0)+' '+(jw.unit||'')}</td>
+                      <td style={tblC}>{fmtMeasure(jw.quantity,jw.unit)}</td>
                       <td style={tblC}>{jw.masterName||'—'}</td>
                       <td style={tblC}>{jw.responsibleItr||'—'}</td>
                       <td style={tblC}>{jw.weather||'—'}</td>
@@ -4383,16 +4407,17 @@ function App() {
       })()}
       {showQRModal&&(<div onClick={()=>setShowQRModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.7)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><div style={{backgroundColor:'white',padding:'30px',borderRadius:'16px',textAlign:'center'}} onClick={e=>e.stopPropagation()}><h3 style={{color:C.text,marginBottom:'16px'}}>{showQRModal.title}</h3><img src={generateQR(showQRModal.data)} alt="QR" style={{width:'200px',height:'200px'}}/><p style={{color:C.textSec,fontSize:'12px',marginTop:'12px'}}>Сканируйте для быстрого доступа</p><button onClick={()=>setShowQRModal(null)} style={{...btnG,marginTop:'12px'}}>Закрыть</button></div></div>)}
       {rejectingEntry&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Причина отклонения</h3><textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inp,height:'100px',resize:'vertical'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>rejectJ(rejectingEntry,rejectComment)} style={btnR}><X size={14}/>Отклонить</button><button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnG}>Отмена</button></div></div></div>)}
-      {confirmingEntry&&(()=>{const e=confirmingEntry;const plan=toNum(e.quantity||0);const accepted=toNum(confirmAcceptedQty||0);const ppu=Number(e._ppu||e.pricePerUnit||0) || (plan>0?Number(e.total||0)/plan:0);const newTotal=Math.round(accepted*ppu);const diff=plan-accepted;return(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500,padding:'20px'}}><div style={{...card,padding:'24px',width:'min(480px,100%)',maxHeight:'90vh',overflowY:'auto'}}>
+      {confirmingEntry&&(()=>{const e=confirmingEntry;const plan=toNum(e.quantity||0);const accepted=toNum(confirmAcceptedQty||0);const ppu=Number(e._ppu||e.pricePerUnit||0) || (plan>0?Number(e.total||0)/plan:0);const newTotal=Math.round(accepted*ppu);const diff=plan-accepted;const norm=normalizeMeasure(plan,e.unit);const planNorm=norm.qty;const unitNorm=norm.unit;const factor=norm.factor;const acceptedNorm=accepted*factor;const ppuNorm=factor>1?(ppu/factor):ppu;const diffNorm=diff*factor;return(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500,padding:'20px'}}><div style={{...card,padding:'24px',width:'min(480px,100%)',maxHeight:'90vh',overflowY:'auto'}}>
         <h3 style={{color:C.text,marginBottom:'8px',fontWeight:'700'}}>✅ Принять работу мастера</h3>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>{(e.masterName||e.master_name||'—')+' · '+e.project}</p>
         <div style={{padding:'10px 12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'12px'}}>
           <b style={{color:C.text,fontSize:'13px',display:'block'}}>{e.description}</b>
-          <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>Мастер заявил: <b style={{color:C.text}}>{plan+' '+(e.unit||'')+' × '+ppu.toLocaleString('ru-RU')+' ₽ = '+Math.round(plan*ppu).toLocaleString('ru-RU')+' ₽'}</b></p>
+          <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>Мастер заявил: <b style={{color:C.text}}>{planNorm.toLocaleString('ru-RU',{maximumFractionDigits:3})+' '+unitNorm+' × '+Math.round(ppuNorm).toLocaleString('ru-RU')+' ₽ = '+Math.round(plan*ppu).toLocaleString('ru-RU')+' ₽'}</b></p>
+          {factor>1&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>в смете единица: «{e.unit}» (коэф. ×{factor})</p>}
         </div>
-        <label style={{display:'block',color:C.textSec,fontSize:'12px',marginBottom:'4px'}}>Фактически принято ({e.unit||'шт'})</label>
-        <input type='number' step='any' inputMode='decimal' value={confirmAcceptedQty} onChange={ev=>setConfirmAcceptedQty(ev.target.value)} max={plan} min={0} style={{...inp,fontSize:'18px',fontWeight:'700'}}/>
-        {diff>0&&accepted>=0&&<p style={{color:C.warning,fontSize:'12px',margin:'-4px 0 10px'}}>⚠️ Недоделано: <b>{diff+' '+(e.unit||'')+' = '+Math.round(diff*ppu).toLocaleString('ru-RU')+' ₽'}</b> — мастеру нужно доделать</p>}
+        <label style={{display:'block',color:C.textSec,fontSize:'12px',marginBottom:'4px'}}>Фактически принято ({unitNorm||'шт'})</label>
+        <input type='number' step='any' inputMode='decimal' value={factor>1?String(acceptedNorm):confirmAcceptedQty} onChange={ev=>{const v=toNum(ev.target.value);setConfirmAcceptedQty(String(factor>1?(v/factor):v));}} max={planNorm} min={0} style={{...inp,fontSize:'18px',fontWeight:'700'}}/>
+        {diff>0&&accepted>=0&&<p style={{color:C.warning,fontSize:'12px',margin:'-4px 0 10px'}}>⚠️ Недоделано: <b>{diffNorm.toLocaleString('ru-RU',{maximumFractionDigits:3})+' '+unitNorm+' = '+Math.round(diff*ppu).toLocaleString('ru-RU')+' ₽'}</b> — мастеру нужно доделать</p>}
         {diff===0&&<p style={{color:C.success,fontSize:'12px',margin:'-4px 0 10px'}}>✅ Принято полностью</p>}
         {diff<0&&<p style={{color:C.danger,fontSize:'12px',margin:'-4px 0 10px'}}>Нельзя принять больше чем заявлено</p>}
         <div style={{padding:'10px 12px',backgroundColor:C.successLight,borderRadius:'8px',marginBottom:'12px',border:'1.5px solid '+C.successBorder}}>
@@ -6724,7 +6749,7 @@ function App() {
                               <div style={{display:'flex',gap:'8px',alignItems:'center'}}><span style={{fontSize:'12px',color:C.success,fontWeight:'600'}}>{pTotal.toLocaleString()+' ₽'}</span>{isProjectOpen?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</div>
                             </div>
                             {isProjectOpen&&(<div style={{padding:'8px 12px'}}>
-                              {pWorks.map(w=>(<div key={w.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><span style={{fontSize:'12px',color:C.text}}>{w.description}</span><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+' · '+w.date}</p></div><b style={{fontSize:'12px',color:C.success}}>{(w.total||0).toLocaleString()+' ₽'}</b></div>))}
+                              {pWorks.map(w=>(<div key={w.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><span style={{fontSize:'12px',color:C.text}}>{w.description}</span><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{fmtMeasure(w.quantity,w.unit)+' · '+w.date}</p></div><b style={{fontSize:'12px',color:C.success}}>{(w.total||0).toLocaleString()+' ₽'}</b></div>))}
                   </div>)}
                           </div>);
                         })}
