@@ -470,6 +470,13 @@ function App() {
   const [toolsTab, setToolsTab] = useState('list');
   const [estimatesTab, setEstimatesTab] = useState('list');
   const [estimateSearch, setEstimateSearch] = useState('');
+  const [listSearch, setListSearch] = useState('');
+  // Универсальная проверка вхождения подстроки во все указанные поля
+  const matchSearch = (q, ...fields) => {
+    if(!q||q.trim().length<2) return true;
+    const Q = q.toLowerCase().trim();
+    return fields.some(f => String(f||'').toLowerCase().includes(Q));
+  };
   const [weatherTab, setWeatherTab] = useState('log');
   const [settingsTab, setSettingsTab] = useState('requisites');
   const [rejectComment, setRejectComment] = useState('');
@@ -3364,8 +3371,12 @@ function App() {
                   <span style={{padding:'3px 10px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'12px',fontWeight:'700'}}>{last30.length+' шт'}</span>
                 </div>
                 {todayList.length>0&&<div style={{padding:'8px 10px',marginBottom:'10px',borderRadius:'8px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}><b style={{color:C.info,fontSize:'12px'}}>📅 Сегодня принято: {todayList.length} раб.</b></div>}
+                <div style={{position:'relative',marginBottom:'8px'}}>
+                  <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                  <input placeholder='🔍 Поиск работы или мастера' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
+                </div>
                 <div style={{maxHeight:'320px',overflowY:'auto'}}>
-                  {last30.slice(0,30).map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',gap:'8px'}}>
+                  {last30.filter(w=>matchSearch(listSearch,w.description,w.masterName||w.master_name)).slice(0,30).map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',gap:'8px'}}>
                     <div style={{flex:1,minWidth:0}}>
                       <b style={{fontSize:'12px',color:C.text,display:'block'}}>{w.description}</b>
                       <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>{(w.masterName||w.master_name||'—')+' · '+(w.confirmedAt||w.date||'—')}</p>
@@ -3627,8 +3638,12 @@ function App() {
                   <span style={{padding:'3px 10px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'12px',fontWeight:'700'}}>{last30.length+' работ'}</span>
                 </div>
                 {todayList.length>0&&<div style={{padding:'8px 10px',marginBottom:'10px',borderRadius:'8px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}><b style={{color:C.info,fontSize:'12px'}}>📅 Сегодня сделано: {todayList.length} работ</b></div>}
+                <div style={{position:'relative',marginBottom:'8px'}}>
+                  <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                  <input placeholder='🔍 Поиск работы' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
+                </div>
                 <div style={{maxHeight:'320px',overflowY:'auto'}}>
-                  {last30.slice(0,30).map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',gap:'8px'}}>
+                  {last30.filter(w=>matchSearch(listSearch,w.description)).slice(0,30).map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',gap:'8px'}}>
                     <div style={{flex:1,minWidth:0}}>
                       <b style={{fontSize:'12px',color:C.text,display:'block'}}>{w.description}</b>
                       <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>{(w.confirmedAt||w.date||'—')}</p>
@@ -5036,8 +5051,12 @@ function App() {
                         </div>
                       </div>
                       {(()=>{const unx=workJournal.filter(j=>j.project===p.name&&j.unexpectedWorkId);if(unx.length===0) return null;const unxSum=unx.reduce((s,j)=>s+Number(j.total||0),0);return(<div style={{marginBottom:'12px',padding:'10px 12px',backgroundColor:'#fef3c7',border:'1.5px solid #fbbf24',borderRadius:'10px',fontSize:'13px',color:'#78350f'}}>🆕 <b>Работы вне сметы:</b> {unx.length} позиц. на <b>{Math.round(unxSum).toLocaleString('ru-RU')+' ₽'}</b> (оформлены доп.соглашениями) — подсвечены жёлтым в списке ниже</div>);})()}
+                      <div style={{position:'relative',marginBottom:'10px'}}>
+                        <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                        <input placeholder='🔍 Поиск по работам или мастерам' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'12px',padding:'6px 8px 6px 32px'}}/>
+                      </div>
                       {(()=>{
-                        const works=workJournal.filter(j=>j.project===p.name);
+                        const works=workJournal.filter(j=>j.project===p.name&&matchSearch(listSearch,j.description,j.masterName||j.master_name));
                         const byDate={};
                         works.forEach(w=>{if(!byDate[w.date]) byDate[w.date]={};if(!byDate[w.date][w.masterName]) byDate[w.date][w.masterName]=[];byDate[w.date][w.masterName].push(w);});
                         return Object.keys(byDate).sort().reverse().map(date=>{
