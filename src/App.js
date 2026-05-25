@@ -469,6 +469,7 @@ function App() {
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
   const [toolsTab, setToolsTab] = useState('list');
   const [estimatesTab, setEstimatesTab] = useState('list');
+  const [estimateSearch, setEstimateSearch] = useState('');
   const [weatherTab, setWeatherTab] = useState('log');
   const [settingsTab, setSettingsTab] = useState('requisites');
   const [rejectComment, setRejectComment] = useState('');
@@ -7098,13 +7099,42 @@ function App() {
             </div>
 
             {estimatesTab==='list'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
                 <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сметы</b>
                 <div style={{display:'flex',gap:'8px'}}>
                   <button onClick={()=>{setGenerateForm({description:'',projectId:'',pricelistId:'',area:'',name:''});setShowGenerateEstimate(true);}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
                   <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая смета</button>
                 </div>
               </div>
+              <div style={{marginBottom:'14px',position:'relative'}}>
+                <Search size={15} style={{position:'absolute',left:'12px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                <input placeholder='🔍 Поиск по позициям всех смет (например: «демонтаж», «штукатурка»…)' value={estimateSearch||''} onChange={e=>setEstimateSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'34px'}}/>
+              </div>
+              {estimateSearch&&estimateSearch.trim().length>=2&&(()=>{
+                const q=estimateSearch.toLowerCase().trim();
+                const results=[];
+                (estimatesList||[]).forEach(est=>{
+                  const sects=(est.sections||(typeof est.sectionsJson==='string'?(()=>{try{return JSON.parse(est.sectionsJson||'[]')}catch(_){return []}})():est.sectionsJson)||[]);
+                  sects.forEach(sec=>{
+                    (sec.items||[]).forEach(it=>{
+                      const name=String(it.name||'').toLowerCase();
+                      if(name.includes(q)){results.push({estimate:est,section:sec,item:it});}
+                    });
+                  });
+                });
+                return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bg}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                    <b style={{color:C.text,fontSize:'13px'}}>🔍 Найдено: {results.length} позиций по запросу «{estimateSearch}»</b>
+                    <button onClick={()=>setEstimateSearch('')} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>Очистить</button>
+                  </div>
+                  {results.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Ничего не найдено. Попробуйте другое слово.</p>:
+                    <div style={{maxHeight:'400px',overflowY:'auto'}}>{results.slice(0,200).map((r,i)=>(<div key={i} onClick={()=>{setSelectedEstimate(r.estimate);setEstimateSearch('');setTimeout(()=>{const el=document.querySelector('[data-estitem="'+(r.item.id||r.item.name)+'"]');if(el) el.scrollIntoView({behavior:'smooth',block:'center'});},300);}} style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,cursor:'pointer'}}>
+                      <b style={{fontSize:'13px',color:C.text,display:'block'}}>{r.item.name}</b>
+                      <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px'}}>{'📋 '+r.estimate.name+' · '+(r.estimate.projectName||'—')+' · 📂 '+r.section.name}</p>
+                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{fmtMeasure(r.item.quantity,r.item.unit)+(r.item.priceWork?' · 💰 '+Math.round((Number(r.item.priceWork||0)+Number(r.item.priceMaterial||0))).toLocaleString('ru-RU')+' ₽':'')}</p>
+                    </div>))}{results.length>200&&<p style={{color:C.textMuted,fontSize:'11px',textAlign:'center',padding:'8px'}}>Показано первые 200 результатов. Уточните запрос.</p>}</div>}
+                </div>);
+              })()}
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                   <select value={newEstimate.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));setNewEstimate({...newEstimate,projectId:e.target.value,projectName:p?p.name:'',name:p?'Смета — '+p.name:''});}} style={{...inp,marginBottom:0}}><option value="">Выберите проект</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
