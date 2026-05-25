@@ -3036,13 +3036,39 @@ function App() {
           </div>)}
 
           {activePage==='history'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'20px',fontSize:'18px',fontWeight:'700'}}>История заработка</h3>
-            <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'16px 20px',borderRadius:'12px',marginBottom:'20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <b style={{color:'white',fontSize:'14px'}}>Всего заработано:</b>
-              <b style={{color:'white',fontSize:'20px',fontWeight:'800'}}>{myTotal.toLocaleString()+' ₽'}</b>
+            <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>История работ</h3>
+            <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'16px 20px',borderRadius:'12px',marginBottom:'14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <b style={{color:'white',fontSize:'14px'}}>Принято всего:</b>
+              <b style={{color:'white',fontSize:'20px',fontWeight:'800'}}>{Math.round(sumConfirmed).toLocaleString('ru-RU')+' ₽'}</b>
             </div>
-            {myProjects.map(projectName=>{const projectWorks=myWorks.filter(w=>w.project===projectName);const projectTotal=projectWorks.reduce((s,w)=>s+w.total,0);const isOpen=expandedProject===projectName;return(<div key={projectName} style={{...card,marginBottom:'10px'}}><div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedProject(isOpen?null:projectName)}><div><b style={{color:C.text,fontSize:'14px'}}>{projectName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{projectWorks.length+' работ'}</p></div><div style={{display:'flex',alignItems:'center',gap:'12px'}}><b style={{color:C.success,fontSize:'15px'}}>{projectTotal.toLocaleString()+' ₽'}</b>{isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}</div></div>{isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 16px'}}>{projectWorks.map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{w.description}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{fmtMeasure(w.quantity,w.unit)+' · '+w.date}</p></div><b style={{color:C.success,fontSize:'13px'}}>{(w.total||0).toLocaleString()+' ₽'}</b></div>))}</div>)}</div>);})}
-            {myProjects.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Нет данных</div>}
+            <div style={{position:'relative',marginBottom:'14px'}}>
+              <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+              <input placeholder='🔍 Поиск работы или проекта' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
+            </div>
+            {(()=>{const filtered=myJournal.filter(w=>matchSearch(listSearch,w.description,w.project));if(filtered.length===0) return(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>{myJournal.length===0?'Истории работ пока нет. Введите работу на странице «Работы» — после подтверждения прорабом она появится здесь.':'По запросу ничего не найдено'}</div>);const byProject={};filtered.forEach(w=>{const pn=w.project||'Без объекта';if(!byProject[pn]) byProject[pn]=[];byProject[pn].push(w);});const sortedProjects=Object.keys(byProject).sort();return sortedProjects.map(projectName=>{const works=byProject[projectName].sort((a,b)=>String(b.date||b.confirmedAt||'').localeCompare(String(a.date||a.confirmedAt||'')));const confSum=works.filter(w=>w.status==='Подтверждено').reduce((s,w)=>s+Number(w.total||0),0);const isOpen=expandedProject===projectName;return(<div key={projectName} style={{...card,marginBottom:'10px'}}>
+              <div style={{padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedProject(isOpen?null:projectName)}>
+                <div>
+                  <b style={{color:C.text,fontSize:'14px'}}>{projectName}</b>
+                  <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{works.length+' работ'+(works.filter(w=>w.status!=='Подтверждено').length>0?' · '+works.filter(w=>!w.status||w.status==='На проверке').length+' ожидает':'')}</p>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                  <b style={{color:C.success,fontSize:'15px'}}>{Math.round(confSum).toLocaleString('ru-RU')+' ₽'}</b>
+                  {isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
+                </div>
+              </div>
+              {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 16px'}}>{works.map(w=>{const st=w.status||'На проверке';const stCol=st==='Подтверждено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Подтверждено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;const stIcon=st==='Подтверждено'?'✅':st==='Отклонено'?'❌':'⏳';return(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <b style={{fontSize:'13px',color:C.text,display:'block'}}>{w.description}</b>
+                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{fmtMeasure(w.quantity,w.unit)+' · '+(w.date||w.confirmedAt||'—')}</p>
+                  <span style={{padding:'2px 8px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:stBg,color:stCol,display:'inline-block',marginTop:'2px'}}>{stIcon+' '+st}</span>
+                  {w.comment&&st==='Отклонено'&&<p style={{color:C.danger,fontSize:'10px',margin:'4px 0 0'}}>Причина: {w.comment}</p>}
+                </div>
+                <div style={{textAlign:'right',flexShrink:0}}>
+                  <b style={{color:st==='Подтверждено'?C.success:C.textMuted,fontSize:'13px'}}>{Math.round(Number(w.total||0)).toLocaleString('ru-RU')+' ₽'}</b>
+                  {w.photoUrl&&<button onClick={()=>setShowPhotoModal(w.photoUrl.startsWith('http')?w.photoUrl:API+w.photoUrl)} style={{...btnG,padding:'2px 6px',fontSize:'10px',marginLeft:'4px',marginTop:'2px'}}>📷</button>}
+                </div>
+              </div>);})}</div>)}
+            </div>);})})()}
           </div>)}
 
           {activePage==='materials'&&(<div>
