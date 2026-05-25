@@ -471,6 +471,7 @@ function App() {
   const [estimatesTab, setEstimatesTab] = useState('list');
   const [estimateSearch, setEstimateSearch] = useState('');
   const [listSearch, setListSearch] = useState('');
+  const [expandedActDate, setExpandedActDate] = useState(null);
   // Универсальная проверка вхождения подстроки во все указанные поля
   const matchSearch = (q, ...fields) => {
     if(!q||q.trim().length<2) return true;
@@ -6600,22 +6601,80 @@ function App() {
             </div>)}
 
             {accountingTab==='acts'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Акты выполненных работ</b>
-                {isFinanceRole()&&<button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Создать акт</button>}
+              {/* Блок 1: Производство работ по дням (стянутые work_journal+unexpected) */}
+              <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
+                  <b style={{color:C.text,fontSize:'14px'}}>📅 Производство работ по дням</b>
+                  <span style={{color:C.textSec,fontSize:'11px'}}>Подтверждённые работы мастеров и непредвиденные</span>
+                </div>
+                <div style={{position:'relative',marginBottom:'10px'}}>
+                  <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                  <input placeholder='🔍 Поиск работы, мастера, объекта' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
+                </div>
+                {(()=>{
+                  const allWorks=[
+                    ...((workJournal||[]).filter(w=>w.status==='Подтверждено').map(w=>({...w,_kind:'journal'}))),
+                    ...((unexpectedWorksList||[]).filter(u=>u.status==='Утверждено').map(u=>({id:'unx-'+u.id,description:u.description,project:u.projectName,masterName:u.addedBy,total:u.total,quantity:u.quantity,unit:u.unit,date:u.approvedAt||u.createdAt,_kind:'unexpected'}))),
+                  ].filter(w=>matchSearch(listSearch,w.description,w.masterName,w.project));
+                  if(allWorks.length===0) return(<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'12px'}}>Работ ещё нет. После подтверждения мастером и приёма прорабом — появятся здесь.</p>);
+                  // Группировка по дате
+                  const byDate={};
+                  allWorks.forEach(w=>{const d=String(w.date||w.confirmedAt||'').split('T')[0]||'Без даты';if(!byDate[d]) byDate[d]={works:[],total:0,unx:0};byDate[d].works.push(w);byDate[d].total+=Number(w.total||0);if(w._kind==='unexpected') byDate[d].unx+=Number(w.total||0);});
+                  const dates=Object.keys(byDate).sort((a,b)=>b.localeCompare(a)).slice(0,30);
+                  return dates.map(date=>{const grp=byDate[date];const isOpen=expandedActDate===date;
+                    const byProj={};grp.works.forEach(w=>{const pn=w.project||'Без объекта';if(!byProj[pn]) byProj[pn]=[];byProj[pn].push(w);});
+                    const projs=Object.keys(byProj).sort();
+                    return(<div key={date} style={{...card,marginBottom:'6px',backgroundColor:C.bgWhite}}>
+                      <div style={{padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedActDate(isOpen?null:date)}>
+                        <div>
+                          <b style={{color:C.text,fontSize:'13px'}}>📅 {date}</b>
+                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{grp.works.length+' работ · '+projs.length+(projs.length===1?' объект':' объекта/объектов')+(grp.unx>0?' · '+Math.round(grp.unx).toLocaleString('ru-RU')+' ₽ непредв.':'')}</p>
+                        </div>
+                        <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                          <b style={{color:C.success,fontSize:'14px'}}>{Math.round(grp.total).toLocaleString('ru-RU')+' ₽'}</b>
+                          {isOpen?<ChevronUp size={14} color={C.textMuted}/>:<ChevronDown size={14} color={C.textMuted}/>}
+                        </div>
+                      </div>
+                      {isOpen&&(<div style={{borderTop:'1px solid '+C.border}}>
+                        {projs.map(pn=>{const byMaster={};byProj[pn].forEach(w=>{const mn=w.masterName||'—';if(!byMaster[mn]) byMaster[mn]=[];byMaster[mn].push(w);});const masters=Object.keys(byMaster).sort();return(<div key={pn} style={{padding:'8px 14px',borderBottom:'1px solid '+C.border}}>
+                          <b style={{color:C.accent,fontSize:'12px',display:'block',marginBottom:'4px'}}>🏗 {pn}</b>
+                          {masters.map(mn=>(<div key={mn} style={{paddingLeft:'10px',marginBottom:'4px'}}>
+                            <span style={{color:C.textSec,fontSize:'11px',fontWeight:'600'}}>👷 {mn}</span>
+                            {byMaster[mn].map(w=>(<div key={w.id} style={{padding:'4px 0',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',fontSize:'11px',borderBottom:'1px dashed '+C.border}}>
+                              <div style={{flex:1,minWidth:0}}>
+                                <span style={{color:C.text}}>{w.description}</span>
+                                {w._kind==='unexpected'&&<span style={{marginLeft:'4px',color:C.warning,fontSize:'10px'}}>🆕 непредв.</span>}
+                                <span style={{color:C.textMuted,marginLeft:'4px'}}>{fmtMeasure(w.quantity,w.unit)}</span>
+                              </div>
+                              <b style={{color:C.text,whiteSpace:'nowrap'}}>{Math.round(Number(w.total||0)).toLocaleString('ru-RU')+' ₽'}</b>
+                            </div>))}
+                          </div>))}
+                        </div>);})}
+                      </div>)}
+                    </div>);});
+                })()}
+              </div>
+
+              {/* Блок 2: Классические акты к оплате (interim_acts) */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'8px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📄 Акты к оплате</b>
+                {isFinanceRole()&&<button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Сформировать акт</button>}
               </div>
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <select value={newAct.masterId} onChange={e=>{const mp=masterProfiles.find(p=>p.userId===Number(e.target.value));setNewAct({...newAct,masterId:e.target.value,masterName:mp?mp.fullName:''});}} style={{...inp,marginBottom:0}}><option value="">Выберите мастера *</option>{masterProfiles.map(mp=><option key={mp.userId} value={mp.userId}>{mp.fullName}</option>)}</select>
+                  <select value={newAct.masterId} onChange={e=>{const mp=masterProfiles.find(p=>p.userId===Number(e.target.value));const st=(staff||[]).find(s=>s.id===Number(e.target.value));setNewAct({...newAct,masterId:e.target.value,masterName:mp?mp.fullName:(st?st.name:'')});}} style={{...inp,marginBottom:0}}>
+                    <option value="">Выберите исполнителя *</option>
+                    {(()=>{const groups=[{label:'👷 Мастера и субподрядчики',roles:['мастер','субподрядчик','бригадир']},{label:'🏢 Юр.лица (ИП/ООО)',roles:['организация','ип','ооо']}];return groups.map(g=>{const items=(staff||[]).filter(s=>g.roles.includes(String(s.role||'').toLowerCase()));if(items.length===0) return null;return(<optgroup key={g.label} label={g.label}>{items.map(s=><option key={s.id} value={s.id}>{s.name+(s.specialization?' · '+s.specialization:'')}</option>)}</optgroup>);});})()}
+                  </select>
                   <select value={newAct.project} onChange={e=>setNewAct({...newAct,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Объект *</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <input type="date" placeholder="Период с *" value={newAct.periodStart} onChange={e=>setNewAct({...newAct,periodStart:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input type="date" placeholder="Период по *" value={newAct.periodEnd} onChange={e=>setNewAct({...newAct,periodEnd:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input type="date" step="any" inputMode="decimal" placeholder="Период с *" value={newAct.periodStart} onChange={e=>setNewAct({...newAct,periodStart:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input type="date" step="any" inputMode="decimal" placeholder="Период по *" value={newAct.periodEnd} onChange={e=>setNewAct({...newAct,periodEnd:e.target.value})} style={{...inp,marginBottom:0}}/>
                 </div>
                 <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={createInterimAct} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
-              {interimActs.map(act=>{const paidAmt=act.paidAmount||0;const totalAmt=act.totalAmount||0;const remaining=totalAmt-paidAmt;return(<div key={act.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(act.status==='Оплачен'?C.success:act.status==='Частично оплачен'?C.warning:C.textSec)}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                  <div><b style={{color:C.text,fontSize:'13px'}}>{'Акт №'+act.id+' · '+act.masterName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{act.project+' · '+act.periodStart+' — '+act.periodEnd}</p><div style={{display:'flex',gap:'12px',marginTop:'4px'}}><span style={{fontSize:'12px',color:C.text}}>{'Начислено: '+totalAmt.toLocaleString()+' ₽'}</span><span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+paidAmt.toLocaleString()+' ₽'}</span>{remaining>0&&<span style={{fontSize:'12px',color:C.danger,fontWeight:'600'}}>{'Остаток: '+remaining.toLocaleString()+' ₽'}</span>}</div></div>
+              {(interimActs||[]).filter(a=>matchSearch(listSearch,a.masterName,a.project)).map(act=>{const paidAmt=act.paidAmount||0;const totalAmt=act.totalAmount||0;const remaining=totalAmt-paidAmt;return(<div key={act.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(act.status==='Оплачен'?C.success:remaining>0&&paidAmt>0?C.warning:C.textSec)}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'8px'}}>
+                  <div><b style={{color:C.text,fontSize:'13px'}}>{'Акт №'+act.id+' · '+act.masterName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{act.project+' · '+act.periodStart+' — '+act.periodEnd}</p><div style={{display:'flex',gap:'12px',marginTop:'4px',flexWrap:'wrap'}}><span style={{fontSize:'12px',color:C.text}}>{'Начислено: '+totalAmt.toLocaleString()+' ₽'}</span><span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+paidAmt.toLocaleString()+' ₽'}</span>{remaining>0&&<span style={{fontSize:'12px',color:C.danger,fontWeight:'700',padding:'2px 8px',borderRadius:'6px',backgroundColor:C.dangerLight}}>{'⚠️ Недоплата: '+remaining.toLocaleString()+' ₽'}</span>}</div></div>
                   <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
                     <span style={badge(act.status==='Оплачен'?C.success:act.status==='Частично оплачен'?C.warning:C.textSec,act.status==='Оплачен'?C.successLight:act.status==='Частично оплачен'?C.warningLight:C.bgGray,act.status==='Оплачен'?C.successBorder:act.status==='Частично оплачен'?C.warningBorder:C.border)}>{act.status||'Не оплачен'}</span>
                     <button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={13}/></button>
@@ -6624,7 +6683,7 @@ function App() {
                   </div>
                 </div>
               </div>);})}
-              {interimActs.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Актов нет</p>}
+              {interimActs.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'12px'}}>Актов к оплате пока нет. Сформируйте акт за период по мастеру — стянутся подтверждённые работы.</p>}
             </div>)}
 
             {accountingTab==='documents'&&(<div>
