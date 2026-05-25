@@ -2782,6 +2782,21 @@ function App() {
 
     const myWorks = piecework.filter(p=>Number(p.staffId)===user.id);
     const myTotal = myWorks.reduce((s,p)=>s+p.total,0);
+    // Все работы мастера из журнала по статусам
+    const myJournal = (workJournal||[]).filter(w=>Number(w.masterId||w.master_id)===user.id||w.masterName===user.name);
+    const myConfirmed = myJournal.filter(w=>w.status==='Подтверждено');
+    const myPending = myJournal.filter(w=>!w.status||w.status==='На проверке');
+    const myRejected = myJournal.filter(w=>w.status==='Отклонено');
+    const sumConfirmed = myConfirmed.reduce((s,w)=>s+Number(w.total||0),0);
+    const sumPending = myPending.reduce((s,w)=>s+Number(w.total||0),0);
+    const sumRejected = myRejected.reduce((s,w)=>s+Number(w.total||0),0);
+    // Сегодня и за месяц
+    const _today = new Date().toISOString().split('T')[0];
+    const _monthAgo = new Date(Date.now()-30*24*3600*1000).toISOString().split('T')[0];
+    const myToday = myConfirmed.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===_today);
+    const myMonth = myConfirmed.filter(w=>(w.confirmedAt||w.date||'') >= _monthAgo);
+    const sumToday = myToday.reduce((s,w)=>s+Number(w.total||0),0);
+    const sumMonth = myMonth.reduce((s,w)=>s+Number(w.total||0),0);
     const myIssues = materialTransfers.filter(t=>t.toPerson===user.name).map(t=>({id:t.id,materialName:t.materialName,quantity:t.quantity,unit:t.unit,project:t.projectName,confirmed:t.signed}));
     const categories = [...new Set(pricelistItems.map(i=>i.category))];
     const myProjects = [...new Set(myWorks.map(w=>w.project))];
@@ -2801,9 +2816,36 @@ function App() {
           </div>
 
           {activePage==='works'&&(<div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
               <h3 style={{color:C.text,margin:0,fontSize:'18px',fontWeight:'700'}}>Мои работы</h3>
-              <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'8px 18px',borderRadius:'10px',fontWeight:'700',fontSize:'14px',color:'white'}}>{myTotal.toLocaleString()+' ₽'}</div>
+              <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'8px 18px',borderRadius:'10px',fontWeight:'700',fontSize:'14px',color:'white'}} title='Сумма по сдельным начислениям'>{myTotal.toLocaleString()+' ₽'}</div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
+              <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
+                <p style={{color:C.success,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>✅ Принято</p>
+                <b style={{color:C.success,fontSize:'17px',display:'block'}}>{Math.round(sumConfirmed).toLocaleString('ru-RU')+' ₽'}</b>
+                <span style={{color:C.textSec,fontSize:'10px'}}>{myConfirmed.length+' работ'}</span>
+              </div>
+              <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+                <p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>⏳ На проверке</p>
+                <b style={{color:C.warning,fontSize:'17px',display:'block'}}>{Math.round(sumPending).toLocaleString('ru-RU')+' ₽'}</b>
+                <span style={{color:C.textSec,fontSize:'10px'}}>{myPending.length+' работ'}</span>
+              </div>
+              {myRejected.length>0&&<div style={{...card,padding:'12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}>
+                <p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>❌ Отклонено</p>
+                <b style={{color:C.danger,fontSize:'17px',display:'block'}}>{Math.round(sumRejected).toLocaleString('ru-RU')+' ₽'}</b>
+                <span style={{color:C.textSec,fontSize:'10px'}}>{myRejected.length+' работ'}</span>
+              </div>}
+              <div style={{...card,padding:'12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}>
+                <p style={{color:C.info,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>📅 Сегодня</p>
+                <b style={{color:C.info,fontSize:'17px',display:'block'}}>{Math.round(sumToday).toLocaleString('ru-RU')+' ₽'}</b>
+                <span style={{color:C.textSec,fontSize:'10px'}}>{myToday.length+' работ'}</span>
+              </div>
+              <div style={{...card,padding:'12px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
+                <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>📊 За 30 дней</p>
+                <b style={{color:C.text,fontSize:'17px',display:'block'}}>{Math.round(sumMonth).toLocaleString('ru-RU')+' ₽'}</b>
+                <span style={{color:C.textSec,fontSize:'10px'}}>{myMonth.length+' работ'}</span>
+              </div>
             </div>
             {(()=>{const myExp=(ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);const pending=myExp.filter(e=>e.status==='Ожидает');const sumP=pending.reduce((s,e)=>s+Number(e.amount||0),0);if(myExp.length===0) return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}><div><b style={{color:C.info,fontSize:'13px'}}>💸 Свои траты на стройке?</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Фиксируйте здесь чтобы бухгалтерия возместила</p></div><button onClick={()=>setShowOwnExpenseForm(true)} style={btnO}><Plus size={14}/>Новая трата</button></div>);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:pending.length>0?C.warningLight:C.successLight,border:'1.5px solid '+(pending.length>0?C.warningBorder:C.successBorder)}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'8px'}}><div><b style={{color:C.text,fontSize:'13px'}}>💸 Мои траты — {pending.length>0?'ждут возмещения':'все возмещены ✅'}</b>{pending.length>0&&<p style={{color:C.warning,margin:'2px 0 0',fontSize:'12px'}}>Сумма к возмещению: <b>{Math.round(sumP).toLocaleString('ru-RU')+' ₽'}</b> · {pending.length+' шт'}</p>}</div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>setActivePage('myexpenses')} style={{...btnG,padding:'5px 10px',fontSize:'12px'}}>📜 Все траты</button><button onClick={()=>setShowOwnExpenseForm(true)} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}><Plus size={12}/>Новая</button></div></div></div>);})()}
             <div style={{...card,padding:'20px',marginBottom:'15px'}}>
