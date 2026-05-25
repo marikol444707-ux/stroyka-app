@@ -2917,7 +2917,11 @@ function App() {
                     <ChevronRight size={16} color={C.textMuted}/>
                   </div>
                   {selectedBrigadeContract?.id===bc.id&&brigadeContractItems.length>0&&(<div style={{marginTop:'10px',borderTop:'1px solid '+C.border,paddingTop:'10px'}}>
-                    {brigadeContractItems.map((item,idx)=>(<div key={item.id} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
+                    <div style={{position:'relative',marginBottom:'10px'}}>
+                      <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                      <input placeholder='🔍 Найти работу (например: «демонтаж»)' value={estimateSearch||''} onChange={e=>setEstimateSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
+                    </div>
+                    {brigadeContractItems.filter(item=>!estimateSearch||estimateSearch.trim().length<2||String(item.name||'').toLowerCase().includes(estimateSearch.toLowerCase().trim())).map((item,idx)=>(<div key={item.id} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
                       <div style={{flex:1}}>
                         <b style={{fontSize:'12px',color:C.text}}>{item.name}</b>
                         {Number(item.quantity)>0&&(()=>{const u=normalizeMeasure(1,item.unit).unit||item.unit;const planN=toNum(item.quantity)*normalizeMeasure(1,item.unit).factor;const doneN=toNum(item.doneQuantity||0)*normalizeMeasure(1,item.unit).factor;const remN=Math.max(0,planN-doneN);return(<p style={{color:C.textSec,margin:0,fontSize:'11px'}}>{'осталось '+remN.toLocaleString('ru-RU',{maximumFractionDigits:2})+' '+u}</p>);})()}
@@ -4988,6 +4992,26 @@ function App() {
 
                     {activeProjectTab==='Смета'&&(<div>
                       <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Смета проекта</b>
+                      <div style={{marginBottom:'14px',position:'relative'}}>
+                        <Search size={15} style={{position:'absolute',left:'12px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                        <input placeholder='🔍 Поиск по позициям сметы (например: «демонтаж»)' value={estimateSearch||''} onChange={e=>setEstimateSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'34px'}}/>
+                      </div>
+                      {estimateSearch&&estimateSearch.trim().length>=2&&(()=>{
+                        const q=estimateSearch.toLowerCase().trim();
+                        const projEstimates=estimatesList.filter(e=>e.projectName===p.name);
+                        const results=[];
+                        projEstimates.forEach(est=>{const sects=(est.sections||(typeof est.sectionsJson==='string'?(()=>{try{return JSON.parse(est.sectionsJson||'[]')}catch(_){return []}})():est.sectionsJson)||[]);sects.forEach(sec=>{(sec.items||[]).forEach(it=>{if(String(it.name||'').toLowerCase().includes(q)) results.push({estimate:est,section:sec,item:it});});});});
+                        return(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.bg}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                            <b style={{color:C.text,fontSize:'12px'}}>Найдено: {results.length} позиций</b>
+                            <button onClick={()=>setEstimateSearch('')} style={{...btnG,padding:'3px 8px',fontSize:'10px'}}>×</button>
+                          </div>
+                          {results.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'8px'}}>Ничего не найдено</p>:<div style={{maxHeight:'300px',overflowY:'auto'}}>{results.slice(0,100).map((r,i)=>(<div key={i} style={{padding:'8px 10px',borderRadius:'6px',marginBottom:'4px',backgroundColor:C.bgWhite,border:'1px solid '+C.border}}>
+                            <b style={{fontSize:'12px',color:C.text,display:'block'}}>{r.item.name}</b>
+                            <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>{'📂 '+r.section.name+' · '+fmtMeasure(r.item.quantity,r.item.unit)+(r.item.doneQuantity>0?' · сделано '+fmtMeasure(r.item.doneQuantity,r.item.unit):'')}</p>
+                          </div>))}</div>}
+                        </div>);
+                      })()}
                       {(()=>{
                         const projEstimates=estimatesList.filter(e=>e.projectName===p.name);
                         if(projEstimates.length===0) return(<div style={{textAlign:'center',padding:'30px',color:C.textMuted}}><p>Смета не привязана</p><button onClick={()=>navigateTo('estimates')} style={btnO}>Перейти в Сметы</button></div>);
