@@ -472,6 +472,7 @@ function App() {
   const [estimateSearch, setEstimateSearch] = useState('');
   const [listSearch, setListSearch] = useState('');
   const [expandedActDate, setExpandedActDate] = useState(null);
+  const [salaryMonth, setSalaryMonth] = useState(new Date().toISOString().slice(0,7));
   // Универсальная проверка вхождения подстроки во все указанные поля
   const matchSearch = (q, ...fields) => {
     if(!q||q.trim().length<2) return true;
@@ -1769,6 +1770,11 @@ function App() {
         out.push({type:'presc',title:'Предписание просрочено',text:(pr.violation||pr.description||'').slice(0,80),icon:'⚠️',color:'#ef4444'});
       });
     }
+    // Подотчёт: уведомление получателю «отчитайся»
+    (accountablePayments||[]).filter(a=>a.givenTo===user.name&&Number(a.amount||0)>Number(a.spentAmount||0)).forEach(a=>{
+      const remaining=Number(a.amount||0)-Number(a.spentAmount||0);
+      out.push({type:'accreport',title:'Отчитайся за подотчёт',text:'Осталось отчитаться: '+Math.round(remaining).toLocaleString('ru-RU')+' ₽ · '+(a.projectName||'')+(a.purpose?' · '+a.purpose:''),icon:'💵',color:'#f59e0b',accountableId:a.id});
+    });
     return out;
   };
 
@@ -6525,40 +6531,56 @@ function App() {
             </div>)}
 
             {accountingTab==='payments'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>💸 Платежи</b>
-                <span style={{fontSize:'11px',color:C.textMuted}}>Сводка по всем источникам</span>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>💸 Платежи по объектам</b>
+                <button onClick={()=>{const pn=prompt('Объект для поступления:','');if(!pn) return;const amount=prompt('Сумма поступления (₽):');if(!amount||Number(amount)<=0) return;const note=prompt('Примечание (договор/счёт):','');fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:pn,amount:Number(amount),note:note||'',date:new Date().toISOString().split('T')[0],paidBy:user.name})}).then(()=>loadAll());}} style={btnO}><Plus size={14}/>Поступление от заказчика</button>
               </div>
               {(()=>{
-                const inPays=(projectPayments||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-                const ownExps=(ownExpenses||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-                const accPays=(accountablePayments||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-                const inSum=inPays.reduce((s,p)=>s+Number(p.amount||0),0);
-                const ownSum=ownExps.reduce((s,e)=>s+Number(e.amount||0),0);
-                const accSum=accPays.reduce((s,a)=>s+Number(a.amount||0),0);
+                // Группировка ВСЕХ движений по объектам
+                const allMovesByProject={};
+                const _addToProject=(pn,m)=>{if(!pn) pn='Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn]=Object.assign(allMovesByProject[pn],m);};
+                (projectPayments||[]).forEach(p=>{const pn=p.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].incoming.push(p);allMovesByProject[pn].totalIn+=Number(p.amount||0);});
+                (ownExpenses||[]).filter(e=>e.status==='Возмещено').forEach(e=>{const pn=e.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].ownExp.push(e);allMovesByProject[pn].totalOut+=Number(e.amount||0);});
+                (accountablePayments||[]).forEach(a=>{const pn=a.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].accountable.push(a);allMovesByProject[pn].totalOut+=Number(a.amount||0);});
+                (supplierInvoices||[]).forEach(s=>{const pn=s.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].supplierInv.push(s);const paid=Number(s.paidAmount||0);const total=Number(s.totalAmount||0);if(s.status==='Оплачен') allMovesByProject[pn].totalOut+=total;else{allMovesByProject[pn].totalOut+=paid;allMovesByProject[pn].supplyDebt+=Math.max(0,total-paid);}});
+                (interimActs||[]).forEach(act=>{const pn=act.project||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};const paid=Number(act.paidAmount||0);const total=Number(act.totalAmount||0);allMovesByProject[pn].actsPaid.push(act);allMovesByProject[pn].totalOut+=paid;if(paid<total) allMovesByProject[pn].actsDebt+=(total-paid);});
+                const projs=Object.keys(allMovesByProject).sort();
+                if(projs.length===0) return(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Движений денег пока нет</div>);
+                // Общая сводка сверху
+                const sumIn=projs.reduce((s,pn)=>s+allMovesByProject[pn].totalIn,0);
+                const sumOut=projs.reduce((s,pn)=>s+allMovesByProject[pn].totalOut,0);
+                const sumSupplyDebt=projs.reduce((s,pn)=>s+allMovesByProject[pn].supplyDebt,0);
+                const sumActsDebt=projs.reduce((s,pn)=>s+allMovesByProject[pn].actsDebt,0);
                 return(<div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'18px'}}>
-                    <div style={{...card,padding:'14px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Поступило (от заказчиков)</p><b style={{color:C.success,fontSize:'16px'}}>{Math.round(inSum).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{inPays.length+' платежей'}</p></div>
-                    <div style={{...card,padding:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Свои расходы</p><b style={{color:C.warning,fontSize:'16px'}}>{Math.round(ownSum).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ownExps.length+' операций'}</p></div>
-                    <div style={{...card,padding:'14px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>Подотчётные</p><b style={{color:C.danger,fontSize:'16px'}}>{Math.round(accSum).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{accPays.length+' выдач'}</p></div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:'10px',marginBottom:'18px'}}>
+                    <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Поступило от заказчиков</p><b style={{color:C.success,fontSize:'15px'}}>{Math.round(sumIn).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    <div style={{...card,padding:'12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>Расходов оплачено</p><b style={{color:C.danger,fontSize:'15px'}}>{Math.round(sumOut).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    {sumSupplyDebt>0&&<div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>⚠️ Долг поставщикам</p><b style={{color:C.warning,fontSize:'15px'}}>{Math.round(sumSupplyDebt).toLocaleString('ru-RU')+' ₽'}</b></div>}
+                    {sumActsDebt>0&&<div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>⚠️ Долг по актам мастерам</p><b style={{color:C.warning,fontSize:'15px'}}>{Math.round(sumActsDebt).toLocaleString('ru-RU')+' ₽'}</b></div>}
                   </div>
-                  {(()=>{const unx=(unexpectedWorksList||[]).filter(u=>u.status==='Утверждено'&&!u.paidStatus);const sum=unx.reduce((s,u)=>s+Number(u.total||0),0);if(unx.length===0) return null;return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:'#fef3c7',border:'1.5px solid #fbbf24'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',flexWrap:'wrap',gap:'8px'}}>
-                      <b style={{color:'#78350f',fontSize:'13px'}}>🆕 Непредвиденные к оплате</b>
-                      <b style={{color:'#78350f',fontSize:'14px'}}>{Math.round(sum).toLocaleString('ru-RU')+' ₽'}</b>
-                    </div>
-                    {unx.slice(0,10).map(u=>(<div key={u.id} style={{padding:'8px 10px',backgroundColor:'rgba(255,255,255,0.6)',borderRadius:'6px',marginTop:'4px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
-                      <div style={{flex:1,minWidth:'200px'}}>
-                        <b style={{fontSize:'12px',color:'#78350f'}}>{u.description}</b>
-                        <p style={{color:'#92400e',margin:'2px 0',fontSize:'11px'}}>{u.projectName+' · '+(u.quantity||0)+' '+u.unit+(u.approvedBy?' · согл. '+u.approvedBy:'')}</p>
+                  <div style={{position:'relative',marginBottom:'12px'}}>
+                    <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                    <input placeholder='🔍 Поиск по объекту' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
+                  </div>
+                  {projs.filter(pn=>matchSearch(listSearch,pn)).map(pn=>{const g=allMovesByProject[pn];const isOpen=expandedProject==='pay-'+pn;const balance=g.totalIn-g.totalOut;return(<div key={pn} style={{...card,marginBottom:'8px',borderLeft:'3px solid '+(balance>=0?C.success:C.danger)}}>
+                    <div style={{padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',gap:'10px',flexWrap:'wrap'}} onClick={()=>setExpandedProject(isOpen?null:'pay-'+pn)}>
+                      <div>
+                        <b style={{color:C.text,fontSize:'13px'}}>🏗 {pn}</b>
+                        <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>Поступило: <b style={{color:C.success}}>{Math.round(g.totalIn).toLocaleString('ru-RU')} ₽</b> · Оплачено: <b style={{color:C.danger}}>{Math.round(g.totalOut).toLocaleString('ru-RU')} ₽</b>{g.supplyDebt>0&&<><span style={{color:C.warning}}> · ⚠️ долг постав. {Math.round(g.supplyDebt).toLocaleString('ru-RU')} ₽</span></>}{g.actsDebt>0&&<><span style={{color:C.warning}}> · ⚠️ долг мастерам {Math.round(g.actsDebt).toLocaleString('ru-RU')} ₽</span></>}</p>
                       </div>
-                      <b style={{color:'#78350f',fontSize:'13px'}}>{Math.round(Number(u.total||0)).toLocaleString('ru-RU')+' ₽'}</b>
-                      <button onClick={async()=>{if(!window.confirm('Отметить как оплачено?')) return;await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено',price:u.price,total:u.total,approvedBy:u.approvedBy,approvedAt:u.approvedAt,paidStatus:'Оплачен'})});await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:u.projectName,amount:u.total,note:'Оплата непредвиденной: '+u.description,date:new Date().toISOString().split('T')[0],paidBy:user.name})});await loadAll();}} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><DollarSign size={11}/>Оплатить</button>
-                    </div>))}
-                  </div>);})()}
-                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>📅 Последние 15 платежей по проектам:</b>
-                  {inPays.slice(0,15).map((p,i)=>(<div key={i} style={{...card,padding:'10px 14px',marginBottom:'6px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}><div style={{flex:1,minWidth:'200px'}}><b style={{color:C.text,fontSize:'12px'}}>{p.projectName||'—'}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(p.date||'')+(p.note?' · '+p.note:'')+(p.paidBy?' · '+p.paidBy:'')}</p></div><b style={{color:C.success,fontSize:'13px'}}>{Math.round(Number(p.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div></div>))}
-                  {inPays.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Платежей нет</p>}
+                      <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                        <b style={{color:balance>=0?C.success:C.danger,fontSize:'15px'}}>{(balance>=0?'+':'')+Math.round(balance).toLocaleString('ru-RU')+' ₽'}</b>
+                        {isOpen?<ChevronUp size={14}/>:<ChevronDown size={14}/>}
+                      </div>
+                    </div>
+                    {isOpen&&(<div style={{borderTop:'1px solid '+C.border,padding:'10px 14px',fontSize:'11px'}}>
+                      {g.incoming.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.success,fontWeight:'600'}}>↘️ Поступления ({g.incoming.length}) — {Math.round(g.totalIn).toLocaleString('ru-RU')} ₽</summary>{g.incoming.map((p,i)=>(<div key={i} style={{padding:'4px 10px',color:C.textSec,display:'flex',justifyContent:'space-between',borderBottom:'1px dashed '+C.border}}><span>{(p.date||'—')+(p.note?' · '+p.note:'')+(p.paidBy?' · '+p.paidBy:'')}</span><b style={{color:C.success}}>{Math.round(Number(p.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}</details>)}
+                      {g.supplierInv.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.info,fontWeight:'600'}}>📥 Счета поставщиков ({g.supplierInv.length})</summary>{g.supplierInv.map(s=>{const paid=Number(s.paidAmount||0);const total=Number(s.totalAmount||0);const owe=Math.max(0,total-paid);return(<div key={s.id} style={{padding:'4px 10px',display:'flex',justifyContent:'space-between',gap:'8px',borderBottom:'1px dashed '+C.border}}><span style={{color:C.textSec}}>{(s.supplierName||'—')+' · '+(s.invoiceNumber||'без №')+' · '+(s.date||'')}</span><span><b style={{color:C.text}}>{Math.round(total).toLocaleString('ru-RU')+' ₽'}</b>{paid>0&&<span style={{color:C.success,marginLeft:'4px'}}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}{owe>0&&<b style={{color:C.danger,marginLeft:'4px'}}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}</span></div>);})}</details>)}
+                      {g.actsPaid.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.accent,fontWeight:'600'}}>📄 Акты мастеров ({g.actsPaid.length})</summary>{g.actsPaid.map(a=>{const paid=Number(a.paidAmount||0);const total=Number(a.totalAmount||0);const owe=Math.max(0,total-paid);return(<div key={a.id} style={{padding:'4px 10px',display:'flex',justifyContent:'space-between',gap:'8px',borderBottom:'1px dashed '+C.border}}><span style={{color:C.textSec}}>{'№'+a.id+' · '+(a.masterName||'—')+' · '+(a.periodStart||'')+'—'+(a.periodEnd||'')}</span><span><b style={{color:C.text}}>{Math.round(total).toLocaleString('ru-RU')+' ₽'}</b>{paid>0&&<span style={{color:C.success,marginLeft:'4px'}}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}{owe>0&&<b style={{color:C.danger,marginLeft:'4px'}}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}</span></div>);})}</details>)}
+                      {g.accountable.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.warning,fontWeight:'600'}}>💵 Подотчётные ({g.accountable.length})</summary>{g.accountable.map(a=>(<div key={a.id} style={{padding:'4px 10px',color:C.textSec,display:'flex',justifyContent:'space-between',borderBottom:'1px dashed '+C.border}}><span>{(a.givenTo||'—')+' · '+(a.date||'')+(a.purpose?' · '+a.purpose:'')}</span><b style={{color:C.warning}}>{Math.round(Number(a.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}</details>)}
+                      {g.ownExp.length>0&&(<details><summary style={{cursor:'pointer',padding:'4px 0',color:C.textSec,fontWeight:'600'}}>💸 Возмещения сотрудникам ({g.ownExp.length})</summary>{g.ownExp.map(e=>(<div key={e.id} style={{padding:'4px 10px',color:C.textSec,display:'flex',justifyContent:'space-between',borderBottom:'1px dashed '+C.border}}><span>{(e.employeeName||'—')+' · '+(e.description||'')+' · '+(e.date||'')}</span><b>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}</details>)}
+                    </div>)}
+                  </div>);})}
                 </div>);
               })()}
             </div>)}
@@ -6714,31 +6736,64 @@ function App() {
 
             {accountingTab==='salary'&&(<div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>👥 Расчёт зарплаты — текущий месяц</b>
-                <span style={{fontSize:'11px',color:C.textMuted}}>Оклад из staff.salary + сдельные из piecework за месяц</span>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>👥 Зарплата по сотрудникам</b>
+                <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+                  <button onClick={()=>{const d=new Date(salaryMonth+'-01');d.setMonth(d.getMonth()-1);setSalaryMonth(d.toISOString().slice(0,7));}} style={{...btnG,padding:'5px 10px'}}>‹</button>
+                  <input type='month' value={salaryMonth} onChange={e=>setSalaryMonth(e.target.value)} style={{...inp,marginBottom:0,width:'auto',padding:'5px 8px',fontSize:'12px'}}/>
+                  <button onClick={()=>{const d=new Date(salaryMonth+'-01');d.setMonth(d.getMonth()+1);setSalaryMonth(d.toISOString().slice(0,7));}} style={{...btnG,padding:'5px 10px'}}>›</button>
+                </div>
               </div>
-              {(()=>{const monthStart=new Date(); monthStart.setDate(1); const monthStartStr=monthStart.toISOString().split('T')[0];
-                const today=new Date().toISOString().split('T')[0];
-                const rows=staff.filter(st=>st.status!=='Уволен'&&st.status!=='Архив').map(st=>{
-                  const pw=(piecework||[]).filter(p=>Number(p.staffId)===st.id&&p.date&&p.date>=monthStartStr&&p.date<=today);
+              <div style={{position:'relative',marginBottom:'12px'}}>
+                <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                <input placeholder='🔍 Поиск сотрудника' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'12px'}}/>
+              </div>
+              {(()=>{
+                const monthStr=salaryMonth;
+                const monthStart=monthStr+'-01';
+                const nextMonth=new Date(monthStart);nextMonth.setMonth(nextMonth.getMonth()+1);const nextStr=nextMonth.toISOString().slice(0,7)+'-01';
+                const rows=staff.filter(st=>st.status!=='Уволен'&&st.status!=='Архив').filter(st=>matchSearch(listSearch,st.name,st.role)).map(st=>{
+                  const pw=(piecework||[]).filter(p=>Number(p.staffId)===st.id&&p.date&&p.date>=monthStart&&p.date<nextStr);
                   const pwSum=pw.reduce((s,p)=>s+Number(p.total||0),0);
                   const salary=Number(st.salary||0);
-                  const total=(st.payType==='Сдельная'?pwSum:(st.payType==='Оклад'?salary:salary+pwSum));
-                  return {id:st.id,name:st.name||(st.lastName||'')+' '+(st.firstName||''),role:st.role||'—',payType:st.payType||'—',salary,pwSum,total};
+                  const base=(st.payType==='Сдельная'?pwSum:(st.payType==='Оклад'?salary:salary+pwSum));
+                  // Удержания за инструменты «в счёт зарплаты»
+                  const toolHold=(tools||[]).filter(t=>t.masterName===st.name&&t.issueType==='В счёт зарплаты').reduce((s,t)=>s+Number(t.cost||0),0);
+                  // Премии — пока нет отдельной таблицы, оставляем 0
+                  const bonus=0;
+                  // НДФЛ 13%
+                  const ndfl=Math.round((base+bonus-toolHold)*0.13);
+                  const net=base+bonus-toolHold-ndfl;
+                  return {id:st.id,name:st.name||(st.lastName||'')+' '+(st.firstName||''),role:st.role||'—',payType:st.payType||'—',salary,pwSum,base,bonus,toolHold,ndfl,net};
                 });
-                const grandTotal=rows.reduce((s,r)=>s+r.total,0);
+                const grandBase=rows.reduce((s,r)=>s+r.base,0);
+                const grandNdfl=rows.reduce((s,r)=>s+r.ndfl,0);
+                const grandNet=rows.reduce((s,r)=>s+r.net,0);
+                const grandTool=rows.reduce((s,r)=>s+r.toolHold,0);
                 return(<div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
                     <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Сотрудников</p><b style={{color:C.text,fontSize:'16px'}}>{rows.length}</b></div>
-                    <div style={{...card,padding:'12px',backgroundColor:C.accentLight}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>К выплате за месяц</p><b style={{color:C.accent,fontSize:'16px'}}>{Math.round(grandTotal).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Начислено</p><b style={{color:C.text,fontSize:'15px'}}>{Math.round(grandBase).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    {grandTool>0&&<div style={{...card,padding:'12px',backgroundColor:C.warningLight}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Удержания (инструмент)</p><b style={{color:C.warning,fontSize:'15px'}}>{Math.round(grandTool).toLocaleString('ru-RU')+' ₽'}</b></div>}
+                    <div style={{...card,padding:'12px',backgroundColor:C.infoLight}}><p style={{color:C.info,fontSize:'11px',margin:'0 0 4px'}}>НДФЛ в бюджет</p><b style={{color:C.info,fontSize:'15px'}}>{Math.round(grandNdfl).toLocaleString('ru-RU')+' ₽'}</b></div>
+                    <div style={{...card,padding:'12px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>На руки</p><b style={{color:C.success,fontSize:'16px'}}>{Math.round(grandNet).toLocaleString('ru-RU')+' ₽'}</b></div>
                   </div>
                   <div style={{...card,padding:0,overflow:'auto'}}>
-                    <table style={tbl}><thead><tr><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Оклад</th><th style={tblH}>Сдельные за месяц</th><th style={tblH}>К выплате</th></tr></thead><tbody>
-                      {rows.map(r=>(<tr key={r.id}><td style={tblC}>{r.name}</td><td style={tblC}>{r.role}</td><td style={tblC}>{r.payType}</td><td style={tblC}>{r.salary?r.salary.toLocaleString('ru-RU')+' ₽':'—'}</td><td style={tblC}>{r.pwSum>0?Math.round(r.pwSum).toLocaleString('ru-RU')+' ₽':'—'}</td><td style={{...tblC,fontWeight:'700',color:C.accent}}>{Math.round(r.total).toLocaleString('ru-RU')+' ₽'}</td></tr>))}
-                      {rows.length===0&&<tr><td colSpan={6} style={{...tblC,textAlign:'center',color:C.textMuted}}>Активных сотрудников нет</td></tr>}
+                    <table style={tbl}><thead><tr><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Оклад</th><th style={tblH}>Сдельные</th><th style={tblH}>Премия</th><th style={tblH}>Удерж.</th><th style={tblH}>НДФЛ</th><th style={tblH}>На руки</th><th style={tblH}></th></tr></thead><tbody>
+                      {rows.map(r=>(<tr key={r.id}>
+                        <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b></td>
+                        <td style={tblC}>{r.role}</td>
+                        <td style={tblC}>{r.salary?Math.round(r.salary).toLocaleString('ru-RU'):'—'}</td>
+                        <td style={tblC}>{r.pwSum>0?Math.round(r.pwSum).toLocaleString('ru-RU'):'—'}</td>
+                        <td style={tblC}>{r.bonus>0?Math.round(r.bonus).toLocaleString('ru-RU'):'—'}</td>
+                        <td style={{...tblC,color:r.toolHold>0?C.warning:C.textMuted}}>{r.toolHold>0?'-'+Math.round(r.toolHold).toLocaleString('ru-RU'):'—'}</td>
+                        <td style={{...tblC,color:C.info}}>{Math.round(r.ndfl).toLocaleString('ru-RU')}</td>
+                        <td style={{...tblC,fontWeight:'700',color:C.success}}>{Math.round(r.net).toLocaleString('ru-RU')+' ₽'}</td>
+                        <td style={tblC}><button onClick={()=>{if(!window.confirm('Записать выплату '+Math.round(r.net).toLocaleString('ru-RU')+' ₽ → '+r.name+'?')) return;alert('💰 Выплата сохранена (заглушка — нужно интегрировать с банк-клиентом)');}} style={{...btnO,padding:'3px 8px',fontSize:'10px'}}>Выплатить</button></td>
+                      </tr>))}
+                      {rows.length===0&&<tr><td colSpan={9} style={{...tblC,textAlign:'center',color:C.textMuted}}>Нет данных</td></tr>}
                     </tbody></table>
                   </div>
-                  <p style={{color:C.textMuted,fontSize:'11px',marginTop:'8px',lineHeight:1.4}}>📋 Тип оплаты «Оклад» → берётся только staff.salary. «Сдельная» → только сумма piecework за месяц. «Смешанная» → оба. Период считается от 1-го числа текущего месяца.</p>
+                  <p style={{color:C.textMuted,fontSize:'11px',marginTop:'8px',lineHeight:1.4}}>📋 Формулы: Начислено = оклад (если применимо) + сдельные за месяц. Удержания = инструмент «в счёт зарплаты». НДФЛ 13% от (начислено + премия - удержания). На руки = всё остальное.</p>
                 </div>);
               })()}
             </div>)}
@@ -6811,27 +6866,54 @@ function App() {
                   <button onClick={()=>setNewSupplierInvoice(null)} style={btnG}>Отмена</button>
                 </div>
               </div>)}
-              {(()=>{const pending=supplierInvoices.filter(i=>i.status==='На утверждении');const approved=supplierInvoices.filter(i=>i.status==='Утверждён');const paid=supplierInvoices.filter(i=>i.status==='Оплачен');const totalP=pending.reduce((s,i)=>s+Number(i.amount||0),0);return(<div>
+              {(()=>{const filtered=supplierInvoices.filter(i=>matchSearch(listSearch,i.supplierName,i.invoiceNumber,i.projectName,i.description));const pending=filtered.filter(i=>i.status==='На утверждении');const approved=filtered.filter(i=>i.status==='Утверждён'||i.status==='Частично оплачен');const paid=filtered.filter(i=>i.status==='Оплачен');const totalP=pending.reduce((s,i)=>s+Number(i.amount||0),0);const totalDebt=approved.reduce((s,i)=>s+(Number(i.amount||0)-Number(i.paidAmount||0)),0);
+                // Группировка по объектам
+                const byProj={};filtered.forEach(inv=>{const pn=inv.projectName||'Без объекта';if(!byProj[pn]) byProj[pn]=[];byProj[pn].push(inv);});
+                const projs=Object.keys(byProj).sort();
+                return(<div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
                   <div style={{...card,padding:'12px',backgroundColor:C.warningLight}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>На утверждении</p><b style={{color:C.warning,fontSize:'15px'}}>{pending.length+' · '+Math.round(totalP).toLocaleString('ru-RU')+' ₽'}</b></div>
-                  <div style={{...card,padding:'12px',backgroundColor:C.accentLight}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>Утверждены (к оплате)</p><b style={{color:C.accent,fontSize:'15px'}}>{approved.length}</b></div>
+                  <div style={{...card,padding:'12px',backgroundColor:C.accentLight}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>К оплате</p><b style={{color:C.accent,fontSize:'15px'}}>{approved.length}</b></div>
+                  {totalDebt>0&&<div style={{...card,padding:'12px',backgroundColor:C.dangerLight}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>⚠️ Долг по счетам</p><b style={{color:C.danger,fontSize:'15px'}}>{Math.round(totalDebt).toLocaleString('ru-RU')+' ₽'}</b></div>}
                   <div style={{...card,padding:'12px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Оплачены</p><b style={{color:C.success,fontSize:'15px'}}>{paid.length}</b></div>
                 </div>
-                {supplierInvoices.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Счетов нет. Поставщик прислал счёт → загрузи сюда → отметишь «Утверждён» → снабженец увидит «можно закупать»</div>:supplierInvoices.map(inv=>(<div key={inv.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(inv.status==='Оплачен'?C.success:inv.status==='Утверждён'?C.accent:C.warning)}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                    <div style={{flex:1,minWidth:'200px'}}>
-                      <b style={{color:C.text,fontSize:'13px'}}>{inv.supplierName+' · № '+inv.invoiceNumber}</b>
-                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(inv.projectName?inv.projectName+' · ':'')+(inv.invoiceDate||'')+(inv.description?' · '+inv.description:'')}</p>
-                      <p style={{color:C.accent,margin:0,fontSize:'13px',fontWeight:'700'}}>{Math.round(Number(inv.amount||0)).toLocaleString('ru-RU')+' ₽'+(inv.vatAmount?' (НДС '+Math.round(Number(inv.vatAmount)).toLocaleString('ru-RU')+' ₽)':'')}</p>
+                <div style={{position:'relative',marginBottom:'12px'}}>
+                  <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                  <input placeholder='🔍 Поиск по поставщику, № счёта, объекту' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
+                </div>
+                {filtered.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Счетов нет</div>:projs.map(pn=>{const list=byProj[pn];const sumTotal=list.reduce((s,i)=>s+Number(i.amount||0),0);const sumPaid=list.reduce((s,i)=>s+Number(i.paidAmount||0),0);const sumDebt=Math.max(0,sumTotal-sumPaid);const isOpen=expandedProject==='sup-'+pn;return(<div key={pn} style={{...card,marginBottom:'10px'}}>
+                  <div style={{padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}} onClick={()=>setExpandedProject(isOpen?null:'sup-'+pn)}>
+                    <div>
+                      <b style={{color:C.text,fontSize:'13px'}}>🏗 {pn}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{list.length+' счетов · итого '+Math.round(sumTotal).toLocaleString('ru-RU')+' ₽'+(sumPaid>0?' · оплачено '+Math.round(sumPaid).toLocaleString('ru-RU'):'')}</p>
                     </div>
-                    <div style={{display:'flex',gap:'4px',alignItems:'center'}}>
-                      <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Утверждён'?C.accent:C.warning,inv.status==='Оплачен'?C.successLight:inv.status==='Утверждён'?C.accentLight:C.warningLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Утверждён'?C.accentBorder:C.warningBorder)}>{inv.status}</span>
-                      {inv.status==='На утверждении'&&<button onClick={async()=>{await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();alert('Утверждено. Уведомление снабженцу: можно закупать.');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅ Утвердить</button>}
-                      {inv.status==='Утверждён'&&<button onClick={async()=>{if(!window.confirm('Отметить как оплачено '+Math.round(Number(inv.amount||0)).toLocaleString('ru-RU')+' ₽?')) return;await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Оплачен',paidBy:user.name,paidAt:new Date().toISOString().split('T')[0],paidNote:'Оплата счёта №'+inv.invoiceNumber})});if(inv.projectName){await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:inv.projectName,amount:inv.amount,note:'Оплата счёта '+inv.supplierName+' №'+inv.invoiceNumber,date:new Date().toISOString().split('T')[0],paidBy:user.name})});}await loadAll();}} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 Оплатить</button>}
-                      <button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/supplier-invoices/'+inv.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
+                    <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                      {sumDebt>0&&<b style={{color:C.danger,fontSize:'13px'}}>{'⚠️ Долг '+Math.round(sumDebt).toLocaleString('ru-RU')+' ₽'}</b>}
+                      {isOpen?<ChevronUp size={14}/>:<ChevronDown size={14}/>}
                     </div>
                   </div>
-                </div>))}
+                  {isOpen&&(<div style={{borderTop:'1px solid '+C.border}}>
+                    {list.map(inv=>{const total=Number(inv.amount||0);const paid=Number(inv.paidAmount||0);const owe=Math.max(0,total-paid);return(<div key={inv.id} style={{padding:'12px 14px',borderBottom:'1px solid '+C.border,borderLeft:'3px solid '+(inv.status==='Оплачен'?C.success:owe>0&&paid>0?C.warning:inv.status==='Утверждён'?C.accent:C.warning),marginLeft:'10px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                        <div style={{flex:1,minWidth:'200px'}}>
+                          <b style={{color:C.text,fontSize:'13px'}}>{inv.supplierName+' · № '+inv.invoiceNumber}</b>
+                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(inv.invoiceDate||'')+(inv.description?' · '+inv.description:'')}</p>
+                          <div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
+                            <span style={{fontSize:'12px',color:C.text}}>{'Сумма: '+Math.round(total).toLocaleString('ru-RU')+' ₽'}</span>
+                            {paid>0&&<span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+Math.round(paid).toLocaleString('ru-RU')+' ₽'}</span>}
+                            {owe>0&&paid>0&&<span style={{fontSize:'12px',color:C.danger,fontWeight:'700',padding:'2px 8px',borderRadius:'6px',backgroundColor:C.dangerLight}}>{'⚠️ Недоплата: '+Math.round(owe).toLocaleString('ru-RU')+' ₽'}</span>}
+                          </div>
+                        </div>
+                        <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
+                          <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Частично оплачен'?C.warning:inv.status==='Утверждён'?C.accent:C.warning,inv.status==='Оплачен'?C.successLight:inv.status==='Частично оплачен'?C.warningLight:inv.status==='Утверждён'?C.accentLight:C.warningLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Частично оплачен'?C.warningBorder:inv.status==='Утверждён'?C.accentBorder:C.warningBorder)}>{inv.status}</span>
+                          {inv.status==='На утверждении'&&<button onClick={async()=>{await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button>}
+                          {(inv.status==='Утверждён'||inv.status==='Частично оплачен')&&owe>0&&<button onClick={async()=>{const ans=prompt('Оплатить (₽). Полная: '+Math.round(owe).toLocaleString('ru-RU')+' ₽',String(owe));if(!ans) return;const sum=toNum(ans);if(sum<=0||sum>owe){alert('Сумма должна быть от 1 до '+Math.round(owe).toLocaleString('ru-RU'));return;}const newPaid=paid+sum;const newStatus=newPaid>=total?'Оплачен':'Частично оплачен';await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:newPaid,paidBy:user.name,paidAt:new Date().toISOString().split('T')[0],paidNote:'Оплачено '+Math.round(sum).toLocaleString('ru-RU')+' ₽'})});if(inv.projectName){await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:inv.projectName,amount:sum,note:'Оплата счёта '+inv.supplierName+' №'+inv.invoiceNumber,date:new Date().toISOString().split('T')[0],paidBy:user.name})});}await loadAll();}} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 {owe<total?'Доплатить':'Оплатить'}</button>}
+                          <button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/supplier-invoices/'+inv.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
+                        </div>
+                      </div>
+                    </div>);})}
+                  </div>)}
+                </div>);})}
               </div>);})()}
             </div>)}
 
@@ -7683,11 +7765,24 @@ function App() {
             const sumP=pending.reduce((s,e)=>s+Number(e.amount||0),0);
             const sumA=approved.reduce((s,e)=>s+Number(e.amount||0),0);
             const sumR=rejected.reduce((s,e)=>s+Number(e.amount||0),0);
+            // Мои подотчётные, по которым нужно отчитаться
+            const myAcc=(accountablePayments||[]).filter(a=>a.givenTo===user.name&&Number(a.amount||0)>Number(a.spentAmount||0));
             return(<div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'18px',flexWrap:'wrap',gap:'10px'}}>
                 <b style={{color:C.text,fontSize:'18px',fontWeight:'700'}}>💸 Мои траты на возмещении</b>
                 <button onClick={()=>setShowOwnExpenseForm(true)} style={btnO}><Plus size={14}/>Новая трата</button>
               </div>
+              {myAcc.length>0&&(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+                <b style={{color:C.warning,fontSize:'13px',display:'block',marginBottom:'8px'}}>💵 Подотчётные — нужно отчитаться</b>
+                {myAcc.map(a=>{const total=Number(a.amount||0);const spent=Number(a.spentAmount||0);const remaining=total-spent;return(<div key={a.id} style={{...card,padding:'10px 12px',marginBottom:'6px',backgroundColor:C.bgWhite,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                  <div style={{flex:1,minWidth:'200px'}}>
+                    <b style={{color:C.text,fontSize:'12px'}}>{a.projectName||'—'}{a.purpose?' · '+a.purpose:''}</b>
+                    <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{'Выдано: '+Math.round(total).toLocaleString('ru-RU')+' ₽ · Потрачено: '+Math.round(spent).toLocaleString('ru-RU')+' ₽'}</p>
+                    <b style={{color:C.warning,fontSize:'12px'}}>{'⏳ Остаток отчитаться: '+Math.round(remaining).toLocaleString('ru-RU')+' ₽'}</b>
+                  </div>
+                  <button onClick={()=>setReportingPayment(a)} style={btnO}><FileText size={14}/>Отчитаться</button>
+                </div>);})}
+              </div>)}
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'18px'}}>
                 <div style={{...card,padding:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>⏳ Ожидают возмещения</p><b style={{color:C.warning,fontSize:'18px'}}>{Math.round(sumP).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{pending.length+' шт'}</p></div>
                 <div style={{...card,padding:'14px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>✅ Возмещено</p><b style={{color:C.success,fontSize:'18px'}}>{Math.round(sumA).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{approved.length+' шт'}</p></div>

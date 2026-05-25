@@ -142,6 +142,7 @@ def init_db():
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_by JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'other';
         ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2) DEFAULT 0;
         CREATE TABLE IF NOT EXISTS tb_journal (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -4280,7 +4281,7 @@ def delete_expense_report(id: int):
 def list_supplier_invoices(project_name: str = None, status: str = None):
     conn = get_db()
     cur = conn.cursor()
-    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at"
+    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount"
     where, params = [], []
     if project_name: where.append("project_name=%s"); params.append(project_name)
     if status: where.append("status=%s"); params.append(status)
@@ -4293,12 +4294,13 @@ def list_supplier_invoices(project_name: str = None, status: str = None):
     return [{"id":r[0],"supplierId":r[1],"supplierName":r[2] or "",
              "projectName":r[3] or "","invoiceNumber":r[4] or "",
              "invoiceDate":str(r[5]) if r[5] else "","amount":float(r[6] or 0),
+             "totalAmount":float(r[6] or 0),
              "vatAmount":float(r[7] or 0),"description":r[8] or "",
              "fileUrl":r[9] or "","photoUrl":r[10] or "",
              "status":r[11] or "На утверждении","approvedBy":r[12] or "",
              "approvedAt":str(r[13]) if r[13] else "","paidAt":str(r[14]) if r[14] else "",
              "paidBy":r[15] or "","paidNote":r[16] or "",
-             "createdAt":str(r[17])} for r in rows]
+             "createdAt":str(r[17]),"paidAmount":float(r[18] or 0)} for r in rows]
 
 @app.post("/supplier-invoices")
 def create_supplier_invoice(data: dict):
@@ -4324,7 +4326,8 @@ def update_supplier_invoice(id: int, data: dict):
     cur = conn.cursor()
     fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
                   ('paidAt','paid_at'),('paidBy','paid_by'),('paidNote','paid_note'),
-                  ('description','description'),('amount','amount'),('vatAmount','vat_amount')]
+                  ('description','description'),('amount','amount'),('vatAmount','vat_amount'),
+                  ('paidAmount','paid_amount')]
     sets, vals = [], []
     for js_key, db_col in fields_map:
         if js_key in data:
