@@ -447,6 +447,9 @@ function App() {
   const [settingsTab, setSettingsTab] = useState('requisites');
   const [rejectComment, setRejectComment] = useState('');
   const [rejectingEntry, setRejectingEntry] = useState(null);
+  const [confirmingEntry, setConfirmingEntry] = useState(null);
+  const [confirmAcceptedQty, setConfirmAcceptedQty] = useState('');
+  const [confirmComment, setConfirmComment] = useState('');
   const [editingItem, setEditingItem] = useState(null);
   const [editingPlItem, setEditingPlItem] = useState(null);
   const [inlineEditPl, setInlineEditPl] = useState(null);
@@ -2375,10 +2378,50 @@ function App() {
     alert('Работы отправлены на проверку!');
   };
 
-  const confirmJ = async (e) => {
-    await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Подтверждено',confirmedBy:user.name,confirmedAt:new Date().toISOString().split('T')[0]})});
-    await autoWriteOffMaterials(e.description,e.quantity,e.project);
-    await loadAll(); await updateProjectProgress(e.project||""); notify('Работа подтверждена: '+e.description,'work'); addActivity('Подтвердил: '+e.description);
+  // Открыть модалку для подтверждения с возможным пересчётом количества
+  const openConfirmModal = (e) => {
+    setConfirmingEntry(e);
+    setConfirmAcceptedQty(String(e.quantity||''));
+    setConfirmComment('');
+  };
+
+  const confirmJ = async (e, acceptedQty, comment) => {
+    const planQty = Number(e.quantity||0);
+    const accepted = (acceptedQty===undefined||acceptedQty===null||acceptedQty==='')?planQty:Number(acceptedQty);
+    const ppu = Number(e.pricePerUnit||0);
+    const newTotal = Math.round(accepted * ppu);
+    const body = {
+      status:'Подтверждено',
+      confirmedBy:user.name,
+      confirmedAt:new Date().toISOString().split('T')[0],
+      quantity: accepted,
+      total: newTotal,
+    };
+    if(comment) body.comment = comment;
+    await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    await autoWriteOffMaterials(e.description, accepted, e.project);
+    // Записываем в piecework (сдельные) — для расчёта зарплаты
+    try {
+      if(e.masterId && accepted>0 && ppu>0){
+        await fetch(API+'/piecework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          staffId:e.masterId,
+          masterName:e.masterName||e.master_name||'',
+          project:e.project||'',
+          description:e.description||'',
+          unit:e.unit||'',
+          quantity:accepted,
+          pricePerUnit:ppu,
+          total:newTotal,
+          date:new Date().toISOString().split('T')[0],
+          workJournalId:e.id,
+        })});
+      }
+    } catch(_){}
+    await loadAll();
+    await updateProjectProgress(e.project||"");
+    setConfirmingEntry(null); setConfirmAcceptedQty(''); setConfirmComment('');
+    const msg = (accepted<planQty)?('Принято '+accepted+' из '+planQty+' '+(e.unit||'')+' · '+e.description):'Работа подтверждена: '+e.description;
+    notify(msg,'work'); addActivity(msg);
   };
 
   const rejectJ = async (e,c) => {
@@ -3241,6 +3284,25 @@ function App() {
                 </div>
               </div>
               {(()=>{const notifs=computeNotifications();if(notifs.length===0) return null;return(<div style={{marginBottom:'16px'}}>{notifs.slice(0,5).map((n,i)=>(<div key={i} style={{padding:'10px 12px',backgroundColor:'rgba(251,191,36,0.12)',border:'1.5px solid '+n.color,borderRadius:'10px',marginBottom:'6px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'18px'}}>{n.icon}</span><div><b style={{fontSize:'12px',color:C.text,display:'block'}}>{n.title}</b><span style={{fontSize:'11px',color:C.textSec}}>{n.text}</span></div></div>))}</div>);})()}
+              {(()=>{const wj=(workJournal||[]).filter(w=>w.project===myProject.name&&w.status==='Подтверждено');const last30=wj.filter(w=>{const d=new Date(w.confirmedAt||w.date||0);return (Date.now()-d.getTime())<30*24*3600*1000;});if(wj.length===0) return null;const today=new Date().toISOString().split('T')[0];const todayList=wj.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===today);return(<div style={{...card,padding:'16px',marginBottom:'16px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
+                  <b style={{color:C.text,fontSize:'14px'}}>👷 Принятые работы (последние 30 дней)</b>
+                  <span style={{padding:'3px 10px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'12px',fontWeight:'700'}}>{last30.length+' шт'}</span>
+                </div>
+                {todayList.length>0&&<div style={{padding:'8px 10px',marginBottom:'10px',borderRadius:'8px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}><b style={{color:C.info,fontSize:'12px'}}>📅 Сегодня принято: {todayList.length} раб.</b></div>}
+                <div style={{maxHeight:'320px',overflowY:'auto'}}>
+                  {last30.slice(0,30).map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',gap:'8px'}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <b style={{fontSize:'12px',color:C.text,display:'block'}}>{w.description}</b>
+                      <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>{(w.masterName||w.master_name||'—')+' · '+(w.confirmedAt||w.date||'—')}</p>
+                    </div>
+                    <div style={{textAlign:'right',flexShrink:0}}>
+                      <b style={{fontSize:'12px',color:C.text}}>{Number(w.quantity||0).toLocaleString('ru-RU')+' '+(w.unit||'')}</b>
+                      {w.photoUrl&&<button onClick={()=>setShowPhotoModal(w.photoUrl.startsWith('http')?w.photoUrl:API+w.photoUrl)} style={{...btnG,padding:'2px 6px',fontSize:'10px',marginLeft:'4px'}}>📷</button>}
+                    </div>
+                  </div>))}
+                </div>
+              </div>);})()}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
                 <div style={{...card,padding:'16px'}}>
                   <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>📋 Чек-листы</b>
@@ -3484,6 +3546,25 @@ function App() {
                 <p style={{color:'rgba(255,255,255,0.8)',margin:'4px 0 0',fontSize:'14px'}}>Статус: {myProject.status}</p>
               </div>
               {(()=>{const notifs=computeNotifications();if(notifs.length===0) return null;return(<div style={{marginBottom:'16px'}}>{notifs.slice(0,5).map((n,i)=>(<div key={i} style={{padding:'10px 12px',backgroundColor:'rgba(251,191,36,0.12)',border:'1.5px solid '+n.color,borderRadius:'10px',marginBottom:'6px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'18px'}}>{n.icon}</span><div><b style={{fontSize:'12px',color:C.text,display:'block'}}>{n.title}</b><span style={{fontSize:'11px',color:C.textSec}}>{n.text}</span></div></div>))}</div>);})()}
+              {(()=>{const wj=(workJournal||[]).filter(w=>w.project===myProject.name&&w.status==='Подтверждено');const last30=wj.filter(w=>{const d=new Date(w.confirmedAt||w.date||0);return (Date.now()-d.getTime())<30*24*3600*1000;});if(wj.length===0) return null;const today=new Date().toISOString().split('T')[0];const todayList=wj.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===today);return(<div style={{...card,padding:'16px',marginBottom:'16px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
+                  <b style={{color:C.text,fontSize:'14px'}}>👷 Что выполнено по объекту (последние 30 дней)</b>
+                  <span style={{padding:'3px 10px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'12px',fontWeight:'700'}}>{last30.length+' работ'}</span>
+                </div>
+                {todayList.length>0&&<div style={{padding:'8px 10px',marginBottom:'10px',borderRadius:'8px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}><b style={{color:C.info,fontSize:'12px'}}>📅 Сегодня сделано: {todayList.length} работ</b></div>}
+                <div style={{maxHeight:'320px',overflowY:'auto'}}>
+                  {last30.slice(0,30).map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',gap:'8px'}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <b style={{fontSize:'12px',color:C.text,display:'block'}}>{w.description}</b>
+                      <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>{(w.confirmedAt||w.date||'—')}</p>
+                    </div>
+                    <div style={{textAlign:'right',flexShrink:0}}>
+                      <b style={{fontSize:'12px',color:C.text}}>{Number(w.quantity||0).toLocaleString('ru-RU')+' '+(w.unit||'')}</b>
+                      {w.photoUrl&&<button onClick={()=>setShowPhotoModal(w.photoUrl.startsWith('http')?w.photoUrl:API+w.photoUrl)} style={{...btnG,padding:'2px 6px',fontSize:'10px',marginLeft:'4px'}}>📷</button>}
+                    </div>
+                  </div>))}
+                </div>
+              </div>);})()}
               <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
                 <div style={{...card,padding:'16px',textAlign:'center'}}>
                   <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Прогресс</p>
@@ -4255,6 +4336,28 @@ function App() {
       })()}
       {showQRModal&&(<div onClick={()=>setShowQRModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.7)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><div style={{backgroundColor:'white',padding:'30px',borderRadius:'16px',textAlign:'center'}} onClick={e=>e.stopPropagation()}><h3 style={{color:C.text,marginBottom:'16px'}}>{showQRModal.title}</h3><img src={generateQR(showQRModal.data)} alt="QR" style={{width:'200px',height:'200px'}}/><p style={{color:C.textSec,fontSize:'12px',marginTop:'12px'}}>Сканируйте для быстрого доступа</p><button onClick={()=>setShowQRModal(null)} style={{...btnG,marginTop:'12px'}}>Закрыть</button></div></div>)}
       {rejectingEntry&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Причина отклонения</h3><textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inp,height:'100px',resize:'vertical'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>rejectJ(rejectingEntry,rejectComment)} style={btnR}><X size={14}/>Отклонить</button><button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnG}>Отмена</button></div></div></div>)}
+      {confirmingEntry&&(()=>{const e=confirmingEntry;const plan=Number(e.quantity||0);const accepted=Number(confirmAcceptedQty||0);const ppu=Number(e.pricePerUnit||0);const newTotal=Math.round(accepted*ppu);const diff=plan-accepted;return(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500,padding:'20px'}}><div style={{...card,padding:'24px',width:'min(480px,100%)',maxHeight:'90vh',overflowY:'auto'}}>
+        <h3 style={{color:C.text,marginBottom:'8px',fontWeight:'700'}}>✅ Принять работу мастера</h3>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>{(e.masterName||e.master_name||'—')+' · '+e.project}</p>
+        <div style={{padding:'10px 12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'12px'}}>
+          <b style={{color:C.text,fontSize:'13px',display:'block'}}>{e.description}</b>
+          <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>Мастер заявил: <b style={{color:C.text}}>{plan+' '+(e.unit||'')+' × '+ppu.toLocaleString('ru-RU')+' ₽ = '+Math.round(plan*ppu).toLocaleString('ru-RU')+' ₽'}</b></p>
+        </div>
+        <label style={{display:'block',color:C.textSec,fontSize:'12px',marginBottom:'4px'}}>Фактически принято ({e.unit||'шт'})</label>
+        <input type='number' value={confirmAcceptedQty} onChange={ev=>setConfirmAcceptedQty(ev.target.value)} max={plan} min={0} style={{...inp,fontSize:'18px',fontWeight:'700'}}/>
+        {diff>0&&accepted>=0&&<p style={{color:C.warning,fontSize:'12px',margin:'-4px 0 10px'}}>⚠️ Недоделано: <b>{diff+' '+(e.unit||'')+' = '+Math.round(diff*ppu).toLocaleString('ru-RU')+' ₽'}</b> — мастеру нужно доделать</p>}
+        {diff===0&&<p style={{color:C.success,fontSize:'12px',margin:'-4px 0 10px'}}>✅ Принято полностью</p>}
+        {diff<0&&<p style={{color:C.danger,fontSize:'12px',margin:'-4px 0 10px'}}>Нельзя принять больше чем заявлено</p>}
+        <div style={{padding:'10px 12px',backgroundColor:C.successLight,borderRadius:'8px',marginBottom:'12px',border:'1.5px solid '+C.successBorder}}>
+          <p style={{color:C.text,fontSize:'12px',margin:0}}>К оплате мастеру: <b style={{color:C.success,fontSize:'16px'}}>{newTotal.toLocaleString('ru-RU')+' ₽'}</b></p>
+        </div>
+        <textarea placeholder='Комментарий (необязательно)' value={confirmComment} onChange={ev=>setConfirmComment(ev.target.value)} style={{...inp,height:'60px',resize:'vertical',marginBottom:'12px'}}/>
+        <div style={{display:'flex',gap:'8px'}}>
+          <button onClick={()=>confirmJ(e,accepted,confirmComment)} disabled={diff<0||accepted<=0} style={{...btnO,opacity:(diff<0||accepted<=0)?0.5:1,flex:1,justifyContent:'center'}}><Check size={14}/>Принять и подтвердить</button>
+          <button onClick={()=>{setConfirmingEntry(null);setConfirmAcceptedQty('');setConfirmComment('');}} style={btnG}>Отмена</button>
+        </div>
+        <p style={{color:C.textMuted,fontSize:'11px',margin:'10px 0 0',lineHeight:1.4}}>После подтверждения работа уйдёт в КС-2 и в зарплатные начисления мастера. Списание материалов произойдёт автоматически.</p>
+      </div></div>);})()}
       {showIssueToolModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{'Выдать: '+showIssueToolModal.name}</h3><select value={issueToolData.masterName} onChange={e=>setIssueToolData({...issueToolData,masterName:e.target.value})} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.fullName}>{mp.fullName}</option>)}</select><select value={issueToolData.project} onChange={e=>setIssueToolData({...issueToolData,project:e.target.value})} style={inp}><option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><select value={issueToolData.issueType} onChange={e=>setIssueToolData({...issueToolData,issueType:e.target.value})} style={inp}><option value="Временно">Временно</option><option value="В счёт зарплаты">В счёт зарплаты</option></select><div style={{display:'flex',gap:'10px'}}><button onClick={()=>issueTool(showIssueToolModal)} style={btnO}><Check size={14}/>Выдать</button><button onClick={()=>setShowIssueToolModal(null)} style={btnG}>Отмена</button></div></div></div>)}
       {showReturnToolModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{'Вернуть: '+showReturnToolModal.name}</h3><p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{'От: '+showReturnToolModal.masterName}</p><select value={returnToolCondition} onChange={e=>setReturnToolCondition(e.target.value)} style={inp}><option value="Исправен">Исправен</option><option value="Требует ремонта">Требует ремонта</option><option value="Сломан">Сломан</option><option value="Утерян">Утерян</option></select><div style={{display:'flex',gap:'10px'}}><button onClick={()=>returnTool(showReturnToolModal)} style={btnGr}><Check size={14}/>Вернуть</button><button onClick={()=>setShowReturnToolModal(null)} style={btnG}>Отмена</button></div></div></div>)}
       {showPayActModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'420px'}}><h3 style={{color:C.text,marginBottom:'5px',fontWeight:'700'}}>Добавить оплату</h3><p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{'Акт №'+showPayActModal.id+' · '+showPayActModal.masterName}</p><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Сумма *" type="number" value={newPayment.amount} onChange={e=>setNewPayment({...newPayment,amount:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPayment.paymentType} onChange={e=>setNewPayment({...newPayment,paymentType:e.target.value})} style={{...inp,marginBottom:0}}>{PAYMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select><select value={newPayment.paidBy} onChange={e=>setNewPayment({...newPayment,paidBy:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Кто выплатил</option>{financeUsers.map(u=><option key={u.id} value={u.name}>{u.name+' ('+ROLE_LABELS[u.role]+')'}</option>)}<option value="__manual__">Ввести вручную</option></select><input type="date" value={newPayment.date} onChange={e=>setNewPayment({...newPayment,date:e.target.value})} style={{...inp,marginBottom:0}}/></div>{newPayment.paidBy==='__manual__'&&<input placeholder="ФИО выплатившего" value={newPayment.paidByManual||''} onChange={e=>setNewPayment({...newPayment,paidByManual:e.target.value})} style={{...inp,marginTop:'10px'}}/>}<input placeholder="Примечание" value={newPayment.notes} onChange={e=>setNewPayment({...newPayment,notes:e.target.value})} style={{...inp,marginTop:'8px'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>saveActPayment(showPayActModal.id)} style={btnO}><Check size={14}/>Записать</button><button onClick={()=>setShowPayActModal(null)} style={btnG}>Отмена</button></div><div style={{marginTop:'15px',borderTop:'1.5px solid '+C.border,paddingTop:'12px'}}><b style={{color:C.text,fontSize:'13px'}}>История оплат:</b>{actPayments.filter(p=>p.actId===showPayActModal.id).map(p=>(<div key={p.id} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid '+C.border,fontSize:'12px'}}><span style={{color:C.textSec}}>{p.date+' · '+p.paymentType+' · '+p.paidBy}</span><b style={{color:C.success}}>{p.amount.toLocaleString()+' ₽'}</b></div>))}{actPayments.filter(p=>p.actId===showPayActModal.id).length===0&&<p style={{color:C.textMuted,fontSize:'12px',margin:'6px 0'}}>Оплат нет</p>}</div></div></div>)}
@@ -4383,8 +4486,39 @@ function App() {
                     <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}>⚠️ Предупреждения системы {risks.length>0&&<span style={{fontSize:'12px',padding:'2px 8px',borderRadius:'10px',background:'rgba(239,68,68,.2)',color:'#fca5a5',fontWeight:'700'}}>{risks.length}</span>}</h2>
                     {risks.length>0?risks.map((r,i)=>{const cdng=r.severity==='danger';return(<div key={i} style={{padding:'10px 12px',borderRadius:'12px',background:cdng?'rgba(239,68,68,.10)':'rgba(245,158,11,.10)',border:'1px solid '+(cdng?'rgba(239,68,68,.22)':'rgba(245,158,11,.24)'),color:cdng?'#fca5a5':'#fcd34d',fontSize:'12px',marginBottom:'8px',display:'flex',gap:'8px',alignItems:'flex-start'}}><span style={{fontSize:'14px',flexShrink:0}}>{r.icon}</span><span>{r.text}</span></div>);}):<div style={{padding:'14px',borderRadius:'14px',background:'rgba(34,197,94,.10)',border:'1px solid rgba(34,197,94,.24)',color:'#86efac',fontSize:'13px',textAlign:'center'}}>✅ Всё под контролем<br/><span style={{fontSize:'11px',color:'#94a3b8'}}>Нет просроченных проектов, дефицита материалов, открытых замечаний и непредвиденных свыше 10%</span></div>}
                   </div>
+                  {(()=>{
+                    const today=new Date().toISOString().split('T')[0];
+                    const yest=new Date(Date.now()-24*3600*1000).toISOString().split('T')[0];
+                    const wj=(workJournal||[]).filter(w=>w.status==='Подтверждено');
+                    const todayWorks=wj.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===today);
+                    const yestWorks=wj.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===yest);
+                    const sumToday=todayWorks.reduce((s,w)=>s+Number(w.total||0),0);
+                    const sumYest=yestWorks.reduce((s,w)=>s+Number(w.total||0),0);
+                    const byMaster={};
+                    todayWorks.forEach(w=>{const n=w.masterName||w.master_name||'—';byMaster[n]=(byMaster[n]||0)+Number(w.total||0);});
+                    const masters=Object.entries(byMaster).sort((a,b)=>b[1]-a[1]).slice(0,5);
+                    return(<div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
+                      <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>👷 Производство работ</h2>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
+                        <div style={{padding:'12px',borderRadius:'14px',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.28)'}}>
+                          <p style={{color:'#86efac',fontSize:'11px',margin:'0 0 4px'}}>Сегодня</p>
+                          <b style={{color:'#86efac',fontSize:'17px',display:'block'}}>{sumToday>=1000000?(sumToday/1000000).toFixed(1)+' млн':Math.round(sumToday/1000)+' тыс'} ₽</b>
+                          <span style={{color:'#94a3b8',fontSize:'10px'}}>{todayWorks.length+' работ'}</span>
+                        </div>
+                        <div style={{padding:'12px',borderRadius:'14px',background:'rgba(59,130,246,.12)',border:'1px solid rgba(59,130,246,.28)'}}>
+                          <p style={{color:'#93c5fd',fontSize:'11px',margin:'0 0 4px'}}>Вчера</p>
+                          <b style={{color:'#93c5fd',fontSize:'17px',display:'block'}}>{sumYest>=1000000?(sumYest/1000000).toFixed(1)+' млн':Math.round(sumYest/1000)+' тыс'} ₽</b>
+                          <span style={{color:'#94a3b8',fontSize:'10px'}}>{yestWorks.length+' работ'}</span>
+                        </div>
+                      </div>
+                      {masters.length>0?(<div>
+                        <p style={{color:'#94a3b8',fontSize:'11px',margin:'0 0 8px'}}>По мастерам сегодня:</p>
+                        {masters.map(([name,sum])=>(<div key={name} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid rgba(148,163,184,.18)'}}><span style={{color:'#f8fafc',fontSize:'12px'}}>{name}</span><b style={{color:'#86efac',fontSize:'12px'}}>{Math.round(sum).toLocaleString('ru-RU')+' ₽'}</b></div>))}
+                      </div>):(<div style={{color:'#94a3b8',fontSize:'13px',padding:'8px 0',textAlign:'center'}}>Сегодня работ ещё нет</div>)}
+                    </div>);
+                  })()}
                   <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
-                    <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>Сегодня</h2>
+                    <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>📜 Активность</h2>
                     {activityLog.slice(0,5).map((a,i)=>(
                       <div key={i} style={{display:'flex',gap:'12px',padding:'10px 0',borderBottom:'1px solid rgba(148,163,184,.18)'}}>
                         <div style={{width:'10px',height:'10px',borderRadius:'50%',background:'#f97316',boxShadow:'0 0 14px rgba(249,115,22,.8)',marginTop:'4px',flexShrink:0}}/>
@@ -4823,7 +4957,7 @@ function App() {
                                 <div><b style={{fontSize:'12px',color:C.text}}>{w.description}{w.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px',color:C.warning}}>🆕</span>:null}{w.hiddenWork?(()=>{const st=getActStatusForJournal(w);return(<span title={st?st.tip:'Скрытые работы — нужен АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);}}}>🔒{st?st.icon:''}</span>);})():null}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
                                 <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
                                   <b style={{color:C.success,fontSize:'12px'}}>{(w.total||0).toLocaleString()+' ₽'}</b>
-                                  {isProrab()&&w.status==='На проверке'&&(<><button onClick={()=>confirmJ(w)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/></button><button onClick={()=>setRejectingEntry(w)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button></>)}
+                                  {isProrab()&&w.status==='На проверке'&&(<><button onClick={()=>openConfirmModal(w)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}} title='Принять (можно пересчитать)'><Check size={11}/></button><button onClick={()=>setRejectingEntry(w)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}} title='Отклонить'><X size={11}/></button></>)}
                                   {w.status==='Подтверждено'&&<span style={badge(C.success,C.successLight,C.successBorder)}>✅</span>}
                                   {w.status==='Отклонено'&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>❌</span>}
                                   {w.photoUrl&&<img src={w.photoUrl} alt="" onClick={()=>setShowPhotoModal(w.photoUrl)} style={{width:'32px',height:'32px',borderRadius:'6px',objectFit:'cover',cursor:'pointer'}}/>}
