@@ -5572,7 +5572,11 @@ function App() {
                           <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
                         </div>
                   </div>)}
-                      {tbJournal.filter(e=>e.project===p.name).map(entry=>(<div key={entry.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
+                      <div style={{position:'relative',marginBottom:'10px'}}>
+                        <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                        <input placeholder='🔍 Поиск инструктажа' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
+                      </div>
+                      {tbJournal.filter(e=>e.project===p.name&&matchSearch(listSearch,e.type,e.instructionText,e.masterName,e.instructor)).map(entry=>(<div key={entry.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                           <div><b style={{color:C.text,fontSize:'13px'}}>{entry.type}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{entry.date+' · '+(entry.participants||[]).length+' участников'}</p></div>
                           <button onClick={()=>showPreview(buildTBContent(entry),'Журнал ТБ')} style={btnB}><Eye size={14}/>ЖТБ</button>
@@ -5951,7 +5955,11 @@ function App() {
               </div>
               <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveClient} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
             </div>)}
-            {clients.map(c=>(<div key={c.id} style={{...card,marginBottom:'10px'}}>
+            <div style={{position:'relative',marginBottom:'12px'}}>
+              <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+              <input placeholder='🔍 Поиск клиента' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
+            </div>
+            {clients.filter(c=>matchSearch(listSearch,c.name,c.phone,c.email)).map(c=>(<div key={c.id} style={{...card,marginBottom:'10px'}}>
               <div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedClient(expandedClient===c.id?null:c.id)}>
                 <div><b style={{color:C.text,fontSize:'14px'}}>{c.name}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{c.phone+(c.email?' · '+c.email:'')}</p></div>
                 <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
@@ -6028,9 +6036,13 @@ function App() {
               <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
                 <button onClick={()=>openReceiveInvoice('Основной склад')} style={btnO}><Plus size={14}/>Принять материал</button>
                 <button onClick={()=>exportToExcel(warehouseMain.map(m=>({Наименование:m.name,Единица:m.unit,Количество:m.quantity,Цена:m.price,Сумма:m.quantity*m.price})),'Основной_склад')} style={btnG}><Download size={14}/>Excel</button>
+                <div style={{position:'relative',flex:1,minWidth:'200px'}}>
+                  <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                  <input placeholder='🔍 Поиск материала' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'12px',padding:'6px 8px 6px 32px'}}/>
+                </div>
               </div>
               <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Категория</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}></th></tr></thead><tbody>
-                {warehouseMain.map(m=>(<tr key={m.id} style={{backgroundColor:m.minQuantity&&m.quantity<m.minQuantity?C.dangerLight:'transparent'}}>
+                {warehouseMain.filter(m=>matchSearch(listSearch,m.name,m.category)).map(m=>(<tr key={m.id} style={{backgroundColor:m.minQuantity&&m.quantity<m.minQuantity?C.dangerLight:'transparent'}}>
                   <td style={tblC}><b style={{fontSize:'13px'}}>{m.name}</b>{m.minQuantity&&m.quantity<m.minQuantity&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),marginLeft:'6px',fontSize:'10px'}}>Мало!</span>}</td>
                   <td style={{...tblC,fontSize:'11px',color:C.textSec}}>{m.category||'—'}</td>
                   <td style={tblC}>{m.quantity+' '+m.unit}</td>
@@ -6191,7 +6203,7 @@ function App() {
                 <button onClick={()=>exportToExcel(history.map(h=>({Материал:h.material,Тип:h.type,Количество:h.quantity,Дата:h.date,Проект:h.project,Кому:h.issuedTo||''})),'История_склада')} style={btnG}><Download size={14}/>Excel</button>
               </div>
               <table style={tbl}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>Тип</th><th style={tblH}>Кол-во</th><th style={tblH}>Проект</th><th style={tblH}>Дата</th></tr></thead><tbody>
-                {history.slice(0,50).map((h,i)=>(<tr key={i}><td style={tblC}>{h.material}</td><td style={tblC}><span style={badge(h.type==='приход'?C.success:C.danger,h.type==='приход'?C.successLight:C.dangerLight,h.type==='приход'?C.successBorder:C.dangerBorder)}>{h.type}</span></td><td style={tblC}>{h.quantity}</td><td style={tblC}>{h.project}</td><td style={tblC}>{h.date}</td></tr>))}
+                {history.filter(h=>matchSearch(listSearch,h.material,h.project,h.type)).slice(0,50).map((h,i)=>(<tr key={i}><td style={tblC}>{h.material}</td><td style={tblC}><span style={badge(h.type==='приход'?C.success:C.danger,h.type==='приход'?C.successLight:C.dangerLight,h.type==='приход'?C.successBorder:C.dangerBorder)}>{h.type}</span></td><td style={tblC}>{h.quantity}</td><td style={tblC}>{h.project}</td><td style={tblC}>{h.date}</td></tr>))}
               </tbody></table>
             </div>)}
 
@@ -6278,8 +6290,12 @@ function App() {
                 </div>
                 <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveSupplier} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
+              <div style={{position:'relative',marginBottom:'12px'}}>
+                <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                <input placeholder='🔍 Поиск поставщика' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
+              </div>
               {SUPPLIER_CATEGORIES.map(cat=>{
-                const catSuppliers=suppliers.filter(s=>s.category===cat);
+                const catSuppliers=suppliers.filter(s=>s.category===cat&&matchSearch(listSearch,s.name,s.specialization,s.phone,s.email));
                 if(catSuppliers.length===0) return null;
                 return(<div key={cat} style={{marginBottom:'20px'}}>
                   <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px',padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}>
@@ -6507,7 +6523,11 @@ function App() {
                 </div>
                 <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={createContract} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
-              {contracts.map(c=>{const profile=masterProfiles.find(p=>p.userId===c.masterId);return(<div key={c.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
+              <div style={{position:'relative',marginBottom:'12px'}}>
+                <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                <input placeholder='🔍 Поиск договора (номер, мастер, объект)' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
+              </div>
+              {contracts.filter(c=>{const m=masterProfiles.find(p=>p.userId===c.masterId);return matchSearch(listSearch,c.contractNumber,c.project,m?.fullName);}).map(c=>{const profile=masterProfiles.find(p=>p.userId===c.masterId);return(<div key={c.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div><b style={{color:C.text,fontSize:'13px'}}>{'Договор № '+c.contractNumber+' · '+c.contractType}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{c.masterName+' · '+c.project}</p><p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{c.startDate+' — '+c.endDate}</p></div>
                   <div style={{display:'flex',gap:'6px'}}>
@@ -6898,8 +6918,12 @@ function App() {
                   <button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button>
                 </div>
               </div>)}
+              <div style={{position:'relative',marginBottom:'12px'}}>
+                <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                <input placeholder='🔍 Поиск сотрудника (ФИО, должность, объект)' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
+              </div>
               <table style={tbl}><thead><tr><th style={tblH}></th><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Объект</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Зарплата</th><th style={tblH}>Доступ</th><th style={tblH}></th></tr></thead><tbody>
-                {staff.map(s=>{const hasAccess=users.find(u=>u.name===s.name);const isExp=expandedStaffId===s.id;return(<React.Fragment key={s.id}>
+                {staff.filter(s=>matchSearch(listSearch,s.name,s.role,s.project,s.specialization)).map(s=>{const hasAccess=users.find(u=>u.name===s.name);const isExp=expandedStaffId===s.id;return(<React.Fragment key={s.id}>
                   <tr style={{cursor:'pointer',backgroundColor:isExp?C.bg:'transparent'}} onClick={()=>openStaffProfile(s)}>
                     <td style={{...tblC,width:'24px',textAlign:'center'}}>{isExp?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</td>
                     <td style={tblC}><b style={{fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.phone}</p></td>
@@ -7056,8 +7080,12 @@ function App() {
                     </div>
                     {editingPlItem&&<button onClick={()=>{setEditingPlItem(null);setNewPlItem({name:'',unit:'м2',price:'',category:''});}} style={{...btnG,marginTop:'8px',fontSize:'12px'}}><X size={12}/>Отменить</button>}
                   </div>
+                  <div style={{position:'relative',marginBottom:'12px'}}>
+                    <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                    <input placeholder='🔍 Поиск позиции прайса' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
+                  </div>
                   {[...new Set(pricelistItems.map(i=>(i.category||'').trim()))].sort((a,b)=>a==='' ? 1 : b==='' ? -1 : a.localeCompare(b,'ru')).map(cat=>{
-                    const catItems=pricelistItems.filter(i=>(i.category||'').trim()===cat);
+                    const catItems=pricelistItems.filter(i=>(i.category||'').trim()===cat&&matchSearch(listSearch,i.name,i.category));
                     if(catItems.length===0) return null;
                     return(<div key={cat||'nocat'} style={{marginBottom:'20px'}}>
                       {cat&&<div style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,marginBottom:'8px',display:'flex',alignItems:'center',gap:'8px'}}><b style={{color:C.accent,fontSize:'12px',textTransform:'uppercase'}}>{'🔧 '+cat}</b><span style={{color:C.textSec,fontSize:'11px'}}>{'('+catItems.length+' позиций)'}</span></div>}
