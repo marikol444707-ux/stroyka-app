@@ -3036,39 +3036,56 @@ function App() {
           </div>)}
 
           {activePage==='history'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>История работ</h3>
-            <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'16px 20px',borderRadius:'12px',marginBottom:'14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <b style={{color:'white',fontSize:'14px'}}>Принято всего:</b>
-              <b style={{color:'white',fontSize:'20px',fontWeight:'800'}}>{Math.round(sumConfirmed).toLocaleString('ru-RU')+' ₽'}</b>
+            <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>📅 История работ по дням</h3>
+            <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'16px 20px',borderRadius:'12px',marginBottom:'14px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+              <div><p style={{color:'rgba(255,255,255,0.85)',fontSize:'11px',margin:0}}>Принято всего</p><b style={{color:'white',fontSize:'18px'}}>{Math.round(sumConfirmed).toLocaleString('ru-RU')+' ₽'}</b></div>
+              <div style={{textAlign:'right'}}><p style={{color:'rgba(255,255,255,0.85)',fontSize:'11px',margin:0}}>Зачислено к выплате</p><b style={{color:'white',fontSize:'18px'}}>{Math.round((piecework||[]).filter(pw=>Number(pw.staffId)===user.id).reduce((s,pw)=>s+Number(pw.total||0),0)).toLocaleString('ru-RU')+' ₽'}</b></div>
             </div>
             <div style={{position:'relative',marginBottom:'14px'}}>
               <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-              <input placeholder='🔍 Поиск работы или проекта' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
+              <input placeholder='🔍 Поиск работы или объекта' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
             </div>
-            {(()=>{const filtered=myJournal.filter(w=>matchSearch(listSearch,w.description,w.project));if(filtered.length===0) return(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>{myJournal.length===0?'Истории работ пока нет. Введите работу на странице «Работы» — после подтверждения прорабом она появится здесь.':'По запросу ничего не найдено'}</div>);const byProject={};filtered.forEach(w=>{const pn=w.project||'Без объекта';if(!byProject[pn]) byProject[pn]=[];byProject[pn].push(w);});const sortedProjects=Object.keys(byProject).sort();return sortedProjects.map(projectName=>{const works=byProject[projectName].sort((a,b)=>String(b.date||b.confirmedAt||'').localeCompare(String(a.date||a.confirmedAt||'')));const confSum=works.filter(w=>w.status==='Подтверждено').reduce((s,w)=>s+Number(w.total||0),0);const isOpen=expandedProject===projectName;return(<div key={projectName} style={{...card,marginBottom:'10px'}}>
-              <div style={{padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedProject(isOpen?null:projectName)}>
-                <div>
-                  <b style={{color:C.text,fontSize:'14px'}}>{projectName}</b>
-                  <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{works.length+' работ'+(works.filter(w=>w.status!=='Подтверждено').length>0?' · '+works.filter(w=>!w.status||w.status==='На проверке').length+' ожидает':'')}</p>
-                </div>
-                <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                  <b style={{color:C.success,fontSize:'15px'}}>{Math.round(confSum).toLocaleString('ru-RU')+' ₽'}</b>
-                  {isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
-                </div>
-              </div>
-              {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 16px'}}>{works.map(w=>{const st=w.status||'На проверке';const stCol=st==='Подтверждено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Подтверждено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;const stIcon=st==='Подтверждено'?'✅':st==='Отклонено'?'❌':'⏳';return(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px'}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <b style={{fontSize:'13px',color:C.text,display:'block'}}>{w.description}</b>
-                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{fmtMeasure(w.quantity,w.unit)+' · '+(w.date||w.confirmedAt||'—')}</p>
-                  <span style={{padding:'2px 8px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:stBg,color:stCol,display:'inline-block',marginTop:'2px'}}>{stIcon+' '+st}</span>
-                  {w.comment&&st==='Отклонено'&&<p style={{color:C.danger,fontSize:'10px',margin:'4px 0 0'}}>Причина: {w.comment}</p>}
-                </div>
-                <div style={{textAlign:'right',flexShrink:0}}>
-                  <b style={{color:st==='Подтверждено'?C.success:C.textMuted,fontSize:'13px'}}>{Math.round(Number(w.total||0)).toLocaleString('ru-RU')+' ₽'}</b>
-                  {w.photoUrl&&<button onClick={()=>setShowPhotoModal(w.photoUrl.startsWith('http')?w.photoUrl:API+w.photoUrl)} style={{...btnG,padding:'2px 6px',fontSize:'10px',marginLeft:'4px',marginTop:'2px'}}>📷</button>}
-                </div>
-              </div>);})}</div>)}
-            </div>);})})()}
+            {(()=>{
+              const filtered=myJournal.filter(w=>matchSearch(listSearch,w.description,w.project));
+              if(filtered.length===0) return(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>{myJournal.length===0?'Истории работ пока нет. Введите работу на странице «Работы» — после подтверждения прорабом она появится здесь.':'По запросу ничего не найдено'}</div>);
+              const byDate={};
+              filtered.forEach(w=>{const d=String(w.date||w.confirmedAt||'').split('T')[0]||'Без даты';if(!byDate[d]) byDate[d]={works:[],total:0};byDate[d].works.push(w);if(w.status==='Подтверждено') byDate[d].total+=Number(w.total||0);});
+              const dates=Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
+              const pwByWj=new Set((piecework||[]).filter(pw=>Number(pw.staffId)===user.id&&pw.workJournalId).map(pw=>Number(pw.workJournalId)));
+              return dates.map(date=>{const grp=byDate[date];const isOpen=expandedProject===date;const byProj={};grp.works.forEach(w=>{const pn=w.project||'Без объекта';if(!byProj[pn]) byProj[pn]=[];byProj[pn].push(w);});const projs=Object.keys(byProj).sort();
+                return(<div key={date} style={{...card,marginBottom:'10px'}}>
+                  <div style={{padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedProject(isOpen?null:date)}>
+                    <div>
+                      <b style={{color:C.text,fontSize:'14px'}}>📅 {date}</b>
+                      <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{grp.works.length+' работ · '+projs.length+(projs.length===1?' объект':' объекта/объектов')}</p>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                      <b style={{color:C.success,fontSize:'15px'}}>{Math.round(grp.total).toLocaleString('ru-RU')+' ₽'}</b>
+                      {isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
+                    </div>
+                  </div>
+                  {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
+                    {projs.map(pn=>(<div key={pn} style={{padding:'10px 16px',borderBottom:'1px solid '+C.border}}>
+                      <b style={{color:C.accent,fontSize:'12px',display:'block',marginBottom:'6px'}}>🏗 {pn}</b>
+                      {byProj[pn].map(w=>{const st=w.status||'На проверке';const stCol=st==='Подтверждено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Подтверждено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;const stIcon=st==='Подтверждено'?'✅':st==='Отклонено'?'❌':'⏳';const isPaid=pwByWj.has(Number(w.id));return(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px'}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <b style={{fontSize:'13px',color:C.text,display:'block'}}>{w.description}</b>
+                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{fmtMeasure(w.quantity,w.unit)}</p>
+                          <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginTop:'3px'}}>
+                            <span style={{padding:'2px 8px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:stBg,color:stCol}}>{stIcon+' '+st}</span>
+                            {st==='Подтверждено'&&(isPaid?<span style={{padding:'2px 8px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:C.successLight,color:C.success}}>💰 Зачислено в зарплату</span>:<span style={{padding:'2px 8px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:C.warningLight,color:C.warning}}>⏳ Ждёт зарплаты</span>)}
+                          </div>
+                          {w.comment&&st==='Отклонено'&&<p style={{color:C.danger,fontSize:'10px',margin:'4px 0 0'}}>Причина: {w.comment}</p>}
+                        </div>
+                        <div style={{textAlign:'right',flexShrink:0}}>
+                          <b style={{color:st==='Подтверждено'?C.success:C.textMuted,fontSize:'13px'}}>{Math.round(Number(w.total||0)).toLocaleString('ru-RU')+' ₽'}</b>
+                          {w.photoUrl&&<button onClick={()=>setShowPhotoModal(w.photoUrl.startsWith('http')?w.photoUrl:API+w.photoUrl)} style={{...btnG,padding:'2px 6px',fontSize:'10px',marginLeft:'4px',marginTop:'2px'}}>📷</button>}
+                        </div>
+                      </div>);})}
+                    </div>))}
+                  </div>)}
+                </div>);});
+            })()}
           </div>)}
 
           {activePage==='materials'&&(<div>
