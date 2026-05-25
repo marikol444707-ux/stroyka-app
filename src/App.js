@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
 // Парсинг чисел с поддержкой запятой как разделителя (русская локаль): "0,027" → 0.027
@@ -80,18 +80,18 @@ const PreviewModal = ({content, title, onClose}) => (
 );
 
 const ROLES = {
-  директор: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','accounting','analytics','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
-  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','analytics','accounting','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
+  директор: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
+  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
   главный_инженер: ['dashboard','projects','warehouse','staff','companychat','estimates','weather','myexpenses'],
-  прораб: ['projects','companychat','weather','myexpenses'],
-  кладовщик: ['warehouse','suppliers','companychat','myexpenses'],
+  прораб: ['projects','supply','companychat','weather','myexpenses'],
+  кладовщик: ['warehouse','suppliers','supply','companychat','myexpenses'],
   бухгалтер: ['dashboard','accounting','personnel','companychat','settings','myexpenses'],
-  снабженец: ['warehouse','suppliers','companychat','myexpenses'],
+  снабженец: ['warehouse','suppliers','supply','companychat','myexpenses'],
   стройконтроль: ['projects','companychat','myexpenses'],
   менеджер_crm: ['crm','companychat'],
   сметчик: ['estimates','projects','accounting','companychat'],
-  субподрядчик: ['works','materials','history','documents','companychat','myexpenses'],
-  мастер: ['works','materials','history','documents','companychat','myexpenses'],
+  субподрядчик: ['works','materials','history','documents','supply','companychat','myexpenses'],
+  мастер: ['works','materials','history','documents','supply','companychat','myexpenses'],
   технадзор: ['projects','companychat','myexpenses'],
   заказчик: ['client_view'],
   поставщик: ['supplier_view'],
@@ -464,6 +464,15 @@ function App() {
   const [accountingTab, setAccountingTab] = useState('summary');
   const [accountingDocProject, setAccountingDocProject] = useState('');
   const [suppliersTab, setSuppliersTab] = useState('active');
+  const [supplyTab, setSupplyTab] = useState('inbox');
+  const [showSupplyForm, setShowSupplyForm] = useState(false);
+  const [newSupplyReq, setNewSupplyReq] = useState({materialName:'',quantity:'',unit:'шт',project:'',urgency:'обычная',notes:'',category:''});
+  const [supplyExpandedId, setSupplyExpandedId] = useState(null);
+  const [supplyStockCheck, setSupplyStockCheck] = useState(null);
+  const [supplyAiText, setSupplyAiText] = useState('');
+  const [supplyAiLoading, setSupplyAiLoading] = useState(false);
+  const [supplyRejectId, setSupplyRejectId] = useState(null);
+  const [supplyRejectReason, setSupplyRejectReason] = useState('');
   const [personnelTab, setPersonnelTab] = useState('staff');
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
@@ -2583,6 +2592,106 @@ function App() {
 
   const cancelRequest = async (id) => { await fetch(API+'/supply-requests/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отменена'})}); await loadAll(); };
 
+  // === Helpers для раздела «🛒 Снабжение» (Сн.1) ===
+  const createSupplyReq = async () => {
+    if (!newSupplyReq.materialName || !newSupplyReq.quantity || !newSupplyReq.project) {
+      alert('Заполните: материал, кол-во, объект');
+      return;
+    }
+    const r = await fetch(API+'/supply-requests', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        materialName: newSupplyReq.materialName,
+        quantity: Number(newSupplyReq.quantity),
+        unit: newSupplyReq.unit,
+        project: newSupplyReq.project,
+        createdBy: user.name,
+        date: new Date().toISOString().split('T')[0],
+        notes: newSupplyReq.notes,
+        category: newSupplyReq.category || '',
+        urgency: newSupplyReq.urgency,
+        requestedByRole: user.role,
+        requestedById: user.id,
+        selectedSuppliers: [],
+      })
+    });
+    if (!r.ok) { alert('Ошибка создания заявки'); return; }
+    // Уведомления по цепочке
+    if (user.role === 'мастер' || user.role === 'субподрядчик') {
+      notify('Новая заявка на материал от '+user.name+' (объект '+newSupplyReq.project+')', 'supply');
+    } else if (user.role === 'прораб') {
+      notify('Прораб '+user.name+' просит материал — нужно утвердить ('+newSupplyReq.project+')', 'supply');
+    } else {
+      notify('Заявка на материал «'+newSupplyReq.materialName+'» утверждена директором', 'supply');
+    }
+    await loadAll();
+    setNewSupplyReq({materialName:'',quantity:'',unit:'шт',project:'',urgency:'обычная',notes:'',category:''});
+    setShowSupplyForm(false);
+  };
+
+  const confirmSupplyAsProrab = async (id) => {
+    await fetch(API+'/supply-requests/'+id, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'confirm_prorab', userId:user.id, userName:user.name})
+    });
+    notify('Заявка подтверждена прорабом — ждёт директора','supply');
+    await loadAll();
+  };
+
+  const approveSupplyAsDirector = async (id) => {
+    await fetch(API+'/supply-requests/'+id, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'approve_director', userId:user.id, userName:user.name})
+    });
+    notify('Заявка утверждена директором','supply');
+    await loadAll();
+  };
+
+  const rejectSupply = async (id) => {
+    if (!supplyRejectReason.trim()) { alert('Укажите причину отказа'); return; }
+    await fetch(API+'/supply-requests/'+id, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'reject', rejectReason: supplyRejectReason})
+    });
+    setSupplyRejectId(null);
+    setSupplyRejectReason('');
+    notify('Заявка отклонена','supply');
+    await loadAll();
+  };
+
+  const cancelSupply = async (id) => {
+    if (!window.confirm('Отменить заявку?')) return;
+    await fetch(API+'/supply-requests/'+id, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'cancel'})
+    });
+    await loadAll();
+  };
+
+  const loadSupplyStockCheck = async (id) => {
+    setSupplyStockCheck(null);
+    setSupplyAiText('');
+    try {
+      const r = await fetch(API+'/supply-requests/'+id+'/stock-check');
+      const data = await r.json();
+      setSupplyStockCheck(data);
+    } catch(_) { setSupplyStockCheck({error:'Не удалось загрузить'}); }
+  };
+
+  const askSupplyAi = async (req, stock) => {
+    setSupplyAiLoading(true);
+    setSupplyAiText('');
+    try {
+      const prompt = 'Заявка на материал: "'+req.materialName+'" — нужно '+req.quantity+' '+req.unit+
+        '. На складе найдено похожих позиций: '+(stock.stockMatches||[]).map(m=>m.name+' ('+m.quantity+' '+m.unit+')').join(', ')+
+        '. Дефицит: '+stock.shortage+' '+req.unit+'. Бюджет проекта «'+req.project+'» использован на '+Math.round(stock.budgetRiskPercent||0)+'%. Дай короткий совет директору: стоит ли закупать и сколько, или взять со склада. 2-3 предложения, по-русски.';
+      const r = await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}], skipContext:true})});
+      const data = await r.json();
+      setSupplyAiText((data && data.response) || 'AI не ответил');
+    } catch(_) { setSupplyAiText('Ошибка вызова AI'); }
+    setSupplyAiLoading(false);
+  };
+
   const saveOffer = async (requestId) => {
     if (!newOffer.supplierId||!newOffer.pricePerUnit||!newOffer.deliveryDays) { alert('Заполните все поля включая срок поставки'); return; }
     const req = supplyRequests.find(r=>r.id===requestId);
@@ -2920,6 +3029,38 @@ function App() {
               </div>
             </div>
             {(()=>{const myExp=(ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);const pending=myExp.filter(e=>e.status==='Ожидает');const sumP=pending.reduce((s,e)=>s+Number(e.amount||0),0);if(myExp.length===0) return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}><div><b style={{color:C.info,fontSize:'13px'}}>💸 Свои траты на стройке?</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Фиксируйте здесь чтобы бухгалтерия возместила</p></div><button onClick={()=>setShowOwnExpenseForm(true)} style={btnO}><Plus size={14}/>Новая трата</button></div>);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:pending.length>0?C.warningLight:C.successLight,border:'1.5px solid '+(pending.length>0?C.warningBorder:C.successBorder)}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'8px'}}><div><b style={{color:C.text,fontSize:'13px'}}>💸 Мои траты — {pending.length>0?'ждут возмещения':'все возмещены ✅'}</b>{pending.length>0&&<p style={{color:C.warning,margin:'2px 0 0',fontSize:'12px'}}>Сумма к возмещению: <b>{Math.round(sumP).toLocaleString('ru-RU')+' ₽'}</b> · {pending.length+' шт'}</p>}</div><div style={{display:'flex',gap:'6px'}}><button onClick={()=>setActivePage('myexpenses')} style={{...btnG,padding:'5px 10px',fontSize:'12px'}}>📜 Все траты</button><button onClick={()=>setShowOwnExpenseForm(true)} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}><Plus size={12}/>Новая</button></div></div></div>);})()}
+            {(()=>{
+              const myReqs = (supplyRequests||[]).filter(r=>r.createdBy===user.name||r.requestedById===user.id);
+              const pendingReqs = myReqs.filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом');
+              const approvedReqs = myReqs.filter(r=>r.status==='Утверждена');
+              const rejectedReqs = myReqs.filter(r=>r.status==='Отклонена');
+              const openForm = ()=>{ setActivePage('supply'); setShowSupplyForm(true); };
+              if (myReqs.length===0) {
+                return (<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                  <div>
+                    <b style={{color:C.info,fontSize:'13px'}}>🛒 Не хватает материала?</b>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Создайте заявку — её увидит прораб и директор</p>
+                  </div>
+                  <button onClick={openForm} style={btnO}><Plus size={14}/>Заявка на материал</button>
+                </div>);
+              }
+              return (<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:pendingReqs.length>0?C.warningLight:C.successLight,border:'1.5px solid '+(pendingReqs.length>0?C.warningBorder:C.successBorder)}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                  <div>
+                    <b style={{color:C.text,fontSize:'13px'}}>🛒 Мои заявки на материалы</b>
+                    <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>
+                      {pendingReqs.length>0 && '⏳ В работе: '+pendingReqs.length+' шт. '}
+                      {approvedReqs.length>0 && '✅ Утверждено: '+approvedReqs.length+'. '}
+                      {rejectedReqs.length>0 && '❌ Отклонено: '+rejectedReqs.length+'.'}
+                    </p>
+                  </div>
+                  <div style={{display:'flex',gap:'6px'}}>
+                    <button onClick={()=>setActivePage('supply')} style={{...btnG,padding:'5px 10px',fontSize:'12px'}}>📋 Открыть</button>
+                    <button onClick={openForm} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}><Plus size={12}/>Заявка</button>
+                  </div>
+                </div>
+              </div>);
+            })()}
             <div style={{...card,padding:'20px',marginBottom:'15px'}}>
               <h4 style={{marginBottom:'15px',color:C.text,fontSize:'14px',fontWeight:'600'}}>Добавить работы</h4>
               <select value={masterProjectId} onChange={async e=>{const pid=e.target.value;setMasterProjectId(pid);setSelectedWorks({});const proj=projects.find(p=>p.id===Number(pid));if(proj&&proj.pricelistId) await loadPricelistItems(proj.pricelistId);else setPricelistItems([]);}} style={inp}><option value="">Выберите объект</option>{projects.filter(p=>p.status==='В работе').map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
@@ -3215,6 +3356,7 @@ function App() {
     {id:'projects',icon:<FolderKanban size={18}/>,label:'Проекты'},
 
     {id:'warehouse',icon:<Package size={18}/>,label:'Склад'},
+    {id:'supply',icon:<ShoppingCart size={18}/>,label:'Снабжение'},
     {id:'suppliers',icon:<Truck size={18}/>,label:'Поставщики'},
     {id:'accounting',icon:<DollarSign size={18}/>,label:'Бухгалтерия'},
     {id:'personnel',icon:<UserCheck size={18}/>,label:'Персонал'},
@@ -4542,7 +4684,15 @@ function App() {
         <div style={{padding:'22px 20px',borderBottom:'1px solid rgba(255,255,255,0.08)'}}><div style={{display:'flex',alignItems:'center',gap:'12px'}}><div style={{width:'40px',height:'40px',borderRadius:'12px',background:'linear-gradient(135deg,#f97316,#ea580c)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0}}>🏗️</div><div><h3 style={{margin:0,color:'white',fontSize:'18px',fontWeight:'800'}}>СтройКа</h3><p style={{margin:0,color:'rgba(255,255,255,0.4)',fontSize:'11px'}}>ERP система</p></div></div></div>
         <div style={{padding:'14px',borderBottom:'1px solid rgba(255,255,255,0.08)'}}><div style={{backgroundColor:'rgba(255,255,255,0.06)',borderRadius:'10px',padding:'12px',display:'flex',alignItems:'center',gap:'10px'}}><div style={{width:'36px',height:'36px',borderRadius:'10px',backgroundColor:roleColor(user.role),display:'flex',alignItems:'center',justifyContent:'center',fontSize:'14px',color:'white',fontWeight:'800',flexShrink:0}}>{user.name.charAt(0)}</div><div style={{overflow:'hidden'}}><div style={{fontSize:'13px',fontWeight:'600',color:'white',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{user.name}</div><div style={{fontSize:'11px',color:'rgba(255,255,255,0.4)',marginTop:'1px'}}>{ROLE_LABELS[user.role]||user.role}</div></div></div></div>
         <div style={{padding:'10px',flex:1,overflowY:'auto'}}>
-          {menuItems.map(item=>(<div key={item.id} onClick={()=>navigateTo(item.id)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',marginBottom:'2px',backgroundColor:activePage===item.id?'rgba(249,115,22,0.15)':'transparent',border:activePage===item.id?'1px solid rgba(249,115,22,0.3)':'1px solid transparent',transition:'all 0.15s'}}><span style={{color:activePage===item.id?C.accent:'rgba(255,255,255,0.5)',flexShrink:0}}>{item.icon}</span><span style={{fontSize:'13px',fontWeight:activePage===item.id?'600':'400',color:activePage===item.id?'white':'rgba(255,255,255,0.6)',flex:1}}>{item.label}</span>{activePage===item.id&&<ChevronRight size={14} color={C.accent}/>}</div>))}
+          {menuItems.map(item=>{
+            let badgeCount = 0;
+            if (item.id==='supply' && supplyRequests) {
+              if (user.role==='прораб') badgeCount = supplyRequests.filter(r=>r.status==='Новая').length;
+              else if (isLeadership()) badgeCount = supplyRequests.filter(r=>r.status==='Подтверждена прорабом').length;
+              else if (isMasterRole()) badgeCount = supplyRequests.filter(r=>(r.createdBy===user.name||r.requestedById===user.id)&&(r.status==='Утверждена'||r.status==='Отклонена')).length;
+            }
+            return (<div key={item.id} onClick={()=>navigateTo(item.id)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',marginBottom:'2px',backgroundColor:activePage===item.id?'rgba(249,115,22,0.15)':'transparent',border:activePage===item.id?'1px solid rgba(249,115,22,0.3)':'1px solid transparent',transition:'all 0.15s'}}><span style={{color:activePage===item.id?C.accent:'rgba(255,255,255,0.5)',flexShrink:0,position:'relative'}}>{item.icon}{badgeCount>0&&<span style={{position:'absolute',top:'-6px',right:'-8px',backgroundColor:C.danger,color:'white',borderRadius:'10px',padding:'1px 5px',fontSize:'9px',fontWeight:'700',minWidth:'14px',textAlign:'center',lineHeight:'1.2'}}>{badgeCount>99?'99+':badgeCount}</span>}</span><span style={{fontSize:'13px',fontWeight:activePage===item.id?'600':'400',color:activePage===item.id?'white':'rgba(255,255,255,0.6)',flex:1}}>{item.label}</span>{activePage===item.id&&<ChevronRight size={14} color={C.accent}/>}</div>);
+          })}
         </div>
         <div style={{padding:'10px',borderTop:'1px solid rgba(255,255,255,0.08)'}}>
           <div onClick={()=>setUser(null)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',backgroundColor:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)'}}><LogOut size={18} color='#ef4444'/><span style={{fontSize:'13px',color:'#ef4444',fontWeight:'500'}}>Выйти</span></div>
@@ -6352,6 +6502,206 @@ function App() {
               </div>))}
             </div>)}
           </div>)}
+          {activePage==='supply'&&(()=>{
+            const role = user.role;
+            const canCreate = ['мастер','субподрядчик','прораб','директор','зам_директора','кладовщик','снабженец'].includes(role);
+            const canConfirmProrab = role==='прораб'||isLeadership();
+            const canApprove = isLeadership();
+            // вкладки в зависимости от роли
+            let tabs = [];
+            if (role==='мастер'||role==='субподрядчик') tabs=[{id:'mine',label:'📋 Мои заявки'}];
+            else if (role==='прораб') tabs=[{id:'inbox',label:'⏳ Ждут подтверждения'},{id:'all',label:'📋 Все заявки'}];
+            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'}];
+            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'}];
+            // фильтрация
+            let list = supplyRequests || [];
+            const curTab = tabs.find(t=>t.id===supplyTab) ? supplyTab : tabs[0].id;
+            if (role==='мастер'||role==='субподрядчик') {
+              list = list.filter(r=>r.createdBy===user.name||r.requestedById===user.id);
+            } else if (role==='прораб') {
+              if (curTab==='inbox') list = list.filter(r=>r.status==='Новая');
+            } else if (isLeadership()) {
+              if (curTab==='inbox') list = list.filter(r=>r.status==='Подтверждена прорабом'||r.status==='Новая');
+            } else {
+              if (curTab==='approved') list = list.filter(r=>r.status==='Утверждена');
+            }
+            // поиск
+            list = list.filter(r=>matchSearch(listSearch, r.materialName, r.project, r.createdBy));
+            // helpers для статуса
+            const statusColors = (st)=>{
+              if (st==='Утверждена') return [C.success,C.successLight,C.successBorder];
+              if (st==='Подтверждена прорабом') return [C.info||C.accent,C.infoLight||C.accentLight,C.infoBorder||C.accentBorder||C.border];
+              if (st==='Отклонена') return [C.danger,C.dangerLight,C.dangerBorder];
+              if (st==='Отменена') return [C.textMuted,C.bg,C.border];
+              return [C.warning,C.warningLight,C.warningBorder];
+            };
+            return (<div>
+              {/* Шапка */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
+                <div>
+                  <b style={{color:C.text,fontSize:'18px',display:'block'}}>🛒 Снабжение — Заявки на материалы</b>
+                  <p style={{color:C.textSec,fontSize:'12px',margin:'2px 0 0'}}>{
+                    role==='мастер'||role==='субподрядчик'?'Создавайте заявки когда нужен материал на стройку':
+                    role==='прораб'?'Подтверждайте заявки мастеров и создавайте свои':
+                    isLeadership()?'Утверждайте заявки. Проверяйте склад через AI':
+                    'Утверждённые заявки на закупку'
+                  }</p>
+                </div>
+                {canCreate && <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>Новая заявка</button>}
+              </div>
+              {/* Вкладки */}
+              <div style={{display:'flex',gap:'8px',marginBottom:'16px',flexWrap:'wrap'}}>
+                {tabs.map(t=>(<button key={t.id} onClick={()=>setSupplyTab(t.id)} style={{...curTab===t.id?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{t.label}</button>))}
+              </div>
+              {/* Форма создания */}
+              {showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка на материал</b>
+                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                  <input placeholder="Материал * (например: Цемент М500)" value={newSupplyReq.materialName} onChange={e=>setNewSupplyReq({...newSupplyReq,materialName:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={newSupplyReq.quantity} onChange={e=>setNewSupplyReq({...newSupplyReq,quantity:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <select value={newSupplyReq.unit} onChange={e=>setNewSupplyReq({...newSupplyReq,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                  <select value={newSupplyReq.project} onChange={e=>setNewSupplyReq({...newSupplyReq,project:e.target.value})} style={{...inp,marginBottom:0}}>
+                    <option value="">Объект *</option>
+                    {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+                  </select>
+                  <select value={newSupplyReq.urgency} onChange={e=>setNewSupplyReq({...newSupplyReq,urgency:e.target.value})} style={{...inp,marginBottom:0}}>
+                    <option value="низкая">🟢 Низкая</option>
+                    <option value="обычная">🟡 Обычная</option>
+                    <option value="срочная">🔴 Срочная</option>
+                  </select>
+                </div>
+                <textarea placeholder="Комментарий (для чего, особенности)" value={newSupplyReq.notes} onChange={e=>setNewSupplyReq({...newSupplyReq,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical'}}/>
+                {/* Подсказка по статусу что будет после создания */}
+                <div style={{padding:'10px 12px',backgroundColor:C.infoLight||C.warningLight,border:'1.5px solid '+(C.infoBorder||C.warningBorder),borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
+                  {role==='мастер'||role==='субподрядчик'?'ℹ️ После создания заявка попадёт прорабу на подтверждение':
+                   role==='прораб'?'ℹ️ Заявка сразу пойдёт директору на утверждение':
+                   '✅ Заявка будет утверждена автоматически'}
+                </div>
+                <div style={{display:'flex',gap:'8px'}}>
+                  <button onClick={createSupplyReq} style={btnO}><Check size={14}/>Создать заявку</button>
+                  <button onClick={()=>setShowSupplyForm(false)} style={btnG}><X size={14}/>Отмена</button>
+                </div>
+              </div>)}
+              {/* Поиск */}
+              <div style={{position:'relative',marginBottom:'12px'}}>
+                <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                <input placeholder='🔍 Поиск по материалу, объекту, автору' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
+              </div>
+              {/* Список заявок */}
+              {list.map(req=>{
+                const [stC,stBg,stBd] = statusColors(req.status);
+                const isMine = req.createdBy===user.name || req.requestedById===user.id;
+                const expanded = supplyExpandedId===req.id;
+                const urgC = req.urgency==='срочная'?C.danger:req.urgency==='низкая'?C.textMuted:C.warning;
+                const urgBg = req.urgency==='срочная'?C.dangerLight:req.urgency==='низкая'?C.bg:C.warningLight;
+                const urgBd = req.urgency==='срочная'?C.dangerBorder:req.urgency==='низкая'?C.border:C.warningBorder;
+                return (<div key={req.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                    <div style={{flex:'1 1 280px'}}>
+                      <b style={{color:C.text,fontSize:'14px'}}>{req.materialName}</b>
+                      <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · 🏗 '+(req.project||'—')}</p>
+                      <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{(req.date||'')+' · '+(req.createdBy||'')+(req.requestedByRole?' ('+req.requestedByRole+')':'')}</p>
+                      {req.notes && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
+                      {req.status==='Отклонена' && req.rejectReason && <p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>❌ Причина: {req.rejectReason}</p>}
+                      {req.prorabName && <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>👷 Прораб: {req.prorabName}</p>}
+                      {req.directorName && <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>👑 Директор: {req.directorName}</p>}
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end'}}>
+                      <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+                        {req.urgency && req.urgency!=='обычная' && <span style={badge(urgC,urgBg,urgBd)}>{req.urgency==='срочная'?'🔴 Срочно':'🟢 Не срочно'}</span>}
+                        <span style={badge(stC,stBg,stBd)}>{req.status}</span>
+                      </div>
+                      <div style={{display:'flex',gap:'4px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                        {/* Подтверждение прораба */}
+                        {req.status==='Новая' && canConfirmProrab && (
+                          <button onClick={()=>confirmSupplyAsProrab(req.id)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Подтвердить</button>
+                        )}
+                        {/* Утверждение директора */}
+                        {req.status==='Подтверждена прорабом' && canApprove && (
+                          <button onClick={()=>approveSupplyAsDirector(req.id)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Утвердить</button>
+                        )}
+                        {/* AI-проверка склада */}
+                        {(req.status==='Новая'||req.status==='Подтверждена прорабом') && (canConfirmProrab||canApprove) && (
+                          <button onClick={async()=>{
+                            if (expanded) { setSupplyExpandedId(null); return; }
+                            setSupplyExpandedId(req.id);
+                            await loadSupplyStockCheck(req.id);
+                          }} style={{...btnB,padding:'4px 10px',fontSize:'11px'}}><Bot size={11}/>Склад / AI</button>
+                        )}
+                        {/* Отклонить */}
+                        {(req.status==='Новая'||req.status==='Подтверждена прорабом') && (canConfirmProrab||canApprove) && (
+                          <button onClick={()=>setSupplyRejectId(req.id)} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}><X size={11}/>Отклонить</button>
+                        )}
+                        {/* Отменить (свою) */}
+                        {isMine && (req.status==='Новая'||req.status==='Подтверждена прорабом') && (
+                          <button onClick={()=>cancelSupply(req.id)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>Отменить</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Модалка причины отказа */}
+                  {supplyRejectId===req.id && (<div style={{borderTop:'1.5px solid '+C.dangerBorder,paddingTop:'12px',marginTop:'10px'}}>
+                    <b style={{color:C.danger,fontSize:'12px',display:'block',marginBottom:'6px'}}>Причина отказа:</b>
+                    <textarea value={supplyRejectReason} onChange={e=>setSupplyRejectReason(e.target.value)} placeholder="Например: уже есть на складе" style={{...inp,height:'50px',resize:'vertical'}}/>
+                    <div style={{display:'flex',gap:'6px'}}>
+                      <button onClick={()=>rejectSupply(req.id)} style={{...btnR,fontSize:'12px',padding:'5px 12px'}}><X size={12}/>Отклонить заявку</button>
+                      <button onClick={()=>{setSupplyRejectId(null);setSupplyRejectReason('');}} style={{...btnG,fontSize:'12px',padding:'5px 12px'}}>Отмена</button>
+                    </div>
+                  </div>)}
+                  {/* Раскрытие: AI-проверка склада + бюджет */}
+                  {expanded && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'14px',marginTop:'12px'}}>
+                    {!supplyStockCheck && <p style={{color:C.textMuted,fontSize:'12px'}}>⏳ Проверяю склад...</p>}
+                    {supplyStockCheck && supplyStockCheck.error && <p style={{color:C.danger,fontSize:'12px'}}>Ошибка: {supplyStockCheck.error}</p>}
+                    {supplyStockCheck && !supplyStockCheck.error && (<div>
+                      {/* Сводка по складу */}
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'8px',marginBottom:'10px'}}>
+                        <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}>
+                          <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Нужно</p>
+                          <b style={{color:C.text,fontSize:'14px'}}>{supplyStockCheck.needed+' '+supplyStockCheck.unit}</b>
+                        </div>
+                        <div style={{padding:'10px',backgroundColor:supplyStockCheck.totalAvailable>0?C.successLight:C.warningLight,borderRadius:'8px',border:'1.5px solid '+(supplyStockCheck.totalAvailable>0?C.successBorder:C.warningBorder)}}>
+                          <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>На складе</p>
+                          <b style={{color:supplyStockCheck.totalAvailable>0?C.success:C.warning,fontSize:'14px'}}>{Math.round(supplyStockCheck.totalAvailable*100)/100+' '+supplyStockCheck.unit}</b>
+                        </div>
+                        <div style={{padding:'10px',backgroundColor:supplyStockCheck.shortage>0?C.dangerLight:C.successLight,borderRadius:'8px',border:'1.5px solid '+(supplyStockCheck.shortage>0?C.dangerBorder:C.successBorder)}}>
+                          <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Закупить</p>
+                          <b style={{color:supplyStockCheck.shortage>0?C.danger:C.success,fontSize:'14px'}}>{Math.round(supplyStockCheck.shortage*100)/100+' '+supplyStockCheck.unit}</b>
+                        </div>
+                        {supplyStockCheck.projectBudget>0 && (<div style={{padding:'10px',backgroundColor:(supplyStockCheck.budgetRiskPercent>80)?C.dangerLight:C.bg,borderRadius:'8px',border:'1.5px solid '+((supplyStockCheck.budgetRiskPercent>80)?C.dangerBorder:C.border)}}>
+                          <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Бюджет занят</p>
+                          <b style={{color:(supplyStockCheck.budgetRiskPercent>80)?C.danger:C.text,fontSize:'14px'}}>{Math.round(supplyStockCheck.budgetRiskPercent||0)+'%'}</b>
+                        </div>)}
+                      </div>
+                      {/* Найденные позиции на складе */}
+                      {supplyStockCheck.stockMatches && supplyStockCheck.stockMatches.length>0 && (<div style={{marginBottom:'10px'}}>
+                        <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>📦 Похожие позиции на складе:</b>
+                        {supplyStockCheck.stockMatches.map((m,i)=>(<div key={i} style={{padding:'6px 10px',backgroundColor:C.bg,borderRadius:'6px',marginBottom:'4px',fontSize:'12px',color:C.text,border:'1px solid '+C.border}}>
+                          {m.name+' — '+m.quantity+' '+m.unit+(m.price?' · '+Math.round(m.price).toLocaleString()+' ₽/ед':'')}
+                        </div>))}
+                      </div>)}
+                      {supplyStockCheck.stockMatches && supplyStockCheck.stockMatches.length===0 && <p style={{color:C.warning,fontSize:'12px',marginBottom:'8px'}}>⚠️ Похожих позиций на складе не найдено — нужна закупка</p>}
+                      {/* Предупреждение о бюджете */}
+                      {supplyStockCheck.budgetRiskPercent>80 && (<div style={{padding:'10px 12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.danger}}>
+                        ⚠️ Внимание: бюджет проекта почти исчерпан ({Math.round(supplyStockCheck.budgetRiskPercent)}%). Подумайте перед утверждением.
+                      </div>)}
+                      {/* AI-рекомендация */}
+                      <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'6px'}}>
+                        <button onClick={()=>askSupplyAi(req,supplyStockCheck)} disabled={supplyAiLoading} style={{...btnGr,fontSize:'12px',padding:'6px 12px',opacity:supplyAiLoading?0.6:1}}><Bot size={12}/>{supplyAiLoading?'AI думает...':'🤖 Совет AI'}</button>
+                      </div>
+                      {supplyAiText && (<div style={{padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',fontSize:'12px',color:C.text}}>
+                        <b style={{color:C.success,fontSize:'11px',display:'block',marginBottom:'6px'}}>🤖 Рекомендация AI:</b>
+                        {supplyAiText}
+                      </div>)}
+                    </div>)}
+                  </div>)}
+                </div>);
+              })}
+              {list.length===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>}
+            </div>);
+          })()}
+
           {activePage==='suppliers'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
               {['active','requests','offers','history'].map(tab=>(<button key={tab} onClick={()=>{setSuppliersTab(tab);setShowForm(false);}} style={{...suppliersTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{active:'Поставщики',requests:'Заявки',offers:'КП',history:'История'}[tab]}</button>))}

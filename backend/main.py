@@ -304,6 +304,18 @@ def init_db():
             notes TEXT,
             selected_suppliers INT[] DEFAULT '{}'
         );
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS requested_by_role VARCHAR(50);
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS requested_by_id INT;
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS urgency VARCHAR(50) DEFAULT 'обычная';
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS prorab_id INT;
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS prorab_name VARCHAR(255);
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS prorab_confirmed_at TIMESTAMP;
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS director_id INT;
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS director_name VARCHAR(255);
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS director_approved_at TIMESTAMP;
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS reject_reason TEXT;
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
         CREATE TABLE IF NOT EXISTS supplier_offers (
             id SERIAL PRIMARY KEY,
             request_id INT,
@@ -851,6 +863,10 @@ class SupplyRequestModel(BaseModel):
     date: str = ""
     notes: str = ""
     selectedSuppliers: List[int] = []
+    requestedByRole: str = ""
+    requestedById: Optional[int] = None
+    urgency: str = "обычная"
+    category: str = ""
 
 class SupplierOfferModel(BaseModel):
     requestId: int
@@ -1752,33 +1768,173 @@ def delete_supplier(id: int):
     conn.close()
     return {"ok": True}
 
+SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,project,"
+                 "created_by as \"createdBy\",date,status,notes,"
+                 "selected_suppliers as \"selectedSuppliers\","
+                 "requested_by_role as \"requestedByRole\","
+                 "requested_by_id as \"requestedById\","
+                 "urgency,category,"
+                 "prorab_id as \"prorabId\",prorab_name as \"prorabName\","
+                 "prorab_confirmed_at as \"prorabConfirmedAt\","
+                 "director_id as \"directorId\",director_name as \"directorName\","
+                 "director_approved_at as \"directorApprovedAt\","
+                 "reject_reason as \"rejectReason\","
+                 "created_at as \"createdAt\" "
+                 "FROM supply_requests")
+
 @app.get("/supply-requests")
 def get_supply_requests():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,material_name as \"materialName\",quantity,unit,project,created_by as \"createdBy\",date,status,notes,selected_suppliers as \"selectedSuppliers\" FROM supply_requests ORDER BY id DESC")
+    cur.execute(SUPPLY_SELECT + " ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/supply-requests")
 def create_supply_request(r: SupplyRequestModel):
+    from datetime import datetime
+    role = (r.requestedByRole or "").strip()
+    if role in ("директор", "зам_директора"):
+        initial_status = "Утверждена"
+    elif role == "прораб":
+        initial_status = "Подтверждена прорабом"
+    else:
+        initial_status = "Новая"
+    now = datetime.now()
+    prorab_id = r.requestedById if role == "прораб" else None
+    prorab_name = r.createdBy if role == "прораб" else None
+    prorab_at = now if role == "прораб" else None
+    director_id = r.requestedById if role in ("директор", "зам_директора") else None
+    director_name = r.createdBy if role in ("директор", "зам_директора") else None
+    director_at = now if role in ("директор", "зам_директора") else None
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO supply_requests (material_name,quantity,unit,project,created_by,date,notes,selected_suppliers) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,material_name as \"materialName\",quantity,unit,project,created_by as \"createdBy\",date,status,notes,selected_suppliers as \"selectedSuppliers\"",
-                (r.materialName,r.quantity,r.unit,r.project,r.createdBy,r.date,r.notes,r.selectedSuppliers))
+    cur.execute(
+        "INSERT INTO supply_requests "
+        "(material_name,quantity,unit,project,created_by,date,notes,selected_suppliers,"
+        "status,requested_by_role,requested_by_id,urgency,category,"
+        "prorab_id,prorab_name,prorab_confirmed_at,"
+        "director_id,director_name,director_approved_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (r.materialName, r.quantity, r.unit, r.project, r.createdBy, r.date, r.notes,
+         r.selectedSuppliers, initial_status, role, r.requestedById, r.urgency, r.category,
+         prorab_id, prorab_name, prorab_at,
+         director_id, director_name, director_at))
+    new_id = cur.fetchone()['id']
+    cur.execute(SUPPLY_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
     conn.close()
     return dict(row)
 
 @app.put("/supply-requests/{id}")
 def update_supply_request(id: int, data: dict):
+    from datetime import datetime
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    action = data.get('action')
+    now = datetime.now()
+    if action == 'confirm_prorab':
+        cur.execute(
+            "UPDATE supply_requests SET status=%s, prorab_id=%s, prorab_name=%s, prorab_confirmed_at=%s WHERE id=%s",
+            ('Подтверждена прорабом', data.get('userId'), data.get('userName'), now, id))
+    elif action == 'approve_director':
+        cur.execute(
+            "UPDATE supply_requests SET status=%s, director_id=%s, director_name=%s, director_approved_at=%s WHERE id=%s",
+            ('Утверждена', data.get('userId'), data.get('userName'), now, id))
+    elif action == 'reject':
+        cur.execute(
+            "UPDATE supply_requests SET status=%s, reject_reason=%s WHERE id=%s",
+            ('Отклонена', data.get('rejectReason') or data.get('reason') or '', id))
+    elif action == 'cancel':
+        cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('Отменена', id))
+    elif 'status' in data:
+        cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", (data['status'], id))
+    cur.execute(SUPPLY_SELECT + " WHERE id=%s", (id,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else {"ok": True}
+
+@app.delete("/supply-requests/{id}")
+def delete_supply_request(id: int):
     conn = get_db()
     cur = conn.cursor()
-    if 'status' in data:
-        cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", (data['status'],id))
+    cur.execute("DELETE FROM supply_requests WHERE id=%s", (id,))
     conn.close()
     return {"ok": True}
+
+@app.get("/supply-requests/{id}/stock-check")
+def supply_request_stock_check(id: int):
+    """Возвращает остатки похожих материалов на складе и бюджет проекта.
+       Используется UI чтобы показать «есть X из Y, закупить Z»."""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT material_name, quantity, unit, project FROM supply_requests WHERE id=%s", (id,))
+    req = cur.fetchone()
+    if not req:
+        conn.close()
+        return {"error": "not found"}
+    name = (req['material_name'] or '').strip()
+    project = (req['project'] or '').strip()
+    needed = float(req['quantity'] or 0)
+    # Поиск похожих материалов на основном складе (ILIKE по части имени)
+    stock_matches = []
+    total_available = 0.0
+    if name:
+        # Берём первое значащее слово (>=4 символа) для гибкого поиска
+        tokens = [t for t in name.split() if len(t) >= 4]
+        search = tokens[0] if tokens else name
+        cur.execute(
+            "SELECT id, name, quantity, unit, price, category FROM warehouse_main "
+            "WHERE name ILIKE %s ORDER BY quantity DESC LIMIT 10",
+            ('%' + search + '%',))
+        for row in cur.fetchall():
+            stock_matches.append({
+                "id": row['id'], "name": row['name'],
+                "quantity": float(row['quantity'] or 0),
+                "unit": row['unit'], "price": float(row['price'] or 0),
+                "category": row['category']
+            })
+            total_available += float(row['quantity'] or 0)
+    # Бюджет проекта и сколько уже утверждено заявок (приблизительная оценка стоимости)
+    project_budget = 0.0
+    project_approved_cost = 0.0
+    project_pending_cost = 0.0
+    if project:
+        cur.execute("SELECT budget FROM projects WHERE name=%s", (project,))
+        pr = cur.fetchone()
+        project_budget = float(pr['budget'] or 0) if pr else 0
+        # Уже утверждённые заявки этого проекта: оцениваем по средней цене на складе
+        cur.execute(
+            "SELECT s.material_name, s.quantity, s.status, "
+            "COALESCE((SELECT AVG(w.price) FROM warehouse_main w "
+            "          WHERE w.name ILIKE '%' || split_part(s.material_name,' ',1) || '%'), 0) as avg_price "
+            "FROM supply_requests s WHERE s.project=%s", (project,))
+        for row in cur.fetchall():
+            est_cost = float(row['quantity'] or 0) * float(row['avg_price'] or 0)
+            if row['status'] == 'Утверждена':
+                project_approved_cost += est_cost
+            elif row['status'] in ('Новая', 'Подтверждена прорабом'):
+                project_pending_cost += est_cost
+    conn.close()
+    shortage = max(0.0, needed - total_available)
+    return {
+        "requestId": id,
+        "materialName": name,
+        "needed": needed,
+        "unit": req['unit'],
+        "totalAvailable": total_available,
+        "shortage": shortage,
+        "stockMatches": stock_matches,
+        "project": project,
+        "projectBudget": project_budget,
+        "projectApprovedCost": project_approved_cost,
+        "projectPendingCost": project_pending_cost,
+        "budgetRiskPercent": (
+            ((project_approved_cost + project_pending_cost) / project_budget * 100)
+            if project_budget > 0 else 0
+        ),
+    }
 
 @app.get("/supplier-offers")
 def get_supplier_offers():
