@@ -2990,6 +2990,37 @@ function App() {
       <div style={{display:'flex',flexDirection:'column',minHeight:'100vh',backgroundColor:C.bg}}>
         {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'12px'}}/></div>)}
         {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)}/>}
+        {/* Модалка «Новая трата» для мастера/субподрядчика */}
+        {showOwnExpenseForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+            <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
+            <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{projects.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
+            <select value={newOwnExpense.category||'other'} onChange={e=>setNewOwnExpense({...newOwnExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат *</option>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
+            <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
+            <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>
+            <input type='date' value={newOwnExpense.date} onChange={e=>setNewOwnExpense({...newOwnExpense,date:e.target.value})} style={inp}/>
+            <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
+              <span style={{fontSize:'12px',color:C.textSec}}>📷 Фото чека:</span>
+              <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewOwnExpense(prev=>({...prev,photoUrl:url}));}}}/>
+              {newOwnExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid '+C.border}}><img src={newOwnExpense.photoUrl.startsWith('http')?newOwnExpense.photoUrl:API+newOwnExpense.photoUrl} alt='' style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',marginTop:'6px',color:C.textMuted,fontSize:'12px'}}>Нажмите чтобы загрузить фото чека</div>}
+            </label>
+            <div style={{padding:'10px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
+              ℹ️ После отправки трата попадёт бухгалтеру/директору на возмещение.
+            </div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={async()=>{
+                if(!newOwnExpense.projectName||!newOwnExpense.description||!newOwnExpense.amount) { alert('Заполните: проект, описание, сумма'); return; }
+                await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newOwnExpense,amount:Number(newOwnExpense.amount),employeeName:user.name,employeeId:user.id})});
+                setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
+                setShowOwnExpenseForm(false);
+                await loadAll();
+                notify('Трата отправлена на возмещение','myexpense');
+                alert('Отправлено на возмещение!');
+              }} style={btnO}><Check size={14}/>Отправить</button>
+              <button onClick={()=>{setShowOwnExpenseForm(false);setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});}} style={btnG}><X size={14}/>Отмена</button>
+            </div>
+          </div>
+        </div>)}
         <div style={{flex:1,padding:'15px',paddingBottom:isMobile?'90px':'15px',overflowY:'auto'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
             <div><h2 style={{margin:0,color:C.text,fontSize:'20px',fontWeight:'800'}}>СтройКа</h2><p style={{margin:0,color:C.textSec,fontSize:'12px'}}>{user.name+' — '+(ROLE_LABELS[user.role]||user.role)}</p></div>
@@ -3270,11 +3301,101 @@ function App() {
           </div>)}
 
           {activePage==='materials'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'20px',fontSize:'18px',fontWeight:'700'}}>Мои инструменты</h3>
-            {myTools.length>0&&(<div style={{...card,padding:'20px',marginBottom:'16px',borderLeft:'3px solid '+C.purple}}><h4 style={{color:C.purple,marginBottom:'12px',fontSize:'14px',fontWeight:'600'}}>🔧 Инструменты за мной:</h4>{myTools.map(t=>(<div key={t.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'13px'}}>{t.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(t.inventoryNumber?' № '+t.inventoryNumber:'')+(t.project?' · '+t.project:'')}</p>{t.issueType==='В счёт зарплаты'&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Удержание: '+(t.cost||0).toLocaleString()+' ₽'}</span>}</div><span style={badge(C.accent,C.accentLight,C.accentBorder)}>{t.status}</span></div>))}</div>)}
-            {myIssues.map(issue=>(<div key={issue.id} style={{...card,padding:'16px',marginBottom:'10px',borderLeft:'3px solid '+(issue.confirmed?C.success:C.warning)}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text}}>{issue.materialName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{issue.quantity+' '+issue.unit+' · '+issue.project}</p></div>{issue.confirmed?<span style={badge(C.success,C.successLight,C.successBorder)}>✅ Принято</span>:<button onClick={()=>confirmMaterialReceipt(issue.id)} style={btnGr}><Check size={14}/>Подтвердить</button>}</div></div>))}
-            {myIssues.length===0&&myTools.length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Ничего нет</div>}
+            <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>📦 Мой склад</h3>
+            {/* Сводка */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
+              <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
+                <p style={{color:C.success,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>📦 Материалов</p>
+                <b style={{color:C.success,fontSize:'18px'}}>{myIssues.length}</b>
+              </div>
+              <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+                <p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>⏳ Не подтверждено</p>
+                <b style={{color:C.warning,fontSize:'18px'}}>{myIssues.filter(i=>!i.confirmed).length}</b>
+              </div>
+              <div style={{...card,padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+(C.accentBorder||C.border)}}>
+                <p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>🔧 Инструментов</p>
+                <b style={{color:C.accent,fontSize:'18px'}}>{myTools.length}</b>
+              </div>
+            </div>
+            {/* МАТЕРИАЛЫ */}
+            <div style={{marginBottom:'18px'}}>
+              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📦 Материалы, выданные мне</b>
+              {myIssues.length===0 && <div style={{...card,padding:'20px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>Материалы пока не передавались.<br/>Заявку на материал можно сделать во вкладке «🛒 Снабжение».</div>}
+              {myIssues.map(issue=>(<div key={issue.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'4px solid '+(issue.confirmed?C.success:C.warning)}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                  <div style={{flex:'1 1 200px'}}>
+                    <b style={{color:C.text,fontSize:'14px'}}>{issue.materialName}</b>
+                    <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{issue.quantity+' '+issue.unit+' · 🏗 '+issue.project}</p>
+                  </div>
+                  <div>
+                    {issue.confirmed
+                      ? <span style={badge(C.success,C.successLight,C.successBorder)}>✅ Принято</span>
+                      : <button onClick={()=>confirmMaterialReceipt(issue.id)} style={btnGr}><Check size={14}/>Подтвердить получение</button>}
+                  </div>
+                </div>
+              </div>))}
+            </div>
+            {/* ИНСТРУМЕНТЫ */}
+            <div>
+              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>🔧 Инструменты за мной</b>
+              {myTools.length===0 && <div style={{...card,padding:'20px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>Инструментов нет</div>}
+              {myTools.map(t=>(<div key={t.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'4px solid '+C.purple}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                  <div>
+                    <b style={{color:C.text,fontSize:'14px'}}>{t.name}</b>
+                    <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{(t.inventoryNumber?'№ '+t.inventoryNumber:'')+(t.project?' · '+t.project:'')}</p>
+                    {t.issueType==='В счёт зарплаты' && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Удержание: '+(t.cost||0).toLocaleString()+' ₽'}</span>}
+                  </div>
+                  <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>{t.status}</span>
+                </div>
+              </div>))}
+            </div>
           </div>)}
+
+          {/* Страница «Мои траты» — список и кнопка добавить */}
+          {activePage==='myexpenses'&&(()=>{
+            const myExp = (ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);
+            const pending = myExp.filter(e=>e.status==='Ожидает');
+            const reimbursed = myExp.filter(e=>e.status==='Возмещено');
+            const rejected = myExp.filter(e=>e.status==='Отклонено');
+            return (<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px',flexWrap:'wrap',gap:'10px'}}>
+                <h3 style={{color:C.text,margin:0,fontSize:'18px',fontWeight:'700'}}>💸 Мои траты</h3>
+                <button onClick={()=>setShowOwnExpenseForm(true)} style={btnO}><Plus size={14}/>Новая трата</button>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+                  <p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>⏳ Ждут</p>
+                  <b style={{color:C.warning,fontSize:'17px'}}>{pending.reduce((s,e)=>s+Number(e.amount||0),0).toLocaleString('ru-RU')+' ₽'}</b>
+                </div>
+                <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
+                  <p style={{color:C.success,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>✅ Возмещено</p>
+                  <b style={{color:C.success,fontSize:'17px'}}>{reimbursed.reduce((s,e)=>s+Number(e.amount||0),0).toLocaleString('ru-RU')+' ₽'}</b>
+                </div>
+                {rejected.length>0 && <div style={{...card,padding:'12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}>
+                  <p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>❌ Отклонено</p>
+                  <b style={{color:C.danger,fontSize:'17px'}}>{rejected.reduce((s,e)=>s+Number(e.amount||0),0).toLocaleString('ru-RU')+' ₽'}</b>
+                </div>}
+              </div>
+              {myExp.length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Трат пока нет.<br/>Нажмите «Новая трата» если потратил свои деньги на стройку.</div>}
+              {myExp.map(e=>{
+                const stC = e.status==='Возмещено'?C.success:e.status==='Отклонено'?C.danger:C.warning;
+                const stBg = e.status==='Возмещено'?C.successLight:e.status==='Отклонено'?C.dangerLight:C.warningLight;
+                const stBd = e.status==='Возмещено'?C.successBorder:e.status==='Отклонено'?C.dangerBorder:C.warningBorder;
+                return (<div key={e.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'4px solid '+stC}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                    <div style={{flex:'1 1 200px'}}>
+                      <b style={{color:C.text,fontSize:'14px'}}>{e.description}</b>
+                      <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{Number(e.amount||0).toLocaleString('ru-RU')+' ₽ · 🏗 '+(e.projectName||'—')}</p>
+                      <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{e.date||''}</p>
+                      {e.photoUrl && <button onClick={()=>setShowPhotoModal(e.photoUrl.startsWith('http')?e.photoUrl:API+e.photoUrl)} style={{...btnB,padding:'4px 10px',fontSize:'11px',marginTop:'6px'}}><Eye size={11}/>Фото чека</button>}
+                    </div>
+                    <span style={badge(stC,stBg,stBd)}>{e.status||'Ожидает'}</span>
+                  </div>
+                </div>);
+              })}
+            </div>);
+          })()}
 
           {activePage==='documents'&&(<div>
             <h3 style={{color:C.text,marginBottom:'20px',fontSize:'18px',fontWeight:'700'}}>Мои документы</h3>
@@ -3404,7 +3525,7 @@ function App() {
         </div>
 
         <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid '+C.border,display:'flex',justifyContent:'space-around',padding:'10px 0 14px',zIndex:100,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
-          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Инструменты',badge:myIssues.filter(i=>!i.confirmed).length},{id:'supply',icon:<ShoppingCart size={22}/>,label:'Снабжение',badge:(supplyRequests||[]).filter(r=>(r.createdBy===user.name||r.requestedById===user.id)&&r.status==='Отклонена').length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative'}}><span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px'}}>{item.label}</span>{item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}</div>))}
+          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Склад',badge:myIssues.filter(i=>!i.confirmed).length},{id:'supply',icon:<ShoppingCart size={22}/>,label:'Снабжение',badge:(supplyRequests||[]).filter(r=>(r.createdBy===user.name||r.requestedById===user.id)&&r.status==='Отклонена').length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative'}}><span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px'}}>{item.label}</span>{item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}</div>))}
           <div onClick={()=>setUser(null)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px'}}><LogOut size={22} color={C.textMuted}/><span style={{fontSize:'10px',color:C.textMuted,marginTop:'2px'}}>Выйти</span></div>
         </div>
       </div>
