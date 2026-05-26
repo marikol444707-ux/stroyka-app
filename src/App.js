@@ -80,8 +80,8 @@ const PreviewModal = ({content, title, onClose}) => (
 );
 
 const ROLES = {
-  директор: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
-  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','weather','settings','myexpenses'],
+  директор: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
+  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
   главный_инженер: ['dashboard','projects','warehouse','staff','companychat','estimates','weather','myexpenses'],
   прораб: ['projects','supply','companychat','weather','myexpenses'],
   кладовщик: ['warehouse','suppliers','supply','companychat','myexpenses'],
@@ -1151,6 +1151,13 @@ function App() {
     const mw = workJournal.filter(j=>j.masterId===act.masterId&&j.project===act.project&&j.status==='Подтверждено');
     const payments = actPayments.filter(p=>p.actId===act.id);
     const toolDeductions = tools.filter(t=>t.masterName===act.masterName&&t.issueType==='В счёт зарплаты').reduce((s,t)=>s+t.cost,0);
+    // Возмещения "Моих трат" в рамках периода и объекта
+    const inPeriod = (d)=>{ if(!d)return false; const dt=new Date(d); const a=new Date(act.periodStart||0); const b=new Date(act.periodEnd||'2099-12-31'); return dt>=a && dt<=b; };
+    const ownExpsReimbursed = (ownExpenses||[]).filter(e=>(e.employeeId===act.masterId||e.employeeName===act.masterName)&&e.projectName===act.project&&e.status==='Возмещено'&&inPeriod(e.date));
+    const ownExpReimbSum = ownExpsReimbursed.reduce((s,e)=>s+Number(e.amount||0),0);
+    // Подотчёт выданный мастеру по объекту в периоде
+    const advancesGiven = (accountablePayments||[]).filter(a=>(a.recipientId===act.masterId||a.recipientName===act.masterName)&&a.projectName===act.project&&inPeriod(a.date));
+    const advanceSum = advancesGiven.reduce((s,a)=>s+Number(a.amount||0),0);
     let html = '<h2 style="text-align:center">АКТ ВЫПОЛНЕННЫХ РАБОТ № '+act.id+'</h2>';
     html += '<p>Заказчик: <b>'+companyNameDoc+'</b> | Исполнитель: <b>'+act.masterName+'</b></p>';
     html += '<p>Объект: <b>'+act.project+'</b> | Период: '+act.periodStart+' — '+act.periodEnd+'</p>';
@@ -1160,13 +1167,24 @@ function App() {
     const totalAmt=act.totalAmount||0; const paidAmt=act.paidAmount||0;
     html += '<tr><td colspan="6"><b>ИТОГО начислено:</b></td><td><b>'+totalAmt.toLocaleString()+' руб.</b></td></tr>';
     if (toolDeductions>0) html += '<tr><td colspan="6">Удержания (инструмент):</td><td style="color:red">-'+toolDeductions.toLocaleString()+' руб.</td></tr>';
-    html += '<tr><td colspan="6"><b>К выплате:</b></td><td><b>'+(totalAmt-toolDeductions).toLocaleString()+' руб.</b></td></tr>';
+    html += '<tr><td colspan="6"><b>К выплате по работам:</b></td><td><b>'+(totalAmt-toolDeductions).toLocaleString()+' руб.</b></td></tr>';
     if (payments.length>0) {
-      html += '<tr><td colspan="7"><b>История оплат:</b></td></tr>';
+      html += '<tr><td colspan="7"><b>История оплат по акту:</b></td></tr>';
       payments.forEach(p => { html += '<tr><td colspan="3">'+p.date+'</td><td colspan="2">'+p.paymentType+'</td><td>'+p.paidBy+'</td><td>'+p.amount.toLocaleString()+' руб.</td></tr>'; });
     }
-    html += '<tr><td colspan="6">Оплачено:</td><td>'+paidAmt.toLocaleString()+' руб.</td></tr>';
-    html += '<tr><td colspan="6"><b>Остаток:</b></td><td><b style="color:red">'+(totalAmt-toolDeductions-paidAmt).toLocaleString()+' руб.</b></td></tr></table>';
+    html += '<tr><td colspan="6">Оплачено по акту:</td><td>'+paidAmt.toLocaleString()+' руб.</td></tr>';
+    html += '<tr><td colspan="6"><b>Остаток к выплате:</b></td><td><b style="color:red">'+(totalAmt-toolDeductions-paidAmt).toLocaleString()+' руб.</b></td></tr></table>';
+    // Дополнительные финансовые операции в периоде (не часть начислений, но для сверки)
+    if (ownExpsReimbursed.length>0 || advancesGiven.length>0) {
+      html += '<h3 style="margin-top:18px">📒 Сопутствующие операции по сотруднику в периоде</h3>';
+      html += '<p style="font-size:11px;color:#666">Не входят в сумму акта — показаны для сверки с бухгалтерией</p>';
+      html += '<table><tr><th>Дата</th><th>Тип</th><th>Описание</th><th>Сумма</th></tr>';
+      ownExpsReimbursed.forEach(e=>{ html += '<tr><td>'+(e.date||'')+'</td><td>💸 Возмещено по «Моим тратам»</td><td>'+(e.description||'')+'</td><td>'+Number(e.amount||0).toLocaleString()+' руб.</td></tr>'; });
+      advancesGiven.forEach(a=>{ html += '<tr><td>'+(a.date||'')+'</td><td>📤 Выдано в подотчёт</td><td>'+(a.purpose||a.notes||'')+'</td><td>'+Number(a.amount||0).toLocaleString()+' руб.</td></tr>'; });
+      if (ownExpReimbSum>0) html += '<tr><td colspan="3"><b>Итого возмещено трат:</b></td><td><b>'+ownExpReimbSum.toLocaleString()+' руб.</b></td></tr>';
+      if (advanceSum>0) html += '<tr><td colspan="3"><b>Итого выдано в подотчёт:</b></td><td><b>'+advanceSum.toLocaleString()+' руб.</b></td></tr>';
+      html += '</table>';
+    }
     html += '<div class="signatures"><div class="sig"><div class="sig-line">Выполнил<br/>'+act.masterName+'</div></div><div class="sig"><div class="sig-line">Принял (прораб)</div></div><div class="sig"><div class="sig-line">'+companyNameDoc+'<br/>'+(req.directorName||'')+'</div></div></div>';
     return html;
   };
@@ -5914,8 +5932,32 @@ function App() {
                   </div>)}
                           <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={{...inp,marginBottom:0}}>
                             <option value=''>Кому передать *</option>
-                            {staff.filter(s=>['мастер','прораб','бригадир'].includes(s.role.toLowerCase())).map(s=><option key={s.id} value={s.name}>{s.name} ({s.role})</option>)}
-                            {brigadeContracts.filter(bc=>bc.projectName===p.name).map(bc=><option key={bc.id} value={bc.brigadeName}>🔨 {bc.brigadeName} ({bc.contractorType})</option>)}
+                            {(()=>{
+                              // Заявители: те кто делал supply_request на этот материал и объект
+                              const matName = (newTransfer.materialName||'').toLowerCase().trim();
+                              const requesters = new Map();
+                              (supplyRequests||[]).filter(r=>r.project===p.name&&(r.status==='Утверждена'||r.status==='Подтверждена прорабом'||r.status==='Новая')).forEach(r=>{
+                                if (matName) {
+                                  const rName = (r.materialName||'').toLowerCase();
+                                  if (!rName.includes(matName.split(' ')[0]) && !matName.includes(rName.split(' ')[0]||'')) return;
+                                }
+                                if (r.createdBy && !requesters.has(r.createdBy)) {
+                                  requesters.set(r.createdBy, {name:r.createdBy, role:r.requestedByRole||'', materialName:r.materialName, quantity:r.quantity, unit:r.unit});
+                                }
+                              });
+                              const requesterNames = new Set(requesters.keys());
+                              return (<>
+                                {requesters.size>0 && <optgroup label="📋 Заявляли этот материал">
+                                  {Array.from(requesters.values()).map((r,i)=>(<option key={'req-'+i} value={r.name}>⭐ {r.name} ({r.role}) — просил {r.quantity} {r.unit}</option>))}
+                                </optgroup>}
+                                <optgroup label={requesters.size>0?'👥 Остальные мастера и прорабы':'👥 Мастера и прорабы'}>
+                                  {staff.filter(s=>['мастер','прораб','бригадир','субподрядчик'].includes((s.role||'').toLowerCase())&&!requesterNames.has(s.name)).map(s=><option key={s.id} value={s.name}>{s.name} ({s.role})</option>)}
+                                </optgroup>
+                                {brigadeContracts.filter(bc=>bc.projectName===p.name).length>0 && <optgroup label="🔨 Бригады по объекту">
+                                  {brigadeContracts.filter(bc=>bc.projectName===p.name).map(bc=><option key={bc.id} value={bc.brigadeName}>{bc.brigadeName} ({bc.contractorType})</option>)}
+                                </optgroup>}
+                              </>);
+                            })()}
                           </select>
 
                           <input type='date' value={newTransfer.transferDate} onChange={e=>setNewTransfer({...newTransfer,transferDate:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -6542,15 +6584,8 @@ function App() {
                       const res = await fetch(API+'/material-transfers?project_name='+encodeURIComponent(selectedWarehouseProject));
                       const data = await res.json();
                       setMaterialTransfers(Array.isArray(data)?data:[]);
-                      const proj = projects.find(p=>p.name===selectedWarehouseProject);
-                      if (proj) {
-                        setExpandedProject(proj.id);
-                        setActivePage('projects');
-                        setActiveProjectTab('Материалы');
-                        setShowTransferForm(true);
-                      } else {
-                        alert('Объект не найден');
-                      }
+                      setNewTransfer({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:selectedWarehouseProject,notes:'',transferDate:new Date().toISOString().split('T')[0]});
+                      setShowTransferForm(true);
                     }} style={btnGr}><Truck size={14}/>Передать мастеру</button>
                   )}
                   <button onClick={()=>exportToExcel(materials.filter(m=>m.project===selectedWarehouseProject).map(m=>({Наименование:m.name,Единица:m.unit,Количество:m.quantity,Цена:m.price,Сумма:m.quantity*m.price,Проект:m.project})),'Склад_'+selectedWarehouseProject)} style={btnG}><Download size={14}/>Excel</button>
@@ -6565,6 +6600,77 @@ function App() {
                     <td style={tblC}><button onClick={()=>deleteMaterial(m.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
                   </tr>))}
                 </tbody></table>
+              </div>)}
+              {/* Модалка «Передать материал» прямо на складе — без редиректа в проект */}
+              {showTransferForm && selectedWarehouseProject && (<div onClick={()=>setShowTransferForm(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'min(560px,92vw)',maxHeight:'90vh',overflowY:'auto'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+                    <b style={{color:C.text,fontSize:'16px'}}>🚚 Передать материал — {selectedWarehouseProject}</b>
+                    <button onClick={()=>setShowTransferForm(false)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
+                  </div>
+                  <select value={newTransfer.fromLocation} onChange={e=>setNewTransfer({...newTransfer,fromLocation:e.target.value,materialName:'',quantity:''})} style={inp}>
+                    <option value='Основной склад'>Основной склад</option>
+                    <option value={selectedWarehouseProject}>Склад объекта «{selectedWarehouseProject}»</option>
+                  </select>
+                  <p style={{fontSize:'12px',color:C.textSec,marginBottom:'6px'}}>Выберите материал:</p>
+                  <div style={{maxHeight:'180px',overflowY:'auto',border:'1.5px solid '+C.border,borderRadius:'8px',padding:'8px',marginBottom:'10px'}}>
+                    {[...warehouseMain.filter(m=>newTransfer.fromLocation==='Основной склад'),...materials.filter(m=>m.project===newTransfer.fromLocation&&newTransfer.fromLocation!=='Основной склад')].map((m,i)=>(<div key={i} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
+                      <input type='checkbox' checked={newTransfer.materialName===m.name} onChange={e=>setNewTransfer({...newTransfer,materialName:e.target.checked?m.name:'',unit:e.target.checked?m.unit:newTransfer.unit,quantity:''})} style={{width:'16px',height:'16px',cursor:'pointer'}}/>
+                      <span style={{flex:1,fontSize:'12px',color:C.text}}>{m.name}</span>
+                      <span style={{fontSize:'11px',color:C.textSec}}>Остаток: {m.quantity} {m.unit}</span>
+                    </div>))}
+                  </div>
+                  {newTransfer.materialName && (<div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}>
+                    <b style={{fontSize:'13px',color:C.text,flex:1}}>{newTransfer.materialName}</b>
+                    <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={e=>setNewTransfer({...newTransfer,quantity:e.target.value})} style={{...inp,marginBottom:0,width:'120px'}}/>
+                    <span style={{fontSize:'12px',color:C.textSec}}>{newTransfer.unit}</span>
+                  </div>)}
+                  <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={inp}>
+                    <option value=''>Кому передать *</option>
+                    {(()=>{
+                      const matName=(newTransfer.materialName||'').toLowerCase().trim();
+                      const requesters=new Map();
+                      (supplyRequests||[]).filter(r=>r.project===selectedWarehouseProject&&(r.status==='Утверждена'||r.status==='Подтверждена прорабом'||r.status==='Новая')).forEach(r=>{
+                        if (matName) {
+                          const rName=(r.materialName||'').toLowerCase();
+                          if (!rName.includes(matName.split(' ')[0])&&!matName.includes(rName.split(' ')[0]||'')) return;
+                        }
+                        if (r.createdBy&&!requesters.has(r.createdBy)) requesters.set(r.createdBy,{name:r.createdBy,role:r.requestedByRole||'',quantity:r.quantity,unit:r.unit});
+                      });
+                      const rn=new Set(requesters.keys());
+                      return (<>
+                        {requesters.size>0 && <optgroup label="📋 Заявляли этот материал">
+                          {Array.from(requesters.values()).map((r,i)=>(<option key={'wreq-'+i} value={r.name}>⭐ {r.name} ({r.role}) — просил {r.quantity} {r.unit}</option>))}
+                        </optgroup>}
+                        <optgroup label={requesters.size>0?'👥 Остальные':'👥 Мастера и прорабы'}>
+                          {staff.filter(s=>['мастер','прораб','бригадир','субподрядчик'].includes((s.role||'').toLowerCase())&&!rn.has(s.name)).map(s=><option key={s.id} value={s.name}>{s.name} ({s.role})</option>)}
+                        </optgroup>
+                      </>);
+                    })()}
+                  </select>
+                  <input type='date' value={newTransfer.transferDate} onChange={e=>setNewTransfer({...newTransfer,transferDate:e.target.value})} style={inp}/>
+                  <input placeholder='Примечание' value={newTransfer.notes} onChange={e=>setNewTransfer({...newTransfer,notes:e.target.value})} style={inp}/>
+                  <div style={{display:'flex',gap:'8px'}}>
+                    <button onClick={async()=>{
+                      if(!newTransfer.materialName||!newTransfer.quantity||!newTransfer.toPerson) { alert('Заполните: материал, количество, кому'); return; }
+                      const data={...newTransfer,projectName:selectedWarehouseProject,createdBy:user.name};
+                      const res=await fetch(API+'/material-transfers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+                      const saved=await res.json();
+                      if(!res.ok||!saved.ok){ alert('Ошибка: '+(saved.detail||saved.error||'не удалось списать со склада')); return; }
+                      setMaterialTransfers(prev=>[{...data,id:saved.id,signed:false},...prev]);
+                      const qty=Number(newTransfer.quantity);
+                      if(newTransfer.fromLocation==='Основной склад'){
+                        setWarehouseMain(prev=>prev.map(m=>m.name===newTransfer.materialName?{...m,quantity:Number(m.quantity||0)-qty}:m));
+                      } else {
+                        setMaterials(prev=>prev.map(m=>(m.name===newTransfer.materialName&&m.project===newTransfer.fromLocation)?{...m,quantity:Number(m.quantity||0)-qty}:m));
+                      }
+                      setShowTransferForm(false);
+                      setNewTransfer({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
+                      notify('Передал '+saved.materialName||newTransfer.materialName+' → '+newTransfer.toPerson,'material');
+                    }} style={btnO}><Check size={14}/>Передать</button>
+                    <button onClick={()=>setShowTransferForm(false)} style={btnG}><X size={14}/>Отмена</button>
+                  </div>
+                </div>
               </div>)}
             </div>)}
 
@@ -9330,12 +9436,11 @@ function App() {
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:'10px'}}>
         {[
-          {icon:<Scan size={24}/>,label:'Скан накладной',color:'#f97316',action:()=>{setShowQuickActions(false);setShowScanInvoice(true);},roles:['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец']},
           {icon:<Plus size={24}/>,label:'Принять материал',color:'#3b82f6',action:()=>{const visible=visibleProjects(projects);if(visible.length===1){openReceiveInvoice(visible[0].name);setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте нужный объект → Объект → Материалы → Принять материал');}},roles:['директор','зам_директора','прораб','кладовщик','снабженец']},
           {icon:<Truck size={24}/>,label:'Передать материал',color:'#10b981',action:async()=>{const visible=visibleProjects(projects);if(visible.length===1){const pn=visible[0].name;const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(pn));const data=await res.json();setMaterialTransfers(Array.isArray(data)?data:[]);setShowTransferForm(true);setExpandedProject(visible[0].id);setActivePage('projects');setActiveProjectTab('Материалы');setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте объект → Объект → Материалы → Передать материал');}},roles:['директор','зам_директора','прораб','кладовщик']},
           {icon:<CreditCard size={24}/>,label:'Мои траты',color:'#22c55e',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
           {icon:<MessageSquare size={24}/>,label:'Чат',color:'#3b82f6',action:()=>{setShowQuickActions(false);setShowChatPanel(true);}},
-          {icon:<CloudSun size={24}/>,label:'Погода',color:'#06b6d4',action:()=>{setShowQuickActions(false);setActivePage('weather');},roles:['директор','зам_директора','бухгалтер','прораб','главный_инженер']},
+          {icon:<CloudSun size={24}/>,label:'Погода',color:'#06b6d4',action:()=>{setShowQuickActions(false);setActivePage('weather');},roles:['прораб','главный_инженер']},
           {icon:<FolderKanban size={24}/>,label:'Объекты',color:'#f59e0b',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
           {icon:<Package size={24}/>,label:'Склад',color:'#8b5cf6',action:()=>{setShowQuickActions(false);setActivePage('warehouse');},roles:['директор','зам_директора','бухгалтер','кладовщик','снабженец']},
           {icon:<Bot size={24}/>,label:'ИИ',color:'#f97316',action:()=>{setShowQuickActions(false);setShowAiAssistant(true);}},
