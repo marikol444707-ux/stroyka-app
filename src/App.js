@@ -958,6 +958,23 @@ function App() {
     try { const res = await fetch(API+'/upload-photo',{method:'POST',body:fd}); const data = await res.json(); return data.url; } catch { return ''; }
   };
 
+  // Загрузка нескольких фото за раз. Возвращает строку с URL через запятую.
+  const uploadMultiplePhotos = async (files) => {
+    const urls = [];
+    for (const f of Array.from(files||[])) {
+      const u = await uploadPhoto(f);
+      if (u) urls.push(u);
+    }
+    return urls.join(',');
+  };
+
+  // Добавить новые фото к существующему набору (CSV) — для multi-input
+  const appendPhotos = async (existing, files) => {
+    const added = await uploadMultiplePhotos(files);
+    if (!added) return existing || '';
+    return existing ? existing + ',' + added : added;
+  };
+
   const checkinGeo = () => {
     if (!navigator.geolocation) { alert('Геолокация не поддерживается'); return; }
     navigator.geolocation.getCurrentPosition((pos) => {
@@ -3091,11 +3108,30 @@ function App() {
             <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
             <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>
             <input type='date' value={newOwnExpense.date} onChange={e=>setNewOwnExpense({...newOwnExpense,date:e.target.value})} style={inp}/>
-            <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
-              <span style={{fontSize:'12px',color:C.textSec}}>📷 Фото чека:</span>
-              <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewOwnExpense(prev=>({...prev,photoUrl:url}));}}}/>
-              {newOwnExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid '+C.border}}><img src={newOwnExpense.photoUrl.startsWith('http')?newOwnExpense.photoUrl:API+newOwnExpense.photoUrl} alt='' style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',marginTop:'6px',color:C.textMuted,fontSize:'12px'}}>Нажмите чтобы загрузить фото чека</div>}
-            </label>
+            <div style={{marginBottom:'12px'}}>
+              <span style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'6px'}}>📷 Фото чеков (можно несколько):</span>
+              <label style={{cursor:'pointer'}}>
+                <input type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={async e=>{
+                  if(e.target.files&&e.target.files.length>0){
+                    const newCsv = await appendPhotos(newOwnExpense.photoUrl, e.target.files);
+                    setNewOwnExpense(prev=>({...prev,photoUrl:newCsv}));
+                    e.target.value='';
+                  }
+                }}/>
+                {(()=>{const urls=(newOwnExpense.photoUrl||'').split(',').filter(Boolean);
+                  if (urls.length===0) return (<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>📷 Нажмите чтобы добавить фото<br/><span style={{fontSize:'10px'}}>можно несколько за раз</span></div>);
+                  return (<div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'6px',marginBottom:'8px'}}>
+                      {urls.map((u,i)=>(<div key={i} style={{position:'relative'}}>
+                        <img src={u.startsWith('http')?u:API+u} alt='' style={{width:'100%',height:'80px',objectFit:'cover',borderRadius:'6px',border:'1px solid '+C.border}}/>
+                        <button type='button' onClick={(ev)=>{ev.preventDefault();ev.stopPropagation();const rem=urls.filter((_,j)=>j!==i).join(',');setNewOwnExpense(prev=>({...prev,photoUrl:rem}));}} style={{position:'absolute',top:'2px',right:'2px',background:'rgba(220,38,38,0.9)',color:'white',border:'none',borderRadius:'50%',width:'20px',height:'20px',cursor:'pointer',fontSize:'12px',lineHeight:'1',padding:0}}>×</button>
+                      </div>))}
+                    </div>
+                    <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',textAlign:'center',fontSize:'11px',color:C.accent,fontWeight:'600'}}>+ Добавить ещё фото ({urls.length} загружено)</div>
+                  </div>);
+                })()}
+              </label>
+            </div>
             <div style={{padding:'10px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
               ℹ️ После отправки трата попадёт бухгалтеру/директору на возмещение.
             </div>
@@ -3536,7 +3572,7 @@ function App() {
                       <b style={{color:C.text,fontSize:'14px'}}>{e.description}</b>
                       <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{Number(e.amount||0).toLocaleString('ru-RU')+' ₽ · 🏗 '+(e.projectName||'—')}</p>
                       <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{e.date||''}</p>
-                      {e.photoUrl && <button onClick={()=>setShowPhotoModal(e.photoUrl.startsWith('http')?e.photoUrl:API+e.photoUrl)} style={{...btnB,padding:'4px 10px',fontSize:'11px',marginTop:'6px'}}><Eye size={11}/>Фото чека</button>}
+                      {(()=>{const urls=(e.photoUrl||'').split(',').filter(Boolean);if(urls.length===0) return null;return (<div style={{display:'flex',gap:'4px',marginTop:'6px',flexWrap:'wrap'}}>{urls.map((u,i)=>(<img key={i} src={u.startsWith('http')?u:API+u} alt='' onClick={()=>setShowPhotoModal(u.startsWith('http')?u:API+u)} style={{width:'48px',height:'48px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',border:'1px solid '+C.border}}/>))}</div>);})()}
                     </div>
                     <span style={badge(stC,stBg,stBd)}>{e.status||'Ожидает'}</span>
                   </div>
@@ -6161,7 +6197,7 @@ function App() {
                               <div><b style={{fontSize:'13px',color:C.text}}>{e.employeeName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{e.description}</p></div>
                               <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
                                 <b style={{color:C.accent,fontSize:'13px'}}>{Number(e.amount).toLocaleString()+' ₽'}</b>
-                                {e.photoUrl&&<button onClick={()=>setShowPhotoModal(e.photoUrl.startsWith('http')?e.photoUrl:API+e.photoUrl)} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}>📷</button>}
+                                {(()=>{const urls=(e.photoUrl||'').split(',').filter(Boolean);if(urls.length===0) return null;if(urls.length===1){const u=urls[0];return <button onClick={()=>setShowPhotoModal(u.startsWith('http')?u:API+u)} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}>📷</button>;}return <button onClick={()=>setShowPhotoModal(urls[0].startsWith('http')?urls[0]:API+urls[0])} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}>📷 {urls.length}</button>;})()}
                                 <button onClick={async()=>{await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Возмещено',approvedBy:user.name})});await loadAll();}} style={{...btnO,padding:'3px 8px',fontSize:'11px'}}>✅</button>
                                 <button onClick={async()=>{await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name})});await loadAll();}} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}>❌</button>
                               </div>
@@ -9091,7 +9127,7 @@ function App() {
                   <div style={{flex:1,minWidth:'180px'}}>
                     <p style={{color:C.text,margin:0,fontSize:'12px',fontWeight:'600'}}>{e.description}</p>
                     <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{(e.projectName?'🏗 '+e.projectName+' · ':'')+(e.date||'')+(e.category?' · '+(EXPENSE_CATEGORIES.find(c=>c.id===e.category)?.label||e.category):'')}</p>
-                    {e.photoUrl&&<button onClick={()=>setShowPhotoModal(e.photoUrl.startsWith('http')?e.photoUrl:API+e.photoUrl)} style={{...btnG,padding:'2px 8px',fontSize:'10px',marginTop:'4px'}}>📷 Чек</button>}
+                    {(()=>{const urls=(e.photoUrl||'').split(',').filter(Boolean);if(urls.length===0) return null;return (<div style={{display:'flex',gap:'3px',marginTop:'4px',flexWrap:'wrap'}}>{urls.map((u,i)=>(<img key={i} src={u.startsWith('http')?u:API+u} alt='' onClick={()=>setShowPhotoModal(u.startsWith('http')?u:API+u)} style={{width:'40px',height:'40px',borderRadius:'4px',objectFit:'cover',cursor:'pointer',border:'1px solid '+C.border}}/>))}</div>);})()}
                   </div>
                   <div style={{textAlign:'right',display:'flex',gap:'4px',alignItems:'center'}}>
                     <b style={{color:C.warning,fontSize:'13px'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
@@ -9113,11 +9149,30 @@ function App() {
         <select value={newExpense.category||'accountable'} onChange={e=>setNewExpense({...newExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат</option>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
         <input placeholder='За что потрачено *' value={newExpense.description} onChange={e=>setNewExpense({...newExpense,description:e.target.value})} style={inp}/>
         <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newExpense.amount} onChange={e=>setNewExpense({...newExpense,amount:e.target.value})} style={inp}/>
-        <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
-          <span style={{fontSize:'12px',color:C.textSec}}>📷 Фото чека:</span>
-          <input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewExpense(prev=>({...prev,photoUrl:url}));}}}/>
-          {newExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid #e5e7eb'}}><img src={newExpense.photoUrl.startsWith('http')?newExpense.photoUrl:API+newExpense.photoUrl} alt='' style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'20px',textAlign:'center',marginTop:'6px',color:C.textMuted}}>Нажмите чтобы загрузить</div>}
-        </label>
+        <div style={{marginBottom:'12px'}}>
+          <span style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'6px'}}>📷 Фото чеков (можно несколько):</span>
+          <label style={{cursor:'pointer'}}>
+            <input type='file' accept='image/*' multiple style={{display:'none'}} onChange={async e=>{
+              if(e.target.files&&e.target.files.length>0){
+                const newCsv = await appendPhotos(newExpense.photoUrl, e.target.files);
+                setNewExpense(prev=>({...prev,photoUrl:newCsv}));
+                e.target.value='';
+              }
+            }}/>
+            {(()=>{const urls=(newExpense.photoUrl||'').split(',').filter(Boolean);
+              if (urls.length===0) return (<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>📷 Нажмите чтобы добавить фото<br/><span style={{fontSize:'10px'}}>можно несколько за раз</span></div>);
+              return (<div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'6px',marginBottom:'8px'}}>
+                  {urls.map((u,i)=>(<div key={i} style={{position:'relative'}}>
+                    <img src={u.startsWith('http')?u:API+u} alt='' style={{width:'100%',height:'80px',objectFit:'cover',borderRadius:'6px',border:'1px solid '+C.border}}/>
+                    <button type='button' onClick={(ev)=>{ev.preventDefault();ev.stopPropagation();const rem=urls.filter((_,j)=>j!==i).join(',');setNewExpense(prev=>({...prev,photoUrl:rem}));}} style={{position:'absolute',top:'2px',right:'2px',background:'rgba(220,38,38,0.9)',color:'white',border:'none',borderRadius:'50%',width:'20px',height:'20px',cursor:'pointer',fontSize:'12px',lineHeight:'1',padding:0}}>×</button>
+                  </div>))}
+                </div>
+                <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',textAlign:'center',fontSize:'11px',color:C.accent,fontWeight:'600'}}>+ Добавить ещё фото ({urls.length} загружено)</div>
+              </div>);
+            })()}
+          </label>
+        </div>
         <div style={{display:'flex',gap:'8px'}}>
           <button onClick={async()=>{
             if(!newExpense.description||!newExpense.amount||expenseSubmitting) return;
@@ -9571,11 +9626,30 @@ function App() {
         <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
         <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>
         <input type='date' value={newOwnExpense.date} onChange={e=>setNewOwnExpense({...newOwnExpense,date:e.target.value})} style={inp}/>
-        <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
-          <span style={{fontSize:'12px',color:C.textSec}}>📷 Фото чека:</span>
-          <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewOwnExpense(prev=>({...prev,photoUrl:url}));}}}/>
-          {newOwnExpense.photoUrl?<div style={{maxHeight:'180px',overflowY:'auto',borderRadius:'8px',marginTop:'6px',border:'1px solid '+C.border}}><img src={newOwnExpense.photoUrl.startsWith('http')?newOwnExpense.photoUrl:API+newOwnExpense.photoUrl} alt='' style={{width:'100%'}}/></div>:<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',marginTop:'6px',color:C.textMuted,fontSize:'12px'}}>Нажмите чтобы загрузить фото чека</div>}
-        </label>
+        <div style={{marginBottom:'12px'}}>
+          <span style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'6px'}}>📷 Фото чеков (можно несколько):</span>
+          <label style={{cursor:'pointer'}}>
+            <input type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={async e=>{
+              if(e.target.files&&e.target.files.length>0){
+                const newCsv = await appendPhotos(newOwnExpense.photoUrl, e.target.files);
+                setNewOwnExpense(prev=>({...prev,photoUrl:newCsv}));
+                e.target.value='';
+              }
+            }}/>
+            {(()=>{const urls=(newOwnExpense.photoUrl||'').split(',').filter(Boolean);
+              if (urls.length===0) return (<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>📷 Нажмите чтобы добавить фото<br/><span style={{fontSize:'10px'}}>можно несколько за раз</span></div>);
+              return (<div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'6px',marginBottom:'8px'}}>
+                  {urls.map((u,i)=>(<div key={i} style={{position:'relative'}}>
+                    <img src={u.startsWith('http')?u:API+u} alt='' style={{width:'100%',height:'80px',objectFit:'cover',borderRadius:'6px',border:'1px solid '+C.border}}/>
+                    <button type='button' onClick={(ev)=>{ev.preventDefault();ev.stopPropagation();const rem=urls.filter((_,j)=>j!==i).join(',');setNewOwnExpense(prev=>({...prev,photoUrl:rem}));}} style={{position:'absolute',top:'2px',right:'2px',background:'rgba(220,38,38,0.9)',color:'white',border:'none',borderRadius:'50%',width:'20px',height:'20px',cursor:'pointer',fontSize:'12px',lineHeight:'1',padding:0}}>×</button>
+                  </div>))}
+                </div>
+                <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',textAlign:'center',fontSize:'11px',color:C.accent,fontWeight:'600'}}>+ Добавить ещё фото ({urls.length} загружено)</div>
+              </div>);
+            })()}
+          </label>
+        </div>
         <div style={{display:'flex',gap:'8px'}}>
           <button onClick={async()=>{
             if(!newOwnExpense.projectName||!newOwnExpense.description||!newOwnExpense.amount) return;
