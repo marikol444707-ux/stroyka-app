@@ -9047,23 +9047,62 @@ function App() {
           <b style={{color:C.text,fontSize:'16px'}}>💰 Возмещения сотрудникам</b>
           <button onClick={()=>setShowReimburseModal(false)} style={{...btnG,padding:'4px 10px'}}><X size={14}/></button>
         </div>
-        {(()=>{const pending=(ownExpenses||[]).filter(e=>e.status==='Ожидает');if(pending.length===0) return(<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'13px'}}>Нет трат на возмещении</p>);return pending.map(e=>(<div key={e.id} style={{...card,padding:'12px',marginBottom:'8px',backgroundColor:C.bg}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-            <div style={{flex:1,minWidth:'200px'}}>
-              <b style={{color:C.text,fontSize:'13px'}}>{e.employeeName||'—'}</b>
-              <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{e.description}</p>
-              <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>{(e.projectName?'🏗 '+e.projectName+' · ':'')+(e.date||'')+(e.category?' · '+(EXPENSE_CATEGORIES.find(c=>c.id===e.category)?.label||e.category):'')}</p>
-              {e.photoUrl&&<button onClick={()=>setShowPhotoModal(e.photoUrl.startsWith('http')?e.photoUrl:API+e.photoUrl)} style={{...btnG,padding:'2px 8px',fontSize:'10px',marginTop:'4px'}}>📷 Чек</button>}
+        {(()=>{
+          const pending=(ownExpenses||[]).filter(e=>e.status==='Ожидает');
+          if(pending.length===0) return(<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'13px'}}>Нет трат на возмещении</p>);
+          // Группировка по сотруднику — бухгалтер видит общую сумму к каждому
+          const byEmp = new Map();
+          pending.forEach(e=>{
+            const key = e.employeeId||e.employeeName||'—';
+            if (!byEmp.has(key)) byEmp.set(key, {name:e.employeeName||'—', empId:e.employeeId, items:[], total:0});
+            const g = byEmp.get(key);
+            g.items.push(e);
+            g.total += Number(e.amount||0);
+          });
+          // Получаем роль из users (по id) или из staff (по name)
+          const roleOf = (g) => {
+            const u = users.find(x=>x.id===g.empId) || users.find(x=>x.name===g.name);
+            if (u) return u.role;
+            const s = staff.find(x=>x.name===g.name);
+            return s?.role || '';
+          };
+          // Сортировка: руководство наверх
+          const priority = (r)=> r==='директор'?0 : r==='зам_директора'?1 : r==='бухгалтер'?2 : r==='прораб'?3 : 4;
+          const groups = Array.from(byEmp.values()).sort((a,b)=>priority(roleOf(a))-priority(roleOf(b)));
+          // Итог всем
+          const grandTotal = pending.reduce((s,e)=>s+Number(e.amount||0),0);
+          return (<>
+            <div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
+              💰 Всего к возмещению: <b>{Math.round(grandTotal).toLocaleString('ru-RU')+' ₽'}</b> · {pending.length} трат, {groups.length} сотр.
             </div>
-            <div style={{textAlign:'right'}}>
-              <b style={{color:C.warning,fontSize:'15px',display:'block'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
-              <div style={{display:'flex',gap:'4px',marginTop:'6px'}}>
-                <button onClick={async()=>{await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Возмещено',approvedBy:user.name})});if(e.projectName){await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:e.projectName,amount:-Number(e.amount||0),note:'Возмещение «'+(e.description||'')+'» — '+(e.employeeName||''),date:new Date().toISOString().split('T')[0],paidBy:user.name})}).catch(()=>{});}await loadAll();}} style={{...btnO,padding:'3px 10px',fontSize:'11px'}}>✅ Возместить</button>
-                <button onClick={async()=>{const reason=prompt('Причина отклонения:','');if(reason===null) return;await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name})});await loadAll();}} style={{...btnR,padding:'3px 10px',fontSize:'11px'}}>❌</button>
-              </div>
-            </div>
-          </div>
-        </div>));})()}
+            {groups.map((g,i)=>{
+              const r = roleOf(g);
+              const label = ROLE_LABELS[r] || r || 'сотрудник';
+              const isLead = r==='директор'||r==='зам_директора';
+              return (<div key={i} style={{...card,padding:'10px 12px',marginBottom:'8px',backgroundColor:C.bg,borderLeft:'4px solid '+(isLead?C.accent:C.warning)}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                  <div>
+                    <b style={{color:C.text,fontSize:'13px'}}>{g.name}</b>
+                    <span style={{fontSize:'11px',color:C.textSec,marginLeft:'8px'}}>{label}</span>
+                  </div>
+                  <b style={{color:isLead?C.accent:C.warning,fontSize:'14px'}}>{Math.round(g.total).toLocaleString('ru-RU')+' ₽'}</b>
+                </div>
+                {g.items.map(e=>(<div key={e.id} style={{padding:'8px 10px',backgroundColor:C.bgWhite,borderRadius:'6px',marginBottom:'4px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
+                  <div style={{flex:1,minWidth:'180px'}}>
+                    <p style={{color:C.text,margin:0,fontSize:'12px',fontWeight:'600'}}>{e.description}</p>
+                    <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{(e.projectName?'🏗 '+e.projectName+' · ':'')+(e.date||'')+(e.category?' · '+(EXPENSE_CATEGORIES.find(c=>c.id===e.category)?.label||e.category):'')}</p>
+                    {e.photoUrl&&<button onClick={()=>setShowPhotoModal(e.photoUrl.startsWith('http')?e.photoUrl:API+e.photoUrl)} style={{...btnG,padding:'2px 8px',fontSize:'10px',marginTop:'4px'}}>📷 Чек</button>}
+                  </div>
+                  <div style={{textAlign:'right',display:'flex',gap:'4px',alignItems:'center'}}>
+                    <b style={{color:C.warning,fontSize:'13px'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
+                    <button onClick={async()=>{await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Возмещено',approvedBy:user.name})});if(e.projectName){await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:e.projectName,amount:-Number(e.amount||0),note:'Возмещение «'+(e.description||'')+'» — '+(e.employeeName||''),date:new Date().toISOString().split('T')[0],paidBy:user.name})}).catch(()=>{});}await loadAll();}} style={{...btnO,padding:'3px 10px',fontSize:'11px'}}>✅</button>
+                    <button onClick={async()=>{const reason=prompt('Причина отклонения:','');if(reason===null) return;await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name})});await loadAll();}} style={{...btnR,padding:'3px 10px',fontSize:'11px'}}>❌</button>
+                  </div>
+                </div>))}
+              </div>);
+            })}
+          </>);
+        })()}
       </div>
     </div>)}
     {reportingPayment&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
