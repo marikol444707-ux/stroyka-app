@@ -466,13 +466,14 @@ function App() {
   const [suppliersTab, setSuppliersTab] = useState('active');
   const [supplyTab, setSupplyTab] = useState('inbox');
   const [showSupplyForm, setShowSupplyForm] = useState(false);
-  const [newSupplyReq, setNewSupplyReq] = useState({materialName:'',quantity:'',unit:'шт',project:'',urgency:'обычная',notes:'',category:''});
+  const [newSupplyReq, setNewSupplyReq] = useState({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',urgency:'обычная',notes:'',category:''});
   const [supplyExpandedId, setSupplyExpandedId] = useState(null);
   const [supplyStockCheck, setSupplyStockCheck] = useState(null);
   const [supplyAiText, setSupplyAiText] = useState('');
   const [supplyAiLoading, setSupplyAiLoading] = useState(false);
   const [supplyRejectId, setSupplyRejectId] = useState(null);
   const [supplyRejectReason, setSupplyRejectReason] = useState('');
+  const [supplyCollapsedProjects, setSupplyCollapsedProjects] = useState({});
   const [personnelTab, setPersonnelTab] = useState('staff');
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
@@ -2594,38 +2595,44 @@ function App() {
 
   // === Helpers для раздела «🛒 Снабжение» (Сн.1) ===
   const createSupplyReq = async () => {
-    if (!newSupplyReq.materialName || !newSupplyReq.quantity || !newSupplyReq.project) {
-      alert('Заполните: материал, кол-во, объект');
+    const valid = (newSupplyReq.items||[]).filter(i=>i.materialName && Number(i.quantity)>0);
+    if (!valid.length || !newSupplyReq.project) {
+      alert('Заполните хотя бы одну строку (материал + кол-во) и выберите объект');
       return;
     }
-    const r = await fetch(API+'/supply-requests', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        materialName: newSupplyReq.materialName,
-        quantity: Number(newSupplyReq.quantity),
-        unit: newSupplyReq.unit,
-        project: newSupplyReq.project,
-        createdBy: user.name,
-        date: new Date().toISOString().split('T')[0],
-        notes: newSupplyReq.notes,
-        category: newSupplyReq.category || '',
-        urgency: newSupplyReq.urgency,
-        requestedByRole: user.role,
-        requestedById: user.id,
-        selectedSuppliers: [],
-      })
-    });
-    if (!r.ok) { alert('Ошибка создания заявки'); return; }
+    let okCount = 0;
+    for (const it of valid) {
+      const r = await fetch(API+'/supply-requests', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          materialName: it.materialName,
+          quantity: Number(it.quantity),
+          unit: it.unit || 'шт',
+          project: newSupplyReq.project,
+          createdBy: user.name,
+          date: new Date().toISOString().split('T')[0],
+          notes: newSupplyReq.notes || '',
+          category: newSupplyReq.category || '',
+          urgency: newSupplyReq.urgency || 'обычная',
+          requestedByRole: user.role,
+          requestedById: user.id,
+          selectedSuppliers: [],
+        })
+      });
+      if (r.ok) okCount++;
+    }
+    if (okCount === 0) { alert('Не удалось создать заявку'); return; }
     // Уведомления по цепочке
+    const msg = valid.length>1 ? ('Заявка ('+okCount+' позиций) — объект '+newSupplyReq.project) : ('Заявка «'+valid[0].materialName+'» — объект '+newSupplyReq.project);
     if (user.role === 'мастер' || user.role === 'субподрядчик') {
-      notify('Новая заявка на материал от '+user.name+' (объект '+newSupplyReq.project+')', 'supply');
+      notify('Новая заявка от '+user.name+': '+msg, 'supply');
     } else if (user.role === 'прораб') {
-      notify('Прораб '+user.name+' просит материал — нужно утвердить ('+newSupplyReq.project+')', 'supply');
+      notify('Прораб '+user.name+': '+msg+' — нужно утвердить', 'supply');
     } else {
-      notify('Заявка на материал «'+newSupplyReq.materialName+'» утверждена директором', 'supply');
+      notify(msg+' — утверждена директором', 'supply');
     }
     await loadAll();
-    setNewSupplyReq({materialName:'',quantity:'',unit:'шт',project:'',urgency:'обычная',notes:'',category:''});
+    setNewSupplyReq({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',urgency:'обычная',notes:'',category:''});
     setShowSupplyForm(false);
   };
 
@@ -3499,14 +3506,18 @@ function App() {
                   <b style={{color:C.danger,fontSize:'18px'}}>{rejectedReqs.length}</b>
                 </div>}
               </div>
-              {/* Форма */}
+              {/* Форма — мультистрочная */}
               {showSupplyForm && (<div style={{...card,padding:'18px',marginBottom:'14px'}}>
                 <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка</b>
-                <input placeholder="Материал * (например: Цемент М500)" value={newSupplyReq.materialName} onChange={e=>setNewSupplyReq({...newSupplyReq,materialName:e.target.value})} style={inp}/>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                  <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={newSupplyReq.quantity} onChange={e=>setNewSupplyReq({...newSupplyReq,quantity:e.target.value})} style={inp}/>
-                  <select value={newSupplyReq.unit} onChange={e=>setNewSupplyReq({...newSupplyReq,unit:e.target.value})} style={inp}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                </div>
+                {(newSupplyReq.items||[]).map((it,idx)=>(<div key={idx} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr auto',gap:'6px',marginBottom:'6px',alignItems:'center'}}>
+                  <input placeholder="Материал *" value={it.materialName} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],materialName:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
+                  <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={it.quantity} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],quantity:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
+                  <select value={it.unit} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],unit:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+                  {(newSupplyReq.items||[]).length>1
+                    ? <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:newSupplyReq.items.filter((_,i)=>i!==idx)})} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
+                    : <span style={{width:'30px'}}/>}
+                </div>))}
+                <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:[...(newSupplyReq.items||[]),{materialName:'',quantity:'',unit:'шт'}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
                 <select value={newSupplyReq.project} onChange={e=>setNewSupplyReq({...newSupplyReq,project:e.target.value})} style={inp}>
                   <option value="">Выберите объект *</option>
                   {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
@@ -3518,7 +3529,7 @@ function App() {
                 </select>
                 <textarea placeholder="Комментарий — для каких работ, особенности" value={newSupplyReq.notes} onChange={e=>setNewSupplyReq({...newSupplyReq,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical'}}/>
                 <div style={{padding:'10px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
-                  ℹ️ После создания заявка попадёт прорабу. Когда он подтвердит — пойдёт директору. Вы будете видеть статус здесь.
+                  ℹ️ После создания заявка попадёт прорабу. Когда он подтвердит — пойдёт директору. Можно добавить несколько позиций в одну заявку.
                 </div>
                 <div style={{display:'flex',gap:'8px'}}>
                   <button onClick={createSupplyReq} style={btnO}><Check size={14}/>Отправить</button>
@@ -5026,17 +5037,28 @@ function App() {
                       <Bell size={18} color='#94a3b8'/>
                       {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
                     </button>
+                    {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:0,width:'360px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.3)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}>
+                      <div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                        <b style={{color:C.text,fontSize:'14px'}}>Уведомления</b>
+                        <button onClick={()=>{const u=myNotifications(notifications).map(n=>({...n,read:true}));setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{...btnG,fontSize:'11px',padding:'3px 10px'}}>Прочитать все</button>
+                      </div>
+                      {myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted}}>Нет уведомлений</p>}
+                      {myNotifications(notifications).map(n=>(<div key={n.id} onClick={()=>{navigateTo(getNotifPage(n.type));setShowNotifications(false);const u=notifications.map(x=>x.id===n.id?{...x,read:true}:x);setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{padding:'12px 18px',borderBottom:'1px solid '+C.border,backgroundColor:n.read?'transparent':C.accentLight,cursor:'pointer'}}>
+                        <p style={{margin:0,fontSize:'13px',color:C.text}}>{n.text}</p>
+                        <p style={{margin:'3px 0 0',fontSize:'11px',color:C.textMuted}}>{n.time}</p>
+                      </div>))}
+                    </div>)}
                   </div>
                   <button onClick={()=>setShowQuickActions(true)} style={{background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'14px',padding:'10px 18px',color:'white',fontWeight:'700',cursor:'pointer',fontSize:'13px',boxShadow:'0 8px 24px rgba(234,88,12,.35)'}}>⚡ Быстро</button>
                 </div>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'16px',marginBottom:'20px'}}>
-                {[{label:'Объекты',value:projects.filter(p=>p.status!=='Завершён').length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)'},
-                  {label:'Прогресс',value:avgProg+'%',sub:'среднее по объектам',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)'},
-                  {label:'Себестоимость',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'затраты по всем объектам',color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)'},
-                  {label:'Бюджет',value:(()=>{const t=projects.reduce((s,p)=>s+Number(p.budget||0),0);return t>=1000000?Math.round(t/1000000)+' млн':Math.round(t/1000)+' тыс';})(),sub:'общий бюджет ₽',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)'}
+                {[{label:'Объекты',value:projects.filter(p=>p.status!=='Завершён').length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',page:'projects'},
+                  {label:'Прогресс',value:avgProg+'%',sub:'среднее по объектам',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',page:'projects'},
+                  {label:'Себестоимость',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'затраты по всем объектам',color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)',page:'accounting',tab:'payments'},
+                  {label:'Бюджет',value:(()=>{const t=projects.reduce((s,p)=>s+Number(p.budget||0),0);return t>=1000000?Math.round(t/1000000)+' млн':Math.round(t/1000)+' тыс';})(),sub:'общий бюджет ₽',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',page:'accounting',tab:'summary'}
                 ].map((k,i)=>(
-                  <div key={i} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)'}}>
+                  <div key={i} onClick={()=>{if(k.page){setActivePage(k.page);if(k.tab)setAccountingTab(k.tab);}}} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)',cursor:'pointer',transition:'transform 0.15s, box-shadow 0.15s'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 30px 90px rgba(0,0,0,.45)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow='0 24px 80px rgba(0,0,0,.35)';}}>
                     <span style={{display:'inline-flex',borderRadius:'999px',padding:'5px 10px',fontSize:'11px',fontWeight:'700',background:k.bg,color:k.color,border:'1px solid '+k.border}}>{k.label}</span>
                     <div style={{fontSize:'34px',fontWeight:'800',letterSpacing:'-.04em',margin:'10px 0 4px',color:'#f8fafc'}}>{k.value}</div>
                     <div style={{color:'#94a3b8',fontSize:'13px'}}>{k.sub}</div>
@@ -5080,8 +5102,8 @@ function App() {
                     const byMaster={};
                     todayWorks.forEach(w=>{const n=w.masterName||w.master_name||'—';byMaster[n]=(byMaster[n]||0)+Number(w.total||0);});
                     const masters=Object.entries(byMaster).sort((a,b)=>b[1]-a[1]).slice(0,5);
-                    return(<div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
-                      <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>👷 Производство работ</h2>
+                    return(<div onClick={()=>{setActivePage('accounting');setAccountingTab('acts');}} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',cursor:'pointer'}}>
+                      <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>👷 Производство работ <span style={{fontSize:'12px',color:'#94a3b8',fontWeight:'400'}}>→ Акты</span></h2>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
                         <div style={{padding:'12px',borderRadius:'14px',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.28)'}}>
                           <p style={{color:'#86efac',fontSize:'11px',margin:'0 0 4px'}}>Сегодня</p>
@@ -5303,9 +5325,8 @@ function App() {
                         const fmtAgo=(iso)=>{if(!iso) return '';const d=new Date(iso);const m=Math.floor((Date.now()-d.getTime())/60000);if(m<1) return 'только что';if(m<60) return m+' мин назад';const h=Math.floor(m/60);if(h<24) return h+' ч назад';return Math.floor(h/24)+' дн назад';};
                         const runAiSummary=async()=>{
                           const prompt='Объект "'+p.name+'". Проанализируй прогресс и материальный учёт. Данные ниже.\n\n'+JSON.stringify(payload,null,1)+'\n\nОТВЕТЬ СТРОГО JSON (без markdown):\n{\n  "summary":"одна-две фразы общего впечатления",\n  "progress":[{"what":"что","status":"в норме|отставание|опережение","note":"что заметил"}],\n  "materials":[{"what":"материал","problem":"нехватка|избыток|пропажа|норма","action":"что сделать","amount":число_или_0}],\n  "alerts":[{"type":"критично|внимание|совет","text":"что"}]\n}\nИспользуй только данные из payload. Если данных мало — пиши "недостаточно данных".';
-                          setShowAiChat(true);
-                          setAiMessages([{role:'user',content:'Контроль объекта: '+p.name}]);
-                          setAiLoading(true);
+                          // Показываем загрузку прямо в карточке (без открытия панели чата)
+                          setProjectAiSummaries(prev=>({...prev,[p.name]:{...(prev[p.name]||{}),loading:true}}));
                           try{
                             const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],jsonOnly:true})});
                             const data=await res.json();
@@ -5321,24 +5342,31 @@ function App() {
                               if(Array.isArray(parsed.materials)&&parsed.materials.length){ln.push('📦 МАТЕРИАЛЫ');parsed.materials.forEach((m,n)=>ln.push((n+1)+'. '+(m.what||'?')+' — '+(m.problem||'?')+(m.action?' → '+m.action:'')+(m.amount?' ('+fmt(m.amount)+')':'')));}
                               out=ln.join('\n');
                             }else out=raw||'Ошибка ответа ИИ';
-                            setAiMessages([{role:'user',content:'Контроль объекта: '+p.name},{role:'assistant',content:out}]);
-                            try{await fetch(API+'/project-ai-summary',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,payloadHash:currentHash,summary:out})});setProjectAiSummaries(prev=>({...prev,[p.name]:{exists:true,payloadHash:currentHash,summary:out,updatedAt:new Date().toISOString()}}));}catch(e){}
-                          }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
-                          setAiLoading(false);
+                            try{await fetch(API+'/project-ai-summary',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,payloadHash:currentHash,summary:out})});}catch(e){}
+                            setProjectAiSummaries(prev=>({...prev,[p.name]:{exists:true,payloadHash:currentHash,summary:out,updatedAt:new Date().toISOString(),loading:false}}));
+                          }catch(e){
+                            setProjectAiSummaries(prev=>({...prev,[p.name]:{...(prev[p.name]||{}),loading:false,error:'Ошибка соединения с AI'}}));
+                          }
                         };
                         return(<div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
                             <b style={{color:C.text,fontSize:'14px'}}>📊 Контроль объекта</b>
-                            <button onClick={runAiSummary} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',fontSize:'12px'}}><Bot size={13}/>{cached?'Обновить ИИ':'AI-сводка'}</button>
+                            <button onClick={runAiSummary} disabled={cached&&cached.loading} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',fontSize:'12px',opacity:(cached&&cached.loading)?0.6:1}}><Bot size={13}/>{cached&&cached.loading?'AI думает...':cached&&cached.summary?'Обновить ИИ':'AI-сводка'}</button>
                           </div>
-                          {cached&&(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:isFresh?C.successLight:C.warningLight,border:'1.5px solid '+(isFresh?C.successBorder:C.warningBorder)}}>
+                          {cached&&cached.loading&&(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,textAlign:'center'}}>
+                            <p style={{margin:0,fontSize:'13px',color:C.info}}>⏳ AI анализирует объект... (15-40 сек)</p>
+                          </div>)}
+                          {cached&&cached.error&&(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}>
+                            <p style={{margin:0,fontSize:'13px',color:C.danger}}>❌ {cached.error}</p>
+                          </div>)}
+                          {cached&&cached.summary&&!cached.loading&&(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:isFresh?C.successLight:C.warningLight,border:'1.5px solid '+(isFresh?C.successBorder:C.warningBorder)}}>
                             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
                               <b style={{fontSize:'12px',color:isFresh?C.success:C.warning}}>🤖 {isFresh?'AI-сводка актуальна':'⚠️ Данные изменились — нужно обновить'}</b>
                               <span style={{fontSize:'11px',color:C.textSec}}>{fmtAgo(cached.updatedAt)}</span>
                             </div>
                             <div style={{fontSize:'12px',color:C.text,whiteSpace:'pre-wrap',lineHeight:'1.5'}}>{cached.summary}</div>
                           </div>)}
-                          {!cached&&<p style={{fontSize:'12px',color:C.textMuted,marginBottom:'12px',padding:'8px',backgroundColor:C.bg,borderRadius:'8px'}}>💡 AI-сводка ещё не делалась. Нажмите «AI-сводка» — анализ сохранится в системе.</p>}
+                          {(!cached||(!cached.summary&&!cached.loading&&!cached.error))&&<p style={{fontSize:'12px',color:C.textMuted,marginBottom:'12px',padding:'8px',backgroundColor:C.bg,borderRadius:'8px'}}>💡 AI-сводка ещё не делалась. Нажмите «AI-сводка» — анализ сохранится в системе.</p>}
                           {!projSmeta&&<p style={{color:C.textMuted,fontSize:'12px',padding:'10px',textAlign:'center'}}>У объекта нет сметы — нечего сравнивать. Добавьте смету в разделе «Сметы».</p>}
                           {projSmeta&&(<>
                           <div style={{marginBottom:'14px'}}>
@@ -6507,8 +6535,24 @@ function App() {
                   <button onClick={()=>setSelectedWarehouseProject(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
                   <h3 style={{color:C.text,margin:0,fontSize:'15px',fontWeight:'700'}}>{selectedWarehouseProject}</h3>
                 </div>
-                <div style={{display:'flex',gap:'8px',marginBottom:'15px'}}>
+                <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
                   <button onClick={()=>openReceiveInvoice(selectedWarehouseProject)} style={btnO}><Plus size={14}/>Принять материал</button>
+                  {(isLeadership()||user.role==='прораб'||user.role==='кладовщик') && (
+                    <button onClick={async()=>{
+                      const res = await fetch(API+'/material-transfers?project_name='+encodeURIComponent(selectedWarehouseProject));
+                      const data = await res.json();
+                      setMaterialTransfers(Array.isArray(data)?data:[]);
+                      const proj = projects.find(p=>p.name===selectedWarehouseProject);
+                      if (proj) {
+                        setExpandedProject(proj.id);
+                        setActivePage('projects');
+                        setActiveProjectTab('Материалы');
+                        setShowTransferForm(true);
+                      } else {
+                        alert('Объект не найден');
+                      }
+                    }} style={btnGr}><Truck size={14}/>Передать мастеру</button>
+                  )}
                   <button onClick={()=>exportToExcel(materials.filter(m=>m.project===selectedWarehouseProject).map(m=>({Наименование:m.name,Единица:m.unit,Количество:m.quantity,Цена:m.price,Сумма:m.quantity*m.price,Проект:m.project})),'Склад_'+selectedWarehouseProject)} style={btnG}><Download size={14}/>Excel</button>
                 </div>
                 <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Кат.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}></th></tr></thead><tbody>
@@ -6812,14 +6856,18 @@ function App() {
               <div style={{display:'flex',gap:'8px',marginBottom:'16px',flexWrap:'wrap'}}>
                 {tabs.map(t=>(<button key={t.id} onClick={()=>setSupplyTab(t.id)} style={{...curTab===t.id?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{t.label}</button>))}
               </div>
-              {/* Форма создания */}
+              {/* Форма создания — мультистрочная */}
               {showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка на материал</b>
-                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                  <input placeholder="Материал * (например: Цемент М500)" value={newSupplyReq.materialName} onChange={e=>setNewSupplyReq({...newSupplyReq,materialName:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={newSupplyReq.quantity} onChange={e=>setNewSupplyReq({...newSupplyReq,quantity:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newSupplyReq.unit} onChange={e=>setNewSupplyReq({...newSupplyReq,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                </div>
+                {(newSupplyReq.items||[]).map((it,idx)=>(<div key={idx} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr auto',gap:'6px',marginBottom:'6px',alignItems:'center'}}>
+                  <input placeholder="Материал *" value={it.materialName} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],materialName:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
+                  <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={it.quantity} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],quantity:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
+                  <select value={it.unit} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],unit:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+                  {(newSupplyReq.items||[]).length>1
+                    ? <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:newSupplyReq.items.filter((_,i)=>i!==idx)})} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
+                    : <span style={{width:'30px'}}/>}
+                </div>))}
+                <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:[...(newSupplyReq.items||[]),{materialName:'',quantity:'',unit:'шт'}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
                 <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:'8px',marginBottom:'8px'}}>
                   <select value={newSupplyReq.project} onChange={e=>setNewSupplyReq({...newSupplyReq,project:e.target.value})} style={{...inp,marginBottom:0}}>
                     <option value="">Объект *</option>
@@ -6848,8 +6896,32 @@ function App() {
                 <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
                 <input placeholder='🔍 Поиск по материалу, объекту, автору' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
               </div>
-              {/* Список заявок */}
-              {list.map(req=>{
+              {/* Список заявок — группировка по объектам */}
+              {(()=>{
+                const byProject = new Map();
+                list.forEach(r=>{
+                  const key = r.project || '— Без объекта —';
+                  if (!byProject.has(key)) byProject.set(key, []);
+                  byProject.get(key).push(r);
+                });
+                if (byProject.size===0) return null;
+                return Array.from(byProject.entries()).map(([proj, reqs])=>{
+                  const collapsed = supplyCollapsedProjects[proj];
+                  const pendingCount = reqs.filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').length;
+                  const urgentCount = reqs.filter(r=>r.urgency==='срочная').length;
+                  return (<div key={proj} style={{marginBottom:'12px'}}>
+                    <div onClick={()=>setSupplyCollapsedProjects({...supplyCollapsedProjects, [proj]: !collapsed})}
+                         style={{...card,padding:'12px 16px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px',backgroundColor:pendingCount>0?C.warningLight:C.bg,border:'1.5px solid '+(pendingCount>0?C.warningBorder:C.border)}}>
+                      <div style={{display:'flex',alignItems:'center',gap:'10px',flex:1}}>
+                        <span style={{fontSize:'14px'}}>{collapsed?'▶':'▼'}</span>
+                        <b style={{color:C.text,fontSize:'14px'}}>🏗 {proj}</b>
+                        <span style={{fontSize:'12px',color:C.textSec}}>{reqs.length+' заявок'}</span>
+                        {pendingCount>0 && <span style={badge(C.warning,C.warningLight,C.warningBorder)}>⏳ {pendingCount}</span>}
+                        {urgentCount>0 && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>🔴 {urgentCount}</span>}
+                      </div>
+                    </div>
+                    {!collapsed && (<div style={{paddingLeft:'12px',borderLeft:'2px solid '+C.border,marginLeft:'8px'}}>
+                      {reqs.map(req=>{
                 const [stC,stBg,stBd] = statusColors(req.status);
                 const isMine = req.createdBy===user.name || req.requestedById===user.id;
                 const expanded = supplyExpandedId===req.id;
@@ -6956,7 +7028,11 @@ function App() {
                     </div>)}
                   </div>)}
                 </div>);
-              })}
+                      })}
+                    </div>)}
+                  </div>);
+                });
+              })()}
               {list.length===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>}
             </div>);
           })()}
@@ -8691,11 +8767,11 @@ function App() {
         </div>
         <div style={{flex:1,overflowY:'auto',padding:'12px',display:'flex',flexDirection:'column',gap:'8px',backgroundColor:C.bg}}>
           {aiMessages.map((msg,i)=>(<div key={i} style={{display:'flex',justifyContent:msg.role==='user'?'flex-end':'flex-start'}}>
-            <div style={{maxWidth:'85%',padding:'8px 12px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',backgroundColor:msg.role==='user'?C.accent:'white',color:msg.role==='user'?'white':C.text,fontSize:'13px',lineHeight:'1.5',boxShadow:'0 1px 3px rgba(0,0,0,0.08)',border:msg.role==='user'?'none':'1.5px solid '+C.border,whiteSpace:'pre-wrap'}}>
+            <div style={{maxWidth:'85%',padding:'8px 12px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',backgroundColor:msg.role==='user'?C.accent:C.bgWhite,color:msg.role==='user'?'white':C.text,fontSize:'13px',lineHeight:'1.5',boxShadow:'0 1px 3px rgba(0,0,0,0.08)',border:msg.role==='user'?'none':'1.5px solid '+C.border,whiteSpace:'pre-wrap'}}>
               {msg.content}
             </div>
           </div>))}
-          {aiLoading&&(<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{padding:'8px 12px',borderRadius:'16px 16px 16px 4px',backgroundColor:'white',border:'1.5px solid '+C.border,fontSize:'13px',color:C.textSec}}>⏳ Думаю...</div></div>)}
+          {aiLoading&&(<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{padding:'8px 12px',borderRadius:'16px 16px 16px 4px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,fontSize:'13px',color:C.textSec}}>⏳ Думаю...</div></div>)}
         </div>
         <div style={{padding:'10px 12px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bgWhite,display:'flex',gap:'8px'}}>
           <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={async e=>{
