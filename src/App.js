@@ -155,6 +155,73 @@ const MATERIAL_CATEGORIES = [
 ];
 
 const UNITS = ['шт','мешок','м','м2','м3','кг','т','л','рулон','лист','упак','компл','пог.м','ящик','бутылка','банка','труба','секция','пара','набор','пачка','флакон','ведро','бухта'];
+
+// === Конвертация единиц для строительных материалов ===
+// Арматура: вес погонного метра в зависимости от диаметра (ГОСТ 5781-82)
+const REBAR_KG_PER_M = { 6:0.222, 8:0.395, 10:0.617, 12:0.888, 14:1.21, 16:1.58, 18:2.0, 20:2.47, 22:2.98, 25:3.85, 28:4.83, 32:6.31 };
+const _normalizeUnit = (u) => {
+  const x = (u||'').toLowerCase().trim().replace(/\s+/g,'');
+  if (['кг','kg','килограмм','килограмма','килограммов'].includes(x)) return 'кг';
+  if (['м','м.п','пог.м','погм','п.м','пм','метр','метра','метров'].includes(x)) return 'м';
+  if (['л','литр','литра','литров','l'].includes(x)) return 'л';
+  if (['мешок','мешка','мешков','меш'].includes(x)) return 'мешок';
+  if (['м3','м³','куб.м','кубм','куб'].includes(x)) return 'м3';
+  if (['м2','м²','кв.м','квм'].includes(x)) return 'м2';
+  if (['т','тонн','тонна','тонны'].includes(x)) return 'т';
+  if (['шт','штук','штука','штуки','шт.'].includes(x)) return 'шт';
+  return x;
+};
+const _rebarDiameter = (name) => { const m = (name||'').match(/[ØФø]?\s*(\d{1,2})\s*мм/i); return m ? Number(m[1]) : null; };
+// Возвращает {qty, factor, note} или null если конверсия не известна
+const convertUnits = (materialName, qty, fromUnit, toUnit) => {
+  const from = _normalizeUnit(fromUnit);
+  const to = _normalizeUnit(toUnit);
+  qty = Number(qty)||0;
+  if (from === to) return { qty: qty, factor: 1, note: 'единицы совпадают' };
+  const n = (materialName||'').toLowerCase();
+  // Арматура: м ↔ кг
+  if (n.includes('арматур') || n.includes('арм.')) {
+    const d = _rebarDiameter(n);
+    const f = d && REBAR_KG_PER_M[d];
+    if (f) {
+      if (from === 'м' && to === 'кг') return { qty: qty*f, factor: f, note: '1 м ≈ '+f+' кг (Ø'+d+' мм)' };
+      if (from === 'кг' && to === 'м') return { qty: qty/f, factor: 1/f, note: '1 кг ≈ '+(1/f).toFixed(3)+' м (Ø'+d+' мм)' };
+    }
+  }
+  // Краска/эмаль/грунтовка: л ↔ кг (плотность ~1.4)
+  if (n.includes('краск') || n.includes('эмал') || n.includes('грунтов') || n.includes('лак')) {
+    const d = 1.4;
+    if (from === 'л' && to === 'кг') return { qty: qty*d, factor: d, note: '1 л ≈ '+d+' кг (плотность краски)' };
+    if (from === 'кг' && to === 'л') return { qty: qty/d, factor: 1/d, note: '1 кг ≈ '+(1/d).toFixed(2)+' л (плотность краски)' };
+  }
+  // Цемент: мешок ↔ кг (50 кг)
+  if (n.includes('цемент')) {
+    if (from === 'мешок' && to === 'кг') return { qty: qty*50, factor: 50, note: '1 мешок = 50 кг' };
+    if (from === 'кг' && to === 'мешок') return { qty: qty/50, factor: 1/50, note: '50 кг = 1 мешок' };
+  }
+  // Бетон: м3 ↔ т ↔ кг (2400 кг/м3)
+  if (n.includes('бетон')) {
+    if (from === 'м3' && to === 'т') return { qty: qty*2.4, factor: 2.4, note: '1 м³ ≈ 2.4 т (бетон)' };
+    if (from === 'т' && to === 'м3') return { qty: qty/2.4, factor: 1/2.4, note: '1 т ≈ 0.42 м³ (бетон)' };
+    if (from === 'м3' && to === 'кг') return { qty: qty*2400, factor: 2400, note: '1 м³ ≈ 2400 кг (бетон)' };
+    if (from === 'кг' && to === 'м3') return { qty: qty/2400, factor: 1/2400, note: '1 кг ≈ 0.0004 м³' };
+  }
+  // Раствор/стяжка: м3 ↔ кг (2000 кг/м3)
+  if (n.includes('раствор') || n.includes('стяжк') || n.includes('пескобетон')) {
+    if (from === 'м3' && to === 'кг') return { qty: qty*2000, factor: 2000, note: '1 м³ ≈ 2000 кг' };
+    if (from === 'кг' && to === 'м3') return { qty: qty/2000, factor: 1/2000, note: '1 кг ≈ 0.0005 м³' };
+  }
+  // Песок: м3 ↔ т (1600 кг/м3)
+  if (n.includes('песок') || n.includes('щебен')) {
+    if (from === 'м3' && to === 'т') return { qty: qty*1.6, factor: 1.6, note: '1 м³ ≈ 1.6 т (сыпучие)' };
+    if (from === 'т' && to === 'м3') return { qty: qty/1.6, factor: 1/1.6, note: '1 т ≈ 0.625 м³' };
+    if (from === 'м3' && to === 'кг') return { qty: qty*1600, factor: 1600, note: '1 м³ ≈ 1600 кг' };
+  }
+  // Универсально: т ↔ кг
+  if (from === 'т' && to === 'кг') return { qty: qty*1000, factor: 1000, note: '1 т = 1000 кг' };
+  if (from === 'кг' && to === 'т') return { qty: qty/1000, factor: 1/1000, note: '1000 кг = 1 т' };
+  return null;
+};
 const CRM_STAGES = ['Новый','Переговоры','КП отправлено','Договор','Отказ'];
 const SUPPLIER_CATEGORIES = [
   'Сыпучие и бетон','Кровельные','Металл и арматура','Отделочные','Сантехника','Электрика',
@@ -5922,14 +5989,41 @@ function App() {
                               {[...warehouseMain.filter(m=>m.location===newTransfer.fromLocation||(!m.location&&newTransfer.fromLocation==='Основной склад')),...materials.filter(m=>m.project===newTransfer.fromLocation)].length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'10px'}}>Нет материалов на этом складе</p>}
                             </div>
                           </div>
-                          {newTransfer.materialName&&(<div style={{display:'flex',gap:'6px',gridColumn:'span 2',alignItems:'center'}}>
+                          {newTransfer.materialName&&(<><div style={{display:'flex',gap:'6px',gridColumn:'span 2',alignItems:'center'}}>
                             <b style={{fontSize:'12px',color:C.text,flex:1}}>Передаём: {newTransfer.materialName}</b>
                             <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={e=>setNewTransfer({...newTransfer,quantity:e.target.value})} style={{...inp,marginBottom:0,width:'120px'}}/>
                             <span style={{fontSize:'12px',color:C.textSec}}>{newTransfer.unit}</span>
                             <span style={{fontSize:'11px',color:C.warning}}>
                               Остаток: {(newTransfer.fromLocation==='Основной склад'?warehouseMain.find(m=>m.name===newTransfer.materialName):materials.find(m=>m.name===newTransfer.materialName&&m.project===newTransfer.fromLocation))?.quantity||0} {newTransfer.unit}
                             </span>
-                  </div>)}
+                  </div>
+                  {/* Конверсия единиц — если заявка в других единицах */}
+                  {(()=>{
+                    const matName=(newTransfer.materialName||'').toLowerCase().trim();
+                    const matched=(supplyRequests||[]).find(r=>{
+                      if (r.project!==p.name) return false;
+                      if (r.status==='Отменена'||r.status==='Отклонена') return false;
+                      const rn=(r.materialName||'').toLowerCase().trim();
+                      if (!matName||!rn) return false;
+                      return rn.includes(matName.split(' ')[0])||matName.includes(rn.split(' ')[0]);
+                    });
+                    if (!matched) return null;
+                    if (_normalizeUnit(matched.unit)===_normalizeUnit(newTransfer.unit)) return null;
+                    const conv=convertUnits(newTransfer.materialName,matched.quantity,matched.unit,newTransfer.unit);
+                    if (conv) {
+                      return (<div style={{gridColumn:'span 2',padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',fontSize:'12px'}}>
+                        📐 Заявка была на <b>{matched.quantity} {matched.unit}</b>, склад в {newTransfer.unit}. Это ≈ <b style={{color:C.accent}}>{conv.qty.toFixed(2)} {newTransfer.unit}</b>.
+                        <p style={{margin:'4px 0 6px',color:C.textSec,fontSize:'11px'}}>{conv.note}</p>
+                        <button onClick={()=>setNewTransfer({...newTransfer,quantity:Number(conv.qty.toFixed(3))})} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>
+                          <Check size={11}/>Подставить {conv.qty.toFixed(2)} {newTransfer.unit}
+                        </button>
+                      </div>);
+                    }
+                    return (<div style={{gridColumn:'span 2',padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',fontSize:'12px',color:C.text}}>
+                      ⚠️ Заявка в <b>{matched.quantity} {matched.unit}</b>, на складе в <b>{newTransfer.unit}</b>. Конверсия не задана — пересчитайте вручную.
+                    </div>);
+                  })()}
+                  </>)}
                           <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={{...inp,marginBottom:0}}>
                             <option value=''>Кому передать *</option>
                             {(()=>{
@@ -6620,11 +6714,39 @@ function App() {
                       <span style={{fontSize:'11px',color:C.textSec}}>Остаток: {m.quantity} {m.unit}</span>
                     </div>))}
                   </div>
-                  {newTransfer.materialName && (<div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}>
-                    <b style={{fontSize:'13px',color:C.text,flex:1}}>{newTransfer.materialName}</b>
-                    <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={e=>setNewTransfer({...newTransfer,quantity:e.target.value})} style={{...inp,marginBottom:0,width:'120px'}}/>
-                    <span style={{fontSize:'12px',color:C.textSec}}>{newTransfer.unit}</span>
-                  </div>)}
+                  {newTransfer.materialName && (<>
+                    <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}>
+                      <b style={{fontSize:'13px',color:C.text,flex:1}}>{newTransfer.materialName}</b>
+                      <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={e=>setNewTransfer({...newTransfer,quantity:e.target.value})} style={{...inp,marginBottom:0,width:'120px'}}/>
+                      <span style={{fontSize:'12px',color:C.textSec}}>{newTransfer.unit}</span>
+                    </div>
+                    {/* Конверсия единиц: если заявка в других единицах */}
+                    {(()=>{
+                      const matName=(newTransfer.materialName||'').toLowerCase().trim();
+                      const matched=(supplyRequests||[]).find(r=>{
+                        if (r.project!==selectedWarehouseProject) return false;
+                        if (r.status==='Отменена'||r.status==='Отклонена') return false;
+                        const rn=(r.materialName||'').toLowerCase().trim();
+                        if (!matName||!rn) return false;
+                        return rn.includes(matName.split(' ')[0])||matName.includes(rn.split(' ')[0]);
+                      });
+                      if (!matched) return null;
+                      if (_normalizeUnit(matched.unit)===_normalizeUnit(newTransfer.unit)) return null;
+                      const conv=convertUnits(newTransfer.materialName,matched.quantity,matched.unit,newTransfer.unit);
+                      if (conv) {
+                        return (<div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px'}}>
+                          📐 <b style={{color:C.text}}>Заявка была на {matched.quantity} {matched.unit}</b>, склад в {newTransfer.unit}. Это ≈ <b style={{color:C.accent}}>{conv.qty.toFixed(2)} {newTransfer.unit}</b>.
+                          <p style={{margin:'4px 0 6px',color:C.textSec,fontSize:'11px'}}>{conv.note}</p>
+                          <button onClick={()=>setNewTransfer({...newTransfer,quantity:Number(conv.qty.toFixed(3))})} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>
+                            <Check size={11}/>Подставить {conv.qty.toFixed(2)} {newTransfer.unit}
+                          </button>
+                        </div>);
+                      }
+                      return (<div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
+                        ⚠️ Заявка в <b>{matched.quantity} {matched.unit}</b>, на складе в <b>{newTransfer.unit}</b>. Конверсия не задана — пересчитайте вручную.
+                      </div>);
+                    })()}
+                  </>)}
                   <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={inp}>
                     <option value=''>Кому передать *</option>
                     {(()=>{
@@ -6666,7 +6788,7 @@ function App() {
                       }
                       setShowTransferForm(false);
                       setNewTransfer({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
-                      notify('Передал '+saved.materialName||newTransfer.materialName+' → '+newTransfer.toPerson,'material');
+                      notify('Передал '+(saved.materialName||newTransfer.materialName)+' ('+newTransfer.quantity+' '+newTransfer.unit+') → '+newTransfer.toPerson,'material');
                     }} style={btnO}><Check size={14}/>Передать</button>
                     <button onClick={()=>setShowTransferForm(false)} style={btnG}><X size={14}/>Отмена</button>
                   </div>
