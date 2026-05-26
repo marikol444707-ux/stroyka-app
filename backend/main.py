@@ -326,6 +326,14 @@ def init_db():
             notes TEXT,
             status VARCHAR(100) DEFAULT 'Ожидает'
         );
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100) DEFAULT 'Постоплата';
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS vat_included BOOLEAN DEFAULT TRUE;
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS pdf_url VARCHAR(500);
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS valid_until DATE;
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS supplier_message TEXT;
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW();
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS ai_recommended BOOLEAN DEFAULT FALSE;
         CREATE TABLE IF NOT EXISTS supply_history (
             id SERIAL PRIMARY KEY,
             supplier_id INT,
@@ -1977,11 +1985,22 @@ def supply_request_stock_check(id: int):
             try: conn.close()
             except Exception: pass
 
+OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"supplierId\","
+                 "price_per_unit as \"pricePerUnit\", total_price as \"totalPrice\","
+                 "delivery_days as \"deliveryDays\", notes, status,"
+                 "delivery_status as \"deliveryStatus\","
+                 "payment_terms as \"paymentTerms\", vat_included as \"vatIncluded\","
+                 "pdf_url as \"pdfUrl\", valid_until as \"validUntil\","
+                 "supplier_message as \"supplierMessage\","
+                 "requested_at as \"requestedAt\", responded_at as \"respondedAt\","
+                 "ai_recommended as \"aiRecommended\" "
+                 "FROM supplier_offers")
+
 @app.get("/supplier-offers")
 def get_supplier_offers():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,request_id as \"requestId\",supplier_id as \"supplierId\",price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",delivery_days as \"deliveryDays\",notes,status,delivery_status as \"deliveryStatus\" FROM supplier_offers")
+    cur.execute(OFFERS_SELECT + " ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -1990,23 +2009,138 @@ def get_supplier_offers():
 def create_supplier_offer(o: SupplierOfferModel):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO supplier_offers (request_id,supplier_id,price_per_unit,total_price,delivery_days,notes) VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
+    cur.execute("INSERT INTO supplier_offers (request_id,supplier_id,price_per_unit,total_price,delivery_days,notes) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
                 (o.requestId,o.supplierId,o.pricePerUnit,o.totalPrice,o.deliveryDays,o.notes))
+    new_id = cur.fetchone()['id']
+    cur.execute(OFFERS_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
     conn.close()
     return dict(row)
 
 @app.put("/supplier-offers/{id}")
 def update_supplier_offer(id: int, data: dict):
+    from datetime import datetime
     conn = get_db()
-    cur = conn.cursor()
-    if 'status' in data:
-        cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", (data['status'],id))
-    if 'deliveryStatus' in data:
-        cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (data['deliveryStatus'],id))
-    conn.commit()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    action = data.get('action')
+    if action == 'respond':
+        # Поставщик отвечает на КП: цена, срок, условия, НДС, PDF, комментарий
+        ppu = float(data.get('pricePerUnit') or 0)
+        qty_for_total = float(data.get('quantity') or 0)
+        total = float(data.get('totalPrice') or (ppu * qty_for_total))
+        cur.execute(
+            "UPDATE supplier_offers SET status=%s, price_per_unit=%s, total_price=%s, delivery_days=%s, "
+            "payment_terms=%s, vat_included=%s, pdf_url=%s, valid_until=%s, supplier_message=%s, "
+            "responded_at=%s WHERE id=%s",
+            ('Получено', ppu, total, int(data.get('deliveryDays') or 0),
+             data.get('paymentTerms') or 'Постоплата',
+             bool(data.get('vatIncluded', True)),
+             data.get('pdfUrl') or None,
+             data.get('validUntil') or None,
+             data.get('supplierMessage') or '',
+             datetime.now(), id))
+    elif action == 'select':
+        # Директор выбрал это КП
+        cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Утверждено', id))
+        # Остальные КП по этой заявке — отклонены
+        cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
+        r = cur.fetchone()
+        if r and r['request_id']:
+            cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND id<>%s AND status<>%s",
+                ('Отклонено', r['request_id'], id, 'Отклонено'))
+    elif action == 'reject':
+        cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отклонено', id))
+    else:
+        if 'status' in data:
+            cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", (data['status'], id))
+        if 'deliveryStatus' in data:
+            cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (data['deliveryStatus'], id))
+    cur.execute(OFFERS_SELECT + " WHERE id=%s", (id,))
+    row = cur.fetchone()
     conn.close()
-    return {"ok": True}
+    return dict(row) if row else {"ok": True}
+
+@app.post("/supply-requests/{id}/request-kp")
+def request_kp_from_suppliers(id: int, data: dict):
+    """Директор отправляет запрос КП нескольким поставщикам.
+       data: {supplierIds: [1,2,3], aiRecommendedIds: [1,2]}"""
+    supplier_ids = data.get('supplierIds') or []
+    ai_ids = set(data.get('aiRecommendedIds') or [])
+    if not supplier_ids:
+        return {"error": "Не выбраны поставщики"}
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # Получаем количество из заявки для preview total
+    cur.execute("SELECT quantity FROM supply_requests WHERE id=%s", (id,))
+    req = cur.fetchone()
+    qty = float(req['quantity']) if req else 0
+    created = []
+    for sid in supplier_ids:
+        # Не создаём дубль если уже есть offer
+        cur.execute("SELECT id FROM supplier_offers WHERE request_id=%s AND supplier_id=%s", (id, sid))
+        if cur.fetchone():
+            continue
+        cur.execute(
+            "INSERT INTO supplier_offers (request_id, supplier_id, status, ai_recommended, requested_at) "
+            "VALUES (%s, %s, %s, %s, NOW()) RETURNING id",
+            (id, sid, 'Ожидает ответа', sid in ai_ids))
+        created.append(cur.fetchone()['id'])
+    # Обновляем статус заявки
+    cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s AND status='Утверждена'",
+        ('КП запрошены', id))
+    conn.close()
+    return {"ok": True, "created": len(created), "ids": created}
+
+@app.get("/supply-requests/{id}/suggest-suppliers")
+def suggest_suppliers_for_request(id: int):
+    """Возвращает список поставщиков подходящих под категорию материала, ранжированных
+       по рейтингу + истории успешных поставок. AI-комментарий опциональный."""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT material_name, category, project FROM supply_requests WHERE id=%s", (id,))
+    req = cur.fetchone()
+    if not req:
+        conn.close()
+        return {"error": "not found"}
+    category = (req['category'] or '').strip()
+    material_name = (req['material_name'] or '').lower()
+    # Фильтр по категории если задана. Иначе берём всех активных
+    if category:
+        cur.execute(
+            "SELECT id, name, category, specialization, rating, phone, email, status FROM suppliers "
+            "WHERE (status IS NULL OR status='Активный' OR status='') AND category=%s ORDER BY rating DESC NULLS LAST",
+            (category,))
+    else:
+        cur.execute(
+            "SELECT id, name, category, specialization, rating, phone, email, status FROM suppliers "
+            "WHERE (status IS NULL OR status='Активный' OR status='') ORDER BY rating DESC NULLS LAST")
+    suppliers = [dict(r) for r in cur.fetchall()]
+    # Считаем историю успешных поставок (status='Доставлено') по каждому поставщику
+    cur.execute("SELECT supplier_id, COUNT(*) as deliveries FROM supply_history WHERE status='Доставлено' GROUP BY supplier_id")
+    deliveries_map = {r['supplier_id']: r['deliveries'] for r in cur.fetchall()}
+    # Считаем уже отправленные КП этой заявке
+    cur.execute("SELECT supplier_id FROM supplier_offers WHERE request_id=%s", (id,))
+    already_requested = {r['supplier_id'] for r in cur.fetchall()}
+    conn.close()
+    for s in suppliers:
+        s['deliveriesCount'] = int(deliveries_map.get(s['id'], 0))
+        s['alreadyRequested'] = s['id'] in already_requested
+        # Простая логика: AI рекомендует если category совпадает + (rating>=4 OR deliveries>=1)
+        score = 0
+        if s['rating']: score += float(s['rating'])
+        if s['deliveriesCount']: score += min(s['deliveriesCount'], 5)
+        if material_name and (s.get('specialization') or '').lower() and any(w in material_name for w in (s['specialization'] or '').lower().split()):
+            score += 2
+        s['_score'] = score
+        s['aiRecommend'] = score >= 5  # порог рекомендации
+    suppliers.sort(key=lambda x: -x['_score'])
+    return {
+        "requestId": id,
+        "materialName": req['material_name'],
+        "category": category,
+        "suppliers": suppliers[:15],  # топ 15
+        "aiRecommendedCount": sum(1 for s in suppliers if s.get('aiRecommend')),
+    }
 
 @app.get("/supply-history")
 def get_supply_history():

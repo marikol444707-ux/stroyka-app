@@ -541,6 +541,15 @@ function App() {
   const [supplyRejectId, setSupplyRejectId] = useState(null);
   const [supplyRejectReason, setSupplyRejectReason] = useState('');
   const [supplyCollapsedProjects, setSupplyCollapsedProjects] = useState({});
+  // Сн.2: запрос КП у поставщиков
+  const [showRequestKpModal, setShowRequestKpModal] = useState(null); // id заявки или null
+  const [suggestedSuppliers, setSuggestedSuppliers] = useState(null); // {suppliers:[], aiRecommendedCount}
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState([]);
+  const [requestKpLoading, setRequestKpLoading] = useState(false);
+  const [expandedOfferId, setExpandedOfferId] = useState(null); // для раскрытия КП на странице снабжения
+  // Сн.2: ответ поставщика на RFQ
+  const [respondingOfferId, setRespondingOfferId] = useState(null);
+  const [newKpResponse, setNewKpResponse] = useState({pricePerUnit:'',deliveryDays:'',paymentTerms:'Постоплата',vatIncluded:true,validUntil:'',supplierMessage:'',pdfUrl:''});
   const [personnelTab, setPersonnelTab] = useState('staff');
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
@@ -2801,6 +2810,63 @@ function App() {
     setSupplyAiLoading(false);
   };
 
+  // === Сн.2: запрос КП у поставщиков ===
+  const openRequestKpModal = async (requestId) => {
+    setShowRequestKpModal(requestId);
+    setSuggestedSuppliers(null);
+    setSelectedSupplierIds([]);
+    setRequestKpLoading(true);
+    try {
+      const r = await fetch(API+'/supply-requests/'+requestId+'/suggest-suppliers');
+      const data = await r.json();
+      if (data.error) {
+        setSuggestedSuppliers({suppliers:[], error:data.error});
+      } else {
+        setSuggestedSuppliers(data);
+        // По умолчанию выбираем тех кого AI рекомендует
+        setSelectedSupplierIds(data.suppliers.filter(s=>s.aiRecommend&&!s.alreadyRequested).map(s=>s.id));
+      }
+    } catch(_) {
+      setSuggestedSuppliers({suppliers:[], error:'Не удалось загрузить'});
+    }
+    setRequestKpLoading(false);
+  };
+
+  const sendKpRequest = async () => {
+    if (!showRequestKpModal || selectedSupplierIds.length===0) { alert('Выберите хотя бы одного поставщика'); return; }
+    const aiIds = (suggestedSuppliers?.suppliers||[]).filter(s=>s.aiRecommend).map(s=>s.id);
+    const r = await fetch(API+'/supply-requests/'+showRequestKpModal+'/request-kp',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({supplierIds:selectedSupplierIds, aiRecommendedIds:aiIds})
+    });
+    const data = await r.json();
+    if (data.error) { alert('Ошибка: '+data.error); return; }
+    notify('Отправлен запрос КП '+selectedSupplierIds.length+' поставщикам','supply');
+    setShowRequestKpModal(null);
+    setSelectedSupplierIds([]);
+    setSuggestedSuppliers(null);
+    await loadAll();
+  };
+
+  const selectSupplierOffer = async (offerId) => {
+    if (!window.confirm('Выбрать это КП? Остальные КП по этой заявке будут отклонены.')) return;
+    await fetch(API+'/supplier-offers/'+offerId,{
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'select'})
+    });
+    notify('КП утверждено директором','supply');
+    await loadAll();
+  };
+
+  const rejectSupplierOffer = async (offerId) => {
+    if (!window.confirm('Отклонить это КП?')) return;
+    await fetch(API+'/supplier-offers/'+offerId,{
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'reject'})
+    });
+    await loadAll();
+  };
+
   const saveOffer = async (requestId) => {
     if (!newOffer.supplierId||!newOffer.pricePerUnit||!newOffer.deliveryDays) { alert('Заполните все поля включая срок поставки'); return; }
     const req = supplyRequests.find(r=>r.id===requestId);
@@ -3820,33 +3886,113 @@ function App() {
           </div>
 
           {supplierTab==='requests'&&(<div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Активные заявки</b>
-            {supplyRequests.filter(r=>r.status==='Новая'||r.status==='Ожидает предложений').map(req=>(
-              <div key={req.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                  <div>
-                    <b style={{fontSize:'13px',color:C.text}}>{req.materialName}</b>
-                    <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · '+req.projectName}</p>
-                    <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Нужно к: {req.deadline||'Не указано'}</p>
-                  </div>
-                  <div>
-                    {myOffers.find(o=>o.requestId===req.id)?
-                      <span style={{padding:'4px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:C.successLight,color:C.success}}>✅ Отправлено</span>:
-                      <button onClick={()=>{
-                        const price=prompt('Ваша цена за единицу (руб):');
-                        const days=prompt('Срок поставки (дней):');
-                        if(price&&days){
-                          fetch(API+'/supplier-offers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:req.id,supplierId:mySupplier?.id||0,supplierName:user.name,pricePerUnit:Number(price),totalPrice:Number(price)*Number(req.quantity),deliveryDays:Number(days),status:'Ожидает'})}).then(()=>loadAll());
-                        }
-                      }} style={{...btnO,padding:'5px 12px',fontSize:'11px'}}>💰 Предложить цену</button>
-                    }
-                  </div>
-                </div>
-              </div>
-            ))}
-            {supplyRequests.filter(r=>r.status==='Новая'||r.status==='Ожидает предложений').length===0&&
-              <p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Новых заявок нет</p>
-            }
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Запросы КП</b>
+            {(()=>{
+              // Берём supplier_offers где я — поставщик, и группируем по статусу
+              const myOffersForMe = (supplierOffers||[]).filter(o=>o.supplierId===(mySupplier?.id||0));
+              if (myOffersForMe.length===0) return (<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>
+                Запросов нет. Когда директор запросит у вас КП по своей заявке — он появится здесь.
+              </p>);
+              const waiting = myOffersForMe.filter(o=>o.status==='Ожидает ответа');
+              const responded = myOffersForMe.filter(o=>o.status==='Получено');
+              const won = myOffersForMe.filter(o=>o.status==='Утверждено');
+              const lost = myOffersForMe.filter(o=>o.status==='Отклонено');
+              const groups = [
+                {key:'wait', title:'⏳ Ждут ответа', items:waiting, color:C.warning, bg:C.warningLight, bd:C.warningBorder},
+                {key:'resp', title:'📤 КП отправлено, ждёт решения', items:responded, color:C.info, bg:C.infoLight, bd:C.infoBorder},
+                {key:'won',  title:'✅ Выиграно', items:won, color:C.success, bg:C.successLight, bd:C.successBorder},
+                {key:'lost', title:'❌ Отклонено', items:lost, color:C.danger, bg:C.dangerLight, bd:C.dangerBorder},
+              ];
+              return groups.filter(g=>g.items.length>0).map(g=>(<div key={g.key} style={{marginBottom:'16px'}}>
+                <b style={{color:g.color,fontSize:'12px',display:'block',marginBottom:'8px'}}>{g.title} ({g.items.length})</b>
+                {g.items.map(o=>{
+                  const req = supplyRequests.find(r=>r.id===o.requestId);
+                  if (!req) return null;
+                  const isResponding = respondingOfferId===o.id;
+                  return (<div key={o.id} style={{padding:'12px',backgroundColor:g.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+g.bd}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
+                      <div style={{flex:1,minWidth:'200px'}}>
+                        <b style={{fontSize:'13px',color:C.text}}>{req.materialName}</b>
+                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · 🏗 '+(req.project||'')}</p>
+                        {req.notes && <p style={{color:C.textMuted,margin:'0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
+                        {o.aiRecommended && <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>🤖 AI рекомендовал вас</span>}
+                        {o.pricePerUnit>0 && (<p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px'}}>
+                          Ваш ответ: <b>{Number(o.pricePerUnit).toLocaleString('ru-RU')+' ₽/'+req.unit}</b>{o.deliveryDays?' · '+o.deliveryDays+' дн.':''}{o.paymentTerms?' · '+o.paymentTerms:''}
+                        </p>)}
+                      </div>
+                      <div>
+                        {g.key==='wait' && !isResponding && (
+                          <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💰 Отправить КП</button>
+                        )}
+                        {g.key==='resp' && (
+                          <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
+                        )}
+                      </div>
+                    </div>
+                    {/* Форма ответа КП */}
+                    {isResponding && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                      <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>💰 Ваше КП на {req.quantity} {req.unit}:</b>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Цена за {req.unit} (₽) *</label>
+                          <input type='number' step='any' inputMode='decimal' value={newKpResponse.pricePerUnit} onChange={e=>setNewKpResponse({...newKpResponse,pricePerUnit:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Срок поставки (дни) *</label>
+                          <input type='number' step='1' inputMode='numeric' value={newKpResponse.deliveryDays} onChange={e=>setNewKpResponse({...newKpResponse,deliveryDays:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Условия оплаты</label>
+                          <select value={newKpResponse.paymentTerms} onChange={e=>setNewKpResponse({...newKpResponse,paymentTerms:e.target.value})} style={{...inp,marginBottom:0}}>
+                            <option>Предоплата 100%</option>
+                            <option>50/50</option>
+                            <option>Постоплата</option>
+                            <option>Отсрочка 7 дней</option>
+                            <option>Отсрочка 14 дней</option>
+                            <option>Отсрочка 30 дней</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>НДС</label>
+                          <select value={newKpResponse.vatIncluded?'incl':'excl'} onChange={e=>setNewKpResponse({...newKpResponse,vatIncluded:e.target.value==='incl'})} style={{...inp,marginBottom:0}}>
+                            <option value='incl'>С НДС (включён)</option>
+                            <option value='excl'>Без НДС</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>КП действительно до</label>
+                          <input type='date' value={newKpResponse.validUntil} onChange={e=>setNewKpResponse({...newKpResponse,validUntil:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>PDF (опц.)</label>
+                          <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',width:'100%',justifyContent:'center'}}>
+                            <Upload size={12}/>{newKpResponse.pdfUrl?'PDF загружен':'Прикрепить PDF'}
+                            <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewKpResponse({...newKpResponse,pdfUrl:url});}}}/>
+                          </label>
+                        </div>
+                      </div>
+                      <textarea placeholder='Комментарий (опц.) — особенности, условия доставки' value={newKpResponse.supplierMessage} onChange={e=>setNewKpResponse({...newKpResponse,supplierMessage:e.target.value})} style={{...inp,height:'50px',resize:'vertical'}}/>
+                      {newKpResponse.pricePerUnit && (<div style={{padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',marginBottom:'8px',fontSize:'12px',color:C.text}}>
+                        Итого: <b>{(Number(newKpResponse.pricePerUnit||0)*Number(req.quantity||0)).toLocaleString('ru-RU')} ₽</b>
+                      </div>)}
+                      <div style={{display:'flex',gap:'8px'}}>
+                        <button onClick={async()=>{
+                          if (!newKpResponse.pricePerUnit||!newKpResponse.deliveryDays) { alert('Заполните цену и срок'); return; }
+                          await fetch(API+'/supplier-offers/'+o.id,{
+                            method:'PUT', headers:{'Content-Type':'application/json'},
+                            body: JSON.stringify({action:'respond', pricePerUnit:Number(newKpResponse.pricePerUnit), quantity:Number(req.quantity), deliveryDays:Number(newKpResponse.deliveryDays), paymentTerms:newKpResponse.paymentTerms, vatIncluded:newKpResponse.vatIncluded, validUntil:newKpResponse.validUntil||null, supplierMessage:newKpResponse.supplierMessage, pdfUrl:newKpResponse.pdfUrl})
+                          });
+                          setRespondingOfferId(null);
+                          await loadAll();
+                          notify('КП отправлено директору','supply');
+                        }} style={btnO}><Check size={14}/>Отправить КП</button>
+                        <button onClick={()=>setRespondingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
+                      </div>
+                    </div>)}
+                  </div>);
+                })}
+              </div>));
+            })()}
           </div>)}
 
           {supplierTab==='catalog'&&(<div>
@@ -7257,6 +7403,10 @@ function App() {
                         {req.status==='Подтверждена прорабом' && canApprove && (
                           <button onClick={()=>approveSupplyAsDirector(req.id)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Утвердить</button>
                         )}
+                        {/* Запросить КП у поставщиков — для утверждённых заявок */}
+                        {(req.status==='Утверждена'||req.status==='КП запрошены') && canApprove && (
+                          <button onClick={()=>openRequestKpModal(req.id)} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}>📨 Запросить КП</button>
+                        )}
                         {/* AI-проверка склада */}
                         {(req.status==='Новая'||req.status==='Подтверждена прорабом') && (canConfirmProrab||canApprove) && (
                           <button onClick={async()=>{
@@ -7331,6 +7481,46 @@ function App() {
                       </div>)}
                     </div>)}
                   </div>)}
+                  {/* КП от поставщиков по этой заявке */}
+                  {(()=>{
+                    const offers = (supplierOffers||[]).filter(o=>o.requestId===req.id);
+                    if (offers.length===0) return null;
+                    const winner = offers.find(o=>o.status==='Утверждено');
+                    return (<div style={{borderTop:'1.5px dashed '+C.border,paddingTop:'10px',marginTop:'10px'}}>
+                      <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>📊 КП от поставщиков ({offers.length}){winner?' · ✅ выбрано':''}</b>
+                      {offers.map(o=>{
+                        const sup = suppliers.find(s=>s.id===o.supplierId);
+                        const isWin = o.status==='Утверждено';
+                        const isWait = o.status==='Ожидает ответа';
+                        const isRej = o.status==='Отклонено';
+                        const stC = isWin?C.success:isRej?C.danger:isWait?C.warning:C.info;
+                        const stBg = isWin?C.successLight:isRej?C.dangerLight:isWait?C.warningLight:C.infoLight;
+                        const stBd = isWin?C.successBorder:isRej?C.dangerBorder:isWait?C.warningBorder:C.infoBorder;
+                        return (<div key={o.id} style={{padding:'10px',backgroundColor:stBg,borderRadius:'6px',marginBottom:'6px',border:'1.5px solid '+stBd}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
+                            <div style={{flex:1,minWidth:'200px'}}>
+                              <b style={{fontSize:'13px',color:C.text}}>{sup?sup.name:'Поставщик #'+o.supplierId}{o.aiRecommended&&<span style={{marginLeft:'6px',fontSize:'10px',color:C.accent}}>🤖 AI рек.</span>}</b>
+                              {o.pricePerUnit ? (<p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>
+                                {Number(o.pricePerUnit).toLocaleString('ru-RU')+' ₽/ед'}
+                                {o.totalPrice?' · итого '+Number(o.totalPrice).toLocaleString('ru-RU')+' ₽':''}
+                                {o.deliveryDays?' · '+o.deliveryDays+' дн.':''}
+                              </p>) : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'12px',fontStyle:'italic'}}>Поставщик ещё не ответил...</p>}
+                              {o.paymentTerms && <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>💳 {o.paymentTerms}{o.vatIncluded===false?' · без НДС':' · с НДС'}{o.validUntil?' · до '+o.validUntil:''}</p>}
+                              {o.supplierMessage && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>💬 «{o.supplierMessage}»</p>}
+                              {o.pdfUrl && <a href={o.pdfUrl.startsWith('http')?o.pdfUrl:API+o.pdfUrl} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent,display:'inline-block',marginTop:'4px'}}>📄 PDF</a>}
+                            </div>
+                            <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
+                              <span style={badge(stC,stBg,stBd)}>{o.status}</span>
+                              {o.status==='Получено' && canApprove && (<>
+                                <button onClick={()=>selectSupplierOffer(o.id)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/>Выбрать</button>
+                                <button onClick={()=>rejectSupplierOffer(o.id)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button>
+                              </>)}
+                            </div>
+                          </div>
+                        </div>);
+                      })}
+                    </div>);
+                  })()}
                 </div>);
                       })}
                     </div>)}
@@ -9117,6 +9307,59 @@ function App() {
       <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:isMobile?'flex':'none',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
         {[{id:'dashboard',icon:<LayoutDashboard size={20}/>,label:'Главная'},{id:'projects',icon:<FolderKanban size={20}/>,label:'Объекты'},{id:'warehouse',icon:<Package size={20}/>,label:'Склад'},{id:'companychat',icon:<MessageSquare size={20}/>,label:'Чат',isPanel:true},{id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else if(item.id==='companychat'){setShowChatPanel(s=>!s);setShowMobileMenu(false);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#6b7280',position:'relative'}}>{item.icon}{item.id==='companychat'&&unreadMessagesCount>0&&<span style={{position:'absolute',top:'-6px',right:'-8px',backgroundColor:'#ef4444',color:'white',borderRadius:'10px',padding:'1px 5px',fontSize:'9px',fontWeight:'700',minWidth:'14px',textAlign:'center',lineHeight:'1.2'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
+      {/* Модалка «Запросить КП у поставщиков» (Сн.2) */}
+      {showRequestKpModal&&(<div onClick={()=>setShowRequestKpModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+        <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'min(640px,100%)',maxHeight:'85vh',overflowY:'auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+            <div>
+              <b style={{color:C.text,fontSize:'16px',display:'block'}}>📨 Запросить КП у поставщиков</b>
+              {(()=>{const req=supplyRequests.find(r=>r.id===showRequestKpModal);if(!req) return null;return(<p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{req.materialName+' · '+req.quantity+' '+req.unit+' · 🏗 '+(req.project||'')}</p>);})()}
+            </div>
+            <button onClick={()=>setShowRequestKpModal(null)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
+          </div>
+          {requestKpLoading && <p style={{color:C.textMuted,padding:'20px',textAlign:'center',fontSize:'13px'}}>⏳ AI подбирает поставщиков...</p>}
+          {!requestKpLoading && suggestedSuppliers && suggestedSuppliers.error && (
+            <p style={{color:C.danger,padding:'20px',textAlign:'center',fontSize:'13px'}}>❌ {suggestedSuppliers.error}</p>
+          )}
+          {!requestKpLoading && suggestedSuppliers && !suggestedSuppliers.error && (<>
+            <div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
+              🤖 AI нашёл {suggestedSuppliers.suppliers.length} поставщиков по категории «{suggestedSuppliers.category||'не указана'}». Из них рекомендует {suggestedSuppliers.aiRecommendedCount} — отметил их ⭐ галочкой автоматически. Можно добавить или убрать.
+            </div>
+            {suggestedSuppliers.suppliers.length===0 && (
+              <div style={{padding:'30px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>
+                Поставщиков по этой категории нет.<br/>Добавьте поставщиков в разделе «Поставщики».
+              </div>
+            )}
+            {suggestedSuppliers.suppliers.map(s=>{
+              const checked = selectedSupplierIds.includes(s.id);
+              return (<div key={s.id} onClick={()=>{
+                if (s.alreadyRequested) return;
+                setSelectedSupplierIds(prev=>checked?prev.filter(x=>x!==s.id):[...prev,s.id]);
+              }} style={{padding:'10px 12px',marginBottom:'6px',borderRadius:'8px',backgroundColor:checked?C.successLight:C.bg,border:'1.5px solid '+(checked?C.successBorder:C.border),cursor:s.alreadyRequested?'not-allowed':'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',opacity:s.alreadyRequested?0.5:1}}>
+                <div style={{display:'flex',alignItems:'center',gap:'10px',flex:1}}>
+                  <input type='checkbox' checked={checked} readOnly disabled={s.alreadyRequested} style={{accentColor:C.accent,cursor:s.alreadyRequested?'not-allowed':'pointer'}}/>
+                  <div>
+                    <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
+                      <b style={{color:C.text,fontSize:'13px'}}>{s.name}</b>
+                      {s.aiRecommend && <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>🤖 AI рек.</span>}
+                      {s.alreadyRequested && <span style={badge(C.textMuted,C.bg,C.border)}>уже запросили</span>}
+                    </div>
+                    <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(s.category||'')+(s.specialization?' · '+s.specialization:'')+(s.phone?' · '+s.phone:'')}</p>
+                    <p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>⭐ {s.rating||'нет'} · 📦 успешных поставок: {s.deliveriesCount}</p>
+                  </div>
+                </div>
+              </div>);
+            })}
+            <div style={{display:'flex',gap:'8px',marginTop:'14px',justifyContent:'flex-end'}}>
+              <button onClick={()=>setShowRequestKpModal(null)} style={btnG}><X size={14}/>Отмена</button>
+              <button onClick={sendKpRequest} disabled={selectedSupplierIds.length===0} style={{...btnO,opacity:selectedSupplierIds.length===0?0.5:1}}>
+                <Check size={14}/>Отправить ({selectedSupplierIds.length})
+              </button>
+            </div>
+          </>)}
+        </div>
+      </div>)}
+
       {showReimburseModal&&(<div onClick={()=>setShowReimburseModal(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
       <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'min(560px,100%)',maxHeight:'85vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
