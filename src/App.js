@@ -3297,6 +3297,88 @@ function App() {
             </div>
           </div>)}
 
+          {activePage==='supply'&&(()=>{
+            const myReqs = (supplyRequests||[]).filter(r=>r.createdBy===user.name||r.requestedById===user.id);
+            const pendingReqs = myReqs.filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом');
+            const approvedReqs = myReqs.filter(r=>r.status==='Утверждена');
+            const rejectedReqs = myReqs.filter(r=>r.status==='Отклонена');
+            return (<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px',flexWrap:'wrap',gap:'10px'}}>
+                <h3 style={{color:C.text,margin:0,fontSize:'18px',fontWeight:'700'}}>🛒 Заявки на материалы</h3>
+                <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>{showSupplyForm?'Закрыть форму':'Новая заявка'}</button>
+              </div>
+              {/* Сводка */}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+                  <p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>⏳ В работе</p>
+                  <b style={{color:C.warning,fontSize:'18px'}}>{pendingReqs.length}</b>
+                </div>
+                <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
+                  <p style={{color:C.success,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>✅ Утверждено</p>
+                  <b style={{color:C.success,fontSize:'18px'}}>{approvedReqs.length}</b>
+                </div>
+                {rejectedReqs.length>0 && <div style={{...card,padding:'12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}>
+                  <p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>❌ Отклонено</p>
+                  <b style={{color:C.danger,fontSize:'18px'}}>{rejectedReqs.length}</b>
+                </div>}
+              </div>
+              {/* Форма */}
+              {showSupplyForm && (<div style={{...card,padding:'18px',marginBottom:'14px'}}>
+                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка</b>
+                <input placeholder="Материал * (например: Цемент М500)" value={newSupplyReq.materialName} onChange={e=>setNewSupplyReq({...newSupplyReq,materialName:e.target.value})} style={inp}/>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                  <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={newSupplyReq.quantity} onChange={e=>setNewSupplyReq({...newSupplyReq,quantity:e.target.value})} style={inp}/>
+                  <select value={newSupplyReq.unit} onChange={e=>setNewSupplyReq({...newSupplyReq,unit:e.target.value})} style={inp}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+                </div>
+                <select value={newSupplyReq.project} onChange={e=>setNewSupplyReq({...newSupplyReq,project:e.target.value})} style={inp}>
+                  <option value="">Выберите объект *</option>
+                  {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+                <select value={newSupplyReq.urgency} onChange={e=>setNewSupplyReq({...newSupplyReq,urgency:e.target.value})} style={inp}>
+                  <option value="низкая">🟢 Низкая срочность</option>
+                  <option value="обычная">🟡 Обычная срочность</option>
+                  <option value="срочная">🔴 Срочно</option>
+                </select>
+                <textarea placeholder="Комментарий — для каких работ, особенности" value={newSupplyReq.notes} onChange={e=>setNewSupplyReq({...newSupplyReq,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical'}}/>
+                <div style={{padding:'10px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
+                  ℹ️ После создания заявка попадёт прорабу. Когда он подтвердит — пойдёт директору. Вы будете видеть статус здесь.
+                </div>
+                <div style={{display:'flex',gap:'8px'}}>
+                  <button onClick={createSupplyReq} style={btnO}><Check size={14}/>Отправить</button>
+                  <button onClick={()=>setShowSupplyForm(false)} style={btnG}><X size={14}/>Отмена</button>
+                </div>
+              </div>)}
+              {/* Список моих заявок */}
+              {myReqs.length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>
+                Заявок ещё нет. Нажмите «Новая заявка» если не хватает материала.
+              </div>}
+              {myReqs.map(req=>{
+                const stC = req.status==='Утверждена'?C.success:req.status==='Подтверждена прорабом'?C.info:req.status==='Отклонена'?C.danger:req.status==='Отменена'?C.textMuted:C.warning;
+                const stBg = req.status==='Утверждена'?C.successLight:req.status==='Подтверждена прорабом'?C.infoLight:req.status==='Отклонена'?C.dangerLight:req.status==='Отменена'?C.bg:C.warningLight;
+                const stBd = req.status==='Утверждена'?C.successBorder:req.status==='Подтверждена прорабом'?C.infoBorder:req.status==='Отклонена'?C.dangerBorder:req.status==='Отменена'?C.border:C.warningBorder;
+                return (<div key={req.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'4px solid '+stC}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                    <div style={{flex:'1 1 200px'}}>
+                      <b style={{color:C.text,fontSize:'14px'}}>{req.materialName}</b>
+                      <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · 🏗 '+(req.project||'—')}</p>
+                      <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{req.date||''}{req.urgency==='срочная'?' · 🔴 Срочно':req.urgency==='низкая'?' · 🟢 Не срочно':''}</p>
+                      {req.notes && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
+                      {req.status==='Подтверждена прорабом' && req.prorabName && <p style={{color:C.info,margin:'4px 0 0',fontSize:'11px'}}>👷 {req.prorabName} подтвердил — ждёт директора</p>}
+                      {req.status==='Утверждена' && req.directorName && <p style={{color:C.success,margin:'4px 0 0',fontSize:'11px'}}>✅ Утвердил: {req.directorName}</p>}
+                      {req.status==='Отклонена' && req.rejectReason && <p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>❌ Причина: {req.rejectReason}</p>}
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end'}}>
+                      <span style={badge(stC,stBg,stBd)}>{req.status}</span>
+                      {(req.status==='Новая'||req.status==='Подтверждена прорабом') && (
+                        <button onClick={()=>cancelSupply(req.id)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>Отменить</button>
+                      )}
+                    </div>
+                  </div>
+                </div>);
+              })}
+            </div>);
+          })()}
+
           {activePage==='companychat'&&(<div>
             <h3 style={{color:C.text,marginBottom:'20px',fontSize:'18px',fontWeight:'700'}}>Общий чат</h3>
             <div style={{...card,padding:'20px'}}>
@@ -3322,7 +3404,7 @@ function App() {
         </div>
 
         <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid '+C.border,display:'flex',justifyContent:'space-around',padding:'10px 0 14px',zIndex:100,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
-          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Инструменты',badge:myIssues.filter(i=>!i.confirmed).length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative'}}><span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px'}}>{item.label}</span>{item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}</div>))}
+          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Инструменты',badge:myIssues.filter(i=>!i.confirmed).length},{id:'supply',icon:<ShoppingCart size={22}/>,label:'Снабжение',badge:(supplyRequests||[]).filter(r=>(r.createdBy===user.name||r.requestedById===user.id)&&r.status==='Отклонена').length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative'}}><span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px'}}>{item.label}</span>{item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}</div>))}
           <div onClick={()=>setUser(null)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px'}}><LogOut size={22} color={C.textMuted}/><span style={{fontSize:'10px',color:C.textMuted,marginTop:'2px'}}>Выйти</span></div>
         </div>
       </div>
