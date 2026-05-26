@@ -550,6 +550,12 @@ function App() {
   // Сн.2: ответ поставщика на RFQ
   const [respondingOfferId, setRespondingOfferId] = useState(null);
   const [newKpResponse, setNewKpResponse] = useState({pricePerUnit:'',deliveryDays:'',paymentTerms:'Постоплата',vatIncluded:true,validUntil:'',supplierMessage:'',pdfUrl:''});
+  // Сн.3: AI сравнение КП
+  const [compareResultByReq, setCompareResultByReq] = useState({}); // {reqId: {ranking, aiText, bestOfferId, ...}}
+  const [compareLoadingReqId, setCompareLoadingReqId] = useState(null);
+  // Сн.3: поставщик выставляет счёт
+  const [invoicingOfferId, setInvoicingOfferId] = useState(null);
+  const [newOfferInvoice, setNewOfferInvoice] = useState({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:'',vatAmount:'',description:'',fileUrl:''});
   const [personnelTab, setPersonnelTab] = useState('staff');
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
@@ -2867,6 +2873,41 @@ function App() {
     await loadAll();
   };
 
+  // Сн.3: AI сравнение КП по заявке
+  const runCompareKp = async (reqId) => {
+    setCompareLoadingReqId(reqId);
+    try {
+      const r = await fetch(API+'/supply-requests/'+reqId+'/compare-kp');
+      const data = await r.json();
+      setCompareResultByReq(prev=>({...prev, [reqId]: data}));
+    } catch(e) {
+      setCompareResultByReq(prev=>({...prev, [reqId]: {error:'Не удалось получить сравнение'}}));
+    }
+    setCompareLoadingReqId(null);
+  };
+
+  // Сн.3: создать счёт от поставщика по выигранному КП
+  const createInvoiceFromOffer = async (offerId) => {
+    if (!newOfferInvoice.invoiceNumber || !newOfferInvoice.amount) { alert('Заполните номер счёта и сумму'); return; }
+    const r = await fetch(API+'/supplier-offers/'+offerId+'/create-invoice', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        invoiceNumber: newOfferInvoice.invoiceNumber,
+        invoiceDate: newOfferInvoice.invoiceDate,
+        amount: Number(newOfferInvoice.amount),
+        vatAmount: Number(newOfferInvoice.vatAmount || 0),
+        description: newOfferInvoice.description,
+        fileUrl: newOfferInvoice.fileUrl,
+      })
+    });
+    const data = await r.json();
+    if (data.error) { alert('Ошибка: '+data.error); return; }
+    notify('Счёт выставлен — ждёт оплаты бухгалтером','supply');
+    setInvoicingOfferId(null);
+    setNewOfferInvoice({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:'',vatAmount:'',description:'',fileUrl:''});
+    await loadAll();
+  };
+
   const saveOffer = async (requestId) => {
     if (!newOffer.supplierId||!newOffer.pricePerUnit||!newOffer.deliveryDays) { alert('Заполните все поля включая срок поставки'); return; }
     const req = supplyRequests.find(r=>r.id===requestId);
@@ -3927,6 +3968,13 @@ function App() {
                         {g.key==='resp' && (
                           <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
                         )}
+                        {g.key==='won' && (
+                          (()=>{
+                            const hasInvoice = (invoices||[]).find(inv=>inv.offerId===o.id||inv.offer_id===o.id);
+                            if (hasInvoice) return <span style={badge(C.info,C.infoLight,C.infoBorder)}>💳 Счёт выставлен</span>;
+                            return (<button onClick={()=>{setInvoicingOfferId(o.id);setNewOfferInvoice({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:o.totalPrice||'',vatAmount:'',description:'Материал: '+req.materialName,fileUrl:''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💳 Выставить счёт</button>);
+                          })()
+                        )}
                       </div>
                     </div>
                     {/* Форма ответа КП */}
@@ -3987,6 +4035,40 @@ function App() {
                           notify('КП отправлено директору','supply');
                         }} style={btnO}><Check size={14}/>Отправить КП</button>
                         <button onClick={()=>setRespondingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
+                      </div>
+                    </div>)}
+                    {/* Форма выставления счёта (Сн.3) — для выигранного КП */}
+                    {invoicingOfferId===o.id && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                      <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>💳 Выставить счёт по выигранному КП</b>
+                      <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'6px',marginBottom:'10px',fontSize:'11px',color:C.text}}>
+                        Условия оплаты по КП: <b>{o.paymentTerms||'Не указано'}</b>. После выставления счёт уйдёт бухгалтеру компании на оплату.
+                      </div>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Номер счёта *</label>
+                          <input value={newOfferInvoice.invoiceNumber} onChange={e=>setNewOfferInvoice({...newOfferInvoice,invoiceNumber:e.target.value})} placeholder='№ 123/05' style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Дата счёта</label>
+                          <input type='date' value={newOfferInvoice.invoiceDate} onChange={e=>setNewOfferInvoice({...newOfferInvoice,invoiceDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Сумма (₽) *</label>
+                          <input type='number' step='any' inputMode='decimal' value={newOfferInvoice.amount} onChange={e=>setNewOfferInvoice({...newOfferInvoice,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>в т.ч. НДС (₽)</label>
+                          <input type='number' step='any' inputMode='decimal' value={newOfferInvoice.vatAmount} onChange={e=>setNewOfferInvoice({...newOfferInvoice,vatAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                      </div>
+                      <input value={newOfferInvoice.description} onChange={e=>setNewOfferInvoice({...newOfferInvoice,description:e.target.value})} placeholder='Описание (по умолчанию название материала)' style={inp}/>
+                      <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',marginBottom:'10px'}}>
+                        <Upload size={12}/>{newOfferInvoice.fileUrl?'PDF/Фото загружен':'Прикрепить счёт (PDF/фото)'}
+                        <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewOfferInvoice({...newOfferInvoice,fileUrl:url});}}}/>
+                      </label>
+                      <div style={{display:'flex',gap:'8px'}}>
+                        <button onClick={()=>createInvoiceFromOffer(o.id)} style={btnO}><Check size={14}/>Отправить счёт</button>
+                        <button onClick={()=>setInvoicingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
                     </div>)}
                   </div>);
@@ -7486,8 +7568,49 @@ function App() {
                     const offers = (supplierOffers||[]).filter(o=>o.requestId===req.id);
                     if (offers.length===0) return null;
                     const winner = offers.find(o=>o.status==='Утверждено');
+                    const receivedOffers = offers.filter(o=>o.status==='Получено'||o.status==='Утверждено');
+                    const compareResult = compareResultByReq[req.id];
+                    const compareLoading = compareLoadingReqId===req.id;
                     return (<div style={{borderTop:'1.5px dashed '+C.border,paddingTop:'10px',marginTop:'10px'}}>
-                      <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>📊 КП от поставщиков ({offers.length}){winner?' · ✅ выбрано':''}</b>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',gap:'8px',flexWrap:'wrap'}}>
+                        <b style={{color:C.text,fontSize:'12px'}}>📊 КП от поставщиков ({offers.length}){winner?' · ✅ выбрано':''}</b>
+                        {receivedOffers.length>=2 && canApprove && !winner && (
+                          <button onClick={()=>runCompareKp(req.id)} disabled={compareLoading} style={{...btnGr,padding:'4px 10px',fontSize:'11px',opacity:compareLoading?0.6:1}}>
+                            <Bot size={11}/>{compareLoading?'AI сравнивает...':'🤖 Сравнить через AI'}
+                          </button>
+                        )}
+                      </div>
+                      {/* AI вердикт по сравнению */}
+                      {compareResult && !compareResult.error && (<div style={{padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'10px'}}>
+                        <b style={{color:C.success,fontSize:'11px',display:'block',marginBottom:'6px'}}>🤖 AI рекомендует: {compareResult.bestSupplier}</b>
+                        {compareResult.aiText && <p style={{color:C.text,fontSize:'12px',margin:'0 0 8px',lineHeight:'1.5'}}>{compareResult.aiText}</p>}
+                        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
+                          <thead>
+                            <tr style={{backgroundColor:C.bg}}>
+                              <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>#</th>
+                              <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Поставщик</th>
+                              <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Цена</th>
+                              <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Срок</th>
+                              <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Оплата</th>
+                              <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Балл</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {compareResult.ranking.map((r,i)=>(<tr key={r.offerId} style={{backgroundColor:i===0?'rgba(34,197,94,0.08)':'transparent'}}>
+                              <td style={{padding:'4px 6px',color:i===0?C.success:C.textSec,fontWeight:'600'}}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.'}</td>
+                              <td style={{padding:'4px 6px',color:C.text}}>{r.supplier}{r.rating>0?' ⭐'+r.rating:''}</td>
+                              <td style={{padding:'4px 6px',textAlign:'right',color:C.text}}>{Number(r.pricePerUnit).toLocaleString('ru-RU')} ₽</td>
+                              <td style={{padding:'4px 6px',textAlign:'center',color:C.text}}>{r.deliveryDays} дн.</td>
+                              <td style={{padding:'4px 6px',color:C.text,fontSize:'10px'}}>{r.paymentTerms}{r.vatIncluded===false?' · б/НДС':''}</td>
+                              <td style={{padding:'4px 6px',textAlign:'center',color:i===0?C.success:C.text,fontWeight:i===0?'700':'400'}}>{r.score}</td>
+                            </tr>))}
+                          </tbody>
+                        </table>
+                        <p style={{color:C.textMuted,fontSize:'10px',margin:'6px 0 0',fontStyle:'italic'}}>Балл: цена 40% · срок 20% · условия 20% · рейтинг 20%. Финальное решение за вами.</p>
+                      </div>)}
+                      {compareResult && compareResult.error && (<div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
+                        ℹ️ {compareResult.error}
+                      </div>)}
                       {offers.map(o=>{
                         const sup = suppliers.find(s=>s.id===o.supplierId);
                         const isWin = o.status==='Утверждено';
@@ -8171,7 +8294,8 @@ function App() {
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                         <div style={{flex:1,minWidth:'200px'}}>
                           <b style={{color:C.text,fontSize:'13px'}}>{inv.supplierName+' · № '+inv.invoiceNumber}</b>
-                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(inv.invoiceDate||'')+(inv.description?' · '+inv.description:'')}</p>
+                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(inv.invoiceDate||'')+(inv.projectName?' · 🏗 '+inv.projectName:'')+(inv.description?' · '+inv.description:'')}</p>
+                          {(inv.offerId||inv.offer_id)&&<p style={{color:C.accent,margin:'2px 0',fontSize:'11px'}}>📨 Создан по выигранному КП #{inv.offerId||inv.offer_id}{inv.materialName?' · '+inv.materialName:''}{inv.paymentTerms?' · условия: '+inv.paymentTerms:''}</p>}
                           <div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
                             <span style={{fontSize:'12px',color:C.text}}>{'Сумма: '+Math.round(total).toLocaleString('ru-RU')+' ₽'}</span>
                             {paid>0&&<span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+Math.round(paid).toLocaleString('ru-RU')+' ₽'}</span>}

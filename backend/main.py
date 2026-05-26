@@ -143,6 +143,10 @@ def init_db():
         ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'other';
         ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2) DEFAULT 0;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS offer_id INT;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS request_id INT;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100);
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS material_name VARCHAR(255);
         CREATE TABLE IF NOT EXISTS tb_journal (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -2141,6 +2145,155 @@ def suggest_suppliers_for_request(id: int):
         "suppliers": suppliers[:15],  # топ 15
         "aiRecommendedCount": sum(1 for s in suppliers if s.get('aiRecommend')),
     }
+
+@app.get("/supply-requests/{id}/compare-kp")
+def compare_kp_for_request(id: int):
+    """Сравнивает все полученные КП по заявке и возвращает AI-вердикт.
+       Учитывает цену, срок поставки, условия оплаты, НДС, рейтинг поставщика."""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT material_name, quantity, unit, project FROM supply_requests WHERE id=%s", (id,))
+    req = cur.fetchone()
+    if not req:
+        conn.close()
+        return {"error": "Заявка не найдена"}
+    cur.execute(
+        "SELECT o.id, o.supplier_id, o.price_per_unit, o.total_price, o.delivery_days, "
+        "o.payment_terms, o.vat_included, o.valid_until, o.supplier_message, o.status, "
+        "s.name as supplier_name, s.rating "
+        "FROM supplier_offers o LEFT JOIN suppliers s ON s.id=o.supplier_id "
+        "WHERE o.request_id=%s AND o.status IN ('Получено','Утверждено')",
+        (id,))
+    offers = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    if len(offers) < 2:
+        return {
+            "error": "Нужно минимум 2 полученных КП для сравнения",
+            "offersCount": len(offers),
+        }
+    # Готовим короткую сводку для AI
+    offers_summary = []
+    for o in offers:
+        offers_summary.append({
+            "offerId": o['id'],
+            "supplier": o['supplier_name'] or 'Поставщик #'+str(o['supplier_id']),
+            "rating": float(o['rating'] or 0),
+            "pricePerUnit": float(o['price_per_unit'] or 0),
+            "totalPrice": float(o['total_price'] or 0),
+            "deliveryDays": int(o['delivery_days'] or 0),
+            "paymentTerms": o['payment_terms'] or '',
+            "vatIncluded": bool(o['vat_included']),
+            "validUntil": str(o['valid_until']) if o['valid_until'] else None,
+            "message": o['supplier_message'] or '',
+        })
+    # Считаем простой score:
+    # - ниже цена = лучше
+    # - меньше срок = лучше
+    # - предоплата = чуть хуже (риск)
+    # - выше рейтинг = лучше
+    prices = [o['pricePerUnit'] for o in offers_summary if o['pricePerUnit']>0] or [1]
+    days = [o['deliveryDays'] for o in offers_summary if o['deliveryDays']>0] or [1]
+    min_price = min(prices); max_price = max(prices)
+    min_days = min(days); max_days = max(days)
+    def _terms_risk(t):
+        t = (t or '').lower()
+        if 'предоплат' in t and '100' in t: return 0.0  # риск для покупателя
+        if '50' in t: return 0.5
+        if 'постоплат' in t or 'отсрочк' in t: return 1.0
+        return 0.5
+    for o in offers_summary:
+        sc_price = 1.0 - (o['pricePerUnit']-min_price)/(max_price-min_price) if max_price>min_price else 1.0
+        sc_days = 1.0 - (o['deliveryDays']-min_days)/(max_days-min_days) if max_days>min_days else 1.0
+        sc_terms = _terms_risk(o['paymentTerms'])
+        sc_rating = o['rating']/5.0 if o['rating'] else 0.5
+        # веса: цена 40%, срок 20%, условия 20%, рейтинг 20%
+        o['score'] = round((sc_price*0.4 + sc_days*0.2 + sc_terms*0.2 + sc_rating*0.2) * 100, 1)
+    offers_summary.sort(key=lambda x: -x['score'])
+    best = offers_summary[0]
+    # AI вердикт текстом
+    ai_text = None
+    try:
+        import openai as oa
+        prompt = (
+            f"Сравни {len(offers_summary)} коммерческих предложений на материал "
+            f"«{req['material_name']}» (нужно {req['quantity']} {req['unit']}).\n"
+            f"Предложения:\n"
+        )
+        for o in offers_summary:
+            prompt += (
+                f"- {o['supplier']} (рейтинг {o['rating']}/5): "
+                f"{o['pricePerUnit']} ₽/ед, итого {o['totalPrice']} ₽, "
+                f"срок {o['deliveryDays']} дн, оплата «{o['paymentTerms']}», "
+                f"{'с НДС' if o['vatIncluded'] else 'без НДС'}"
+                + (f", «{o['message']}»" if o['message'] else "")
+                + "\n"
+            )
+        prompt += (
+            "\nДай короткий вывод (2-3 предложения по-русски): кого выбрать и почему. "
+            "Учитывай не только цену но и срок, условия оплаты, рейтинг поставщика. "
+            "Не используй markdown, не используй ```."
+        )
+        client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+        r = client.responses.create(
+            model="gpt://"+YANDEX_FOLDER_ID+"/yandexgpt-5.1/latest",
+            temperature=0.2,
+            instructions="Ты помощник директора строительной компании. Сравниваешь коммерческие предложения и даёшь короткий вывод.",
+            input=prompt,
+            max_output_tokens=400,
+        )
+        ai_text = (r.output_text or '').strip()
+    except Exception as e:
+        print("compare-kp AI error:", e)
+        ai_text = None
+    return {
+        "requestId": id,
+        "materialName": req['material_name'],
+        "quantity": float(req['quantity'] or 0),
+        "unit": req['unit'],
+        "offersCount": len(offers_summary),
+        "bestOfferId": best['offerId'],
+        "bestSupplier": best['supplier'],
+        "ranking": offers_summary,
+        "aiText": ai_text,
+    }
+
+@app.post("/supplier-offers/{id}/create-invoice")
+def create_invoice_from_offer(id: int, data: dict):
+    """Поставщик выставляет счёт по выигранному КП.
+       Автоматически создаёт supplier_invoice."""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        "SELECT o.id, o.supplier_id, o.request_id, o.total_price, o.payment_terms, o.vat_included, "
+        "s.name as supplier_name, r.project as project_name, r.material_name "
+        "FROM supplier_offers o "
+        "LEFT JOIN suppliers s ON s.id=o.supplier_id "
+        "LEFT JOIN supply_requests r ON r.id=o.request_id "
+        "WHERE o.id=%s AND o.status=%s",
+        (id, 'Утверждено'))
+    offer = cur.fetchone()
+    if not offer:
+        conn.close()
+        return {"error": "Утверждённое КП не найдено"}
+    invoice_number = data.get('invoiceNumber') or ''
+    invoice_date = data.get('invoiceDate') or None
+    amount = float(data.get('amount') or offer['total_price'] or 0)
+    vat_amount = float(data.get('vatAmount') or 0)
+    file_url = data.get('fileUrl') or data.get('photoUrl') or ''
+    description = data.get('description') or ('Материал: '+(offer['material_name'] or ''))
+    cur.execute(
+        "INSERT INTO supplier_invoices "
+        "(supplier_id, supplier_name, project_name, invoice_number, invoice_date, "
+        "amount, vat_amount, description, file_url, status, offer_id, request_id, "
+        "payment_terms, material_name) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (offer['supplier_id'], offer['supplier_name'], offer['project_name'],
+         invoice_number, invoice_date, amount, vat_amount, description, file_url,
+         'На утверждении', offer['id'], offer['request_id'],
+         offer['payment_terms'], offer['material_name']))
+    new_id = cur.fetchone()['id']
+    conn.close()
+    return {"ok": True, "id": new_id}
 
 @app.get("/supply-history")
 def get_supply_history():
@@ -4612,7 +4765,7 @@ def delete_expense_report(id: int):
 def list_supplier_invoices(project_name: str = None, status: str = None):
     conn = get_db()
     cur = conn.cursor()
-    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount"
+    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount, offer_id, request_id, payment_terms, material_name"
     where, params = [], []
     if project_name: where.append("project_name=%s"); params.append(project_name)
     if status: where.append("status=%s"); params.append(status)
@@ -4631,7 +4784,9 @@ def list_supplier_invoices(project_name: str = None, status: str = None):
              "status":r[11] or "На утверждении","approvedBy":r[12] or "",
              "approvedAt":str(r[13]) if r[13] else "","paidAt":str(r[14]) if r[14] else "",
              "paidBy":r[15] or "","paidNote":r[16] or "",
-             "createdAt":str(r[17]),"paidAmount":float(r[18] or 0)} for r in rows]
+             "createdAt":str(r[17]),"paidAmount":float(r[18] or 0),
+             "offerId":r[19],"requestId":r[20],
+             "paymentTerms":r[21] or "","materialName":r[22] or ""} for r in rows]
 
 @app.post("/supplier-invoices")
 def create_supplier_invoice(data: dict):
