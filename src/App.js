@@ -3150,15 +3150,36 @@ function App() {
           </div>
         </div>)}
         <div style={{flex:1,padding:'15px',paddingBottom:isMobile?'90px':'15px',overflowY:'auto'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',gap:'8px'}}>
             <div><h2 style={{margin:0,color:C.text,fontSize:'20px',fontWeight:'800'}}>СтройКа</h2><p style={{margin:0,color:C.textSec,fontSize:'12px'}}>{user.name+' — '+(ROLE_LABELS[user.role]||user.role)}</p></div>
-            <button onClick={checkinGeo} style={{...btnGr,padding:'8px 16px',fontSize:'12px'}}><MapPin size={14}/>Отметиться</button>
+            <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+              <div ref={notifRef} style={{position:'relative'}}>
+                <button onClick={()=>setShowNotifications(!showNotifications)} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                  <Bell size={16} color={C.textSec}/>
+                  {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
+                </button>
+                {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:0,width:'300px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.3)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}>
+                  <div style={{padding:'12px 16px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <b style={{color:C.text,fontSize:'13px'}}>Уведомления</b>
+                    <button onClick={()=>{const u=myNotifications(notifications).map(n=>({...n,read:true}));setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{...btnG,fontSize:'10px',padding:'2px 8px'}}>Все прочитано</button>
+                  </div>
+                  {myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>Нет уведомлений</p>}
+                  {myNotifications(notifications).map(n=>(<div key={n.id} onClick={()=>{navigateTo(getNotifPage(n.type));setShowNotifications(false);const u=notifications.map(x=>x.id===n.id?{...x,read:true}:x);setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{padding:'10px 16px',borderBottom:'1px solid '+C.border,backgroundColor:n.read?'transparent':C.accentLight,cursor:'pointer'}}>
+                    <p style={{margin:0,fontSize:'12px',color:C.text}}>{n.text}</p>
+                    <p style={{margin:'2px 0 0',fontSize:'10px',color:C.textMuted}}>{n.time}</p>
+                  </div>))}
+                </div>)}
+              </div>
+              <button onClick={checkinGeo} style={{...btnGr,padding:'8px 14px',fontSize:'12px'}}><MapPin size={14}/>Отметиться</button>
+            </div>
           </div>
 
           {activePage==='works'&&(<div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px',gap:'10px',flexWrap:'wrap'}}>
               <h3 style={{color:C.text,margin:0,fontSize:'18px',fontWeight:'700'}}>Мои работы</h3>
-              <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'8px 18px',borderRadius:'10px',fontWeight:'700',fontSize:'14px',color:'white'}} title='Сумма по сдельным начислениям'>{myTotal.toLocaleString()+' ₽'}</div>
+              {myTotal>0
+                ? <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'8px 18px',borderRadius:'10px',fontWeight:'700',fontSize:'14px',color:'white'}} title='Сумма по принятым сдельным работам за всё время'>💰 Заработано: {myTotal.toLocaleString()+' ₽'}</div>
+                : <div style={{padding:'8px 14px',borderRadius:'10px',fontSize:'12px',color:C.textSec,backgroundColor:C.bg,border:'1.5px dashed '+C.border}} title='Здесь будет сумма ваших принятых работ когда прораб их подтвердит'>📊 Работ пока не принято</div>}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
               <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
@@ -4043,9 +4064,12 @@ function App() {
                   </select>
                   <input type='date' id='pres_date_tn' style={{...inp,marginBottom:0}} defaultValue={new Date().toISOString().split('T')[0]}/>
                 </div>
-                <div style={{display:'flex',gap:'8px',alignItems:'center',marginTop:'10px'}}>
-                  <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>{prescriptionPhoto?'📷 Фото добавлено':'📷 Прикрепить фото'}<input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(f){const url=await uploadPhoto(f);if(url) setPrescriptionPhoto(url);}}}/></label>
-                  {prescriptionPhoto&&<button onClick={()=>setPrescriptionPhoto('')} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><X size={11}/></button>}
+                <div style={{marginTop:'10px'}}>
+                  <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'6px'}}>
+                    <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>📷 Прикрепить фото (можно несколько)<input type='file' accept='image/*' multiple style={{display:'none'}} onChange={async e=>{if(e.target.files&&e.target.files.length>0){const csv=await appendPhotos(prescriptionPhoto,e.target.files);setPrescriptionPhoto(csv);e.target.value='';}}}/></label>
+                    {(prescriptionPhoto||'').split(',').filter(Boolean).length>0&&<span style={{fontSize:'11px',color:C.success,fontWeight:'600'}}>📷 {(prescriptionPhoto||'').split(',').filter(Boolean).length} фото</span>}
+                  </div>
+                  {(()=>{const urls=(prescriptionPhoto||'').split(',').filter(Boolean);if(urls.length===0) return null;return (<div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>{urls.map((u,i)=>(<div key={i} style={{position:'relative'}}><img src={u.startsWith('http')?u:API+u} alt='' onClick={()=>setShowPhotoModal(u.startsWith('http')?u:API+u)} style={{width:'60px',height:'60px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',border:'1px solid '+C.border}}/><button type='button' onClick={(ev)=>{ev.preventDefault();ev.stopPropagation();setPrescriptionPhoto(urls.filter((_,j)=>j!==i).join(','));}} style={{position:'absolute',top:'-4px',right:'-4px',background:'rgba(220,38,38,0.9)',color:'white',border:'none',borderRadius:'50%',width:'18px',height:'18px',cursor:'pointer',fontSize:'10px',lineHeight:'1',padding:0}}>×</button></div>))}</div>);})()}
                 </div>
                 <button onClick={async()=>{
                   const desc=document.getElementById('pres_desc_tn').value;
@@ -4093,9 +4117,10 @@ function App() {
                   <textarea placeholder='Рекомендации / требования' value={newSupervisorAct.recommendations} onChange={e=>setNewSupervisorAct({...newSupervisorAct,recommendations:e.target.value})} style={{...inp,minHeight:'50px',marginBottom:'8px'}}/>
                   <div style={{display:'flex',gap:'8px',marginBottom:'8px',alignItems:'center'}}>
                     <input type='date' value={newSupervisorAct.date} onChange={e=>setNewSupervisorAct({...newSupervisorAct,date:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/>
-                    <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>{supervisorActPhoto?'📷 Фото':'📷 Прикрепить'}<input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(f){const url=await uploadPhoto(f);if(url) setSupervisorActPhoto(url);}}}/></label>
-                    {supervisorActPhoto&&<button onClick={()=>setSupervisorActPhoto('')} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><X size={11}/></button>}
+                    <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>📷 Фото (можно несколько)<input type='file' accept='image/*' multiple style={{display:'none'}} onChange={async e=>{if(e.target.files&&e.target.files.length>0){const csv=await appendPhotos(supervisorActPhoto,e.target.files);setSupervisorActPhoto(csv);e.target.value='';}}}/></label>
+                    {(supervisorActPhoto||'').split(',').filter(Boolean).length>0&&<span style={{fontSize:'11px',color:C.success,fontWeight:'600'}}>{(supervisorActPhoto||'').split(',').filter(Boolean).length}</span>}
                   </div>
+                  {(()=>{const urls=(supervisorActPhoto||'').split(',').filter(Boolean);if(urls.length===0) return null;return (<div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}}>{urls.map((u,i)=>(<div key={i} style={{position:'relative'}}><img src={u.startsWith('http')?u:API+u} alt='' onClick={()=>setShowPhotoModal(u.startsWith('http')?u:API+u)} style={{width:'60px',height:'60px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',border:'1px solid '+C.border}}/><button type='button' onClick={(ev)=>{ev.preventDefault();ev.stopPropagation();setSupervisorActPhoto(urls.filter((_,j)=>j!==i).join(','));}} style={{position:'absolute',top:'-4px',right:'-4px',background:'rgba(220,38,38,0.9)',color:'white',border:'none',borderRadius:'50%',width:'18px',height:'18px',cursor:'pointer',fontSize:'10px',lineHeight:'1',padding:0}}>×</button></div>))}</div>);})()}
                   <div style={{display:'flex',gap:'8px'}}>
                     <button onClick={async()=>{
                       if(!newSupervisorAct.description){alert('Опишите предмет осмотра');return;}
@@ -5120,21 +5145,21 @@ function App() {
             const _today=new Date().toISOString().split('T')[0];
             const risks=[];
             // Низкие остатки материалов
-            lowStock.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn'}));
-            lowMainStock.slice(0,2).forEach(m=>risks.push({icon:'🏭',text:'Мало на складе: '+m.name,severity:'warn'}));
+            lowStock.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn',page:'warehouse'}));
+            lowMainStock.slice(0,2).forEach(m=>risks.push({icon:'🏭',text:'Мало на складе: '+m.name,severity:'warn',page:'warehouse',tab:'main'}));
             // Просроченные проекты
-            projects.filter(p=>p.deadline&&p.deadline<_today&&p.status!=='Завершён').slice(0,2).forEach(p=>risks.push({icon:'⏰',text:'Срок истёк: '+p.name+' (до '+p.deadline+')',severity:'danger'}));
+            projects.filter(p=>p.deadline&&p.deadline<_today&&p.status!=='Завершён').slice(0,2).forEach(p=>risks.push({icon:'⏰',text:'Срок истёк: '+p.name+' (до '+p.deadline+')',severity:'danger',page:'projects'}));
             // АОСР зависшие в черновике > 7 дней
             const _weekAgo=new Date(Date.now()-7*24*3600*1000).toISOString().split('T')[0];
-            (hiddenActs||[]).filter(a=>a.status!=='Подписан'&&a.createdAt&&String(a.createdAt).split('T')[0]<_weekAgo).slice(0,2).forEach(a=>risks.push({icon:'🔒',text:'АОСР долго без подписи: '+a.actNumber,severity:'warn'}));
+            (hiddenActs||[]).filter(a=>a.status!=='Подписан'&&a.createdAt&&String(a.createdAt).split('T')[0]<_weekAgo).slice(0,2).forEach(a=>risks.push({icon:'🔒',text:'АОСР долго без подписи: '+a.actNumber,severity:'warn',page:'projects'}));
             // Открытые замечания ГСН
             const openInsp=(inspectionOrders||[]).filter(o=>o.status!=='Закрыто').length;
-            if(openInsp>0) risks.push({icon:'🏛',text:'Открытых замечаний ГСН: '+openInsp,severity:'danger'});
+            if(openInsp>0) risks.push({icon:'🏛',text:'Открытых замечаний ГСН: '+openInsp,severity:'danger',page:'projects'});
             // Превышение бюджета непредвиденными >10%
-            projects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Утверждено').reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': непредвиденные '+pct.toFixed(1)+'% от бюджета',severity:'danger'});});
+            projects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Утверждено').reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': непредвиденные '+pct.toFixed(1)+'% от бюджета',severity:'danger',page:'projects'});});
             // Траты сотрудников на возмещении
             const pendingExp=(ownExpenses||[]).filter(e=>e.status==='Ожидает');
-            if(pendingExp.length>0){const sum=pendingExp.reduce((s,e)=>s+Number(e.amount||0),0);risks.push({icon:'💸',text:'К возмещению сотрудникам: '+Math.round(sum).toLocaleString('ru-RU')+' ₽ ('+pendingExp.length+' трат)',severity:'warn'});}
+            if(pendingExp.length>0){const sum=pendingExp.reduce((s,e)=>s+Number(e.amount||0),0);risks.push({icon:'💸',text:'К возмещению сотрудникам: '+Math.round(sum).toLocaleString('ru-RU')+' ₽ ('+pendingExp.length+' трат)',severity:'warn',action:'reimburse'});}
             const _planDoneOf=projectPlanDone; const _projProgress=projectRealProgress;
             const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+_projProgress(p),0)/projects.length):0;
             // Выполнено = работы (max сметы/журнала) + материалы + утв.доп.соглашения по всем проектам
@@ -5210,7 +5235,19 @@ function App() {
                 <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
                   <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                     <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}>⚠️ Предупреждения системы {risks.length>0&&<span style={{fontSize:'12px',padding:'2px 8px',borderRadius:'10px',background:'rgba(239,68,68,.2)',color:'#fca5a5',fontWeight:'700'}}>{risks.length}</span>}</h2>
-                    {risks.length>0?risks.map((r,i)=>{const cdng=r.severity==='danger';return(<div key={i} style={{padding:'10px 12px',borderRadius:'12px',background:cdng?'rgba(239,68,68,.10)':'rgba(245,158,11,.10)',border:'1px solid '+(cdng?'rgba(239,68,68,.22)':'rgba(245,158,11,.24)'),color:cdng?'#fca5a5':'#fcd34d',fontSize:'12px',marginBottom:'8px',display:'flex',gap:'8px',alignItems:'flex-start'}}><span style={{fontSize:'14px',flexShrink:0}}>{r.icon}</span><span>{r.text}</span></div>);}):<div style={{padding:'14px',borderRadius:'14px',background:'rgba(34,197,94,.10)',border:'1px solid rgba(34,197,94,.24)',color:'#86efac',fontSize:'13px',textAlign:'center'}}>✅ Всё под контролем<br/><span style={{fontSize:'11px',color:'#94a3b8'}}>Нет просроченных проектов, дефицита материалов, открытых замечаний и непредвиденных свыше 10%</span></div>}
+                    {risks.length>0?risks.map((r,i)=>{
+                      const cdng=r.severity==='danger';
+                      const isClickable = r.page || r.action;
+                      const handleClick = () => {
+                        if (r.action==='reimburse') { setShowReimburseModal(true); return; }
+                        if (r.page) { setActivePage(r.page); if (r.tab) setWarehouseTab(r.tab); }
+                      };
+                      return(<div key={i} onClick={isClickable?handleClick:undefined} style={{padding:'10px 12px',borderRadius:'12px',background:cdng?'rgba(239,68,68,.10)':'rgba(245,158,11,.10)',border:'1px solid '+(cdng?'rgba(239,68,68,.22)':'rgba(245,158,11,.24)'),color:cdng?'#fca5a5':'#fcd34d',fontSize:'12px',marginBottom:'8px',display:'flex',gap:'8px',alignItems:'flex-start',cursor:isClickable?'pointer':'default',transition:'transform 0.15s'}} onMouseEnter={e=>{if(isClickable) e.currentTarget.style.transform='translateX(2px)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';}}>
+                        <span style={{fontSize:'14px',flexShrink:0}}>{r.icon}</span>
+                        <span style={{flex:1}}>{r.text}</span>
+                        {isClickable && <span style={{fontSize:'11px',opacity:0.6}}>→</span>}
+                      </div>);
+                    }):<div style={{padding:'14px',borderRadius:'14px',background:'rgba(34,197,94,.10)',border:'1px solid rgba(34,197,94,.24)',color:'#86efac',fontSize:'13px',textAlign:'center'}}>✅ Всё под контролем<br/><span style={{fontSize:'11px',color:'#94a3b8'}}>Нет просроченных проектов, дефицита материалов, открытых замечаний и непредвиденных свыше 10%</span></div>}
                   </div>
                   {(()=>{
                     const today=new Date().toISOString().split('T')[0];
@@ -5919,9 +5956,12 @@ function App() {
                           }} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',fontSize:'12px',padding:'7px 12px',opacity:newUnexpected.__aiLoading?0.6:1}}><Bot size={13}/>{newUnexpected.__aiLoading?'…':'🤖 Оценить через ИИ'}</button>
                           {newUnexpected.__aiNote&&<span style={{fontSize:'11px',color:C.textSec,flex:1,fontStyle:'italic'}}>{newUnexpected.__aiNote}</span>}
                         </div>
-                        <div style={{display:'flex',gap:'8px',alignItems:'center',marginTop:'8px'}}>
-                          <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>{newUnexpected.photoUrl?'📷 Фото добавлено':'📷 Прикрепить фото'}<input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(f){const url=await uploadPhoto(f);if(url) setNewUnexpected({...newUnexpected,photoUrl:url});}}}/></label>
-                          {newUnexpected.photoUrl&&<button onClick={()=>setNewUnexpected({...newUnexpected,photoUrl:''})} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><X size={11}/></button>}
+                        <div style={{marginTop:'8px'}}>
+                          <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'6px'}}>
+                            <label style={{...btnB,padding:'8px 12px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>📷 Прикрепить фото (можно несколько)<input type='file' accept='image/*' multiple style={{display:'none'}} onChange={async e=>{if(e.target.files&&e.target.files.length>0){const csv=await appendPhotos(newUnexpected.photoUrl,e.target.files);setNewUnexpected({...newUnexpected,photoUrl:csv});e.target.value='';}}}/></label>
+                            {(newUnexpected.photoUrl||'').split(',').filter(Boolean).length>0&&<span style={{fontSize:'11px',color:C.success,fontWeight:'600'}}>📷 {(newUnexpected.photoUrl||'').split(',').filter(Boolean).length} фото</span>}
+                          </div>
+                          {(()=>{const urls=(newUnexpected.photoUrl||'').split(',').filter(Boolean);if(urls.length===0) return null;return (<div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>{urls.map((u,i)=>(<div key={i} style={{position:'relative'}}><img src={u.startsWith('http')?u:API+u} alt='' onClick={()=>setShowPhotoModal(u.startsWith('http')?u:API+u)} style={{width:'60px',height:'60px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',border:'1px solid '+C.border}}/><button type='button' onClick={(ev)=>{ev.preventDefault();ev.stopPropagation();setNewUnexpected({...newUnexpected,photoUrl:urls.filter((_,j)=>j!==i).join(',')});}} style={{position:'absolute',top:'-4px',right:'-4px',background:'rgba(220,38,38,0.9)',color:'white',border:'none',borderRadius:'50%',width:'18px',height:'18px',cursor:'pointer',fontSize:'10px',lineHeight:'1',padding:0}}>×</button></div>))}</div>);})()}
                         </div>
                         <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={()=>saveUnexpectedWork(p.name)} style={btnO}><Check size={14}/>Отправить</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
                   </div>)}
