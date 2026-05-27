@@ -379,6 +379,52 @@ def init_db():
         );
         INSERT INTO companies (id, name, short_name, plan) VALUES (1, 'СтройКа', 'СтройКа', 'pro')
         ON CONFLICT (id) DO NOTHING;
+        -- SaaS-биллинг: расширение companies для управления подписками
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS contact_name VARCHAR(255);
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(100);
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS contact_email VARCHAR(255);
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS trial_until DATE;
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS plan_expires_at DATE;
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS monthly_fee NUMERIC(10,2);
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS payment_status VARCHAR(50) DEFAULT 'active';
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP;
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS suspended_reason TEXT;
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS max_projects INT;
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS max_users INT;
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP;
+        ALTER TABLE companies ADD COLUMN IF NOT EXISTS notes TEXT;
+        -- Оплаты от компаний-клиентов (SaaS-выручка)
+        CREATE TABLE IF NOT EXISTS company_payments (
+            id SERIAL PRIMARY KEY,
+            company_id INT NOT NULL,
+            amount NUMERIC(10,2),
+            payment_date DATE,
+            method VARCHAR(50),
+            invoice_number VARCHAR(100),
+            status VARCHAR(50) DEFAULT 'paid',
+            period_start DATE,
+            period_end DATE,
+            notes TEXT,
+            created_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        -- Заявки на демо с лендинга
+        CREATE TABLE IF NOT EXISTS demo_requests (
+            id SERIAL PRIMARY KEY,
+            company_name VARCHAR(255),
+            contact_name VARCHAR(255),
+            phone VARCHAR(100),
+            email VARCHAR(255),
+            employees_count VARCHAR(50),
+            projects_count VARCHAR(50),
+            comment TEXT,
+            source VARCHAR(100),
+            status VARCHAR(50) DEFAULT 'Новая',
+            assigned_company_id INT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            processed_at TIMESTAMP
+        );
         -- Ставим company_id на ключевые таблицы — пока всем 1 (текущая компания)
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
@@ -1908,6 +1954,192 @@ def list_companies():
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+# === SaaS: Кабинет системы (только для system_owner) ===
+
+@app.get("/system/companies")
+def system_companies_list():
+    """Полный список компаний с биллингом — только для владельца платформы."""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""SELECT id, name, short_name, inn, contact_name, contact_phone, contact_email,
+                          plan, trial_until, plan_expires_at, monthly_fee, payment_status,
+                          suspended_at, suspended_reason, max_projects, max_users,
+                          last_active_at, notes, active, created_at
+                   FROM companies ORDER BY id""")
+    rows = [dict(r) for r in cur.fetchall()]
+    # Считаем подсчёты по каждой компании
+    for c in rows:
+        cur.execute("SELECT COUNT(*) FROM users WHERE company_id=%s", (c['id'],))
+        c['users_count'] = cur.fetchone()['count']
+        cur.execute("SELECT COUNT(*) FROM projects WHERE company_id=%s", (c['id'],))
+        c['projects_count'] = cur.fetchone()['count']
+        cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE company_id=%s AND status='paid'", (c['id'],))
+        c['total_paid'] = float(cur.fetchone()['t'] or 0)
+    conn.close()
+    return rows
+
+@app.post("/system/companies")
+def system_create_company(data: dict):
+    """Создание новой компании-клиента + инвайт-код её директору."""
+    from datetime import datetime, timedelta
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    plan = data.get('plan') or 'demo'
+    trial_days = int(data.get('trialDays') or 30)
+    trial_until = (datetime.now() + timedelta(days=trial_days)).date() if plan == 'demo' else None
+    cur.execute("""INSERT INTO companies (name, short_name, inn, kpp, contact_name, contact_phone,
+                                          contact_email, plan, trial_until, monthly_fee,
+                                          payment_status, max_projects, max_users, active, notes)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (data.get('name'), data.get('shortName'), data.get('inn'), data.get('kpp'),
+         data.get('contactName'), data.get('contactPhone'), data.get('contactEmail'),
+         plan, trial_until, float(data.get('monthlyFee') or 0),
+         'trial' if plan == 'demo' else 'active',
+         int(data.get('maxProjects') or 0) or None, int(data.get('maxUsers') or 0) or None,
+         True, data.get('notes')))
+    new_id = cur.fetchone()['id']
+    # Создаём инвайт-код для директора этой новой компании
+    invite_code = str(uuid.uuid4())[:8].upper()
+    expires = datetime.now() + timedelta(days=30)
+    cur.execute("INSERT INTO invite_codes (code, role, preset_name, expires_at, created_by) VALUES (%s,%s,%s,%s,%s)",
+        (invite_code, 'директор', data.get('name'), expires, data.get('createdBy') or 'system_owner'))
+    conn.close()
+    return {"id": new_id, "inviteCode": invite_code, "trialUntil": str(trial_until) if trial_until else None}
+
+@app.put("/system/companies/{id}")
+def system_update_company(id: int, data: dict):
+    """Обновление компании: смена тарифа, продление триала, заморозка."""
+    from datetime import datetime
+    conn = get_db()
+    cur = conn.cursor()
+    sets, vals = [], []
+    fields_map = [
+        ('plan','plan'),('trialUntil','trial_until'),('planExpiresAt','plan_expires_at'),
+        ('monthlyFee','monthly_fee'),('paymentStatus','payment_status'),
+        ('maxProjects','max_projects'),('maxUsers','max_users'),
+        ('contactName','contact_name'),('contactPhone','contact_phone'),
+        ('contactEmail','contact_email'),('notes','notes'),('active','active'),
+    ]
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s"); vals.append(data[js_key])
+    if data.get('action') == 'suspend':
+        sets.append("suspended_at=%s"); vals.append(datetime.now())
+        sets.append("suspended_reason=%s"); vals.append(data.get('reason') or '')
+        sets.append("active=%s"); vals.append(False)
+    elif data.get('action') == 'resume':
+        sets.append("suspended_at=NULL")
+        sets.append("active=%s"); vals.append(True)
+    if not sets:
+        conn.close()
+        return {"ok": False, "error": "no fields"}
+    vals.append(id)
+    cur.execute("UPDATE companies SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.close()
+    return {"ok": True}
+
+@app.get("/system/dashboard")
+def system_dashboard():
+    """Сводка для главной страницы кабинета системы."""
+    from datetime import datetime, date
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT COUNT(*) as c FROM companies WHERE active=TRUE")
+    active = cur.fetchone()['c']
+    cur.execute("SELECT COUNT(*) as c FROM companies WHERE plan='demo' AND active=TRUE")
+    in_demo = cur.fetchone()['c']
+    cur.execute("SELECT COUNT(*) as c FROM companies WHERE suspended_at IS NOT NULL")
+    suspended = cur.fetchone()['c']
+    cur.execute("SELECT COUNT(*) as c FROM companies WHERE payment_status='overdue'")
+    overdue = cur.fetchone()['c']
+    today = date.today()
+    cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE status='paid' AND date_trunc('month', payment_date)=date_trunc('month', %s::date)", (today,))
+    month_revenue = float(cur.fetchone()['t'] or 0)
+    cur.execute("SELECT COALESCE(SUM(amount),0) as t FROM company_payments WHERE status='paid' AND date_trunc('year', payment_date)=date_trunc('year', %s::date)", (today,))
+    year_revenue = float(cur.fetchone()['t'] or 0)
+    cur.execute("SELECT COUNT(*) as c FROM demo_requests WHERE status='Новая'")
+    new_demos = cur.fetchone()['c']
+    conn.close()
+    return {
+        "activeCompanies": active, "inDemo": in_demo, "suspended": suspended,
+        "overdue": overdue, "monthRevenue": month_revenue, "yearRevenue": year_revenue,
+        "newDemoRequests": new_demos
+    }
+
+@app.get("/system/payments")
+def system_payments_list():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""SELECT p.*, c.name as company_name FROM company_payments p
+                   LEFT JOIN companies c ON c.id=p.company_id
+                   ORDER BY p.payment_date DESC LIMIT 200""")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+@app.post("/system/payments")
+def system_create_payment(data: dict):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""INSERT INTO company_payments (company_id, amount, payment_date, method,
+                                                  invoice_number, status, period_start, period_end,
+                                                  notes, created_by)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (data.get('companyId'), float(data.get('amount') or 0), data.get('paymentDate') or None,
+         data.get('method'), data.get('invoiceNumber'), data.get('status') or 'paid',
+         data.get('periodStart') or None, data.get('periodEnd') or None,
+         data.get('notes'), data.get('createdBy')))
+    new_id = cur.fetchone()['id']
+    # Обновляем компанию: продлеваем plan_expires_at
+    if data.get('periodEnd') and data.get('companyId'):
+        cur.execute("UPDATE companies SET plan_expires_at=%s, payment_status='active' WHERE id=%s",
+            (data['periodEnd'], data['companyId']))
+    conn.close()
+    return {"id": new_id, "ok": True}
+
+@app.get("/demo-requests")
+def list_demo_requests():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM demo_requests ORDER BY created_at DESC LIMIT 200")
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+@app.post("/demo-request")
+def create_demo_request(data: dict):
+    """Публичный endpoint — приходит с лендинга / формы на сайте."""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""INSERT INTO demo_requests (company_name, contact_name, phone, email,
+                                                employees_count, projects_count, comment, source)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (data.get('companyName'), data.get('contactName'), data.get('phone'),
+         data.get('email'), data.get('employeesCount'), data.get('projectsCount'),
+         data.get('comment'), data.get('source') or 'landing'))
+    new_id = cur.fetchone()['id']
+    conn.close()
+    return {"id": new_id, "ok": True, "message": "Заявка принята, с вами свяжутся в течение рабочего дня"}
+
+@app.put("/demo-requests/{id}")
+def update_demo_request(id: int, data: dict):
+    from datetime import datetime
+    conn = get_db()
+    cur = conn.cursor()
+    sets, vals = [], []
+    for k, c in [('status','status'),('notes','notes'),('assignedCompanyId','assigned_company_id')]:
+        if k in data:
+            sets.append(c + "=%s"); vals.append(data[k])
+    if data.get('status') in ('Обработана','Отклонена'):
+        sets.append("processed_at=%s"); vals.append(datetime.now())
+    if not sets:
+        conn.close()
+        return {"ok": False}
+    vals.append(id)
+    cur.execute("UPDATE demo_requests SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    conn.close()
+    return {"ok": True}
 
 @app.get("/invite-codes/{code}/info")
 def invite_code_info(code: str):
