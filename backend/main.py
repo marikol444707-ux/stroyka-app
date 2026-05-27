@@ -359,6 +359,65 @@ def init_db():
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS reject_reason TEXT;
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS category VARCHAR(100);
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+        -- Multi-tenancy подготовка (см. ONBOARDING — план «единый кабинет поставщика»)
+        -- Пока не используется в коде, но колонки добавлены чтобы при миграции не делать ALTER большим таблицам
+        CREATE TABLE IF NOT EXISTS companies (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255),
+            short_name VARCHAR(255),
+            inn VARCHAR(50),
+            kpp VARCHAR(50),
+            ogrn VARCHAR(50),
+            legal_address TEXT,
+            phone VARCHAR(100),
+            email VARCHAR(255),
+            logo_url VARCHAR(500),
+            subdomain VARCHAR(100),
+            plan VARCHAR(50) DEFAULT 'demo',
+            active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        INSERT INTO companies (id, name, short_name, plan) VALUES (1, 'СтройКа', 'СтройКа', 'pro')
+        ON CONFLICT (id) DO NOTHING;
+        -- Ставим company_id на ключевые таблицы — пока всем 1 (текущая компания)
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE estimates ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE warehouse_main ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        -- Поставщики — глобальные. company_id у них означает «первичный клиент» (необязательно)
+        -- Связи компания-поставщик через company_supplier_links (договор и рейтинг свой у каждой пары)
+        CREATE TABLE IF NOT EXISTS company_supplier_links (
+            id SERIAL PRIMARY KEY,
+            company_id INT NOT NULL,
+            supplier_id INT NOT NULL,
+            contract_url VARCHAR(500),
+            contract_number VARCHAR(100),
+            contract_date DATE,
+            rating FLOAT,
+            status VARCHAR(50) DEFAULT 'Активный',
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(company_id, supplier_id)
+        );
+        -- Подписки поставщиков (биллинг — пока заготовка)
+        CREATE TABLE IF NOT EXISTS supplier_subscriptions (
+            id SERIAL PRIMARY KEY,
+            supplier_id INT NOT NULL,
+            plan VARCHAR(50) DEFAULT 'free',
+            valid_until DATE,
+            monthly_fee NUMERIC(10,2) DEFAULT 0,
+            payment_method VARCHAR(50),
+            active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS supplier_offers (
             id SERIAL PRIMARY KEY,
             request_id INT,
@@ -1838,6 +1897,17 @@ def delete_invite_code(id: int):
     cur.execute("DELETE FROM invite_codes WHERE id=%s", (id,))
     conn.close()
     return {"ok": True}
+
+@app.get("/companies")
+def list_companies():
+    """Список компаний-клиентов системы. Сейчас одна (СтройКа).
+       В будущем — multi-tenancy: поставщик видит заявки от разных компаний."""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, name, short_name as \"shortName\", inn, logo_url as \"logoUrl\", plan, active FROM companies WHERE active=TRUE ORDER BY id")
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 @app.get("/invite-codes/{code}/info")
 def invite_code_info(code: str):

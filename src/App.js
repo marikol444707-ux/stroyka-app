@@ -4051,12 +4051,26 @@ function App() {
     return (
       <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
         <div style={{maxWidth:'900px',margin:'0 auto'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'24px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
             <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
               <span style={{fontSize:'28px'}}>🏭</span>
               <div><b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет поставщика</b><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p></div>
             </div>
             <button onClick={()=>{setUser(null);localStorage.removeItem('user');}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
+          </div>
+          {/* Селектор клиентов (заготовка под multi-tenancy) */}
+          <div style={{...card,padding:'10px 14px',marginBottom:'16px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',flexWrap:'wrap'}}>
+            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+              <span style={{fontSize:'18px'}}>🏢</span>
+              <div>
+                <b style={{color:C.text,fontSize:'13px'}}>Компания-клиент: СтройКа</b>
+                <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>Сейчас показываем заявки только от одной компании. В будущем сюда подключатся другие клиенты — увидите всех в одном кабинете.</p>
+              </div>
+            </div>
+            <select disabled value='1' style={{...inp,marginBottom:0,width:'auto',cursor:'not-allowed',opacity:0.7}}>
+              <option value='1'>СтройКа</option>
+              <option value='all' disabled>🚧 Скоро: все клиенты</option>
+            </select>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
