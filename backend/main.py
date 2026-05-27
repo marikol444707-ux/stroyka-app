@@ -296,6 +296,45 @@ def init_db():
             rating FLOAT DEFAULT 5.0,
             status VARCHAR(100)
         );
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS inn VARCHAR(50);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS kpp VARCHAR(50);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS ogrn VARCHAR(50);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS legal_address TEXT;
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS actual_address TEXT;
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bank VARCHAR(255);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bik VARCHAR(50);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS account VARCHAR(50);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS kor_account VARCHAR(50);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS director_name VARCHAR(255);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS director_position VARCHAR(255);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS contract_url VARCHAR(500);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS contract_number VARCHAR(100);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS contract_date DATE;
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS license_url VARCHAR(500);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS price_url VARCHAR(500);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS website VARCHAR(255);
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS notes TEXT;
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS user_id INT;
+        ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS registered_at TIMESTAMP;
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS supplier_id INT;
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS preset_name VARCHAR(255);
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS preset_category VARCHAR(255);
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS created_by VARCHAR(255);
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+        CREATE TABLE IF NOT EXISTS supplier_documents (
+            id SERIAL PRIMARY KEY,
+            supplier_id INT,
+            doc_type VARCHAR(100),
+            title VARCHAR(255),
+            file_url VARCHAR(500),
+            status VARCHAR(50) DEFAULT 'Загружен',
+            signed_at DATE,
+            expires_at DATE,
+            notes TEXT,
+            uploaded_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS supply_requests (
             id SERIAL PRIMARY KEY,
             material_name VARCHAR(255),
@@ -1139,21 +1178,67 @@ def password_reset(data: dict):
     return {"ok": True, "message": "Пароль изменён, можно входить"}
 
 @app.post("/register")
-def register(data: RegisterModel):
+def register(data: dict):
+    from datetime import datetime
+    code = (data.get("code") or "").strip()
+    name = (data.get("name") or "").strip()
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+    if not code or not name or not email or not password:
+        raise HTTPException(status_code=400, detail="Заполните имя, email, пароль и код приглашения")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE", (data.code,))
+    cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE", (code,))
     invite = cur.fetchone()
     if not invite:
         conn.close()
         raise HTTPException(status_code=400, detail="Неверный или использованный код")
+    role = invite['role']
+    # Проверка срока действия
+    if invite.get('expires_at') and invite['expires_at'] < datetime.now():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Код истёк — попросите новую ссылку")
     try:
         cur.execute("INSERT INTO users (name,email,password,role) VALUES (%s,%s,%s,%s) RETURNING *",
-                    (data.name, data.email, data.password, invite['role']))
+                    (name, email, password, role))
         user = cur.fetchone()
-        cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (data.code,))
+        # Если регистрируется поставщик — создаём/связываем suppliers row
+        if role == 'поставщик':
+            company_name = data.get("companyName") or name
+            supplier_id = invite.get('supplier_id')
+            if supplier_id:
+                # Привязываем к существующей компании
+                cur.execute(
+                    "UPDATE suppliers SET phone=COALESCE(%s,phone), email=COALESCE(%s,email), "
+                    "inn=COALESCE(%s,inn), kpp=COALESCE(%s,kpp), ogrn=COALESCE(%s,ogrn), "
+                    "legal_address=COALESCE(%s,legal_address), bank=COALESCE(%s,bank), "
+                    "bik=COALESCE(%s,bik), account=COALESCE(%s,account), "
+                    "director_name=COALESCE(%s,director_name), "
+                    "user_id=%s, registered_at=NOW() WHERE id=%s",
+                    (data.get("phone"), email, data.get("inn"), data.get("kpp"),
+                     data.get("ogrn"), data.get("legalAddress"), data.get("bank"),
+                     data.get("bik"), data.get("account"), data.get("directorName"),
+                     user['id'], supplier_id))
+            else:
+                # Создаём новую компанию
+                cur.execute(
+                    "INSERT INTO suppliers (name, phone, email, category, specialization, "
+                    "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
+                    "status, rating, user_id, registered_at) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
+                    (company_name, data.get("phone",""), email,
+                     invite.get('preset_category') or data.get("category",""),
+                     data.get("specialization",""),
+                     data.get("inn"), data.get("kpp"), data.get("ogrn"),
+                     data.get("legalAddress"), data.get("bank"), data.get("bik"),
+                     data.get("account"), data.get("directorName"),
+                     'Активный', 5.0, user['id']))
+        cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
         conn.close()
         return dict(user)
+    except HTTPException:
+        conn.close()
+        raise
     except Exception as e:
         conn.close()
         raise HTTPException(status_code=400, detail=str(e))
@@ -1727,11 +1812,21 @@ def get_invite_codes():
     return [dict(r) for r in rows]
 
 @app.post("/invite-codes")
-def create_invite_code(data: InviteCodeModel):
+def create_invite_code(data: dict):
+    from datetime import datetime, timedelta
+    role = data.get('role') or ''
+    if not role:
+        raise HTTPException(status_code=400, detail="Не указана роль")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     code = str(uuid.uuid4())[:8].upper()
-    cur.execute("INSERT INTO invite_codes (code,role) VALUES (%s,%s) RETURNING *", (code,data.role))
+    expires_in_days = int(data.get('expiresInDays') or 14)
+    expires_at = datetime.now() + timedelta(days=expires_in_days)
+    cur.execute(
+        "INSERT INTO invite_codes (code, role, supplier_id, preset_name, preset_category, created_by, expires_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        (code, role, data.get('supplierId'), data.get('presetName'),
+         data.get('presetCategory'), data.get('createdBy'), expires_at))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -1743,6 +1838,29 @@ def delete_invite_code(id: int):
     cur.execute("DELETE FROM invite_codes WHERE id=%s", (id,))
     conn.close()
     return {"ok": True}
+
+@app.get("/invite-codes/{code}/info")
+def invite_code_info(code: str):
+    """Возвращает данные приглашения для подсветки формы регистрации."""
+    from datetime import datetime
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM invite_codes WHERE code=%s", (code.upper().strip(),))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return {"valid": False, "error": "Код не найден"}
+    if row.get('used'):
+        return {"valid": False, "error": "Код уже использован"}
+    if row.get('expires_at') and row['expires_at'] < datetime.now():
+        return {"valid": False, "error": "Срок действия ссылки истёк"}
+    return {
+        "valid": True,
+        "role": row['role'],
+        "presetName": row.get('preset_name') or '',
+        "presetCategory": row.get('preset_category') or '',
+        "supplierId": row.get('supplier_id'),
+    }
 
 @app.get("/suppliers")
 def get_suppliers():
@@ -4108,14 +4226,79 @@ def delete_supplier_catalog(id: int):
 def update_supplier_requisites(id: int, data: dict):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""UPDATE suppliers SET 
-        inn=%s, kpp=%s, legal_address=%s, bank=%s, bik=%s, account=%s,
-        phone=COALESCE(%s, phone), email=COALESCE(%s, email)
+    # Расширенный апдейт реквизитов: все поля опциональные
+    cur.execute("""UPDATE suppliers SET
+        inn=COALESCE(%s, inn), kpp=COALESCE(%s, kpp), ogrn=COALESCE(%s, ogrn),
+        legal_address=COALESCE(%s, legal_address),
+        actual_address=COALESCE(%s, actual_address),
+        bank=COALESCE(%s, bank), bik=COALESCE(%s, bik),
+        account=COALESCE(%s, account), kor_account=COALESCE(%s, kor_account),
+        director_name=COALESCE(%s, director_name),
+        director_position=COALESCE(%s, director_position),
+        contract_url=COALESCE(%s, contract_url),
+        contract_number=COALESCE(%s, contract_number),
+        contract_date=COALESCE(%s, contract_date),
+        license_url=COALESCE(%s, license_url),
+        price_url=COALESCE(%s, price_url),
+        website=COALESCE(%s, website),
+        notes=COALESCE(%s, notes),
+        phone=COALESCE(%s, phone), email=COALESCE(%s, email),
+        category=COALESCE(%s, category), specialization=COALESCE(%s, specialization)
         WHERE id=%s""",
-        (data.get("inn",""), data.get("kpp",""), data.get("address",""),
-         data.get("bank",""), data.get("bik",""), data.get("account",""),
-         data.get("phone") or None, data.get("email") or None, id))
+        (data.get("inn"), data.get("kpp"), data.get("ogrn"),
+         data.get("legalAddress") or data.get("address"),
+         data.get("actualAddress"),
+         data.get("bank"), data.get("bik"),
+         data.get("account"), data.get("korAccount"),
+         data.get("directorName"), data.get("directorPosition"),
+         data.get("contractUrl"), data.get("contractNumber"), data.get("contractDate") or None,
+         data.get("licenseUrl"), data.get("priceUrl"),
+         data.get("website"), data.get("notes"),
+         data.get("phone"), data.get("email"),
+         data.get("category"), data.get("specialization"),
+         id))
     conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.get("/supplier-documents")
+def list_supplier_documents(supplier_id: int = None):
+    conn = get_db()
+    cur = conn.cursor()
+    where = ""
+    params = ()
+    if supplier_id:
+        where = " WHERE supplier_id=%s"
+        params = (supplier_id,)
+    cur.execute("SELECT id, supplier_id, doc_type, title, file_url, status, signed_at, expires_at, notes, uploaded_by, created_at FROM supplier_documents" + where + " ORDER BY created_at DESC", params)
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"supplierId":r[1],"docType":r[2] or "","title":r[3] or "",
+             "fileUrl":r[4] or "","status":r[5] or "","signedAt":str(r[6]) if r[6] else "",
+             "expiresAt":str(r[7]) if r[7] else "","notes":r[8] or "",
+             "uploadedBy":r[9] or "","createdAt":str(r[10])} for r in rows]
+
+@app.post("/supplier-documents")
+def create_supplier_document(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO supplier_documents (supplier_id, doc_type, title, file_url, status, signed_at, expires_at, notes, uploaded_by) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get('supplierId'), data.get('docType') or 'Другое', data.get('title') or '',
+         data.get('fileUrl') or '', data.get('status') or 'Загружен',
+         data.get('signedAt') or None, data.get('expiresAt') or None,
+         data.get('notes') or '', data.get('uploadedBy') or ''))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close(); conn.close()
+    return {"id": new_id, "ok": True}
+
+@app.delete("/supplier-documents/{id}")
+def delete_supplier_document(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM supplier_documents WHERE id=%s", (id,))
     cur.close(); conn.close()
     return {"ok": True}
 

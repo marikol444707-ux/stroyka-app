@@ -366,6 +366,20 @@ function App() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+  // Регистрация по ссылке: проверяем URL ?invite=CODE и переходим на форму регистрации
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('invite');
+      if (code) {
+        setRegCode(code.toUpperCase());
+        setPage('register');
+        // Очищаем URL чтобы при F5 ссылка не дублировалась
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch(_) {}
+  }, []);
   const [user, setUser] = useState(null);
   const [page, setPage] = useState('login');
   const [email, setEmail] = useState('');
@@ -374,6 +388,8 @@ function App() {
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regCode, setRegCode] = useState('');
+  const [regInviteInfo, setRegInviteInfo] = useState(null); // {role, presetName, presetCategory, supplierId}
+  const [regSupplierData, setRegSupplierData] = useState({companyName:'',inn:'',kpp:'',ogrn:'',phone:'',legalAddress:'',bank:'',bik:'',account:'',directorName:'',category:'',specialization:''});
   const [loginError, setLoginError] = useState('');
   const [activePage, setActivePage] = useState('dashboard');
   const [activeProjectTab, setActiveProjectTab] = useState('Общее');
@@ -442,6 +458,41 @@ function App() {
   const [newCatalogItem, setNewCatalogItem] = useState({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
   const [supplierTab, setSupplierTab] = useState('requests');
   const [supplierRequisites, setSupplierRequisites] = useState({companyName:'',inn:'',kpp:'',address:'',bank:'',bik:'',account:'',phone:'',email:'',priceUrl:''});
+
+  // Подтягиваем реквизиты из БД когда поставщик логинится
+  useEffect(() => {
+    if (user && user.role === 'поставщик' && suppliers && suppliers.length > 0) {
+      const my = suppliers.find(s => s.name === user.name || s.email === user.email || s.user_id === user.id);
+      if (my) {
+        setSupplierRequisites(prev => ({
+          ...prev,
+          companyName: my.name || prev.companyName || '',
+          inn: my.inn || '',
+          kpp: my.kpp || '',
+          ogrn: my.ogrn || '',
+          address: my.legal_address || my.legalAddress || prev.address || '',
+          actualAddress: my.actual_address || my.actualAddress || '',
+          bank: my.bank || '',
+          bik: my.bik || '',
+          account: my.account || '',
+          korAccount: my.kor_account || my.korAccount || '',
+          directorName: my.director_name || my.directorName || '',
+          directorPosition: my.director_position || my.directorPosition || '',
+          phone: my.phone || prev.phone || '',
+          email: my.email || prev.email || '',
+          website: my.website || '',
+          specialization: my.specialization || '',
+          category: my.category || '',
+          contractUrl: my.contract_url || my.contractUrl || '',
+          contractNumber: my.contract_number || my.contractNumber || '',
+          contractDate: my.contract_date || my.contractDate || '',
+          licenseUrl: my.license_url || my.licenseUrl || '',
+          priceUrl: my.price_url || my.priceUrl || prev.priceUrl || '',
+        }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, suppliers]);
   const [materialTransfers, setMaterialTransfers] = useState([]);
   const [showTransferForm, setShowTransferForm] = useState(false);
   const [newTransfer, setNewTransfer] = useState({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
@@ -556,6 +607,12 @@ function App() {
   // Сн.3: поставщик выставляет счёт
   const [invoicingOfferId, setInvoicingOfferId] = useState(null);
   const [newOfferInvoice, setNewOfferInvoice] = useState({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:'',vatAmount:'',description:'',fileUrl:''});
+  // Регистрация поставщика по ссылке
+  const [showSupplierInviteModal, setShowSupplierInviteModal] = useState(false);
+  const [supplierInviteForm, setSupplierInviteForm] = useState({presetName:'',presetCategory:'Сыпучие и бетон',supplierId:null,expiresInDays:14});
+  const [generatedInviteLink, setGeneratedInviteLink] = useState(null);
+  const [expandedSupplierId, setExpandedSupplierId] = useState(null);
+  const [supplierDocuments, setSupplierDocuments] = useState([]);
   const [personnelTab, setPersonnelTab] = useState('staff');
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
@@ -1809,11 +1866,41 @@ function App() {
   const handleRegister = async () => {
     if (!regName||!regEmail||!regPassword||!regCode) { setLoginError('Заполните все поля'); return; }
     try {
-      const res = await fetch(API+'/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:regName,email:regEmail,password:regPassword,code:regCode})});
+      const body = {name:regName, email:regEmail, password:regPassword, code:regCode};
+      // Если приглашение для поставщика — добавляем расширенные поля
+      if (regInviteInfo?.role === 'поставщик') {
+        Object.assign(body, regSupplierData);
+      }
+      const res = await fetch(API+'/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       if (!res.ok) { const err=await res.json(); setLoginError(err.detail); return; }
       setUser(await res.json());
     } catch { setLoginError('Ошибка подключения'); }
   };
+
+  // Проверка кода приглашения — показывает расширенную форму для поставщика
+  const checkInviteCode = async (code) => {
+    if (!code || code.length < 4) { setRegInviteInfo(null); return; }
+    try {
+      const r = await fetch(API+'/invite-codes/'+encodeURIComponent(code)+'/info');
+      const data = await r.json();
+      if (data.valid) {
+        setRegInviteInfo(data);
+        if (data.role === 'поставщик') {
+          setRegSupplierData(prev => ({...prev, companyName: data.presetName||'', category: data.presetCategory||''}));
+        }
+      } else {
+        setRegInviteInfo(null);
+      }
+    } catch(_) { setRegInviteInfo(null); }
+  };
+
+  // Авто-проверка при изменении кода (debounce 400 мс)
+  useEffect(() => {
+    if (!regCode) { setRegInviteInfo(null); return; }
+    const t = setTimeout(()=>{ checkInviteCode(regCode); }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regCode]);
 
   const saveProfile = async () => {
     if (!profileData.fullName||!profileData.inn||!profileData.bankAccount) { alert('Заполните обязательные поля'); return; }
@@ -2653,6 +2740,35 @@ function App() {
   };
 
   const createInvite = async () => { await fetch(API+'/invite-codes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:newInviteRole})}); await loadAll(); };
+
+  // Создать пригласительную ссылку для поставщика и показать её для копирования
+  const createSupplierInvite = async () => {
+    const body = {
+      role:'поставщик',
+      presetName: supplierInviteForm.presetName || '',
+      presetCategory: supplierInviteForm.presetCategory || '',
+      supplierId: supplierInviteForm.supplierId,
+      expiresInDays: supplierInviteForm.expiresInDays || 14,
+      createdBy: user?.name || ''
+    };
+    const r = await fetch(API+'/invite-codes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const data = await r.json();
+    if (data.code) {
+      const link = window.location.origin + '/?invite=' + data.code;
+      setGeneratedInviteLink({code:data.code, link, presetName:body.presetName, expiresAt:data.expires_at});
+      await loadAll();
+    } else {
+      alert('Не удалось создать ссылку');
+    }
+  };
+
+  const loadSupplierDocuments = async (supplierId) => {
+    try {
+      const r = await fetch(API+'/supplier-documents?supplier_id='+supplierId);
+      const data = await r.json();
+      setSupplierDocuments(Array.isArray(data)?data:[]);
+    } catch(_) { setSupplierDocuments([]); }
+  };
   const deleteInvite = async (id) => { await fetch(API+'/invite-codes/'+id,{method:'DELETE'}); await loadAll(); };
 
   const savePricelist = async () => {
@@ -3850,16 +3966,51 @@ function App() {
 
   if (!user) {
     if (page==='register') {
+      const isSupplierInvite = regInviteInfo?.role === 'поставщик';
       return (
-        <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'100vh',backgroundColor:C.bg}}>
-          <div style={{...card,padding:'40px',width:'420px',boxShadow:'0 20px 60px rgba(0,0,0,0.08)'}}>
-            <div style={{textAlign:'center',marginBottom:'30px'}}><div style={{fontSize:'48px',marginBottom:'10px'}}>🏗️</div><h2 style={{margin:0,color:C.text,fontSize:'24px',fontWeight:'800'}}>СтройКа</h2><p style={{color:C.textSec,fontSize:'13px',margin:'8px 0 0'}}>Регистрация по коду приглашения</p></div>
-            <input placeholder="Ваше имя" value={regName} onChange={e=>setRegName(e.target.value)} style={inp}/>
+        <div style={{display:'flex',justifyContent:'center',alignItems:'center',minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
+          <div style={{...card,padding:'30px',width:isSupplierInvite?'560px':'420px',maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.08)',maxHeight:'95vh',overflowY:'auto'}}>
+            <div style={{textAlign:'center',marginBottom:'24px'}}>
+              <div style={{fontSize:'42px',marginBottom:'8px'}}>{isSupplierInvite?'🏭':'🏗️'}</div>
+              <h2 style={{margin:0,color:C.text,fontSize:'22px',fontWeight:'800'}}>СтройКа</h2>
+              <p style={{color:C.textSec,fontSize:'13px',margin:'8px 0 0'}}>
+                {isSupplierInvite ? 'Регистрация поставщика' : 'Регистрация по коду приглашения'}
+              </p>
+            </div>
+            {regInviteInfo && regInviteInfo.role && (
+              <div style={{padding:'10px 12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'14px',fontSize:'12px',color:C.text}}>
+                ✅ Приглашение действительно — роль: <b>{ROLE_LABELS[regInviteInfo.role]||regInviteInfo.role}</b>
+                {regInviteInfo.presetName && <><br/>📛 Компания: <b>{regInviteInfo.presetName}</b></>}
+                {regInviteInfo.presetCategory && <><br/>📂 Категория: <b>{regInviteInfo.presetCategory}</b></>}
+              </div>
+            )}
+            <input placeholder={isSupplierInvite?"ФИО контактного лица":"Ваше имя"} value={regName} onChange={e=>setRegName(e.target.value)} style={inp}/>
             <input type="email" placeholder="Email" value={regEmail} onChange={e=>setRegEmail(e.target.value)} style={inp}/>
-            <input type="password" placeholder="Пароль" value={regPassword} onChange={e=>setRegPassword(e.target.value)} style={inp}/>
+            <input type="password" placeholder="Пароль (минимум 5 символов)" value={regPassword} onChange={e=>setRegPassword(e.target.value)} style={inp}/>
             <input placeholder="КОД ПРИГЛАШЕНИЯ" value={regCode} onChange={e=>setRegCode(e.target.value.toUpperCase())} style={{...inp,letterSpacing:'4px',textAlign:'center',fontSize:'18px',fontWeight:'700'}}/>
-            {loginError&&<p style={{color:C.danger,fontSize:'13px',marginBottom:'10px'}}>{loginError}</p>}
-            <button onClick={handleRegister} style={{...btnO,width:'100%',padding:'13px',justifyContent:'center',fontSize:'15px',marginBottom:'10px'}}>Зарегистрироваться</button>
+            {isSupplierInvite && (
+              <div style={{marginTop:'12px',padding:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.border,borderRadius:'10px'}}>
+                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>📋 Данные компании (можно заполнить позже в кабинете)</b>
+                <input placeholder="Название компании *" value={regSupplierData.companyName} onChange={e=>setRegSupplierData({...regSupplierData,companyName:e.target.value})} style={inp}/>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                  <input placeholder="ИНН" value={regSupplierData.inn} onChange={e=>setRegSupplierData({...regSupplierData,inn:e.target.value})} style={{...inp,marginBottom:'8px'}}/>
+                  <input placeholder="КПП" value={regSupplierData.kpp} onChange={e=>setRegSupplierData({...regSupplierData,kpp:e.target.value})} style={{...inp,marginBottom:'8px'}}/>
+                </div>
+                <input placeholder="ОГРН/ОГРНИП" value={regSupplierData.ogrn} onChange={e=>setRegSupplierData({...regSupplierData,ogrn:e.target.value})} style={inp}/>
+                <input placeholder="Юридический адрес" value={regSupplierData.legalAddress} onChange={e=>setRegSupplierData({...regSupplierData,legalAddress:e.target.value})} style={inp}/>
+                <input placeholder="Телефон" value={regSupplierData.phone} onChange={e=>setRegSupplierData({...regSupplierData,phone:e.target.value})} style={inp}/>
+                <input placeholder="Банк" value={regSupplierData.bank} onChange={e=>setRegSupplierData({...regSupplierData,bank:e.target.value})} style={inp}/>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:'8px'}}>
+                  <input placeholder="БИК" value={regSupplierData.bik} onChange={e=>setRegSupplierData({...regSupplierData,bik:e.target.value})} style={{...inp,marginBottom:'8px'}}/>
+                  <input placeholder="Расчётный счёт" value={regSupplierData.account} onChange={e=>setRegSupplierData({...regSupplierData,account:e.target.value})} style={{...inp,marginBottom:'8px'}}/>
+                </div>
+                <input placeholder="ФИО директора" value={regSupplierData.directorName} onChange={e=>setRegSupplierData({...regSupplierData,directorName:e.target.value})} style={inp}/>
+                <input placeholder="Специализация (что поставляете)" value={regSupplierData.specialization} onChange={e=>setRegSupplierData({...regSupplierData,specialization:e.target.value})} style={inp}/>
+                <p style={{color:C.textMuted,fontSize:'11px',margin:0}}>Договор поставки и прайс-лист загрузите в личном кабинете после регистрации.</p>
+              </div>
+            )}
+            {loginError&&<p style={{color:C.danger,fontSize:'13px',marginTop:'12px',marginBottom:'0'}}>{loginError}</p>}
+            <button onClick={handleRegister} style={{...btnO,width:'100%',padding:'13px',justifyContent:'center',fontSize:'15px',marginTop:'12px',marginBottom:'10px'}}>Зарегистрироваться</button>
             <p style={{textAlign:'center',color:C.textSec,fontSize:'13px'}}>Уже есть аккаунт? <span onClick={()=>{setPage('login');setLoginError('');}} style={{color:C.accent,cursor:'pointer',fontWeight:'600'}}>Войти</span></p>
           </div>
         </div>
@@ -4182,20 +4333,59 @@ function App() {
 
           {supplierTab==='profile'&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚙️ Реквизиты компании</b>
-            <div style={{...card,padding:'16px'}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+            <div style={{...card,padding:'16px',marginBottom:'14px'}}>
+              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'10px'}}>📋 Основное</b>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
                 <input placeholder='Название компании' value={supplierRequisites.companyName} onChange={e=>setSupplierRequisites({...supplierRequisites,companyName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                 <input placeholder='ИНН' value={supplierRequisites.inn} onChange={e=>setSupplierRequisites({...supplierRequisites,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='КПП' value={supplierRequisites.kpp} onChange={e=>setSupplierRequisites({...supplierRequisites,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='ОГРН/ОГРНИП' value={supplierRequisites.ogrn||''} onChange={e=>setSupplierRequisites({...supplierRequisites,ogrn:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                 <input placeholder='Юридический адрес' value={supplierRequisites.address} onChange={e=>setSupplierRequisites({...supplierRequisites,address:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='Банк' value={supplierRequisites.bank} onChange={e=>setSupplierRequisites({...supplierRequisites,bank:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='БИК' value={supplierRequisites.bik} onChange={e=>setSupplierRequisites({...supplierRequisites,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Расчётный счёт' value={supplierRequisites.account} onChange={e=>setSupplierRequisites({...supplierRequisites,account:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='Фактический адрес' value={supplierRequisites.actualAddress||''} onChange={e=>setSupplierRequisites({...supplierRequisites,actualAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='Директор (ФИО)' value={supplierRequisites.directorName||''} onChange={e=>setSupplierRequisites({...supplierRequisites,directorName:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Должность директора' value={supplierRequisites.directorPosition||''} onChange={e=>setSupplierRequisites({...supplierRequisites,directorPosition:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Телефон' value={supplierRequisites.phone} onChange={e=>setSupplierRequisites({...supplierRequisites,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Email' value={supplierRequisites.email} onChange={e=>setSupplierRequisites({...supplierRequisites,email:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Ссылка на прайс-лист (Google Sheet / Excel URL)' value={supplierRequisites.priceUrl||''} onChange={e=>setSupplierRequisites({...supplierRequisites,priceUrl:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='Сайт (опц.)' value={supplierRequisites.website||''} onChange={e=>setSupplierRequisites({...supplierRequisites,website:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='Специализация (что поставляете)' value={supplierRequisites.specialization||''} onChange={e=>setSupplierRequisites({...supplierRequisites,specialization:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
               </div>
-              <button onClick={()=>{fetch(API+'/suppliers/'+(mySupplier?.id||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(supplierRequisites)}).then(()=>{localStorage.setItem('supplierReq_'+user.id,JSON.stringify(supplierRequisites));alert('Реквизиты сохранены!');loadAll();})}} style={{...btnO,marginTop:'12px'}}><Check size={14}/>Сохранить</button>
+              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>🏦 Банковские реквизиты</b>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                <input placeholder='Банк' value={supplierRequisites.bank} onChange={e=>setSupplierRequisites({...supplierRequisites,bank:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                <input placeholder='БИК' value={supplierRequisites.bik} onChange={e=>setSupplierRequisites({...supplierRequisites,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Корр. счёт' value={supplierRequisites.korAccount||''} onChange={e=>setSupplierRequisites({...supplierRequisites,korAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input placeholder='Расчётный счёт' value={supplierRequisites.account} onChange={e=>setSupplierRequisites({...supplierRequisites,account:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+              </div>
+              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>📄 Договор поставки</b>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                <input placeholder='Номер договора' value={supplierRequisites.contractNumber||''} onChange={e=>setSupplierRequisites({...supplierRequisites,contractNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <input type='date' placeholder='Дата договора' value={supplierRequisites.contractDate||''} onChange={e=>setSupplierRequisites({...supplierRequisites,contractDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+              </div>
+              <label style={{...btnG,padding:'10px 14px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px',marginRight:'8px'}}>
+                <Upload size={14}/>{supplierRequisites.contractUrl?'✅ Договор загружен':'Загрузить договор (PDF)'}
+                <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setSupplierRequisites({...supplierRequisites,contractUrl:url});}}}/>
+              </label>
+              {supplierRequisites.contractUrl && (<a href={supplierRequisites.contractUrl.startsWith('http')?supplierRequisites.contractUrl:API+supplierRequisites.contractUrl} target='_blank' rel='noopener noreferrer' style={{fontSize:'12px',color:C.accent,marginRight:'8px'}}>📥 Посмотреть</a>)}
+              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>📦 Прайс-лист (опц.)</b>
+              <input placeholder='Ссылка на прайс (Google Sheet / Excel URL)' value={supplierRequisites.priceUrl||''} onChange={e=>setSupplierRequisites({...supplierRequisites,priceUrl:e.target.value})} style={inp}/>
+              <label style={{...btnG,padding:'10px 14px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px',marginRight:'8px'}}>
+                <Upload size={14}/>{supplierRequisites.licenseUrl?'✅ Лицензия загружена':'Загрузить лицензию/сертификат'}
+                <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setSupplierRequisites({...supplierRequisites,licenseUrl:url});}}}/>
+              </label>
+              {supplierRequisites.licenseUrl && (<a href={supplierRequisites.licenseUrl.startsWith('http')?supplierRequisites.licenseUrl:API+supplierRequisites.licenseUrl} target='_blank' rel='noopener noreferrer' style={{fontSize:'12px',color:C.accent}}>📥 Посмотреть</a>)}
+              <button onClick={async()=>{
+                const res = await fetch(API+'/suppliers/'+(mySupplier?.id||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+                  ...supplierRequisites,
+                  legalAddress: supplierRequisites.address // alias
+                })});
+                if (res.ok) {
+                  localStorage.setItem('supplierReq_'+user.id,JSON.stringify(supplierRequisites));
+                  alert('Реквизиты сохранены!');
+                  await loadAll();
+                } else {
+                  alert('Ошибка сохранения');
+                }
+              }} style={{...btnO,marginTop:'14px',width:'100%',justifyContent:'center',padding:'12px'}}><Check size={14}/>Сохранить реквизиты</button>
             </div>
           </div>)}
         </div>
@@ -7660,9 +7850,12 @@ function App() {
             </div>
 
             {suppliersTab==='active'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'8px',flexWrap:'wrap'}}>
                 <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Поставщики</b>
-                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewSupplier({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'});}} style={btnO}><Plus size={14}/>Добавить</button>
+                <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                  <button onClick={()=>{setSupplierInviteForm({presetName:'',presetCategory:'Сыпучие и бетон',supplierId:null,expiresInDays:14});setGeneratedInviteLink(null);setShowSupplierInviteModal(true);}} style={btnGr}><Plus size={14}/>🔗 Пригласить по ссылке</button>
+                  <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewSupplier({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'});}} style={btnO}><Plus size={14}/>Добавить вручную</button>
+                </div>
               </div>
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
@@ -9431,6 +9624,53 @@ function App() {
       <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:isMobile?'flex':'none',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
         {[{id:'dashboard',icon:<LayoutDashboard size={20}/>,label:'Главная'},{id:'projects',icon:<FolderKanban size={20}/>,label:'Объекты'},{id:'warehouse',icon:<Package size={20}/>,label:'Склад'},{id:'companychat',icon:<MessageSquare size={20}/>,label:'Чат',isPanel:true},{id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'}].map(item=>(<div key={item.id} onClick={()=>{if(item.id==='more'){setShowMobileMenu(s=>!s);setShowQuickActions(false);}else if(item.id==='companychat'){setShowChatPanel(s=>!s);setShowMobileMenu(false);setShowQuickActions(false);}else{setActivePage(item.id);setShowMobileMenu(false);setShowQuickActions(false);}}} style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'4px 8px',borderRadius:'8px',backgroundColor:activePage===item.id?(activePage==='dashboard'?'rgba(249,115,22,0.15)':'#fff7ed'):'transparent'}}><span style={{color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#6b7280',position:'relative'}}>{item.icon}{item.id==='companychat'&&unreadMessagesCount>0&&<span style={{position:'absolute',top:'-6px',right:'-8px',backgroundColor:'#ef4444',color:'white',borderRadius:'10px',padding:'1px 5px',fontSize:'9px',fontWeight:'700',minWidth:'14px',textAlign:'center',lineHeight:'1.2'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</span><span style={{fontSize:'10px',color:activePage===item.id?'#f97316':activePage==='dashboard'?'#94a3b8':'#9ca3af',fontWeight:activePage===item.id?'700':'400',marginTop:'2px'}}>{item.label}</span></div>))}
       </div>
+      {/* Модалка «Пригласить поставщика по ссылке» */}
+      {showSupplierInviteModal&&(<div onClick={()=>setShowSupplierInviteModal(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+        <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'min(560px,100%)',maxHeight:'85vh',overflowY:'auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+            <b style={{color:C.text,fontSize:'16px'}}>🔗 Пригласить поставщика по ссылке</b>
+            <button onClick={()=>setShowSupplierInviteModal(false)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
+          </div>
+          {!generatedInviteLink && (<>
+            <div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
+              ℹ️ Сгенерируем уникальную ссылку для поставщика. Он перейдёт по ней, заполнит реквизиты компании и зарегистрируется сам. Договор поставки и прайс прикрепит в кабинете.
+            </div>
+            <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'4px'}}>Название компании (опц.)</label>
+            <input value={supplierInviteForm.presetName} onChange={e=>setSupplierInviteForm({...supplierInviteForm,presetName:e.target.value})} placeholder='Например: ООО Стройторг' style={inp}/>
+            <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'4px'}}>Категория поставок</label>
+            <select value={supplierInviteForm.presetCategory} onChange={e=>setSupplierInviteForm({...supplierInviteForm,presetCategory:e.target.value})} style={inp}>
+              {SUPPLIER_CATEGORIES.map(c=><option key={c}>{c}</option>)}
+            </select>
+            <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'4px'}}>Привязать к существующей компании (опц.)</label>
+            <select value={supplierInviteForm.supplierId||''} onChange={e=>setSupplierInviteForm({...supplierInviteForm,supplierId:e.target.value?Number(e.target.value):null})} style={inp}>
+              <option value=''>— новая компания —</option>
+              {(suppliers||[]).filter(s=>!s.user_id&&!s.userId).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'4px'}}>Срок действия ссылки (дней)</label>
+            <input type='number' value={supplierInviteForm.expiresInDays} onChange={e=>setSupplierInviteForm({...supplierInviteForm,expiresInDays:Number(e.target.value)})} style={inp}/>
+            <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
+              <button onClick={createSupplierInvite} style={btnO}><Check size={14}/>Создать ссылку</button>
+              <button onClick={()=>setShowSupplierInviteModal(false)} style={btnG}><X size={14}/>Отмена</button>
+            </div>
+          </>)}
+          {generatedInviteLink && (<>
+            <div style={{padding:'14px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'10px',marginBottom:'12px'}}>
+              <b style={{color:C.success,fontSize:'13px',display:'block',marginBottom:'8px'}}>✅ Ссылка создана!</b>
+              <p style={{margin:'0 0 8px',fontSize:'12px',color:C.text}}>Отправьте её поставщику любым способом (email, мессенджер, телефон):</p>
+              <div style={{padding:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px',color:C.text,wordBreak:'break-all',userSelect:'all'}}>
+                {generatedInviteLink.link}
+              </div>
+              <p style={{margin:'8px 0 0',fontSize:'11px',color:C.textSec}}>Код: <b>{generatedInviteLink.code}</b> · Истекает: {generatedInviteLink.expiresAt?new Date(generatedInviteLink.expiresAt).toLocaleDateString('ru-RU'):'через 14 дней'}</p>
+            </div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={()=>{navigator.clipboard.writeText(generatedInviteLink.link).then(()=>{alert('Ссылка скопирована в буфер обмена');}).catch(()=>{alert('Скопируйте вручную');});}} style={btnO}><Copy size={14}/>Скопировать ссылку</button>
+              <button onClick={()=>{setGeneratedInviteLink(null);}} style={btnG}>Создать ещё одну</button>
+              <button onClick={()=>{setShowSupplierInviteModal(false);setGeneratedInviteLink(null);}} style={btnG}>Закрыть</button>
+            </div>
+          </>)}
+        </div>
+      </div>)}
+
       {/* Модалка «Запросить КП у поставщиков» (Сн.2) */}
       {showRequestKpModal&&(<div onClick={()=>setShowRequestKpModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
         <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'min(640px,100%)',maxHeight:'85vh',overflowY:'auto'}}>
