@@ -8277,43 +8277,107 @@ function App() {
             </div>)}
 
             {suppliersTab==='offers'&&(<div>
-              <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Все коммерческие предложения</h3>
-              {(supplierOffers||[]).length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>КП пока нет</div>}
-              {(supplierOffers||[]).map(o=>{
-                const sup=suppliers.find(s=>s.id===o.supplierId);
-                const req=supplyRequests.find(r=>r.id===o.requestId);
-                const items = req ? parseSupplyItems(req) : [];
-                const isMulti = items.length>1;
-                const titleText = req ? (isMulti?('📋 Заявка из '+items.length+' позиций'):items[0]?.materialName||req.materialName||'—') : '—';
-                const hasPrice = Number(o.pricePerUnit||0) > 0;
-                // Цвет бейджа по статусу
-                const stC = o.status==='Утверждено'?C.success:o.status==='Отклонено'?C.danger:o.status==='Получено'?C.info:o.status==='Ожидает ответа'?C.warning:C.warning;
-                const stBg = o.status==='Утверждено'?C.successLight:o.status==='Отклонено'?C.dangerLight:o.status==='Получено'?C.infoLight:C.warningLight;
-                const stBd = o.status==='Утверждено'?C.successBorder:o.status==='Отклонено'?C.dangerBorder:o.status==='Получено'?C.infoBorder:C.warningBorder;
-                return (<div key={o.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                    <div style={{flex:'1 1 240px'}}>
-                      <b style={{fontSize:'13px',color:C.text}}>{titleText}</b>
-                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>
-                        {(sup?sup.name:'Поставщик #'+o.supplierId)+(req&&req.project?' · 🏗 '+req.project:'')}
-                      </p>
-                      {hasPrice ? (
-                        <p style={{color:C.text,margin:'2px 0',fontSize:'12px'}}>
-                          {isMulti
-                            ? ('Итого за пакет: '+Number(o.totalPrice||o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽')
-                            : (Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽/ед · итого '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' ₽')}
-                          {o.deliveryDays?' · '+o.deliveryDays+' дн.':''}
-                          {o.paymentTerms?' · '+o.paymentTerms:''}
-                        </p>
-                      ) : (
-                        <p style={{color:C.textMuted,margin:'2px 0',fontSize:'12px',fontStyle:'italic'}}>⏳ Поставщик ещё не ответил</p>
+              <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>📊 Коммерческие предложения по заявкам</h3>
+              {(supplierOffers||[]).length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>КП пока нет.<br/><span style={{fontSize:'12px'}}>Они появятся когда вы запросите их у поставщиков из раздела «🛒 Снабжение».</span></div>}
+              {/* Группировка КП по заявкам */}
+              {(()=>{
+                const byReq = new Map();
+                (supplierOffers||[]).forEach(o => {
+                  if (!byReq.has(o.requestId)) byReq.set(o.requestId, []);
+                  byReq.get(o.requestId).push(o);
+                });
+                if (byReq.size === 0) return null;
+                return Array.from(byReq.entries()).map(([reqId, offers]) => {
+                  const req = supplyRequests.find(r => r.id === reqId);
+                  if (!req) return null;
+                  const items = parseSupplyItems(req);
+                  const isMulti = items.length > 1;
+                  const titleText = isMulti ? ('📋 Заявка из '+items.length+' позиций') : (items[0]?.materialName || req.materialName || '—');
+                  const winner = offers.find(o => o.status === 'Утверждено');
+                  const receivedOffers = offers.filter(o => o.status === 'Получено' || o.status === 'Утверждено');
+                  const compareResult = compareResultByReq[req.id];
+                  const compareLoading = compareLoadingReqId === req.id;
+                  return (<div key={reqId} style={{...card,padding:'16px',marginBottom:'14px'}}>
+                    {/* Шапка заявки */}
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
+                      <div>
+                        <b style={{color:C.text,fontSize:'15px'}}>{titleText}</b>
+                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>🏗 {req.project||'—'} · {offers.length} КП {winner?' · ✅ выбрано':''}</p>
+                        {isMulti && (<ol style={{margin:'4px 0 0',paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>
+                          {items.map((it,i)=>(<li key={i} style={{marginBottom:'1px'}}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>))}
+                        </ol>)}
+                      </div>
+                      {receivedOffers.length>=2 && isLeadership() && !winner && (
+                        <button onClick={()=>runCompareKp(req.id)} disabled={compareLoading} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:compareLoading?0.6:1}}>
+                          <Bot size={12}/>{compareLoading?'AI сравнивает...':'🤖 Сравнить через AI'}
+                        </button>
                       )}
-                      {o.aiRecommended && <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>🤖 AI рек.</span>}
                     </div>
-                    <span style={badge(stC,stBg,stBd)}>{o.status||'—'}</span>
-                  </div>
-                </div>);
-              })}
+                    {/* AI вердикт */}
+                    {compareResult && !compareResult.error && (<div style={{padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'10px'}}>
+                      <b style={{color:C.success,fontSize:'11px',display:'block',marginBottom:'6px'}}>🤖 AI рекомендует: {compareResult.bestSupplier}</b>
+                      {compareResult.aiText && <p style={{color:C.text,fontSize:'12px',margin:'0 0 8px',lineHeight:'1.5'}}>{compareResult.aiText}</p>}
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
+                        <thead>
+                          <tr style={{backgroundColor:C.bg}}>
+                            <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>#</th>
+                            <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Поставщик</th>
+                            <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Цена</th>
+                            <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Срок</th>
+                            <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Оплата</th>
+                            <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Балл</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {compareResult.ranking.map((r,i)=>(<tr key={r.offerId} style={{backgroundColor:i===0?'rgba(34,197,94,0.08)':'transparent'}}>
+                            <td style={{padding:'4px 6px',color:i===0?C.success:C.textSec,fontWeight:'600'}}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.'}</td>
+                            <td style={{padding:'4px 6px',color:C.text}}>{r.supplier}{r.rating>0?' ⭐'+r.rating:''}</td>
+                            <td style={{padding:'4px 6px',textAlign:'right',color:C.text}}>{Number(r.pricePerUnit||r.totalPrice||0).toLocaleString('ru-RU')} ₽</td>
+                            <td style={{padding:'4px 6px',textAlign:'center',color:C.text}}>{r.deliveryDays} дн.</td>
+                            <td style={{padding:'4px 6px',color:C.text,fontSize:'10px'}}>{r.paymentTerms}{r.vatIncluded===false?' · б/НДС':''}</td>
+                            <td style={{padding:'4px 6px',textAlign:'center',color:i===0?C.success:C.text,fontWeight:i===0?'700':'400'}}>{r.score}</td>
+                          </tr>))}
+                        </tbody>
+                      </table>
+                      <p style={{color:C.textMuted,fontSize:'10px',margin:'6px 0 0',fontStyle:'italic'}}>Балл: цена 40% · срок 20% · условия 20% · рейтинг 20%. Финальное решение за вами.</p>
+                    </div>)}
+                    {compareResult && compareResult.error && (<div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>ℹ️ {compareResult.error}</div>)}
+                    {/* Список КП */}
+                    {offers.map(o => {
+                      const sup = suppliers.find(s => s.id === o.supplierId);
+                      const hasPrice = Number(o.pricePerUnit||0) > 0;
+                      const stC = o.status==='Утверждено'?C.success:o.status==='Отклонено'?C.danger:o.status==='Получено'?C.info:C.warning;
+                      const stBg = o.status==='Утверждено'?C.successLight:o.status==='Отклонено'?C.dangerLight:o.status==='Получено'?C.infoLight:C.warningLight;
+                      const stBd = o.status==='Утверждено'?C.successBorder:o.status==='Отклонено'?C.dangerBorder:o.status==='Получено'?C.infoBorder:C.warningBorder;
+                      return (<div key={o.id} style={{padding:'10px 12px',backgroundColor:stBg,borderRadius:'6px',marginBottom:'6px',border:'1.5px solid '+stBd}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
+                          <div style={{flex:'1 1 220px'}}>
+                            <b style={{color:C.text,fontSize:'13px'}}>{sup?sup.name:'Поставщик #'+o.supplierId}{o.aiRecommended&&<span style={{marginLeft:'6px',fontSize:'10px',color:C.accent}}>🤖 AI рек.</span>}</b>
+                            {hasPrice
+                              ? (<p style={{color:C.text,margin:'2px 0',fontSize:'12px'}}>
+                                  {isMulti
+                                    ? ('Итого за пакет: '+Number(o.totalPrice||o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽')
+                                    : (Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽/ед · итого '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' ₽')}
+                                  {o.deliveryDays?' · '+o.deliveryDays+' дн.':''}
+                                </p>)
+                              : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'12px',fontStyle:'italic'}}>⏳ Поставщик ещё не ответил</p>}
+                            {o.paymentTerms && <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>💳 {o.paymentTerms}{o.vatIncluded===false?' · без НДС':' · с НДС'}{o.validUntil?' · до '+o.validUntil:''}</p>}
+                            {o.supplierMessage && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>💬 «{o.supplierMessage}»</p>}
+                            {o.pdfUrl && <a href={o.pdfUrl.startsWith('http')?o.pdfUrl:API+o.pdfUrl} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent,display:'inline-block',marginTop:'4px'}}>📄 PDF</a>}
+                          </div>
+                          <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
+                            <span style={badge(stC,stBg,stBd)}>{o.status||'—'}</span>
+                            {o.status==='Получено' && isLeadership() && (<>
+                              <button onClick={()=>selectSupplierOffer(o.id)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/>Выбрать</button>
+                              <button onClick={()=>rejectSupplierOffer(o.id)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button>
+                            </>)}
+                          </div>
+                        </div>
+                      </div>);
+                    })}
+                  </div>);
+                });
+              })()}
             </div>)}
 
             {suppliersTab==='history'&&(<div>
