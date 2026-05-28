@@ -3113,16 +3113,6 @@ function App() {
     notify('КП утверждено','supply'); await loadAll();
   };
 
-  const confirmDelivery = async (d) => {
-    await fetch(API+'/supply-history/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Доставлено',confirmedBy:user.name})});
-    const mat = materials.find(m=>m.name===d.materialName);
-    if (mat) {
-      await fetch(API+'/materials/'+mat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mat,quantity:mat.quantity+d.quantity})});
-      await fetch(API+'/warehouse-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({material:d.materialName,type:'приход',quantity:d.quantity,date:new Date().toISOString().split('T')[0],project:d.project,issuedBy:user.name})});
-    }
-    notify('Доставлено: '+d.materialName,'delivery'); await loadAll();
-  };
-
   const deleteContract = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/contracts/'+id,{method:'DELETE'}); await loadAll(); } };
   const deleteInterimAct = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/interim-acts/'+id,{method:'DELETE'}); await loadAll(); } };
 
@@ -4125,8 +4115,10 @@ function App() {
     const mySupplier = suppliers.find(s => s.name === user.name || s.email === user.email);
     const myCatalog = supplierCatalog.filter(c => c.supplierId === mySupplier?.id);
     const myOffers = supplierOffers.filter(o => o.supplierId === mySupplier?.id);
-    const myInvoices = invoices.filter(inv => inv.supplierName === user.name);
-    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'documents',label:'📄 Документы'},{id:'profile',label:'⚙️ Профиль'}];
+    const mySupplierInvoices = supplierInvoices.filter(inv => inv.supplierId===mySupplier?.id || inv.supplierName===mySupplier?.name || inv.supplierName===user.name);
+    const myDeliveries = supplyDeliveries.filter(d => d.supplierId===mySupplier?.id || d.supplierName===mySupplier?.name || d.supplierName===user.name);
+    const myClaims = supplyClaims.filter(c => c.supplierId===mySupplier?.id);
+    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
     return (
       <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
         <div style={{maxWidth:'900px',margin:'0 auto'}}>
@@ -4216,13 +4208,19 @@ function App() {
                           (()=>{
                             const hasInvoice = (supplierInvoices||[]).find(inv=>inv.offerId===o.id||inv.offer_id===o.id);
                             const delivery = (supplyDeliveries||[]).find(d=>d.offerId===o.id);
+                            const paid = Number(hasInvoice?.paidAmount||0);
+                            const amount = Number(hasInvoice?.amount||hasInvoice?.totalAmount||o.totalPrice||0);
+                            const terms = String(o.paymentTerms||'').toLowerCase();
+                            const needPay = terms.includes('предоплат') || terms.includes('50/50');
+                            const required = terms.includes('50/50') ? amount*0.5 : amount;
+                            const blockedByPay = needPay && (!hasInvoice || paid + 0.01 < required);
                             return (<div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                               {hasInvoice
-                                ? <span style={badge(C.info,C.infoLight,C.infoBorder)}>💳 Счёт выставлен</span>
+                                ? <span style={badge(hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.success:C.info,hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.successLight:C.infoLight,hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.successBorder:C.infoBorder)}>💳 {hasInvoice.status}</span>
                                 : <button onClick={()=>{setInvoicingOfferId(o.id);setNewOfferInvoice({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:o.totalPrice||'',vatAmount:'',description:'Материал: '+req.materialName,fileUrl:''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💳 Выставить счёт</button>}
                               {delivery
                                 ? <span style={badge(delivery.status==='Принято'?C.success:delivery.status==='Проблема'?C.danger:C.warning,delivery.status==='Принято'?C.successLight:delivery.status==='Проблема'?C.dangerLight:C.warningLight,delivery.status==='Принято'?C.successBorder:delivery.status==='Проблема'?C.dangerBorder:C.warningBorder)}>🚚 {delivery.status}</span>
-                                : <button onClick={()=>{setShippingOfferId(o.id);setShipmentForm({shippedQuantity:String(req.quantity||''),waybillNumber:'',waybillDate:new Date().toISOString().split('T')[0],vehicleNumber:'',driverName:'',documentUrl:'',photoUrl:''});}} style={{...btnGr,padding:'5px 12px',fontSize:'12px'}}>🚚 Отгрузить</button>}
+                                : <button disabled={blockedByPay} title={blockedByPay?'По условиям оплаты сначала нужна оплата бухгалтерии':''} onClick={()=>{if(blockedByPay){alert('По условиям «'+(o.paymentTerms||'')+'» сначала нужна оплата.');return;}setShippingOfferId(o.id);setShipmentForm({shippedQuantity:String(req.quantity||''),waybillNumber:'',waybillDate:new Date().toISOString().split('T')[0],vehicleNumber:'',driverName:'',documentUrl:'',photoUrl:''});}} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:blockedByPay?0.5:1,cursor:blockedByPay?'not-allowed':'pointer'}}>🚚 Отгрузить</button>}
                             </div>);
                           })()
                         )}
@@ -4436,24 +4434,55 @@ function App() {
                 <div><b style={{fontSize:'13px',color:C.text}}>{supplyRequests.find(r=>r.id===o.requestId)?.materialName||'Материал'}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(o.pricePerUnit).toLocaleString()+' руб/ед . '+Number(o.totalPrice).toLocaleString()+' руб . '+o.deliveryDays+' дней'}</p></div>
                 <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:o.status==='Утверждено'?C.successLight:C.warningLight,color:o.status==='Утверждено'?C.success:C.warning}}>{o.status==='Утверждено'?'Утверждено':'Ожидает'}</span>
               </div>
-              {o.status==='Утверждено'&&(<div><p style={{fontSize:'11px',color:C.textSec,marginBottom:'6px'}}>Статус доставки:</p><div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>{['Готовится к отгрузке','В пути','Доставлено'].map(s=>(<button key={s} onClick={async()=>{await fetch(API+'/supplier-offers/'+o.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({deliveryStatus:s})});await loadAll();}} style={{padding:'4px 10px',border:'1.5px solid '+(o.deliveryStatus===s?C.accent:C.border),borderRadius:'6px',fontSize:'11px',backgroundColor:o.deliveryStatus===s?C.accentLight:'transparent',color:o.deliveryStatus===s?C.accent:C.textSec,cursor:'pointer'}}>{s}</button>))}</div></div>)}
+              {o.status==='Утверждено'&&(<p style={{fontSize:'11px',color:C.textSec,margin:'6px 0 0'}}>Отгрузка теперь оформляется из вкладки «📋 Заявки» по выигранному КП, чтобы не обходить счёт и приёмку.</p>)}
             </div>))}
             {myOffers.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Предложений нет</p>}
           </div>)}
 
+          {supplierTab==='deliveries'&&(<div>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>🚚 Мои отгрузки</b>
+            {myDeliveries.map(d=>{const claim=myClaims.find(c=>c.deliveryId===d.id);return(<div key={d.id} style={{...card,padding:'12px',marginBottom:'8px',borderLeft:'3px solid '+(d.status==='Принято'?C.success:d.status==='Проблема'?C.danger:C.warning)}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                <div>
+                  <b style={{fontSize:'13px',color:C.text}}>{d.materialName}</b>
+                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{d.shippedQuantity||d.plannedQuantity} {d.unit} · 🏗 {d.project||'—'} · накл. {d.waybillNumber||'—'}</p>
+                  {d.receivedBy&&<p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Принял: {d.receivedBy} · принято {d.receivedQuantity||0} {d.unit}</p>}
+                  {claim&&<p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>⚠️ Претензия: {claim.claimType} · {claim.status}</p>}
+                </div>
+                <span style={badge(d.status==='Принято'?C.success:d.status==='Проблема'?C.danger:C.warning,d.status==='Принято'?C.successLight:d.status==='Проблема'?C.dangerLight:C.warningLight,d.status==='Принято'?C.successBorder:d.status==='Проблема'?C.dangerBorder:C.warningBorder)}>{d.status}</span>
+              </div>
+            </div>);})}
+            {myDeliveries.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Отгрузок пока нет</p>}
+          </div>)}
+
           {supplierTab==='documents'&&(<div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Документы</b>
-            <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px'}}>Накладные</b>
-            {myInvoices.map(inv=>(
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Мои счета</b>
+            {mySupplierInvoices.map(inv=>(
               <div key={inv.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <div>
-                  <b style={{fontSize:'12px',color:C.text}}>Накладная № {inv.number}</b>
-                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{inv.date+' · '+Number(inv.totalWithVat||0).toLocaleString()+' ₽ · '+inv.location}</p>
+                  <b style={{fontSize:'12px',color:C.text}}>Счёт № {inv.invoiceNumber||'—'}</b>
+                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(inv.invoiceDate||'')+' · '+Number(inv.amount||0).toLocaleString('ru-RU')+' ₽ · '+(inv.projectName||'—')}</p>
+                  {inv.paidAmount>0&&<p style={{color:C.success,margin:0,fontSize:'11px'}}>Оплачено: {Number(inv.paidAmount||0).toLocaleString('ru-RU')} ₽</p>}
                 </div>
-                <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:C.successLight,color:C.success}}>✅ Принята</span>
+                <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Частично оплачен'?C.warning:C.info,inv.status==='Оплачен'?C.successLight:inv.status==='Частично оплачен'?C.warningLight:C.infoLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Частично оплачен'?C.warningBorder:C.infoBorder)}>{inv.status}</span>
               </div>
             ))}
-            {myInvoices.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Накладных нет</p>}
+            {mySupplierInvoices.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Счетов пока нет</p>}
+          </div>)}
+
+          {supplierTab==='claims'&&(<div>
+            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚠️ Претензии по поставкам</b>
+            {myClaims.map(c=>(<div key={c.id} style={{...card,padding:'12px',marginBottom:'8px',borderLeft:'3px solid '+(c.status==='Открыта'?C.danger:C.success)}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                <div>
+                  <b style={{fontSize:'13px',color:C.text}}>{c.materialName}</b>
+                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{c.claimType} · 🏗 {c.project||'—'}</p>
+                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{c.description}</p>
+                </div>
+                <span style={badge(c.status==='Открыта'?C.danger:C.success,c.status==='Открыта'?C.dangerLight:C.successLight,c.status==='Открыта'?C.dangerBorder:C.successBorder)}>{c.status}</span>
+              </div>
+            </div>))}
+            {myClaims.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Претензий нет</p>}
           </div>)}
 
           {supplierTab==='profile'&&(<div>
@@ -8147,7 +8176,8 @@ function App() {
 
             {suppliersTab==='history'&&(<div>
               <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>История поставок</h3>
-              {supplyHistory.map(d=>(<div key={d.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{d.materialName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{d.quantity+' '+d.unit+' · '+d.project+' · '+d.date}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>{'Поставщик: '+(suppliers.find(s=>s.id===d.supplierId)?.name||'—')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{color:C.success,fontSize:'13px'}}>{d.totalPrice.toLocaleString()+' ₽'}</b>{d.status==='Ожидает поставки'&&<button onClick={()=>confirmDelivery(d)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Доставлено</button>}{d.status==='Доставлено'&&<span style={badge(C.success,C.successLight,C.successBorder)}>✅</span>}</div></div></div>))}
+              {(supplyDeliveries||[]).map(d=>(<div key={d.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}><div><b style={{fontSize:'13px',color:C.text}}>{d.materialName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(d.receivedQuantity||d.shippedQuantity||d.plannedQuantity)+' '+d.unit+' · '+d.project+' · накл. '+(d.waybillNumber||'—')}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>{'Поставщик: '+(d.supplierName||suppliers.find(s=>s.id===d.supplierId)?.name||'—')+(d.receivedBy?' · принял '+d.receivedBy:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{color:C.success,fontSize:'13px'}}>{Number(d.totalPrice||0).toLocaleString('ru-RU')+' ₽'}</b><span style={badge(d.status==='Принято'?C.success:d.status==='Проблема'?C.danger:C.warning,d.status==='Принято'?C.successLight:d.status==='Проблема'?C.dangerLight:C.warningLight,d.status==='Принято'?C.successBorder:d.status==='Проблема'?C.dangerBorder:C.warningBorder)}>{d.status}</span></div></div></div>))}
+              {(supplyDeliveries||[]).length===0 && supplyHistory.map(d=>(<div key={d.id} style={{...card,padding:'14px',marginBottom:'8px',opacity:0.75}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{d.materialName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{d.quantity+' '+d.unit+' · '+d.project+' · '+d.date}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>Старая запись истории. Новые поставки принимаются через «Снабжение → Поставки и приёмка».</p></div><span style={badge(C.textMuted,C.bg,C.border)}>{d.status}</span></div></div>))}
               {supplyHistory.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Истории нет</p>}
             </div>)}
           </div>)}

@@ -483,6 +483,7 @@ def init_db():
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS ai_recommended BOOLEAN DEFAULT FALSE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(100);
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS delivery_allowed BOOLEAN DEFAULT FALSE;
         CREATE TABLE IF NOT EXISTS supply_deliveries (
             id SERIAL PRIMARY KEY,
             offer_id INT,
@@ -2885,7 +2886,7 @@ def ship_supplier_offer(id: int, data: dict):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT o.id, o.request_id, o.supplier_id, o.price_per_unit, o.total_price,
-               s.name as supplier_name,
+               o.payment_terms, s.name as supplier_name,
                r.project, r.material_name, r.quantity, r.unit
         FROM supplier_offers o
         LEFT JOIN suppliers s ON s.id=o.supplier_id
@@ -2896,6 +2897,20 @@ def ship_supplier_offer(id: int, data: dict):
     if not offer:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Утверждённое КП не найдено")
+    cur.execute("SELECT id, status, paid_amount, amount FROM supplier_invoices WHERE offer_id=%s ORDER BY id DESC LIMIT 1", (id,))
+    inv = cur.fetchone()
+    terms = (offer.get('payment_terms') or '').lower()
+    need_payment = ('предоплат' in terms) or ('50/50' in terms) or ('50' in terms and 'постоплат' not in terms)
+    if need_payment:
+        paid = _float_or_zero(inv['paid_amount']) if inv else 0
+        amount = _float_or_zero(inv['amount']) if inv else _float_or_zero(offer['total_price'])
+        required = amount if '100' in terms or 'предоплат' in terms else amount * 0.5
+        if not inv:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Сначала поставщик должен выставить счёт, а бухгалтерия — оплатить по условиям КП")
+        if paid + 0.01 < required:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail=f"По условиям «{offer.get('payment_terms') or ''}» перед отгрузкой нужно оплатить минимум {round(required, 2)} ₽. Сейчас оплачено {round(paid, 2)} ₽")
     shipped_qty = _float_or_zero(data.get('shippedQuantity') or offer['quantity'])
     cur.execute("SELECT id FROM supply_deliveries WHERE offer_id=%s LIMIT 1", (id,))
     existing = cur.fetchone()
@@ -2909,6 +2924,11 @@ def ship_supplier_offer(id: int, data: dict):
         data.get('documentUrl') or '', data.get('photoUrl') or '', datetime.now()
     )
     if existing:
+        cur.execute("SELECT status FROM supply_deliveries WHERE id=%s", (existing['id'],))
+        existing_status = cur.fetchone()
+        if existing_status and existing_status['status'] in ('Принято', 'Проблема'):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Поставка уже принята. Повторная отгрузка запрещена — создайте новую заявку/КП для допоставки.")
         cur.execute("""UPDATE supply_deliveries SET
                        request_id=%s, supplier_id=%s, supplier_name=%s, project=%s,
                        material_name=%s, planned_quantity=%s, shipped_quantity=%s, unit=%s,
@@ -2944,6 +2964,9 @@ def receive_supply_delivery(id: int, data: dict):
     if not delivery:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Поставка не найдена")
+    if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Поставка уже принята. Повторная приёмка запрещена, чтобы не задвоить склад.")
     received_qty = _float_or_zero(data.get('receivedQuantity'))
     planned_qty = _float_or_zero(delivery['planned_quantity'])
     shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
