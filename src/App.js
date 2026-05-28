@@ -2930,6 +2930,19 @@ function App() {
     return [];
   };
 
+  // Парсер itemsKp из supplier_offer: возвращает массив с ценой по каждой позиции
+  // Если поставщик заполнил постатейно — вернётся массив. Иначе пусто.
+  const parseOfferItems = (offer) => {
+    if (!offer) return [];
+    if (offer.itemsKpJson) {
+      try {
+        const arr = typeof offer.itemsKpJson === 'string' ? JSON.parse(offer.itemsKpJson) : offer.itemsKpJson;
+        if (Array.isArray(arr) && arr.length>0) return arr;
+      } catch(_) {}
+    }
+    return [];
+  };
+
   const confirmSupplyAsProrab = async (id) => {
     await fetch(API+'/supply-requests/'+id, {
       method:'PUT', headers:{'Content-Type':'application/json'},
@@ -4288,30 +4301,78 @@ function App() {
                         )}
                       </div>
                     </div>
-                    {/* Форма ответа КП */}
+                    {/* Форма ответа КП — постатейная для multi-item */}
                     {isResponding && (()=>{
                       const reqItems = parseSupplyItems(req);
                       const isMulti = reqItems.length > 1;
+                      // Сохранённые цены по позициям — берём из state, если уже инициализированы
+                      const itemsKp = (newKpResponse.itemsKp && newKpResponse.itemsKp.length === reqItems.length)
+                        ? newKpResponse.itemsKp
+                        : reqItems.map(it => ({
+                            materialName: it.materialName, quantity: Number(it.quantity)||0, unit: it.unit,
+                            pricePerUnit: '', deliveryDays: '', notes: ''
+                          }));
+                      const grandTotal = itemsKp.reduce((s,it)=>s+(Number(it.pricePerUnit||0)*Number(it.quantity||0)), 0);
+                      const setItem = (idx, field, value) => {
+                        const arr = [...itemsKp];
+                        arr[idx] = {...arr[idx], [field]: value};
+                        setNewKpResponse({...newKpResponse, itemsKp: arr});
+                      };
                       return (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                       <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>
-                        💰 Ваше КП {isMulti?'на пакет из '+reqItems.length+' позиций':'на '+(reqItems[0]?.quantity||req.quantity)+' '+(reqItems[0]?.unit||req.unit)}:
+                        💰 Ваше КП {isMulti?'(заполните цену по каждой позиции)':'на '+(reqItems[0]?.quantity||req.quantity)+' '+(reqItems[0]?.unit||req.unit)}:
                       </b>
-                      {isMulti && (<div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'6px',marginBottom:'10px',border:'1px solid '+C.border}}>
-                        <b style={{color:C.textSec,fontSize:'11px',display:'block',marginBottom:'6px'}}>📋 Что в заявке:</b>
-                        <ol style={{margin:0,paddingLeft:'18px',color:C.text,fontSize:'12px'}}>
-                          {reqItems.map((it,i)=>(<li key={i} style={{marginBottom:'2px'}}>{it.materialName} <span style={{color:C.textSec}}>— {it.quantity} {it.unit}</span></li>))}
-                        </ol>
-                        <p style={{margin:'6px 0 0',color:C.textMuted,fontSize:'11px',fontStyle:'italic'}}>Укажите итоговую цену за весь пакет (с НДС / без — см. ниже)</p>
+                      {/* Постатейная таблица для multi-item */}
+                      {isMulti && (<div style={{marginBottom:'10px',overflowX:'auto'}}>
+                        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
+                          <thead>
+                            <tr style={{backgroundColor:C.bg}}>
+                              <th style={{padding:'6px 8px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>#</th>
+                              <th style={{padding:'6px 8px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Материал</th>
+                              <th style={{padding:'6px 8px',textAlign:'center',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Кол-во</th>
+                              <th style={{padding:'6px 8px',textAlign:'right',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border,minWidth:'110px'}}>Цена за ед. (₽)</th>
+                              <th style={{padding:'6px 8px',textAlign:'right',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border,minWidth:'100px'}}>Сумма</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {itemsKp.map((it,i)=>{
+                              const subtotal = Number(it.pricePerUnit||0) * Number(it.quantity||0);
+                              return (<tr key={i} style={{borderBottom:'1px solid '+C.border}}>
+                                <td style={{padding:'6px 8px',color:C.textMuted}}>{i+1}</td>
+                                <td style={{padding:'6px 8px',color:C.text}}>{it.materialName}</td>
+                                <td style={{padding:'6px 8px',color:C.text,textAlign:'center',whiteSpace:'nowrap'}}>{it.quantity} {it.unit}</td>
+                                <td style={{padding:'4px 8px',textAlign:'right'}}>
+                                  <input type='number' step='any' inputMode='decimal' value={it.pricePerUnit} onChange={e=>setItem(i,'pricePerUnit',e.target.value)} placeholder='—' style={{...inp,marginBottom:0,textAlign:'right',padding:'4px 6px',fontSize:'12px'}}/>
+                                </td>
+                                <td style={{padding:'6px 8px',color:C.text,textAlign:'right',fontWeight:'600',whiteSpace:'nowrap'}}>
+                                  {subtotal>0 ? Math.round(subtotal).toLocaleString('ru-RU')+' ₽' : '—'}
+                                </td>
+                              </tr>);
+                            })}
+                            <tr style={{backgroundColor:C.successLight}}>
+                              <td colSpan={4} style={{padding:'8px',textAlign:'right',color:C.text,fontWeight:'700'}}>ИТОГО:</td>
+                              <td style={{padding:'8px',textAlign:'right',color:C.success,fontWeight:'800',fontSize:'14px'}}>{grandTotal>0 ? Math.round(grandTotal).toLocaleString('ru-RU')+' ₽' : '—'}</td>
+                            </tr>
+                          </tbody>
+                        </table>
                       </div>)}
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                      {/* Single-item: одно поле цены */}
+                      {!isMulti && (<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                         <div>
-                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>{isMulti?'Итого за пакет (₽) *':'Цена за '+(reqItems[0]?.unit||req.unit)+' (₽) *'}</label>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Цена за {reqItems[0]?.unit||req.unit} (₽) *</label>
                           <input type='number' step='any' inputMode='decimal' value={newKpResponse.pricePerUnit} onChange={e=>setNewKpResponse({...newKpResponse,pricePerUnit:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
                         <div>
                           <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Срок поставки (дни) *</label>
                           <input type='number' step='1' inputMode='numeric' value={newKpResponse.deliveryDays} onChange={e=>setNewKpResponse({...newKpResponse,deliveryDays:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
+                      </div>)}
+                      {/* Общие поля */}
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                        {isMulti && (<div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Срок поставки (дни) *</label>
+                          <input type='number' step='1' inputMode='numeric' value={newKpResponse.deliveryDays} onChange={e=>setNewKpResponse({...newKpResponse,deliveryDays:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>)}
                         <div>
                           <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Условия оплаты</label>
                           <select value={newKpResponse.paymentTerms} onChange={e=>setNewKpResponse({...newKpResponse,paymentTerms:e.target.value})} style={{...inp,marginBottom:0}}>
@@ -4334,8 +4395,8 @@ function App() {
                           <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>КП действительно до</label>
                           <input type='date' value={newKpResponse.validUntil} onChange={e=>setNewKpResponse({...newKpResponse,validUntil:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
-                        <div>
-                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>PDF (опц.)</label>
+                        <div style={{gridColumn:isMulti?'span 2':'span 2'}}>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>PDF КП (опц.)</label>
                           <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',width:'100%',justifyContent:'center'}}>
                             <Upload size={12}/>{newKpResponse.pdfUrl?'PDF загружен':'Прикрепить PDF'}
                             <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setNewKpResponse({...newKpResponse,pdfUrl:url});}}}/>
@@ -4343,22 +4404,46 @@ function App() {
                         </div>
                       </div>
                       <textarea placeholder='Комментарий (опц.) — особенности, условия доставки' value={newKpResponse.supplierMessage} onChange={e=>setNewKpResponse({...newKpResponse,supplierMessage:e.target.value})} style={{...inp,height:'50px',resize:'vertical'}}/>
-                      {newKpResponse.pricePerUnit && !isMulti && (<div style={{padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',marginBottom:'8px',fontSize:'12px',color:C.text}}>
-                        Итого: <b>{(Number(newKpResponse.pricePerUnit||0)*Number(reqItems[0]?.quantity||req.quantity||0)).toLocaleString('ru-RU')} ₽</b>
-                      </div>)}
-                      {newKpResponse.pricePerUnit && isMulti && (<div style={{padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',marginBottom:'8px',fontSize:'12px',color:C.text}}>
-                        Итого за пакет: <b>{Number(newKpResponse.pricePerUnit||0).toLocaleString('ru-RU')} ₽</b>
+                      {/* Итог для single-item */}
+                      {!isMulti && newKpResponse.pricePerUnit && (<div style={{padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',marginBottom:'8px',fontSize:'12px',color:C.text}}>
+                        Итого: <b>{Math.round(Number(newKpResponse.pricePerUnit||0)*Number(reqItems[0]?.quantity||req.quantity||0)).toLocaleString('ru-RU')} ₽</b>
                       </div>)}
                       <div style={{display:'flex',gap:'8px'}}>
                         <button onClick={async()=>{
-                          if (!newKpResponse.pricePerUnit||!newKpResponse.deliveryDays) { alert('Заполните цену и срок'); return; }
-                          // Для multi-item: pricePerUnit = итоговая цена пакета, totalPrice = та же, quantity = 1 (виртуально)
-                          // Для single-item: pricePerUnit × quantity = totalPrice
-                          const qty = isMulti ? 1 : Number(reqItems[0]?.quantity||req.quantity||0);
-                          const totalPrice = isMulti ? Number(newKpResponse.pricePerUnit) : Number(newKpResponse.pricePerUnit) * qty;
+                          if (isMulti) {
+                            // Валидация: все позиции должны иметь цену > 0
+                            const missing = itemsKp.filter(it=>!(Number(it.pricePerUnit)>0));
+                            if (missing.length>0) { alert('Заполните цену по всем '+itemsKp.length+' позициям'); return; }
+                            if (!newKpResponse.deliveryDays) { alert('Заполните срок'); return; }
+                          } else {
+                            if (!newKpResponse.pricePerUnit||!newKpResponse.deliveryDays) { alert('Заполните цену и срок'); return; }
+                          }
+                          const body = isMulti
+                            ? {
+                                action:'respond',
+                                itemsKp: itemsKp.map(it=>({materialName:it.materialName, quantity:Number(it.quantity)||0, unit:it.unit, pricePerUnit:Number(it.pricePerUnit)||0})),
+                                deliveryDays: Number(newKpResponse.deliveryDays),
+                                paymentTerms: newKpResponse.paymentTerms,
+                                vatIncluded: newKpResponse.vatIncluded,
+                                validUntil: newKpResponse.validUntil||null,
+                                supplierMessage: newKpResponse.supplierMessage,
+                                pdfUrl: newKpResponse.pdfUrl,
+                              }
+                            : {
+                                action:'respond',
+                                pricePerUnit: Number(newKpResponse.pricePerUnit),
+                                quantity: Number(reqItems[0]?.quantity||req.quantity||0),
+                                totalPrice: Number(newKpResponse.pricePerUnit) * Number(reqItems[0]?.quantity||req.quantity||0),
+                                deliveryDays: Number(newKpResponse.deliveryDays),
+                                paymentTerms: newKpResponse.paymentTerms,
+                                vatIncluded: newKpResponse.vatIncluded,
+                                validUntil: newKpResponse.validUntil||null,
+                                supplierMessage: newKpResponse.supplierMessage,
+                                pdfUrl: newKpResponse.pdfUrl,
+                              };
                           await fetch(API+'/supplier-offers/'+o.id,{
                             method:'PUT', headers:{'Content-Type':'application/json'},
-                            body: JSON.stringify({action:'respond', pricePerUnit:Number(newKpResponse.pricePerUnit), quantity:qty, totalPrice, deliveryDays:Number(newKpResponse.deliveryDays), paymentTerms:newKpResponse.paymentTerms, vatIncluded:newKpResponse.vatIncluded, validUntil:newKpResponse.validUntil||null, supplierMessage:newKpResponse.supplierMessage, pdfUrl:newKpResponse.pdfUrl})
+                            body: JSON.stringify(body)
                           });
                           setRespondingOfferId(null);
                           await loadAll();
@@ -8148,6 +8233,26 @@ function App() {
                               {o.paymentTerms && <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>💳 {o.paymentTerms}{o.vatIncluded===false?' · без НДС':' · с НДС'}{o.validUntil?' · до '+o.validUntil:''}</p>}
                               {o.supplierMessage && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>💬 «{o.supplierMessage}»</p>}
                               {o.pdfUrl && <a href={o.pdfUrl.startsWith('http')?o.pdfUrl:API+o.pdfUrl} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent,display:'inline-block',marginTop:'4px'}}>📄 PDF</a>}
+                              {/* Постатейная разбивка */}
+                              {(()=>{const ki=parseOfferItems(o); if (ki.length<2) return null; return (<details style={{marginTop:'6px'}}>
+                                <summary style={{cursor:'pointer',fontSize:'11px',color:C.accent,fontWeight:'600'}}>📋 Разбивка по позициям ({ki.length})</summary>
+                                <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px',marginTop:'6px'}}>
+                                  <thead><tr style={{backgroundColor:C.bg}}>
+                                    <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600'}}>Материал</th>
+                                    <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600'}}>Кол-во</th>
+                                    <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600'}}>Цена/ед</th>
+                                    <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600'}}>Сумма</th>
+                                  </tr></thead>
+                                  <tbody>
+                                    {ki.map((it,i)=>(<tr key={i}>
+                                      <td style={{padding:'3px 6px',color:C.text}}>{it.materialName}</td>
+                                      <td style={{padding:'3px 6px',color:C.text,textAlign:'center'}}>{it.quantity} {it.unit}</td>
+                                      <td style={{padding:'3px 6px',color:C.text,textAlign:'right'}}>{Number(it.pricePerUnit||0).toLocaleString('ru-RU')} ₽</td>
+                                      <td style={{padding:'3px 6px',color:C.text,textAlign:'right',fontWeight:'600'}}>{Math.round(Number(it.totalPrice||it.pricePerUnit*it.quantity||0)).toLocaleString('ru-RU')} ₽</td>
+                                    </tr>))}
+                                  </tbody>
+                                </table>
+                              </details>);})()}
                             </div>
                             <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
                               <span style={badge(stC,stBg,stBd)}>{o.status}</span>
@@ -8364,6 +8469,26 @@ function App() {
                             {o.paymentTerms && <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>💳 {o.paymentTerms}{o.vatIncluded===false?' · без НДС':' · с НДС'}{o.validUntil?' · до '+o.validUntil:''}</p>}
                             {o.supplierMessage && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>💬 «{o.supplierMessage}»</p>}
                             {o.pdfUrl && <a href={o.pdfUrl.startsWith('http')?o.pdfUrl:API+o.pdfUrl} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent,display:'inline-block',marginTop:'4px'}}>📄 PDF</a>}
+                            {/* Постатейная разбивка цен */}
+                            {(()=>{const ki=parseOfferItems(o); if (ki.length<2) return null; return (<details style={{marginTop:'6px'}}>
+                              <summary style={{cursor:'pointer',fontSize:'11px',color:C.accent,fontWeight:'600'}}>📋 Разбивка по позициям ({ki.length})</summary>
+                              <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px',marginTop:'6px'}}>
+                                <thead><tr style={{backgroundColor:C.bg}}>
+                                  <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600'}}>Материал</th>
+                                  <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600'}}>Кол-во</th>
+                                  <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600'}}>Цена/ед</th>
+                                  <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600'}}>Сумма</th>
+                                </tr></thead>
+                                <tbody>
+                                  {ki.map((it,i)=>(<tr key={i}>
+                                    <td style={{padding:'3px 6px',color:C.text}}>{it.materialName}</td>
+                                    <td style={{padding:'3px 6px',color:C.text,textAlign:'center'}}>{it.quantity} {it.unit}</td>
+                                    <td style={{padding:'3px 6px',color:C.text,textAlign:'right'}}>{Number(it.pricePerUnit||0).toLocaleString('ru-RU')} ₽</td>
+                                    <td style={{padding:'3px 6px',color:C.text,textAlign:'right',fontWeight:'600'}}>{Math.round(Number(it.totalPrice||it.pricePerUnit*it.quantity||0)).toLocaleString('ru-RU')} ₽</td>
+                                  </tr>))}
+                                </tbody>
+                              </table>
+                            </details>);})()}
                           </div>
                           <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
                             <span style={badge(stC,stBg,stBd)}>{o.status||'—'}</span>

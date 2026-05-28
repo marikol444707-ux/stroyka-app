@@ -605,6 +605,7 @@ def init_db():
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS ai_recommended BOOLEAN DEFAULT FALSE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(100);
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS items_kp_json TEXT;
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS delivery_allowed BOOLEAN DEFAULT FALSE;
         CREATE TABLE IF NOT EXISTS supply_deliveries (
             id SERIAL PRIMARY KEY,
@@ -2623,7 +2624,8 @@ OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"suppl
                  "pdf_url as \"pdfUrl\", valid_until as \"validUntil\","
                  "supplier_message as \"supplierMessage\","
                  "requested_at as \"requestedAt\", responded_at as \"respondedAt\","
-                 "ai_recommended as \"aiRecommended\" "
+                 "ai_recommended as \"aiRecommended\","
+                 "items_kp_json as \"itemsKpJson\" "
                  "FROM supplier_offers")
 
 @app.get("/supplier-offers")
@@ -2655,19 +2657,49 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
     action = data.get('action')
     if action == 'respond':
         # Поставщик отвечает на КП: цена, срок, условия, НДС, PDF, комментарий
-        ppu = float(data.get('pricePerUnit') or 0)
-        qty_for_total = float(data.get('quantity') or 0)
-        total = float(data.get('totalPrice') or (ppu * qty_for_total))
+        import json as _json
+        items_kp = data.get('itemsKp') or []
+        # Если пришёл массив постатейного КП — считаем итог автоматически
+        items_kp_json = None
+        if items_kp and isinstance(items_kp, list):
+            # Нормализация: каждый item должен иметь pricePerUnit и quantity
+            normalized = []
+            calc_total = 0.0
+            for it in items_kp:
+                if not isinstance(it, dict): continue
+                p = float(it.get('pricePerUnit') or 0)
+                q = float(it.get('quantity') or 0)
+                line_total = p * q
+                normalized.append({
+                    'materialName': it.get('materialName',''),
+                    'quantity': q,
+                    'unit': it.get('unit','шт'),
+                    'pricePerUnit': p,
+                    'totalPrice': line_total,
+                    'deliveryDays': int(it.get('deliveryDays') or 0) if it.get('deliveryDays') else None,
+                    'notes': it.get('notes','')
+                })
+                calc_total += line_total
+            items_kp_json = _json.dumps(normalized, ensure_ascii=False)
+            # Для совместимости: pricePerUnit = средневзвешенная, totalPrice = сумма
+            total = float(data.get('totalPrice') or calc_total)
+            ppu = float(data.get('pricePerUnit') or (calc_total / max(1, len(normalized))))
+        else:
+            # Старый путь — одна цена за единицу
+            ppu = float(data.get('pricePerUnit') or 0)
+            qty_for_total = float(data.get('quantity') or 0)
+            total = float(data.get('totalPrice') or (ppu * qty_for_total))
         cur.execute(
             "UPDATE supplier_offers SET status=%s, price_per_unit=%s, total_price=%s, delivery_days=%s, "
             "payment_terms=%s, vat_included=%s, pdf_url=%s, valid_until=%s, supplier_message=%s, "
-            "responded_at=%s WHERE id=%s",
+            "items_kp_json=COALESCE(%s, items_kp_json), responded_at=%s WHERE id=%s",
             ('Получено', ppu, total, int(data.get('deliveryDays') or 0),
              data.get('paymentTerms') or 'Постоплата',
              bool(data.get('vatIncluded', True)),
              data.get('pdfUrl') or None,
              data.get('validUntil') or None,
              data.get('supplierMessage') or '',
+             items_kp_json,
              datetime.now(), id))
     elif action == 'select':
         # Директор выбрал это КП
