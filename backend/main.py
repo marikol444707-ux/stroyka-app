@@ -482,6 +482,58 @@ def init_db():
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW();
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS ai_recommended BOOLEAN DEFAULT FALSE;
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(100);
+        CREATE TABLE IF NOT EXISTS supply_deliveries (
+            id SERIAL PRIMARY KEY,
+            offer_id INT,
+            request_id INT,
+            supplier_id INT,
+            supplier_name VARCHAR(255),
+            project VARCHAR(255),
+            material_name VARCHAR(255),
+            planned_quantity NUMERIC(14,4),
+            shipped_quantity NUMERIC(14,4),
+            received_quantity NUMERIC(14,4) DEFAULT 0,
+            unit VARCHAR(50),
+            price_per_unit NUMERIC(14,2),
+            total_price NUMERIC(14,2),
+            status VARCHAR(100) DEFAULT 'Готовится к отгрузке',
+            waybill_number VARCHAR(100),
+            waybill_date DATE,
+            vehicle_number VARCHAR(100),
+            driver_name VARCHAR(255),
+            document_url TEXT,
+            photo_url TEXT,
+            shipped_at TIMESTAMP,
+            received_at TIMESTAMP,
+            received_by VARCHAR(255),
+            quality_status VARCHAR(100) DEFAULT 'Не проверено',
+            quality_notes TEXT,
+            shortage_quantity NUMERIC(14,4) DEFAULT 0,
+            ai_check_result TEXT,
+            claim_id INT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS supply_claims (
+            id SERIAL PRIMARY KEY,
+            delivery_id INT,
+            request_id INT,
+            offer_id INT,
+            supplier_id INT,
+            project VARCHAR(255),
+            material_name VARCHAR(255),
+            claim_type VARCHAR(100),
+            description TEXT,
+            expected_quantity NUMERIC(14,4),
+            received_quantity NUMERIC(14,4),
+            shortage_quantity NUMERIC(14,4),
+            photo_url TEXT,
+            status VARCHAR(100) DEFAULT 'Открыта',
+            created_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW(),
+            resolved_at TIMESTAMP,
+            resolution TEXT
+        );
         CREATE TABLE IF NOT EXISTS supply_history (
             id SERIAL PRIMARY KEY,
             supplier_id INT,
@@ -2714,6 +2766,323 @@ def create_invoice_from_offer(id: int, data: dict):
     new_id = cur.fetchone()['id']
     conn.close()
     return {"ok": True, "id": new_id}
+
+DELIVERY_SELECT = """
+    SELECT d.id, d.offer_id as "offerId", d.request_id as "requestId",
+           d.supplier_id as "supplierId", d.supplier_name as "supplierName",
+           d.project, d.material_name as "materialName",
+           d.planned_quantity as "plannedQuantity",
+           d.shipped_quantity as "shippedQuantity",
+           d.received_quantity as "receivedQuantity",
+           d.unit, d.price_per_unit as "pricePerUnit",
+           d.total_price as "totalPrice", d.status,
+           d.waybill_number as "waybillNumber",
+           d.waybill_date as "waybillDate",
+           d.vehicle_number as "vehicleNumber",
+           d.driver_name as "driverName",
+           d.document_url as "documentUrl", d.photo_url as "photoUrl",
+           d.shipped_at as "shippedAt", d.received_at as "receivedAt",
+           d.received_by as "receivedBy",
+           d.quality_status as "qualityStatus",
+           d.quality_notes as "qualityNotes",
+           d.shortage_quantity as "shortageQuantity",
+           d.ai_check_result as "aiCheckResult",
+           d.claim_id as "claimId", d.created_at as "createdAt"
+    FROM supply_deliveries d
+"""
+
+CLAIM_SELECT = """
+    SELECT id, delivery_id as "deliveryId", request_id as "requestId",
+           offer_id as "offerId", supplier_id as "supplierId",
+           project, material_name as "materialName",
+           claim_type as "claimType", description,
+           expected_quantity as "expectedQuantity",
+           received_quantity as "receivedQuantity",
+           shortage_quantity as "shortageQuantity",
+           photo_url as "photoUrl", status, created_by as "createdBy",
+           created_at as "createdAt", resolved_at as "resolvedAt", resolution
+    FROM supply_claims
+"""
+
+def _float_or_zero(v):
+    try:
+        return float(v or 0)
+    except Exception:
+        return 0.0
+
+def _add_project_material(cur, name, unit, qty, price, project):
+    if not name or not project or qty <= 0:
+        return
+    cur.execute("SELECT id FROM materials WHERE name=%s AND project=%s LIMIT 1", (name, project))
+    existing = cur.fetchone()
+    if existing:
+        cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=%s, price=%s WHERE id=%s",
+                    (qty, unit or "", price or 0, existing['id'] if isinstance(existing, dict) else existing[0]))
+    else:
+        cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (name, unit or "шт", qty, price or 0, 0, project, "Закупка"))
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (name, "приход (поставка)", qty, __import__("datetime").date.today().isoformat(), project, "Снабжение", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+
+def _create_delivery_quality_records(cur, delivery):
+    import re as _re
+    name = (delivery.get('material_name') or '').strip()
+    if not name:
+        return
+    project = delivery.get('project') or ''
+    supplier = delivery.get('supplier_name') or ''
+    qty = _float_or_zero(delivery.get('received_quantity'))
+    unit = delivery.get('unit') or 'шт'
+    received_at = delivery.get('received_at') or __import__("datetime").date.today()
+    try:
+        cur.execute("""INSERT INTO material_inspection_journal
+                       (project_name, material_name, unit, quantity, supplier,
+                        received_at, visual_inspection_result, remarks, inspected)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (project, name, unit, qty, supplier, received_at,
+                     delivery.get('quality_status') or 'Принято',
+                     delivery.get('quality_notes') or '', True))
+    except Exception as e:
+        print("DELIVERY INSPECTION INSERT ERROR:", str(e))
+    cable_prefixes = ['ВВГ','АВВГ','ВБбШв','ПвВ','ПвС','СИП','КВВГ','КГ','ТППэп','ТПВ','UTP','FTP','КВПЭФ','NYM']
+    nu = name.upper().replace(' ','')
+    is_cable = any(nu.startswith(p.upper()) for p in cable_prefixes) or 'КАБЕЛЬ' in name.upper()
+    if is_cable:
+        m = _re.search(r'(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)', name, _re.IGNORECASE)
+        cores = int(m.group(1)) if m else None
+        section = float(m.group(2).replace(',', '.')) if m else None
+        try:
+            cur.execute("""INSERT INTO cable_journal
+                           (project_name, cable_brand, cross_section, cores_count,
+                            length_received, supplier, received_at)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                        (project, name, section, cores, qty, supplier, received_at))
+        except Exception as e:
+            print("DELIVERY CABLE INSERT ERROR:", str(e))
+
+@app.get("/supply-deliveries")
+def list_supply_deliveries():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(DELIVERY_SELECT + " ORDER BY d.id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [dict(r) for r in rows]
+
+@app.get("/supply-claims")
+def list_supply_claims():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(CLAIM_SELECT + " ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/supplier-offers/{id}/ship")
+def ship_supplier_offer(id: int, data: dict):
+    from datetime import datetime
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT o.id, o.request_id, o.supplier_id, o.price_per_unit, o.total_price,
+               s.name as supplier_name,
+               r.project, r.material_name, r.quantity, r.unit
+        FROM supplier_offers o
+        LEFT JOIN suppliers s ON s.id=o.supplier_id
+        LEFT JOIN supply_requests r ON r.id=o.request_id
+        WHERE o.id=%s AND o.status=%s
+    """, (id, 'Утверждено'))
+    offer = cur.fetchone()
+    if not offer:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Утверждённое КП не найдено")
+    shipped_qty = _float_or_zero(data.get('shippedQuantity') or offer['quantity'])
+    cur.execute("SELECT id FROM supply_deliveries WHERE offer_id=%s LIMIT 1", (id,))
+    existing = cur.fetchone()
+    vals = (
+        offer['request_id'], offer['supplier_id'], offer['supplier_name'] or '',
+        offer['project'] or '', offer['material_name'] or '',
+        _float_or_zero(offer['quantity']), shipped_qty, offer['unit'] or '',
+        _float_or_zero(offer['price_per_unit']), _float_or_zero(offer['total_price']),
+        data.get('waybillNumber') or '', data.get('waybillDate') or None,
+        data.get('vehicleNumber') or '', data.get('driverName') or '',
+        data.get('documentUrl') or '', data.get('photoUrl') or '', datetime.now()
+    )
+    if existing:
+        cur.execute("""UPDATE supply_deliveries SET
+                       request_id=%s, supplier_id=%s, supplier_name=%s, project=%s,
+                       material_name=%s, planned_quantity=%s, shipped_quantity=%s, unit=%s,
+                       price_per_unit=%s, total_price=%s, waybill_number=%s, waybill_date=%s,
+                       vehicle_number=%s, driver_name=%s, document_url=%s, photo_url=%s,
+                       shipped_at=%s, status='В пути'
+                       WHERE id=%s RETURNING id""", vals + (existing['id'],))
+        delivery_id = cur.fetchone()['id']
+    else:
+        cur.execute("""INSERT INTO supply_deliveries
+                       (offer_id, request_id, supplier_id, supplier_name, project,
+                        material_name, planned_quantity, shipped_quantity, unit,
+                        price_per_unit, total_price, waybill_number, waybill_date,
+                        vehicle_number, driver_name, document_url, photo_url, shipped_at, status)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING id""",
+                    (id,) + vals + ('В пути',))
+        delivery_id = cur.fetchone()['id']
+    cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", ('В пути', id))
+    cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('В пути', offer['request_id']))
+    cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (delivery_id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return dict(row)
+
+@app.put("/supply-deliveries/{id}/receive")
+def receive_supply_delivery(id: int, data: dict):
+    from datetime import datetime
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
+    delivery = cur.fetchone()
+    if not delivery:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Поставка не найдена")
+    received_qty = _float_or_zero(data.get('receivedQuantity'))
+    planned_qty = _float_or_zero(delivery['planned_quantity'])
+    shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
+    quality_status = data.get('qualityStatus') or 'Принято'
+    shortage = max(0.0, shipped_qty - received_qty)
+    problem = shortage > 0 or quality_status in ('Брак', 'Несоответствие', 'Недостача', 'Частично')
+    status = 'Проблема' if problem else 'Принято'
+    received_at = datetime.now()
+    cur.execute("""UPDATE supply_deliveries SET received_quantity=%s, received_at=%s,
+                   received_by=%s, quality_status=%s, quality_notes=%s,
+                   shortage_quantity=%s, photo_url=COALESCE(NULLIF(%s,''), photo_url),
+                   status=%s WHERE id=%s""",
+                (received_qty, received_at, data.get('receivedBy') or '',
+                 quality_status, data.get('qualityNotes') or '',
+                 shortage, data.get('photoUrl') or '', status, id))
+    claim_id = None
+    if received_qty > 0 and quality_status not in ('Брак',):
+        _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
+                              _float_or_zero(delivery['price_per_unit']), delivery['project'])
+    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
+    updated = cur.fetchone()
+    _create_delivery_quality_records(cur, updated)
+    if problem:
+        claim_type = 'Недостача' if shortage > 0 else quality_status
+        description = data.get('claimDescription') or (
+            f"По поставке «{delivery['material_name']}» ожидалось {shipped_qty:g} {delivery['unit']}, "
+            f"принято {received_qty:g} {delivery['unit']}. "
+            f"Статус качества: {quality_status}. {data.get('qualityNotes') or ''}"
+        )
+        cur.execute("""INSERT INTO supply_claims
+                       (delivery_id, request_id, offer_id, supplier_id, project, material_name,
+                        claim_type, description, expected_quantity, received_quantity,
+                        shortage_quantity, photo_url, created_by)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (id, delivery['request_id'], delivery['offer_id'], delivery['supplier_id'],
+                     delivery['project'], delivery['material_name'], claim_type, description,
+                     shipped_qty, received_qty, shortage, data.get('photoUrl') or '',
+                     data.get('receivedBy') or ''))
+        claim_id = cur.fetchone()['id']
+        cur.execute("UPDATE supply_deliveries SET claim_id=%s WHERE id=%s", (claim_id, id))
+    cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (status, delivery['offer_id']))
+    cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s",
+                ('Поставлено' if status == 'Принято' else 'Проблема поставки', delivery['request_id']))
+    cur.execute("""INSERT INTO supply_history
+                   (supplier_id, material_name, quantity, unit, price_per_unit, total_price,
+                    project, date, status, confirmed_by)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (delivery['supplier_id'], delivery['material_name'], received_qty, delivery['unit'],
+                 _float_or_zero(delivery['price_per_unit']), _float_or_zero(delivery['price_per_unit']) * received_qty,
+                 delivery['project'], received_at.date().isoformat(), status, data.get('receivedBy') or ''))
+    cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return {"ok": True, "delivery": dict(row), "claimId": claim_id}
+
+@app.post("/supply-deliveries/{id}/ai-check")
+def ai_check_supply_delivery(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
+    d = cur.fetchone()
+    if not d:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Поставка не найдена")
+    parsed_items = data.get('parsedItems') or []
+    doc_text = data.get('documentText') or ''
+    expected = {
+        "material": d['material_name'],
+        "quantity": _float_or_zero(d['planned_quantity']),
+        "unit": d['unit'] or '',
+        "supplier": d['supplier_name'] or '',
+        "project": d['project'] or '',
+    }
+    result_text = ""
+    try:
+        if parsed_items:
+            best = None
+            exp_name = (expected['material'] or '').lower()
+            for it in parsed_items:
+                nm = (it.get('name') or it.get('materialName') or '').lower()
+                if nm and (nm in exp_name or exp_name in nm or any(w in nm for w in exp_name.split()[:2])):
+                    best = it
+                    break
+            if best:
+                qty = _float_or_zero(best.get('quantity'))
+                diff = expected['quantity'] - qty
+                result_text = (
+                    f"В документе найдена похожая позиция: {best.get('name') or best.get('materialName')} "
+                    f"{qty:g} {best.get('unit') or expected['unit']}. "
+                    + ("Количество совпадает." if abs(diff) < 0.0001 else f"Расхождение: {diff:g} {expected['unit']}.")
+                )
+            else:
+                result_text = "В распознанном документе не нашёл позицию, похожую на заявку. Проверьте накладную вручную."
+        elif doc_text:
+            import openai as oa
+            prompt = (
+                "Сверь поставку с текстом накладной. Ожидалось: "
+                f"{expected['material']} — {expected['quantity']} {expected['unit']}, "
+                f"поставщик {expected['supplier']}, объект {expected['project']}.\n"
+                "Текст/заметки документа:\n" + doc_text[:4000] +
+                "\nОтветь коротко: совпадает ли материал и количество, есть ли риск недопоставки или пересорта."
+            )
+            client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+            r = client.responses.create(
+                model="gpt://"+YANDEX_FOLDER_ID+"/yandexgpt-5.1/latest",
+                temperature=0.1,
+                instructions="Ты помощник кладовщика на стройке. Проверяешь накладную перед приёмкой.",
+                input=prompt,
+                max_output_tokens=500,
+            )
+            result_text = (r.output_text or '').strip()
+        else:
+            result_text = "Загрузите фото накладной или вставьте текст/позиции документа для AI-сверки."
+    except Exception as e:
+        print("DELIVERY AI CHECK ERROR:", e)
+        result_text = "AI-сверка не сработала, проверьте поставку вручную."
+    cur.execute("UPDATE supply_deliveries SET ai_check_result=%s WHERE id=%s", (result_text, id))
+    cur.close(); conn.close()
+    return {"ok": True, "result": result_text, "expected": expected}
+
+@app.put("/supply-claims/{id}")
+def update_supply_claim(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    fields_map = [('status','status'),('resolution','resolution'),('resolvedAt','resolved_at')]
+    sets, vals = [], []
+    for js_key, db_col in fields_map:
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            vals.append(data[js_key] or None if js_key == 'resolvedAt' else data[js_key])
+    if data.get('status') in ('Закрыта', 'Решена') and 'resolvedAt' not in data:
+        sets.append("resolved_at=NOW()")
+    if not sets:
+        cur.close(); conn.close()
+        return {"ok": True}
+    vals.append(id)
+    cur.execute("UPDATE supply_claims SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.get("/supply-history")
 def get_supply_history():

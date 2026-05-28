@@ -414,6 +414,8 @@ function App() {
   const [supplyRequests, setSupplyRequests] = useState([]);
   const [supplierOffers, setSupplierOffers] = useState([]);
   const [supplyHistory, setSupplyHistory] = useState([]);
+  const [supplyDeliveries, setSupplyDeliveries] = useState([]);
+  const [supplyClaims, setSupplyClaims] = useState([]);
   const [workJournal, setWorkJournal] = useState([]);
   const [masterProfile, setMasterProfile] = useState(null);
   const [masterProfiles, setMasterProfiles] = useState([]);
@@ -609,6 +611,13 @@ function App() {
   // Сн.3: поставщик выставляет счёт
   const [invoicingOfferId, setInvoicingOfferId] = useState(null);
   const [newOfferInvoice, setNewOfferInvoice] = useState({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:'',vatAmount:'',description:'',fileUrl:''});
+  // Сн.4: отгрузка, приемка, качество, претензии
+  const [shippingOfferId, setShippingOfferId] = useState(null);
+  const [shipmentForm, setShipmentForm] = useState({shippedQuantity:'',waybillNumber:'',waybillDate:new Date().toISOString().split('T')[0],vehicleNumber:'',driverName:'',documentUrl:'',photoUrl:''});
+  const [receivingDeliveryId, setReceivingDeliveryId] = useState(null);
+  const [receiveForm, setReceiveForm] = useState({receivedQuantity:'',qualityStatus:'Принято',qualityNotes:'',photoUrl:'',claimDescription:''});
+  const [deliveryAiResultById, setDeliveryAiResultById] = useState({});
+  const [deliveryAiLoadingId, setDeliveryAiLoadingId] = useState(null);
   // Регистрация поставщика по ссылке
   const [showSupplierInviteModal, setShowSupplierInviteModal] = useState(false);
   const [supplierInviteForm, setSupplierInviteForm] = useState({presetName:'',presetCategory:'Сыпучие и бетон',supplierId:null,expiresInDays:14});
@@ -897,7 +906,7 @@ function App() {
 
   const loadAll = async () => {
     try {
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD] = await Promise.all([
         fetch(API+'/projects').then(r=>r.json()),
         fetch(API+'/clients').then(r=>r.json()),
         fetch(API+'/materials').then(r=>r.json()),
@@ -918,6 +927,8 @@ function App() {
         fetch(API+'/supply-requests').then(r=>r.json()),
         fetch(API+'/supplier-offers').then(r=>r.json()),
         fetch(API+'/supply-history').then(r=>r.json()),
+        fetch(API+'/supply-deliveries').then(r=>r.json()).catch(()=>[]),
+        fetch(API+'/supply-claims').then(r=>r.json()).catch(()=>[]),
         fetch(API+'/work-journal').then(r=>r.json()),
         fetch(API+'/master-profiles').then(r=>r.json()),
         fetch(API+'/contracts').then(r=>r.json()),
@@ -949,7 +960,7 @@ function App() {
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
       setInviteCodes(ic);setSuppliers(sup);setSupplyRequests(sr);setSupplierOffers(so);
-      setSupplyHistory(sh);setWorkJournal(wj);setMasterProfiles(mp);setContracts(ct);
+      setSupplyHistory(sh);setSupplyDeliveries(Array.isArray(sd)?sd:[]);setSupplyClaims(Array.isArray(sc)?sc:[]);setWorkJournal(wj);setMasterProfiles(mp);setContracts(ct);
       setInterimActs(ia);setRooms(ro);setRoomWorks(rw);setTools(tl);setToolHistory(th);
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
@@ -3026,6 +3037,67 @@ function App() {
     await loadAll();
   };
 
+  // Сн.4: поставщик отгружает выигранное КП
+  const createShipmentFromOffer = async (offer) => {
+    const req = supplyRequests.find(r=>r.id===offer.requestId);
+    const qty = shipmentForm.shippedQuantity || req?.quantity || '';
+    if (!qty) { alert('Укажите количество отгрузки'); return; }
+    const r = await fetch(API+'/supplier-offers/'+offer.id+'/ship', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        shippedQuantity: Number(qty),
+        waybillNumber: shipmentForm.waybillNumber,
+        waybillDate: shipmentForm.waybillDate,
+        vehicleNumber: shipmentForm.vehicleNumber,
+        driverName: shipmentForm.driverName,
+        documentUrl: shipmentForm.documentUrl,
+        photoUrl: shipmentForm.photoUrl,
+      })
+    });
+    const data = await r.json();
+    if (data.detail || data.error) { alert('Ошибка: '+(data.detail||data.error)); return; }
+    notify('Поставка отгружена — ждёт приёмки','delivery');
+    setShippingOfferId(null);
+    setShipmentForm({shippedQuantity:'',waybillNumber:'',waybillDate:new Date().toISOString().split('T')[0],vehicleNumber:'',driverName:'',documentUrl:'',photoUrl:''});
+    await loadAll();
+  };
+
+  const receiveSupplyDelivery = async (delivery) => {
+    if (!receiveForm.receivedQuantity && receiveForm.receivedQuantity!==0) { alert('Укажите принятое количество'); return; }
+    const r = await fetch(API+'/supply-deliveries/'+delivery.id+'/receive', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        receivedQuantity: Number(receiveForm.receivedQuantity),
+        qualityStatus: receiveForm.qualityStatus,
+        qualityNotes: receiveForm.qualityNotes,
+        photoUrl: receiveForm.photoUrl,
+        claimDescription: receiveForm.claimDescription,
+        receivedBy: user.name,
+      })
+    });
+    const data = await r.json();
+    if (data.detail || data.error) { alert('Ошибка: '+(data.detail||data.error)); return; }
+    notify(data.claimId?'Приёмка с претензией':'Поставка принята','delivery');
+    setReceivingDeliveryId(null);
+    setReceiveForm({receivedQuantity:'',qualityStatus:'Принято',qualityNotes:'',photoUrl:'',claimDescription:''});
+    await loadAll();
+  };
+
+  const runDeliveryAiCheck = async (delivery, parsedItems=[]) => {
+    setDeliveryAiLoadingId(delivery.id);
+    try {
+      const r = await fetch(API+'/supply-deliveries/'+delivery.id+'/ai-check', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({parsedItems})
+      });
+      const data = await r.json();
+      setDeliveryAiResultById(prev=>({...prev, [delivery.id]: data.result || 'AI не ответил'}));
+    } catch(e) {
+      setDeliveryAiResultById(prev=>({...prev, [delivery.id]: 'AI-сверка не сработала'}));
+    }
+    setDeliveryAiLoadingId(null);
+  };
+
   const saveOffer = async (requestId) => {
     if (!newOffer.supplierId||!newOffer.pricePerUnit||!newOffer.deliveryDays) { alert('Заполните все поля включая срок поставки'); return; }
     const req = supplyRequests.find(r=>r.id===requestId);
@@ -4142,9 +4214,16 @@ function App() {
                         )}
                         {g.key==='won' && (
                           (()=>{
-                            const hasInvoice = (invoices||[]).find(inv=>inv.offerId===o.id||inv.offer_id===o.id);
-                            if (hasInvoice) return <span style={badge(C.info,C.infoLight,C.infoBorder)}>💳 Счёт выставлен</span>;
-                            return (<button onClick={()=>{setInvoicingOfferId(o.id);setNewOfferInvoice({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:o.totalPrice||'',vatAmount:'',description:'Материал: '+req.materialName,fileUrl:''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💳 Выставить счёт</button>);
+                            const hasInvoice = (supplierInvoices||[]).find(inv=>inv.offerId===o.id||inv.offer_id===o.id);
+                            const delivery = (supplyDeliveries||[]).find(d=>d.offerId===o.id);
+                            return (<div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                              {hasInvoice
+                                ? <span style={badge(C.info,C.infoLight,C.infoBorder)}>💳 Счёт выставлен</span>
+                                : <button onClick={()=>{setInvoicingOfferId(o.id);setNewOfferInvoice({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:o.totalPrice||'',vatAmount:'',description:'Материал: '+req.materialName,fileUrl:''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💳 Выставить счёт</button>}
+                              {delivery
+                                ? <span style={badge(delivery.status==='Принято'?C.success:delivery.status==='Проблема'?C.danger:C.warning,delivery.status==='Принято'?C.successLight:delivery.status==='Проблема'?C.dangerLight:C.warningLight,delivery.status==='Принято'?C.successBorder:delivery.status==='Проблема'?C.dangerBorder:C.warningBorder)}>🚚 {delivery.status}</span>
+                                : <button onClick={()=>{setShippingOfferId(o.id);setShipmentForm({shippedQuantity:String(req.quantity||''),waybillNumber:'',waybillDate:new Date().toISOString().split('T')[0],vehicleNumber:'',driverName:'',documentUrl:'',photoUrl:''});}} style={{...btnGr,padding:'5px 12px',fontSize:'12px'}}>🚚 Отгрузить</button>}
+                            </div>);
                           })()
                         )}
                       </div>
@@ -4241,6 +4320,31 @@ function App() {
                       <div style={{display:'flex',gap:'8px'}}>
                         <button onClick={()=>createInvoiceFromOffer(o.id)} style={btnO}><Check size={14}/>Отправить счёт</button>
                         <button onClick={()=>setInvoicingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
+                      </div>
+                    </div>)}
+                    {/* Сн.4: форма отгрузки поставщика */}
+                    {shippingOfferId===o.id && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                      <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>🚚 Отгрузка по выигранному КП</b>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Отгружено, {req.unit}</label>
+                          <input type='number' step='any' inputMode='decimal' value={shipmentForm.shippedQuantity} onChange={e=>setShipmentForm({...shipmentForm,shippedQuantity:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Дата накладной</label>
+                          <input type='date' value={shipmentForm.waybillDate} onChange={e=>setShipmentForm({...shipmentForm,waybillDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        </div>
+                        <input placeholder='Номер накладной / УПД' value={shipmentForm.waybillNumber} onChange={e=>setShipmentForm({...shipmentForm,waybillNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        <input placeholder='Машина / госномер' value={shipmentForm.vehicleNumber} onChange={e=>setShipmentForm({...shipmentForm,vehicleNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
+                        <input placeholder='Водитель / контакт' value={shipmentForm.driverName} onChange={e=>setShipmentForm({...shipmentForm,driverName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                      </div>
+                      <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',marginBottom:'10px'}}>
+                        <Upload size={12}/>{shipmentForm.documentUrl?'Документ загружен':'Прикрепить накладную / УПД'}
+                        <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setShipmentForm({...shipmentForm,documentUrl:url});}}}/>
+                      </label>
+                      <div style={{display:'flex',gap:'8px'}}>
+                        <button onClick={()=>createShipmentFromOffer(o)} style={btnO}><Check size={14}/>Отгрузить</button>
+                        <button onClick={()=>setShippingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
                     </div>)}
                   </div>);
@@ -7599,6 +7703,85 @@ function App() {
               <div style={{display:'flex',gap:'8px',marginBottom:'16px',flexWrap:'wrap'}}>
                 {tabs.map(t=>(<button key={t.id} onClick={()=>setSupplyTab(t.id)} style={{...curTab===t.id?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{t.label}</button>))}
               </div>
+              {!(role==='мастер'||role==='субподрядчик') && (<div style={{...card,padding:'16px',marginBottom:'16px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
+                  <div>
+                    <b style={{color:C.text,fontSize:'14px'}}>🚚 Поставки и приёмка</b>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Отгрузка поставщика → AI-сверка накладной → приёмка на склад объекта → претензия при проблеме.</p>
+                  </div>
+                  {supplyClaims.filter(c=>c.status==='Открыта').length>0 && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>⚠️ Претензий: {supplyClaims.filter(c=>c.status==='Открыта').length}</span>}
+                </div>
+                {(supplyDeliveries||[]).length===0 && <p style={{color:C.textMuted,fontSize:'12px',margin:'8px 0'}}>Поставок пока нет. Они появятся после отгрузки выигранного КП поставщиком.</p>}
+                {(supplyDeliveries||[]).slice(0,8).map(d=>{
+                  const problem = d.status==='Проблема';
+                  const done = d.status==='Принято';
+                  const stC = problem?C.danger:done?C.success:C.info;
+                  const stBg = problem?C.dangerLight:done?C.successLight:C.infoLight;
+                  const stBd = problem?C.dangerBorder:done?C.successBorder:C.infoBorder;
+                  const isReceiving = receivingDeliveryId===d.id;
+                  const canReceive = ['прораб','кладовщик','снабженец','директор','зам_директора'].includes(role) && !done;
+                  const claim = supplyClaims.find(c=>c.id===d.claimId || c.deliveryId===d.id);
+                  return (<div key={d.id} style={{padding:'12px',border:'1.5px solid '+stBd,backgroundColor:stBg,borderRadius:'8px',marginBottom:'8px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                      <div style={{flex:'1 1 260px'}}>
+                        <b style={{color:C.text,fontSize:'13px'}}>{d.materialName}</b>
+                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{d.shippedQuantity || d.plannedQuantity} {d.unit} · 🏗 {d.project || '—'} · {d.supplierName || 'Поставщик'}</p>
+                        <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>ТТН/накладная: {d.waybillNumber || '—'}{d.vehicleNumber?' · авто '+d.vehicleNumber:''}{d.driverName?' · '+d.driverName:''}</p>
+                        {d.aiCheckResult && <p style={{color:C.accent,margin:'5px 0 0',fontSize:'11px'}}>🤖 {d.aiCheckResult}</p>}
+                        {claim && <p style={{color:C.danger,margin:'5px 0 0',fontSize:'11px'}}>⚠️ Претензия: {claim.claimType} · {claim.status}</p>}
+                      </div>
+                      <div style={{display:'flex',gap:'5px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                        <span style={badge(stC,stBg,stBd)}>{d.status}</span>
+                        <label style={{...btnG,padding:'5px 10px',fontSize:'11px',cursor:'pointer'}}>
+                          <Bot size={11}/>AI накладная
+                          <input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{
+                            const file=e.target.files[0]; if(!file) return;
+                            setDeliveryAiLoadingId(d.id);
+                            try {
+                              const base64 = await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.readAsDataURL(file);});
+                              const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:base64})});
+                              const parsed = await resp.json();
+                              const items = parsed?.data?.items || [];
+                              await runDeliveryAiCheck(d, items);
+                              const match = items.find(it=>String(it.name||'').toLowerCase().includes(String(d.materialName||'').split(' ')[0].toLowerCase()));
+                              if (match) setReceiveForm(f=>({...f,receivedQuantity:String(match.quantity||''),qualityNotes:'AI распознал: '+(match.name||'')+' '+(match.quantity||'')+' '+(match.unit||'')}));
+                            } catch(_) {
+                              setDeliveryAiResultById(prev=>({...prev,[d.id]:'Не удалось распознать накладную'}));
+                            }
+                            setDeliveryAiLoadingId(null);
+                            e.target.value='';
+                          }}/>
+                        </label>
+                        {canReceive && <button onClick={()=>{setReceivingDeliveryId(isReceiving?null:d.id);setReceiveForm({receivedQuantity:String(d.shippedQuantity||d.plannedQuantity||''),qualityStatus:'Принято',qualityNotes:'',photoUrl:'',claimDescription:''});}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Принять</button>}
+                      </div>
+                    </div>
+                    {deliveryAiLoadingId===d.id && <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>AI сверяет накладную...</p>}
+                    {deliveryAiResultById[d.id] && <div style={{padding:'8px 10px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'6px',fontSize:'11px',color:C.text,marginTop:'8px'}}>{deliveryAiResultById[d.id]}</div>}
+                    {isReceiving && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'10px',marginTop:'10px'}}>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                        <input type='number' step='any' inputMode='decimal' value={receiveForm.receivedQuantity} onChange={e=>setReceiveForm({...receiveForm,receivedQuantity:e.target.value})} placeholder='Принято количество' style={{...inp,marginBottom:0}}/>
+                        <select value={receiveForm.qualityStatus} onChange={e=>setReceiveForm({...receiveForm,qualityStatus:e.target.value})} style={{...inp,marginBottom:0}}>
+                          <option>Принято</option>
+                          <option>Частично</option>
+                          <option>Недостача</option>
+                          <option>Брак</option>
+                          <option>Несоответствие</option>
+                        </select>
+                      </div>
+                      <textarea value={receiveForm.qualityNotes} onChange={e=>setReceiveForm({...receiveForm,qualityNotes:e.target.value})} placeholder='Комментарий по качеству / упаковке / документам' style={{...inp,height:'54px',resize:'vertical'}}/>
+                      {receiveForm.qualityStatus!=='Принято' && <textarea value={receiveForm.claimDescription} onChange={e=>setReceiveForm({...receiveForm,claimDescription:e.target.value})} placeholder='Текст претензии поставщику' style={{...inp,height:'54px',resize:'vertical'}}/>}
+                      <label style={{...btnG,padding:'7px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',marginBottom:'8px'}}>
+                        <Upload size={12}/>{receiveForm.photoUrl?'Фото загружено':'Фото приёмки'}
+                        <input type='file' accept='image/*,.pdf' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setReceiveForm({...receiveForm,photoUrl:url});}}}/>
+                      </label>
+                      <div style={{display:'flex',gap:'8px'}}>
+                        <button onClick={()=>receiveSupplyDelivery(d)} style={btnO}><Check size={14}/>Сохранить приёмку</button>
+                        <button onClick={()=>setReceivingDeliveryId(null)} style={btnG}><X size={14}/>Отмена</button>
+                      </div>
+                    </div>)}
+                  </div>);
+                })}
+              </div>)}
               {/* Форма создания — мультистрочная */}
               {showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка на материал</b>
