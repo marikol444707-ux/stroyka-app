@@ -2867,30 +2867,42 @@ function App() {
       alert('Заполните хотя бы одну строку (материал + кол-во) и выберите объект');
       return;
     }
-    let okCount = 0;
-    for (const it of valid) {
-      const r = await fetch(API+'/supply-requests', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          materialName: it.materialName,
-          quantity: Number(it.quantity),
-          unit: it.unit || 'шт',
-          project: newSupplyReq.project,
-          createdBy: user.name,
-          date: new Date().toISOString().split('T')[0],
-          notes: newSupplyReq.notes || '',
-          category: newSupplyReq.category || '',
-          urgency: newSupplyReq.urgency || 'обычная',
-          requestedByRole: user.role,
-          requestedById: user.id,
-          selectedSuppliers: [],
-        })
-      });
-      if (r.ok) okCount++;
+    // ОДНА заявка со ВСЕМИ позициями (items[])
+    // backend пакует все позиции в items_json, в material_name пишется агрегат для совместимости
+    const itemsPayload = valid.map(it => ({
+      materialName: it.materialName,
+      quantity: Number(it.quantity),
+      unit: it.unit || 'шт'
+    }));
+    const r = await fetch(API+'/supply-requests', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        // Для совместимости со старыми полями — пишем первую позицию
+        materialName: itemsPayload[0].materialName,
+        quantity: itemsPayload[0].quantity,
+        unit: itemsPayload[0].unit,
+        // Главное — массив всех позиций
+        items: itemsPayload,
+        project: newSupplyReq.project,
+        createdBy: user.name,
+        date: new Date().toISOString().split('T')[0],
+        notes: newSupplyReq.notes || '',
+        category: newSupplyReq.category || '',
+        urgency: newSupplyReq.urgency || 'обычная',
+        requestedByRole: user.role,
+        requestedById: user.id,
+        selectedSuppliers: [],
+      })
+    });
+    if (!r.ok) {
+      let err = ''; try { err = (await r.json()).detail || ''; } catch(_){}
+      alert('Не удалось создать заявку' + (err ? ': '+err : ''));
+      return;
     }
-    if (okCount === 0) { alert('Не удалось создать заявку'); return; }
     // Уведомления по цепочке
-    const msg = valid.length>1 ? ('Заявка ('+okCount+' позиций) — объект '+newSupplyReq.project) : ('Заявка «'+valid[0].materialName+'» — объект '+newSupplyReq.project);
+    const msg = valid.length>1
+      ? ('Заявка из '+valid.length+' позиций — объект '+newSupplyReq.project)
+      : ('Заявка «'+valid[0].materialName+'» — объект '+newSupplyReq.project);
     if (user.role === 'мастер' || user.role === 'субподрядчик') {
       notify('Новая заявка от '+user.name+': '+msg, 'supply');
     } else if (user.role === 'прораб') {
@@ -2901,6 +2913,21 @@ function App() {
     await loadAll();
     setNewSupplyReq({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',urgency:'обычная',notes:'',category:''});
     setShowSupplyForm(false);
+  };
+
+  // Парсер items из supply_request: возвращает массив [{materialName, quantity, unit}]
+  // Совместим со старыми заявками без itemsJson — там используется одна позиция из material_name
+  const parseSupplyItems = (req) => {
+    if (!req) return [];
+    if (req.itemsJson) {
+      try {
+        const arr = typeof req.itemsJson === 'string' ? JSON.parse(req.itemsJson) : req.itemsJson;
+        if (Array.isArray(arr) && arr.length>0) return arr;
+      } catch(_) {}
+    }
+    // Legacy: одна позиция из материала записи
+    if (req.materialName) return [{materialName:req.materialName, quantity:Number(req.quantity)||0, unit:req.unit||'шт'}];
+    return [];
   };
 
   const confirmSupplyAsProrab = async (id) => {
@@ -3997,8 +4024,15 @@ function App() {
                 return (<div key={req.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'4px solid '+stC}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                     <div style={{flex:'1 1 200px'}}>
-                      <b style={{color:C.text,fontSize:'14px'}}>{req.materialName}</b>
-                      <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · 🏗 '+(req.project||'—')}</p>
+                      {(()=>{const items=parseSupplyItems(req); if (items.length<=1) {
+                        const it = items[0] || {materialName:req.materialName,quantity:req.quantity,unit:req.unit};
+                        return (<><b style={{color:C.text,fontSize:'14px'}}>{it.materialName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{it.quantity+' '+it.unit+' · 🏗 '+(req.project||'—')}</p></>);
+                      } return (<>
+                        <b style={{color:C.text,fontSize:'14px'}}>📋 Заявка из {items.length} позиций <span style={{color:C.textSec,fontSize:'12px',fontWeight:'400'}}>· 🏗 {req.project||'—'}</span></b>
+                        <ol style={{margin:'4px 0 6px',paddingLeft:'20px',color:C.text,fontSize:'12px'}}>
+                          {items.map((it,i)=>(<li key={i} style={{marginBottom:'2px'}}>{it.materialName} <span style={{color:C.textSec}}>— {it.quantity} {it.unit}</span></li>))}
+                        </ol>
+                      </>);})()}
                       <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{req.date||''}{req.urgency==='срочная'?' · 🔴 Срочно':req.urgency==='низкая'?' · 🟢 Не срочно':''}</p>
                       {req.notes && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
                       {req.status==='Подтверждена прорабом' && req.prorabName && <p style={{color:C.info,margin:'4px 0 0',fontSize:'11px'}}>👷 {req.prorabName} подтвердил — ждёт директора</p>}
@@ -4210,8 +4244,15 @@ function App() {
                   return (<div key={o.id} style={{padding:'12px',backgroundColor:g.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+g.bd}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
                       <div style={{flex:1,minWidth:'200px'}}>
-                        <b style={{fontSize:'13px',color:C.text}}>{req.materialName}</b>
-                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · 🏗 '+(req.project||'')}</p>
+                        {(()=>{const items=parseSupplyItems(req); if (items.length<=1) {
+                          const it = items[0] || {materialName:req.materialName,quantity:req.quantity,unit:req.unit};
+                          return (<><b style={{fontSize:'13px',color:C.text}}>{it.materialName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{it.quantity+' '+it.unit+' · 🏗 '+(req.project||'')}</p></>);
+                        } return (<>
+                          <b style={{fontSize:'13px',color:C.text}}>📋 Запрос на {items.length} позиций <span style={{color:C.textSec,fontWeight:'400'}}>· 🏗 {req.project||''}</span></b>
+                          <ol style={{margin:'4px 0 6px',paddingLeft:'18px',color:C.text,fontSize:'12px'}}>
+                            {items.map((it,i)=>(<li key={i} style={{marginBottom:'2px'}}>{it.materialName} <span style={{color:C.textSec}}>— {it.quantity} {it.unit}</span></li>))}
+                          </ol>
+                        </>);})()}
                         {req.notes && <p style={{color:C.textMuted,margin:'0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
                         {o.aiRecommended && <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>🤖 AI рекомендовал вас</span>}
                         {o.pricePerUnit>0 && (<p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px'}}>
@@ -4248,11 +4289,23 @@ function App() {
                       </div>
                     </div>
                     {/* Форма ответа КП */}
-                    {isResponding && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
-                      <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>💰 Ваше КП на {req.quantity} {req.unit}:</b>
+                    {isResponding && (()=>{
+                      const reqItems = parseSupplyItems(req);
+                      const isMulti = reqItems.length > 1;
+                      return (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                      <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>
+                        💰 Ваше КП {isMulti?'на пакет из '+reqItems.length+' позиций':'на '+(reqItems[0]?.quantity||req.quantity)+' '+(reqItems[0]?.unit||req.unit)}:
+                      </b>
+                      {isMulti && (<div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'6px',marginBottom:'10px',border:'1px solid '+C.border}}>
+                        <b style={{color:C.textSec,fontSize:'11px',display:'block',marginBottom:'6px'}}>📋 Что в заявке:</b>
+                        <ol style={{margin:0,paddingLeft:'18px',color:C.text,fontSize:'12px'}}>
+                          {reqItems.map((it,i)=>(<li key={i} style={{marginBottom:'2px'}}>{it.materialName} <span style={{color:C.textSec}}>— {it.quantity} {it.unit}</span></li>))}
+                        </ol>
+                        <p style={{margin:'6px 0 0',color:C.textMuted,fontSize:'11px',fontStyle:'italic'}}>Укажите итоговую цену за весь пакет (с НДС / без — см. ниже)</p>
+                      </div>)}
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                         <div>
-                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Цена за {req.unit} (₽) *</label>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>{isMulti?'Итого за пакет (₽) *':'Цена за '+(reqItems[0]?.unit||req.unit)+' (₽) *'}</label>
                           <input type='number' step='any' inputMode='decimal' value={newKpResponse.pricePerUnit} onChange={e=>setNewKpResponse({...newKpResponse,pricePerUnit:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
                         <div>
@@ -4290,15 +4343,22 @@ function App() {
                         </div>
                       </div>
                       <textarea placeholder='Комментарий (опц.) — особенности, условия доставки' value={newKpResponse.supplierMessage} onChange={e=>setNewKpResponse({...newKpResponse,supplierMessage:e.target.value})} style={{...inp,height:'50px',resize:'vertical'}}/>
-                      {newKpResponse.pricePerUnit && (<div style={{padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',marginBottom:'8px',fontSize:'12px',color:C.text}}>
-                        Итого: <b>{(Number(newKpResponse.pricePerUnit||0)*Number(req.quantity||0)).toLocaleString('ru-RU')} ₽</b>
+                      {newKpResponse.pricePerUnit && !isMulti && (<div style={{padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',marginBottom:'8px',fontSize:'12px',color:C.text}}>
+                        Итого: <b>{(Number(newKpResponse.pricePerUnit||0)*Number(reqItems[0]?.quantity||req.quantity||0)).toLocaleString('ru-RU')} ₽</b>
+                      </div>)}
+                      {newKpResponse.pricePerUnit && isMulti && (<div style={{padding:'8px 10px',backgroundColor:C.successLight,borderRadius:'6px',marginBottom:'8px',fontSize:'12px',color:C.text}}>
+                        Итого за пакет: <b>{Number(newKpResponse.pricePerUnit||0).toLocaleString('ru-RU')} ₽</b>
                       </div>)}
                       <div style={{display:'flex',gap:'8px'}}>
                         <button onClick={async()=>{
                           if (!newKpResponse.pricePerUnit||!newKpResponse.deliveryDays) { alert('Заполните цену и срок'); return; }
+                          // Для multi-item: pricePerUnit = итоговая цена пакета, totalPrice = та же, quantity = 1 (виртуально)
+                          // Для single-item: pricePerUnit × quantity = totalPrice
+                          const qty = isMulti ? 1 : Number(reqItems[0]?.quantity||req.quantity||0);
+                          const totalPrice = isMulti ? Number(newKpResponse.pricePerUnit) : Number(newKpResponse.pricePerUnit) * qty;
                           await fetch(API+'/supplier-offers/'+o.id,{
                             method:'PUT', headers:{'Content-Type':'application/json'},
-                            body: JSON.stringify({action:'respond', pricePerUnit:Number(newKpResponse.pricePerUnit), quantity:Number(req.quantity), deliveryDays:Number(newKpResponse.deliveryDays), paymentTerms:newKpResponse.paymentTerms, vatIncluded:newKpResponse.vatIncluded, validUntil:newKpResponse.validUntil||null, supplierMessage:newKpResponse.supplierMessage, pdfUrl:newKpResponse.pdfUrl})
+                            body: JSON.stringify({action:'respond', pricePerUnit:Number(newKpResponse.pricePerUnit), quantity:qty, totalPrice, deliveryDays:Number(newKpResponse.deliveryDays), paymentTerms:newKpResponse.paymentTerms, vatIncluded:newKpResponse.vatIncluded, validUntil:newKpResponse.validUntil||null, supplierMessage:newKpResponse.supplierMessage, pdfUrl:newKpResponse.pdfUrl})
                           });
                           setRespondingOfferId(null);
                           await loadAll();
@@ -4306,7 +4366,8 @@ function App() {
                         }} style={btnO}><Check size={14}/>Отправить КП</button>
                         <button onClick={()=>setRespondingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
-                    </div>)}
+                    </div>);
+                    })()}
                     {/* Форма выставления счёта (Сн.3) — для выигранного КП */}
                     {invoicingOfferId===o.id && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                       <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>💳 Выставить счёт по выигранному КП</b>
@@ -7907,8 +7968,15 @@ function App() {
                 return (<div key={req.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                     <div style={{flex:'1 1 280px'}}>
-                      <b style={{color:C.text,fontSize:'14px'}}>{req.materialName}</b>
-                      <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · 🏗 '+(req.project||'—')}</p>
+                      {(()=>{const items=parseSupplyItems(req); if (items.length<=1) {
+                        const it = items[0] || {materialName:req.materialName,quantity:req.quantity,unit:req.unit};
+                        return (<><b style={{color:C.text,fontSize:'14px'}}>{it.materialName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{it.quantity+' '+it.unit+' · 🏗 '+(req.project||'—')}</p></>);
+                      } return (<>
+                        <b style={{color:C.text,fontSize:'14px'}}>📋 Заявка из {items.length} позиций <span style={{color:C.textSec,fontSize:'12px',fontWeight:'400'}}>· 🏗 {req.project||'—'}</span></b>
+                        <ol style={{margin:'4px 0 6px',paddingLeft:'20px',color:C.text,fontSize:'12px'}}>
+                          {items.map((it,i)=>(<li key={i} style={{marginBottom:'2px'}}>{it.materialName} <span style={{color:C.textSec}}>— {it.quantity} {it.unit}</span></li>))}
+                        </ol>
+                      </>);})()}
                       <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{(req.date||'')+' · '+(req.createdBy||'')+(req.requestedByRole?' ('+req.requestedByRole+')':'')}</p>
                       {req.notes && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
                       {req.status==='Отклонена' && req.rejectReason && <p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>❌ Причина: {req.rejectReason}</p>}
@@ -9932,7 +10000,17 @@ function App() {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
             <div>
               <b style={{color:C.text,fontSize:'16px',display:'block'}}>📨 Запросить КП у поставщиков</b>
-              {(()=>{const req=supplyRequests.find(r=>r.id===showRequestKpModal);if(!req) return null;return(<p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{req.materialName+' · '+req.quantity+' '+req.unit+' · 🏗 '+(req.project||'')}</p>);})()}
+              {(()=>{const req=supplyRequests.find(r=>r.id===showRequestKpModal);if(!req) return null;
+                const items=parseSupplyItems(req);
+                if (items.length<=1) {
+                  const it=items[0]||{materialName:req.materialName,quantity:req.quantity,unit:req.unit};
+                  return(<p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{it.materialName+' · '+it.quantity+' '+it.unit+' · 🏗 '+(req.project||'')}</p>);
+                }
+                return (<div style={{margin:'4px 0 0'}}>
+                  <p style={{color:C.textSec,margin:'0 0 4px',fontSize:'12px'}}>📋 Пакет из {items.length} позиций · 🏗 {req.project||''} — отправим одним запросом</p>
+                  <ol style={{margin:0,paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>{items.slice(0,5).map((it,i)=>(<li key={i}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>))}{items.length>5 && <li style={{listStyle:'none',fontStyle:'italic'}}>...и ещё {items.length-5}</li>}</ol>
+                </div>);
+              })()}
             </div>
             <button onClick={()=>setShowRequestKpModal(null)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
           </div>

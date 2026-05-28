@@ -480,6 +480,7 @@ def init_db():
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS reject_reason TEXT;
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS category VARCHAR(100);
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS items_json TEXT;
         -- Multi-tenancy подготовка (см. ONBOARDING — план «единый кабинет поставщика»)
         -- Пока не используется в коде, но колонки добавлены чтобы при миграции не делать ALTER большим таблицам
         CREATE TABLE IF NOT EXISTS companies (
@@ -1188,8 +1189,8 @@ class SupplierModel(BaseModel):
     status: str = "Активный"
 
 class SupplyRequestModel(BaseModel):
-    materialName: str
-    quantity: float
+    materialName: str = ""
+    quantity: float = 0
     unit: str = "шт"
     project: str = ""
     createdBy: str = ""
@@ -1200,6 +1201,8 @@ class SupplyRequestModel(BaseModel):
     requestedById: Optional[int] = None
     urgency: str = "обычная"
     category: str = ""
+    # Многопозиционная заявка: массив объектов {materialName, quantity, unit}
+    items: List[dict] = []
 
 class SupplierOfferModel(BaseModel):
     requestId: int
@@ -2395,6 +2398,7 @@ SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,proj
                  "director_id as \"directorId\",director_name as \"directorName\","
                  "director_approved_at as \"directorApprovedAt\","
                  "reject_reason as \"rejectReason\","
+                 "items_json as \"itemsJson\","
                  "created_at as \"createdAt\" "
                  "FROM supply_requests")
 
@@ -2409,6 +2413,7 @@ def get_supply_requests():
 
 @app.post("/supply-requests")
 def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+    import json as _json
     from datetime import datetime
     role = (r.requestedByRole or "").strip()
     if role in ("директор", "зам_директора"):
@@ -2424,6 +2429,23 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     director_id = r.requestedById if role in ("директор", "зам_директора") else None
     director_name = r.createdBy if role in ("директор", "зам_директора") else None
     director_at = now if role in ("директор", "зам_директора") else None
+    # Нормализация items: если items пустой но есть materialName — упаковываем как single-item
+    items = [it for it in (r.items or []) if (it or {}).get("materialName") and float((it or {}).get("quantity") or 0) > 0]
+    if not items and r.materialName:
+        items = [{"materialName": r.materialName, "quantity": r.quantity, "unit": r.unit}]
+    if not items:
+        raise HTTPException(status_code=400, detail="Заявка должна содержать хотя бы одну позицию")
+    # material_name / quantity / unit заполняем агрегатом для совместимости со старым UI
+    # Если позиций больше одной — пишем «N позиций» в material_name; quantity = сумма всех
+    if len(items) == 1:
+        agg_name = items[0]["materialName"]
+        agg_qty = float(items[0].get("quantity") or 0)
+        agg_unit = items[0].get("unit") or r.unit
+    else:
+        agg_name = items[0]["materialName"] + " и ещё " + str(len(items)-1) + " поз."
+        agg_qty = float(len(items))  # количество позиций
+        agg_unit = "поз."
+    items_json = _json.dumps(items, ensure_ascii=False)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
@@ -2431,12 +2453,12 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
         "(material_name,quantity,unit,project,created_by,date,notes,selected_suppliers,"
         "status,requested_by_role,requested_by_id,urgency,category,"
         "prorab_id,prorab_name,prorab_confirmed_at,"
-        "director_id,director_name,director_approved_at) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (r.materialName, r.quantity, r.unit, r.project, r.createdBy, r.date, r.notes,
+        "director_id,director_name,director_approved_at,items_json) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (agg_name, agg_qty, agg_unit, r.project, r.createdBy, r.date, r.notes,
          r.selectedSuppliers, initial_status, role, r.requestedById, r.urgency, r.category,
          prorab_id, prorab_name, prorab_at,
-         director_id, director_name, director_at))
+         director_id, director_name, director_at, items_json))
     new_id = cur.fetchone()['id']
     cur.execute(SUPPLY_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
