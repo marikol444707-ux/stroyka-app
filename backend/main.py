@@ -8,6 +8,9 @@ import psycopg2.extras
 import os
 import uuid
 import shutil
+import hashlib
+import hmac
+import secrets
 
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 if os.path.exists(_env_path):
@@ -21,6 +24,24 @@ if os.path.exists(_env_path):
 
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
+VK_TOKEN = os.getenv("VK_TOKEN", "")
+
+def _env_list(name: str, default: list[str]) -> list[str]:
+    raw = os.getenv(name, "")
+    if not raw:
+        return default
+    return [x.strip() for x in raw.split(",") if x.strip()]
+
+CORS_ORIGINS = _env_list("CORS_ORIGINS", [
+    "https://stroyka26.pro",
+    "https://www.stroyka26.pro",
+    "http://stroyka26.pro",
+    "http://www.stroyka26.pro",
+    "http://147.45.237.127",
+    "https://147.45.237.127",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+])
 
 DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "stroyka"),
@@ -34,11 +55,45 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+PASSWORD_HASH_PREFIX = "pbkdf2_sha256"
+PASSWORD_HASH_ITERATIONS = 260000
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), PASSWORD_HASH_ITERATIONS)
+    return f"{PASSWORD_HASH_PREFIX}${PASSWORD_HASH_ITERATIONS}${salt}${digest.hex()}"
+
+def verify_password(password: str, stored: str) -> bool:
+    if not stored:
+        return False
+    parts = stored.split("$")
+    if len(parts) == 4 and parts[0] == PASSWORD_HASH_PREFIX:
+        try:
+            iterations = int(parts[1])
+            salt = parts[2]
+            expected = parts[3]
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations).hex()
+            return hmac.compare_digest(digest, expected)
+        except Exception:
+            return False
+    # Backward compatibility for existing plaintext passwords. Successful login upgrades it.
+    return hmac.compare_digest(password, stored)
+
+def is_legacy_password(stored: str) -> bool:
+    return bool(stored) and not stored.startswith(PASSWORD_HASH_PREFIX + "$")
+
+def public_user(row: dict) -> dict:
+    user = dict(row)
+    user.pop("password", None)
+    user.pop("reset_token", None)
+    user.pop("reset_token_expires", None)
+    return user
 
 def get_db():
     conn = psycopg2.connect(**DB_CONFIG)
@@ -900,15 +955,18 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
     """)
-    cur.execute("""
-        INSERT INTO users (name, email, password, role)
-        VALUES
-            ('Директор', 'admin@stroyka.ru', 'admin123', 'директор'),
-            ('Бухгалтер', 'buh@stroyka.ru', 'buh123', 'бухгалтер'),
-            ('Прораб', 'prorab@stroyka.ru', 'prorab123', 'прораб'),
-            ('Мастер', 'master@stroyka.ru', 'master123', 'мастер')
-        ON CONFLICT (email) DO NOTHING;
-    """)
+    seed_users = [
+        ('Директор', 'admin@stroyka.ru', 'admin123', 'директор'),
+        ('Бухгалтер', 'buh@stroyka.ru', 'buh123', 'бухгалтер'),
+        ('Прораб', 'prorab@stroyka.ru', 'prorab123', 'прораб'),
+        ('Мастер', 'master@stroyka.ru', 'master123', 'мастер'),
+    ]
+    for seed_name, seed_email, seed_password, seed_role in seed_users:
+        cur.execute("""
+            INSERT INTO users (name, email, password, role)
+            VALUES (%s,%s,%s,%s)
+            ON CONFLICT (email) DO NOTHING
+        """, (seed_name, seed_email, hash_password(seed_password), seed_role))
     conn.close()
 
 init_db()
@@ -1250,10 +1308,10 @@ def login(data: LoginModel):
             # Срок блокировки истёк — сбрасываем
             cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user_check['id'],))
             conn.commit()
-    # Логинимся
-    cur.execute("SELECT * FROM users WHERE email=%s AND password=%s", (data.email, data.password))
+    # Логинимся: пароль проверяем в Python, чтобы поддержать хеши и старые plaintext-пароли.
+    cur.execute("SELECT * FROM users WHERE LOWER(email)=LOWER(%s)", (data.email,))
     user = cur.fetchone()
-    if not user:
+    if not user or not verify_password(data.password, user.get("password") or ""):
         # Увеличиваем счётчик неудачных попыток
         if user_check:
             new_count = (user_check.get('failed_login_count') or 0) + 1
@@ -1269,13 +1327,17 @@ def login(data: LoginModel):
         conn.close()
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
     # Успех — сбрасываем счётчик
+    if is_legacy_password(user.get("password") or ""):
+        new_hash = hash_password(data.password)
+        cur.execute("UPDATE users SET password=%s WHERE id=%s", (new_hash, user['id']))
+        user["password"] = new_hash
     cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user['id'],))
     conn.commit()
     conn.close()
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="login", entity_type="user", entity_id=user['id'],
               description="Успешный вход в систему")
-    return dict(user)
+    return public_user(user)
 
 @app.post("/password-reset-request")
 def password_reset_request(data: dict):
@@ -1303,7 +1365,10 @@ def password_reset_request(data: dict):
     log_audit(user_name=row[1] or "—", user_role="—",
               action="password_reset_request", entity_type="user", entity_id=row[0],
               description="Запрошен код восстановления пароля")
-    return {"ok": True, "message": "Код отправлен на email (или его выдаст администратор из логов)", "_devCode": code}
+    response = {"ok": True, "message": "Код отправлен на email (или его выдаст администратор из логов)"}
+    if os.getenv("SHOW_RESET_CODE", "").lower() in ("1", "true", "yes"):
+        response["_devCode"] = code
+    return response
 
 @app.post("/password-reset")
 def password_reset(data: dict):
@@ -1327,7 +1392,7 @@ def password_reset(data: dict):
         cur.close(); conn.close()
         raise HTTPException(status_code=401, detail="Код истёк — запросите новый")
     cur.execute("UPDATE users SET password=%s, reset_token=NULL, reset_token_expires=NULL, failed_login_count=0, locked_until=NULL WHERE id=%s",
-                (new_password, row[0]))
+                (hash_password(new_password), row[0]))
     conn.commit()
     cur.close(); conn.close()
     log_audit(user_name="—", user_role="—",
@@ -1358,7 +1423,7 @@ def register(data: dict):
         raise HTTPException(status_code=400, detail="Код истёк — попросите новую ссылку")
     try:
         cur.execute("INSERT INTO users (name,email,password,role) VALUES (%s,%s,%s,%s) RETURNING *",
-                    (name, email, password, role))
+                    (name, email, hash_password(password), role))
         user = cur.fetchone()
         # Если регистрируется поставщик — создаём/связываем suppliers row
         if role == 'поставщик':
@@ -1393,7 +1458,7 @@ def register(data: dict):
                      'Активный', 5.0, user['id']))
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
         conn.close()
-        return dict(user)
+        return public_user(user)
     except HTTPException:
         conn.close()
         raise
@@ -1415,7 +1480,7 @@ def create_project(p: ProjectModel):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters",
-                (p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId))
+                (p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -1841,7 +1906,7 @@ def create_user(u: UserModel):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute("INSERT INTO users (name,email,password,role,project_id,project_name) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,name,email,role,project_id,project_name",
-                    (u.name,u.email,u.password,u.role,int(u.projectId) if u.projectId else None,u.projectName or ""))
+                    (u.name,u.email,hash_password(u.password),u.role,int(u.projectId) if u.projectId else None,u.projectName or ""))
         row = cur.fetchone()
         conn.close()
         return dict(row)
@@ -1855,7 +1920,7 @@ def update_user(id: int, u: UserModel):
     cur = conn.cursor()
     if u.password:
         cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s WHERE id=%s",
-                    (u.name,u.email,u.password,u.role,id))
+                    (u.name,u.email,hash_password(u.password),u.role,id))
     else:
         cur.execute("UPDATE users SET name=%s,email=%s,role=%s WHERE id=%s",
                     (u.name,u.email,u.role,id))
@@ -6005,10 +6070,11 @@ def create_project_payment(data: dict):
     cur.close(); conn.close()
     return {"id":row[0],"ok":True}
 
-VK_TOKEN = "vk1.a.aBp-tPMNFw5HSZhCUESCIw-H8T4cmSpYIryHHbmGfy67n8dNoIbuD3jbQ6"
-
 def send_vk_notification(vk_user_id: int, message: str):
     import requests
+    if not VK_TOKEN:
+        print("VK notify skipped: VK_TOKEN is not configured")
+        return
     try:
         requests.post("https://api.vk.com/method/messages.send", params={
             "user_id": vk_user_id,

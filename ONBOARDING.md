@@ -31,9 +31,19 @@
 
 ## Архитектура секретов
 
-- `backend/.env` (gitignored): `YANDEX_API_KEY`, `YANDEX_FOLDER_ID`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
+- `backend/.env` (gitignored): `YANDEX_API_KEY`, `YANDEX_FOLDER_ID`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `VK_TOKEN`, `CORS_ORIGINS`
 - Мини-загрузчик в начале `backend/main.py` (без python-dotenv)
 - `deploy.sh` БОЛЬШЕ НЕ патчит main.py через sed — креды только из .env
+
+## Укрепление ядра — 2026-05-28
+
+- Пароли больше не должны возвращаться из `/login` и `/register`.
+- Новые пароли пишутся как `pbkdf2_sha256`; старые plaintext-пароли поддерживаются для входа и автоматически хешируются при успешном логине.
+- `/password-reset-request` больше не возвращает `_devCode`, кроме режима `SHOW_RESET_CODE=true` в `.env`.
+- `VK_TOKEN` вынесен из кода в `.env`; старый токен нужно перевыпустить, потому что он уже попадал в репозиторий.
+- CORS больше не `*`; по умолчанию разрешены домены `stroyka26.pro`, IP сервера и localhost.
+- Починен `POST /projects`: теперь передаются `floors` и `liters`, создание объекта не должно падать из-за mismatch placeholders.
+- Следующий слой безопасности: добавить токен авторизации на frontend-запросы и backend-проверку ролей по всем критичным API.
 
 ## Nginx whitelist
 
