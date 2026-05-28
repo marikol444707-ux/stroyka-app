@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -11,6 +11,9 @@ import shutil
 import hashlib
 import hmac
 import secrets
+import base64
+import json
+import time
 
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 if os.path.exists(_env_path):
@@ -25,6 +28,8 @@ if os.path.exists(_env_path):
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
 VK_TOKEN = os.getenv("VK_TOKEN", "")
+AUTH_SECRET = os.getenv("AUTH_SECRET") or (os.getenv("DB_PASSWORD", "password") + "|stroyka-auth")
+AUTH_TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "86400"))
 
 def _env_list(name: str, default: list[str]) -> list[str]:
     raw = os.getenv(name, "")
@@ -88,12 +93,73 @@ def verify_password(password: str, stored: str) -> bool:
 def is_legacy_password(stored: str) -> bool:
     return bool(stored) and not stored.startswith(PASSWORD_HASH_PREFIX + "$")
 
-def public_user(row: dict) -> dict:
+def public_user(row: dict, include_token: bool = False) -> dict:
     user = dict(row)
     user.pop("password", None)
     user.pop("reset_token", None)
     user.pop("reset_token_expires", None)
+    if include_token:
+        user["authToken"] = create_auth_token(dict(row))
     return user
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+def _b64url_decode(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode((data + padding).encode("utf-8"))
+
+def create_auth_token(user: dict) -> str:
+    payload = {
+        "id": user.get("id"),
+        "email": user.get("email") or "",
+        "role": user.get("role") or "",
+        "name": user.get("name") or "",
+        "exp": int(time.time()) + AUTH_TOKEN_TTL_SECONDS,
+    }
+    body = _b64url(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    sig = hmac.new(AUTH_SECRET.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
+    return body + "." + _b64url(sig)
+
+def verify_auth_token(token: str) -> dict:
+    try:
+        body, sig = token.split(".", 1)
+        expected = _b64url(hmac.new(AUTH_SECRET.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest())
+        if not hmac.compare_digest(sig, expected):
+            raise ValueError("bad signature")
+        payload = json.loads(_b64url_decode(body).decode("utf-8"))
+        if int(payload.get("exp") or 0) < int(time.time()):
+            raise ValueError("expired")
+        return payload
+    except Exception:
+        raise HTTPException(status_code=401, detail="Сессия недействительна. Войдите заново.")
+
+def get_current_user(authorization: Optional[str] = Header(default=None)) -> dict:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Требуется вход в систему")
+    payload = verify_auth_token(authorization.split(" ", 1)[1].strip())
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM users WHERE id=%s", (payload.get("id"),))
+    user = cur.fetchone()
+    cur.close(); conn.close()
+    if not user:
+        raise HTTPException(status_code=401, detail="Пользователь не найден")
+    return public_user(user, include_token=True)
+
+def require_roles(*roles: str):
+    allowed = set(roles)
+    def _dep(user: dict = Depends(get_current_user)) -> dict:
+        if user.get("role") not in allowed:
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+        return user
+    return _dep
+
+LEADERSHIP_ROLES = ("директор", "зам_директора")
+FINANCE_ROLES = ("директор", "зам_директора", "бухгалтер")
+WAREHOUSE_ROLES = ("директор", "зам_директора", "кладовщик", "снабженец", "прораб")
+SUPPLY_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "мастер", "субподрядчик", "поставщик", "бухгалтер")
+PROJECT_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 
 def get_db():
     conn = psycopg2.connect(**DB_CONFIG)
@@ -1337,7 +1403,7 @@ def login(data: LoginModel):
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="login", entity_type="user", entity_id=user['id'],
               description="Успешный вход в систему")
-    return public_user(user)
+    return public_user(user, include_token=True)
 
 @app.post("/password-reset-request")
 def password_reset_request(data: dict):
@@ -1458,7 +1524,7 @@ def register(data: dict):
                      'Активный', 5.0, user['id']))
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
         conn.close()
-        return public_user(user)
+        return public_user(user, include_token=True)
     except HTTPException:
         conn.close()
         raise
@@ -1476,7 +1542,7 @@ def get_projects():
     return [dict(r) for r in rows]
 
 @app.post("/projects")
-def create_project(p: ProjectModel):
+def create_project(p: ProjectModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters",
@@ -1486,7 +1552,7 @@ def create_project(p: ProjectModel):
     return dict(row)
 
 @app.put("/projects/{id}")
-def update_project(id: int, data: dict):
+def update_project(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     fields_map = [
         ('name','name'),('client','client'),('status','status'),('budget','budget'),
         ('deadline','deadline'),('progress','progress'),('tasks','tasks'),
@@ -1514,7 +1580,7 @@ def update_project(id: int, data: dict):
     return {"ok": True}
 
 @app.delete("/projects/{id}")
-def delete_project(id: int):
+def delete_project(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM projects WHERE id=%s", (id,))
@@ -1531,7 +1597,7 @@ def get_clients():
     return [dict(r) for r in rows]
 
 @app.post("/clients")
-def create_client(c: ClientModel):
+def create_client(c: ClientModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO clients (name,phone,email,status,notes) VALUES (%s,%s,%s,%s,%s) RETURNING *",
@@ -1541,7 +1607,7 @@ def create_client(c: ClientModel):
     return dict(row)
 
 @app.put("/clients/{id}")
-def update_client(id: int, c: ClientModel):
+def update_client(id: int, c: ClientModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE clients SET name=%s,phone=%s,email=%s,status=%s,notes=%s WHERE id=%s",
@@ -1550,7 +1616,7 @@ def update_client(id: int, c: ClientModel):
     return {"ok": True}
 
 @app.delete("/clients/{id}")
-def delete_client(id: int):
+def delete_client(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM clients WHERE id=%s", (id,))
@@ -1567,7 +1633,7 @@ def get_materials():
     return [dict(r) for r in rows]
 
 @app.post("/materials")
-def create_material(m: MaterialModel):
+def create_material(m: MaterialModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,unit,quantity,price,min_quantity as \"minQuantity\",project,category",
@@ -1577,7 +1643,7 @@ def create_material(m: MaterialModel):
     return dict(row)
 
 @app.put("/materials/{id}")
-def update_material(id: int, m: MaterialModel):
+def update_material(id: int, m: MaterialModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE materials SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,project=%s,category=%s WHERE id=%s",
@@ -1586,7 +1652,7 @@ def update_material(id: int, m: MaterialModel):
     return {"ok": True}
 
 @app.delete("/materials/{id}")
-def delete_material(id: int):
+def delete_material(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM materials WHERE id=%s", (id,))
@@ -1603,7 +1669,7 @@ def get_warehouse_main():
     return [dict(r) for r in rows]
 
 @app.post("/warehouse-main")
-def create_warehouse_main(m: WarehouseMainModel):
+def create_warehouse_main(m: WarehouseMainModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,name,unit,quantity,price,min_quantity as \"minQuantity\",category",
@@ -1613,7 +1679,7 @@ def create_warehouse_main(m: WarehouseMainModel):
     return dict(row)
 
 @app.put("/warehouse-main/{id}")
-def update_warehouse_main(id: int, m: WarehouseMainModel):
+def update_warehouse_main(id: int, m: WarehouseMainModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE warehouse_main SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,category=%s WHERE id=%s",
@@ -1622,7 +1688,7 @@ def update_warehouse_main(id: int, m: WarehouseMainModel):
     return {"ok": True}
 
 @app.delete("/warehouse-main/{id}")
-def delete_warehouse_main(id: int):
+def delete_warehouse_main(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM warehouse_main WHERE id=%s", (id,))
@@ -1639,7 +1705,7 @@ def get_warehouse_movements():
     return [dict(r) for r in rows]
 
 @app.post("/warehouse-movements")
-def create_warehouse_movement(m: WarehouseMovementModel):
+def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO warehouse_movements (material_name,from_location,to_location,quantity,unit,date,created_by,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
@@ -1658,7 +1724,7 @@ def get_warehouse_history():
     return [dict(r) for r in rows]
 
 @app.post("/warehouse-history")
-def create_warehouse_history(h: WarehouseHistoryModel):
+def create_warehouse_history(h: WarehouseHistoryModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
@@ -1886,7 +1952,7 @@ def get_users():
     return out
 
 @app.put("/users/{id}/assigned-projects")
-def update_assigned_projects(id: int, data: dict):
+def update_assigned_projects(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     """Назначить прорабу список проектов (массив имён)."""
     import json as _j
     projects_list = data.get('assignedProjects') or []
@@ -1901,7 +1967,7 @@ def update_assigned_projects(id: int, data: dict):
     return {"ok": True}
 
 @app.post("/users")
-def create_user(u: UserModel):
+def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
@@ -1915,7 +1981,7 @@ def create_user(u: UserModel):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.put("/users/{id}")
-def update_user(id: int, u: UserModel):
+def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     if u.password:
@@ -1928,7 +1994,7 @@ def update_user(id: int, u: UserModel):
     return {"ok": True}
 
 @app.delete("/users/{id}")
-def delete_user(id: int):
+def delete_user(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM users WHERE id=%s", (id,))
@@ -2076,7 +2142,7 @@ def list_companies():
 # === SaaS: Кабинет системы (только для system_owner) ===
 
 @app.get("/system/companies")
-def system_companies_list():
+def system_companies_list(_current_user: dict = Depends(require_roles("system_owner"))):
     """Полный список компаний с биллингом — только для владельца платформы."""
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -2098,7 +2164,7 @@ def system_companies_list():
     return rows
 
 @app.post("/system/companies")
-def system_create_company(data: dict):
+def system_create_company(data: dict, _current_user: dict = Depends(require_roles("system_owner"))):
     """Создание новой компании-клиента + инвайт-код её директору."""
     from datetime import datetime, timedelta
     conn = get_db()
@@ -2126,7 +2192,7 @@ def system_create_company(data: dict):
     return {"id": new_id, "inviteCode": invite_code, "trialUntil": str(trial_until) if trial_until else None}
 
 @app.put("/system/companies/{id}")
-def system_update_company(id: int, data: dict):
+def system_update_company(id: int, data: dict, _current_user: dict = Depends(require_roles("system_owner"))):
     """Обновление компании: смена тарифа, продление триала, заморозка."""
     from datetime import datetime
     conn = get_db()
@@ -2158,7 +2224,7 @@ def system_update_company(id: int, data: dict):
     return {"ok": True}
 
 @app.get("/system/dashboard")
-def system_dashboard():
+def system_dashboard(_current_user: dict = Depends(require_roles("system_owner"))):
     """Сводка для главной страницы кабинета системы."""
     from datetime import datetime, date
     conn = get_db()
@@ -2186,7 +2252,7 @@ def system_dashboard():
     }
 
 @app.get("/system/payments")
-def system_payments_list():
+def system_payments_list(_current_user: dict = Depends(require_roles("system_owner"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""SELECT p.*, c.name as company_name FROM company_payments p
@@ -2197,7 +2263,7 @@ def system_payments_list():
     return rows
 
 @app.post("/system/payments")
-def system_create_payment(data: dict):
+def system_create_payment(data: dict, _current_user: dict = Depends(require_roles("system_owner"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""INSERT INTO company_payments (company_id, amount, payment_date, method,
@@ -2342,7 +2408,7 @@ def get_supply_requests():
     return [dict(r) for r in rows]
 
 @app.post("/supply-requests")
-def create_supply_request(r: SupplyRequestModel):
+def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     from datetime import datetime
     role = (r.requestedByRole or "").strip()
     if role in ("директор", "зам_директора"):
@@ -2378,7 +2444,7 @@ def create_supply_request(r: SupplyRequestModel):
     return dict(row)
 
 @app.put("/supply-requests/{id}")
-def update_supply_request(id: int, data: dict):
+def update_supply_request(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     from datetime import datetime
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -2406,7 +2472,7 @@ def update_supply_request(id: int, data: dict):
     return dict(row) if row else {"ok": True}
 
 @app.delete("/supply-requests/{id}")
-def delete_supply_request(id: int):
+def delete_supply_request(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM supply_requests WHERE id=%s", (id,))
@@ -2548,7 +2614,7 @@ def get_supplier_offers():
     return [dict(r) for r in rows]
 
 @app.post("/supplier-offers")
-def create_supplier_offer(o: SupplierOfferModel):
+def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO supplier_offers (request_id,supplier_id,price_per_unit,total_price,delivery_days,notes) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -2560,7 +2626,7 @@ def create_supplier_offer(o: SupplierOfferModel):
     return dict(row)
 
 @app.put("/supplier-offers/{id}")
-def update_supplier_offer(id: int, data: dict):
+def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     from datetime import datetime
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -2603,7 +2669,7 @@ def update_supplier_offer(id: int, data: dict):
     return dict(row) if row else {"ok": True}
 
 @app.post("/supply-requests/{id}/request-kp")
-def request_kp_from_suppliers(id: int, data: dict):
+def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     """Директор отправляет запрос КП нескольким поставщикам.
        data: {supplierIds: [1,2,3], aiRecommendedIds: [1,2]}"""
     supplier_ids = data.get('supplierIds') or []
@@ -2796,7 +2862,7 @@ def compare_kp_for_request(id: int):
     }
 
 @app.post("/supplier-offers/{id}/create-invoice")
-def create_invoice_from_offer(id: int, data: dict):
+def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     """Поставщик выставляет счёт по выигранному КП.
        Автоматически создаёт supplier_invoice."""
     conn = get_db()
@@ -2945,7 +3011,7 @@ def list_supply_claims():
     return [dict(r) for r in rows]
 
 @app.post("/supplier-offers/{id}/ship")
-def ship_supplier_offer(id: int, data: dict):
+def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     from datetime import datetime
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -3020,7 +3086,7 @@ def ship_supplier_offer(id: int, data: dict):
     return dict(row)
 
 @app.put("/supply-deliveries/{id}/receive")
-def receive_supply_delivery(id: int, data: dict):
+def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     from datetime import datetime
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -3088,7 +3154,7 @@ def receive_supply_delivery(id: int, data: dict):
     return {"ok": True, "delivery": dict(row), "claimId": claim_id}
 
 @app.post("/supply-deliveries/{id}/ai-check")
-def ai_check_supply_delivery(id: int, data: dict):
+def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
@@ -3153,7 +3219,7 @@ def ai_check_supply_delivery(id: int, data: dict):
     return {"ok": True, "result": result_text, "expected": expected}
 
 @app.put("/supply-claims/{id}")
-def update_supply_claim(id: int, data: dict):
+def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     fields_map = [('status','status'),('resolution','resolution'),('resolvedAt','resolved_at')]
@@ -3712,7 +3778,7 @@ def delete_pd_consent(user_id: int):
     return {"ok": True}
 
 @app.post("/upload-photo")
-async def upload_photo(file: UploadFile = File(...)):
+async def upload_photo(file: UploadFile = File(...), _current_user: dict = Depends(get_current_user)):
     ext = os.path.splitext(file.filename)[1]
     filename = str(uuid.uuid4()) + ext
     filepath = os.path.join(UPLOAD_DIR, filename)
@@ -3943,7 +4009,7 @@ def get_company_requisites():
     return {"id":row[0],"fullName":row[1],"shortName":row[2],"inn":row[3],"kpp":row[4],"ogrn":row[5],"legalAddress":row[6],"actualAddress":row[7],"phone":row[8],"email":row[9],"directorName":row[10],"directorPosition":row[11],"basis":row[12],"bankName":row[13],"bik":row[14],"rs":row[15],"ks":row[16]}
 
 @app.post("/company-requisites")
-def save_company_requisites(data: dict):
+def save_company_requisites(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM company_requisites")
@@ -3964,7 +4030,7 @@ def get_company_documents():
     return [{"id":r[0],"companyId":r[1],"name":r[2],"docType":r[3],"fileUrl":r[4],"expiresAt":r[5],"uploadedBy":r[6]} for r in rows]
 
 @app.post("/company-documents")
-def create_company_document(data: dict):
+def create_company_document(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO company_documents (company_id,name,doc_type,file_url,expires_at,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -3975,7 +4041,7 @@ def create_company_document(data: dict):
     return {"id":row[0],"ok":True}
 
 @app.delete("/company-documents/{id}")
-def delete_company_document(id: int):
+def delete_company_document(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM company_documents WHERE id=%s",(id,))
@@ -4872,7 +4938,7 @@ def get_material_transfers(project_name: str = None):
     return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"materialName":r[5],"quantity":float(r[6] or 0),"unit":r[7],"transferDate":str(r[8]) if r[8] else "","signed":r[9],"signedAt":str(r[10]) if r[10] else "","notes":r[11] or "","createdBy":r[12] or "","createdAt":str(r[13])} for r in rows]
 
 @app.post("/material-transfers")
-def create_material_transfer(data: dict):
+def create_material_transfer(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     from_location = data.get("fromLocation", "Основной склад")
     material_name = data.get("materialName", "")
     qty = float(data.get("quantity", 0) or 0)
@@ -4922,7 +4988,7 @@ def create_material_transfer(data: dict):
         conn.close()
 
 @app.put("/material-transfers/{id}/sign")
-def sign_material_transfer(id: int):
+def sign_material_transfer(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE material_transfers SET signed=TRUE,signed_at=NOW() WHERE id=%s",(id,))
@@ -4931,7 +4997,7 @@ def sign_material_transfer(id: int):
     return {"ok":True}
 
 @app.delete("/material-transfers/{id}")
-def delete_material_transfer(id: int):
+def delete_material_transfer(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM material_transfers WHERE id=%s",(id,))
@@ -5077,7 +5143,7 @@ def get_warehouse_invoices():
     return result
 
 @app.post("/warehouse-invoices")
-def create_warehouse_invoice(data: dict):
+def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     import json as j
     conn = get_db()
     cur = conn.cursor()
@@ -5128,7 +5194,7 @@ def create_warehouse_invoice(data: dict):
     return {"id": invoice_id, "ok": True, "inspectionsAdded": inspections_added, "cablesAdded": cables_added}
 
 @app.delete("/warehouse-invoices/{id}")
-def delete_warehouse_invoice(id: int):
+def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM warehouse_invoices WHERE id=%s",(id,))
@@ -5731,7 +5797,7 @@ def list_supplier_invoices(project_name: str = None, status: str = None):
              "paymentTerms":r[21] or "","materialName":r[22] or ""} for r in rows]
 
 @app.post("/supplier-invoices")
-def create_supplier_invoice(data: dict):
+def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "поставщик"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""INSERT INTO supplier_invoices
@@ -5749,7 +5815,7 @@ def create_supplier_invoice(data: dict):
     return {"id": row[0], "ok": True}
 
 @app.put("/supplier-invoices/{id}")
-def update_supplier_invoice(id: int, data: dict):
+def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
@@ -5777,7 +5843,7 @@ def update_supplier_invoice(id: int, data: dict):
     return {"ok": True}
 
 @app.delete("/supplier-invoices/{id}")
-def delete_supplier_invoice(id: int):
+def delete_supplier_invoice(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (id,))
@@ -6060,7 +6126,7 @@ def get_project_payments(project_name: str = ""):
     return [{"id":r[0],"projectName":r[1],"amount":float(r[2] or 0),"note":r[3] or "","date":str(r[4]) if r[4] else "","addedBy":r[5] or ""} for r in rows]
 
 @app.post("/project-payments")
-def create_project_payment(data: dict):
+def create_project_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO project_payments (project_name,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s) RETURNING id",

@@ -4,6 +4,17 @@ import LoginPage from './pages/LoginPage';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
+if (typeof window !== 'undefined' && !window.__stroykaAuthFetchInstalled) {
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (input, init = {}) => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return nativeFetch(input, init);
+    const headers = new Headers(init.headers || {});
+    if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
+    return nativeFetch(input, {...init, headers});
+  };
+  window.__stroykaAuthFetchInstalled = true;
+}
 // Парсинг чисел с поддержкой запятой как разделителя (русская локаль): "0,027" → 0.027
 const toNum = (v) => { if(v===null||v===undefined||v==='') return 0; const s=String(v).replace(',', '.').replace(/\s+/g,''); const n=Number(s); return isNaN(n)?0:n; };
 // Нормализация ГЭСН-единиц: «100 м²» × 0.23 → «м²» × 23, «1000 шт» × 0.5 → «шт» × 500.
@@ -1868,11 +1879,19 @@ function App() {
     setMaterialTransfers(prev=>prev.map(t=>t.id===transferId?{...t,signed:true}:t));
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+    setUser(null);
+  };
+
   const handleLogin = async () => {
     try {
       const res = await fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
       if (!res.ok) { setLoginError('Неверный email или пароль'); return; }
-      setUser(await res.json());
+      const data = await res.json();
+      if (data.authToken) localStorage.setItem('authToken', data.authToken);
+      setUser(data);
     } catch { setLoginError('Ошибка подключения к серверу'); }
   };
 
@@ -1886,7 +1905,9 @@ function App() {
       }
       const res = await fetch(API+'/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       if (!res.ok) { const err=await res.json(); setLoginError(err.detail); return; }
-      setUser(await res.json());
+      const data = await res.json();
+      if (data.authToken) localStorage.setItem('authToken', data.authToken);
+      setUser(data);
     } catch { setLoginError('Ошибка подключения'); }
   };
 
@@ -4022,7 +4043,7 @@ function App() {
 
         <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid '+C.border,display:'flex',justifyContent:'space-around',padding:'10px 0 14px',zIndex:100,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
           {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Склад',badge:myIssues.filter(i=>!i.confirmed).length},{id:'supply',icon:<ShoppingCart size={22}/>,label:'Снабжение',badge:(supplyRequests||[]).filter(r=>(r.createdBy===user.name||r.requestedById===user.id)&&r.status==='Отклонена').length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative'}}><span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px'}}>{item.label}</span>{item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}</div>))}
-          <div onClick={()=>setUser(null)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px'}}><LogOut size={22} color={C.textMuted}/><span style={{fontSize:'10px',color:C.textMuted,marginTop:'2px'}}>Выйти</span></div>
+          <div onClick={()=>handleLogout()} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px'}}><LogOut size={22} color={C.textMuted}/><span style={{fontSize:'10px',color:C.textMuted,marginTop:'2px'}}>Выйти</span></div>
         </div>
       </div>
     );
@@ -4127,7 +4148,7 @@ function App() {
               <span style={{fontSize:'28px'}}>🏭</span>
               <div><b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет поставщика</b><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p></div>
             </div>
-            <button onClick={()=>{setUser(null);localStorage.removeItem('user');}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
+            <button onClick={()=>handleLogout()} style={{...btnG,fontSize:'12px'}}>Выйти</button>
           </div>
           {/* Селектор клиентов (заготовка под multi-tenancy) */}
           <div style={{...card,padding:'10px 14px',marginBottom:'16px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',flexWrap:'wrap'}}>
@@ -4560,7 +4581,7 @@ function App() {
               <span style={{fontSize:'28px'}}>🔎</span>
               <div><b style={{color:C.text,fontSize:'18px',display:'block'}}>Технический надзор</b><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p></div>
             </div>
-            <button onClick={()=>{setUser(null);localStorage.removeItem('user');}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
+            <button onClick={()=>handleLogout()} style={{...btnG,fontSize:'12px'}}>Выйти</button>
           </div>
           {!myProject?(<div style={{...card,padding:'40px',textAlign:'center'}}><p style={{color:C.textMuted}}>Объект не найден. Обратитесь к подрядчику.</p></div>):(
             <div>
@@ -4836,7 +4857,7 @@ function App() {
               <span style={{fontSize:'28px'}}>🏠</span>
               <div><b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет заказчика</b><p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p></div>
             </div>
-            <button onClick={()=>{setUser(null);localStorage.removeItem('user');}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
+            <button onClick={()=>handleLogout()} style={{...btnG,fontSize:'12px'}}>Выйти</button>
           </div>
           {!myProject?(<div style={{...card,padding:'40px',textAlign:'center'}}><p style={{color:C.textMuted}}>Объект не найден. Обратитесь к подрядчику.</p></div>):(
             <div>
@@ -5683,7 +5704,7 @@ function App() {
           })}
         </div>
         <div style={{padding:'10px',borderTop:'1px solid rgba(255,255,255,0.08)'}}>
-          <div onClick={()=>setUser(null)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',backgroundColor:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)'}}><LogOut size={18} color='#ef4444'/><span style={{fontSize:'13px',color:'#ef4444',fontWeight:'500'}}>Выйти</span></div>
+          <div onClick={()=>handleLogout()} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 12px',borderRadius:'8px',cursor:'pointer',backgroundColor:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)'}}><LogOut size={18} color='#ef4444'/><span style={{fontSize:'13px',color:'#ef4444',fontWeight:'500'}}>Выйти</span></div>
         </div>
       </div>
 
@@ -10655,7 +10676,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnB, bt
               <p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p>
             </div>
           </div>
-          <button onClick={()=>{setUser(null);localStorage.removeItem('user');}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
+          <button onClick={()=>{localStorage.removeItem('authToken');localStorage.removeItem('user');setUser(null);}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
         </div>
 
         {/* Вкладки */}
