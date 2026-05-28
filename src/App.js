@@ -4513,7 +4513,12 @@ function App() {
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>Мои предложения</b>
             {myOffers.map(o=>(<div key={o.id} style={{...card,padding:'12px',marginBottom:'8px'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}}>
-                <div><b style={{fontSize:'13px',color:C.text}}>{supplyRequests.find(r=>r.id===o.requestId)?.materialName||'Материал'}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(o.pricePerUnit).toLocaleString()+' руб/ед . '+Number(o.totalPrice).toLocaleString()+' руб . '+o.deliveryDays+' дней'}</p></div>
+                <div>
+                  <b style={{fontSize:'13px',color:C.text}}>{(()=>{const r=supplyRequests.find(r=>r.id===o.requestId);if(!r) return 'Материал';const items=parseSupplyItems(r);return items.length>1?('📋 Пакет из '+items.length+' позиций'):(items[0]?.materialName||r.materialName||'Материал');})()}</b>
+                  {Number(o.pricePerUnit||0)>0
+                    ? <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' руб/ед · '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' руб'+(o.deliveryDays?' · '+o.deliveryDays+' дн.':'')}</p>
+                    : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px',fontStyle:'italic'}}>⏳ Не отправлено ещё</p>}
+                </div>
                 <span style={{padding:'3px 8px',borderRadius:'6px',fontSize:'11px',backgroundColor:o.status==='Утверждено'?C.successLight:C.warningLight,color:o.status==='Утверждено'?C.success:C.warning}}>{o.status==='Утверждено'?'Утверждено':'Ожидает'}</span>
               </div>
               {o.status==='Утверждено'&&(<p style={{fontSize:'11px',color:C.textSec,margin:'6px 0 0'}}>Отгрузка теперь оформляется из вкладки «📋 Заявки» по выигранному КП, чтобы не обходить счёт и приёмку.</p>)}
@@ -8252,7 +8257,20 @@ function App() {
                     <input placeholder="Срок поставки (дней) *" type="number" step="any" inputMode="decimal" value={newOffer.deliveryDays} onChange={e=>setNewOffer({...newOffer,deliveryDays:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                   </div>
                   <button onClick={()=>saveOffer(req.id)} style={{...btnO,fontSize:'12px',padding:'6px 14px',marginBottom:'12px'}}><Plus size={12}/>Добавить КП</button>
-                  {supplierOffers.filter(o=>o.requestId===req.id).map(o=>{const sup=suppliers.find(s=>s.id===o.supplierId);return(<div key={o.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'12px',color:C.text}}>{sup?sup.name:'Поставщик'}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{'Цена: '+o.pricePerUnit.toLocaleString()+' ₽/ед · Итого: '+o.totalPrice.toLocaleString()+' ₽ · '+o.deliveryDays+' дней'+(o.notes?' · '+o.notes:'')}</p></div>{o.status==='Ожидает'&&isLeadership()&&<button onClick={()=>approveOffer(o)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Утвердить</button>}{o.status==='Утверждено'&&<span style={badge(C.success,C.successLight,C.successBorder)}>✅ Утверждено</span>}</div>);})}
+                  {supplierOffers.filter(o=>o.requestId===req.id).map(o=>{
+                    const sup=suppliers.find(s=>s.id===o.supplierId);
+                    const hasPrice = Number(o.pricePerUnit||0) > 0;
+                    return (<div key={o.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                      <div style={{flex:1,minWidth:'180px'}}>
+                        <b style={{fontSize:'12px',color:C.text}}>{sup?sup.name:'Поставщик'}</b>
+                        {hasPrice
+                          ? <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{'Цена: '+Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽/ед · Итого: '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' ₽'+(o.deliveryDays?' · '+o.deliveryDays+' дней':'')+(o.notes?' · '+o.notes:'')}</p>
+                          : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px',fontStyle:'italic'}}>⏳ Ждём ответ поставщика</p>}
+                      </div>
+                      {o.status==='Ожидает'&&isLeadership()&&hasPrice&&<button onClick={()=>approveOffer(o)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Утвердить</button>}
+                      {o.status==='Утверждено'&&<span style={badge(C.success,C.successLight,C.successBorder)}>✅ Утверждено</span>}
+                    </div>);
+                  })}
                 </div>)}
               </div>))}
               {supplyRequests.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Заявок нет</p>}
@@ -8260,7 +8278,42 @@ function App() {
 
             {suppliersTab==='offers'&&(<div>
               <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Все коммерческие предложения</h3>
-              {supplierOffers.map(o=>{const sup=suppliers.find(s=>s.id===o.supplierId);const req=supplyRequests.find(r=>r.id===o.requestId);return(<div key={o.id} style={{...card,padding:'14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{fontSize:'13px',color:C.text}}>{req?req.materialName:'—'}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(sup?sup.name:'')+'  · '+o.pricePerUnit.toLocaleString()+' ₽/ед · Итого: '+o.totalPrice.toLocaleString()+' ₽ · '+o.deliveryDays+' дней'}</p></div><span style={badge(o.status==='Утверждено'?C.success:C.warning,o.status==='Утверждено'?C.successLight:C.warningLight,o.status==='Утверждено'?C.successBorder:C.warningBorder)}>{o.status}</span></div></div>);})}
+              {(supplierOffers||[]).length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>КП пока нет</div>}
+              {(supplierOffers||[]).map(o=>{
+                const sup=suppliers.find(s=>s.id===o.supplierId);
+                const req=supplyRequests.find(r=>r.id===o.requestId);
+                const items = req ? parseSupplyItems(req) : [];
+                const isMulti = items.length>1;
+                const titleText = req ? (isMulti?('📋 Заявка из '+items.length+' позиций'):items[0]?.materialName||req.materialName||'—') : '—';
+                const hasPrice = Number(o.pricePerUnit||0) > 0;
+                // Цвет бейджа по статусу
+                const stC = o.status==='Утверждено'?C.success:o.status==='Отклонено'?C.danger:o.status==='Получено'?C.info:o.status==='Ожидает ответа'?C.warning:C.warning;
+                const stBg = o.status==='Утверждено'?C.successLight:o.status==='Отклонено'?C.dangerLight:o.status==='Получено'?C.infoLight:C.warningLight;
+                const stBd = o.status==='Утверждено'?C.successBorder:o.status==='Отклонено'?C.dangerBorder:o.status==='Получено'?C.infoBorder:C.warningBorder;
+                return (<div key={o.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                    <div style={{flex:'1 1 240px'}}>
+                      <b style={{fontSize:'13px',color:C.text}}>{titleText}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>
+                        {(sup?sup.name:'Поставщик #'+o.supplierId)+(req&&req.project?' · 🏗 '+req.project:'')}
+                      </p>
+                      {hasPrice ? (
+                        <p style={{color:C.text,margin:'2px 0',fontSize:'12px'}}>
+                          {isMulti
+                            ? ('Итого за пакет: '+Number(o.totalPrice||o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽')
+                            : (Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽/ед · итого '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' ₽')}
+                          {o.deliveryDays?' · '+o.deliveryDays+' дн.':''}
+                          {o.paymentTerms?' · '+o.paymentTerms:''}
+                        </p>
+                      ) : (
+                        <p style={{color:C.textMuted,margin:'2px 0',fontSize:'12px',fontStyle:'italic'}}>⏳ Поставщик ещё не ответил</p>
+                      )}
+                      {o.aiRecommended && <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>🤖 AI рек.</span>}
+                    </div>
+                    <span style={badge(stC,stBg,stBd)}>{o.status||'—'}</span>
+                  </div>
+                </div>);
+              })}
             </div>)}
 
             {suppliersTab==='history'&&(<div>
