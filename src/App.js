@@ -1465,18 +1465,11 @@ function App() {
     return html;
   };
 
-  const showKS2 = async (project) => {
-    const bcs = brigadeContracts.filter(bc=>bc.projectName===project.name);
-    let allBrigadeItems = [];
-    for(const bc of bcs){
-      const res = await fetch(API+'/brigade-contract-items/'+bc.id);
-      const items = await res.json();
-      allBrigadeItems = [...allBrigadeItems, ...items.filter(i=>i.doneQuantity>0)];
-    }
+  const showKS2 = (project) => {
+    // Раздел 1 — выполненные позиции сметы по цене заказчику (единый источник — смета).
+    let sourceItems = ks2ItemsFromEstimate(project);
     const pw = workJournal.filter(j=>j.project===project.name&&j.status==='Подтверждено');
-    const sourceItems = allBrigadeItems.length>0
-      ? allBrigadeItems.map(item=>({description:item.name,unit:item.unit,quantity:item.doneQuantity,pricePerUnit:Number(item.priceSmeta||0),total:Math.round(item.doneQuantity*Number(item.priceSmeta||0))}))
-      : pw.filter(j=>!j.unexpectedWorkId);
+    if(sourceItems.length===0) sourceItems = pw.filter(j=>!j.unexpectedWorkId); // запасной вариант, если сметы нет
     const unexpectedItems = pw.filter(j=>j.unexpectedWorkId).map(j=>({description:j.description,unit:j.unit,quantity:j.quantity,pricePerUnit:Number(j.pricePerUnit||0),total:Math.round(Number(j.quantity||0)*Number(j.pricePerUnit||0))}));
     const req = companyRequisites||{};
     let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА КС-2</h2><h3 style="text-align:center">АКТ О ПРИЁМКЕ ВЫПОЛНЕННЫХ РАБОТ</h3>';
@@ -1502,15 +1495,14 @@ function App() {
 
   const buildKS2Content = (project) => {
     const pw = workJournal.filter(j=>j.project===project.name&&j.status==='Подтверждено');
-    const bcs = brigadeContracts.filter(bc=>bc.projectName===project.name);
-    const brigadeItems = brigadeContractItems.filter(item=>bcs.find(bc=>bc.id===item.contractId)&&item.doneQuantity>0);
+    const estRows = ks2ItemsFromEstimate(project);
     const req = companyRequisites||{};
     let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА № КС-2</h2><h3 style="text-align:center">АКТ О ПРИЁМКЕ ВЫПОЛНЕННЫХ РАБОТ</h3>';
     html += '<table><tr><th>Организация</th><td>'+(req.fullName||req.shortName||companyName||'_____')+'</td><th>Объект</th><td>'+project.name+'</td></tr>';
     if (req.inn) html += '<tr><th>ИНН</th><td>'+req.inn+'</td><th>КПП</th><td>'+(req.kpp||'')+'</td></tr>';
     html += '</table>';
     html += '<table><tr><th>N</th><th>Наименование работ</th><th>Помещение</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-    const allItems = brigadeItems.length>0 ? brigadeItems.map(item=>({description:item.name,unit:item.unit,quantity:item.doneQuantity,pricePerUnit:Number(item.priceSmeta||item.price_smeta||0),total:Math.round(item.doneQuantity*Number(item.priceSmeta||item.price_smeta||0)),roomName:''})) : pw;
+    const allItems = estRows.length>0 ? estRows.map(r=>({...r,roomName:''})) : pw;
     allItems.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+(wk.total||0).toLocaleString()+'</td></tr>'; });
     html += '<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+allItems.reduce((s,wk)=>s+(wk.total||0),0).toLocaleString()+' руб.</b></td></tr></table>';
     html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал<br/>'+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Принял</div></div></div>';
@@ -1518,14 +1510,26 @@ function App() {
   };
 
   const buildKS3Content = (project) => {
-    const cat = expByCategory(project.name);
-    const total = Object.values(cat).reduce((s,v)=>s+v,0);
+    // КС-3 — стоимость ВЫПОЛНЕННЫХ работ заказчику (из сметы), а не себестоимость.
+    const rows = ks2ItemsFromEstimate(project);
+    const bySection = {};
+    rows.forEach(r=>{ const k=r.section||'Работы по смете'; bySection[k]=(bySection[k]||0)+Number(r.total||0); });
+    const worksTotal = rows.reduce((s,r)=>s+Number(r.total||0),0);
+    const pwUnx = workJournal.filter(j=>j.project===project.name&&j.status==='Подтверждено'&&j.unexpectedWorkId);
+    const unxTotal = pwUnx.reduce((s,j)=>s+Math.round(Number(j.quantity||0)*Number(j.pricePerUnit||0)),0);
+    const grand = worksTotal+unxTotal;
     const req = companyRequisites||{};
-    let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА № КС-3</h2>';
-    html += '<p>Организация: '+(req.fullName||req.shortName||companyName||'_____')+'</p>';
-    html += '<table><tr><th>N</th><th>Наименование</th><th>Сумма (руб.)</th></tr>';
-    EXPENSE_CATEGORIES.forEach((c,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+c.label+'</td><td>'+cat[c.id].toLocaleString()+'</td></tr>'; });
-    html += '<tr><td colspan="2"><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+'</b></td></tr></table>';
+    let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА № КС-3</h2><h3 style="text-align:center">СПРАВКА О СТОИМОСТИ ВЫПОЛНЕННЫХ РАБОТ И ЗАТРАТ</h3>';
+    html += '<table><tr><th>Организация (подрядчик)</th><td>'+(req.fullName||req.shortName||companyName||'_____')+'</td><th>Объект</th><td>'+project.name+'</td></tr></table>';
+    html += '<table><tr><th>N</th><th>Наименование работ и затрат</th><th>Стоимость выполненных работ (руб.)</th></tr>';
+    let i=0;
+    Object.keys(bySection).forEach(sec=>{ i++; html += '<tr><td>'+i+'</td><td>'+sec+'</td><td style="text-align:right">'+Math.round(bySection[sec]).toLocaleString('ru-RU')+'</td></tr>'; });
+    if(unxTotal>0){ i++; html += '<tr><td>'+i+'</td><td>Дополнительные работы (доп.соглашения)</td><td style="text-align:right">'+unxTotal.toLocaleString('ru-RU')+'</td></tr>'; }
+    if(i===0) html += '<tr><td colspan="3" style="text-align:center;color:#777">Выполненных работ по смете пока нет</td></tr>';
+    html += '<tr><td colspan="2"><b>ИТОГО выполнено работ:</b></td><td style="text-align:right"><b>'+Math.round(grand).toLocaleString('ru-RU')+' руб.</b></td></tr>';
+    html += '<tr><td colspan="2">в т.ч. НДС 20%:</td><td style="text-align:right">'+Math.round(grand/120*20).toLocaleString('ru-RU')+' руб.</td></tr>';
+    html += '</table>';
+    html += '<p style="font-size:11px;color:#555">Стоимость рассчитана по выполненным позициям сметы (цена заказчику) и соответствует Разделу 1 формы КС-2 за отчётный период.</p>';
     html += '<div class="signatures"><div class="sig"><div class="sig-line">Подрядчик<br/>'+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Заказчик</div></div></div>';
     return html;
   };
@@ -2073,6 +2077,18 @@ function App() {
   const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
   const _estimateForProject = (p) => estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
   const projectPlanDone = (p) => { const est=_estimateForProject(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ const q=Number(it.quantity||0), dq=Number(it.doneQuantity||0), pr=Number(it.priceWork||0)+Number(it.priceMaterial||0); pl+=q*pr; dn+=dq*pr; })); return {plan:pl,done:dn}; };
+  // Выполненные позиции сметы для КС-2/КС-3 — по цене ЗАКАЗЧИКУ (priceWork+priceMaterial).
+  // Смета — единый источник: берём позиции с doneQuantity>0 напрямую из сметы объекта.
+  const ks2ItemsFromEstimate = (p) => {
+    const est=_estimateForProject(p); if(!est) return [];
+    const rows=[];
+    _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+      const dq=Number(it.doneQuantity||0); if(dq<=0) return;
+      const price=Number(it.priceWork||0)+Number(it.priceMaterial||0);
+      rows.push({section:s.name||'', description:it.name||'', unit:it.unit||'', quantity:dq, pricePerUnit:price, total:Math.round(dq*price)});
+    }));
+    return rows;
+  };
   // Фактически освоено по проекту: журнал работ + наряды бригадные (по приёмке) + материалы на объекте
   const projectFactSpent = (p) => {
     if(!p) return {works:0,materials:0,total:0};
