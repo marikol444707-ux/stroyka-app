@@ -265,9 +265,18 @@ master_profiles(id, user_id, full_name, passport, inn, contract_type, ogrnip, ba
                 bank_name, phone, specialization)
 contracts(id, master_id, contract_number, project, start_date, end_date, signed_at, status)
 interim_acts(id, master_id, act_number, project, period_from, period_to,
-             total_amount, paid_amount, status)
+             total_amount, paid_amount, status, scan_url)
+             -- scan_url: скан подписанного бумажного акта. Без него оплата заблокирована (A3, 29.05).
 pd_consents(id, user_id, signed_at, scan_url, uploaded_by)
 tb_journal(id, project_name, instructor, instruction_type, date, master_name, ...)
+project_documents(id, project_name, side, doc_type, number, doc_date, counterparty,
+                  sign_status, scan_url, amount, notes, uploaded_by, created_at)
+                  -- side = 'customer' | 'contractor'. Реестр документов объекта (A1, 29.05).
+project_letters(id, project_name, side, direction, subject, body, counterparty,
+                letter_date, file_url, author, created_at)
+                -- direction = 'incoming' | 'outgoing'. Переписка по объекту (A2, 29.05).
+-- Новые колонки 29.05: brigade_contracts.act_scan_url (гейт оплаты бригаде),
+--                      projects.archived / projects.archived_at (архив объекта, A4)
 ```
 
 ## Особенности БД (ловушки)
@@ -304,7 +313,11 @@ tb_journal(id, project_name, instructor, instruction_type, date, master_name, ..
 - `/staff/:id/documents`, DELETE `/staff-documents/:id` — custom документы
 - `/hidden-works-acts` (GET с ?project_name=) — список АОСР
 - PUT/DELETE `/hidden-works-acts/:id` — обновление и удаление АОСР
-- PUT `/estimates/:id` — теперь дополнительно автоматически пишет в `work_journal` и `hidden_works_acts` при изменении doneQuantity. Возвращает `{ok, journalEntries, hiddenWorkActs}` с количеством созданных записей.
+- PUT `/estimates/:id` — теперь дополнительно автоматически пишет в `work_journal` и `hidden_works_acts` при изменении doneQuantity, **И синхронизирует `done_quantity` в `brigade_contract_items`** (по brigadeName + имени работы, капается планом). Возвращает `{ok, journalEntries, hiddenWorkActs, brigadeItemsSynced}`. Смета — единый источник «Сделано».
+- `/project-documents` (GET ?project_name=, POST, PUT :id, DELETE :id) — реестр документов объекта (A1, 29.05)
+- `/project-letters` (GET ?project_name=, POST, DELETE :id) — переписка по объекту (A2, 29.05)
+- PUT `/interim-acts/:id` — поддерживает `scanUrl` (скан подписанного акта); PUT `/brigade-contracts/:id` — `actScanUrl` через COALESCE; PUT `/projects/:id` — `archived`/`archivedAt`
+- ⚠️ **nginx whitelist**: при появлении этих эндпоинтов проверь префиксы `/project-documents`, `/project-letters` в `/etc/nginx/sites-enabled/stroyka`
 
 ## 📅 Итог сессии 26-27 мая 2026 (последняя — Сн.1+2+3 + SaaS-фундамент)
 
@@ -571,6 +584,10 @@ tb_journal(id, project_name, instructor, instruction_type, date, master_name, ..
 - **Безопасность**: автобэкап БД (cron 03:00), восстановление пароля (6-значный код), защита от brute-force (5 попыток → блок 15 мин), audit-log с интеграцией в endpoints
 - **Тёмная тема** через CSS-переменные + переключатель в шапке
 - **Контроль сумм нарядов vs смета** — плашка с цветом и предупреждением
+
+**Сессия 29 мая 2026 (слита в `main`, коммит 973a0f0):** закрыты две большие задачи —
+1. **Фикс «6 разрывов» смета→деньги** (Шаги 1-3): смета стала единым источником «Сделано». Расчёт бригады, прогресс, КС-2/КС-3 (по цене заказчику), себестоимость и акты бригад — всё считается из сметы. Подробно см. раздел «🔗 Анализ цепочки».
+2. **Документооборот и архив объекта** (A1-A4): реестр документов + переписка в карточке объекта (на бэкенде), гейт «нет скана подписанного акта → нет оплаты», архивация объекта целиком. Подробно см. раздел «🅰️».
 
 **Текущее состояние (на 29 мая 2026):** все 11 основных фаз + 7 этапов прав доступа + кабинет прораба/мастера + переделка бухгалтерии + **цепочка снабжения Сн.1-5** закрыты (полностью). Связка мастер→прораб→директор→поставщик→КП→счёт→отгрузка→приёмка работает сквозно. При проблемной поставке создаётся претензия, годное количество попадает на склад объекта и во входной контроль. Регистрация поставщика по invite-ссылке с реквизитами и договором. Multi-tenancy подготовлен на уровне БД (companies, company_id, company_supplier_links). SaaS-фундамент готов: роль system_owner + кабинет владельца платформы + биллинг таблицы + endpoints. Цепочка снабжения Сн.1-5 закрыта полностью (каталоги поставщиков, история цен, шаблоны заявок). Отложено: реальная ЮKassa интеграция, лендинг, SMTP, Sentry, миграция фото в Яндекс.Объект-стор.
 
