@@ -96,7 +96,7 @@ const ROLES = {
   главный_инженер: ['dashboard','projects','warehouse','staff','companychat','estimates','weather','myexpenses'],
   прораб: ['projects','supply','companychat','weather','myexpenses'],
   кладовщик: ['warehouse','suppliers','supply','companychat','myexpenses'],
-  бухгалтер: ['dashboard','accounting','personnel','companychat','settings','myexpenses'],
+  бухгалтер: ['dashboard','accounting','supply','personnel','companychat','settings','myexpenses'],
   снабженец: ['warehouse','suppliers','supply','companychat','myexpenses'],
   стройконтроль: ['projects','companychat','myexpenses'],
   менеджер_crm: ['crm','companychat'],
@@ -873,7 +873,7 @@ function App() {
     if (user.role==='прораб') return notifs.filter(n=>['work','material','unexpected','prescription','supply'].includes(n.type));
     if (['мастер','субподрядчик'].includes(user.role)) return notifs.filter(n=>n.text&&n.text.includes(user.name));
     if (user.role==='бухгалтер') return notifs.filter(n=>['invoice','act','contract','pay','expreport','ownexp','supplyinv'].includes(n.type));
-    if (['кладовщик','снабженец'].includes(user.role)) return notifs.filter(n=>['stock','supply','delivery'].includes(n.type));
+    if (['кладовщик','снабженец'].includes(user.role)) return notifs.filter(n=>['stock','supply','delivery','supplyinv'].includes(n.type));
     return notifs;
   };
 
@@ -2033,9 +2033,17 @@ function App() {
       (ownExpenses||[]).filter(e=>e.status==='Ожидает').slice(0,5).forEach(e=>{
         out.push({type:'ownexp',title:'Возмещение «Мои траты»',text:(e.employeeName||'—')+' · '+e.description+' · '+Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽',icon:'💸',color:'#3b82f6'});
       });
-      // Счета поставщиков не оплачены
-      (supplierInvoices||[]).filter(s=>s.status==='К оплате'||s.status==='Новый'||!s.status||s.status==='Подтверждён').slice(0,5).forEach(s=>{
-        out.push({type:'supplyinv',title:'Счёт поставщика к оплате',text:(s.supplierName||'—')+' · '+Math.round(Number(s.totalAmount||0)).toLocaleString('ru-RU')+' ₽',icon:'📥',color:'#8b5cf6'});
+      // Счета поставщиков не оплачены (новые ждут утверждения / утверждённые ждут оплаты)
+      (supplierInvoices||[]).filter(s=>s.status==='На утверждении'||s.status==='Утверждён'||s.status==='Частично оплачен'||!s.status).slice(0,5).forEach(s=>{
+        const amt=Number(s.amount||s.totalAmount||0);
+        out.push({type:'supplyinv',title:s.status==='На утверждении'?'Счёт поставщика на утверждение':'Счёт поставщика к оплате',text:(s.supplierName||'—')+' · '+Math.round(amt).toLocaleString('ru-RU')+' ₽',target:'supply',icon:'📥',color:'#8b5cf6'});
+      });
+    }
+    // Снабженец/кладовщик видят новые счета от поставщиков (Ф5a.2: счета переехали в Снабжение)
+    if (user.role==='снабженец'||user.role==='кладовщик'){
+      (supplierInvoices||[]).filter(s=>s.status==='На утверждении'||!s.status).slice(0,5).forEach(s=>{
+        const amt=Number(s.amount||s.totalAmount||0);
+        out.push({type:'supplyinv',title:'Новый счёт от поставщика',text:(s.supplierName||'—')+' · '+Math.round(amt).toLocaleString('ru-RU')+' ₽ — ждёт утверждения бухгалтером',target:'supply',icon:'📥',color:'#8b5cf6'});
       });
     }
     if (user.role==='заказчик'){
@@ -2976,6 +2984,87 @@ function App() {
     if (!window.confirm('Удалить шаблон?')) return;
     await fetch(API+'/supply-request-templates/'+tplId, {method:'DELETE'});
     await loadAll();
+  };
+
+  // Ф5a.2: блок «Счета от поставщиков» переехал из Бухгалтерии в раздел Снабжение.
+  // Вынесен в функцию, чтобы рендерить из вкладки «Счета». Утверждать/оплачивать может только финансы.
+  const renderSupplierInvoices = () => {
+    const canPay = isFinanceRole();
+    return (<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📥 Входящие счета от поставщиков</b>
+                <button onClick={()=>setNewSupplierInvoice({supplierName:'',projectName:'',invoiceNumber:'',invoiceDate:'',amount:'',vatAmount:'',description:''})} style={btnO}><Plus size={14}/>Новый счёт</button>
+              </div>
+              {newSupplierInvoice&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+                  <select value={newSupplierInvoice.supplierName} onChange={e=>{const sup=suppliers.find(s=>s.name===e.target.value);setNewSupplierInvoice({...newSupplierInvoice,supplierName:e.target.value,supplierId:sup?sup.id:null});}} style={{...inp,marginBottom:0}}><option value=''>Поставщик *</option>{(suppliers||[]).map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select>
+                  <select value={newSupplierInvoice.projectName} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,projectName:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Объект (если по проекту)</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
+                  <input placeholder='№ счёта *' value={newSupplierInvoice.invoiceNumber} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input type='date' value={newSupplierInvoice.invoiceDate} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceDate:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Сумма с НДС (₽) *' type='number' step='any' inputMode='decimal' value={newSupplierInvoice.amount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='В т.ч. НДС (₽)' type='number' step='any' inputMode='decimal' value={newSupplierInvoice.vatAmount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,vatAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
+                </div>
+                <textarea placeholder='Описание (за что счёт)' value={newSupplierInvoice.description} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,description:e.target.value})} style={{...inp,minHeight:'50px',marginBottom:'8px'}}/>
+                <div style={{display:'flex',gap:'8px'}}>
+                  <button onClick={async()=>{
+                    if(!newSupplierInvoice.supplierName||!newSupplierInvoice.invoiceNumber||!newSupplierInvoice.amount){alert('Заполните: поставщик, № счёта, сумма');return;}
+                    await fetch(API+'/supplier-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newSupplierInvoice,amount:Number(newSupplierInvoice.amount)||0,vatAmount:Number(newSupplierInvoice.vatAmount||0),status:'На утверждении'})});
+                    await loadAll(); setNewSupplierInvoice(null);
+                  }} style={btnO}><Check size={14}/>Сохранить</button>
+                  <button onClick={()=>setNewSupplierInvoice(null)} style={btnG}>Отмена</button>
+                </div>
+              </div>)}
+              {(()=>{const filtered=supplierInvoices.filter(i=>matchSearch(listSearch,i.supplierName,i.invoiceNumber,i.projectName,i.description));const pending=filtered.filter(i=>i.status==='На утверждении');const approved=filtered.filter(i=>i.status==='Утверждён'||i.status==='Частично оплачен');const paid=filtered.filter(i=>i.status==='Оплачен');const totalP=pending.reduce((s,i)=>s+Number(i.amount||0),0);const totalDebt=approved.reduce((s,i)=>s+(Number(i.amount||0)-Number(i.paidAmount||0)),0);
+                // Группировка по объектам
+                const byProj={};filtered.forEach(inv=>{const pn=inv.projectName||'Без объекта';if(!byProj[pn]) byProj[pn]=[];byProj[pn].push(inv);});
+                const projs=Object.keys(byProj).sort();
+                return(<div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                  <div style={{...card,padding:'12px',backgroundColor:C.warningLight}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>На утверждении</p><b style={{color:C.warning,fontSize:'15px'}}>{pending.length+' · '+Math.round(totalP).toLocaleString('ru-RU')+' ₽'}</b></div>
+                  <div style={{...card,padding:'12px',backgroundColor:C.accentLight}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>К оплате</p><b style={{color:C.accent,fontSize:'15px'}}>{approved.length}</b></div>
+                  {totalDebt>0&&<div style={{...card,padding:'12px',backgroundColor:C.dangerLight}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>⚠️ Долг по счетам</p><b style={{color:C.danger,fontSize:'15px'}}>{Math.round(totalDebt).toLocaleString('ru-RU')+' ₽'}</b></div>}
+                  <div style={{...card,padding:'12px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Оплачены</p><b style={{color:C.success,fontSize:'15px'}}>{paid.length}</b></div>
+                </div>
+                <div style={{position:'relative',marginBottom:'12px'}}>
+                  <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                  <input placeholder='🔍 Поиск по поставщику, № счёта, объекту' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
+                </div>
+                {filtered.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Счетов нет</div>:projs.map(pn=>{const list=byProj[pn];const sumTotal=list.reduce((s,i)=>s+Number(i.amount||0),0);const sumPaid=list.reduce((s,i)=>s+Number(i.paidAmount||0),0);const sumDebt=Math.max(0,sumTotal-sumPaid);const isOpen=expandedProject==='sup-'+pn;return(<div key={pn} style={{...card,marginBottom:'10px'}}>
+                  <div style={{padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}} onClick={()=>setExpandedProject(isOpen?null:'sup-'+pn)}>
+                    <div>
+                      <b style={{color:C.text,fontSize:'13px'}}>🏗 {pn}</b>
+                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{list.length+' счетов · итого '+Math.round(sumTotal).toLocaleString('ru-RU')+' ₽'+(sumPaid>0?' · оплачено '+Math.round(sumPaid).toLocaleString('ru-RU'):'')}</p>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                      {sumDebt>0&&<b style={{color:C.danger,fontSize:'13px'}}>{'⚠️ Долг '+Math.round(sumDebt).toLocaleString('ru-RU')+' ₽'}</b>}
+                      {isOpen?<ChevronUp size={14}/>:<ChevronDown size={14}/>}
+                    </div>
+                  </div>
+                  {isOpen&&(<div style={{borderTop:'1px solid '+C.border}}>
+                    {list.map(inv=>{const total=Number(inv.amount||0);const paid=Number(inv.paidAmount||0);const owe=Math.max(0,total-paid);return(<div key={inv.id} style={{padding:'12px 14px',borderBottom:'1px solid '+C.border,borderLeft:'3px solid '+(inv.status==='Оплачен'?C.success:owe>0&&paid>0?C.warning:inv.status==='Утверждён'?C.accent:C.warning),marginLeft:'10px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                        <div style={{flex:1,minWidth:'200px'}}>
+                          <b style={{color:C.text,fontSize:'13px'}}>{inv.supplierName+' · № '+inv.invoiceNumber}</b>
+                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(inv.invoiceDate||'')+(inv.projectName?' · 🏗 '+inv.projectName:'')+(inv.description?' · '+inv.description:'')}</p>
+                          {(inv.offerId||inv.offer_id)&&<p style={{color:C.accent,margin:'2px 0',fontSize:'11px'}}>📨 Создан по выигранному КП #{inv.offerId||inv.offer_id}{inv.materialName?' · '+inv.materialName:''}{inv.paymentTerms?' · условия: '+inv.paymentTerms:''}</p>}
+                          <div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
+                            <span style={{fontSize:'12px',color:C.text}}>{'Сумма: '+Math.round(total).toLocaleString('ru-RU')+' ₽'}</span>
+                            {paid>0&&<span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+Math.round(paid).toLocaleString('ru-RU')+' ₽'}</span>}
+                            {owe>0&&paid>0&&<span style={{fontSize:'12px',color:C.danger,fontWeight:'700',padding:'2px 8px',borderRadius:'6px',backgroundColor:C.dangerLight}}>{'⚠️ Недоплата: '+Math.round(owe).toLocaleString('ru-RU')+' ₽'}</span>}
+                          </div>
+                        </div>
+                        <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
+                          <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Частично оплачен'?C.warning:inv.status==='Утверждён'?C.accent:C.warning,inv.status==='Оплачен'?C.successLight:inv.status==='Частично оплачен'?C.warningLight:inv.status==='Утверждён'?C.accentLight:C.warningLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Частично оплачен'?C.warningBorder:inv.status==='Утверждён'?C.accentBorder:C.warningBorder)}>{inv.status}</span>
+                          {canPay&&inv.status==='На утверждении'&&<button onClick={async()=>{await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button>}
+                          {canPay&&(inv.status==='Утверждён'||inv.status==='Частично оплачен')&&owe>0&&<button onClick={async()=>{const ans=prompt('Оплатить (₽). Полная: '+Math.round(owe).toLocaleString('ru-RU')+' ₽',String(owe));if(!ans) return;const sum=toNum(ans);if(sum<=0||sum>owe){alert('Сумма должна быть от 1 до '+Math.round(owe).toLocaleString('ru-RU'));return;}const newPaid=paid+sum;const newStatus=newPaid>=total?'Оплачен':'Частично оплачен';await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:newPaid,paidBy:user.name,paidAt:new Date().toISOString().split('T')[0],paidNote:'Оплачено '+Math.round(sum).toLocaleString('ru-RU')+' ₽'})});if(inv.projectName){await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:inv.projectName,amount:sum,note:'Оплата счёта '+inv.supplierName+' №'+inv.invoiceNumber,date:new Date().toISOString().split('T')[0],paidBy:user.name})});}await loadAll();}} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 {owe<total?'Доплатить':'Оплатить'}</button>}
+                          {canPay&&<button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/supplier-invoices/'+inv.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>}
+                        </div>
+                      </div>
+                    </div>);})}
+                  </div>)}
+                </div>);})}
+              </div>);})()}
+    </div>);
   };
 
   // Парсер items из supply_request: возвращает массив [{materialName, quantity, unit}]
@@ -7944,8 +8033,9 @@ function App() {
             let tabs = [];
             if (role==='мастер'||role==='субподрядчик') tabs=[{id:'mine',label:'📋 Мои заявки'}];
             else if (role==='прораб') tabs=[{id:'inbox',label:'⏳ Ждут подтверждения'},{id:'all',label:'📋 Все заявки'},{id:'catalog',label:'📦 Каталоги'}];
-            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'},{id:'catalog',label:'📦 Каталоги'}];
-            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'},{id:'catalog',label:'📦 Каталоги'}];
+            else if (role==='бухгалтер') tabs=[{id:'invoices',label:'💳 Счета'},{id:'all',label:'📋 Все заявки'},{id:'catalog',label:'📦 Каталоги'}];
+            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'},{id:'invoices',label:'💳 Счета'},{id:'catalog',label:'📦 Каталоги'}];
+            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'},{id:'invoices',label:'💳 Счета'},{id:'catalog',label:'📦 Каталоги'}];
             // фильтрация
             let list = supplyRequests || [];
             const curTab = tabs.find(t=>t.id===supplyTab) ? supplyTab : tabs[0].id;
@@ -7980,12 +8070,14 @@ function App() {
                     'Утверждённые заявки на закупку'
                   }</p>
                 </div>
-                {canCreate && curTab!=='catalog' && <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>Новая заявка</button>}
+                {canCreate && curTab!=='catalog' && curTab!=='invoices' && <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>Новая заявка</button>}
               </div>
               {/* Вкладки */}
               <div style={{display:'flex',gap:'8px',marginBottom:'16px',flexWrap:'wrap'}}>
                 {tabs.map(t=>(<button key={t.id} onClick={()=>setSupplyTab(t.id)} style={{...curTab===t.id?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{t.label}</button>))}
               </div>
+              {/* Вкладка «Счета» — входящие счета от поставщиков (Ф5a.2: переехали из Бухгалтерии) */}
+              {curTab==='invoices' && renderSupplierInvoices()}
               {/* Вкладка «Каталоги» — прайсы поставщиков (просмотр) */}
               {curTab==='catalog' && (()=>{
                 const q = (listSearch||'').toLowerCase().trim();
@@ -8030,7 +8122,7 @@ function App() {
                   ))}
                 </div>);
               })()}
-              {curTab!=='catalog' && !(role==='мастер'||role==='субподрядчик') && (<div style={{...card,padding:'16px',marginBottom:'16px'}}>
+              {curTab!=='catalog' && curTab!=='invoices' && !(role==='мастер'||role==='субподрядчик') && (<div style={{...card,padding:'16px',marginBottom:'16px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
                   <div>
                     <b style={{color:C.text,fontSize:'14px'}}>🚚 Поставки и приёмка</b>
@@ -8110,7 +8202,7 @@ function App() {
                 })}
               </div>)}
               {/* Форма создания — мультистрочная */}
-              {curTab!=='catalog' && showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
+              {curTab!=='catalog' && curTab!=='invoices' && showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка на материал</b>
                 {/* Сн.5: шаблоны заявок */}
                 {(supplyTemplates||[]).length>0 && (<div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
@@ -8173,7 +8265,7 @@ function App() {
                 <input placeholder='🔍 Поиск по материалу, объекту, автору' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
               </div>
               {/* Список заявок — группировка по объектам */}
-              {curTab!=='catalog' && (()=>{
+              {curTab!=='catalog' && curTab!=='invoices' && (()=>{
                 const byProject = new Map();
                 list.forEach(r=>{
                   const key = r.project || '— Без объекта —';
@@ -8421,7 +8513,7 @@ function App() {
                   </div>);
                 });
               })()}
-              {curTab!=='catalog' && list.length===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>}
+              {curTab!=='catalog' && curTab!=='invoices' && list.length===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>}
             </div>);
           })()}
 
@@ -8664,7 +8756,7 @@ function App() {
 
           {activePage==='accounting'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['summary','contracts','acts','payments','documents','salary','expenses','supplierInv','audit'].filter(t=>t!=='audit'||isLeadership()).map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 12px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',payments:'💸 Платежи',documents:'🏗 По объектам',salary:'👥 Зарплата',expenses:'💼 Авансовые',supplierInv:'📥 Счета постав.',audit:'📜 Аудит'}[tab]}</button>))}
+              {['summary','contracts','acts','payments','documents','salary','expenses','audit'].filter(t=>t!=='audit'||isLeadership()).map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 12px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',payments:'💸 Платежи',documents:'🏗 По объектам',salary:'👥 Зарплата',expenses:'💼 Авансовые',audit:'📜 Аудит'}[tab]}</button>))}
             </div>
 
             {accountingTab==='summary'&&(<div>
@@ -9144,82 +9236,6 @@ function App() {
                   </div>
                 </div>))}
               </div>)}
-            </div>)}
-
-            {accountingTab==='supplierInv'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📥 Входящие счета от поставщиков</b>
-                <button onClick={()=>setNewSupplierInvoice({supplierName:'',projectName:'',invoiceNumber:'',invoiceDate:'',amount:'',vatAmount:'',description:''})} style={btnO}><Plus size={14}/>Новый счёт</button>
-              </div>
-              {newSupplierInvoice&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                  <select value={newSupplierInvoice.supplierName} onChange={e=>{const sup=suppliers.find(s=>s.name===e.target.value);setNewSupplierInvoice({...newSupplierInvoice,supplierName:e.target.value,supplierId:sup?sup.id:null});}} style={{...inp,marginBottom:0}}><option value=''>Поставщик *</option>{(suppliers||[]).map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select>
-                  <select value={newSupplierInvoice.projectName} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,projectName:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Объект (если по проекту)</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <input placeholder='№ счёта *' value={newSupplierInvoice.invoiceNumber} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input type='date' value={newSupplierInvoice.invoiceDate} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Сумма с НДС (₽) *' type='number' step='any' inputMode='decimal' value={newSupplierInvoice.amount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='В т.ч. НДС (₽)' type='number' step='any' inputMode='decimal' value={newSupplierInvoice.vatAmount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,vatAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
-                </div>
-                <textarea placeholder='Описание (за что счёт)' value={newSupplierInvoice.description} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,description:e.target.value})} style={{...inp,minHeight:'50px',marginBottom:'8px'}}/>
-                <div style={{display:'flex',gap:'8px'}}>
-                  <button onClick={async()=>{
-                    if(!newSupplierInvoice.supplierName||!newSupplierInvoice.invoiceNumber||!newSupplierInvoice.amount){alert('Заполните: поставщик, № счёта, сумма');return;}
-                    await fetch(API+'/supplier-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newSupplierInvoice,amount:Number(newSupplierInvoice.amount)||0,vatAmount:Number(newSupplierInvoice.vatAmount||0),status:'На утверждении'})});
-                    await loadAll(); setNewSupplierInvoice(null);
-                  }} style={btnO}><Check size={14}/>Сохранить</button>
-                  <button onClick={()=>setNewSupplierInvoice(null)} style={btnG}>Отмена</button>
-                </div>
-              </div>)}
-              {(()=>{const filtered=supplierInvoices.filter(i=>matchSearch(listSearch,i.supplierName,i.invoiceNumber,i.projectName,i.description));const pending=filtered.filter(i=>i.status==='На утверждении');const approved=filtered.filter(i=>i.status==='Утверждён'||i.status==='Частично оплачен');const paid=filtered.filter(i=>i.status==='Оплачен');const totalP=pending.reduce((s,i)=>s+Number(i.amount||0),0);const totalDebt=approved.reduce((s,i)=>s+(Number(i.amount||0)-Number(i.paidAmount||0)),0);
-                // Группировка по объектам
-                const byProj={};filtered.forEach(inv=>{const pn=inv.projectName||'Без объекта';if(!byProj[pn]) byProj[pn]=[];byProj[pn].push(inv);});
-                const projs=Object.keys(byProj).sort();
-                return(<div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
-                  <div style={{...card,padding:'12px',backgroundColor:C.warningLight}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>На утверждении</p><b style={{color:C.warning,fontSize:'15px'}}>{pending.length+' · '+Math.round(totalP).toLocaleString('ru-RU')+' ₽'}</b></div>
-                  <div style={{...card,padding:'12px',backgroundColor:C.accentLight}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>К оплате</p><b style={{color:C.accent,fontSize:'15px'}}>{approved.length}</b></div>
-                  {totalDebt>0&&<div style={{...card,padding:'12px',backgroundColor:C.dangerLight}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>⚠️ Долг по счетам</p><b style={{color:C.danger,fontSize:'15px'}}>{Math.round(totalDebt).toLocaleString('ru-RU')+' ₽'}</b></div>}
-                  <div style={{...card,padding:'12px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Оплачены</p><b style={{color:C.success,fontSize:'15px'}}>{paid.length}</b></div>
-                </div>
-                <div style={{position:'relative',marginBottom:'12px'}}>
-                  <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                  <input placeholder='🔍 Поиск по поставщику, № счёта, объекту' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
-                </div>
-                {filtered.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Счетов нет</div>:projs.map(pn=>{const list=byProj[pn];const sumTotal=list.reduce((s,i)=>s+Number(i.amount||0),0);const sumPaid=list.reduce((s,i)=>s+Number(i.paidAmount||0),0);const sumDebt=Math.max(0,sumTotal-sumPaid);const isOpen=expandedProject==='sup-'+pn;return(<div key={pn} style={{...card,marginBottom:'10px'}}>
-                  <div style={{padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}} onClick={()=>setExpandedProject(isOpen?null:'sup-'+pn)}>
-                    <div>
-                      <b style={{color:C.text,fontSize:'13px'}}>🏗 {pn}</b>
-                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{list.length+' счетов · итого '+Math.round(sumTotal).toLocaleString('ru-RU')+' ₽'+(sumPaid>0?' · оплачено '+Math.round(sumPaid).toLocaleString('ru-RU'):'')}</p>
-                    </div>
-                    <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
-                      {sumDebt>0&&<b style={{color:C.danger,fontSize:'13px'}}>{'⚠️ Долг '+Math.round(sumDebt).toLocaleString('ru-RU')+' ₽'}</b>}
-                      {isOpen?<ChevronUp size={14}/>:<ChevronDown size={14}/>}
-                    </div>
-                  </div>
-                  {isOpen&&(<div style={{borderTop:'1px solid '+C.border}}>
-                    {list.map(inv=>{const total=Number(inv.amount||0);const paid=Number(inv.paidAmount||0);const owe=Math.max(0,total-paid);return(<div key={inv.id} style={{padding:'12px 14px',borderBottom:'1px solid '+C.border,borderLeft:'3px solid '+(inv.status==='Оплачен'?C.success:owe>0&&paid>0?C.warning:inv.status==='Утверждён'?C.accent:C.warning),marginLeft:'10px'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                        <div style={{flex:1,minWidth:'200px'}}>
-                          <b style={{color:C.text,fontSize:'13px'}}>{inv.supplierName+' · № '+inv.invoiceNumber}</b>
-                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(inv.invoiceDate||'')+(inv.projectName?' · 🏗 '+inv.projectName:'')+(inv.description?' · '+inv.description:'')}</p>
-                          {(inv.offerId||inv.offer_id)&&<p style={{color:C.accent,margin:'2px 0',fontSize:'11px'}}>📨 Создан по выигранному КП #{inv.offerId||inv.offer_id}{inv.materialName?' · '+inv.materialName:''}{inv.paymentTerms?' · условия: '+inv.paymentTerms:''}</p>}
-                          <div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
-                            <span style={{fontSize:'12px',color:C.text}}>{'Сумма: '+Math.round(total).toLocaleString('ru-RU')+' ₽'}</span>
-                            {paid>0&&<span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+Math.round(paid).toLocaleString('ru-RU')+' ₽'}</span>}
-                            {owe>0&&paid>0&&<span style={{fontSize:'12px',color:C.danger,fontWeight:'700',padding:'2px 8px',borderRadius:'6px',backgroundColor:C.dangerLight}}>{'⚠️ Недоплата: '+Math.round(owe).toLocaleString('ru-RU')+' ₽'}</span>}
-                          </div>
-                        </div>
-                        <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
-                          <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Частично оплачен'?C.warning:inv.status==='Утверждён'?C.accent:C.warning,inv.status==='Оплачен'?C.successLight:inv.status==='Частично оплачен'?C.warningLight:inv.status==='Утверждён'?C.accentLight:C.warningLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Частично оплачен'?C.warningBorder:inv.status==='Утверждён'?C.accentBorder:C.warningBorder)}>{inv.status}</span>
-                          {inv.status==='На утверждении'&&<button onClick={async()=>{await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button>}
-                          {(inv.status==='Утверждён'||inv.status==='Частично оплачен')&&owe>0&&<button onClick={async()=>{const ans=prompt('Оплатить (₽). Полная: '+Math.round(owe).toLocaleString('ru-RU')+' ₽',String(owe));if(!ans) return;const sum=toNum(ans);if(sum<=0||sum>owe){alert('Сумма должна быть от 1 до '+Math.round(owe).toLocaleString('ru-RU'));return;}const newPaid=paid+sum;const newStatus=newPaid>=total?'Оплачен':'Частично оплачен';await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:newPaid,paidBy:user.name,paidAt:new Date().toISOString().split('T')[0],paidNote:'Оплачено '+Math.round(sum).toLocaleString('ru-RU')+' ₽'})});if(inv.projectName){await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:inv.projectName,amount:sum,note:'Оплата счёта '+inv.supplierName+' №'+inv.invoiceNumber,date:new Date().toISOString().split('T')[0],paidBy:user.name})});}await loadAll();}} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 {owe<total?'Доплатить':'Оплатить'}</button>}
-                          <button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/supplier-invoices/'+inv.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
-                        </div>
-                      </div>
-                    </div>);})}
-                  </div>)}
-                </div>);})}
-              </div>);})()}
             </div>)}
 
             {accountingTab==='audit'&&(<div>
