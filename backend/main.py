@@ -5116,9 +5116,39 @@ def update_estimate(id: int, data: dict):
                 except Exception as e:
                     print("AUTO-ACT ERROR:", str(e))
 
+    # Смета — единый источник «Сделано»: синхронизируем выполнение в позиции бригады.
+    # Позиция сметы привязана к бригаде через brigadeName (колонка «Кому»),
+    # к позиции наряда — по совпадению наименования. Объём капается планом наряда.
+    brigade_synced = 0
+    try:
+        cur.execute("SELECT id, brigade_name FROM brigade_contracts WHERE project_name=%s", (project_name,))
+        bc_rows = cur.fetchall() or []
+        bc_by_name = {}
+        for bc_id, bname in bc_rows:
+            bc_by_name.setdefault((bname or "").strip().lower(), []).append(bc_id)
+        if bc_by_name:
+            for s in new_sections:
+                for it in (s.get("items") or []):
+                    bn = (it.get("brigadeName") or "").strip().lower()
+                    if not bn or bn not in bc_by_name:
+                        continue
+                    done = float(it.get("doneQuantity") or 0)
+                    iname = (it.get("name") or "").strip().lower()
+                    if not iname:
+                        continue
+                    for bc_id in bc_by_name[bn]:
+                        cur.execute(
+                            "UPDATE brigade_contract_items "
+                            "SET done_quantity = CASE WHEN COALESCE(quantity,0)>0 THEN LEAST(%s, quantity) ELSE %s END "
+                            "WHERE contract_id=%s AND LOWER(TRIM(description))=%s",
+                            (done, done, bc_id, iname))
+                        brigade_synced += cur.rowcount or 0
+    except Exception as e:
+        print("BRIGADE-SYNC ERROR:", str(e))
+
     conn.commit()
     cur.close(); conn.close()
-    return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added}
+    return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced}
 
 @app.put("/estimates/{id}/toggle-template")
 def toggle_estimate_template(id: int):
