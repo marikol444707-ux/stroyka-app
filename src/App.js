@@ -917,56 +917,69 @@ function App() {
 
   const loadAll = async () => {
     try {
+      const role = user?.role || '';
+      const isLeadershipRole = ['директор','зам_директора'].includes(role);
+      const isFinanceRole = ['директор','зам_директора','бухгалтер'].includes(role);
+      const isWarehouseRole = ['директор','зам_директора','кладовщик','снабженец','прораб','главный_инженер'].includes(role);
+      const isSupplyRole = ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','поставщик','бухгалтер'].includes(role);
+      const isProjectRole = role && !['поставщик','system_owner'].includes(role);
+      const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
+      const canSeeProjectDocs = isProjectRole || ['технадзор','заказчик'].includes(role);
+      const get = (path, fallback = []) => fetch(API + path)
+        .then(r => r.ok ? r.json() : fallback)
+        .catch(() => fallback);
+      const skip = (fallback = []) => Promise.resolve(fallback);
+
       const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD] = await Promise.all([
-        fetch(API+'/projects').then(r=>r.json()),
-        fetch(API+'/clients').then(r=>r.json()),
-        fetch(API+'/materials').then(r=>r.json()),
-        fetch(API+'/warehouse-invoices').then(r=>r.json()),
-        fetch(API+'/project-payments').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/accountable-payments').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/own-expenses').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/expenses').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/warehouse-main').then(r=>r.json()),
-        fetch(API+'/warehouse-movements').then(r=>r.json()),
-        fetch(API+'/warehouse-history').then(r=>r.json()),
-        fetch(API+'/staff').then(r=>r.json()),
-        fetch(API+'/piecework').then(r=>r.json()),
-        fetch(API+'/users').then(r=>r.json()),
-        fetch(API+'/pricelists').then(r=>r.json()),
-        fetch(API+'/invite-codes').then(r=>r.json()),
-        fetch(API+'/suppliers').then(r=>r.json()),
-        fetch(API+'/supply-requests').then(r=>r.json()),
-        fetch(API+'/supplier-offers').then(r=>r.json()),
-        fetch(API+'/supply-history').then(r=>r.json()),
-        fetch(API+'/supply-deliveries').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/supply-claims').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/work-journal').then(r=>r.json()),
-        fetch(API+'/master-profiles').then(r=>r.json()),
-        fetch(API+'/contracts').then(r=>r.json()),
-        fetch(API+'/interim-acts').then(r=>r.json()),
-        fetch(API+'/rooms').then(r=>r.json()),
-        fetch(API+'/room-works').then(r=>r.json()),
-        fetch(API+'/tools').then(r=>r.json()),
-        fetch(API+'/tool-history').then(r=>r.json()),
-        fetch(API+'/inventory').then(r=>r.json()),
-        fetch(API+'/pd-consents').then(r=>r.json()),
-        fetch(API+'/warehouses').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/company-requisites').then(r=>r.json()).catch(()=>({})),
-        fetch(API+'/company-documents').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/project-stages').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/project-checklists').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/prescriptions').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/unexpected-works').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/estimates').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/brigade-contracts').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/hidden-works-acts').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/material-inspection').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/cable-journal').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/supervisor-acts').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/inspection-orders').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/expense-reports').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/supplier-invoices').then(r=>r.json()).catch(()=>[]),
-        fetch(API+'/warranty-defects').then(r=>r.json()).catch(()=>[]),
+        role === 'поставщик' ? skip([]) : get('/projects'),
+        (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
+        role === 'поставщик' ? skip([]) : get('/materials'),
+        (isWarehouseRole || isFinanceRole) ? get('/warehouse-invoices') : skip([]),
+        isFinanceRole ? get('/project-payments') : skip([]),
+        isFinanceRole ? get('/accountable-payments') : skip([]),
+        (isInternalRole || role === 'технадзор') ? get('/own-expenses') : skip([]),
+        isFinanceRole ? get('/expenses') : skip([]),
+        (isWarehouseRole || isFinanceRole) ? get('/warehouse-main') : skip([]),
+        (isWarehouseRole || isFinanceRole) ? get('/warehouse-movements') : skip([]),
+        (isWarehouseRole || isFinanceRole) ? get('/warehouse-history') : skip([]),
+        (isInternalRole || isFinanceRole) ? get('/staff') : skip([]),
+        (isInternalRole || isFinanceRole) ? get('/piecework') : skip([]),
+        role === 'system_owner' ? skip([]) : get('/users'),
+        (isInternalRole || role === 'технадзор') ? get('/pricelists') : skip([]),
+        isLeadershipRole ? get('/invite-codes') : skip([]),
+        (isSupplyRole || isWarehouseRole || isFinanceRole) ? get('/suppliers') : skip([]),
+        isSupplyRole ? get('/supply-requests') : skip([]),
+        isSupplyRole ? get('/supplier-offers') : skip([]),
+        (isSupplyRole || isWarehouseRole || isFinanceRole) ? get('/supply-history') : skip([]),
+        isSupplyRole ? get('/supply-deliveries') : skip([]),
+        isSupplyRole ? get('/supply-claims') : skip([]),
+        role === 'поставщик' ? skip([]) : get('/work-journal'),
+        (isInternalRole || isFinanceRole) ? get('/master-profiles') : skip([]),
+        (isInternalRole || isFinanceRole) ? get('/contracts') : skip([]),
+        (isInternalRole || isFinanceRole) ? get('/interim-acts') : skip([]),
+        canSeeProjectDocs ? get('/rooms') : skip([]),
+        canSeeProjectDocs ? get('/room-works') : skip([]),
+        isInternalRole ? get('/tools') : skip([]),
+        isInternalRole ? get('/tool-history') : skip([]),
+        isInternalRole ? get('/inventory') : skip([]),
+        (isLeadershipRole || isFinanceRole) ? get('/pd-consents') : skip([]),
+        (isWarehouseRole || isSupplyRole || isFinanceRole) ? get('/warehouses') : skip([]),
+        role === 'поставщик' ? skip({}) : get('/company-requisites', {}),
+        isFinanceRole ? get('/company-documents') : skip([]),
+        canSeeProjectDocs ? get('/project-stages') : skip([]),
+        canSeeProjectDocs ? get('/project-checklists') : skip([]),
+        canSeeProjectDocs ? get('/prescriptions') : skip([]),
+        canSeeProjectDocs ? get('/unexpected-works') : skip([]),
+        canSeeProjectDocs ? get('/estimates') : skip([]),
+        (isInternalRole || isFinanceRole) ? get('/brigade-contracts') : skip([]),
+        canSeeProjectDocs ? get('/hidden-works-acts') : skip([]),
+        (canSeeProjectDocs || isWarehouseRole) ? get('/material-inspection') : skip([]),
+        (canSeeProjectDocs || isWarehouseRole) ? get('/cable-journal') : skip([]),
+        canSeeProjectDocs ? get('/supervisor-acts') : skip([]),
+        canSeeProjectDocs ? get('/inspection-orders') : skip([]),
+        isFinanceRole ? get('/expense-reports') : skip([]),
+        (isFinanceRole || isSupplyRole || role === 'поставщик') ? get('/supplier-invoices') : skip([]),
+        canSeeProjectDocs ? get('/warranty-defects') : skip([]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -977,29 +990,29 @@ function App() {
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
       setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);
-      try {
+      if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
-          fetch(API+'/room-windows').then(r=>r.json()).catch(()=>[]),
-          fetch(API+'/room-doors').then(r=>r.json()).catch(()=>[]),
+          get('/room-windows'),
+          get('/room-doors'),
         ]);
         setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       } catch(e) {}
       try {
-        const msgs = await fetch(API+'/messages').then(r=>r.json()).catch(()=>[]);
+        const msgs = await get('/messages');
         setCompanyMessages(Array.isArray(msgs)?msgs:[]);
       } catch(e) {}
-      try {
-        const mt = await fetch(API+'/material-transfers').then(r=>r.json()).catch(()=>[]);
+      if (isWarehouseRole || ['мастер','субподрядчик'].includes(role)) try {
+        const mt = await get('/material-transfers');
         setMaterialTransfers(Array.isArray(mt)?mt:[]);
       } catch(e) {}
-      try {
-        const tb = await fetch(API+'/tb-journal').then(r=>r.json()).catch(()=>[]);
+      if (isInternalRole) try {
+        const tb = await get('/tb-journal');
         const tbNorm = (Array.isArray(tb)?tb:[]).map(t=>({...t, project: t.projectName, type: t.instructionType}));
         setTbJournal(tbNorm);
         try { localStorage.setItem('tbJournal', JSON.stringify(tbNorm)); } catch(e){}
       } catch(e) {}
-      try {
-        const abi = await fetch(API+'/brigade-contract-items-all').then(r=>r.json()).catch(()=>[]);
+      if (isInternalRole || isFinanceRole) try {
+        const abi = await get('/brigade-contract-items-all');
         setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       } catch(e) {}
     } catch(e) { console.log('Load error:',e); }
