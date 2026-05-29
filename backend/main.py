@@ -785,6 +785,21 @@ def init_db():
             status VARCHAR(50) DEFAULT 'Черновик',
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS project_documents (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            side VARCHAR(20) DEFAULT 'customer',
+            doc_type VARCHAR(100),
+            number VARCHAR(100),
+            doc_date DATE,
+            counterparty VARCHAR(255),
+            sign_status VARCHAR(40) DEFAULT 'Не подписан',
+            scan_url TEXT,
+            amount NUMERIC(14,2) DEFAULT 0,
+            notes TEXT,
+            uploaded_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS estimates (
             id SERIAL PRIMARY KEY,
             project_id INT,
@@ -5240,6 +5255,58 @@ def delete_brigade_payment(id: int):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM brigade_payments WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+# --- Реестр документов объекта (договоры, акты, доп.соглашения, журналы — со сканами) ---
+@app.get("/project-documents")
+def get_project_documents(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    if project_name:
+        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1],"side":r[2],"docType":r[3] or "","number":r[4] or "","docDate":str(r[5]) if r[5] else "","counterparty":r[6] or "","signStatus":r[7] or "","scanUrl":r[8] or "","amount":float(r[9] or 0),"notes":r[10] or "","uploadedBy":r[11] or "","createdAt":str(r[12])} for r in rows]
+
+@app.post("/project-documents")
+def create_project_document(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO project_documents (project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectName",""), data.get("side","customer"), data.get("docType",""), data.get("number",""),
+         data.get("docDate") or None, data.get("counterparty",""), data.get("signStatus","Не подписан"),
+         data.get("scanUrl",""), data.get("amount") or 0, data.get("notes",""), data.get("uploadedBy","")))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "id": new_id}
+
+@app.put("/project-documents/{id}")
+def update_project_document(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    fields = {"side":"side","docType":"doc_type","number":"number","docDate":"doc_date","counterparty":"counterparty","signStatus":"sign_status","scanUrl":"scan_url","amount":"amount","notes":"notes"}
+    sets, vals = [], []
+    for k, col in fields.items():
+        if k in data:
+            sets.append(col+"=%s")
+            vals.append(data.get(k) if data.get(k) != "" or col not in ("doc_date",) else None)
+    if sets:
+        vals.append(id)
+        cur.execute("UPDATE project_documents SET "+",".join(sets)+" WHERE id=%s", tuple(vals))
+        conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/project-documents/{id}")
+def delete_project_document(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM project_documents WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
