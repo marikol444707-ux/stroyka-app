@@ -1534,6 +1534,22 @@ function App() {
     return html;
   };
 
+  // Акт выполненных работ бригады/подрядчика — объёмы из сметы (done), по цене бригаде.
+  const buildBrigadeActContent = (bc) => {
+    const items = (allBrigadeItems||[]).filter(it=>Number(it.contractId)===Number(bc.id)&&Number(it.doneQuantity||0)>0);
+    const req = companyRequisites||{};
+    const total = items.reduce((s,it)=>s+Math.round(Number(it.doneQuantity||0)*Number(it.priceBrigade||0)),0);
+    let html='<h2 style="text-align:center">АКТ ВЫПОЛНЕННЫХ РАБОТ</h2>';
+    html+='<p>Заказчик работ: <b>'+(req.fullName||req.shortName||companyName||'')+'</b></p>';
+    html+='<p>Объект: <b>'+(bc.projectName||'')+'</b> | Исполнитель: <b>'+(bc.brigadeName||'')+'</b>'+(bc.contractorType?' ('+bc.contractorType+')':'')+'</p>';
+    html+='<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Выполнено</th><th>Цена</th><th>Сумма</th></tr>';
+    if(items.length===0) html+='<tr><td colspan="6" style="text-align:center;color:#777">Выполненных работ нет</td></tr>';
+    items.forEach((it,i)=>{const sum=Math.round(Number(it.doneQuantity||0)*Number(it.priceBrigade||0));html+='<tr><td>'+(i+1)+'</td><td>'+(it.name||'')+'</td><td>'+(it.unit||'')+'</td><td>'+fmtMeasure(Number(it.doneQuantity||0),it.unit)+'</td><td>'+Number(it.priceBrigade||0).toLocaleString('ru-RU')+'</td><td>'+sum.toLocaleString('ru-RU')+'</td></tr>';});
+    html+='<tr><td colspan="5"><b>ИТОГО к оплате:</b></td><td><b>'+total.toLocaleString('ru-RU')+' руб.</b></td></tr></table>';
+    html+='<p style="font-size:11px;color:#555">Объёмы соответствуют выполнению, отмеченному мастером в смете объекта (единый источник данных).</p>';
+    html+='<div class="signatures"><div class="sig"><div class="sig-line">Сдал (исполнитель)<br/>'+(bc.brigadeName||'')+'</div></div><div class="sig"><div class="sig-line">Принял<br/>'+(req.directorName||'')+'</div></div></div>';
+    return html;
+  };
   const buildContractContent = (profile, contract) => {
     const type = contract.contractType || 'ГПХ';
     const fn = CONTRACTS[type] || CONTRACTS['ГПХ'];
@@ -9055,6 +9071,38 @@ function App() {
                 </div>
               </div>);})}
               {interimActs.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'12px'}}>Актов к оплате пока нет. Сформируйте акт за период по мастеру — стянутся подтверждённые работы.</p>}
+
+              {/* Блок 3: Акты бригад (по нарядам) — выполнение из сметы, по цене бригаде */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'18px 0 12px',flexWrap:'wrap',gap:'8px'}}>
+                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>👷 Акты бригад (выполнение по смете)</b>
+              </div>
+              {(()=>{
+                const bcs=(brigadeContracts||[]).filter(bc=>matchSearch(listSearch,bc.brigadeName,bc.projectName));
+                const withDone=bcs.filter(bc=>Number(bc.doneAmount||0)>0);
+                if(withDone.length===0) return(<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'12px'}}>Выполненных работ по бригадам пока нет. Появятся, когда мастер отметит «Сделано» в смете объекта.</p>);
+                const byProj={};
+                withDone.forEach(bc=>{const pn=bc.projectName||'Без объекта';(byProj[pn]=byProj[pn]||[]).push(bc);});
+                return Object.keys(byProj).sort().map(pn=>(
+                  <div key={pn} style={{...card,padding:'12px 14px',marginBottom:'8px'}}>
+                    <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>🏗 {pn}</b>
+                    {byProj[pn].map(bc=>{const due=Math.round(Number(bc.doneAmount||0));const paid=Math.round(Number(bc.paidAmount||0));const owe=Math.max(0,due-paid);return(
+                      <div key={bc.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',padding:'8px 0',borderBottom:'1px solid '+C.border,flexWrap:'wrap'}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <b style={{fontSize:'12px',color:C.text}}>{bc.brigadeName}</b>
+                          <span style={{color:C.textSec,fontSize:'11px',marginLeft:'6px'}}>{bc.contractorType}</span>
+                          <div style={{display:'flex',gap:'10px',flexWrap:'wrap',marginTop:'2px'}}>
+                            <span style={{fontSize:'11px',color:C.accent}}>{'К оплате: '+due.toLocaleString('ru-RU')+' ₽'}</span>
+                            <span style={{fontSize:'11px',color:C.success}}>{'Оплачено: '+paid.toLocaleString('ru-RU')+' ₽'}</span>
+                            {owe>0&&<span style={{fontSize:'11px',color:C.danger,fontWeight:'700'}}>{'Остаток: '+owe.toLocaleString('ru-RU')+' ₽'}</span>}
+                            {due>0&&owe<=0&&<span style={{fontSize:'11px',color:C.success,fontWeight:'700'}}>✓ закрыто</span>}
+                          </div>
+                        </div>
+                        <button onClick={()=>showPreview(buildBrigadeActContent(bc),'Акт бригады — '+bc.brigadeName)} style={btnB}><Eye size={13}/>Акт</button>
+                      </div>
+                    );})}
+                  </div>
+                ));
+              })()}
             </div>)}
 
             {accountingTab==='documents'&&(<div>
