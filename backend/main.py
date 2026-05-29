@@ -5262,9 +5262,17 @@ def get_brigade_payments(contract_id: int = None):
     return [{"id":r[0],"contractId":r[1],"amount":float(r[2] or 0),"paidBy":r[3] or "","paidDate":str(r[4]) if r[4] else "","note":r[5] or "","createdAt":str(r[6])} for r in rows]
 
 @app.post("/brigade-payments")
-def create_brigade_payment(data: dict):
+def create_brigade_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT COALESCE(act_scan_url,'') FROM brigade_contracts WHERE id=%s", (data.get("contractId"),))
+    contract = cur.fetchone()
+    if not contract:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Договор бригады не найден")
+    if not (contract[0] or "").strip():
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Оплата заблокирована: загрузите скан подписанного акта")
     cur.execute("INSERT INTO brigade_payments (contract_id,amount,paid_by,paid_date,note) VALUES (%s,%s,%s,%s,%s) RETURNING id",
         (data.get("contractId"), data.get("amount") or 0, data.get("paidBy",""), data.get("paidDate") or None, data.get("note","")))
     new_id = cur.fetchone()[0]
