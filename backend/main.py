@@ -1304,6 +1304,8 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
+        ALTER TABLE estimates ADD COLUMN IF NOT EXISTS smeta_type VARCHAR(50) DEFAULT 'Заказчик';
+        UPDATE estimates SET smeta_type='Заказчик' WHERE smeta_type IS NULL OR smeta_type='';
         CREATE TABLE IF NOT EXISTS estimate_versions (
             id SERIAL PRIMARY KEY,
             estimate_id INT NOT NULL,
@@ -5042,7 +5044,7 @@ async def parse_smeta(file: UploadFile = File(...)):
 def get_estimates():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,project_id,project_name,name,version,sections_json,status,COALESCE(is_template,FALSE) FROM estimates ORDER BY id DESC")
+    cur.execute("SELECT id,project_id,project_name,name,version,sections_json,COALESCE(smeta_type,'Заказчик'),COALESCE(is_template,FALSE),status FROM estimates ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
@@ -5052,7 +5054,7 @@ def get_estimates():
             sections = j.loads(r[5]) if r[5] else []
         except:
             sections = []
-        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","isTemplate":bool(r[7])})
+        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","isTemplate":bool(r[7]),"status":r[8] or "Черновик"})
     return result
 
 @app.post("/estimates")
@@ -5060,8 +5062,8 @@ def create_estimate(data: dict):
     import json as j
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId"),data.get("projectName",""),data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False)))
+    cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectId"),data.get("projectName",""),data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),data.get("smetaType") or "Заказчик"))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -5105,8 +5107,8 @@ def update_estimate(id: int, data: dict):
                 it["doneQuantity"] = qty
             elif done < 0:
                 it["doneQuantity"] = 0
-    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s WHERE id=%s",
-        (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),id))
+    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s WHERE id=%s",
+        (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),data.get("smetaType") or "Заказчик",id))
 
     # Build lookup of old done qty by (section name, item name)
     old_done = {}
