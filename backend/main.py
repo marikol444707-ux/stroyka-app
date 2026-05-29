@@ -1005,6 +1005,29 @@ def init_db():
             notes TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS salary_payments (
+            id SERIAL PRIMARY KEY,
+            staff_id INT,
+            staff_name VARCHAR(255),
+            month VARCHAR(7),
+            amount NUMERIC(14,2) DEFAULT 0,
+            paid_by VARCHAR(255),
+            paid_date VARCHAR(50),
+            note TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS crm_leads (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255),
+            phone VARCHAR(50),
+            email VARCHAR(255),
+            source VARCHAR(255),
+            budget NUMERIC(14,2) DEFAULT 0,
+            notes TEXT,
+            stage VARCHAR(50) DEFAULT 'Новый',
+            created_by VARCHAR(255),
+            created_at VARCHAR(50)
+        );
         CREATE TABLE IF NOT EXISTS work_journal (
             id SERIAL PRIMARY KEY,
             master_id INT,
@@ -4056,6 +4079,15 @@ def toggle_timesheet(data: TimesheetModel):
     conn.close()
     return {"ok": True}
 
+@app.get("/timesheet")
+def get_timesheet():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT staff_id, day FROM timesheet")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"staffId": r[0], "day": r[1]} for r in rows]
+
 @app.get("/rooms")
 def get_rooms():
     conn = get_db()
@@ -5084,6 +5116,74 @@ def delete_brigade_payment(id: int):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM brigade_payments WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.get("/salary-payments")
+def get_salary_payments():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,staff_id,staff_name,month,amount,paid_by,paid_date,note,created_at FROM salary_payments ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"staffId":r[1],"staffName":r[2] or "","month":r[3] or "","amount":float(r[4] or 0),"paidBy":r[5] or "","paidDate":r[6] or "","note":r[7] or "","createdAt":str(r[8])} for r in rows]
+
+@app.post("/salary-payments")
+def create_salary_payment(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO salary_payments (staff_id,staff_name,month,amount,paid_by,paid_date,note) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("staffId"), data.get("staffName",""), data.get("month",""), data.get("amount") or 0, data.get("paidBy",""), data.get("paidDate") or "", data.get("note","")))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "id": new_id}
+
+@app.delete("/salary-payments/{id}")
+def delete_salary_payment(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM salary_payments WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.get("/crm-leads")
+def get_crm_leads():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,name,phone,email,source,budget,notes,stage,created_by,created_at FROM crm_leads ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"name":r[1] or "","phone":r[2] or "","email":r[3] or "","source":r[4] or "","budget":float(r[5] or 0),"notes":r[6] or "","stage":r[7] or "Новый","createdBy":r[8] or "","createdAt":r[9] or ""} for r in rows]
+
+@app.post("/crm-leads")
+def create_crm_lead(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO crm_leads (name,phone,email,source,budget,notes,stage,created_by,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), data.get("createdBy",""), data.get("createdAt","")))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "id": new_id}
+
+@app.put("/crm-leads/{id}")
+def update_crm_lead(id: int, data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE crm_leads SET name=%s,phone=%s,email=%s,source=%s,budget=%s,notes=%s,stage=%s WHERE id=%s",
+        (data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/crm-leads/{id}")
+def delete_crm_lead(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM crm_leads WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}

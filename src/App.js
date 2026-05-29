@@ -433,6 +433,7 @@ function App() {
   const [contracts, setContracts] = useState([]);
   const [interimActs, setInterimActs] = useState([]);
   const [timesheet, setTimesheet] = useState({});
+  const [salaryPayments, setSalaryPayments] = useState([]);
   const [unexpectedWorksList, setUnexpectedWorksList] = useState([]);
   const [brigadeContracts, setBrigadeContracts] = useState([]);
   const [hiddenActs, setHiddenActs] = useState([]);
@@ -904,8 +905,8 @@ function App() {
       loadAll();
       if (['мастер','субподрядчик'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
       const saved = localStorage.getItem('companyName'); if (saved) setCompanyName(saved);
-      const keys = ['leads','masterRatings','activityLog','notifications','archivedProjects','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
-      const setters = [setLeads,setMasterRatings,setActivityLog,setNotifications,setArchivedProjects,setTbJournal,setGeoCheckins,setSignedDocs,setActPayments,setWeatherLog];
+      const keys = ['masterRatings','activityLog','notifications','archivedProjects','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
+      const setters = [setMasterRatings,setActivityLog,setNotifications,setArchivedProjects,setTbJournal,setGeoCheckins,setSignedDocs,setActPayments,setWeatherLog];
       keys.forEach((k,i) => { const v=localStorage.getItem(k); if(v) setters[i](JSON.parse(v)); });
       requestPushPermission().then(granted => setPushEnabled(granted));
       const pingOnline = async () => {
@@ -1003,6 +1004,33 @@ function App() {
           get('/room-doors'),
         ]);
         setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
+      } catch(e) {}
+      if (isInternalRole || isFinanceRole) try {
+        const ts = await get('/timesheet');
+        if (Array.isArray(ts)) setTimesheet(Object.fromEntries(ts.map(t=>[t.staffId+'-'+t.day, true])));
+      } catch(e) {}
+      if (isFinanceRole) try {
+        const sp = await get('/salary-payments');
+        setSalaryPayments(Array.isArray(sp)?sp:[]);
+      } catch(e) {}
+      try {
+        let ls = await get('/crm-leads');
+        if (!Array.isArray(ls)) ls = [];
+        // Одноразовая миграция старых лидов из localStorage в БД
+        const oldRaw = localStorage.getItem('leads');
+        if (ls.length===0 && oldRaw) {
+          try {
+            const old = JSON.parse(oldRaw);
+            if (Array.isArray(old) && old.length>0) {
+              for (const l of old) {
+                await fetch(API+'/crm-leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:l.name||'',phone:l.phone||'',email:l.email||'',source:l.source||'',budget:Number(l.budget)||0,notes:l.notes||'',stage:l.stage||'Новый',createdBy:l.createdBy||user.name,createdAt:l.createdAt||''})});
+              }
+              localStorage.removeItem('leads');
+              ls = await get('/crm-leads');
+            }
+          } catch(_){}
+        }
+        setLeads(Array.isArray(ls)?ls:[]);
       } catch(e) {}
       try {
         const msgs = await get('/messages');
@@ -1179,6 +1207,17 @@ function App() {
       setBrigadePayments(Array.isArray(pays)?pays:[]);
     }
     await loadAll();
+  };
+
+  // Выплата зарплаты сотруднику за месяц (фиксируется в salary_payments)
+  const paySalary = async (row, monthStr) => {
+    const net = Math.round(Number(row.net||0));
+    if (net<=0) { alert('Нечего выплачивать (сумма на руки 0)'); return; }
+    if (!window.confirm('Записать выплату '+net.toLocaleString('ru-RU')+' ₽ → '+row.name+' за '+monthStr+'?')) return;
+    await fetch(API+'/salary-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({staffId:row.id,staffName:row.name,month:monthStr,amount:net,paidBy:user.name,paidDate:new Date().toISOString().split('T')[0]})});
+    const sp = await fetch(API+'/salary-payments').then(r=>r.json());
+    setSalaryPayments(Array.isArray(sp)?sp:[]);
+    alert('💰 Выплата зафиксирована');
   };
 
   const saveInvoiceNew = async () => {
@@ -1924,12 +1963,18 @@ function App() {
     setProjectChatMessage('');
   };
 
-  const saveLead = (lead) => {
-    const updated = lead.id ? leads.map(l=>l.id===lead.id?lead:l) : [...leads,{...lead,id:Date.now(),createdAt:new Date().toISOString().split('T')[0],createdBy:user.name}];
-    setLeads(updated); localStorage.setItem('leads',JSON.stringify(updated));
+  const saveLead = async (lead) => {
+    const body = {name:lead.name||'',phone:lead.phone||'',email:lead.email||'',source:lead.source||'',budget:Number(lead.budget)||0,notes:lead.notes||'',stage:lead.stage||'Новый'};
+    if (lead.id) {
+      await fetch(API+'/crm-leads/'+lead.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    } else {
+      await fetch(API+'/crm-leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,createdBy:user.name,createdAt:new Date().toISOString().split('T')[0]})});
+    }
+    const ls = await fetch(API+'/crm-leads').then(r=>r.json());
+    setLeads(Array.isArray(ls)?ls:[]);
   };
 
-  const deleteLead = (id) => { const updated=leads.filter(l=>l.id!==id); setLeads(updated); localStorage.setItem('leads',JSON.stringify(updated)); };
+  const deleteLead = async (id) => { await fetch(API+'/crm-leads/'+id,{method:'DELETE'}); const ls=await fetch(API+'/crm-leads').then(r=>r.json()); setLeads(Array.isArray(ls)?ls:[]); };
   const ratemaster = (masterId, rating) => { const updated={...masterRatings,[masterId]:rating}; setMasterRatings(updated); localStorage.setItem('masterRatings',JSON.stringify(updated)); };
   const confirmMaterialReceipt = async (transferId) => {
     await fetch(API+'/material-transfers/'+transferId+'/sign',{method:'PUT'});
@@ -8766,14 +8811,24 @@ function App() {
                 const aosrToPay=aosrSigned.filter(a=>a.paidStatus!=='Оплачен');
                 const toPaySum=aosrToPay.reduce((s,a)=>s+Number(a.total||0),0);
                 const aosrPaidSum=aosrPaid.reduce((s,a)=>s+Number(a.paidAmount||a.total||0),0);
-                const netProfit=totalPayIn-totalExpOut-totalAccount;
+                // Расходы по всем каналам (фактически оплачено)
+                const expSuppliers=(supplierInvoices||[]).reduce((s,i)=>s+Number(i.paidAmount||0),0);
+                const expBrigades=(brigadeContracts||[]).reduce((s,bc)=>s+Number(bc.paidAmount||0),0);
+                const expPiecework=(piecework||[]).reduce((s,p)=>s+Number(p.total||0),0);
+                const totalExpenses=totalExpOut+totalAccount+expSuppliers+expBrigades+aosrPaidSum;
+                const netProfit=totalPayIn-totalExpenses;
                 const cards=[
                   {label:'Активных проектов',val:activeProj+' из '+projects.length,color:C.accent},
                   {label:'Общий бюджет',val:Math.round(totalBudget).toLocaleString('ru-RU')+' ₽',color:C.text},
                   {label:'Поступило от заказчиков',val:Math.round(totalPayIn).toLocaleString('ru-RU')+' ₽',color:C.success},
+                  {label:'Оплачено поставщикам',val:Math.round(expSuppliers).toLocaleString('ru-RU')+' ₽',color:C.warning},
+                  {label:'Оплачено бригадам',val:Math.round(expBrigades).toLocaleString('ru-RU')+' ₽',color:C.warning},
+                  {label:'Оплачено по АОСР',val:Math.round(aosrPaidSum).toLocaleString('ru-RU')+' ₽',color:C.warning},
                   {label:'Возмещения сотрудникам',val:Math.round(totalExpOut).toLocaleString('ru-RU')+' ₽',color:C.warning},
                   {label:'Подотчётные на руках',val:Math.round(totalAccount).toLocaleString('ru-RU')+' ₽',color:C.warning},
+                  ...(isLeadership()?[{label:'Всего расходов',val:Math.round(totalExpenses).toLocaleString('ru-RU')+' ₽',color:C.danger}]:[]),
                   ...(isLeadership()?[{label:'Чистая прибыль',val:Math.round(netProfit).toLocaleString('ru-RU')+' ₽',color:netProfit>=0?C.success:C.danger}]:[]),
+                  {label:'Зарплата-сделка (начислено)',val:Math.round(expPiecework).toLocaleString('ru-RU')+' ₽',color:C.textSec},
                 ];
                 return(<div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'20px'}}>
@@ -9155,7 +9210,7 @@ function App() {
                         <td style={{...tblC,color:C.info}}>{Math.round(r.ndfl).toLocaleString('ru-RU')}</td>
                         <td style={{...tblC,color:C.warning,fontSize:'11px'}}>{Math.round(r.insurance).toLocaleString('ru-RU')}</td>
                         <td style={{...tblC,fontWeight:'700',color:C.success}}>{Math.round(r.net).toLocaleString('ru-RU')+' ₽'}</td>
-                        <td style={tblC}><button onClick={()=>{if(!window.confirm('Записать выплату '+Math.round(r.net).toLocaleString('ru-RU')+' ₽ → '+r.name+'?')) return;alert('💰 Выплата сохранена (заглушка)');}} style={{...btnO,padding:'3px 8px',fontSize:'10px'}}>Выплатить</button></td>
+                        <td style={tblC}>{(()=>{const pay=(salaryPayments||[]).find(sp=>Number(sp.staffId)===Number(r.id)&&sp.month===monthStr);return pay?(<span style={{display:'inline-flex',alignItems:'center',gap:'4px'}}><span style={{color:C.success,fontSize:'11px',fontWeight:'700'}}>✓ {Math.round(Number(pay.amount||0)).toLocaleString('ru-RU')}</span><button onClick={async()=>{if(!window.confirm('Отменить выплату?'))return;await fetch(API+'/salary-payments/'+pay.id,{method:'DELETE'});const sp=await fetch(API+'/salary-payments').then(x=>x.json());setSalaryPayments(Array.isArray(sp)?sp:[]);}} style={{...btnR,padding:'2px 5px'}}><Trash2 size={10}/></button></span>):(<button onClick={()=>paySalary(r,monthStr)} style={{...btnO,padding:'3px 8px',fontSize:'10px'}}>Выплатить</button>);})()}</td>
                       </tr>))}
                     </tbody></table>
                   </div>)}
