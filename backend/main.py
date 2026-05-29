@@ -800,6 +800,19 @@ def init_db():
             uploaded_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS project_letters (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            side VARCHAR(20) DEFAULT 'customer',
+            direction VARCHAR(20) DEFAULT 'outgoing',
+            subject VARCHAR(500),
+            body TEXT,
+            counterparty VARCHAR(255),
+            letter_date DATE,
+            file_url TEXT,
+            author VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS estimates (
             id SERIAL PRIMARY KEY,
             project_id INT,
@@ -5307,6 +5320,40 @@ def delete_project_document(id: int):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM project_documents WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+# --- Переписка по объекту (письма, уведомления, претензии) ---
+@app.get("/project-letters")
+def get_project_letters(project_name: str = None):
+    conn = get_db()
+    cur = conn.cursor()
+    if project_name:
+        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    else:
+        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"projectName":r[1],"side":r[2],"direction":r[3] or "","subject":r[4] or "","body":r[5] or "","counterparty":r[6] or "","letterDate":str(r[7]) if r[7] else "","fileUrl":r[8] or "","author":r[9] or "","createdAt":str(r[10])} for r in rows]
+
+@app.post("/project-letters")
+def create_project_letter(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO project_letters (project_name,side,direction,subject,body,counterparty,letter_date,file_url,author) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectName",""), data.get("side","customer"), data.get("direction","outgoing"), data.get("subject",""),
+         data.get("body",""), data.get("counterparty",""), data.get("letterDate") or None, data.get("fileUrl",""), data.get("author","")))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "id": new_id}
+
+@app.delete("/project-letters/{id}")
+def delete_project_letter(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM project_letters WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
