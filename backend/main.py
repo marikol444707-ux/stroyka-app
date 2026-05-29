@@ -590,6 +590,8 @@ def init_db():
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS scan_url TEXT;
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         -- Поставщики — глобальные. company_id у них означает «первичный клиент» (необязательно)
         -- Связи компания-поставщик через company_supplier_links (договор и рейтинг свой у каждой пары)
@@ -4140,7 +4142,7 @@ def delete_contract(id: int):
 def get_interim_acts():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status FROM interim_acts ORDER BY id DESC")
+    cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -4163,6 +4165,8 @@ def update_interim_act(id: int, data: dict):
         cur.execute("UPDATE interim_acts SET status=%s WHERE id=%s", (data['status'],id))
     if 'paidAmount' in data:
         cur.execute("UPDATE interim_acts SET paid_amount=%s WHERE id=%s", (data['paidAmount'],id))
+    if 'scanUrl' in data:
+        cur.execute("UPDATE interim_acts SET scan_url=%s WHERE id=%s", (data['scanUrl'],id))
     conn.close()
     return {"ok": True}
 
@@ -5230,7 +5234,8 @@ def get_brigade_contracts(project_name: str = None):
     base = ("SELECT bc.id,bc.project_id,bc.project_name,bc.brigade_name,bc.contractor_type,bc.contractor_id,"
             "bc.total_amount,bc.status,bc.signed_at,bc.notes,bc.created_at,bc.pricelist_id,"
             "COALESCE((SELECT SUM(COALESCE(bci.done_quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
-            "COALESCE((SELECT SUM(COALESCE(bp.amount,0)) FROM brigade_payments bp WHERE bp.contract_id=bc.id),0) AS paid_amount "
+            "COALESCE((SELECT SUM(COALESCE(bp.amount,0)) FROM brigade_payments bp WHERE bp.contract_id=bc.id),0) AS paid_amount,"
+            "bc.act_scan_url "
             "FROM brigade_contracts bc")
     if project_name:
         cur.execute(base + " WHERE bc.project_name=%s ORDER BY bc.id DESC", (project_name,))
@@ -5238,7 +5243,7 @@ def get_brigade_contracts(project_name: str = None):
         cur.execute(base + " ORDER BY bc.id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],"totalAmount":float(r[6] or 0),"status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10]),"pricelistId":r[11],"doneAmount":float(r[12] or 0),"paidAmount":float(r[13] or 0)} for r in rows]
+    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],"totalAmount":float(r[6] or 0),"status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10]),"pricelistId":r[11],"doneAmount":float(r[12] or 0),"paidAmount":float(r[13] or 0),"actScanUrl":r[14] or ""} for r in rows]
 
 @app.get("/brigade-payments")
 def get_brigade_payments(contract_id: int = None):
@@ -5522,8 +5527,8 @@ def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = F
 def update_brigade_contract(id: int, data: dict):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s,pricelist_id=%s WHERE id=%s",
-        (data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("totalAmount",0),data.get("status","Черновик"),data.get("signedAt") or None,data.get("notes",""),data.get("pricelistId") or None,id))
+    cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s,pricelist_id=%s,act_scan_url=COALESCE(%s,act_scan_url) WHERE id=%s",
+        (data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("totalAmount",0),data.get("status","Черновик"),data.get("signedAt") or None,data.get("notes",""),data.get("pricelistId") or None,data.get("actScanUrl"),id))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
