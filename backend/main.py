@@ -5098,16 +5098,21 @@ def update_estimate(id: int, data: dict):
             # If item flagged as hidden work — create draft АОСР (Акт освидетельствования скрытых работ)
             if it.get("hiddenWork"):
                 try:
-                    cur.execute("SELECT COUNT(*) FROM hidden_works_acts WHERE project_name=%s", (project_name,))
-                    next_num = (cur.fetchone()[0] or 0) + 1
-                    act_number = "АОСР-"+str(next_num)+"/"+str(id)
-                    cur.execute("""INSERT INTO hidden_works_acts
-                                   (project_name, estimate_id, act_number, work_name, section_name, brigade,
-                                    quantity, unit, price_per_unit, total, work_date, status)
-                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (project_name, id, act_number, it.get("name",""), s.get("name",""),
-                         brigade or "", delta, unit, price, round(delta*price,2), today, "Черновик"))
-                    acts_added += 1
+                    # Не плодим дубли: один АОСР на позицию сметы (estimate_id + наименование работы)
+                    cur.execute("SELECT COUNT(*) FROM hidden_works_acts WHERE estimate_id=%s AND work_name=%s",
+                                (id, it.get("name","")))
+                    already = (cur.fetchone()[0] or 0) > 0
+                    if not already:
+                        cur.execute("SELECT COUNT(*) FROM hidden_works_acts WHERE project_name=%s", (project_name,))
+                        next_num = (cur.fetchone()[0] or 0) + 1
+                        act_number = "АОСР-"+str(next_num)+"/"+str(id)
+                        cur.execute("""INSERT INTO hidden_works_acts
+                                       (project_name, estimate_id, act_number, work_name, section_name, brigade,
+                                        quantity, unit, price_per_unit, total, work_date, status)
+                                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (project_name, id, act_number, it.get("name",""), s.get("name",""),
+                             brigade or "", delta, unit, price, round(delta*price,2), today, "Черновик"))
+                        acts_added += 1
                 except Exception as e:
                     print("AUTO-ACT ERROR:", str(e))
 
@@ -6943,7 +6948,7 @@ def create_project_payment(data: dict, _current_user: dict = Depends(require_rol
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO project_payments (project_name,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectName",""),data.get("amount",0),data.get("note",""),data.get("date") or None,data.get("addedBy","")))
+        (data.get("projectName",""),data.get("amount",0),data.get("note",""),data.get("date") or None,data.get("addedBy") or data.get("paidBy") or ""))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
