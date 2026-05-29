@@ -5189,12 +5189,14 @@ def update_estimate(id: int, data: dict):
                     iname = (it.get("name") or "").strip().lower()
                     if not iname:
                         continue
+                    qty = float(it.get("quantity") or 0)
                     for bc_id in bc_by_name[bn]:
                         cur.execute(
                             "UPDATE brigade_contract_items "
-                            "SET done_quantity = CASE WHEN COALESCE(quantity,0)>0 THEN LEAST(%s, quantity) ELSE %s END "
+                            "SET quantity = CASE WHEN COALESCE(quantity,0)>0 THEN quantity ELSE %s END, "
+                            "done_quantity = LEAST(%s, CASE WHEN COALESCE(quantity,0)>0 THEN quantity ELSE %s END) "
                             "WHERE contract_id=%s AND LOWER(TRIM(description))=%s",
-                            (done, done, bc_id, iname))
+                            (qty, done, qty, bc_id, iname))
                         brigade_synced += cur.rowcount or 0
     except Exception as e:
         print("BRIGADE-SYNC ERROR:", str(e))
@@ -5248,7 +5250,7 @@ def delete_estimate(id: int):
     return {"ok":True}
 
 @app.get("/brigade-contracts")
-def get_brigade_contracts(project_name: str = None):
+def get_brigade_contracts(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
     conn = get_db()
     cur = conn.cursor()
     # done_amount = сумма выполненного к оплате бригаде; paid_amount = сумма зафиксированных оплат
@@ -5461,7 +5463,7 @@ def delete_crm_lead(id: int):
     return {"ok": True}
 
 @app.post("/brigade-contracts")
-def create_brigade_contract(data: dict):
+def create_brigade_contract(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
     pricelist_id = data.get("pricelistId") or None
@@ -5490,7 +5492,7 @@ def create_brigade_contract(data: dict):
     return {"id": new_id, "ok": True, "itemsLoaded": inserted}
 
 @app.post("/brigade-contracts/{contract_id}/load-from-pricelist")
-def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = False):
+def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = False, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     import json as _json
     conn = get_db()
     cur = conn.cursor()
@@ -5553,7 +5555,7 @@ def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = F
     return {"ok": True, "itemsLoaded": inserted, "matchedFromEstimate": matched}
 
 @app.put("/brigade-contracts/{id}")
-def update_brigade_contract(id: int, data: dict):
+def update_brigade_contract(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s,pricelist_id=%s,act_scan_url=COALESCE(%s,act_scan_url) WHERE id=%s",
@@ -5563,7 +5565,7 @@ def update_brigade_contract(id: int, data: dict):
     return {"ok":True}
 
 @app.delete("/brigade-contracts/{id}")
-def delete_brigade_contract(id: int):
+def delete_brigade_contract(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM brigade_contracts WHERE id=%s",(id,))
@@ -5572,7 +5574,7 @@ def delete_brigade_contract(id: int):
     return {"ok":True}
 
 @app.get("/brigade-contract-items-all")
-def list_all_brigade_contract_items(project_name: str = None):
+def list_all_brigade_contract_items(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
     """Все позиции нарядов сразу — для подсчёта прогресса по бюджету."""
     conn = get_db()
     cur = conn.cursor()
@@ -5745,7 +5747,7 @@ def ai_suggest_distribution(estimate_id: int, data: dict):
     return {"ok": True, "assignments": result, "items": items}
 
 @app.get("/brigade-contract-items/{contract_id}")
-def get_brigade_contract_items(contract_id: int):
+def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id,contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity FROM brigade_contract_items WHERE contract_id=%s ORDER BY id", (contract_id,))
@@ -5764,7 +5766,7 @@ def get_brigade_contract_items(contract_id: int):
     return [{"id":r[0],"contractId":r[1],"estimateSection":r[2],"name":r[3],"unit":r[4],"quantity":float(r[5] or 0),"priceSmeta":float(r[6] or 0),"priceBrigade":float(r[7] or 0),"doneQuantity":float(r[8] or 0),"status":_status(r[5], r[8])} for r in rows]
 
 @app.post("/brigade-contract-items")
-def create_brigade_contract_item(data: dict):
+def create_brigade_contract_item(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -5775,17 +5777,20 @@ def create_brigade_contract_item(data: dict):
     return {"id":row[0],"ok":True}
 
 @app.put("/brigade-contract-items/{id}")
-def update_brigade_contract_item(id: int, data: dict):
+def update_brigade_contract_item(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
+    quantity = float(data.get("quantity", 0) or 0)
+    done_quantity = float(data.get("doneQuantity", 0) or 0)
+    done_quantity = max(0, min(done_quantity, quantity)) if quantity > 0 else 0
     cur.execute("UPDATE brigade_contract_items SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s WHERE id=%s",
-        (data.get("quantity",0),data.get("priceBrigade",0),data.get("priceSmeta",0),data.get("doneQuantity",0),id))
+        (quantity,data.get("priceBrigade",0),data.get("priceSmeta",0),done_quantity,id))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
 
 @app.delete("/brigade-contract-items/{id}")
-def delete_brigade_contract_item(id: int):
+def delete_brigade_contract_item(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM brigade_contract_items WHERE id=%s",(id,))
