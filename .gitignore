@@ -25,3 +25,4 @@ yarn-error.log*
 
 # Claude Code сессии (локальный харнесс)
 .claude/
+__pycache__

@@ -701,6 +701,28 @@ def init_db():
             status VARCHAR(100),
             confirmed_by VARCHAR(255)
         );
+        CREATE TABLE IF NOT EXISTS supplier_catalog (
+            id SERIAL PRIMARY KEY,
+            supplier_id INT,
+            supplier_name VARCHAR(255),
+            material_name VARCHAR(255),
+            unit VARCHAR(50) DEFAULT 'шт',
+            price FLOAT DEFAULT 0,
+            min_quantity FLOAT DEFAULT 1,
+            delivery_days INT DEFAULT 3,
+            in_stock BOOLEAN DEFAULT TRUE,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS supply_request_templates (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255),
+            category VARCHAR(100),
+            items_json TEXT,
+            created_by VARCHAR(255),
+            created_by_id INT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS work_journal (
             id SERIAL PRIMARY KEY,
             master_id INT,
@@ -5223,6 +5245,94 @@ def delete_supplier_catalog(id: int):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+# === Сн.5: история цен на материал ===
+@app.get("/material-price-history")
+def material_price_history(material: str = "", _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+    """Прошлые цены по материалу: из истории поставок + текущие предложения каталога.
+    Помогает снабженцу понять адекватную цену при создании заявки."""
+    material = (material or "").strip()
+    if not material:
+        return {"history": [], "catalog": [], "stats": None}
+    conn = get_db()
+    cur = conn.cursor()
+    like = "%" + material + "%"
+    # реально закупленные позиции (история поставок)
+    cur.execute(
+        "SELECT h.material_name, h.price_per_unit, h.unit, h.quantity, h.project, h.date, "
+        "COALESCE(s.name, h.confirmed_by, '') AS supplier_name "
+        "FROM supply_history h LEFT JOIN suppliers s ON s.id = h.supplier_id "
+        "WHERE h.material_name ILIKE %s AND COALESCE(h.price_per_unit,0) > 0 "
+        "ORDER BY h.id DESC LIMIT 15", (like,))
+    history = [{"materialName": r[0], "price": float(r[1] or 0), "unit": r[2] or "",
+               "quantity": float(r[3] or 0), "project": r[4] or "", "date": r[5] or "",
+               "supplierName": r[6] or ""} for r in cur.fetchall()]
+    # актуальные предложения из каталогов поставщиков
+    cur.execute(
+        "SELECT material_name, supplier_name, price, unit, delivery_days, in_stock "
+        "FROM supplier_catalog WHERE material_name ILIKE %s AND COALESCE(price,0) > 0 "
+        "ORDER BY price ASC LIMIT 15", (like,))
+    catalog = [{"materialName": r[0], "supplierName": r[1] or "", "price": float(r[2] or 0),
+                "unit": r[3] or "", "deliveryDays": r[4] or 3, "inStock": r[5]} for r in cur.fetchall()]
+    cur.close(); conn.close()
+    prices = [h["price"] for h in history] + [c["price"] for c in catalog]
+    stats = None
+    if prices:
+        stats = {"min": round(min(prices), 2), "max": round(max(prices), 2),
+                 "avg": round(sum(prices) / len(prices), 2), "count": len(prices)}
+    return {"history": history, "catalog": catalog, "stats": stats}
+
+# === Сн.5: шаблоны заявок на материалы (общие на компанию) ===
+@app.get("/supply-request-templates")
+def get_supply_request_templates(_current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id,name,category,items_json,created_by,created_by_id,created_at "
+                "FROM supply_request_templates ORDER BY name")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    import json as _json
+    out = []
+    for r in rows:
+        try:
+            items = _json.loads(r[3]) if r[3] else []
+        except Exception:
+            items = []
+        out.append({"id": r[0], "name": r[1] or "", "category": r[2] or "", "items": items,
+                    "createdBy": r[4] or "", "createdById": r[5], "createdAt": str(r[6]) if r[6] else ""})
+    return out
+
+@app.post("/supply-request-templates")
+def create_supply_request_template(data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+    import json as _json
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Укажите название шаблона")
+    items = [it for it in (data.get("items") or [])
+             if (it or {}).get("materialName") and float((it or {}).get("quantity") or 0) > 0]
+    if not items:
+        raise HTTPException(status_code=400, detail="Шаблон должен содержать хотя бы одну позицию")
+    items = [{"materialName": it["materialName"], "quantity": float(it.get("quantity") or 0),
+              "unit": it.get("unit") or "шт"} for it in items]
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO supply_request_templates (name,category,items_json,created_by,created_by_id) "
+                "VALUES (%s,%s,%s,%s,%s) RETURNING id",
+                (name, data.get("category", ""), _json.dumps(items, ensure_ascii=False),
+                 data.get("createdBy", ""), data.get("createdById")))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close(); conn.close()
+    return {"id": new_id, "ok": True}
+
+@app.delete("/supply-request-templates/{id}")
+def delete_supply_request_template(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM supply_request_templates WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.put("/suppliers/{id}/requisites")
 def update_supplier_requisites(id: int, data: dict):

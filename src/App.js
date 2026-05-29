@@ -469,6 +469,8 @@ function App() {
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
   const [masterReportPhotos, setMasterReportPhotos] = useState([]);
   const [supplierCatalog, setSupplierCatalog] = useState([]);
+  const [supplyTemplates, setSupplyTemplates] = useState([]);
+  const [priceHints, setPriceHints] = useState({});
   const [showCatalogForm, setShowCatalogForm] = useState(false);
   const [newCatalogItem, setNewCatalogItem] = useState({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
   const [supplierTab, setSupplierTab] = useState('requests');
@@ -930,7 +932,7 @@ function App() {
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get('/materials'),
@@ -980,6 +982,8 @@ function App() {
         isFinanceRole ? get('/expense-reports') : skip([]),
         (isFinanceRole || isSupplyRole || role === 'поставщик') ? get('/supplier-invoices') : skip([]),
         canSeeProjectDocs ? get('/warranty-defects') : skip([]),
+        (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
+        isSupplyRole ? get('/supply-request-templates') : skip([]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -989,7 +993,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -2926,6 +2930,52 @@ function App() {
     await loadAll();
     setNewSupplyReq({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',urgency:'обычная',notes:'',category:''});
     setShowSupplyForm(false);
+  };
+
+  // Сн.5: подсказка цены по материалу (история закупок + каталоги поставщиков)
+  const fetchPriceHint = async (name) => {
+    const key = (name||'').trim();
+    if (!key || key.length < 2 || priceHints[key]) return;
+    try {
+      const res = await fetch(API+'/material-price-history?material='+encodeURIComponent(key));
+      if (!res.ok) return;
+      const data = await res.json();
+      setPriceHints(prev => ({...prev, [key]: data}));
+    } catch(_){}
+  };
+
+  // Сн.5: сохранить текущую заявку как шаблон (общий на компанию)
+  const saveSupplyTemplate = async () => {
+    const valid = (newSupplyReq.items||[]).filter(i=>i.materialName && Number(i.quantity)>0);
+    if (!valid.length) { alert('Добавьте хотя бы одну позицию, чтобы сохранить шаблон'); return; }
+    const name = window.prompt('Название шаблона (например «Стартовый набор на объект»):', '');
+    if (!name || !name.trim()) return;
+    const r = await fetch(API+'/supply-request-templates', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name: name.trim(),
+        category: newSupplyReq.category || '',
+        items: valid.map(it=>({materialName:it.materialName, quantity:Number(it.quantity), unit:it.unit||'шт'})),
+        createdBy: user.name, createdById: user.id,
+      })
+    });
+    if (!r.ok) { let e=''; try{e=(await r.json()).detail||'';}catch(_){} alert('Не удалось сохранить шаблон'+(e?': '+e:'')); return; }
+    await loadAll();
+    alert('Шаблон «'+name.trim()+'» сохранён');
+  };
+
+  // Сн.5: подставить шаблон в форму заявки
+  const applySupplyTemplate = (tplId) => {
+    const tpl = (supplyTemplates||[]).find(t=>String(t.id)===String(tplId));
+    if (!tpl) return;
+    const items = (tpl.items||[]).map(it=>({materialName:it.materialName, quantity:String(it.quantity||''), unit:it.unit||'шт'}));
+    setNewSupplyReq(prev => ({...prev, items: items.length?items:[{materialName:'',quantity:'',unit:'шт'}], category: tpl.category||prev.category}));
+  };
+
+  const deleteSupplyTemplate = async (tplId) => {
+    if (!window.confirm('Удалить шаблон?')) return;
+    await fetch(API+'/supply-request-templates/'+tplId, {method:'DELETE'});
+    await loadAll();
   };
 
   // Парсер items из supply_request: возвращает массив [{materialName, quantity, unit}]
@@ -7874,9 +7924,9 @@ function App() {
             // вкладки в зависимости от роли
             let tabs = [];
             if (role==='мастер'||role==='субподрядчик') tabs=[{id:'mine',label:'📋 Мои заявки'}];
-            else if (role==='прораб') tabs=[{id:'inbox',label:'⏳ Ждут подтверждения'},{id:'all',label:'📋 Все заявки'}];
-            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'}];
-            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'}];
+            else if (role==='прораб') tabs=[{id:'inbox',label:'⏳ Ждут подтверждения'},{id:'all',label:'📋 Все заявки'},{id:'catalog',label:'📦 Каталоги'}];
+            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'},{id:'catalog',label:'📦 Каталоги'}];
+            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'},{id:'catalog',label:'📦 Каталоги'}];
             // фильтрация
             let list = supplyRequests || [];
             const curTab = tabs.find(t=>t.id===supplyTab) ? supplyTab : tabs[0].id;
@@ -7911,13 +7961,57 @@ function App() {
                     'Утверждённые заявки на закупку'
                   }</p>
                 </div>
-                {canCreate && <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>Новая заявка</button>}
+                {canCreate && curTab!=='catalog' && <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>Новая заявка</button>}
               </div>
               {/* Вкладки */}
               <div style={{display:'flex',gap:'8px',marginBottom:'16px',flexWrap:'wrap'}}>
                 {tabs.map(t=>(<button key={t.id} onClick={()=>setSupplyTab(t.id)} style={{...curTab===t.id?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{t.label}</button>))}
               </div>
-              {!(role==='мастер'||role==='субподрядчик') && (<div style={{...card,padding:'16px',marginBottom:'16px'}}>
+              {/* Вкладка «Каталоги» — прайсы поставщиков (просмотр) */}
+              {curTab==='catalog' && (()=>{
+                const q = (listSearch||'').toLowerCase().trim();
+                const items = (supplierCatalog||[]).filter(it=>!q || (it.materialName||'').toLowerCase().includes(q) || (it.supplierName||'').toLowerCase().includes(q));
+                const bySupplier = new Map();
+                items.forEach(it=>{
+                  const key = it.supplierName || ('Поставщик #'+it.supplierId);
+                  if (!bySupplier.has(key)) bySupplier.set(key, []);
+                  bySupplier.get(key).push(it);
+                });
+                return (<div>
+                  <div style={{...card,padding:'14px 16px',marginBottom:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+(C.accentBorder||C.border)}}>
+                    <b style={{color:C.text,fontSize:'14px'}}>📦 Каталоги поставщиков</b>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Прайсы заполняют сами поставщики в своих кабинетах. Здесь — актуальные цены, минимальные партии и сроки поставки. Используйте при выборе, у кого запросить КП.</p>
+                  </div>
+                  <input value={listSearch} onChange={e=>setListSearch(e.target.value)} placeholder="🔍 Поиск по материалу или поставщику..." style={{...inp,marginBottom:'16px'}} />
+                  {bySupplier.size===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>{(supplierCatalog||[]).length===0?'Каталоги пока пусты — поставщики ещё не загрузили прайсы.':'Ничего не найдено по запросу.'}</div>}
+                  {Array.from(bySupplier.entries()).map(([sup, rows])=>(
+                    <div key={sup} style={{...card,padding:'14px 16px',marginBottom:'12px'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px'}}>
+                        <b style={{color:C.text,fontSize:'14px'}}>🏢 {sup}</b>
+                        <span style={{fontSize:'12px',color:C.textSec}}>{rows.length+' поз.'}</span>
+                      </div>
+                      <div style={{overflowX:'auto'}}>
+                        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
+                          <thead><tr style={{color:C.textMuted,textAlign:'left'}}>
+                            <th style={{...tblH}}>Материал</th><th style={tblH}>Цена</th><th style={tblH}>Ед.</th><th style={tblH}>Мин. партия</th><th style={tblH}>Срок</th><th style={tblH}>Наличие</th>
+                          </tr></thead>
+                          <tbody>
+                            {rows.map(it=>(<tr key={it.id} style={{borderTop:'1px solid '+C.border}}>
+                              <td style={{...tblC,fontWeight:'600',color:C.text}}>{it.materialName}</td>
+                              <td style={{...tblC,whiteSpace:'nowrap'}}>{(it.price||0).toLocaleString('ru-RU')+' ₽'}</td>
+                              <td style={tblC}>{it.unit}</td>
+                              <td style={tblC}>{it.minQuantity}</td>
+                              <td style={tblC}>{(it.deliveryDays||0)+' дн.'}</td>
+                              <td style={tblC}>{it.inStock?<span style={badge(C.success,C.successLight,C.successBorder)}>В наличии</span>:<span style={badge(C.textMuted,C.bg,C.border)}>Под заказ</span>}</td>
+                            </tr>))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>);
+              })()}
+              {curTab!=='catalog' && !(role==='мастер'||role==='субподрядчик') && (<div style={{...card,padding:'16px',marginBottom:'16px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
                   <div>
                     <b style={{color:C.text,fontSize:'14px'}}>🚚 Поставки и приёмка</b>
@@ -7997,16 +8091,38 @@ function App() {
                 })}
               </div>)}
               {/* Форма создания — мультистрочная */}
-              {showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
+              {curTab!=='catalog' && showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка на материал</b>
-                {(newSupplyReq.items||[]).map((it,idx)=>(<div key={idx} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr auto',gap:'6px',marginBottom:'6px',alignItems:'center'}}>
-                  <input placeholder="Материал *" value={it.materialName} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],materialName:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
+                {/* Сн.5: шаблоны заявок */}
+                {(supplyTemplates||[]).length>0 && (<div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
+                  <span style={{fontSize:'12px',color:C.textSec}}>📋 Шаблон:</span>
+                  <select defaultValue="" onChange={e=>{if(e.target.value){applySupplyTemplate(e.target.value);e.target.value='';}}} style={{...inp,marginBottom:0,fontSize:'13px',width:'auto',minWidth:'220px'}}>
+                    <option value="">— выбрать готовый набор —</option>
+                    {supplyTemplates.map(t=><option key={t.id} value={t.id}>{t.name+' ('+(t.items||[]).length+' поз.)'}</option>)}
+                  </select>
+                  {isLeadership() && supplyTemplates.length>0 && <select defaultValue="" onChange={e=>{if(e.target.value){deleteSupplyTemplate(e.target.value);e.target.value='';}}} style={{...inp,marginBottom:0,fontSize:'12px',width:'auto',color:C.danger}}>
+                    <option value="">🗑 удалить шаблон…</option>
+                    {supplyTemplates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>}
+                </div>)}
+                {(newSupplyReq.items||[]).map((it,idx)=>{
+                  const hint = priceHints[(it.materialName||'').trim()];
+                  return (<React.Fragment key={idx}>
+                  <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr auto',gap:'6px',marginBottom:'4px',alignItems:'center'}}>
+                  <input placeholder="Материал *" value={it.materialName} onBlur={e=>fetchPriceHint(e.target.value)} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],materialName:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
                   <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={it.quantity} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],quantity:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
                   <select value={it.unit} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],unit:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
                   {(newSupplyReq.items||[]).length>1
                     ? <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:newSupplyReq.items.filter((_,i)=>i!==idx)})} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
                     : <span style={{width:'30px'}}/>}
-                </div>))}
+                  </div>
+                  {hint && hint.stats && <div style={{fontSize:'11px',color:C.textSec,margin:'0 0 8px 2px'}}>
+                    💰 Раньше брали: от <b style={{color:C.success}}>{hint.stats.min.toLocaleString('ru-RU')} ₽</b> до {hint.stats.max.toLocaleString('ru-RU')} ₽, в среднем {hint.stats.avg.toLocaleString('ru-RU')} ₽
+                    {hint.catalog && hint.catalog[0] && <span> · мин. в каталоге: {hint.catalog[0].price.toLocaleString('ru-RU')} ₽ ({hint.catalog[0].supplierName})</span>}
+                  </div>}
+                  {hint && hint.stats===null && <div style={{fontSize:'11px',color:C.textMuted,margin:'0 0 8px 2px'}}>💡 По этому материалу истории цен пока нет</div>}
+                  </React.Fragment>);
+                })}
                 <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:[...(newSupplyReq.items||[]),{materialName:'',quantity:'',unit:'шт'}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
                 <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:'8px',marginBottom:'8px'}}>
                   <select value={newSupplyReq.project} onChange={e=>setNewSupplyReq({...newSupplyReq,project:e.target.value})} style={{...inp,marginBottom:0}}>
@@ -8026,8 +8142,9 @@ function App() {
                    role==='прораб'?'ℹ️ Заявка сразу пойдёт директору на утверждение':
                    '✅ Заявка будет утверждена автоматически'}
                 </div>
-                <div style={{display:'flex',gap:'8px'}}>
+                <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
                   <button onClick={createSupplyReq} style={btnO}><Check size={14}/>Создать заявку</button>
+                  <button onClick={saveSupplyTemplate} style={btnG}><Plus size={14}/>Сохранить как шаблон</button>
                   <button onClick={()=>setShowSupplyForm(false)} style={btnG}><X size={14}/>Отмена</button>
                 </div>
               </div>)}
@@ -8037,7 +8154,7 @@ function App() {
                 <input placeholder='🔍 Поиск по материалу, объекту, автору' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
               </div>
               {/* Список заявок — группировка по объектам */}
-              {(()=>{
+              {curTab!=='catalog' && (()=>{
                 const byProject = new Map();
                 list.forEach(r=>{
                   const key = r.project || '— Без объекта —';
@@ -8285,7 +8402,7 @@ function App() {
                   </div>);
                 });
               })()}
-              {list.length===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>}
+              {curTab!=='catalog' && list.length===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>}
             </div>);
           })()}
 
