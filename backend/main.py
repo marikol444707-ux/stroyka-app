@@ -774,6 +774,237 @@ def init_db():
             note TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS brigade_acts (
+            id SERIAL PRIMARY KEY,
+            contract_id INT,
+            project_name VARCHAR(255),
+            brigade_name VARCHAR(255),
+            period_from VARCHAR(50),
+            period_to VARCHAR(50),
+            total_amount NUMERIC(14,2) DEFAULT 0,
+            status VARCHAR(50) DEFAULT 'Черновик',
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS estimates (
+            id SERIAL PRIMARY KEY,
+            project_id INT,
+            project_name VARCHAR(255),
+            name VARCHAR(255),
+            version VARCHAR(50),
+            sections_json TEXT,
+            status VARCHAR(50) DEFAULT 'Черновик',
+            is_template BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS project_payments (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            amount NUMERIC(14,2) DEFAULT 0,
+            note TEXT,
+            date VARCHAR(50),
+            added_by VARCHAR(255),
+            paid_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS accountable_payments (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            given_to VARCHAR(255),
+            given_to_id INT,
+            amount NUMERIC(14,2) DEFAULT 0,
+            payment_method VARCHAR(50),
+            purpose TEXT,
+            date VARCHAR(50),
+            added_by VARCHAR(255),
+            status VARCHAR(50) DEFAULT 'Выдан',
+            spent_amount NUMERIC(14,2) DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS accountable_expenses (
+            id SERIAL PRIMARY KEY,
+            payment_id INT,
+            project_name VARCHAR(255),
+            description TEXT,
+            amount NUMERIC(14,2) DEFAULT 0,
+            photo_url TEXT,
+            date VARCHAR(50),
+            added_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS own_expenses (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            employee_name VARCHAR(255),
+            employee_id INT,
+            description TEXT,
+            amount NUMERIC(14,2) DEFAULT 0,
+            photo_url TEXT,
+            date VARCHAR(50),
+            category VARCHAR(100),
+            status VARCHAR(50) DEFAULT 'Ожидает',
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS expenses (
+            id SERIAL PRIMARY KEY,
+            project VARCHAR(255),
+            category VARCHAR(100),
+            amount NUMERIC(14,2) DEFAULT 0,
+            note TEXT,
+            date VARCHAR(50),
+            added_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS unexpected_works (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            description TEXT,
+            unit VARCHAR(50),
+            quantity FLOAT DEFAULT 0,
+            price NUMERIC(14,2) DEFAULT 0,
+            total NUMERIC(14,2) DEFAULT 0,
+            added_by VARCHAR(255),
+            added_by_role VARCHAR(50),
+            status VARCHAR(50) DEFAULT 'На рассмотрении',
+            approved_by VARCHAR(255),
+            approved_at VARCHAR(50),
+            notes TEXT,
+            photo_url TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS prescriptions (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            number VARCHAR(100),
+            issued_by VARCHAR(255),
+            issued_by_role VARCHAR(50),
+            violation TEXT,
+            deadline VARCHAR(50),
+            responsible VARCHAR(255),
+            status VARCHAR(50) DEFAULT 'Открыто',
+            photo_url TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS project_stages (
+            id SERIAL PRIMARY KEY,
+            project_id INT,
+            project_name VARCHAR(255),
+            name VARCHAR(255),
+            status VARCHAR(50) DEFAULT 'Не начат',
+            start_date VARCHAR(50),
+            end_date VARCHAR(50),
+            progress INT DEFAULT 0,
+            responsible VARCHAR(255),
+            notes TEXT,
+            order_num INT DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS project_checklists (
+            id SERIAL PRIMARY KEY,
+            project_id INT,
+            project_name VARCHAR(255),
+            name VARCHAR(255),
+            template VARCHAR(100),
+            status VARCHAR(50) DEFAULT 'Активен',
+            created_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS checklist_items (
+            id SERIAL PRIMARY KEY,
+            checklist_id INT,
+            name VARCHAR(255),
+            checked BOOLEAN DEFAULT FALSE,
+            checked_by VARCHAR(255),
+            checked_at VARCHAR(50),
+            order_num INT DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS company_requisites (
+            id SERIAL PRIMARY KEY,
+            full_name VARCHAR(255),
+            short_name VARCHAR(255),
+            inn VARCHAR(20),
+            kpp VARCHAR(20),
+            ogrn VARCHAR(20),
+            legal_address TEXT,
+            actual_address TEXT,
+            phone VARCHAR(50),
+            email VARCHAR(255),
+            director_name VARCHAR(255),
+            director_position VARCHAR(100),
+            basis VARCHAR(255),
+            bank_name VARCHAR(255),
+            bik VARCHAR(20),
+            rs VARCHAR(40),
+            ks VARCHAR(40)
+        );
+        CREATE TABLE IF NOT EXISTS company_documents (
+            id SERIAL PRIMARY KEY,
+            company_id INT,
+            name VARCHAR(255),
+            doc_type VARCHAR(100),
+            file_url TEXT,
+            expires_at VARCHAR(50),
+            uploaded_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS project_chat (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            author_id INT,
+            author_name VARCHAR(255),
+            author_role VARCHAR(50),
+            text TEXT,
+            photo_url TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS room_doors (
+            id SERIAL PRIMARY KEY,
+            room_id INT,
+            name VARCHAR(255),
+            width FLOAT DEFAULT 0,
+            height FLOAT DEFAULT 0,
+            door_type VARCHAR(100),
+            door_purpose VARCHAR(100),
+            reveal_depth FLOAT DEFAULT 0,
+            reveal_material VARCHAR(100),
+            order_num INT DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS room_windows (
+            id SERIAL PRIMARY KEY,
+            room_id INT,
+            name VARCHAR(255),
+            width FLOAT DEFAULT 0,
+            height FLOAT DEFAULT 0,
+            window_type VARCHAR(100),
+            reveal_depth FLOAT DEFAULT 0,
+            reveal_material VARCHAR(100),
+            order_num INT DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS warehouse_invoices (
+            id SERIAL PRIMARY KEY,
+            number VARCHAR(100),
+            date VARCHAR(50),
+            supplier_id INT,
+            supplier_name VARCHAR(255),
+            accepted_by VARCHAR(255),
+            location VARCHAR(255),
+            project VARCHAR(255),
+            vat BOOLEAN DEFAULT FALSE,
+            items TEXT,
+            total_base NUMERIC(14,2) DEFAULT 0,
+            total_vat NUMERIC(14,2) DEFAULT 0,
+            total_with_vat NUMERIC(14,2) DEFAULT 0,
+            status VARCHAR(50) DEFAULT 'Принято',
+            added_by VARCHAR(255),
+            photo_url TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS warehouses (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255),
+            city VARCHAR(255),
+            address TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS work_journal (
             id SERIAL PRIMARY KEY,
             master_id INT,
