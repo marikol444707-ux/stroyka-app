@@ -723,6 +723,48 @@ def init_db():
             created_by_id INT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS material_transfers (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            from_location VARCHAR(255),
+            to_person VARCHAR(255),
+            to_person_role VARCHAR(100),
+            material_name VARCHAR(255),
+            quantity FLOAT,
+            unit VARCHAR(50) DEFAULT 'шт',
+            transfer_date DATE,
+            signed BOOLEAN DEFAULT FALSE,
+            signed_at TIMESTAMP,
+            notes TEXT,
+            created_by VARCHAR(255),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS brigade_contracts (
+            id SERIAL PRIMARY KEY,
+            project_id INT,
+            project_name VARCHAR(255),
+            brigade_name VARCHAR(255),
+            contractor_type VARCHAR(50),
+            contractor_id INT,
+            total_amount NUMERIC(14,2) DEFAULT 0,
+            status VARCHAR(50) DEFAULT 'Черновик',
+            signed_at DATE,
+            notes TEXT,
+            pricelist_id INT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS brigade_contract_items (
+            id SERIAL PRIMARY KEY,
+            contract_id INT,
+            estimate_section VARCHAR(255),
+            description VARCHAR(255),
+            unit VARCHAR(50),
+            quantity FLOAT DEFAULT 0,
+            price_smeta NUMERIC(14,2) DEFAULT 0,
+            price_brigade NUMERIC(14,2) DEFAULT 0,
+            done_quantity FLOAT DEFAULT 0,
+            status VARCHAR(50) DEFAULT 'Не начато'
+        );
         CREATE TABLE IF NOT EXISTS work_journal (
             id SERIAL PRIMARY KEY,
             master_id INT,
