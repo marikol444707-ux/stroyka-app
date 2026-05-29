@@ -5094,6 +5094,17 @@ def update_estimate(id: int, data: dict):
             pass
 
     new_sections = data.get("sections", []) or []
+    for s in new_sections:
+        for it in (s.get("items") or []):
+            try:
+                qty = float(it.get("quantity") or 0)
+                done = float(it.get("doneQuantity") or 0)
+            except Exception:
+                continue
+            if qty > 0 and done > qty:
+                it["doneQuantity"] = qty
+            elif done < 0:
+                it["doneQuantity"] = 0
     cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s WHERE id=%s",
         (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),id))
 

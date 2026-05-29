@@ -3885,15 +3885,15 @@ function App() {
                 if(myItems.length===0) return null;
                 return(<div style={{...card,padding:'14px',marginBottom:'15px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
                   <b style={{color:C.accent,fontSize:'13px',display:'block',marginBottom:'10px'}}>🎯 Мои работы по смете ({myItems.length})</b>
-                  {myItems.map((mi,n)=>{const qty=Number(mi.quantity)||0;const done=Number(mi.doneQuantity)||0;const remain=Math.max(0,qty-done);return(<div key={n} style={{padding:'10px',marginBottom:'6px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
+                  {myItems.map((mi,n)=>{const qty=Number(mi.quantity)||0;const done=Number(mi.doneQuantity)||0;const remain=Math.max(0,qty-done);const doneNorm=normalizeMeasure(done,mi.unit);return(<div key={n} style={{padding:'10px',marginBottom:'6px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
                       <div style={{flex:1}}>
                         <b style={{fontSize:'12px',color:C.text}}>{mi.name}</b>
-                        <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{mi.section+' · план '+qty+' '+mi.unit+' · сделано '+done+' · осталось '+remain+' '+mi.unit}</p>
+                        <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{mi.section+' · план '+fmtMeasure(qty,mi.unit)+' · сделано '+fmtMeasure(done,mi.unit)+' · осталось '+fmtMeasure(remain,mi.unit)}</p>
                       </div>
-                      <input type='number' step='any' inputMode='decimal' placeholder={'+'+mi.unit} value={mi.doneQuantity||''} onChange={async e=>{
-                        const raw=Number(e.target.value);
-                        if(qty>0&&raw>qty){alert('План '+qty+' '+mi.unit+'. Нельзя поставить больше.');return;}
+                      <input type='number' step='any' inputMode='decimal' placeholder={'+'+(normalizeMeasure(1,mi.unit).unit||mi.unit)} value={doneNorm.qty||''} onChange={async e=>{
+                        const raw=denormalizeMeasure(e.target.value,mi.unit);
+                        if(qty>0&&raw>qty){alert('План '+fmtMeasure(qty,mi.unit)+'. Нельзя поставить больше.');return;}
                         const est=estimatesList.find(e=>e.id===mi.estId);
                         if(!est) return;
                         const newSections=est.sections.map((s,si)=>si===mi.sectionIdx?{...s,items:s.items.map((it,ii)=>ii===mi.itemIdx?{...it,doneQuantity:raw}:it)}:s);
@@ -6453,12 +6453,11 @@ function App() {
                         const smetaItems=projSmeta?(projSmeta.sections||[]).flatMap(s=>(s.items||[]).map(i=>({...i,section:s.name}))):[];
                         const norm=(s)=>(s||'').toLowerCase().replace(/[.,;:()«»"'-]/g,' ').replace(/\s+/g,' ').trim();
                         const matchScore=(a,b)=>{const aw=norm(a).split(' ').filter(w=>w.length>=3);const bw=new Set(norm(b).split(' ').filter(w=>w.length>=3));if(!aw.length||!bw.size) return 0;const common=aw.filter(w=>bw.has(w)).length;return common/Math.max(aw.length,1);};
-                        const projJournal=workJournal.filter(j=>j.project===p.name);
                         const projMaterials=materials.filter(m=>m.project===p.name);
                         const projTransfers=materialTransfers.filter(t=>t.projectName===p.name);
                         const workProgress=smetaItems.map(it=>{
                           const plan=Number(it.quantity||0);
-                          const done=projJournal.filter(j=>matchScore(j.description,it.name)>=0.4).reduce((s,j)=>s+Number(j.quantity||0),0);
+                          const done=Number(it.doneQuantity||0);
                           const left=Math.max(0,plan-done);
                           const pct=plan>0?Math.min(100,Math.round(done/plan*100)):0;
                           return {name:it.name,section:it.section,unit:it.unit,plan,done,left,pct};
@@ -6532,7 +6531,7 @@ function App() {
                           <div style={{marginBottom:'14px'}}>
                             <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>📋 Прогресс по смете (работы)</b>
                             <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Позиция</th><th style={tblH}>План</th><th style={tblH}>Выполнено</th><th style={tblH}>Осталось</th><th style={tblH}>%</th></tr></thead><tbody>
-                              {workProgress.filter(w=>w.plan>0).slice(0,15).map((w,i)=>(<tr key={i}><td style={{...tblC,fontSize:'11px'}}>{w.name}</td><td style={{...tblC,fontSize:'11px'}}>{w.plan} {w.unit}</td><td style={{...tblC,fontSize:'11px',color:w.done>0?C.success:C.textMuted}}>{w.done} {w.unit}</td><td style={{...tblC,fontSize:'11px',color:w.left>0?C.warning:C.success}}>{w.left} {w.unit}</td><td style={{...tblC,fontSize:'11px',fontWeight:'600',color:w.pct>=100?C.success:w.pct>=50?C.info:C.warning}}>{w.pct}%</td></tr>))}
+                              {workProgress.filter(w=>w.plan>0).slice(0,15).map((w,i)=>(<tr key={i}><td style={{...tblC,fontSize:'11px'}}>{w.name}</td><td style={{...tblC,fontSize:'11px'}}>{fmtMeasure(w.plan,w.unit)}</td><td style={{...tblC,fontSize:'11px',color:w.done>0?C.success:C.textMuted}}>{fmtMeasure(w.done,w.unit)}</td><td style={{...tblC,fontSize:'11px',color:w.left>0?C.warning:C.success}}>{fmtMeasure(w.left,w.unit)}</td><td style={{...tblC,fontSize:'11px',fontWeight:'600',color:w.pct>=100?C.success:w.pct>=50?C.info:C.warning}}>{w.pct}%</td></tr>))}
                             </tbody></table>
                             {!workProgress.filter(w=>w.plan>0).length&&<p style={{color:C.textMuted,fontSize:'11px',padding:'8px'}}>В смете нет позиций работ</p>}
                           </div>
@@ -10117,13 +10116,13 @@ function App() {
                       <th style={tblH}>Сумма</th>
                       <th style={{...tblH,width:'36px'}}></th>
                     </tr></thead><tbody>
-                      {list.map(item=>{const qty=Number(item.quantity)||0;const done=Number(item.doneQuantity)||0;const remain=Math.max(0,qty-done);return(<tr key={item.id||item._idx}>
+                      {list.map(item=>{const qty=Number(item.quantity)||0;const done=Number(item.doneQuantity)||0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);return(<tr key={item.id||item._idx}>
                         <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}><button onClick={()=>{updateItem(item._idx,'hiddenWork',!item.hiddenWork);setTimeout(persist,100);}} title={item.hiddenWork?'Скрытая работа (для акта)':'Обычная работа'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button><input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
                         <td style={tblC}><select value={item.unit||'шт'} onChange={e=>{updateItem(item._idx,'unit',e.target.value);setTimeout(persist,100);}} style={inpCell}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
-                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={item.quantity||''} onChange={e=>updateItem(item._idx,'quantity',e.target.value)} onBlur={persist} style={inpCell}/></td>
+                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={qtyNorm.qty||''} onChange={e=>updateItem(item._idx,'quantity',denormalizeMeasure(e.target.value,item.unit))} onBlur={persist} style={inpCell}/></td>
                         <td style={tblC}><select value={item.brigadeName||''} onChange={e=>{updateItem(item._idx,'brigadeName',e.target.value);setTimeout(persist,100);}} style={inpCell}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
-                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={item.doneQuantity||''} onChange={e=>{const raw=Number(e.target.value);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+qty+' '+item.unit+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text}}/></td>
-                        <td style={{...tblC,color:qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted,fontWeight:'600',fontSize:'11px'}}>{qty>0?remain+' '+item.unit:'—'}</td>
+                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={doneNorm.qty||''} onChange={e=>{const raw=denormalizeMeasure(e.target.value,item.unit);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+fmtMeasure(qty,item.unit)+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text}}/></td>
+                        <td style={{...tblC,color:qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted,fontWeight:'600',fontSize:'11px'}}>{qty>0?fmtMeasure(remain,item.unit):'—'}</td>
                         <td style={tblC}><input type='number' step='any' inputMode='decimal' value={item.priceWork||item.priceMaterial||''} onChange={e=>{const v=e.target.value;if(itemKind(item)==='material')updateItem(item._idx,'priceMaterial',v);else updateItem(item._idx,'priceWork',v);}} onBlur={persist} style={inpCell}/></td>
                         <td style={{...tblC,fontWeight:'600',color:C.success}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
                         <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
