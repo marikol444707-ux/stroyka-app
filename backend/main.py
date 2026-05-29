@@ -3952,6 +3952,95 @@ def ai_prefill_work_journal(id: int):
     cur.close(); conn.close()
     return {"ok": True, "normatives": normatives, "projectDocs": project_docs, "qualityNote": quality_note, "aiFilled": True}
 
+# Ключевые слова скрытых работ (резерв, если ИИ недоступен) — СНиП 12-01-2004
+HIDDEN_WORK_KEYWORDS = [
+    "арматур","армиров","бетонир","фундамент","основани","гидроизол","пароизол","теплоизол",
+    "утеплен","стяжк","засыпк","обратн","грунт","свая","сваи","ростверк","монолит","опалубк",
+    "закладн","заземлен","молниезащит","кабел","проводк","электропроводк","трубопровод","разводк",
+    "канализац","водопровод","дренаж","вентиляц","воздуховод","штроб","закрыт","скрыт",
+    "мембран","рулонн","праймер","битум","сеткa","сетк","каркас","анкер","дюбел","примыкан",
+]
+
+def _detect_hidden_by_keywords(name):
+    n = (name or "").lower()
+    return any(k in n for k in HIDDEN_WORK_KEYWORDS)
+
+@app.post("/estimates/{id}/ai-detect-hidden")
+def ai_detect_hidden_works(id: int):
+    import openai as oa, json as j, re
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT sections_json FROM estimates WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="смета не найдена")
+    try:
+        sections = j.loads(row[0]) if row[0] else []
+    except Exception:
+        sections = []
+    if not isinstance(sections, list):
+        sections = []
+    # Собираем уникальные названия работ
+    names = []
+    for sec in sections:
+        for it in (sec.get("items") or []):
+            nm = (it.get("name") or "").strip()
+            if nm and nm not in names:
+                names.append(nm)
+    if not names:
+        cur.close(); conn.close()
+        return {"ok": True, "count": 0, "sections": sections, "method": "empty"}
+
+    hidden_set = set()
+    method = "keywords"
+    # Пытаемся через ИИ; при любой ошибке — откат на ключевые слова
+    if YANDEX_API_KEY and YANDEX_FOLDER_ID:
+        user_text = (
+            "Ниже список наименований строительных работ из сметы. Определи, какие из них являются "
+            "СКРЫТЫМИ работами, требующими оформления Акта освидетельствования скрытых работ (АОСР) по "
+            "СНиП 12-01-2004 — это работы, скрываемые последующими конструкциями (земляные, фундаменты, "
+            "армирование, бетонирование, гидро-/паро-/теплоизоляция, стяжки, скрытые инженерные сети — "
+            "кабели/трубопроводы в стенах и полах, заземление, закладные и т.п.). Отделочные и монтажные "
+            "видимые работы НЕ являются скрытыми.\n\n"
+            "Список работ (JSON-массив):\n" + j.dumps(names, ensure_ascii=False) + "\n\n"
+            'Верни СТРОГО JSON без markdown: {"hidden": ["точное название работы из списка", ...]}'
+        )
+        instructions = "Ты отвечаешь СТРОГО валидным JSON без markdown и пояснений. Только JSON."
+        try:
+            client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+            r = client.responses.create(
+                model="gpt://" + YANDEX_FOLDER_ID + "/yandexgpt-5.1/latest",
+                temperature=0.1, instructions=instructions, input=user_text, max_output_tokens=2000,
+            )
+            text = (r.output_text or "").strip()
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if m:
+                parsed = j.loads(m.group(0))
+                arr = parsed.get("hidden") or []
+                if isinstance(arr, list):
+                    hidden_set = set((s or "").strip() for s in arr if isinstance(s, str))
+                    method = "ai"
+        except Exception as e:
+            print("AI-DETECT-HIDDEN error, fallback to keywords:", str(e))
+
+    if not hidden_set:
+        hidden_set = set(nm for nm in names if _detect_hidden_by_keywords(nm))
+        method = "keywords"
+
+    # Проставляем hiddenWork=true найденным (ручные отметки не снимаем)
+    count = 0
+    for sec in sections:
+        for it in (sec.get("items") or []):
+            nm = (it.get("name") or "").strip()
+            if nm in hidden_set and not it.get("hiddenWork"):
+                it["hiddenWork"] = True
+                count += 1
+    cur.execute("UPDATE estimates SET sections_json=%s WHERE id=%s", (j.dumps(sections, ensure_ascii=False), id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "count": count, "detected": len(hidden_set), "sections": sections, "method": method}
+
 @app.get("/master-profiles")
 def get_master_profiles():
     conn = get_db()
