@@ -592,6 +592,8 @@ def init_db():
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS scan_url TEXT;
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         -- Поставщики — глобальные. company_id у них означает «первичный клиент» (необязательно)
         -- Связи компания-поставщик через company_supplier_links (договор и рейтинг свой у каждой пары)
@@ -1927,7 +1929,7 @@ def register(data: dict):
 def get_projects():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,warranty_start_date as \"warrantyStartDate\",warranty_end_date as \"warrantyEndDate\",warranty_contact as \"warrantyContact\" FROM projects")
+    cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,warranty_start_date as \"warrantyStartDate\",warranty_end_date as \"warrantyEndDate\",warranty_contact as \"warrantyContact\",COALESCE(archived,false) as archived,archived_at as \"archivedAt\" FROM projects")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -1951,13 +1953,15 @@ def update_project(id: int, data: dict, _current_user: dict = Depends(require_ro
         ('warrantyStartDate','warranty_start_date'),
         ('warrantyEndDate','warranty_end_date'),
         ('warrantyContact','warranty_contact'),
+        ('archived','archived'),
+        ('archivedAt','archived_at'),
     ]
     sets, vals = [], []
     for js_key, db_col in fields_map:
         if js_key in data:
             sets.append(db_col + "=%s")
             v = data[js_key]
-            if db_col in ('warranty_start_date','warranty_end_date','deadline') and not v:
+            if db_col in ('warranty_start_date','warranty_end_date','deadline','archived_at') and not v:
                 v = None
             vals.append(v)
     if not sets:

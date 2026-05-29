@@ -6301,6 +6301,7 @@ function App() {
                 <button onClick={()=>setShowArchive(!showArchive)} style={btnG}><Archive size={14}/>{showArchive?'Активные':'Архив'}</button>
               </div>
             </div>
+            {showArchive&&<div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{margin:0,color:C.text,fontSize:'12px'}}>📦 <b>Архив закрытых объектов.</b> Здесь хранятся завершённые объекты со всеми документами, перепиской и актами — для просмотра. Чтобы вернуть объект в работу, нажмите <Archive size={11} style={{verticalAlign:'middle'}}/>↩ у объекта.</p></div>}
             {showForm===true&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
               <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать проект':'Новый проект'}</h3>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px'}}>
@@ -6317,7 +6318,7 @@ function App() {
               </div>
               <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveProject} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
             </div>)}
-            {visibleProjects(showArchive?archivedProjects:projects).map(p=>{
+            {visibleProjects((showArchive?projects.filter(pr=>pr.archived):projects.filter(pr=>!pr.archived))).map(p=>{
               const cat=expByCategory(p.name);const _bs=projectBudgetSpent(p);const total=_bs.total;
               const isOpen=expandedProject===p.id;
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
@@ -6338,7 +6339,10 @@ function App() {
                     </div>
                     <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
                       {isLeadership()&&<button onClick={e=>{e.stopPropagation();editProject(p);}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>}
-                      {isLeadership()&&<button onClick={e=>{e.stopPropagation();deleteProject(p.id);}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><Trash2 size={11}/></button>}
+                      {isLeadership()&&(p.archived
+                        ? <button onClick={async e=>{e.stopPropagation();if(!window.confirm('Вернуть объект «'+p.name+'» из архива в работу?'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:false,archivedAt:''})});await loadAll();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}} title='Вернуть из архива'><Archive size={11}/>↩</button>
+                        : <button onClick={async e=>{e.stopPropagation();if(!window.confirm('Закрыть объект «'+p.name+'» и отправить в архив?\n\nВсе документы, переписка и акты сохранятся и будут доступны в архиве для просмотра.'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:true,archivedAt:new Date().toISOString(),status:'Завершён'})});await loadAll();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}} title='Закрыть объект в архив'><Archive size={11}/></button>)}
+                      {isLeadership()&&!p.archived&&<button onClick={e=>{e.stopPropagation();deleteProject(p.id);}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><Trash2 size={11}/></button>}
                       {isOpen?<ChevronUp size={18} color={C.textMuted}/>:<ChevronDown size={18} color={C.textMuted}/>}
                     </div>
                   </div>
