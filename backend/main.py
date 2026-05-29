@@ -765,6 +765,15 @@ def init_db():
             done_quantity FLOAT DEFAULT 0,
             status VARCHAR(50) DEFAULT 'Не начато'
         );
+        CREATE TABLE IF NOT EXISTS brigade_payments (
+            id SERIAL PRIMARY KEY,
+            contract_id INT,
+            amount NUMERIC(14,2) DEFAULT 0,
+            paid_by VARCHAR(255),
+            paid_date DATE,
+            note TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         CREATE TABLE IF NOT EXISTS work_journal (
             id SERIAL PRIMARY KEY,
             master_id INT,
@@ -4802,13 +4811,51 @@ def delete_estimate(id: int):
 def get_brigade_contracts(project_name: str = None):
     conn = get_db()
     cur = conn.cursor()
+    # done_amount = сумма выполненного к оплате бригаде; paid_amount = сумма зафиксированных оплат
+    base = ("SELECT bc.id,bc.project_id,bc.project_name,bc.brigade_name,bc.contractor_type,bc.contractor_id,"
+            "bc.total_amount,bc.status,bc.signed_at,bc.notes,bc.created_at,bc.pricelist_id,"
+            "COALESCE((SELECT SUM(COALESCE(bci.done_quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
+            "COALESCE((SELECT SUM(COALESCE(bp.amount,0)) FROM brigade_payments bp WHERE bp.contract_id=bc.id),0) AS paid_amount "
+            "FROM brigade_contracts bc")
     if project_name:
-        cur.execute("SELECT id,project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,signed_at,notes,created_at,pricelist_id FROM brigade_contracts WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        cur.execute(base + " WHERE bc.project_name=%s ORDER BY bc.id DESC", (project_name,))
     else:
-        cur.execute("SELECT id,project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,signed_at,notes,created_at,pricelist_id FROM brigade_contracts ORDER BY id DESC")
+        cur.execute(base + " ORDER BY bc.id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],"totalAmount":float(r[6] or 0),"status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10]),"pricelistId":r[11]} for r in rows]
+    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],"totalAmount":float(r[6] or 0),"status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10]),"pricelistId":r[11],"doneAmount":float(r[12] or 0),"paidAmount":float(r[13] or 0)} for r in rows]
+
+@app.get("/brigade-payments")
+def get_brigade_payments(contract_id: int = None):
+    conn = get_db()
+    cur = conn.cursor()
+    if contract_id:
+        cur.execute("SELECT id,contract_id,amount,paid_by,paid_date,note,created_at FROM brigade_payments WHERE contract_id=%s ORDER BY id DESC", (contract_id,))
+    else:
+        cur.execute("SELECT id,contract_id,amount,paid_by,paid_date,note,created_at FROM brigade_payments ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{"id":r[0],"contractId":r[1],"amount":float(r[2] or 0),"paidBy":r[3] or "","paidDate":str(r[4]) if r[4] else "","note":r[5] or "","createdAt":str(r[6])} for r in rows]
+
+@app.post("/brigade-payments")
+def create_brigade_payment(data: dict):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO brigade_payments (contract_id,amount,paid_by,paid_date,note) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("contractId"), data.get("amount") or 0, data.get("paidBy",""), data.get("paidDate") or None, data.get("note","")))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "id": new_id}
+
+@app.delete("/brigade-payments/{id}")
+def delete_brigade_payment(id: int):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM brigade_payments WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.post("/brigade-contracts")
 def create_brigade_contract(data: dict):
