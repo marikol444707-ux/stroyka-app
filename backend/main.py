@@ -4169,7 +4169,7 @@ def toggle_timesheet(data: TimesheetModel):
     return {"ok": True}
 
 @app.get("/timesheet")
-def get_timesheet():
+def get_timesheet_all():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT staff_id, day FROM timesheet")
