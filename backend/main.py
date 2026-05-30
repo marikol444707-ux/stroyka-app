@@ -4663,6 +4663,16 @@ def update_inventory(id: int, data: dict, _current_user: dict = Depends(require_
     conn.close()
     return {"ok": True}
 
+@app.delete("/inventory/{id}")
+def delete_inventory(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_inventory_access(cur, id, _current_user)
+    cur.execute("DELETE FROM inventory_items WHERE inventory_id=%s", (id,))
+    cur.execute("DELETE FROM inventory WHERE id=%s", (id,))
+    conn.close()
+    return {"ok": True}
+
 @app.get("/inventory/{id}/items")
 def get_inventory_items(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер", "бухгалтер"))):
     conn = get_db()
@@ -5190,7 +5200,7 @@ def create_checklist_item(data: dict, _current_user: dict = Depends(require_role
     return {"id":row[0],"ok":True}
 
 @app.put("/checklist-items/{id}")
-def update_checklist_item(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def update_checklist_item(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль"))):
     conn = get_db()
     cur = conn.cursor()
     require_checklist_item_access(cur, id, _current_user)
