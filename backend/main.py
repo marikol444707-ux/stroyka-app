@@ -1461,6 +1461,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
+        ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS cable_type VARCHAR(100);
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS smeta_type VARCHAR(50) DEFAULT 'Заказчик';
         UPDATE estimates SET smeta_type='Заказчик' WHERE smeta_type IS NULL OR smeta_type='';
@@ -3719,6 +3720,42 @@ def _float_or_zero(v):
     except Exception:
         return 0.0
 
+def _detect_cable_info(name):
+    import re as _re
+    raw = (name or "").strip()
+    up = raw.upper().replace("Ё", "Е")
+    compact = _re.sub(r"[\s\"'«»()\\-/._]", "", up)
+    start_prefixes = [
+        "ВВГ", "АВВГ", "ВББШВ", "ПВВ", "ПВС", "СИП", "КВВГ", "КГ",
+        "ТППЭП", "ТПВ", "КВПЭФ", "NYM", "NYY", "ПУНП",
+        "UTP", "FTP", "SFTP", "FUTP", "UUTP", "SFUTP",
+        "КПС", "КПСЭ", "КПСВВ", "КСВВ", "КСПВ", "КСПЭВ", "ППГ",
+        "JYSTY", "JEH", "JHSTH"
+    ]
+    indicators = start_prefixes + ["КАБЕЛ", "ПРОВОД", "FRLS", "FRHF", "ОПС"]
+    is_cable = any(compact.startswith(p) for p in start_prefixes) or any(p in compact for p in indicators)
+    cable_type = ""
+    if any(p in compact for p in ["КПС", "КПСЭ", "КПСВВ", "ОПС", "ПОЖАР"]):
+        cable_type = "Пожарная сигнализация"
+    elif any(p in compact for p in ["UTP", "FTP", "SFTP", "FUTP", "UUTP", "SFUTP"]):
+        cable_type = "СКС / интернет"
+    elif any(p in compact for p in ["КСВВ", "КСПВ", "КСПЭВ", "КВПЭФ", "ТППЭП", "ТПВ", "JYSTY", "JEH", "JHSTH"]):
+        cable_type = "Слаботочка / сигнализация"
+    elif is_cable:
+        cable_type = "Силовой кабель"
+    cores = None
+    section = None
+    m3 = _re.search(r"(\d+)\s*[х×x*]\s*(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)", raw, _re.IGNORECASE)
+    if m3:
+        cores = int(m3.group(1)) * int(m3.group(2))
+        section = float(m3.group(3).replace(",", "."))
+    else:
+        m2 = _re.search(r"(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)", raw, _re.IGNORECASE)
+        if m2:
+            cores = int(m2.group(1))
+            section = float(m2.group(2).replace(",", "."))
+    return {"isCable": is_cable, "cableType": cable_type, "cores": cores, "section": section}
+
 def _add_project_material(cur, name, unit, qty, price, project):
     if not name or not project or qty <= 0:
         return
@@ -3734,7 +3771,6 @@ def _add_project_material(cur, name, unit, qty, price, project):
                 (name, "приход (поставка)", qty, __import__("datetime").date.today().isoformat(), project, "Снабжение", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
 def _create_delivery_quality_records(cur, delivery):
-    import re as _re
     name = (delivery.get('material_name') or '').strip()
     if not name:
         return
@@ -3753,19 +3789,15 @@ def _create_delivery_quality_records(cur, delivery):
                      delivery.get('quality_notes') or '', True))
     except Exception as e:
         print("DELIVERY INSPECTION INSERT ERROR:", str(e))
-    cable_prefixes = ['ВВГ','АВВГ','ВБбШв','ПвВ','ПвС','СИП','КВВГ','КГ','ТППэп','ТПВ','UTP','FTP','КВПЭФ','NYM']
-    nu = name.upper().replace(' ','')
-    is_cable = any(nu.startswith(p.upper()) for p in cable_prefixes) or 'КАБЕЛЬ' in name.upper()
-    if is_cable:
-        m = _re.search(r'(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)', name, _re.IGNORECASE)
-        cores = int(m.group(1)) if m else None
-        section = float(m.group(2).replace(',', '.')) if m else None
+    cable_info = _detect_cable_info(name)
+    if cable_info["isCable"]:
         try:
             cur.execute("""INSERT INTO cable_journal
-                           (project_name, delivery_id, cable_brand, cross_section, cores_count,
+                           (project_name, delivery_id, cable_brand, cable_type, cross_section, cores_count,
                             length_received, supplier, received_at)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (project, delivery.get('id'), name, section, cores, qty, supplier, received_at))
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (project, delivery.get('id'), name, cable_info["cableType"],
+                         cable_info["section"], cable_info["cores"], qty, supplier, received_at))
         except Exception as e:
             print("DELIVERY CABLE INSERT ERROR:", str(e))
 
@@ -7080,8 +7112,6 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
     proj = data.get("project","")
     sup = data.get("supplierName","")
     rcv_date = data.get("date") or None
-    import re as _re
-    cable_prefixes = ['ВВГ','АВВГ','ВБбШв','ПвВ','ПвС','СИП','КВВГ','КГ','ТППэп','ТПВ','UTP','FTP','КВПЭФ','NYM','NYY']
     inspections_added = 0
     cables_added = 0
     for it in items_list:
@@ -7099,18 +7129,15 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
         except Exception as e:
             print("INSPECTION INSERT ERROR:", str(e))
         # Автоопределение: это кабель?
-        nu = name.upper().replace(' ','')
-        is_cable = any(nu.startswith(p.upper()) for p in cable_prefixes) or 'КАБЕЛЬ' in name.upper()
-        if is_cable:
-            m = _re.search(r'(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)', name, _re.IGNORECASE)
-            cores = int(m.group(1)) if m else None
-            section = float(m.group(2).replace(',', '.')) if m else None
+        cable_info = _detect_cable_info(name)
+        if cable_info["isCable"]:
             try:
                 cur.execute("""INSERT INTO cable_journal
-                               (project_name, invoice_id, cable_brand, cross_section, cores_count,
+                               (project_name, invoice_id, cable_brand, cable_type, cross_section, cores_count,
                                 length_received, supplier, received_at)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (proj, invoice_id, name, section, cores, qty, sup, rcv_date))
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (proj, invoice_id, name, cable_info["cableType"], cable_info["section"],
+                             cable_info["cores"], qty, sup, rcv_date))
                 cables_added += 1
             except Exception as e:
                 print("CABLE INSERT ERROR:", str(e))
@@ -7280,7 +7307,8 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
               length_received, length_installed, drum_number, manufacturer, supplier,
               certificate_number, passport_number, insulation_before, insulation_after,
               installation_location, installation_method,
-              installed_at, received_at, responsible_itr, normatives, ai_filled, created_at"""
+              installed_at, received_at, responsible_itr, normatives, ai_filled, created_at,
+              cable_type"""
     allowed_projects = visible_project_names(_current_user)
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
@@ -7305,7 +7333,7 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
              "installationLocation":r[15] or "","installationMethod":r[16] or "",
              "installedAt":str(r[17]) if r[17] else "","receivedAt":str(r[18]) if r[18] else "",
              "responsibleItr":r[19] or "","normatives":r[20] or "",
-             "aiFilled":bool(r[21]),"createdAt":str(r[22])} for r in rows]
+             "aiFilled":bool(r[21]),"createdAt":str(r[22]),"cableType":r[23] or ""} for r in rows]
 
 @app.put("/cable-journal/{id}")
 def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
@@ -7314,6 +7342,7 @@ def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(requ
     require_row_project_access(cur, "cable_journal", id, _current_user)
     fields_map = [
         ('cableBrand','cable_brand'),
+        ('cableType','cable_type'),
         ('crossSection','cross_section'),
         ('coresCount','cores_count'),
         ('lengthReceived','length_received'),
@@ -7359,23 +7388,24 @@ def ai_suggest_cable_journal(id: int, _current_user: dict = Depends(require_role
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "cable_journal", id, _current_user)
-    cur.execute("SELECT cable_brand, cross_section, cores_count, length_received FROM cable_journal WHERE id=%s", (id,))
+    cur.execute("SELECT cable_brand, cross_section, cores_count, length_received, cable_type FROM cable_journal WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="запись не найдена")
-    brand, section, cores, length = row[0] or "", float(row[1] or 0), row[2], float(row[3] or 0)
+    brand, section, cores, length, cable_type = row[0] or "", float(row[1] or 0), row[2], float(row[3] or 0), row[4] or ""
     cur.close()
 
     user_text = (
         "Марка кабеля: " + brand + "\n"
+        "Тип системы: " + (cable_type or "не определён") + "\n"
         "Сечение жилы (мм²): " + str(section) + "\n"
         "Количество жил: " + (str(cores) if cores else "—") + "\n"
         "Длина с барабана/бухты (м): " + str(length) + "\n\n"
         "Верни СТРОГО JSON с тремя полями (без markdown, без тройных кавычек):\n"
         '{"normatives": "...", "minInsulation": "...", "recommendations": "..."}\n'
         "Где:\n"
-        "- normatives: применимые ГОСТ/СП/ПУЭ для этой марки кабеля и его монтажа через запятую\n"
+        "- normatives: применимые ГОСТ/СП/ПУЭ/СП для этой марки и типа системы: силовая электрика, СКС/интернет, слаботочка или пожарная сигнализация\n"
         "- minInsulation: минимальное сопротивление изоляции в МΩ по ПУЭ для этой марки (одно число или диапазон)\n"
         "- recommendations: 1-2 предложения по способу прокладки и испытаниям перед сдачей."
     )
