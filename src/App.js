@@ -6592,7 +6592,7 @@ function App() {
                       </div>
 
                       {user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&(()=>{
-                        const projSmeta=estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
+                        const projSmeta=_estimateForProject(p);
                         const smetaItems=projSmeta?(projSmeta.sections||[]).flatMap(s=>(s.items||[]).map(i=>({...i,section:s.name}))):[];
                         const norm=(s)=>(s||'').toLowerCase().replace(/[.,;:()«»"'-]/g,' ').replace(/\s+/g,' ').trim();
                         const matchScore=(a,b)=>{const aw=norm(a).split(' ').filter(w=>w.length>=3);const bw=new Set(norm(b).split(' ').filter(w=>w.length>=3));if(!aw.length||!bw.size) return 0;const common=aw.filter(w=>bw.has(w)).length;return common/Math.max(aw.length,1);};
