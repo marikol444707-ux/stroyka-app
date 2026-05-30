@@ -4355,7 +4355,7 @@ def get_work_journal(current_user: dict = Depends(get_current_user)):
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute(select_sql + " WHERE project = ANY(%s) ORDER BY id DESC", (projects,))
+        cur.execute(select_sql + " WHERE project = ANY(%s) AND status='Подтверждено' ORDER BY id DESC", (projects,))
     else:
         cur.close(); conn.close()
         return []
@@ -5935,11 +5935,17 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
     allowed_projects = visible_project_names(current_user)
+    role = current_user.get("role")
     base_cols = """e.id,e.project_id,e.project_name,e.name,e.version,e.sections_json,
                    COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
                    (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at"""
-    if allowed_projects is not None and not allowed_projects:
+    if role == "заказчик":
+        if not allowed_projects:
+            cur.execute(f"SELECT {base_cols} FROM estimates e WHERE FALSE")
+        else:
+            cur.execute(f"SELECT {base_cols} FROM estimates e WHERE e.project_name = ANY(%s) AND e.status='Активная' ORDER BY e.id DESC", (allowed_projects,))
+    elif allowed_projects is not None and not allowed_projects:
         cur.execute(f"SELECT {base_cols} FROM estimates e WHERE COALESCE(e.is_template,FALSE)=TRUE ORDER BY e.id DESC")
     elif allowed_projects is None:
         cur.execute(f"SELECT {base_cols} FROM estimates e ORDER BY e.id DESC")
@@ -8395,11 +8401,30 @@ def get_online():
 
 @app.get("/project-payments")
 def get_project_payments(project_name: str = "", current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in FINANCE_ROLES:
+    role = current_user.get("role")
+    if role not in FINANCE_ROLES and role != "заказчик":
         return []
     conn = get_db()
     cur = conn.cursor()
-    if project_name:
+    customer_projects = user_project_names(current_user) if role == "заказчик" else None
+    if role == "заказчик" and project_name and project_name not in customer_projects:
+        cur.close(); conn.close()
+        return []
+    if role == "заказчик" and not customer_projects:
+        cur.close(); conn.close()
+        return []
+    if role == "заказчик":
+        visible_pay_projects = [project_name] if project_name else customer_projects
+        cur.execute("""SELECT id,project_name,amount,note,date,added_by
+                       FROM (
+                           SELECT DISTINCT ON (project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''))
+                                  id,project_name,amount,note,date,added_by
+                           FROM project_payments
+                           WHERE project_name = ANY(%s) AND amount > 0
+                           ORDER BY project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
+                       ) p
+                       ORDER BY id DESC""", (visible_pay_projects,))
+    elif project_name:
         cur.execute("""SELECT id,project_name,amount,note,date,added_by
                        FROM (
                            SELECT DISTINCT ON (project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''))
