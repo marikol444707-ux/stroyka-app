@@ -212,6 +212,18 @@ def require_project_access(user: dict, project_name: str):
     if not has_project_access(user, project_name):
         raise HTTPException(status_code=403, detail="Нет доступа к объекту")
 
+def hidden_work_all_signed(signed_customer="", signed_supervisor="", signed_contractor="", signed_subcontractor="") -> bool:
+    return all(str(v or "").strip() for v in (
+        signed_customer, signed_supervisor, signed_contractor, signed_subcontractor
+    ))
+
+def hidden_work_effective_status(status="", signed_customer="", signed_supervisor="", signed_contractor="", signed_subcontractor="") -> str:
+    if hidden_work_all_signed(signed_customer, signed_supervisor, signed_contractor, signed_subcontractor):
+        return "Подписан"
+    if (status or "").strip() == "Подписан":
+        return "На подписи"
+    return status or "Черновик"
+
 def require_row_project_access(cur, table: str, row_id: int, user: dict, project_column: str = "project_name"):
     cur.execute(f"SELECT {project_column} FROM {table} WHERE id=%s", (row_id,))
     row = cur.fetchone()
@@ -1560,6 +1572,15 @@ def init_db():
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_at DATE;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255);
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_note TEXT;
+        UPDATE hidden_works_acts
+           SET status='На подписи'
+         WHERE status='Подписан'
+           AND (
+                NULLIF(BTRIM(COALESCE(signed_customer,'')), '') IS NULL OR
+                NULLIF(BTRIM(COALESCE(signed_supervisor,'')), '') IS NULL OR
+                NULLIF(BTRIM(COALESCE(signed_contractor,'')), '') IS NULL OR
+                NULLIF(BTRIM(COALESCE(signed_subcontractor,'')), '') IS NULL
+           );
         CREATE TABLE IF NOT EXISTS staff_documents (
             id SERIAL PRIMARY KEY,
             staff_id INT NOT NULL,
@@ -9039,11 +9060,18 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
         cur.execute(f"SELECT {cols} FROM hidden_works_acts ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"estimateId":r[2],"actNumber":r[3],"workName":r[4],
+    result = []
+    for r in rows:
+        signed_customer = r[13] or ""
+        signed_supervisor = r[14] or ""
+        signed_contractor = r[15] or ""
+        signed_subcontractor = r[16] or ""
+        result.append({"id":r[0],"projectName":r[1],"estimateId":r[2],"actNumber":r[3],"workName":r[4],
              "sectionName":r[5],"brigade":r[6],"quantity":float(r[7] or 0),"unit":r[8],
              "pricePerUnit":float(r[9] or 0),"total":float(r[10] or 0),"workDate":str(r[11]) if r[11] else "",
-             "status":r[12],"signedCustomer":r[13] or "","signedSupervisor":r[14] or "",
-             "signedContractor":r[15] or "","signedSubcontractor":r[16] or "",
+             "status":hidden_work_effective_status(r[12], signed_customer, signed_supervisor, signed_contractor, signed_subcontractor),
+             "signedCustomer":signed_customer,"signedSupervisor":signed_supervisor,
+             "signedContractor":signed_contractor,"signedSubcontractor":signed_subcontractor,
              "signedCustomerAt":str(r[17]) if r[17] else "","signedSupervisorAt":str(r[18]) if r[18] else "",
              "signedContractorAt":str(r[19]) if r[19] else "","signedSubcontractorAt":str(r[20]) if r[20] else "",
              "conclusion":r[21] or "","comments":r[22] or "",
@@ -9052,7 +9080,8 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
              "aiFilled":bool(r[28]),
              "paidStatus":r[29] or "Не оплачен","paidAmount":float(r[30] or 0),
              "paidAt":str(r[31]) if r[31] else "","paidBy":r[32] or "","paidNote":r[33] or "",
-             "createdAt":str(r[34])} for r in rows]
+             "createdAt":str(r[34])})
+    return result
 
 @app.put("/hidden-works-acts/{act_id}")
 def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
@@ -9068,12 +9097,12 @@ def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depen
                              change_reason="PUT /hidden-works-acts/"+str(act_id))
     except Exception as e:
         print("VERSION snapshot skipped:", str(e))
-    # Авто-статус: если все 4 подписи заполнены — «Подписан», иначе оставляем как пришло (или «Черновик»)
+    # Статус «Подписан» возможен только когда заполнены все 4 подписи.
     sc = data.get("signedCustomer","").strip()
     ss = data.get("signedSupervisor","").strip()
     sk = data.get("signedContractor","").strip()
     sb = data.get("signedSubcontractor","").strip()
-    auto_status = "Подписан" if (sc and ss and sk and sb) else data.get("status","Черновик")
+    auto_status = hidden_work_effective_status(data.get("status","Черновик"), sc, ss, sk, sb)
     cur.execute("""UPDATE hidden_works_acts SET
                    status=%s,
                    signed_customer=%s, signed_supervisor=%s, signed_contractor=%s, signed_subcontractor=%s,
@@ -9101,13 +9130,15 @@ def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(
     """Отметить АОСР как оплаченный + создать запись в project_payments."""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name, act_number, total, status FROM hidden_works_acts WHERE id=%s", (act_id,))
+    cur.execute("""SELECT project_name, act_number, total, status,
+                          signed_customer, signed_supervisor, signed_contractor, signed_subcontractor
+                   FROM hidden_works_acts WHERE id=%s""", (act_id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="акт не найден")
     proj, act_no, default_total, act_status = row[0] or "", row[1] or "", float(row[2] or 0), row[3] or ""
-    if act_status != "Подписан":
+    if hidden_work_effective_status(act_status, row[4], row[5], row[6], row[7]) != "Подписан":
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Оплата невозможна — акт не подписан всеми сторонами")
     amount = float(data.get("amount") or default_total)
