@@ -1965,10 +1965,17 @@ def register(data: dict):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/projects")
-def get_projects():
+def get_projects(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,warranty_start_date as \"warrantyStartDate\",warranty_end_date as \"warrantyEndDate\",warranty_contact as \"warrantyContact\",COALESCE(archived,false) as archived,archived_at as \"archivedAt\" FROM projects")
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is None:
+        cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,warranty_start_date as \"warrantyStartDate\",warranty_end_date as \"warrantyEndDate\",warranty_contact as \"warrantyContact\",COALESCE(archived,false) as archived,archived_at as \"archivedAt\" FROM projects")
+    elif not allowed_projects:
+        cur.close(); conn.close()
+        return []
+    else:
+        cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,warranty_start_date as \"warrantyStartDate\",warranty_end_date as \"warrantyEndDate\",warranty_contact as \"warrantyContact\",COALESCE(archived,false) as archived,archived_at as \"archivedAt\" FROM projects WHERE name = ANY(%s)", (allowed_projects,))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -2216,7 +2223,7 @@ STAFF_PLACEHOLDERS = ",".join(["%s"] * 37)
 
 @app.get("/staff")
 def get_staff(current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") in ("заказчик", "поставщик", "технадзор"):
+    if current_user.get("role") not in STAFF_MANAGE_ROLES and current_user.get("role") not in ("прораб", "главный_инженер"):
         return []
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -2355,9 +2362,9 @@ def get_piecework(current_user: dict = Depends(get_current_user)):
     if allowed_projects is None:
         cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework ORDER BY id DESC")
     elif not allowed_projects:
-        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework WHERE staff_id=%s ORDER BY id DESC", (current_user.get("id"),))
+        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework WHERE staff_id=%s ORDER BY id DESC", (str(current_user.get("id")),))
     else:
-        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework WHERE project = ANY(%s) OR staff_id=%s ORDER BY id DESC", (allowed_projects, current_user.get("id")))
+        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework WHERE project = ANY(%s) OR staff_id=%s ORDER BY id DESC", (allowed_projects, str(current_user.get("id"))))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
