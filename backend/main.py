@@ -4147,13 +4147,54 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
 
 @app.delete("/work-journal/{id}")
 def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер"))):
+    import json as _json
+    from datetime import datetime
     conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "work_journal", id, _current_user, "project")
-    cur.execute("DELETE FROM piecework WHERE work_journal_id=%s", (id,))
-    cur.execute("DELETE FROM work_journal WHERE id=%s", (id,))
-    conn.close()
-    return {"ok": True}
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        require_row_project_access(cur, "work_journal", id, _current_user, "project")
+        cur.execute("SELECT project, master_name, date, materials_used FROM work_journal WHERE id=%s FOR UPDATE", (id,))
+        work = cur.fetchone()
+        if not work:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="Запись журнала не найдена")
+        used = []
+        raw_used = work.get("materials_used")
+        if raw_used:
+            try:
+                parsed = _json.loads(raw_used) if isinstance(raw_used, str) else raw_used
+                if isinstance(parsed, list):
+                    used = [m for m in parsed if isinstance(m, dict) and m.get("name") and float(m.get("quantity") or 0) > 0]
+            except Exception:
+                used = []
+        for m in used:
+            name = m.get("name") or ""
+            qty = float(m.get("quantity") or 0)
+            unit = m.get("unit") or "шт"
+            cur.execute("SELECT id FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, work.get("project") or ""))
+            mat = cur.fetchone()
+            if mat:
+                cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=COALESCE(NULLIF(unit,''),%s) WHERE id=%s", (qty, unit, mat["id"]))
+            else:
+                cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                            (name, unit, qty, 0, 0, work.get("project") or "", "Возврат"))
+            cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (name, "возврат (удаление работы)", qty, str(work.get("date") or ""), work.get("project") or "", work.get("master_name") or "", datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("DELETE FROM piecework WHERE work_journal_id=%s", (id,))
+        cur.execute("DELETE FROM work_journal WHERE id=%s", (id,))
+        conn.commit()
+        return {"ok": True, "materialsRestored": len(used)}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.post("/work-journal/{id}/ai-prefill")
 def ai_prefill_work_journal(id: int, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
