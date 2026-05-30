@@ -3798,6 +3798,16 @@ def _create_delivery_quality_records(cur, delivery):
                          delivery.get('quality_notes') or '', True))
         except Exception as e:
             print("DELIVERY INSPECTION INSERT ERROR:", str(e))
+            try:
+                cur.execute("""INSERT INTO material_inspection_journal
+                               (project_name, material_name, unit, quantity, supplier,
+                                received_at, visual_inspection_result, remarks, inspected)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (project, name, unit, qty, supplier, received_at,
+                             delivery.get('quality_status') or 'Принято',
+                             delivery.get('quality_notes') or '', True))
+            except Exception as legacy_error:
+                print("DELIVERY INSPECTION LEGACY INSERT ERROR:", str(legacy_error))
     cable_info = _detect_cable_info(name)
     if cable_info["isCable"]:
         has_cable = False
@@ -3809,6 +3819,14 @@ def _create_delivery_quality_records(cur, delivery):
                 print("DELIVERY CABLE CHECK ERROR:", str(e))
         if not has_cable:
             try:
+                cur.execute("""SELECT id FROM cable_journal
+                               WHERE project_name=%s AND cable_brand=%s AND COALESCE(length_received,0)=%s
+                               LIMIT 1""", (project, name, qty))
+                has_cable = bool(cur.fetchone())
+            except Exception as e:
+                print("DELIVERY CABLE LEGACY CHECK ERROR:", str(e))
+        if not has_cable:
+            try:
                 cur.execute("""INSERT INTO cable_journal
                                (project_name, delivery_id, cable_brand, cable_type, cross_section, cores_count,
                                 length_received, supplier, received_at)
@@ -3817,6 +3835,15 @@ def _create_delivery_quality_records(cur, delivery):
                              cable_info["section"], cable_info["cores"], qty, supplier, received_at))
             except Exception as e:
                 print("DELIVERY CABLE INSERT ERROR:", str(e))
+                try:
+                    cur.execute("""INSERT INTO cable_journal
+                                   (project_name, cable_brand, cross_section, cores_count,
+                                    length_received, supplier, received_at)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                                (project, name, cable_info["section"], cable_info["cores"],
+                                 qty, supplier, received_at))
+                except Exception as legacy_error:
+                    print("DELIVERY CABLE LEGACY INSERT ERROR:", str(legacy_error))
 
 def _create_supply_delivery_history(cur, delivery, status=None, received_qty=None, confirmed_by=None):
     delivery_id = delivery.get('id')
@@ -3999,12 +4026,27 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Поставка не найдена")
     if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
-        _create_delivery_quality_records(cur, delivery)
-        _create_supply_delivery_history(cur, delivery)
-        cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
-        row = cur.fetchone()
+        try:
+            _create_delivery_quality_records(cur, delivery)
+        except Exception as e:
+            print("DELIVERY QUALITY RECOVERY ERROR:", str(e))
+        try:
+            _create_supply_delivery_history(cur, delivery)
+        except Exception as e:
+            print("DELIVERY HISTORY RECOVERY ERROR:", str(e))
+        try:
+            cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
+            row = cur.fetchone()
+        except Exception as e:
+            print("DELIVERY RECOVERY SELECT ERROR:", str(e))
+            row = None
         cur.close(); conn.close()
-        return {"ok": True, "delivery": dict(row), "claimId": delivery.get('claim_id'), "alreadyReceived": True}
+        return {
+            "ok": True,
+            "delivery": dict(row) if row else {"id": id},
+            "claimId": delivery.get('claim_id'),
+            "alreadyReceived": True
+        }
     received_qty = _float_or_zero(data.get('receivedQuantity'))
     planned_qty = _float_or_zero(delivery['planned_quantity'])
     shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
