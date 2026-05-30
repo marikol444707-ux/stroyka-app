@@ -5485,7 +5485,7 @@ def get_brigade_payments(contract_id: int = None, _current_user: dict = Depends(
 def create_brigade_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT COALESCE(act_scan_url,'') FROM brigade_contracts WHERE id=%s", (data.get("contractId"),))
+    cur.execute("SELECT COALESCE(act_scan_url,''), project_name, brigade_name FROM brigade_contracts WHERE id=%s", (data.get("contractId"),))
     contract = cur.fetchone()
     if not contract:
         cur.close(); conn.close()
@@ -5493,18 +5493,52 @@ def create_brigade_payment(data: dict, _current_user: dict = Depends(require_rol
     if not (contract[0] or "").strip():
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Оплата заблокирована: загрузите скан подписанного акта")
+    amount = float(data.get("amount") or 0)
+    paid_by = data.get("paidBy","")
+    paid_date = data.get("paidDate") or None
     cur.execute("INSERT INTO brigade_payments (contract_id,amount,paid_by,paid_date,note) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("contractId"), data.get("amount") or 0, data.get("paidBy",""), data.get("paidDate") or None, data.get("note","")))
+        (data.get("contractId"), amount, paid_by, paid_date, data.get("note","")))
     new_id = cur.fetchone()[0]
+    project_payment_id = None
+    project_name = contract[1] or ""
+    brigade_name = contract[2] or ""
+    if project_name and amount:
+        payment_note = "Оплата бригаде " + brigade_name
+        cur.execute("""SELECT id FROM project_payments
+                       WHERE project_name=%s AND amount=%s AND COALESCE(note,'')=%s
+                         AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
+                       ORDER BY id DESC LIMIT 1""",
+                    (project_name, amount, payment_note, paid_date, paid_by))
+        existing = cur.fetchone()
+        if existing:
+            project_payment_id = existing[0]
+        else:
+            cur.execute("INSERT INTO project_payments (project_name,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+                        (project_name, amount, payment_note, paid_date, paid_by))
+            project_payment_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
-    return {"ok": True, "id": new_id}
+    return {"ok": True, "id": new_id, "projectPaymentId": project_payment_id}
 
 @app.delete("/brigade-payments/{id}")
 def delete_brigade_payment(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("""SELECT bp.amount, bp.paid_by, bp.paid_date, bc.project_name, bc.brigade_name
+                   FROM brigade_payments bp
+                   LEFT JOIN brigade_contracts bc ON bc.id=bp.contract_id
+                   WHERE bp.id=%s""", (id,))
+    payment = cur.fetchone()
     cur.execute("DELETE FROM brigade_payments WHERE id=%s",(id,))
+    if payment and payment[3]:
+        cur.execute("""DELETE FROM project_payments
+                       WHERE id = (
+                         SELECT id FROM project_payments
+                         WHERE project_name=%s AND amount=%s AND COALESCE(note,'')=%s
+                           AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
+                         ORDER BY id DESC LIMIT 1
+                       )""",
+                    (payment[3], payment[0], "Оплата бригаде " + (payment[4] or ""), payment[2], payment[1] or ""))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
@@ -7464,6 +7498,15 @@ def create_project_payment(data: dict, _current_user: dict = Depends(require_rol
     row = cur.fetchone()
     cur.close(); conn.close()
     return {"id":row[0],"ok":True}
+
+@app.delete("/project-payments/{id}")
+def delete_project_payment(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM project_payments WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 def send_vk_notification(vk_user_id: int, message: str):
     import requests

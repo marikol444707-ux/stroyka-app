@@ -1216,10 +1216,8 @@ function App() {
     if (!selectedBrigadeContract) return;
     const sum = toNum(newBrigadePayment.amount);
     if (sum<=0) { alert('Введите сумму оплаты'); return; }
-    await fetch(API+'/brigade-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contractId:selectedBrigadeContract.id,amount:sum,paidBy:newBrigadePayment.paidBy||user.name,paidDate:newBrigadePayment.paidDate||new Date().toISOString().split('T')[0],note:newBrigadePayment.note||''})});
-    if (selectedBrigadeContract.projectName) {
-      await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:selectedBrigadeContract.projectName,amount:sum,note:'Оплата бригаде '+selectedBrigadeContract.brigadeName,date:newBrigadePayment.paidDate||new Date().toISOString().split('T')[0],paidBy:user.name})});
-    }
+    const payRes = await fetch(API+'/brigade-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contractId:selectedBrigadeContract.id,amount:sum,paidBy:newBrigadePayment.paidBy||user.name,paidDate:newBrigadePayment.paidDate||new Date().toISOString().split('T')[0],note:newBrigadePayment.note||''})});
+    if(!payRes.ok){const err=await payRes.json().catch(()=>({detail:'Не удалось записать оплату'}));alert(err.detail||'Не удалось записать оплату');return;}
     const pays = await fetch(API+'/brigade-payments?contract_id='+selectedBrigadeContract.id).then(r=>r.json());
     setBrigadePayments(Array.isArray(pays)?pays:[]);
     setNewBrigadePayment({amount:'',paidBy:'',paidDate:'',note:''});
