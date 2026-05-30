@@ -3179,7 +3179,11 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
                 if stock_qty + 0.000001 < qty:
                     conn.rollback()
                     raise HTTPException(status_code=400, detail="Нельзя откатить поставку «"+name+"»: на складе осталось "+str(stock_qty)+" "+unit+", а принять было "+str(qty)+" "+unit+". Материал уже списывали.")
-                cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, mat.get("id")))
+                remaining_qty = stock_qty - qty
+                if remaining_qty <= 0.000001:
+                    cur.execute("DELETE FROM materials WHERE id=%s", (mat.get("id"),))
+                else:
+                    cur.execute("UPDATE materials SET quantity=%s WHERE id=%s", (remaining_qty, mat.get("id")))
                 cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                             (name, "откат поставки (удаление заявки)", qty, datetime.now().date().isoformat(), project, _current_user.get("name") or "", datetime.now().strftime("%d.%m.%Y, %H:%M")))
                 restored += 1
