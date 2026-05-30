@@ -9119,42 +9119,30 @@ def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depen
 
 @app.post("/hidden-works-acts/{act_id}/pay")
 def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
-    """Отметить АОСР как оплаченный + создать запись в project_payments."""
+    """Отметить оплату в карточке АОСР без влияния на финансы объекта."""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name, act_number, total, status FROM hidden_works_acts WHERE id=%s", (act_id,))
+    cur.execute("SELECT project_name, act_number, total FROM hidden_works_acts WHERE id=%s", (act_id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="акт не найден")
-    proj, act_no, default_total, act_status = row[0] or "", row[1] or "", float(row[2] or 0), row[3] or ""
-    if act_status != "Подписан":
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Оплата невозможна — акт не переведён в статус «Подписан»")
+    proj, act_no, default_total = row[0] or "", row[1] or "", float(row[2] or 0)
     amount = float(data.get("amount") or default_total)
     paid_by = (data.get("paidBy") or "").strip()
     paid_note = (data.get("paidNote") or "Оплата по АОСР " + act_no).strip()
     paid_at = data.get("paidAt") or __import__("datetime").date.today().isoformat()
-    # Обновляем акт
     cur.execute("""UPDATE hidden_works_acts
                    SET paid_status='Оплачен', paid_amount=%s, paid_at=%s, paid_by=%s, paid_note=%s
                    WHERE id=%s""",
                 (amount, paid_at, paid_by, paid_note, act_id))
-    # Создаём связанную запись в project_payments (если таблица существует)
-    try:
-        cur.execute("""INSERT INTO project_payments (project_name, amount, note, date, paid_by)
-                       VALUES (%s,%s,%s,%s,%s)""",
-                    (proj, amount, paid_note, paid_at, paid_by))
-    except Exception as e:
-        # Если структура project_payments отличается — не падаем, просто логируем
-        print("PAYMENT INSERT WARN:", str(e))
     conn.commit()
     cur.close(); conn.close()
     log_audit(user_name=paid_by or "—", user_role="—",
               action="pay", entity_type="hidden_works_act", entity_id=act_id,
-              description="Оплачен АОСР "+act_no+" на сумму "+str(amount)+" ₽",
+              description="Отмечена оплата в карточке АОСР "+act_no+" на сумму "+str(amount)+" ₽",
               project_name=proj)
-    return {"ok": True, "paidStatus": "Оплачен", "paidAmount": amount, "paidAt": paid_at}
+    return {"ok": True, "paidStatus": "Оплачен", "paidAmount": amount, "paidAt": paid_at, "financeDetached": True}
 
 @app.delete("/hidden-works-acts/{act_id}")
 def delete_hidden_works_act(act_id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
