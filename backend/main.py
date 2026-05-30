@@ -2211,6 +2211,14 @@ def create_warehouse_history(h: WarehouseHistoryModel, _current_user: dict = Dep
     conn.close()
     return dict(row)
 
+@app.delete("/warehouse-history/{id}")
+def delete_warehouse_history(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM warehouse_history WHERE id=%s", (id,))
+    conn.close()
+    return {"ok": True}
+
 STAFF_COLUMNS = """id, name, role, phone, salary, project, pay_type as "payType",
     last_name as "lastName", first_name as "firstName", middle_name as "middleName",
     birth_date as "birthDate", citizenship, address, photo_url as "photoUrl",
@@ -3998,6 +4006,16 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
     conn.commit()
     cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/work-journal/{id}")
+def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер"))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_row_project_access(cur, "work_journal", id, _current_user, "project")
+    cur.execute("DELETE FROM piecework WHERE work_journal_id=%s", (id,))
+    cur.execute("DELETE FROM work_journal WHERE id=%s", (id,))
+    conn.close()
     return {"ok": True}
 
 @app.post("/work-journal/{id}/ai-prefill")
