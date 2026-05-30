@@ -4607,10 +4607,11 @@ def _detect_hidden_by_keywords(name):
     return any(k in n for k in HIDDEN_WORK_KEYWORDS)
 
 @app.post("/estimates/{id}/ai-detect-hidden")
-def ai_detect_hidden_works(id: int):
+def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "estimates", id, _current_user, "project_name")
     cur.execute("SELECT sections_json FROM estimates WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:

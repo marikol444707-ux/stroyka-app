@@ -5924,12 +5924,12 @@ function App() {
               <div style={sectionStyle}><label style={labelStyle}>Проектная документация (разделы, листы){j.aiFilled?' 🤖':''}</label><textarea value={j.projectDocs||''} onChange={e=>upd('projectDocs',e.target.value)} placeholder="Напр.: раздел КЖ, лист 12; раздел АР, узел 4" style={{...inp,minHeight:'60px',resize:'vertical'}}/></div>
               <div style={sectionStyle}><label style={labelStyle}>Использованные материалы</label><div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'12px',color:C.textSec,whiteSpace:'pre-wrap'}}>{j.materialsUsed?(typeof j.materialsUsed==='string'?j.materialsUsed:JSON.stringify(j.materialsUsed)):'(не указаны)'}</div></div>
               <div style={sectionStyle}><label style={labelStyle}>Комментарий / заключение</label><textarea value={j.comment||''} onChange={e=>upd('comment',e.target.value)} placeholder="Замечания, особенности производства работ, ссылки на акты" style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
-              {j.hiddenWork&&<div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',fontSize:'12px',color:C.warning,marginBottom:'10px'}}>🔒 Это скрытые работы — для них должен быть оформлен Акт освидетельствования скрытых работ (АОСР). Проверь вкладку «АОСР».</div>}
+              {j.hiddenWork&&<div style={{padding:'10px 12px',backgroundColor:C.bg,border:'1.5px solid '+C.border,borderRadius:'8px',fontSize:'12px',color:C.textSec,marginBottom:'10px'}}>🔒 По этой записи доступна печатная форма АОСР. Проверьте реквизиты и распечатайте акт для исполнительной документации.</div>}
             </div>
             <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
                 <button onClick={()=>showPreview(buildWorkJournalContent([j],j.project,j.date,j.date),'Запись журнала')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
-                {j.hiddenWork&&(<button onClick={()=>{const matchingAct=hiddenActs.find(a=>a.projectName===j.project&&(a.workName||'').trim()===(j.description||'').trim());if(matchingAct){setEditingJournal(null);setEditingAct(matchingAct);}else{alert('Акт скрытых работ для этой записи не найден. Он создаётся автоматически из сметы — отметь позицию переключателем 🔒 и заполни «Сделано».');}}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}>🔒 Открыть АОСР</button>)}
+                {j.hiddenWork&&(<button onClick={()=>{const matchingAct=hiddenActs.find(a=>a.projectName===j.project&&(a.workName||'').trim()===(j.description||'').trim());if(matchingAct){setEditingJournal(null);setEditingAct(matchingAct);}else{alert('Печатная форма АОСР для этой записи пока не создана. Она появляется из сметы: отметьте позицию 🔒 и заполните «Сделано».');}}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}>🔒 АОСР / печать</button>)}
               </div>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
                 <button disabled={!!j.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',opacity:j.__aiLoading?0.6:1,cursor:j.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{j.__aiLoading?'AI работает…':(j.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
@@ -5996,7 +5996,7 @@ function App() {
                       <td style={tblC}>{jw.date||'—'}</td>
                       <td style={tblC}>{jw.unexpectedWorkId?<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'700',backgroundColor:'#fbbf24',color:'#78350f'}}>🆕 вне сметы</span>:<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:C.bg,color:C.textSec}}>по смете</span>}</td>
                       <td style={tblC}>{jw.sectionName||'—'}</td>
-                      <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.hiddenWork?(()=>{const st=getActStatusForJournal({...jw,project:jw.project||pn});return(<span title={st?st.tip:'Скрытые работы — нужен АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);setShowJournalTableModal(null);}}}>🔒{st?st.icon:''}</span>);})():null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
+                      <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.hiddenWork?(()=>{const st=getActStatusForJournal({...jw,project:jw.project||pn});return(<span title={st&&st.act?'Открыть печатную форму АОСР':'Позиция актируется в АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);setShowJournalTableModal(null);}}}>🔒{st?st.icon:''}</span>);})():null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
                       <td style={tblC}>{fmtMeasure(jw.quantity,jw.unit)}</td>
                       <td style={tblC}>{jw.masterName||'—'}</td>
                       <td style={tblC}>{jw.responsibleItr||'—'}</td>
@@ -6890,7 +6890,7 @@ function App() {
                             {Object.keys(byDate[date]).map(masterName=>(<div key={masterName} style={{marginBottom:'8px'}}>
                               <p style={{color:C.accent,fontSize:'12px',fontWeight:'600',margin:'0 0 6px'}}>{'👷 '+masterName}</p>
                               {byDate[date][masterName].map(w=>(<div key={w.id} onClick={()=>setEditingJournal(w)} style={{padding:'8px 10px',backgroundColor:w.unexpectedWorkId?'#fef3c7':C.bg,borderRadius:'8px',marginBottom:'4px',border:'1.5px solid '+(w.unexpectedWorkId?'#fbbf24':C.border),display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
-                                <div><b style={{fontSize:'12px',color:C.text}}>{w.description}{w.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px',color:C.warning}}>🆕</span>:null}{w.hiddenWork?(()=>{const st=getActStatusForJournal(w);return(<span title={st?st.tip:'Скрытые работы — нужен АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);}}}>🔒{st?st.icon:''}</span>);})():null}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
+                                <div><b style={{fontSize:'12px',color:C.text}}>{w.description}{w.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px',color:C.warning}}>🆕</span>:null}{w.hiddenWork?(()=>{const st=getActStatusForJournal(w);return(<span title={st&&st.act?'Открыть печатную форму АОСР':'Позиция актируется в АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);}}}>🔒{st?st.icon:''}</span>);})():null}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
                                 <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
                                   <b style={{color:C.success,fontSize:'12px'}}>{(w.total||0).toLocaleString()+' ₽'}</b>
                                   {isProrab()&&w.status==='На проверке'&&(<><button onClick={()=>openConfirmModal(w)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}} title='Принять (можно пересчитать)'><Check size={11}/></button><button onClick={()=>setRejectingEntry(w)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}} title='Отклонить'><X size={11}/></button></>)}
@@ -7462,19 +7462,12 @@ function App() {
                   </div>)}
                     {activeProjectTab==='АОСР'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
-                        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🔒 Акты освидетельствования скрытых работ</b>
-                        <span style={{fontSize:'11px',color:C.textMuted}}>Создаются автоматически из сметы по позициям с 🔒</span>
+                        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>АОСР к журналу работ</b>
+                        <span style={{fontSize:'11px',color:C.textMuted}}>Печатные формы по позициям сметы, отмеченным 🔒</span>
                       </div>
-                      {(()=>{const actsHere=hiddenActs.filter(a=>a.projectName===p.name);if(actsHere.length===0)return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>📋</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Актов скрытых работ пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Как появятся: в смете объекта отметьте позиции переключателем 🔒.<br/>Когда по такой позиции заполнят «Сделано» — черновик акта создастся сам.</p></div>);
-                        const cntDraft=actsHere.filter(a=>a.status!=='Подписан').length;
-                        const cntSigned=actsHere.filter(a=>a.status==='Подписан').length;
-                        const sumTotal=actsHere.reduce((s,a)=>s+Number(a.total||0),0);
+                      {(()=>{const actsHere=hiddenActs.filter(a=>a.projectName===p.name);if(actsHere.length===0)return(<div style={{...card,padding:'22px',textAlign:'center',color:C.textMuted}}><p style={{margin:'0 0 8px',fontWeight:'600'}}>Печатных форм АОСР пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Отметьте в смете позиции 🔒 и заполните «Сделано» — запись появится в журнале работ, а форма АОСР создастся автоматически.</p></div>);
                         return(<div>
-                          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'14px'}}>
-                            <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Всего актов</p><b style={{color:C.text,fontSize:'16px'}}>{actsHere.length}</b></div>
-                            <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Черновики</p><b style={{color:C.warning,fontSize:'16px'}}>{cntDraft}</b></div>
-                            <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Подписано</p><b style={{color:C.success,fontSize:'16px'}}>{cntSigned}</b></div>
-                          </div>
+                          <p style={{fontSize:'12px',color:C.textSec,margin:'0 0 10px'}}>Найдено форм: {actsHere.length}. Используйте строку журнала работ или кнопку печати для подготовки документа.</p>
                           <div style={{...card,padding:0,overflow:'auto'}}>
                             <table style={tbl}><thead><tr>
                               <th style={tblH}>№ акта</th>
@@ -7483,32 +7476,24 @@ function App() {
                               <th style={tblH}>Бригада</th>
                               <th style={tblH}>Объём</th>
                               <th style={tblH}>Дата</th>
-                              <th style={tblH}>Сумма</th>
-                              <th style={tblH}>Подписи</th>
                               <th style={tblH}>Статус</th>
                               <th style={tblH}></th>
                             </tr></thead><tbody>
-                              {actsHere.map(act=>{const signs=[!!act.signedCustomer,!!act.signedSupervisor,!!act.signedContractor,!!act.signedSubcontractor];const labels=['Заказчик','Технадзор','Генподрядчик','Субподрядчик'];return(<tr key={act.id} style={{cursor:'pointer'}} onClick={()=>setEditingAct(act)}>
+                              {actsHere.map(act=>(<tr key={act.id} style={{cursor:'pointer'}} onClick={()=>setEditingAct(act)}>
                                 <td style={tblC}><b style={{color:C.accent}}>{act.actNumber}</b></td>
                                 <td style={tblC}>{act.sectionName||'—'}</td>
                                 <td style={{...tblC,maxWidth:'280px',whiteSpace:'normal'}}>{act.workName}</td>
                                 <td style={tblC}>{act.brigade||'—'}</td>
                                 <td style={tblC}>{act.quantity+' '+(act.unit||'')}</td>
                                 <td style={tblC}>{act.workDate||'—'}</td>
-                                <td style={tblC}>{Number(act.total||0).toLocaleString('ru-RU')+' ₽'}</td>
-                                <td style={tblC}><div style={{display:'flex',gap:'3px'}}>{signs.map((ok,i)=>(<div key={i} title={labels[i]+(ok?': подписано':': нет подписи')} style={{width:'12px',height:'12px',borderRadius:'50%',backgroundColor:ok?C.success:C.border,border:'1.5px solid '+(ok?C.success:C.border)}}/>))}</div></td>
                                 <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:act.status==='Подписан'?C.successLight:C.warningLight,color:act.status==='Подписан'?C.success:C.warning}}>{act.status||'Черновик'}</span></td>
                                 <td style={tblC} onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:'4px'}}>
                                   <button onClick={()=>setEditingAct(act)} title="Открыть карточку" style={{...btnB,padding:'3px 7px'}}>✏️</button>
                                   <button onClick={()=>showPreview(buildHiddenActContent(act),'АОСР № '+act.actNumber)} title="Печать по СНиП" style={{...btnG,padding:'3px 7px'}}>🖨️</button>
                                   {isLeadership()&&<button onClick={async()=>{if(!window.confirm('Удалить акт '+act.actNumber+'?')) return;await fetch(API+'/hidden-works-acts/'+act.id,{method:'DELETE'});setHiddenActs(prev=>prev.filter(a=>a.id!==act.id));}} title="Удалить" style={{...btnR,padding:'3px 7px'}}>🗑️</button>}
                                 </div></td>
-                              </tr>);})}
+                              </tr>))}
                             </tbody></table>
-                          </div>
-                          <div style={{marginTop:'12px',padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,borderRadius:'10px',textAlign:'right'}}>
-                            <span style={{color:C.textSec,fontSize:'12px',marginRight:'10px'}}>Сумма по всем актам объекта:</span>
-                            <b style={{color:C.accent,fontSize:'15px'}}>{sumTotal.toLocaleString('ru-RU')+' ₽'}</b>
                           </div>
                         </div>);
                       })()}
@@ -7521,7 +7506,7 @@ function App() {
                     {(()=>{
                       const cards=[
                         {tab:'Производство работ',icon:'📖',label:'Производство работ',hint:'Журнал по форме КС-6а',count:workJournal.filter(jw=>jw.project===p.name).length},
-                        {tab:'АОСР',icon:'🔒',label:'Скрытые работы (АОСР)',hint:'СНиП 12-01-2004',count:hiddenActs.filter(a=>a.projectName===p.name).length},
+                        {tab:'АОСР',icon:'🔒',label:'АОСР',hint:'Печатные формы из сметы и журнала работ',count:hiddenActs.filter(a=>a.projectName===p.name).length},
                         {tab:'Входной контроль',icon:'📦',label:'Входной контроль материалов',hint:'СП 48.13330.2019',count:materialInspections.filter(mi=>mi.projectName===p.name).length},
                         {tab:'Кабельная продукция',icon:'⚡',label:'Кабельная продукция',hint:'СП 76.13330 · ПУЭ',count:cableJournal.filter(c=>c.projectName===p.name).length},
                         {tab:'Журнал ТБ',icon:'🛡️',label:'Техника безопасности',hint:'ГОСТ 12.0.004-2015',count:(tbJournal||[]).filter(e=>e.project===p.name).length},
@@ -10230,7 +10215,7 @@ function App() {
                   }} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>ИИ Анализ</button>
                   <button onClick={async()=>{
                     if(!selectedEstimate||!selectedEstimate.id) return;
-                    if(!window.confirm('ИИ пройдёт по позициям сметы и отметит 🔒 скрытые работы (требующие АОСР). Уже отмеченные вручную останутся. Продолжить?')) return;
+                    if(!window.confirm('ИИ пройдёт по позициям сметы и отметит 🔒 работы, по которым нужно подготовить АОСР. Уже отмеченные вручную останутся. Продолжить?')) return;
                     try{
                       const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/ai-detect-hidden',{method:'POST'});
                       const data=await res.json();
@@ -10238,9 +10223,9 @@ function App() {
                       const updated={...selectedEstimate,sections:data.sections};
                       setSelectedEstimate(updated);
                       setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
-                      alert('🔒 Отмечено скрытых работ: '+data.count+(data.method==='ai'?' (определил ИИ)':' (по ключевым словам — ИИ был недоступен)'));
+                      alert('🔒 Отмечено работ для АОСР: '+data.count+(data.method==='ai'?' (определил ИИ)':' (по ключевым словам — ИИ был недоступен)'));
                     }catch(e){alert('Ошибка соединения');}
-                  }} style={{...btnB,backgroundColor:'#f59e0b',color:'white',borderColor:'#d97706'}}>🔒 Скрытые работы (ИИ)</button>
+                  }} style={btnB}><Bot size={14}/>Найти работы для АОСР</button>
                 </div>
                 <div style={{...card,padding:'16px',marginBottom:'16px'}}>
                   <div style={{display:'flex',gap:'8px',marginBottom:'10px',alignItems:'center'}}>
@@ -10279,7 +10264,7 @@ function App() {
                       <th style={{...tblH,width:'36px'}}></th>
                     </tr></thead><tbody>
                       {list.map(item=>{const qty=Number(item.quantity)||0;const done=Number(item.doneQuantity)||0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);return(<tr key={item.id||item._idx}>
-                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}><button onClick={()=>{updateItem(item._idx,'hiddenWork',!item.hiddenWork);setTimeout(persist,100);}} title={item.hiddenWork?'Скрытая работа (для акта)':'Обычная работа'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button><input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
+                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}><button onClick={()=>{updateItem(item._idx,'hiddenWork',!item.hiddenWork);setTimeout(persist,100);}} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button><input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
                         <td style={tblC}><select value={item.unit||'шт'} onChange={e=>{updateItem(item._idx,'unit',e.target.value);setTimeout(persist,100);}} style={inpCell}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
                         <td style={tblC}><input type='number' step='any' inputMode='decimal' value={qtyNorm.qty||''} onChange={e=>updateItem(item._idx,'quantity',denormalizeMeasure(e.target.value,item.unit))} onBlur={persist} style={inpCell}/></td>
                         <td style={tblC}><select value={item.brigadeName||''} onChange={e=>{updateItem(item._idx,'brigadeName',e.target.value);setTimeout(persist,100);}} style={inpCell}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
