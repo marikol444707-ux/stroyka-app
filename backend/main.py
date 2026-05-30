@@ -5701,11 +5701,15 @@ def get_unexpected_works(current_user: dict = Depends(require_roles(*PROJECT_DOC
     conn = get_db()
     cur = conn.cursor()
     allowed_projects = visible_project_names(current_user)
+    role = current_user.get("role")
     if allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+        if role == "заказчик":
+            cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works WHERE project_name = ANY(%s) AND status IN ('Ожидает согласования','Утверждено') ORDER BY id DESC", (allowed_projects,))
+        else:
+            cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     else:
         cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works ORDER BY id DESC")
     rows = cur.fetchall()
