@@ -948,6 +948,7 @@ function App() {
       const isFinanceRole = ['директор','зам_директора','бухгалтер'].includes(role);
       const isWarehouseRole = ['директор','зам_директора','кладовщик','снабженец','прораб','главный_инженер'].includes(role);
       const isSupplyRole = ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','поставщик','бухгалтер'].includes(role);
+      const canSeeSupplierInvoices = ['директор','зам_директора','бухгалтер','снабженец','кладовщик','прораб','поставщик'].includes(role);
       const isProjectRole = role && !['поставщик','system_owner'].includes(role);
       const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
       const canSeeProjectDocs = isProjectRole || ['технадзор','заказчик'].includes(role);
@@ -963,7 +964,7 @@ function App() {
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-invoices') : skip([]),
         isFinanceRole ? get('/project-payments') : skip([]),
         isFinanceRole ? get('/accountable-payments') : skip([]),
-        (isInternalRole || role === 'технадзор') ? get('/own-expenses') : skip([]),
+        isInternalRole ? get('/own-expenses') : skip([]),
         isFinanceRole ? get('/expenses') : skip([]),
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-main') : skip([]),
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-movements') : skip([]),
@@ -1004,7 +1005,7 @@ function App() {
         canSeeProjectDocs ? get('/supervisor-acts') : skip([]),
         canSeeProjectDocs ? get('/inspection-orders') : skip([]),
         isFinanceRole ? get('/expense-reports') : skip([]),
-        (isFinanceRole || isSupplyRole || role === 'поставщик') ? get('/supplier-invoices') : skip([]),
+        canSeeSupplierInvoices ? get('/supplier-invoices') : skip([]),
         canSeeProjectDocs ? get('/warranty-defects') : skip([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
         isSupplyRole ? get('/supply-request-templates') : skip([]),
@@ -4160,6 +4161,58 @@ function App() {
             </div>
           </div>)}
 
+          {activePage==='cable'&&(()=>{
+            const projectNames = new Set((projects||[]).map(p=>p.name));
+            const rows = (cableJournal||[]).filter(cb=>projectNames.size===0||projectNames.has(cb.projectName));
+            const updCable = (id,k,v)=>setCableJournal(prev=>prev.map(cb=>cb.id===id?{...cb,[k]:v}:cb));
+            const saveCable = async (cb) => {
+              const body = {
+                lengthInstalled:Number(cb.lengthInstalled)||0,
+                installationLocation:cb.installationLocation||'',
+                installationMethod:cb.installationMethod||'',
+                installedAt:cb.installedAt||'',
+                insulationBefore:Number(cb.insulationBefore)||0,
+                insulationAfter:Number(cb.insulationAfter)||0,
+                responsibleItr:cb.responsibleItr||user.name,
+              };
+              await fetch(API+'/cable-journal/'+cb.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+              setCableJournal(prev=>prev.map(x=>x.id===cb.id?{...x,...body}:x));
+              alert('Запись кабельного журнала сохранена');
+            };
+            return (<div>
+              <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>⚡ Кабельный журнал</h3>
+              <div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}>
+                <p style={{color:C.text,fontSize:'12px',margin:0}}>Заполняй фактический монтаж кабеля: помещение/трасса, способ прокладки, длину, дату и замеры изоляции. Эти данные попадут в журнал кабельной продукции по объекту.</p>
+              </div>
+              {rows.length===0&&<div style={{...card,padding:'28px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>Кабельных позиций пока нет.<br/>Они появляются автоматически из накладных, где материал распознан как кабель.</div>}
+              {rows.map(cb=>(<div key={cb.id} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(cb.installedAt?C.success:C.warning)}}>
+                <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start',flexWrap:'wrap',marginBottom:'10px'}}>
+                  <div style={{flex:'1 1 220px'}}>
+                    <b style={{color:C.text,fontSize:'14px'}}>{cb.cableBrand||'Кабель'}</b>
+                    <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{(cb.projectName||'—')+' · поступило '+(cb.lengthReceived||0)+' м'+(cb.supplier?' · '+cb.supplier:'')}</p>
+                    <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>{cb.crossSection?('сечение '+cb.crossSection+' мм²'):'сечение не указано'}{cb.coresCount?' · '+cb.coresCount+' жил':''}</p>
+                  </div>
+                  <span style={badge(cb.installedAt?C.success:C.warning,cb.installedAt?C.successLight:C.warningLight,cb.installedAt?C.successBorder:C.warningBorder)}>{cb.installedAt?'Проложен':'К монтажу'}</span>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                  <input placeholder="Место: комната, трасса, щит" value={cb.installationLocation||''} onChange={e=>updCable(cb.id,'installationLocation',e.target.value)} style={{...inp,marginBottom:0}}/>
+                  <select value={cb.installationMethod||''} onChange={e=>updCable(cb.id,'installationMethod',e.target.value)} style={{...inp,marginBottom:0}}>
+                    <option value="">Способ прокладки</option>
+                    <option>Открыто</option><option>В кабель-канале</option><option>В трубе</option><option>По лотку</option><option>На скобах</option><option>Под штукатуркой</option><option>В земле</option>
+                  </select>
+                  <input placeholder="Проложено, м" type="number" step="any" inputMode="decimal" value={cb.lengthInstalled||''} onChange={e=>updCable(cb.id,'lengthInstalled',e.target.value)} style={{...inp,marginBottom:0}}/>
+                  <input type="date" value={cb.installedAt||''} onChange={e=>updCable(cb.id,'installedAt',e.target.value)} style={{...inp,marginBottom:0}}/>
+                  <input placeholder="R до прокладки, МΩ" type="number" step="0.1" inputMode="decimal" value={cb.insulationBefore||''} onChange={e=>updCable(cb.id,'insulationBefore',e.target.value)} style={{...inp,marginBottom:0}}/>
+                  <input placeholder="R после прокладки, МΩ" type="number" step="0.1" inputMode="decimal" value={cb.insulationAfter||''} onChange={e=>updCable(cb.id,'insulationAfter',e.target.value)} style={{...inp,marginBottom:0}}/>
+                </div>
+                <div style={{display:'flex',gap:'8px',marginTop:'10px',flexWrap:'wrap'}}>
+                  <button onClick={()=>saveCable(cb)} style={btnO}><Check size={14}/>Сохранить монтаж</button>
+                  <button onClick={()=>showPreview(buildCableJournalContent([cb],cb.projectName,cb.receivedAt,cb.installedAt||cb.receivedAt),'Запись кабеля')} style={btnB}><Eye size={14}/>Печать</button>
+                </div>
+              </div>))}
+            </div>);
+          })()}
+
           {/* Страница «Мои траты» — список и кнопка добавить */}
           {activePage==='myexpenses'&&(()=>{
             const myExp = (ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);
@@ -4362,9 +4415,9 @@ function App() {
           </div>)}
         </div>
 
-        <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid '+C.border,display:'flex',justifyContent:'space-around',padding:'10px 0 14px',zIndex:100,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
-          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Склад',badge:myIssues.filter(i=>!i.confirmed).length},{id:'supply',icon:<ShoppingCart size={22}/>,label:'Снабжение',badge:(supplyRequests||[]).filter(r=>(r.createdBy===user.name||r.requestedById===user.id)&&r.status==='Отклонена').length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative'}}><span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px'}}>{item.label}</span>{item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}</div>))}
-          <div onClick={()=>handleLogout()} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 10px'}}><LogOut size={22} color={C.textMuted}/><span style={{fontSize:'10px',color:C.textMuted,marginTop:'2px'}}>Выйти</span></div>
+        <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid '+C.border,display:'flex',justifyContent:'flex-start',gap:'2px',padding:'10px 8px 14px',zIndex:100,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',overflowX:'auto'}}>
+          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Склад',badge:myIssues.filter(i=>!i.confirmed).length},{id:'cable',icon:<ScrollText size={22}/>,label:'Кабель'},{id:'supply',icon:<ShoppingCart size={22}/>,label:'Снабжение',badge:(supplyRequests||[]).filter(r=>(r.createdBy===user.name||r.requestedById===user.id)&&r.status==='Отклонена').length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 7px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative',flex:'0 0 58px'}}><span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px',whiteSpace:'nowrap'}}>{item.label}</span>{item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}</div>))}
+          <div onClick={()=>handleLogout()} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 7px',flex:'0 0 58px'}}><LogOut size={22} color={C.textMuted}/><span style={{fontSize:'10px',color:C.textMuted,marginTop:'2px',whiteSpace:'nowrap'}}>Выйти</span></div>
         </div>
       </div>
     );

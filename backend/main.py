@@ -166,6 +166,8 @@ CONTRACT_ROLES = ("директор", "зам_директора", "бухгал
 JOURNAL_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик", "кладовщик", "снабженец", "мастер", "субподрядчик", "технадзор", "стройконтроль")
 STAFF_MANAGE_ROLES = ("директор", "зам_директора", "бухгалтер")
 PRICELIST_MANAGE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
+OWN_EXPENSE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "кладовщик", "снабженец")
+SUPPLIER_INVOICE_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "кладовщик", "снабженец", "поставщик")
 
 def user_project_names(user: dict) -> list[str]:
     names = []
@@ -5368,7 +5370,7 @@ def delete_estimate(id: int, _current_user: dict = Depends(require_roles(*LEADER
     return {"ok":True}
 
 @app.get("/brigade-contracts")
-def get_brigade_contracts(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
+def get_brigade_contracts(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     # plan_amount = сумма договора из позиций; done_amount = выполненное к оплате; paid_amount = зафиксированные оплаты
@@ -5735,7 +5737,7 @@ def delete_brigade_contract(id: int, _current_user: dict = Depends(require_roles
     return {"ok":True}
 
 @app.get("/brigade-contract-items-all")
-def list_all_brigade_contract_items(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
+def list_all_brigade_contract_items(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
     """Все позиции нарядов сразу — для подсчёта прогресса по бюджету."""
     conn = get_db()
     cur = conn.cursor()
@@ -5848,7 +5850,7 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
     return {"ok": True, "createdContracts": created}
 
 @app.post("/estimates/{estimate_id}/ai-distribute-suggest")
-def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
+def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
     import openai as oa
     import json as _json
     brigade_names = data.get("brigadeNames") or []
@@ -5928,7 +5930,7 @@ def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = 
     return {"ok": True, "assignments": result, "items": items}
 
 @app.get("/brigade-contract-items/{contract_id}")
-def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
+def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "brigade_contracts", contract_id, _current_user)
@@ -6982,13 +6984,15 @@ def delete_expense_report(id: int):
 
 @app.get("/supplier-invoices")
 def list_supplier_invoices(project_name: str = None, status: str = None, current_user: dict = Depends(get_current_user)):
+    role = current_user.get("role")
+    if role not in SUPPLIER_INVOICE_VIEW_ROLES:
+        return []
     conn = get_db()
     cur = conn.cursor()
     cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount, offer_id, request_id, payment_terms, material_name"
     where, params = [], []
     if project_name: where.append("project_name=%s"); params.append(project_name)
     if status: where.append("status=%s"); params.append(status)
-    role = current_user.get("role")
     if role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
         if not supplier_id:
@@ -7480,32 +7484,63 @@ def create_accountable_expense(data: dict):
     return {"id":row[0],"ok":True}
 
 @app.get("/own-expenses")
-def get_own_expenses(project_name: str = "", employee_name: str = ""):
+def get_own_expenses(project_name: str = "", employee_name: str = "", current_user: dict = Depends(require_roles(*OWN_EXPENSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cols = "id,project_name,employee_name,description,amount,photo_url,date,status,approved_by,category"
+    cols = "id,project_name,employee_name,description,amount,photo_url,date,status,approved_by,category,employee_id"
+    where, params = [], []
+
     if project_name:
-        cur.execute(f"SELECT {cols} FROM own_expenses WHERE project_name=%s ORDER BY id DESC", (project_name,))
-    elif employee_name:
-        cur.execute(f"SELECT {cols} FROM own_expenses WHERE employee_name=%s ORDER BY id DESC", (employee_name,))
+        require_project_access(current_user, project_name)
+        where.append("project_name=%s")
+        params.append(project_name)
+    if employee_name:
+        where.append("employee_name=%s")
+        params.append(employee_name)
+
+    role = current_user.get("role")
+    if can_see_all_company_data(current_user):
+        pass
+    elif role in ("мастер", "субподрядчик"):
+        where.append("(employee_id=%s OR employee_name=%s)")
+        params.extend([current_user.get("id"), current_user.get("name") or ""])
     else:
-        cur.execute(f"SELECT {cols} FROM own_expenses ORDER BY id DESC")
+        projects = user_project_names(current_user)
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        where.append("project_name = ANY(%s)")
+        params.append(projects)
+
+    q = f"SELECT {cols} FROM own_expenses"
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY id DESC"
+    cur.execute(q, params)
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"employeeName":r[2],"description":r[3],"amount":float(r[4] or 0),"photoUrl":r[5] or "","date":str(r[6]) if r[6] else "","status":r[7] or "Ожидает","approvedBy":r[8] or "","category":r[9] or "other"} for r in rows]
+    return [{"id":r[0],"projectName":r[1],"employeeName":r[2],"description":r[3],"amount":float(r[4] or 0),"photoUrl":r[5] or "","date":str(r[6]) if r[6] else "","status":r[7] or "Ожидает","approvedBy":r[8] or "","category":r[9] or "other","employeeId":r[10]} for r in rows]
 
 @app.post("/own-expenses")
-def create_own_expense(data: dict):
+def create_own_expense(data: dict, current_user: dict = Depends(require_roles(*OWN_EXPENSE_ROLES))):
+    project_name = data.get("projectName", "")
+    require_project_access(current_user, project_name)
+    if current_user.get("role") in FINANCE_ROLES:
+        employee_name = data.get("employeeName") or current_user.get("name") or ""
+        employee_id = data.get("employeeId") or current_user.get("id")
+    else:
+        employee_name = current_user.get("name") or ""
+        employee_id = current_user.get("id")
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO own_expenses (project_name,employee_name,employee_id,description,amount,photo_url,date,category) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-        (data.get("projectName",""),data.get("employeeName",""),data.get("employeeId"),data.get("description",""),data.get("amount",0),data.get("photoUrl",""),data.get("date") or None,data.get("category","other")))
+        (project_name,employee_name,employee_id,data.get("description",""),data.get("amount",0),data.get("photoUrl",""),data.get("date") or None,data.get("category","other")))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
 
 @app.put("/own-expenses/{id}")
-def update_own_expense(id: int, data: dict):
+def update_own_expense(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE own_expenses SET status=%s,approved_by=%s WHERE id=%s",
@@ -7513,6 +7548,15 @@ def update_own_expense(id: int, data: dict):
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+@app.delete("/own-expenses/{id}")
+def delete_own_expense(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM own_expenses WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.get("/expenses")
 def get_expenses(project: str = ""):
