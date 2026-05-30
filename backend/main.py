@@ -3724,7 +3724,7 @@ def _detect_cable_info(name):
     import re as _re
     raw = (name or "").strip()
     up = raw.upper().replace("Ё", "Е")
-    compact = _re.sub(r"[\s\"'«»()\\-/._]", "", up)
+    compact = _re.sub(r"[\s\"'«»()\\/._-]", "", up)
     start_prefixes = [
         "ВВГ", "АВВГ", "ВББШВ", "ПВВ", "ПВС", "СИП", "КВВГ", "КГ",
         "ТППЭП", "ТПВ", "КВПЭФ", "NYM", "NYY", "ПУНП",
