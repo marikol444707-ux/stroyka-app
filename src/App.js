@@ -667,6 +667,7 @@ function App() {
   const [toolsTab, setToolsTab] = useState('list');
   const [estimatesTab, setEstimatesTab] = useState('list');
   const [estimateSearch, setEstimateSearch] = useState('');
+  const [showArchivedEstimates, setShowArchivedEstimates] = useState(false);
   const [listSearch, setListSearch] = useState('');
   const [expandedActDate, setExpandedActDate] = useState(null);
   const [showReimburseModal, setShowReimburseModal] = useState(false);
@@ -780,7 +781,7 @@ function App() {
   const [newDoor, setNewDoor] = useState({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});
   const [newInventory, setNewInventory] = useState({project:'',date:'',notes:''});
   const [newWeather, setNewWeather] = useState({projectName:'',date:'',temperature:'',condition:'Ясно',windSpeed:'',notes:''});
-  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',templateId:''});
+  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',status:'Активная',templateId:''});
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [estimateVersions, setEstimateVersions] = useState([]);
   const [selectedVersionsToCompare, setSelectedVersionsToCompare] = useState([]);
@@ -2129,7 +2130,44 @@ function App() {
 
   // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
   const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
-  const _estimateForProject = (p) => estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
+  const estimateTotal = (est) => _sectionsOfEst(est).reduce((sum,s)=>sum+(s.items||[]).reduce((ss,it)=>ss+estimateItemTotal(it),0),0);
+  const estimateKind = (est) => est?.smetaType || 'Заказчик';
+  const estimateTypeIcon = (type) => ({'Заказчик':'📋','Работы':'👷','Материалы':'📦'}[type||'Заказчик'] || '📄');
+  const isArchivedEstimate = (est) => (est?.status || 'Черновик') === 'Архив';
+  const estimateUpdatedTs = (est) => {
+    const raw = est?.latestVersionAt || est?.createdAt || '';
+    const t = raw ? new Date(raw).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  };
+  const estimateGroupKey = (est) => [est?.projectId||'', est?.projectName||'', estimateKind(est)].join('|');
+  const sameEstimateGroup = (a,b) => estimateGroupKey(a) === estimateGroupKey(b);
+  const activeEstimateFromList = (list) => {
+    const arr = (list||[]).filter(e=>!e.isTemplate).sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
+    return arr.find(e=>e.status==='Активная') || arr.find(e=>!isArchivedEstimate(e)) || arr[0] || null;
+  };
+  const estimateStatusView = (est, groupItems=[]) => {
+    const status = est?.status || 'Черновик';
+    if(status === 'Активная') return {label:'Активная', color:C.success, bg:C.successLight, border:C.successBorder};
+    if(status === 'Архив') return {label:'Архив', color:C.textMuted, bg:C.bgGray, border:C.border};
+    if(activeEstimateFromList(groupItems)?.id === est?.id) return {label:'Используется', color:C.info, bg:C.infoLight, border:C.infoBorder};
+    return {label:'Черновик', color:C.warning, bg:C.warningLight, border:C.warningBorder};
+  };
+  const _estimateForProject = (p) => {
+    const byCustomer = estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&estimateKind(e)==='Заказчик'&&!e.isTemplate);
+    return activeEstimateFromList(byCustomer) || activeEstimateFromList(estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&!e.isTemplate));
+  };
+  const setEstimateStatusRemote = async (est, status) => {
+    if(!est?.id) return;
+    const res = await fetch(API+'/estimates/'+est.id+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+    if(!res.ok){const data=await res.json().catch(()=>({}));alert(data.detail||'Не удалось изменить статус сметы');return;}
+    const updated = {...est,status};
+    setEstimatesList(prev=>prev.map(e=>{
+      if(status==='Активная' && e.id!==est.id && !e.isTemplate && sameEstimateGroup(e, est)) return {...e,status:'Архив'};
+      if(e.id===est.id) return updated;
+      return e;
+    }));
+    setSelectedEstimate(prev=>prev&&prev.id===est.id?updated:prev);
+  };
   const projectPlanDone = (p) => { const est=_estimateForProject(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ pl+=estimateItemTotal(it); dn+=estimateItemDoneTotal(it); })); return {plan:pl,done:dn}; };
   // Выполненные позиции сметы для КС-2/КС-3 — по цене ЗАКАЗЧИКУ (priceWork+priceMaterial).
   // Смета — единый источник: берём позиции с doneQuantity>0 напрямую из сметы объекта.
@@ -10010,6 +10048,15 @@ function App() {
                   <select value={newEstimate.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));setNewEstimate({...newEstimate,projectId:e.target.value,projectName:p?p.name:'',name:p?'Смета — '+p.name:''});}} style={{...inp,marginBottom:0}}><option value="">Выберите проект</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
                   <input placeholder="Название сметы *" value={newEstimate.name} onChange={e=>setNewEstimate({...newEstimate,name:e.target.value})} style={{...inp,marginBottom:0}}/>
                   <input placeholder="Версия" value={newEstimate.version} onChange={e=>setNewEstimate({...newEstimate,version:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <select value={newEstimate.smetaType||'Заказчик'} onChange={e=>setNewEstimate({...newEstimate,smetaType:e.target.value})} style={{...inp,marginBottom:0}}>
+                    <option value="Заказчик">📋 Смета заказчика</option>
+                    <option value="Работы">👷 Смета работ</option>
+                    <option value="Материалы">📦 Смета материалов</option>
+                  </select>
+                  <select value={newEstimate.status||'Активная'} onChange={e=>setNewEstimate({...newEstimate,status:e.target.value})} style={{...inp,marginBottom:0}}>
+                    <option value="Активная">Активная</option>
+                    <option value="Черновик">Черновик</option>
+                  </select>
                   {estimatesList.filter(e=>e.isTemplate).length>0&&(<select value={newEstimate.templateId||''} onChange={e=>setNewEstimate({...newEstimate,templateId:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
                     <option value=''>📄 Пустая смета</option>
                     {estimatesList.filter(e=>e.isTemplate).map(t=>(<option key={t.id} value={t.id}>⭐ Из шаблона: {t.name}</option>))}
@@ -10024,11 +10071,11 @@ function App() {
                   }
                   const res=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections})});
                   const est=await res.json();
-                  const newEst={...newEstimate,id:est.id,sections};
-                  setEstimatesList([...estimatesList,newEst]);
+                  const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',status:newEstimate.status||'Активная'};
+                  setEstimatesList(prev=>[...prev.map(e=>(newEst.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,newEst))?{...e,status:'Архив'}:e),newEst]);
                   setSelectedEstimate(newEst);
                   setShowForm(false);
-                  setNewEstimate({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',templateId:''});
+                  setNewEstimate({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',status:'Активная',templateId:''});
                 }} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
               {selectedEstimate?(<div>
@@ -10039,9 +10086,12 @@ function App() {
                   </div>
                   {importValidationWarnings.length>0&&(<div>{importValidationWarnings.map((w,i)=>(<div key={i} style={{padding:'6px 8px',marginBottom:'4px',backgroundColor:'rgba(255,255,255,0.6)',borderRadius:'6px',borderLeft:'3px solid '+(w.severity==='критично'?C.danger:w.severity==='внимание'?C.warning:C.info)}}><b style={{fontSize:'11px',color:C.text}}>{(w.severity==='критично'?'🔴 ':w.severity==='внимание'?'🟡 ':'💡 ')+(w.where||'?')}</b><p style={{fontSize:'11px',color:C.textSec,margin:'2px 0 0'}}>{w.message||''}</p></div>))}</div>)}
                 </div>)}
-                <div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center'}}>
+                <div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center',flexWrap:'wrap'}}>
                   <button onClick={()=>setSelectedEstimate(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
-                  <b style={{color:C.text,fontSize:'15px'}}>{selectedEstimate.name}</b>
+                  {(()=>{const group=(estimatesList||[]).filter(e=>sameEstimateGroup(e,selectedEstimate));const st=estimateStatusView(selectedEstimate,group);return(<div style={{minWidth:'220px',flex:'1 1 260px'}}><b style={{color:C.text,fontSize:'15px',display:'block'}}>{selectedEstimate.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'3px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span><span style={badge(C.info,C.infoLight,C.infoBorder)}>{estimateTypeIcon(estimateKind(selectedEstimate))+' '+estimateKind(selectedEstimate)}</span>{selectedEstimate.version&&<span style={badge(C.textSec,C.bgGray,C.border)}>{'v'+selectedEstimate.version}</span>}</div></div>);})()}
+                  {selectedEstimate.status!=='Активная'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Активная')} style={btnGr}><CheckCircle size={14}/>Активной</button>}
+                  {selectedEstimate.status!=='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Архив')} style={btnG}><Archive size={14}/>В архив</button>}
+                  {selectedEstimate.status==='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>↩ Черновик</button>}
                   <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="7"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`)]).join('')+'<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
                   <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
                   <button onClick={async()=>{
@@ -10259,8 +10309,32 @@ function App() {
                   </div>
                 </div>
               </div>):(<div>
-                {estimatesList.map(est=>(<div key={est.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{flex:1,cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(est.projectName||'')+(est.version?' · v'+est.version:'')+(est.smetaType?' · '+est.smetaType:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round((est.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0)).toLocaleString('ru-RU')+' ₽'}</b><ChevronRight size={16} color={C.textMuted} style={{cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div></div>))}
-                {estimatesList.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Calculator size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Смет нет — создайте первую!</p></div>}
+                {(()=>{const normal=(estimatesList||[]).filter(e=>!e.isTemplate);const templates=(estimatesList||[]).filter(e=>e.isTemplate);const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});return(<>
+                  <div style={{...card,padding:'12px 14px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',backgroundColor:C.bg}}>
+                    <div style={{display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center'}}>
+                      <span style={badge(C.success,C.successLight,C.successBorder)}>{'Активные: '+normal.filter(e=>e.status==='Активная').length}</span>
+                      <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Черновики: '+normal.filter(e=>(e.status||'Черновик')==='Черновик').length}</span>
+                      <span style={badge(C.textMuted,C.bgGray,C.border)}>{'Архив: '+normal.filter(isArchivedEstimate).length}</span>
+                      {templates.length>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Шаблоны: '+templates.length}</span>}
+                    </div>
+                    <button onClick={()=>setShowArchivedEstimates(!showArchivedEstimates)} style={btnG}><Archive size={14}/>{showArchivedEstimates?'Скрыть архив':'Показать архив'}</button>
+                  </div>
+                  {grouped.map(([key,items])=>{const sorted=[...items].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));const active=activeEstimateFromList(sorted);const projectName=active?.projectName||sorted[0]?.projectName||'Без проекта';const kind=estimateKind(active||sorted[0]);return(<div key={key} style={{...card,marginBottom:'12px'}}>
+                    <div style={{padding:'12px 14px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                      <div><b style={{color:C.text,fontSize:'13px'}}>{estimateTypeIcon(kind)+' '+projectName}</b><p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>{kind+' · '+sorted.length+' верс.'+(active?' · используется: '+active.name:'')}</p></div>
+                      <b style={{color:C.success,fontSize:'14px'}}>{active?Math.round(estimateTotal(active)).toLocaleString('ru-RU')+' ₽':'—'}</b>
+                    </div>
+                    <div style={{padding:'8px 12px'}}>
+                      {sorted.map(est=>{const st=estimateStatusView(est,sorted);const isUsed=active?.id===est.id;return(<div key={est.id} onClick={()=>setSelectedEstimate(est)} style={{padding:'10px 8px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',cursor:'pointer',opacity:isArchivedEstimate(est)?0.72:1}}>
+                        <div style={{flex:1,minWidth:0}}><b style={{color:C.text,fontSize:'13px'}}>{isUsed?'✓ ':''}{est.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'4px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span>{est.version&&<span style={badge(C.textSec,C.bgGray,C.border)}>{'v'+est.version}</span>}{est.versionCount>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'история '+est.versionCount}</span>}{est.createdAt&&<span style={{color:C.textMuted,fontSize:'11px',alignSelf:'center'}}>{String(est.createdAt).slice(0,10)}</span>}</div></div>
+                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b>{est.status!=='Активная'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Активная');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><CheckCircle size={11}/>Активной</button>}{est.status!=='Архив'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Архив');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}><Archive size={11}/></button>}<ChevronRight size={16} color={C.textMuted}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));if(selectedEstimate?.id===est.id)setSelectedEstimate(null);}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div>
+                      </div>);})}
+                    </div>
+                  </div>);})}
+                  {templates.length>0&&<div style={{...card,marginBottom:'12px'}}><div style={{padding:'12px 14px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}><b style={{color:C.text,fontSize:'13px'}}>⭐ Шаблоны смет</b></div><div style={{padding:'8px 12px'}}>{templates.map(est=><div key={est.id} onClick={()=>setSelectedEstimate(est)} style={{padding:'10px 8px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}><div><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{estimateKind(est)}</p></div><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b></div>)}</div></div>}
+                  {normal.length===0&&templates.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Calculator size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Смет нет — создайте первую!</p></div>}
+                  {normal.length>0&&grouped.length===0&&<div style={{...card,padding:'24px',textAlign:'center',color:C.textMuted}}>В активном списке только архивные сметы</div>}
+                </>);})()}
               </div>)}
             </div>)}
 
@@ -10276,6 +10350,10 @@ function App() {
                   <option value="Заказчик">📋 Смета заказчика (полная ЛСР)</option>
                   <option value="Работы">👷 Смета работ (для бригады)</option>
                   <option value="Материалы">📦 Смета материалов (для закупки)</option>
+                </select>
+                <select value={newEstimate.status||'Активная'} onChange={e=>setNewEstimate({...newEstimate,status:e.target.value})} style={{...inp,maxWidth:'400px'}}>
+                  <option value="Активная">Активная</option>
+                  <option value="Черновик">Черновик</option>
                 </select>
                 <label style={{display:'inline-flex',alignItems:'center',gap:'10px',cursor:'pointer',backgroundColor:C.accentLight,padding:'14px 24px',borderRadius:'10px',border:'1.5px dashed '+C.accent,fontSize:'14px',color:C.accent,fontWeight:'600'}}>
                   <Upload size={20}/>Загрузить Excel файл (.xlsx)
@@ -10295,8 +10373,8 @@ function App() {
                         const tm=Number(item.totalMaterial||0);
                         sections[item.section].items.push({id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:tw>0||tm===0?(tw||item.total):0,priceMaterial:tm>0?tm:0,isImported:true,itemType:item.type||'work'});
                       });
-                      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',smetaType:newEstimate.smetaType||'Заказчик',sections:Object.values(sections)};
-                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик'};setEstimatesList(prev=>[...prev,estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');
+                      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',smetaType:newEstimate.smetaType||'Заказчик',status:newEstimate.status||'Активная',sections:Object.values(sections)};
+                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',status:newEstimate.status||'Активная'};setEstimatesList(prev=>[...prev.map(e=>(estWithId.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');
                       setImportValidating(true);
                       setImportValidationWarnings([]);
                       try{

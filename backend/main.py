@@ -1462,6 +1462,7 @@ def init_db():
         );
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS cable_type VARCHAR(100);
+        ALTER TABLE estimates ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Черновик';
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS smeta_type VARCHAR(50) DEFAULT 'Заказчик';
         UPDATE estimates SET smeta_type='Заказчик' WHERE smeta_type IS NULL OR smeta_type='';
@@ -5934,12 +5935,16 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
     allowed_projects = visible_project_names(current_user)
+    base_cols = """e.id,e.project_id,e.project_name,e.name,e.version,e.sections_json,
+                   COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
+                   (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
+                   (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at"""
     if allowed_projects is not None and not allowed_projects:
-        cur.execute("SELECT id,project_id,project_name,name,version,sections_json,COALESCE(smeta_type,'Заказчик'),COALESCE(is_template,FALSE),status FROM estimates WHERE COALESCE(is_template,FALSE)=TRUE ORDER BY id DESC")
+        cur.execute(f"SELECT {base_cols} FROM estimates e WHERE COALESCE(e.is_template,FALSE)=TRUE ORDER BY e.id DESC")
     elif allowed_projects is None:
-        cur.execute("SELECT id,project_id,project_name,name,version,sections_json,COALESCE(smeta_type,'Заказчик'),COALESCE(is_template,FALSE),status FROM estimates ORDER BY id DESC")
+        cur.execute(f"SELECT {base_cols} FROM estimates e ORDER BY e.id DESC")
     else:
-        cur.execute("SELECT id,project_id,project_name,name,version,sections_json,COALESCE(smeta_type,'Заказчик'),COALESCE(is_template,FALSE),status FROM estimates WHERE project_name = ANY(%s) OR COALESCE(is_template,FALSE)=TRUE ORDER BY id DESC", (allowed_projects,))
+        cur.execute(f"SELECT {base_cols} FROM estimates e WHERE e.project_name = ANY(%s) OR COALESCE(e.is_template,FALSE)=TRUE ORDER BY e.id DESC", (allowed_projects,))
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
@@ -5949,7 +5954,7 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
             sections = j.loads(r[5]) if r[5] else []
         except:
             sections = []
-        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","isTemplate":bool(r[7]),"status":r[8] or "Черновик"})
+        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","isTemplate":bool(r[7]),"status":r[8] or "Черновик","createdAt":str(r[9]) if r[9] else "","versionCount":int(r[10] or 0),"latestVersionAt":str(r[11]) if r[11] else ""})
     return result
 
 @app.post("/estimates")
@@ -5958,8 +5963,16 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FIN
     require_project_access(_current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId"),data.get("projectName",""),data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),data.get("smetaType") or "Заказчик"))
+    status = data.get("status") or "Активная"
+    smeta_type = data.get("smetaType") or "Заказчик"
+    project_name = data.get("projectName","")
+    if status == "Активная" and project_name:
+        cur.execute("""UPDATE estimates SET status='Архив'
+                       WHERE project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s
+                         AND COALESCE(is_template,FALSE)=FALSE""",
+                    (project_name, smeta_type))
+    cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectId"),project_name,data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),smeta_type,status))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -5971,7 +5984,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     from datetime import date as _date
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT sections_json, version, project_name FROM estimates WHERE id=%s", (id,))
+    cur.execute("SELECT sections_json, version, project_name, COALESCE(smeta_type,'Заказчик'), status FROM estimates WHERE id=%s", (id,))
     prev = cur.fetchone()
     if not prev:
         cur.close(); conn.close()
@@ -6007,8 +6020,15 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 it["doneQuantity"] = qty
             elif done < 0:
                 it["doneQuantity"] = 0
-    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s WHERE id=%s",
-        (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),data.get("smetaType") or "Заказчик",id))
+    new_status = data.get("status") or prev[4] or "Черновик"
+    new_smeta_type = data.get("smetaType") or prev[3] or "Заказчик"
+    if new_status == "Активная" and project_name:
+        cur.execute("""UPDATE estimates SET status='Архив'
+                       WHERE id<>%s AND project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s
+                         AND COALESCE(is_template,FALSE)=FALSE""",
+                    (id, project_name, new_smeta_type))
+    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s,status=%s WHERE id=%s",
+        (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_status,id))
 
     # Build lookup of old done qty by (section name, item name)
     old_done = {}
@@ -6103,6 +6123,30 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced}
+
+@app.put("/estimates/{id}/status")
+def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    status = data.get("status") or "Черновик"
+    if status not in ("Активная", "Архив", "Черновик"):
+        raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT project_name, COALESCE(smeta_type,'Заказчик'), COALESCE(is_template,FALSE) FROM estimates WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    project_name, smeta_type, is_template = row[0] or "", row[1] or "Заказчик", bool(row[2])
+    require_project_access(_current_user, project_name)
+    if status == "Активная" and project_name and not is_template:
+        cur.execute("""UPDATE estimates SET status='Архив'
+                       WHERE id<>%s AND project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s
+                         AND COALESCE(is_template,FALSE)=FALSE""",
+                    (id, project_name, smeta_type))
+    cur.execute("UPDATE estimates SET status=%s WHERE id=%s", (status, id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "status": status}
 
 @app.put("/estimates/{id}/toggle-template")
 def toggle_estimate_template(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
