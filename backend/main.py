@@ -230,6 +230,20 @@ def require_brigade_item_access(cur, item_id: int, user: dict):
         raise HTTPException(status_code=404, detail="Запись не найдена")
     require_project_access(user, row[0] or "")
 
+def require_worker_brigade_contract_access(cur, contract_id: int, user: dict):
+    if user.get("role") not in ("мастер", "субподрядчик"):
+        return
+    cur.execute("SELECT contractor_id, brigade_name FROM brigade_contracts WHERE id=%s", (contract_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    contractor_id = row[0] if not isinstance(row, dict) else row.get("contractor_id")
+    brigade_name = row[1] if not isinstance(row, dict) else row.get("brigade_name")
+    user_id = user.get("id")
+    user_name = user.get("name") or ""
+    if str(contractor_id or "") != str(user_id or "") and (brigade_name or "") != user_name:
+        raise HTTPException(status_code=403, detail="Нет доступа к наряду")
+
 def recalc_brigade_contract_total(cur, contract_id: int):
     cur.execute("""UPDATE brigade_contracts bc
                    SET total_amount = COALESCE((
@@ -4191,10 +4205,18 @@ def get_contracts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES)))
     if allowed_projects is not None and not allowed_projects:
         conn.close()
         return []
-    if allowed_projects is None:
-        cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\" FROM contracts ORDER BY id DESC")
-    else:
-        cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\" FROM contracts WHERE project = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+    where, params = [], []
+    if allowed_projects is not None:
+        where.append("project = ANY(%s)")
+        params.append(allowed_projects)
+    if _current_user.get("role") in ("мастер", "субподрядчик"):
+        where.append("(master_id=%s OR master_name=%s)")
+        params.extend([_current_user.get("id"), _current_user.get("name") or ""])
+    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\" FROM contracts"
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY id DESC"
+    cur.execute(q, tuple(params))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -4226,10 +4248,18 @@ def get_interim_acts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES
     if allowed_projects is not None and not allowed_projects:
         conn.close()
         return []
-    if allowed_projects is None:
-        cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts ORDER BY id DESC")
-    else:
-        cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts WHERE project = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+    where, params = [], []
+    if allowed_projects is not None:
+        where.append("project = ANY(%s)")
+        params.append(allowed_projects)
+    if _current_user.get("role") in ("мастер", "субподрядчик"):
+        where.append("(master_id=%s OR master_name=%s)")
+        params.extend([_current_user.get("id"), _current_user.get("name") or ""])
+    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts"
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY id DESC"
+    cur.execute(q, tuple(params))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -5382,18 +5412,27 @@ def get_brigade_contracts(project_name: str = None, _current_user: dict = Depend
             "bc.act_scan_url "
             "FROM brigade_contracts bc")
     allowed_projects = visible_project_names(_current_user)
+    where, params = [], []
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute(base + " WHERE bc.project_name=%s ORDER BY bc.id DESC", (project_name,))
+        where.append("bc.project_name=%s")
+        params.append(project_name)
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute(base + " WHERE bc.project_name = ANY(%s) ORDER BY bc.id DESC", (allowed_projects,))
-    else:
-        cur.execute(base + " ORDER BY bc.id DESC")
+        where.append("bc.project_name = ANY(%s)")
+        params.append(allowed_projects)
+    if _current_user.get("role") in ("мастер", "субподрядчик"):
+        where.append("(bc.contractor_id=%s OR bc.brigade_name=%s)")
+        params.extend([_current_user.get("id"), _current_user.get("name") or ""])
+    q = base
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY bc.id DESC"
+    cur.execute(q, tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],
@@ -5742,34 +5781,31 @@ def list_all_brigade_contract_items(project_name: str = None, _current_user: dic
     conn = get_db()
     cur = conn.cursor()
     allowed_projects = visible_project_names(_current_user)
+    where, params = [], []
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("""SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
-                              bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
-                              bc.project_name
-                       FROM brigade_contract_items bci
-                       JOIN brigade_contracts bc ON bc.id = bci.contract_id
-                       WHERE bc.project_name=%s ORDER BY bci.id DESC""", (project_name,))
+        where.append("bc.project_name=%s")
+        params.append(project_name)
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("""SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
-                              bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
-                              bc.project_name
-                       FROM brigade_contract_items bci
-                       JOIN brigade_contracts bc ON bc.id = bci.contract_id
-                       WHERE bc.project_name = ANY(%s)
-                       ORDER BY bci.id DESC""", (allowed_projects,))
-    else:
-        cur.execute("""SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
-                              bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
-                              bc.project_name
-                       FROM brigade_contract_items bci
-                       JOIN brigade_contracts bc ON bc.id = bci.contract_id
-                       ORDER BY bci.id DESC""")
+        where.append("bc.project_name = ANY(%s)")
+        params.append(allowed_projects)
+    if _current_user.get("role") in ("мастер", "субподрядчик"):
+        where.append("(bc.contractor_id=%s OR bc.brigade_name=%s)")
+        params.extend([_current_user.get("id"), _current_user.get("name") or ""])
+    q = """SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
+                  bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
+                  bc.project_name
+           FROM brigade_contract_items bci
+           JOIN brigade_contracts bc ON bc.id = bci.contract_id"""
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY bci.id DESC"
+    cur.execute(q, tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"contractId":r[1],"name":r[2] or "","unit":r[3] or "",
@@ -5934,6 +5970,7 @@ def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(r
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "brigade_contracts", contract_id, _current_user)
+    require_worker_brigade_contract_access(cur, contract_id, _current_user)
     cur.execute("SELECT id,contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity FROM brigade_contract_items WHERE contract_id=%s ORDER BY id", (contract_id,))
     rows = cur.fetchall()
     cur.close(); conn.close()
