@@ -220,6 +220,91 @@ def require_row_project_access(cur, table: str, row_id: int, user: dict, project
     project_name = row[0] if not isinstance(row, dict) else row.get(project_column)
     require_project_access(user, project_name or "")
 
+def project_name_from_payload(cur, data: dict) -> str:
+    project_name = data.get("projectName") or data.get("project_name") or data.get("project") or ""
+    if project_name:
+        return project_name
+    project_id = data.get("projectId") or data.get("project_id")
+    if not project_id:
+        raise HTTPException(status_code=400, detail="Не указан объект")
+    cur.execute("SELECT name FROM projects WHERE id=%s", (project_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Объект не найден")
+    project_name = row[0] if not isinstance(row, dict) else row.get("name", "")
+    if not project_name:
+        raise HTTPException(status_code=400, detail="Не указан объект")
+    return project_name
+
+def require_checklist_access(cur, checklist_id: int, user: dict):
+    cur.execute("SELECT project_name FROM project_checklists WHERE id=%s", (checklist_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Чек-лист не найден")
+    project_name = row[0] if not isinstance(row, dict) else row.get("project_name")
+    require_project_access(user, project_name or "")
+
+def require_checklist_item_access(cur, item_id: int, user: dict):
+    cur.execute("""SELECT pc.project_name
+                   FROM checklist_items ci
+                   JOIN project_checklists pc ON pc.id = ci.checklist_id
+                   WHERE ci.id=%s""", (item_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Пункт чек-листа не найден")
+    project_name = row[0] if not isinstance(row, dict) else row.get("project_name")
+    require_project_access(user, project_name or "")
+
+def require_room_access(cur, room_id: int, user: dict):
+    cur.execute("SELECT project FROM rooms WHERE id=%s", (room_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Помещение не найдено")
+    project_name = row[0] if not isinstance(row, dict) else row.get("project")
+    require_project_access(user, project_name or "")
+
+def require_room_child_access(cur, table: str, row_id: int, user: dict):
+    cur.execute(f"""SELECT r.project
+                    FROM {table} child
+                    JOIN rooms r ON r.id = child.room_id
+                    WHERE child.id=%s""", (row_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    project_name = row[0] if not isinstance(row, dict) else row.get("project")
+    require_project_access(user, project_name or "")
+
+def require_tool_access(cur, tool_id: int, user: dict):
+    role = user.get("role")
+    cur.execute("SELECT project, location, master_id, master_name FROM tools WHERE id=%s", (tool_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Инструмент не найден")
+    if can_see_all_company_data(user) or role in ("кладовщик", "снабженец"):
+        return
+    project = (row[0] if not isinstance(row, dict) else row.get("project")) or ""
+    location = (row[1] if not isinstance(row, dict) else row.get("location")) or ""
+    master_id = row[2] if not isinstance(row, dict) else row.get("master_id")
+    master_name = (row[3] if not isinstance(row, dict) else row.get("master_name")) or ""
+    if role == "прораб":
+        allowed = user_project_names(user)
+        if not project or project in allowed or location in allowed:
+            return
+    if role in ("мастер", "субподрядчик"):
+        if str(master_id or "") == str(user.get("id") or "") or master_name == (user.get("name") or ""):
+            return
+    raise HTTPException(status_code=403, detail="Нет доступа к инструменту")
+
+def require_inventory_access(cur, inventory_id: int, user: dict):
+    cur.execute("SELECT project FROM inventory WHERE id=%s", (inventory_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Инвентаризация не найдена")
+    if can_see_all_company_data(user) or user.get("role") in ("кладовщик", "снабженец"):
+        return
+    project_name = row[0] if not isinstance(row, dict) else row.get("project")
+    require_project_access(user, project_name or "")
+
 def require_brigade_item_access(cur, item_id: int, user: dict):
     cur.execute("""SELECT bc.project_name
                    FROM brigade_contract_items bci
@@ -4325,7 +4410,7 @@ def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*LEA
     return {"ok": True}
 
 @app.get("/timesheet/{staff_id}")
-def get_timesheet(staff_id: int):
+def get_timesheet(staff_id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT day FROM timesheet WHERE staff_id=%s", (staff_id,))
@@ -4334,7 +4419,7 @@ def get_timesheet(staff_id: int):
     return {"days": [r['day'] for r in rows]}
 
 @app.post("/timesheet")
-def toggle_timesheet(data: TimesheetModel):
+def toggle_timesheet(data: TimesheetModel, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id FROM timesheet WHERE staff_id=%s AND day=%s", (data.staffId,data.day))
@@ -4347,7 +4432,7 @@ def toggle_timesheet(data: TimesheetModel):
     return {"ok": True}
 
 @app.get("/timesheet")
-def get_timesheet_all():
+def get_timesheet_all(_current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT staff_id, day FROM timesheet")
@@ -4356,16 +4441,24 @@ def get_timesheet_all():
     return [{"staffId": r[0], "day": r[1]} for r in rows]
 
 @app.get("/rooms")
-def get_rooms():
+def get_rooms(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes,floor,liter,room_type as \"roomType\" FROM rooms ORDER BY id")
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes,floor,liter,room_type as \"roomType\" FROM rooms WHERE project = ANY(%s) ORDER BY id", (allowed_projects,))
+    else:
+        cur.execute("SELECT id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes,floor,liter,room_type as \"roomType\" FROM rooms ORDER BY id")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/rooms")
-def create_room(r: RoomModel):
+def create_room(r: RoomModel, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
+    require_project_access(_current_user, r.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO rooms (project,name,floor_area,wall_area,ceiling_area,windows,doors,notes,floor,liter,room_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes,floor,liter,room_type as \"roomType\"",
@@ -4375,34 +4468,47 @@ def create_room(r: RoomModel):
     return dict(row)
 
 @app.put("/rooms/{id}")
-def update_room(id: int, r: RoomModel):
+def update_room(id: int, r: RoomModel, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "rooms", id, _current_user, "project")
+    require_project_access(_current_user, r.project)
     cur.execute("UPDATE rooms SET floor=%s,liter=%s,room_type=%s, project=%s,name=%s,floor_area=%s,wall_area=%s,ceiling_area=%s,windows=%s,doors=%s,notes=%s WHERE id=%s",
-                (r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.windows,r.doors,r.notes,id))
+                (r.floor,r.liter,r.roomType,r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.windows,r.doors,r.notes,id))
     conn.close()
     return {"ok": True}
 
 @app.delete("/rooms/{id}")
-def delete_room(id: int):
+def delete_room(id: int, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM rooms WHERE id=%s", (id,))
+    require_row_project_access(cur, "rooms", id, _current_user, "project")
+    cur.execute("DELETE FROM room_windows WHERE room_id=%s", (id,))
+    cur.execute("DELETE FROM room_doors WHERE room_id=%s", (id,))
     cur.execute("DELETE FROM room_works WHERE room_id=%s", (id,))
+    cur.execute("DELETE FROM rooms WHERE id=%s", (id,))
     conn.close()
     return {"ok": True}
 
 @app.get("/room-works")
-def get_room_works():
+def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\" FROM room_works ORDER BY id DESC")
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\" FROM room_works WHERE project = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+    else:
+        cur.execute("SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\" FROM room_works ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/room-works")
-def create_room_work(w: RoomWorkModel):
+def create_room_work(w: RoomWorkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+    require_project_access(_current_user, w.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO room_works (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
@@ -4412,9 +4518,10 @@ def create_room_work(w: RoomWorkModel):
     return dict(row)
 
 @app.put("/room-works/{id}")
-def update_room_work(id: int, data: dict):
+def update_room_work(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "room_works", id, _current_user, "project")
     if 'status' in data:
         cur.execute("UPDATE room_works SET status=%s,confirmed_by=%s WHERE id=%s",
                     (data['status'],data.get('confirmedBy',''),id))
@@ -4422,16 +4529,34 @@ def update_room_work(id: int, data: dict):
     return {"ok": True}
 
 @app.get("/tools")
-def get_tools():
+def get_tools(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,inventory_number as \"inventoryNumber\",cost,status,location,project,master_id as \"masterId\",master_name as \"masterName\",issue_type as \"issueType\",photo_url as \"photoUrl\",notes FROM tools ORDER BY name")
+    role = current_user.get("role")
+    if can_see_all_company_data(current_user) or role in ("кладовщик", "снабженец"):
+        cur.execute("SELECT id,name,inventory_number as \"inventoryNumber\",cost,status,location,project,master_id as \"masterId\",master_name as \"masterName\",issue_type as \"issueType\",photo_url as \"photoUrl\",notes FROM tools ORDER BY name")
+    elif role == "прораб":
+        allowed_projects = user_project_names(current_user)
+        cur.execute("""SELECT id,name,inventory_number as "inventoryNumber",cost,status,location,project,master_id as "masterId",master_name as "masterName",issue_type as "issueType",photo_url as "photoUrl",notes
+                       FROM tools
+                       WHERE COALESCE(project,'')='' OR project = ANY(%s) OR location = ANY(%s)
+                       ORDER BY name""", (allowed_projects, allowed_projects))
+    elif role in ("мастер", "субподрядчик"):
+        cur.execute("""SELECT id,name,inventory_number as "inventoryNumber",cost,status,location,project,master_id as "masterId",master_name as "masterName",issue_type as "issueType",photo_url as "photoUrl",notes
+                       FROM tools
+                       WHERE master_id=%s OR master_name=%s
+                       ORDER BY name""", (current_user.get("id"), current_user.get("name") or ""))
+    else:
+        cur.close(); conn.close()
+        return []
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/tools")
-def create_tool(t: ToolModel):
+def create_tool(t: ToolModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
+    if _current_user.get("role") == "прораб" and t.project:
+        require_project_access(_current_user, t.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO tools (name,inventory_number,cost,status,location,project,master_id,master_name,issue_type,photo_url,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
@@ -4441,35 +4566,59 @@ def create_tool(t: ToolModel):
     return dict(row)
 
 @app.put("/tools/{id}")
-def update_tool(id: int, t: ToolModel):
+def update_tool(id: int, t: ToolModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
+    require_tool_access(cur, id, _current_user)
+    if _current_user.get("role") == "прораб" and t.project:
+        require_project_access(_current_user, t.project)
     cur.execute("UPDATE tools SET name=%s,inventory_number=%s,cost=%s,status=%s,location=%s,project=%s,master_id=%s,master_name=%s,issue_type=%s,photo_url=%s,notes=%s WHERE id=%s",
                 (t.name,t.inventoryNumber,t.cost,t.status,t.location,t.project,t.masterId,t.masterName,t.issueType,t.photoUrl,t.notes,id))
     conn.close()
     return {"ok": True}
 
 @app.delete("/tools/{id}")
-def delete_tool(id: int):
+def delete_tool(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
+    require_tool_access(cur, id, _current_user)
+    cur.execute("DELETE FROM tool_history WHERE tool_id=%s", (id,))
     cur.execute("DELETE FROM tools WHERE id=%s", (id,))
     conn.close()
     return {"ok": True}
 
 @app.get("/tool-history")
-def get_tool_history():
+def get_tool_history(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,tool_id as \"toolId\",tool_name as \"toolName\",action,from_location as \"fromLocation\",to_location as \"toLocation\",master_name as \"masterName\",project,issue_type as \"issueType\",condition,date,created_by as \"createdBy\" FROM tool_history ORDER BY id DESC")
+    role = current_user.get("role")
+    if can_see_all_company_data(current_user) or role in ("кладовщик", "снабженец"):
+        cur.execute("SELECT id,tool_id as \"toolId\",tool_name as \"toolName\",action,from_location as \"fromLocation\",to_location as \"toLocation\",master_name as \"masterName\",project,issue_type as \"issueType\",condition,date,created_by as \"createdBy\" FROM tool_history ORDER BY id DESC")
+    elif role == "прораб":
+        allowed_projects = user_project_names(current_user)
+        cur.execute("""SELECT id,tool_id as "toolId",tool_name as "toolName",action,from_location as "fromLocation",to_location as "toLocation",master_name as "masterName",project,issue_type as "issueType",condition,date,created_by as "createdBy"
+                       FROM tool_history
+                       WHERE COALESCE(project,'')='' OR project = ANY(%s)
+                       ORDER BY id DESC""", (allowed_projects,))
+    elif role in ("мастер", "субподрядчик"):
+        cur.execute("""SELECT id,tool_id as "toolId",tool_name as "toolName",action,from_location as "fromLocation",to_location as "toLocation",master_name as "masterName",project,issue_type as "issueType",condition,date,created_by as "createdBy"
+                       FROM tool_history
+                       WHERE master_name=%s
+                       ORDER BY id DESC""", (current_user.get("name") or "",))
+    else:
+        cur.close(); conn.close()
+        return []
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/tool-history")
-def create_tool_history(h: ToolHistoryModel):
+def create_tool_history(h: ToolHistoryModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    require_tool_access(cur, h.toolId, _current_user)
+    if _current_user.get("role") == "прораб" and h.project:
+        require_project_access(_current_user, h.project)
     cur.execute("INSERT INTO tool_history (tool_id,tool_name,action,from_location,to_location,master_name,project,issue_type,condition,date,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
                 (h.toolId,h.toolName,h.action,h.fromLocation,h.toLocation,h.masterName,h.project,h.issueType,h.condition,h.date,h.createdBy))
     row = cur.fetchone()
@@ -4477,16 +4626,25 @@ def create_tool_history(h: ToolHistoryModel):
     return dict(row)
 
 @app.get("/inventory")
-def get_inventory():
+def get_inventory(current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер", "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM inventory ORDER BY id DESC")
+    if can_see_all_company_data(current_user) or current_user.get("role") in ("кладовщик", "снабженец"):
+        cur.execute("SELECT * FROM inventory ORDER BY id DESC")
+    else:
+        allowed_projects = user_project_names(current_user)
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT * FROM inventory WHERE project = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/inventory")
-def create_inventory(inv: InventoryModel):
+def create_inventory(inv: InventoryModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
+    if _current_user.get("role") == "прораб":
+        require_project_access(_current_user, inv.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO inventory (project,date,created_by,notes) VALUES (%s,%s,%s,%s) RETURNING *",
@@ -4496,35 +4654,49 @@ def create_inventory(inv: InventoryModel):
     return dict(row)
 
 @app.put("/inventory/{id}")
-def update_inventory(id: int, data: dict):
+def update_inventory(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
+    require_inventory_access(cur, id, _current_user)
     if 'status' in data:
         cur.execute("UPDATE inventory SET status=%s WHERE id=%s", (data['status'],id))
     conn.close()
     return {"ok": True}
 
 @app.get("/inventory/{id}/items")
-def get_inventory_items(id: int):
+def get_inventory_items(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер", "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    require_inventory_access(cur, id, _current_user)
     cur.execute("SELECT * FROM inventory_items WHERE inventory_id=%s", (id,))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/inventory-items")
-def create_inventory_item(item: InventoryItemModel):
+def create_inventory_item(item: InventoryItemModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    require_inventory_access(cur, item.inventoryId, _current_user)
     cur.execute("INSERT INTO inventory_items (inventory_id,material_name,unit,expected,actual,difference,notes) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
                 (item.inventoryId,item.materialName,item.unit,item.expected,item.actual,item.difference,item.notes))
     row = cur.fetchone()
     conn.close()
     return dict(row)
 
+@app.post("/inventory/{id}/items")
+def create_inventory_item_for_inventory(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    require_inventory_access(cur, id, _current_user)
+    cur.execute("INSERT INTO inventory_items (inventory_id,material_name,unit,expected,actual,difference,notes) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                (id,data.get("materialName",""),data.get("unit",""),float(data.get("expected") or 0),float(data.get("actual") or 0),float(data.get("difference") or 0),data.get("notes","")))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row)
+
 @app.get("/pd-consents")
-def get_pd_consents():
+def get_pd_consents(_current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT id,user_id as \"userId\",signed_at as \"signedAt\",scan_url as \"scanUrl\",uploaded_by as \"uploadedBy\" FROM pd_consents")
@@ -4533,7 +4705,9 @@ def get_pd_consents():
     return [dict(r) for r in rows]
 
 @app.post("/pd-consents")
-def create_pd_consent(p: PdConsentModel):
+def create_pd_consent(p: PdConsentModel, _current_user: dict = Depends(get_current_user)):
+    if _current_user.get("role") not in STAFF_MANAGE_ROLES and int(p.userId) != int(_current_user.get("id") or 0):
+        raise HTTPException(status_code=403, detail="Можно подписать только своё согласие")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
@@ -4548,7 +4722,7 @@ def create_pd_consent(p: PdConsentModel):
     return dict(row)
 
 @app.delete("/pd-consents/{user_id}")
-def delete_pd_consent(user_id: int):
+def delete_pd_consent(user_id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM pd_consents WHERE user_id=%s", (user_id,))
@@ -4565,44 +4739,118 @@ async def upload_photo(file: UploadFile = File(...), _current_user: dict = Depen
     return {"url": "/uploads/" + filename}
 
 @app.get("/room-windows")
-def get_room_windows():
+def get_room_windows(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,room_id,name,width,height,window_type,reveal_depth,reveal_material,order_num FROM room_windows ORDER BY id")
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("""SELECT w.id,w.room_id,w.name,w.width,w.height,w.window_type,w.reveal_depth,w.reveal_material,w.order_num
+                       FROM room_windows w
+                       JOIN rooms r ON r.id = w.room_id
+                       WHERE r.project = ANY(%s)
+                       ORDER BY w.id""", (allowed_projects,))
+    else:
+        cur.execute("SELECT id,room_id,name,width,height,window_type,reveal_depth,reveal_material,order_num FROM room_windows ORDER BY id")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"room_id":r[1],"name":r[2],"width":r[3],"height":r[4],"window_type":r[5],"reveal_depth":r[6],"reveal_material":r[7],"order_num":r[8]} for r in rows]
 
 @app.post("/room-windows")
-def create_room_window(data: dict):
+def create_room_window(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    room_id = data.get('roomId') or data.get('room_id')
+    require_room_access(cur, room_id, _current_user)
     cur.execute("INSERT INTO room_windows (room_id,name,width,height,window_type,reveal_depth,reveal_material,order_num) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        (data.get('roomId') or data.get('room_id'),data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('windowType') or data.get('window_type','ПВХ'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0)))
+        (room_id,data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('windowType') or data.get('window_type','ПВХ'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0)))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
     return row
 
-@app.get("/room-doors")
-def get_room_doors():
+@app.put("/room-windows/{id}")
+def update_room_window(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,room_id,name,width,height,door_type,door_purpose,reveal_depth,reveal_material,order_num FROM room_doors ORDER BY id")
+    require_room_child_access(cur, "room_windows", id, _current_user)
+    room_id = data.get('roomId') or data.get('room_id')
+    if room_id:
+        require_room_access(cur, room_id, _current_user)
+    cur.execute("""UPDATE room_windows
+                   SET room_id=%s,name=%s,width=%s,height=%s,window_type=%s,reveal_depth=%s,reveal_material=%s,order_num=%s
+                   WHERE id=%s""",
+        (room_id,data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('windowType') or data.get('window_type','ПВХ'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0),id))
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/room-windows/{id}")
+def delete_room_window(id: int, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_room_child_access(cur, "room_windows", id, _current_user)
+    cur.execute("DELETE FROM room_windows WHERE id=%s", (id,))
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.get("/room-doors")
+def get_room_doors(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("""SELECT d.id,d.room_id,d.name,d.width,d.height,d.door_type,d.door_purpose,d.reveal_depth,d.reveal_material,d.order_num
+                       FROM room_doors d
+                       JOIN rooms r ON r.id = d.room_id
+                       WHERE r.project = ANY(%s)
+                       ORDER BY d.id""", (allowed_projects,))
+    else:
+        cur.execute("SELECT id,room_id,name,width,height,door_type,door_purpose,reveal_depth,reveal_material,order_num FROM room_doors ORDER BY id")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"room_id":r[1],"name":r[2],"width":r[3],"height":r[4],"door_type":r[5],"door_purpose":r[6],"reveal_depth":r[7],"reveal_material":r[8],"order_num":r[9]} for r in rows]
 
 @app.post("/room-doors")
-def create_room_door(data: dict):
+def create_room_door(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    room_id = data.get('roomId') or data.get('room_id')
+    require_room_access(cur, room_id, _current_user)
     cur.execute("INSERT INTO room_doors (room_id,name,width,height,door_type,door_purpose,reveal_depth,reveal_material,order_num) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        (data.get('roomId') or data.get('room_id'),data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('doorType') or data.get('door_type','Деревянная'),data.get('doorPurpose') or data.get('door_purpose','Межкомнатная'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0)))
+        (room_id,data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('doorType') or data.get('door_type','Деревянная'),data.get('doorPurpose') or data.get('door_purpose','Межкомнатная'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0)))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
     return row
+
+@app.put("/room-doors/{id}")
+def update_room_door(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_room_child_access(cur, "room_doors", id, _current_user)
+    room_id = data.get('roomId') or data.get('room_id')
+    if room_id:
+        require_room_access(cur, room_id, _current_user)
+    cur.execute("""UPDATE room_doors
+                   SET room_id=%s,name=%s,width=%s,height=%s,door_type=%s,door_purpose=%s,reveal_depth=%s,reveal_material=%s,order_num=%s
+                   WHERE id=%s""",
+        (room_id,data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('doorType') or data.get('door_type','Деревянная'),data.get('doorPurpose') or data.get('door_purpose','Межкомнатная'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0),id))
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/room-doors/{id}")
+def delete_room_door(id: int, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_room_child_access(cur, "room_doors", id, _current_user)
+    cur.execute("DELETE FROM room_doors WHERE id=%s", (id,))
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.get("/messages")
 def get_messages():
@@ -4830,29 +5078,39 @@ def delete_company_document(id: int, _current_user: dict = Depends(require_roles
     return {"ok":True}
 
 @app.get("/project-stages")
-def get_project_stages():
+def get_project_stages(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,project_id,project_name,name,status,start_date,end_date,progress,responsible,notes,order_num FROM project_stages ORDER BY order_num,id")
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,project_id,project_name,name,status,start_date,end_date,progress,responsible,notes,order_num FROM project_stages WHERE project_name = ANY(%s) ORDER BY order_num,id", (allowed_projects,))
+    else:
+        cur.execute("SELECT id,project_id,project_name,name,status,start_date,end_date,progress,responsible,notes,order_num FROM project_stages ORDER BY order_num,id")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"status":r[4],"startDate":r[5],"endDate":r[6],"progress":r[7],"responsible":r[8],"notes":r[9],"orderNum":r[10]} for r in rows]
 
 @app.post("/project-stages")
-def create_project_stage(data: dict):
+def create_project_stage(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    project_name = project_name_from_payload(cur, data)
+    require_project_access(_current_user, project_name)
     cur.execute("INSERT INTO project_stages (project_id,project_name,name,status,start_date,end_date,progress,responsible,notes,order_num) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId"),data.get("projectName",""),data.get("name",""),data.get("status","Не начат"),data.get("startDate",""),data.get("endDate",""),int(data.get("progress",0)),data.get("responsible",""),data.get("notes",""),int(data.get("orderNum",0))))
+        (data.get("projectId"),project_name,data.get("name",""),data.get("status","Не начат"),data.get("startDate",""),data.get("endDate",""),int(data.get("progress",0)),data.get("responsible",""),data.get("notes",""),int(data.get("orderNum",0))))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
     return {"id":row[0],"ok":True}
 
 @app.put("/project-stages/{id}")
-def update_project_stage(id: int, data: dict):
+def update_project_stage(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "project_stages", id, _current_user, "project_name")
     cur.execute("UPDATE project_stages SET name=%s,status=%s,start_date=%s,end_date=%s,progress=%s,responsible=%s,notes=%s WHERE id=%s",
         (data.get("name",""),data.get("status",""),data.get("startDate",""),data.get("endDate",""),int(data.get("progress",0)),data.get("responsible",""),data.get("notes",""),id))
     conn.commit()
@@ -4860,47 +5118,70 @@ def update_project_stage(id: int, data: dict):
     return {"ok":True}
 
 @app.delete("/project-stages/{id}")
-def delete_project_stage(id: int):
+def delete_project_stage(id: int, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "project_stages", id, _current_user, "project_name")
     cur.execute("DELETE FROM project_stages WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
 
 @app.get("/project-checklists")
-def get_project_checklists():
+def get_project_checklists(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,project_id,project_name,name,template,status,created_by,created_at FROM project_checklists ORDER BY id")
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,project_id,project_name,name,template,status,created_by,created_at FROM project_checklists WHERE project_name = ANY(%s) ORDER BY id", (allowed_projects,))
+    else:
+        cur.execute("SELECT id,project_id,project_name,name,template,status,created_by,created_at FROM project_checklists ORDER BY id")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"template":r[4],"status":r[5],"createdBy":r[6],"createdAt":str(r[7])} for r in rows]
 
 @app.post("/project-checklists")
-def create_project_checklist(data: dict):
+def create_project_checklist(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    project_name = project_name_from_payload(cur, data)
+    require_project_access(_current_user, project_name)
     cur.execute("INSERT INTO project_checklists (project_id,project_name,name,template,status,created_by,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId"),data.get("projectName",""),data.get("name",""),data.get("template",""),data.get("status","В работе"),data.get("createdBy",""),data.get("createdAt","")))
+        (data.get("projectId"),project_name,data.get("name",""),data.get("template",""),data.get("status","В работе"),data.get("createdBy",""),data.get("createdAt","")))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
     return {"id":row[0],"ok":True}
 
-@app.get("/checklist-items/{checklist_id}")
-def get_checklist_items(checklist_id: int):
+@app.delete("/project-checklists/{id}")
+def delete_project_checklist(id: int, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "project_checklists", id, _current_user, "project_name")
+    cur.execute("DELETE FROM checklist_items WHERE checklist_id=%s",(id,))
+    cur.execute("DELETE FROM project_checklists WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok":True}
+
+@app.get("/checklist-items/{checklist_id}")
+def get_checklist_items(checklist_id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_checklist_access(cur, checklist_id, _current_user)
     cur.execute("SELECT id,checklist_id,name,checked,checked_by,checked_at,order_num FROM checklist_items WHERE checklist_id=%s ORDER BY order_num,id",(checklist_id,))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"checklistId":r[1],"name":r[2],"checked":r[3],"checkedBy":r[4],"checkedAt":r[5],"orderNum":r[6]} for r in rows]
 
 @app.post("/checklist-items")
-def create_checklist_item(data: dict):
+def create_checklist_item(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_checklist_access(cur, int(data.get("checklistId") or 0), _current_user)
     cur.execute("INSERT INTO checklist_items (checklist_id,name,checked,checked_by,checked_at,order_num) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
         (data.get("checklistId"),data.get("name",""),data.get("checked",False),data.get("checkedBy",""),data.get("checkedAt",""),int(data.get("orderNum",0))))
     conn.commit()
@@ -4909,9 +5190,10 @@ def create_checklist_item(data: dict):
     return {"id":row[0],"ok":True}
 
 @app.put("/checklist-items/{id}")
-def update_checklist_item(id: int, data: dict):
+def update_checklist_item(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_checklist_item_access(cur, id, _current_user)
     cur.execute("UPDATE checklist_items SET checked=%s,checked_by=%s,checked_at=%s WHERE id=%s",
         (data.get("checked",False),data.get("checkedBy",""),data.get("checkedAt",""),id))
     conn.commit()
@@ -5748,7 +6030,7 @@ def delete_salary_payment(id: int, _current_user: dict = Depends(require_roles(*
     return {"ok": True}
 
 @app.get("/crm-leads")
-def get_crm_leads():
+def get_crm_leads(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id,name,phone,email,source,budget,notes,stage,created_by,created_at FROM crm_leads ORDER BY id DESC")
@@ -5757,7 +6039,7 @@ def get_crm_leads():
     return [{"id":r[0],"name":r[1] or "","phone":r[2] or "","email":r[3] or "","source":r[4] or "","budget":float(r[5] or 0),"notes":r[6] or "","stage":r[7] or "Новый","createdBy":r[8] or "","createdAt":r[9] or ""} for r in rows]
 
 @app.post("/crm-leads")
-def create_crm_lead(data: dict):
+def create_crm_lead(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO crm_leads (name,phone,email,source,budget,notes,stage,created_by,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -5768,7 +6050,7 @@ def create_crm_lead(data: dict):
     return {"ok": True, "id": new_id}
 
 @app.put("/crm-leads/{id}")
-def update_crm_lead(id: int, data: dict):
+def update_crm_lead(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE crm_leads SET name=%s,phone=%s,email=%s,source=%s,budget=%s,notes=%s,stage=%s WHERE id=%s",
@@ -5778,7 +6060,7 @@ def update_crm_lead(id: int, data: dict):
     return {"ok": True}
 
 @app.delete("/crm-leads/{id}")
-def delete_crm_lead(id: int):
+def delete_crm_lead(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM crm_leads WHERE id=%s",(id,))
