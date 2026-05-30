@@ -164,6 +164,8 @@ PROJECT_DOCUMENT_ROLES = ("директор", "зам_директора", "бу
 PROJECT_DOCUMENT_WRITE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "технадзор", "стройконтроль")
 CONTRACT_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик")
 JOURNAL_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик", "кладовщик", "снабженец", "мастер", "субподрядчик", "технадзор", "стройконтроль")
+STAFF_MANAGE_ROLES = ("директор", "зам_директора", "бухгалтер")
+PRICELIST_MANAGE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 
 def user_project_names(user: dict) -> list[str]:
     names = []
@@ -2233,7 +2235,7 @@ def get_staff(current_user: dict = Depends(get_current_user)):
     return result
 
 @app.post("/staff")
-def create_staff(s: StaffModel):
+def create_staff(s: StaffModel, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO staff (" + STAFF_INSERT_COLS + ") VALUES (" + STAFF_PLACEHOLDERS + ") RETURNING id", _staff_tuple(s))
@@ -2242,7 +2244,7 @@ def create_staff(s: StaffModel):
     return {"id": new_id, "ok": True}
 
 @app.put("/staff/{id}")
-def update_staff(id: int, s: StaffModel):
+def update_staff(id: int, s: StaffModel, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""UPDATE staff SET name=%s, role=%s, phone=%s, salary=%s, project=%s, pay_type=%s,
@@ -2257,7 +2259,7 @@ def update_staff(id: int, s: StaffModel):
     return {"ok": True}
 
 @app.delete("/staff/{id}")
-def delete_staff(id: int):
+def delete_staff(id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM staff WHERE id=%s", (id,))
@@ -2265,7 +2267,7 @@ def delete_staff(id: int):
     return {"ok": True}
 
 @app.get("/staff/{staff_id}/profile")
-def get_staff_profile(staff_id: int):
+def get_staff_profile(staff_id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id, name FROM staff WHERE id=%s", (staff_id,))
@@ -2325,7 +2327,7 @@ def get_staff_profile(staff_id: int):
     }
 
 @app.post("/staff/{staff_id}/documents")
-def add_staff_document(staff_id: int, data: dict):
+def add_staff_document(staff_id: int, data: dict, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""INSERT INTO staff_documents (staff_id, doc_type, title, file_url, status, signed_at, expires_at, notes, created_by)
@@ -2338,7 +2340,7 @@ def add_staff_document(staff_id: int, data: dict):
     return {"id": new_id, "ok": True}
 
 @app.delete("/staff-documents/{doc_id}")
-def delete_staff_document(doc_id: int):
+def delete_staff_document(doc_id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM staff_documents WHERE id=%s", (doc_id,))
@@ -2346,16 +2348,23 @@ def delete_staff_document(doc_id: int):
     return {"ok": True}
 
 @app.get("/piecework")
-def get_piecework():
+def get_piecework(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework ORDER BY id DESC")
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is None:
+        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework ORDER BY id DESC")
+    elif not allowed_projects:
+        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework WHERE staff_id=%s ORDER BY id DESC", (current_user.get("id"),))
+    else:
+        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework WHERE project = ANY(%s) OR staff_id=%s ORDER BY id DESC", (allowed_projects, current_user.get("id")))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/piecework")
-def create_piecework(p: PieceworkModel):
+def create_piecework(p: PieceworkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+    require_project_access(_current_user, p.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO piecework (staff_id,description,unit,quantity,price_per_unit,total,project,date,comment,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
@@ -2365,9 +2374,10 @@ def create_piecework(p: PieceworkModel):
     return dict(row)
 
 @app.delete("/piecework/{id}")
-def delete_piecework(id: int):
+def delete_piecework(id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "piecework", id, _current_user, "project")
     cur.execute("DELETE FROM piecework WHERE id=%s", (id,))
     conn.close()
     return {"ok": True}
@@ -2449,7 +2459,7 @@ def delete_user(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP
     return {"ok": True}
 
 @app.get("/pricelists")
-def get_pricelists():
+def get_pricelists(_current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT id,name,description,for_who as \"forWho\",coefficient FROM pricelists")
@@ -2458,7 +2468,7 @@ def get_pricelists():
     return [dict(r) for r in rows]
 
 @app.post("/pricelists")
-def create_pricelist(p: PricelistModel):
+def create_pricelist(p: PricelistModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO pricelists (name,description,for_who,coefficient) VALUES (%s,%s,%s,%s) RETURNING id,name,description,for_who as \"forWho\",coefficient",
@@ -2468,7 +2478,7 @@ def create_pricelist(p: PricelistModel):
     return dict(row)
 
 @app.put("/pricelists/{id}")
-def update_pricelist(id: int, p: PricelistModel):
+def update_pricelist(id: int, p: PricelistModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE pricelists SET name=%s,description=%s,for_who=%s,coefficient=%s WHERE id=%s",
@@ -2477,7 +2487,7 @@ def update_pricelist(id: int, p: PricelistModel):
     return {"ok": True}
 
 @app.delete("/pricelists/{id}")
-def delete_pricelist(id: int):
+def delete_pricelist(id: int, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM pricelists WHERE id=%s", (id,))
@@ -2486,7 +2496,7 @@ def delete_pricelist(id: int):
     return {"ok": True}
 
 @app.post("/pricelists/{id}/copy")
-def copy_pricelist(id: int, data: CopyPricelistModel):
+def copy_pricelist(id: int, data: CopyPricelistModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM pricelists WHERE id=%s", (id,))
@@ -2503,7 +2513,7 @@ def copy_pricelist(id: int, data: CopyPricelistModel):
     return dict(new_pl)
 
 @app.get("/pricelists/{id}/items")
-def get_pricelist_items(id: int):
+def get_pricelist_items(id: int, _current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT id,pricelist_id as \"pricelistId\",name,unit,price,category,specialization FROM pricelist_items WHERE pricelist_id=%s ORDER BY category,name", (id,))
@@ -2512,7 +2522,7 @@ def get_pricelist_items(id: int):
     return [dict(r) for r in rows]
 
 @app.post("/pricelist-items")
-def create_pricelist_item(item: PricelistItemModel):
+def create_pricelist_item(item: PricelistItemModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO pricelist_items (pricelist_id,name,unit,price,category,specialization) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,pricelist_id as \"pricelistId\",name,unit,price,category,specialization",
@@ -2522,7 +2532,7 @@ def create_pricelist_item(item: PricelistItemModel):
     return dict(row)
 
 @app.put("/pricelist-items/{id}")
-def update_pricelist_item(id: int, item: PricelistItemModel):
+def update_pricelist_item(id: int, item: PricelistItemModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE pricelist_items SET name=%s,unit=%s,price=%s,category=%s,specialization=%s WHERE id=%s",
@@ -2531,7 +2541,7 @@ def update_pricelist_item(id: int, item: PricelistItemModel):
     return {"ok": True}
 
 @app.delete("/pricelist-items/{id}")
-def delete_pricelist_item(id: int):
+def delete_pricelist_item(id: int, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM pricelist_items WHERE id=%s", (id,))
