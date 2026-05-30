@@ -2142,8 +2142,15 @@ function App() {
   const estimateGroupKey = (est) => [est?.projectId||'', est?.projectName||'', estimateKind(est)].join('|');
   const sameEstimateGroup = (a,b) => estimateGroupKey(a) === estimateGroupKey(b);
   const activeEstimateFromList = (list) => {
-    const arr = (list||[]).filter(e=>!e.isTemplate).sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
-    return arr.find(e=>e.status==='Активная') || arr.find(e=>!isArchivedEstimate(e)) || arr[0] || null;
+    const arr = [...(list||[])].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
+    const normal = arr.filter(e=>!e.isTemplate);
+    return normal.find(e=>e.status==='Активная')
+      || arr.find(e=>e.status==='Активная')
+      || normal.find(e=>!isArchivedEstimate(e))
+      || arr.find(e=>!isArchivedEstimate(e))
+      || normal[0]
+      || arr[0]
+      || null;
   };
   const estimateStatusView = (est, groupItems=[]) => {
     const status = est?.status || 'Черновик';
@@ -2153,8 +2160,8 @@ function App() {
     return {label:'Черновик', color:C.warning, bg:C.warningLight, border:C.warningBorder};
   };
   const _estimateForProject = (p) => {
-    const byCustomer = estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&estimateKind(e)==='Заказчик'&&!e.isTemplate);
-    return activeEstimateFromList(byCustomer) || activeEstimateFromList(estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&!e.isTemplate));
+    const byCustomer = estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&estimateKind(e)==='Заказчик');
+    return activeEstimateFromList(byCustomer) || activeEstimateFromList(estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))));
   };
   const setEstimateStatusRemote = async (est, status) => {
     if(!est?.id) return;
@@ -10309,7 +10316,7 @@ function App() {
                   </div>
                 </div>
               </div>):(<div>
-                {(()=>{const normal=(estimatesList||[]).filter(e=>!e.isTemplate);const templates=(estimatesList||[]).filter(e=>e.isTemplate);const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});return(<>
+                {(()=>{const normal=(estimatesList||[]).filter(e=>!e.isTemplate||e.projectName||e.status==='Активная');const templates=(estimatesList||[]).filter(e=>e.isTemplate&&!e.projectName&&e.status!=='Активная');const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});return(<>
                   <div style={{...card,padding:'12px 14px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',backgroundColor:C.bg}}>
                     <div style={{display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center'}}>
                       <span style={badge(C.success,C.successLight,C.successBorder)}>{'Активные: '+normal.filter(e=>e.status==='Активная').length}</span>

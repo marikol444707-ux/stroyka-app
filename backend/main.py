@@ -5968,8 +5968,7 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FIN
     project_name = data.get("projectName","")
     if status == "Активная" and project_name:
         cur.execute("""UPDATE estimates SET status='Архив'
-                       WHERE project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s
-                         AND COALESCE(is_template,FALSE)=FALSE""",
+                       WHERE project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s""",
                     (project_name, smeta_type))
     cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (data.get("projectId"),project_name,data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),smeta_type,status))
@@ -6024,8 +6023,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     new_smeta_type = data.get("smetaType") or prev[3] or "Заказчик"
     if new_status == "Активная" and project_name:
         cur.execute("""UPDATE estimates SET status='Архив'
-                       WHERE id<>%s AND project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s
-                         AND COALESCE(is_template,FALSE)=FALSE""",
+                       WHERE id<>%s AND project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s""",
                     (id, project_name, new_smeta_type))
     cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s,status=%s WHERE id=%s",
         (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_status,id))
@@ -6131,17 +6129,16 @@ def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(re
         raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name, COALESCE(smeta_type,'Заказчик'), COALESCE(is_template,FALSE) FROM estimates WHERE id=%s", (id,))
+    cur.execute("SELECT project_name, COALESCE(smeta_type,'Заказчик') FROM estimates WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
-    project_name, smeta_type, is_template = row[0] or "", row[1] or "Заказчик", bool(row[2])
+    project_name, smeta_type = row[0] or "", row[1] or "Заказчик"
     require_project_access(_current_user, project_name)
-    if status == "Активная" and project_name and not is_template:
+    if status == "Активная" and project_name:
         cur.execute("""UPDATE estimates SET status='Архив'
-                       WHERE id<>%s AND project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s
-                         AND COALESCE(is_template,FALSE)=FALSE""",
+                       WHERE id<>%s AND project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s""",
                     (id, project_name, smeta_type))
     cur.execute("UPDATE estimates SET status=%s WHERE id=%s", (status, id))
     conn.commit()
