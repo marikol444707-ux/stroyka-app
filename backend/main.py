@@ -3982,6 +3982,16 @@ def _backfill_cable_journal(cur, project_names=None):
             if _ensure_cable_journal_row(cur, project=target_project, cable_brand=name, qty=qty,
                                          supplier=supplier, received_at=date_value, invoice_id=invoice_id):
                 repaired += 1
+    material_where = "WHERE COALESCE(quantity,0)>0"
+    material_params = []
+    if project_names:
+        material_where += " AND project = ANY(%s)"
+        material_params.append(project_names)
+    cur.execute("SELECT name, quantity, project FROM materials " + material_where, material_params)
+    for material in cur.fetchall():
+        name, qty, project = material
+        if _ensure_cable_journal_row(cur, project=project, cable_brand=name, qty=qty):
+            repaired += 1
     return repaired
 
 @app.get("/supply-deliveries")
