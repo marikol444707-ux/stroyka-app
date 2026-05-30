@@ -228,6 +228,15 @@ def require_brigade_item_access(cur, item_id: int, user: dict):
         raise HTTPException(status_code=404, detail="Запись не найдена")
     require_project_access(user, row[0] or "")
 
+def recalc_brigade_contract_total(cur, contract_id: int):
+    cur.execute("""UPDATE brigade_contracts bc
+                   SET total_amount = COALESCE((
+                       SELECT SUM(COALESCE(quantity,0)*COALESCE(price_brigade,0))
+                       FROM brigade_contract_items
+                       WHERE contract_id=%s
+                   ),0)
+                   WHERE bc.id=%s""", (contract_id, contract_id))
+
 def get_db():
     conn = psycopg2.connect(**DB_CONFIG)
     conn.autocommit = True
@@ -4901,16 +4910,24 @@ def create_project_chat(data: dict):
     return {"id":row[0],"ok":True}
 
 @app.get("/unexpected-works")
-def get_unexpected_works():
+def get_unexpected_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works ORDER BY id DESC")
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+    else:
+        cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"description":r[2],"unit":r[3],"quantity":r[4],"price":r[5],"total":r[6],"addedBy":r[7],"addedByRole":r[8],"status":r[9],"approvedBy":r[10],"approvedAt":r[11],"notes":r[12],"photoUrl":r[13]} for r in rows]
 
 @app.post("/unexpected-works")
-def create_unexpected_work(data: dict):
+def create_unexpected_work(data: dict, current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+    require_project_access(current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO unexpected_works (project_name,description,unit,quantity,price,total,added_by,added_by_role,status,notes,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -4921,7 +4938,7 @@ def create_unexpected_work(data: dict):
     return {"id":row[0],"ok":True}
 
 @app.put("/unexpected-works/{id}")
-def update_unexpected_work(id: int, data: dict):
+def update_unexpected_work(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, *LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     new_status = data.get("status","")
@@ -4930,6 +4947,10 @@ def update_unexpected_work(id: int, data: dict):
     # Считываем текущее состояние и описательные поля до апдейта
     cur.execute("SELECT status, project_name, description, unit, quantity, added_by FROM unexpected_works WHERE id=%s", (id,))
     row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    require_project_access(current_user, row[1] or "")
     old_status = row[0] if row else ""
     cur.execute("UPDATE unexpected_works SET status=%s,price=%s,total=%s,approved_by=%s,approved_at=%s WHERE id=%s",
         (new_status, price, total, data.get("approvedBy",""), data.get("approvedAt",""), id))
@@ -4962,6 +4983,16 @@ def update_unexpected_work(id: int, data: dict):
                   description="Статус: "+(old_status or "—")+" → "+new_status+", сумма: "+str(total)+" ₽",
                   project_name=row[1] or "")
     return {"ok": True, "journalId": auto_journal_id}
+
+@app.delete("/unexpected-works/{id}")
+def delete_unexpected_work(id: int, current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, *LEADERSHIP_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_row_project_access(cur, "unexpected_works", id, current_user)
+    cur.execute("DELETE FROM unexpected_works WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.post("/parse-smeta")
 async def parse_smeta(file: UploadFile = File(...)):
@@ -5340,9 +5371,10 @@ def delete_estimate(id: int, _current_user: dict = Depends(require_roles(*LEADER
 def get_brigade_contracts(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
     conn = get_db()
     cur = conn.cursor()
-    # done_amount = сумма выполненного к оплате бригаде; paid_amount = сумма зафиксированных оплат
+    # plan_amount = сумма договора из позиций; done_amount = выполненное к оплате; paid_amount = зафиксированные оплаты
     base = ("SELECT bc.id,bc.project_id,bc.project_name,bc.brigade_name,bc.contractor_type,bc.contractor_id,"
             "bc.total_amount,bc.status,bc.signed_at,bc.notes,bc.created_at,bc.pricelist_id,"
+            "COALESCE((SELECT SUM(COALESCE(bci.quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS plan_amount,"
             "COALESCE((SELECT SUM(COALESCE(bci.done_quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
             "COALESCE((SELECT SUM(COALESCE(bp.amount,0)) FROM brigade_payments bp WHERE bp.contract_id=bc.id),0) AS paid_amount,"
             "bc.act_scan_url "
@@ -5362,7 +5394,11 @@ def get_brigade_contracts(project_name: str = None, _current_user: dict = Depend
         cur.execute(base + " ORDER BY bc.id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],"totalAmount":float(r[6] or 0),"status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10]),"pricelistId":r[11],"doneAmount":float(r[12] or 0),"paidAmount":float(r[13] or 0),"actScanUrl":r[14] or ""} for r in rows]
+    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],
+             "totalAmount":float((r[12] if float(r[12] or 0) > 0 else r[6]) or 0),
+             "status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10]),
+             "pricelistId":r[11],"planAmount":float(r[12] or 0),"doneAmount":float(r[13] or 0),
+             "paidAmount":float(r[14] or 0),"actScanUrl":r[15] or ""} for r in rows]
 
 @app.get("/brigade-payments")
 def get_brigade_payments(contract_id: int = None, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
@@ -5605,6 +5641,7 @@ def create_brigade_contract(data: dict, _current_user: dict = Depends(require_ro
                 cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                     (new_id, it[3] or "", it[0], it[1] or "шт", 0, price, round(price * coef, 2), 0))
                 inserted += 1
+            recalc_brigade_contract_total(cur, new_id)
             conn.commit()
         except Exception as e:
             print("AUTO-LOAD FROM PRICELIST ERROR:", str(e))
@@ -5672,6 +5709,7 @@ def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = F
         cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
             (contract_id, it[3] or "", it[0], it[1] or "шт", qty, price, round(price * coef, 2), 0))
         inserted += 1
+    recalc_brigade_contract_total(cur, contract_id)
     conn.commit(); cur.close(); conn.close()
     return {"ok": True, "itemsLoaded": inserted, "matchedFromEstimate": matched}
 
@@ -5913,8 +5951,9 @@ def create_brigade_contract_item(data: dict, _current_user: dict = Depends(requi
     require_row_project_access(cur, "brigade_contracts", data.get("contractId"), _current_user)
     cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (data.get("contractId"),data.get("estimateSection",""),data.get("name","") or data.get("description",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0)))
-    conn.commit()
     row = cur.fetchone()
+    recalc_brigade_contract_total(cur, data.get("contractId"))
+    conn.commit()
     cur.close(); conn.close()
     return {"id":row[0],"ok":True}
 
@@ -5926,8 +5965,11 @@ def update_brigade_contract_item(id: int, data: dict, _current_user: dict = Depe
     quantity = float(data.get("quantity", 0) or 0)
     done_quantity = float(data.get("doneQuantity", 0) or 0)
     done_quantity = max(0, min(done_quantity, quantity)) if quantity > 0 else 0
-    cur.execute("UPDATE brigade_contract_items SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s WHERE id=%s",
+    cur.execute("UPDATE brigade_contract_items SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s WHERE id=%s RETURNING contract_id",
         (quantity,data.get("priceBrigade",0),data.get("priceSmeta",0),done_quantity,id))
+    row = cur.fetchone()
+    if row:
+        recalc_brigade_contract_total(cur, row[0])
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
@@ -5937,7 +5979,10 @@ def delete_brigade_contract_item(id: int, _current_user: dict = Depends(require_
     conn = get_db()
     cur = conn.cursor()
     require_brigade_item_access(cur, id, _current_user)
-    cur.execute("DELETE FROM brigade_contract_items WHERE id=%s",(id,))
+    cur.execute("DELETE FROM brigade_contract_items WHERE id=%s RETURNING contract_id",(id,))
+    row = cur.fetchone()
+    if row:
+        recalc_brigade_contract_total(cur, row[0])
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
@@ -7083,7 +7128,7 @@ def delete_warranty_defect(id: int):
     return {"ok": True}
 
 @app.post("/unexpected-works/{id}/ai-estimate")
-def ai_estimate_unexpected_work(id: int):
+def ai_estimate_unexpected_work(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     """AI оценивает стоимость непредвиденной работы по аналогии со сметой и прайсами."""
     import openai as oa, json as j, re
     conn = get_db()
@@ -7094,6 +7139,7 @@ def ai_estimate_unexpected_work(id: int):
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="запись не найдена")
     desc, unit, qty, proj_name = row[0] or "", row[1] or "", float(row[2] or 0), row[3] or ""
+    require_project_access(current_user, proj_name)
     # Подбираем похожие позиции из смет и прайсов как контекст
     cur.execute("""SELECT name, unit, price_per_unit FROM (
                        SELECT name, unit, price as price_per_unit FROM pricelist_items WHERE LOWER(name) LIKE %s
@@ -7137,8 +7183,9 @@ def ai_estimate_unexpected_work(id: int):
     return {"ok": True, "pricePerUnit": price, "estimatedTotal": estimated_total, "justification": justification, "similar": similar_lines}
 
 @app.get("/unexpected-works/limit-check")
-def check_unexpected_limit(project_name: str):
+def check_unexpected_limit(project_name: str, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     """Проверка превышения лимита % непредвиденных работ от бюджета проекта."""
+    require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT budget FROM projects WHERE name=%s", (project_name,))
@@ -7285,9 +7332,24 @@ def get_project_payments(project_name: str = "", current_user: dict = Depends(ge
     conn = get_db()
     cur = conn.cursor()
     if project_name:
-        cur.execute("SELECT id,project_name,amount,note,date,added_by FROM project_payments WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        cur.execute("""SELECT id,project_name,amount,note,date,added_by
+                       FROM (
+                           SELECT DISTINCT ON (project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''))
+                                  id,project_name,amount,note,date,added_by
+                           FROM project_payments
+                           WHERE project_name=%s
+                           ORDER BY project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
+                       ) p
+                       ORDER BY id DESC""", (project_name,))
     else:
-        cur.execute("SELECT id,project_name,amount,note,date,added_by FROM project_payments ORDER BY id DESC")
+        cur.execute("""SELECT id,project_name,amount,note,date,added_by
+                       FROM (
+                           SELECT DISTINCT ON (project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''))
+                                  id,project_name,amount,note,date,added_by
+                           FROM project_payments
+                           ORDER BY project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
+                       ) p
+                       ORDER BY id DESC""")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"amount":float(r[2] or 0),"note":r[3] or "","date":str(r[4]) if r[4] else "","addedBy":r[5] or ""} for r in rows]
@@ -7296,8 +7358,23 @@ def get_project_payments(project_name: str = "", current_user: dict = Depends(ge
 def create_project_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    project_name = data.get("projectName","")
+    amount = data.get("amount",0)
+    note = data.get("note","")
+    pay_date = data.get("date") or None
+    added_by = data.get("addedBy") or data.get("paidBy") or ""
+    if note:
+        cur.execute("""SELECT id FROM project_payments
+                       WHERE project_name=%s AND amount=%s AND COALESCE(note,'')=%s
+                         AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
+                       ORDER BY id DESC LIMIT 1""",
+                    (project_name, amount, note, pay_date, added_by))
+        existing = cur.fetchone()
+        if existing:
+            cur.close(); conn.close()
+            return {"id": existing[0], "ok": True, "duplicate": True}
     cur.execute("INSERT INTO project_payments (project_name,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectName",""),data.get("amount",0),data.get("note",""),data.get("date") or None,data.get("addedBy") or data.get("paidBy") or ""))
+        (project_name, amount, note, pay_date, added_by))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
