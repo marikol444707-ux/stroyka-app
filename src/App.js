@@ -2658,6 +2658,14 @@ function App() {
   const workedDays = (id) => daysInMonth.filter(d=>timesheet[id+'-'+d]).length;
   const pwTotal = (id) => piecework.filter(p=>Number(p.staffId)===id).reduce((s,p)=>s+p.total,0);
   const calcSalary = (s) => s.payType==='сдельно'?pwTotal(s.id):Math.round((s.salary/31)*workedDays(s.id));
+  const projectPaymentSignedAmount = (pay) => {
+    const amount = Number(pay?.amount||0);
+    const note = String(pay?.note||'').trim().toLowerCase();
+    const outgoing = amount < 0 || note.startsWith('оплата счёта') || note.startsWith('оплата бригаде') || note.startsWith('возмещение');
+    return outgoing ? -Math.abs(amount) : Math.max(0, amount);
+  };
+  const projectPaymentInAmount = (pay) => Math.max(0, projectPaymentSignedAmount(pay));
+  const formatSignedRub = (amount) => (amount>=0?'+':'-') + Math.round(Math.abs(amount)).toLocaleString('ru-RU') + ' ₽';
   // Стоимость материалов на объекте (то что закуплено и привезено)
   const matCost = (n) => (materials||[]).filter(m=>m.project===n).reduce((s,m)=>s+Number(m.quantity||0)*Number(m.price||0),0);
   // Себестоимость работ: что должны бригадам (по priceBrigade × doneQuantity) + зарплата + сдельщина
@@ -7218,7 +7226,8 @@ function App() {
                       {isFinanceRole()&&(()=>{
                         const cat=expByCategory(p.name);
                         const total=Object.values(cat).reduce((s,v)=>s+v,0);
-                        const received=projectPayments.filter(pay=>pay.projectName===p.name).reduce((s,pay)=>s+Number(pay.amount||0),0);
+                        const projectPays=projectPayments.filter(pay=>pay.projectName===p.name);
+                        const received=projectPays.reduce((s,pay)=>s+projectPaymentInAmount(pay),0);
                         const inAccountable=accountablePayments.filter(ac=>ac.projectName===p.name).reduce((s,ac)=>s+Math.max(0,Number(ac.amount||0)-Number(ac.spentAmount||0)),0);
                         const profit=received-total-inAccountable;
                         const toReimburse=ownExpenses.filter(e=>e.projectName===p.name&&e.status==='Ожидает');
@@ -7257,12 +7266,12 @@ function App() {
                               </div>
                             </div>))}
                           </div>)}
-                          {projectPayments.filter(pay=>pay.projectName===p.name).length>0&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
-                            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📋 История оплат от заказчика</b>
-                            {projectPayments.filter(pay=>pay.projectName===p.name).map(pay=>(<div key={pay.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
+                          {projectPays.length>0&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
+                            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📋 Движение денег по объекту</b>
+                            {projectPays.map(pay=>{const signed=projectPaymentSignedAmount(pay);return(<div key={pay.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
                               <div><span style={{fontSize:'12px',color:C.text}}>{pay.note||'Оплата'}</span><span style={{fontSize:'11px',color:C.textMuted,marginLeft:'8px'}}>{pay.date}</span></div>
-                              <b style={{fontSize:'12px',color:C.success}}>+{Number(pay.amount).toLocaleString()+' ₽'}</b>
-                            </div>))}
+                              <b style={{fontSize:'12px',color:signed>=0?C.success:C.danger}}>{formatSignedRub(signed)}</b>
+                            </div>);})}
                           </div>)}
                         </div>);
                       })()}
@@ -9014,7 +9023,7 @@ function App() {
                 // Группировка ВСЕХ движений по объектам
                 const allMovesByProject={};
                 const _addToProject=(pn,m)=>{if(!pn) pn='Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn]=Object.assign(allMovesByProject[pn],m);};
-                (projectPayments||[]).forEach(p=>{const pn=p.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].incoming.push(p);allMovesByProject[pn].totalIn+=Number(p.amount||0);});
+                (projectPayments||[]).forEach(p=>{const amount=projectPaymentInAmount(p);if(amount<=0) return;const pn=p.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].incoming.push({...p,_amountIn:amount});allMovesByProject[pn].totalIn+=amount;});
                 (ownExpenses||[]).filter(e=>e.status==='Возмещено').forEach(e=>{const pn=e.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].ownExp.push(e);allMovesByProject[pn].totalOut+=Number(e.amount||0);});
                 (accountablePayments||[]).forEach(a=>{const pn=a.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].accountable.push(a);allMovesByProject[pn].totalOut+=Number(a.amount||0);});
                 (supplierInvoices||[]).forEach(s=>{const pn=s.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].supplierInv.push(s);const paid=Number(s.paidAmount||0);const total=Number(s.totalAmount||0);if(s.status==='Оплачен') allMovesByProject[pn].totalOut+=total;else{allMovesByProject[pn].totalOut+=paid;allMovesByProject[pn].supplyDebt+=Math.max(0,total-paid);}});
@@ -9049,7 +9058,7 @@ function App() {
                       </div>
                     </div>
                     {isOpen&&(<div style={{borderTop:'1px solid '+C.border,padding:'10px 14px',fontSize:'11px'}}>
-                      {g.incoming.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.success,fontWeight:'600'}}>↘️ Поступления ({g.incoming.length}) — {Math.round(g.totalIn).toLocaleString('ru-RU')} ₽</summary>{g.incoming.map((p,i)=>(<div key={i} style={{padding:'4px 10px',color:C.textSec,display:'flex',justifyContent:'space-between',borderBottom:'1px dashed '+C.border}}><span>{(p.date||'—')+(p.note?' · '+p.note:'')+(p.paidBy?' · '+p.paidBy:'')}</span><b style={{color:C.success}}>{Math.round(Number(p.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}</details>)}
+                      {g.incoming.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.success,fontWeight:'600'}}>↘️ Поступления ({g.incoming.length}) — {Math.round(g.totalIn).toLocaleString('ru-RU')} ₽</summary>{g.incoming.map((p,i)=>(<div key={i} style={{padding:'4px 10px',color:C.textSec,display:'flex',justifyContent:'space-between',borderBottom:'1px dashed '+C.border}}><span>{(p.date||'—')+(p.note?' · '+p.note:'')+(p.paidBy?' · '+p.paidBy:'')}</span><b style={{color:C.success}}>{Math.round(Number(p._amountIn||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}</details>)}
                       {g.supplierInv.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.info,fontWeight:'600'}}>📥 Счета поставщиков ({g.supplierInv.length})</summary>{g.supplierInv.map(s=>{const paid=Number(s.paidAmount||0);const total=Number(s.totalAmount||0);const owe=Math.max(0,total-paid);return(<div key={s.id} style={{padding:'4px 10px',display:'flex',justifyContent:'space-between',gap:'8px',borderBottom:'1px dashed '+C.border}}><span style={{color:C.textSec}}>{(s.supplierName||'—')+' · '+(s.invoiceNumber||'без №')+' · '+(s.date||'')}</span><span><b style={{color:C.text}}>{Math.round(total).toLocaleString('ru-RU')+' ₽'}</b>{paid>0&&<span style={{color:C.success,marginLeft:'4px'}}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}{owe>0&&<b style={{color:C.danger,marginLeft:'4px'}}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}</span></div>);})}</details>)}
                       {g.actsPaid.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.accent,fontWeight:'600'}}>📄 Акты мастеров ({g.actsPaid.length})</summary>{g.actsPaid.map(a=>{const paid=Number(a.paidAmount||0);const total=Number(a.totalAmount||0);const owe=Math.max(0,total-paid);return(<div key={a.id} style={{padding:'4px 10px',display:'flex',justifyContent:'space-between',gap:'8px',borderBottom:'1px dashed '+C.border}}><span style={{color:C.textSec}}>{'№'+a.id+' · '+(a.masterName||'—')+' · '+(a.periodStart||'')+'—'+(a.periodEnd||'')}</span><span><b style={{color:C.text}}>{Math.round(total).toLocaleString('ru-RU')+' ₽'}</b>{paid>0&&<span style={{color:C.success,marginLeft:'4px'}}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}{owe>0&&<b style={{color:C.danger,marginLeft:'4px'}}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}</span></div>);})}</details>)}
                       {g.accountable.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.warning,fontWeight:'600'}}>💵 Подотчётные ({g.accountable.length})</summary>{g.accountable.map(a=>(<div key={a.id} style={{padding:'4px 10px',color:C.textSec,display:'flex',justifyContent:'space-between',borderBottom:'1px dashed '+C.border}}><span>{(a.givenTo||'—')+' · '+(a.date||'')+(a.purpose?' · '+a.purpose:'')}</span><b style={{color:C.warning}}>{Math.round(Number(a.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}</details>)}
