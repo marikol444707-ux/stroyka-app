@@ -1096,6 +1096,12 @@ def init_db():
             checked_at VARCHAR(50),
             order_num INT DEFAULT 0
         );
+        ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS checklist_id INT;
+        ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+        ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS checked BOOLEAN DEFAULT FALSE;
+        ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS checked_by VARCHAR(255);
+        ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS checked_at VARCHAR(50);
+        ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS order_num INT DEFAULT 0;
         CREATE TABLE IF NOT EXISTS company_requisites (
             id SERIAL PRIMARY KEY,
             full_name VARCHAR(255),
