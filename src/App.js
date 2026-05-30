@@ -2153,7 +2153,7 @@ function App() {
   const projectRealProgress = (p) => {
     if(!p) return 0;
     const {plan,done}=projectPlanDone(p);
-    if(plan>0) return Math.round(done/plan*100);
+    if(plan>0) { const pct=done/plan*100; return done>0&&pct<1?1:Math.round(pct); }
     // Если нет сметы, считаем по бюджету и фактическим тратам
     const budget=Number(p.budget||0);
     if(budget>0){ const fact=projectFactSpent(p).total; return Math.min(100,Math.round(fact/budget*100)); }
@@ -6422,15 +6422,16 @@ function App() {
                               const pBrigades=brigadeContracts.filter(bc=>bc.projectName===p.name);
                               if(!pBrigades.length) return '0%';
                               const totalSmeta=pBrigades.reduce((s,bc)=>s+Number(bc.totalAmount||0),0);
-                              return totalSmeta>0?'расчёт...':'0%';
+                              const totalDone=pBrigades.reduce((s,bc)=>s+Number(bc.doneAmount||0),0);
+                              return totalSmeta>0?Math.min(100,Math.round(totalDone/totalSmeta*100))+'%':'0%';
                             })()}</span>
                           </div>
                           <div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'10px'}}>
-                            <div style={{backgroundColor:C.success,width:'0%',height:'100%',borderRadius:'6px'}}/>
+                            <div style={{backgroundColor:C.success,width:(()=>{const pBrigades=brigadeContracts.filter(bc=>bc.projectName===p.name);const totalSmeta=pBrigades.reduce((s,bc)=>s+Number(bc.totalAmount||0),0);const totalDone=pBrigades.reduce((s,bc)=>s+Number(bc.doneAmount||0),0);return Math.min(100,totalSmeta>0?Math.round(totalDone/totalSmeta*100):0)+'%';})(),height:'100%',borderRadius:'6px'}}/>
                           </div>
                         </div>
                         <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'10px'}}>
-                          <div style={{backgroundColor:C.successLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смета заказчика</p><b style={{color:C.success,fontSize:'14px'}}>{Math.round(estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(e.smetaType==='Заказчик'||!e.smetaType)).reduce((s,e)=>(e.sections||[]).flatMap(sec=>sec.items||[]).reduce((ss,i)=>ss+estimateItemTotal(i),s),0)).toLocaleString('ru-RU')+' ₽'}</b></div>
+                          <div style={{backgroundColor:C.successLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смета заказчика</p><b style={{color:C.success,fontSize:'14px'}}>{Math.round(projectPlanDone(p).plan).toLocaleString('ru-RU')+' ₽'}</b></div>
                           <div style={{backgroundColor:C.warningLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.warningBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Подрядчикам</p><b style={{color:C.warning,fontSize:'14px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+Number(bc.totalAmount||0),0).toLocaleString()+' ₽'}</b></div>
                         </div>
                       </div>
