@@ -17,6 +17,16 @@ if (typeof window !== 'undefined' && !window.__stroykaAuthFetchInstalled) {
 }
 // Парсинг чисел с поддержкой запятой как разделителя (русская локаль): "0,027" → 0.027
 const toNum = (v) => { if(v===null||v===undefined||v==='') return 0; const s=String(v).replace(',', '.').replace(/\s+/g,''); const n=Number(s); return isNaN(n)?0:n; };
+const estimateItemWorkSum = (it) => toNum(it?.quantity) * toNum(it?.priceWork);
+const estimateItemMaterialSum = (it) => (it?.isImported ? toNum(it?.priceMaterial) : toNum(it?.quantity) * toNum(it?.priceMaterial));
+const estimateItemTotal = (it) => estimateItemWorkSum(it) + estimateItemMaterialSum(it);
+const estimateItemDoneTotal = (it) => {
+  const q = toNum(it?.quantity);
+  const d = toNum(it?.doneQuantity);
+  const work = d * toNum(it?.priceWork);
+  const material = it?.isImported ? (q > 0 ? (d / q) * toNum(it?.priceMaterial) : 0) : d * toNum(it?.priceMaterial);
+  return work + material;
+};
 // Нормализация ГЭСН-единиц: «100 м²» × 0.23 → «м²» × 23, «1000 шт» × 0.5 → «шт» × 500.
 // Это для УДОБНОГО показа мастеру/прорабу/заказчику. В БД хранится исходник.
 const normalizeMeasure = (qty, unit) => {
@@ -2108,7 +2118,7 @@ function App() {
   // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
   const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
   const _estimateForProject = (p) => estimatesList.find(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(!e.smetaType||e.smetaType==='Заказчик'))||estimatesList.find(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id));
-  const projectPlanDone = (p) => { const est=_estimateForProject(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ const q=Number(it.quantity||0), dq=Number(it.doneQuantity||0), pr=Number(it.priceWork||0)+Number(it.priceMaterial||0); pl+=q*pr; dn+=dq*pr; })); return {plan:pl,done:dn}; };
+  const projectPlanDone = (p) => { const est=_estimateForProject(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ pl+=estimateItemTotal(it); dn+=estimateItemDoneTotal(it); })); return {plan:pl,done:dn}; };
   // Выполненные позиции сметы для КС-2/КС-3 — по цене ЗАКАЗЧИКУ (priceWork+priceMaterial).
   // Смета — единый источник: берём позиции с doneQuantity>0 напрямую из сметы объекта.
   const ks2ItemsFromEstimate = (p) => {
@@ -2116,8 +2126,9 @@ function App() {
     const rows=[];
     _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
       const dq=Number(it.doneQuantity||0); if(dq<=0) return;
-      const price=Number(it.priceWork||0)+Number(it.priceMaterial||0);
-      rows.push({section:s.name||'', description:it.name||'', unit:it.unit||'', quantity:dq, pricePerUnit:price, total:Math.round(dq*price)});
+      const total=estimateItemDoneTotal(it);
+      const price=dq>0 ? total/dq : 0;
+      rows.push({section:s.name||'', description:it.name||'', unit:it.unit||'', quantity:dq, pricePerUnit:price, total:Math.round(total)});
     }));
     return rows;
   };
@@ -2446,7 +2457,7 @@ function App() {
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
     const items={};
-    if (est) _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if((it.itemType||'')==='material'||Number(it.priceMaterial||0)>0){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:it.name,unit:it.unit||'',planQty:0,planSum:0,sections:[]};items[k].planQty+=Number(it.quantity||0);items[k].planSum+=Number(it.quantity||0)*Number(it.priceMaterial||0);if(!items[k].sections.includes(s.name||''))items[k].sections.push(s.name||'');}}));
+    if (est) _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if((it.itemType||'')==='material'||Number(it.priceMaterial||0)>0){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:it.name,unit:it.unit||'',planQty:0,planSum:0,sections:[]};items[k].planQty+=Number(it.quantity||0);items[k].planSum+=estimateItemMaterialSum(it);if(!items[k].sections.includes(s.name||''))items[k].sections.push(s.name||'');}}));
     // Уже принято/выдано
     (materialTransfers||[]).filter(t=>t.projectName===projectName).forEach(t=>{const k=(t.materialName||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:t.materialName,unit:t.unit||'',planQty:0,planSum:0,sections:[]};items[k].issued=(items[k].issued||0)+Number(t.quantity||0);});
     (invoices||[]).filter(inv=>inv.project===projectName).forEach(inv=>{(inv.items||[]).forEach(invIt=>{const k=(invIt.name||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:invIt.name,unit:invIt.unit||'',planQty:0,planSum:0,sections:[]};items[k].received=(items[k].received||0)+Number(invIt.quantity||0);});});
@@ -3903,7 +3914,7 @@ function App() {
                         setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
                         await persistEstimate(updated);
                       }} style={{...inp,marginBottom:0,width:'80px',fontSize:'12px',padding:'4px 6px'}}/>
-                      <span style={{fontSize:'11px',color:C.success,fontWeight:'600',whiteSpace:'nowrap'}}>{(done*(Number(mi.priceWork||0)+Number(mi.priceMaterial||0))).toLocaleString('ru-RU')+' ₽'}</span>
+                      <span style={{fontSize:'11px',color:C.success,fontWeight:'600',whiteSpace:'nowrap'}}>{Math.round(estimateItemDoneTotal(mi)).toLocaleString('ru-RU')+' ₽'}</span>
                     </div>
                   </div>);})}
                 </div>);
@@ -5384,7 +5395,7 @@ function App() {
                       <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>По смете</p><b style={{color:C.text,fontSize:'14px'}}>{Math.round(pd.plan).toLocaleString('ru-RU')+' ₽'}</b></div>
                       <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px'}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Выполнено</p><b style={{color:C.success,fontSize:'14px'}}>{Math.round(pd.done).toLocaleString('ru-RU')+' ₽'}</b></div>
                     </div>
-                    <button onClick={()=>{const sections=_sectionsOfEst(est);let html='<h2>Смета: '+est.name+'</h2><p>Объект: '+myProject.name+'</p><table><tr><th>Раздел</th><th>Работа</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';sections.forEach(s=>(s.items||[]).forEach(it=>{const price=Number(it.priceWork||0)+Number(it.priceMaterial||0);html+='<tr><td>'+(s.name||'')+'</td><td>'+(it.name||'')+'</td><td>'+(it.unit||'')+'</td><td>'+(it.quantity||0)+'</td><td>'+price.toLocaleString('ru-RU')+'</td><td>'+Math.round(Number(it.quantity||0)*price).toLocaleString('ru-RU')+'</td></tr>';}));html+='<tr><td colspan=5><b>ИТОГО:</b></td><td><b>'+Math.round(pd.plan).toLocaleString('ru-RU')+' ₽</b></td></tr></table>';showPreview(html,'Смета — '+est.name);}} style={btnB}><Eye size={14}/>📄 Посмотреть смету</button>
+                    <button onClick={()=>{const sections=_sectionsOfEst(est);let html='<h2>Смета: '+est.name+'</h2><p>Объект: '+myProject.name+'</p><table><tr><th>Раздел</th><th>Работа</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>';sections.forEach(s=>(s.items||[]).forEach(it=>{html+='<tr><td>'+(s.name||'')+'</td><td>'+(it.name||'')+'</td><td>'+(it.unit||'')+'</td><td>'+(it.quantity||0)+'</td><td>'+Number(it.priceWork||0).toLocaleString('ru-RU')+'</td><td>'+Math.round(estimateItemMaterialSum(it)).toLocaleString('ru-RU')+'</td><td>'+Math.round(estimateItemTotal(it)).toLocaleString('ru-RU')+'</td></tr>';}));html+='<tr><td colspan=6><b>ИТОГО:</b></td><td><b>'+Math.round(pd.plan).toLocaleString('ru-RU')+' ₽</b></td></tr></table>';showPreview(html,'Смета — '+est.name);}} style={btnB}><Eye size={14}/>📄 Посмотреть смету</button>
                   </div>);
                 })()}
               </div>
@@ -6419,7 +6430,7 @@ function App() {
                           </div>
                         </div>
                         <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'10px'}}>
-                          <div style={{backgroundColor:C.successLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смета заказчика</p><b style={{color:C.success,fontSize:'14px'}}>{estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(e.smetaType==='Заказчик'||!e.smetaType)).reduce((s,e)=>(e.sections||[]).flatMap(sec=>sec.items||[]).reduce((ss,i)=>ss+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*Number(i.priceWork||0)),s),0).toLocaleString()+' ₽'}</b></div>
+                          <div style={{backgroundColor:C.successLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смета заказчика</p><b style={{color:C.success,fontSize:'14px'}}>{Math.round(estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&(e.smetaType==='Заказчик'||!e.smetaType)).reduce((s,e)=>(e.sections||[]).flatMap(sec=>sec.items||[]).reduce((ss,i)=>ss+estimateItemTotal(i),s),0)).toLocaleString('ru-RU')+' ₽'}</b></div>
                           <div style={{backgroundColor:C.warningLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.warningBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Подрядчикам</p><b style={{color:C.warning,fontSize:'14px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+Number(bc.totalAmount||0),0).toLocaleString()+' ₽'}</b></div>
                         </div>
                       </div>
@@ -6472,7 +6483,7 @@ function App() {
                         const fmt=(n)=>Number(n||0).toLocaleString('ru-RU');
                         const payload={
                           project:p.name,
-                          total:smetaItems.reduce((s,i)=>s+Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0)),0),
+                          total:smetaItems.reduce((s,i)=>s+estimateItemTotal(i),0),
                           workProgress:workProgress.filter(w=>w.plan>0),
                           materials:matPlan,
                           stock:projMaterials.map(m=>({name:m.name,qty:Number(m.quantity||0),unit:m.unit})),
@@ -6977,7 +6988,7 @@ function App() {
                       {unexpectedWorksList.filter(u=>u.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Непредвиденных работ нет</p>}
                   </div>)}
 
-                    {activeProjectTab==='Расчёт с бригадой'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}><b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Расчёт с бригадой</b><button onClick={()=>setShowBrigadeForm(!showBrigadeForm)} style={btnO}><Plus size={14}/>Новая бригада</button></div>{(()=>{const projBCs=brigadeContracts.filter(bc=>bc.projectName===p.name);const allBrigItemsSum=projBCs.reduce((s,bc)=>s+Number(bc.totalAmount||0),0);const projEst=_estimateForProject(p);const smetaTotal=projEst?_sectionsOfEst(projEst).reduce((s,sec)=>s+(sec.items||[]).reduce((sm,it)=>sm+Number(it.quantity||0)*(Number(it.priceWork||0)+Number(it.priceMaterial||0)),0),0):0;if(projBCs.length===0||smetaTotal===0) return null;const pct=Math.round(allBrigItemsSum/smetaTotal*100);const over=allBrigItemsSum>smetaTotal;return(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:over?C.dangerLight:pct>85?C.warningLight:C.successLight,border:'1.5px solid '+(over?C.dangerBorder:pct>85?C.warningBorder:C.successBorder)}}>
+                    {activeProjectTab==='Расчёт с бригадой'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}><b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Расчёт с бригадой</b><button onClick={()=>setShowBrigadeForm(!showBrigadeForm)} style={btnO}><Plus size={14}/>Новая бригада</button></div>{(()=>{const projBCs=brigadeContracts.filter(bc=>bc.projectName===p.name);const allBrigItemsSum=projBCs.reduce((s,bc)=>s+Number(bc.totalAmount||0),0);const projEst=_estimateForProject(p);const smetaTotal=projEst?_sectionsOfEst(projEst).reduce((s,sec)=>s+(sec.items||[]).reduce((sm,it)=>sm+estimateItemTotal(it),0),0):0;if(projBCs.length===0||smetaTotal===0) return null;const pct=Math.round(allBrigItemsSum/smetaTotal*100);const over=allBrigItemsSum>smetaTotal;return(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:over?C.dangerLight:pct>85?C.warningLight:C.successLight,border:'1.5px solid '+(over?C.dangerBorder:pct>85?C.warningBorder:C.successBorder)}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
                         <div>
                           <b style={{color:C.text,fontSize:'13px'}}>📊 Сумма работ бригадам vs смета: {pct}%</b>
@@ -9898,7 +9909,7 @@ function App() {
                     <div style={{maxHeight:'400px',overflowY:'auto'}}>{results.slice(0,200).map((r,i)=>(<div key={i} onClick={()=>{setSelectedEstimate(r.estimate);setEstimateSearch('');setTimeout(()=>{const el=document.querySelector('[data-estitem="'+(r.item.id||r.item.name)+'"]');if(el) el.scrollIntoView({behavior:'smooth',block:'center'});},300);}} style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,cursor:'pointer'}}>
                       <b style={{fontSize:'13px',color:C.text,display:'block'}}>{r.item.name}</b>
                       <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px'}}>{'📋 '+r.estimate.name+' · '+(r.estimate.projectName||'—')+' · 📂 '+r.section.name}</p>
-                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{fmtMeasure(r.item.quantity,r.item.unit)+(r.item.priceWork?' · 💰 '+Math.round((Number(r.item.priceWork||0)+Number(r.item.priceMaterial||0))).toLocaleString('ru-RU')+' ₽':'')}</p>
+                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{fmtMeasure(r.item.quantity,r.item.unit)+' · 💰 '+Math.round(estimateItemTotal(r.item)).toLocaleString('ru-RU')+' ₽'}</p>
                     </div>))}{results.length>200&&<p style={{color:C.textMuted,fontSize:'11px',textAlign:'center',padding:'8px'}}>Показано первые 200 результатов. Уточните запрос.</p>}</div>}
                 </div>);
               })()}
@@ -9939,8 +9950,8 @@ function App() {
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center'}}>
                   <button onClick={()=>setSelectedEstimate(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
                   <b style={{color:C.text,fontSize:'15px'}}>{selectedEstimate.name}</b>
-                  <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Цена мат.</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="7"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Number(it.priceMaterial||0).toLocaleString()}</td><td>${(Number(it.quantity||0)*(Number(it.priceWork||0)+Number(it.priceMaterial||0))).toLocaleString()}</td></tr>`)]).join('')+'<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+total.toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
-                  <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
+                  <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="7"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`)]).join('')+'<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
+                  <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
                   <button onClick={async()=>{
                     const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/toggle-template',{method:'PUT'});
                     const data=await res.json();
@@ -10090,7 +10101,7 @@ function App() {
                 </div>
                 {(selectedEstimate.sections||[]).map((section,si)=>{
                   const itemKind=(it)=>it.itemType||(Number(it.priceMaterial||0)>0&&Number(it.priceWork||0)===0?'material':'work');
-                  const sumOf=(it)=>it.isImported?Number(it.priceWork||0)+Number(it.priceMaterial||0):Number(it.quantity||0)*(Number(it.priceWork||0)+Number(it.priceMaterial||0));
+                  const sumOf=(it)=>estimateItemTotal(it);
                   const allItems=section.items||[];
                   const works=allItems.map((i,idx)=>({...i,_idx:idx})).filter(i=>itemKind(i)==='work');
                   const mats=allItems.map((i,idx)=>({...i,_idx:idx})).filter(i=>itemKind(i)==='material');
@@ -10152,11 +10163,11 @@ function App() {
                 <div style={{...card,padding:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                     <b style={{color:C.text,fontSize:'14px'}}>ИТОГО по смете:</b>
-                    <b style={{color:C.accent,fontSize:'18px'}}>{(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0).toLocaleString()+' ₽'}</b>
+                    <b style={{color:C.accent,fontSize:'18px'}}>{Math.round((selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0)).toLocaleString('ru-RU')+' ₽'}</b>
                   </div>
                 </div>
               </div>):(<div>
-                {estimatesList.map(est=>(<div key={est.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{flex:1,cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(est.projectName||'')+(est.version?' · v'+est.version:'')+(est.smetaType?' · '+est.smetaType:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{color:C.success,fontSize:'13px'}}>{(est.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0).toLocaleString()+' ₽'}</b><ChevronRight size={16} color={C.textMuted} style={{cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div></div>))}
+                {estimatesList.map(est=>(<div key={est.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div style={{flex:1,cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(est.projectName||'')+(est.version?' · v'+est.version:'')+(est.smetaType?' · '+est.smetaType:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round((est.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0)).toLocaleString('ru-RU')+' ₽'}</b><ChevronRight size={16} color={C.textMuted} style={{cursor:'pointer'}} onClick={()=>setSelectedEstimate(est)}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div></div>))}
                 {estimatesList.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Calculator size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Смет нет — создайте первую!</p></div>}
               </div>)}
             </div>)}
@@ -11071,8 +11082,8 @@ function App() {
           {selectedVersionsToCompare.length===2&&(<button onClick={async()=>{
             const [aId,bId]=selectedVersionsToCompare;
             const [a,b]=await Promise.all([fetch(API+'/estimate-version/'+aId).then(r=>r.json()),fetch(API+'/estimate-version/'+bId).then(r=>r.json())]);
-            const totalOf=(secs)=>secs.flatMap(s=>s.items||[]).reduce((sum,i)=>sum+(i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))),0);
-            const flatten=(secs)=>secs.flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:Number(i.quantity||0),work:Number(i.priceWork||0),mat:Number(i.priceMaterial||0),sum:i.isImported?Number(i.priceWork||0):Number(i.quantity||0)*(Number(i.priceWork||0)+Number(i.priceMaterial||0))})));
+            const totalOf=(secs)=>secs.flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);
+            const flatten=(secs)=>secs.flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:Number(i.quantity||0),work:Number(i.priceWork||0),mat:Number(i.priceMaterial||0),sum:estimateItemTotal(i)})));
             const payload={a:{label:a.versionLabel,total:totalOf(a.sections||[]),items:flatten(a.sections||[])},b:{label:b.versionLabel,total:totalOf(b.sections||[]),items:flatten(b.sections||[])}};
             const prompt='Сравни две версии сметы. Версия A (старая) и B (новая). Данные:\n'+JSON.stringify(payload,null,1)+'\n\nОТВЕТЬ СТРОГО JSON:\n{"summary":"одной фразой что произошло (стало дороже/дешевле и насколько)","changes":[{"what":"конкретная позиция или раздел","kind":"добавлена|удалена|объём|цена","detail":"что изменилось","impact":число_в_рублях}]}\nИспользуй только данные.';
             setShowVersionHistory(false);
