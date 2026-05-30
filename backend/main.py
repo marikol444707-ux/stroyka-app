@@ -5375,7 +5375,7 @@ def get_brigade_contracts(project_name: str = None, _current_user: dict = Depend
     base = ("SELECT bc.id,bc.project_id,bc.project_name,bc.brigade_name,bc.contractor_type,bc.contractor_id,"
             "bc.total_amount,bc.status,bc.signed_at,bc.notes,bc.created_at,bc.pricelist_id,"
             "COALESCE((SELECT SUM(COALESCE(bci.quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS plan_amount,"
-            "COALESCE((SELECT SUM(CASE WHEN COALESCE(bci.quantity,0)>0 THEN COALESCE(bci.done_quantity,0)*COALESCE(bci.price_brigade,0) ELSE 0 END) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
+            "COALESCE((SELECT SUM(CASE WHEN COALESCE(bci.quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(bci.done_quantity,0), COALESCE(bci.quantity,0))) * COALESCE(bci.price_brigade,0) ELSE 0 END) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
             "COALESCE((SELECT SUM(COALESCE(bp.amount,0)) FROM brigade_payments bp WHERE bp.contract_id=bc.id),0) AS paid_amount,"
             "bc.act_scan_url "
             "FROM brigade_contracts bc")
@@ -5773,9 +5773,9 @@ def list_all_brigade_contract_items(project_name: str = None, _current_user: dic
     return [{"id":r[0],"contractId":r[1],"name":r[2] or "","unit":r[3] or "",
              "quantity":float(r[4] or 0),"priceSmeta":float(r[5] or 0),
              "priceBrigade":float(r[6] or 0),
-             "doneQuantity":float(r[7] or 0) if float(r[4] or 0) > 0 else 0,
+             "doneQuantity":max(0, min(float(r[7] or 0), float(r[4] or 0))) if float(r[4] or 0) > 0 else 0,
              "rawDoneQuantity":float(r[7] or 0),
-             "hasInvalidDoneQuantity":float(r[4] or 0) <= 0 and float(r[7] or 0) > 0,
+             "hasInvalidDoneQuantity":(float(r[4] or 0) <= 0 and float(r[7] or 0) > 0) or float(r[7] or 0) < 0 or (float(r[4] or 0) > 0 and float(r[7] or 0) > float(r[4] or 0)),
              "estimateSection":r[8] or "","projectName":r[9] or ""} for r in rows]
 
 @app.post("/estimates/{estimate_id}/distribute")
@@ -5940,8 +5940,12 @@ def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(r
             q = float(q or 0); done = float(done or 0)
         except Exception:
             return "Не начато"
+        if done < 0:
+            return "Ошибка объёма"
         if q <= 0 and done > 0:
             return "Нет плана"
+        if q > 0 and done > q:
+            return "Сверх плана"
         if q > 0 and done >= q:
             return "Выполнено"
         if done > 0:
@@ -5949,9 +5953,9 @@ def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(r
         return "Не начато"
     return [{"id":r[0],"contractId":r[1],"estimateSection":r[2],"name":r[3],"unit":r[4],
              "quantity":float(r[5] or 0),"priceSmeta":float(r[6] or 0),"priceBrigade":float(r[7] or 0),
-             "doneQuantity":float(r[8] or 0) if float(r[5] or 0) > 0 else 0,
+             "doneQuantity":max(0, min(float(r[8] or 0), float(r[5] or 0))) if float(r[5] or 0) > 0 else 0,
              "rawDoneQuantity":float(r[8] or 0),
-             "hasInvalidDoneQuantity":float(r[5] or 0) <= 0 and float(r[8] or 0) > 0,
+             "hasInvalidDoneQuantity":(float(r[5] or 0) <= 0 and float(r[8] or 0) > 0) or float(r[8] or 0) < 0 or (float(r[5] or 0) > 0 and float(r[8] or 0) > float(r[5] or 0)),
              "status":_status(r[5], r[8])} for r in rows]
 
 @app.post("/brigade-contract-items")
