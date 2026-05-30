@@ -218,11 +218,12 @@ def hidden_work_all_signed(signed_customer="", signed_supervisor="", signed_cont
     ))
 
 def hidden_work_effective_status(status="", signed_customer="", signed_supervisor="", signed_contractor="", signed_subcontractor="") -> str:
+    manual_status = (status or "").strip()
+    if manual_status:
+        return manual_status
     if hidden_work_all_signed(signed_customer, signed_supervisor, signed_contractor, signed_subcontractor):
         return "Подписан"
-    if (status or "").strip() == "Подписан":
-        return "На подписи"
-    return status or "Черновик"
+    return "Черновик"
 
 def require_row_project_access(cur, table: str, row_id: int, user: dict, project_column: str = "project_name"):
     cur.execute(f"SELECT {project_column} FROM {table} WHERE id=%s", (row_id,))
@@ -1572,15 +1573,6 @@ def init_db():
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_at DATE;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255);
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_note TEXT;
-        UPDATE hidden_works_acts
-           SET status='На подписи'
-         WHERE status='Подписан'
-           AND (
-                NULLIF(BTRIM(COALESCE(signed_customer,'')), '') IS NULL OR
-                NULLIF(BTRIM(COALESCE(signed_supervisor,'')), '') IS NULL OR
-                NULLIF(BTRIM(COALESCE(signed_contractor,'')), '') IS NULL OR
-                NULLIF(BTRIM(COALESCE(signed_subcontractor,'')), '') IS NULL
-           );
         CREATE TABLE IF NOT EXISTS staff_documents (
             id SERIAL PRIMARY KEY,
             staff_id INT NOT NULL,
@@ -9097,7 +9089,7 @@ def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depen
                              change_reason="PUT /hidden-works-acts/"+str(act_id))
     except Exception as e:
         print("VERSION snapshot skipped:", str(e))
-    # Статус «Подписан» возможен только когда заполнены все 4 подписи.
+    # Подписи помогают контролю, но не являются обязательным стоп-краном.
     sc = data.get("signedCustomer","").strip()
     ss = data.get("signedSupervisor","").strip()
     sk = data.get("signedContractor","").strip()
@@ -9130,17 +9122,15 @@ def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(
     """Отметить АОСР как оплаченный + создать запись в project_payments."""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT project_name, act_number, total, status,
-                          signed_customer, signed_supervisor, signed_contractor, signed_subcontractor
-                   FROM hidden_works_acts WHERE id=%s""", (act_id,))
+    cur.execute("SELECT project_name, act_number, total, status FROM hidden_works_acts WHERE id=%s", (act_id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="акт не найден")
     proj, act_no, default_total, act_status = row[0] or "", row[1] or "", float(row[2] or 0), row[3] or ""
-    if hidden_work_effective_status(act_status, row[4], row[5], row[6], row[7]) != "Подписан":
+    if act_status != "Подписан":
         cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Оплата невозможна — акт не подписан всеми сторонами")
+        raise HTTPException(status_code=400, detail="Оплата невозможна — акт не переведён в статус «Подписан»")
     amount = float(data.get("amount") or default_total)
     paid_by = (data.get("paidBy") or "").strip()
     paid_note = (data.get("paidNote") or "Оплата по АОСР " + act_no).strip()

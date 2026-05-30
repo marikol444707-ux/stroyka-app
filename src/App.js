@@ -5779,7 +5779,7 @@ function App() {
                   <input value={act[s.f]||''} onChange={e=>upd(s.f,e.target.value)} placeholder='ФИО, должность, организация' style={{...inp,marginBottom:0}}/>
                   <input type='date' value={act[s.d]||''} onChange={e=>upd(s.d,e.target.value)} style={{...inp,marginBottom:0}}/>
                 </div>))}
-                <p style={{fontSize:'11px',color:C.textMuted,margin:'8px 0 0',lineHeight:1.4}}>Когда все 4 ФИО заполнены — статус акта автоматически станет «Подписан» при сохранении.</p>
+                <p style={{fontSize:'11px',color:C.textMuted,margin:'8px 0 0',lineHeight:1.4}}>Подписи можно заполнить для контроля. Если стороны подписали акт вне системы, переведите статус в «Подписан» вручную.</p>
               </div>
               <div style={sectionStyle}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
