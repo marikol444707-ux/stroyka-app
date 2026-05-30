@@ -6199,6 +6199,15 @@ def delete_brigade_contract(id: int, _current_user: dict = Depends(require_roles
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "brigade_contracts", id, _current_user)
+    cur.execute("""DELETE FROM project_payments pp
+                   USING brigade_payments bp, brigade_contracts bc
+                   WHERE bp.contract_id=bc.id
+                     AND bc.id=%s
+                     AND pp.project_name=bc.project_name
+                     AND pp.amount=bp.amount
+                     AND COALESCE(pp.note,'')='Оплата бригаде ' || COALESCE(bc.brigade_name,'')
+                     AND pp.date IS NOT DISTINCT FROM bp.paid_date
+                     AND COALESCE(pp.added_by,'')=COALESCE(bp.paid_by,'')""", (id,))
     cur.execute("DELETE FROM brigade_payments WHERE contract_id=%s", (id,))
     cur.execute("DELETE FROM brigade_contract_items WHERE contract_id=%s", (id,))
     cur.execute("DELETE FROM brigade_contracts WHERE id=%s",(id,))
