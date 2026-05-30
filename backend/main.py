@@ -3774,32 +3774,98 @@ def _create_delivery_quality_records(cur, delivery):
     name = (delivery.get('material_name') or '').strip()
     if not name:
         return
+    delivery_id = delivery.get('id')
     project = delivery.get('project') or ''
     supplier = delivery.get('supplier_name') or ''
     qty = _float_or_zero(delivery.get('received_quantity'))
     unit = delivery.get('unit') or 'шт'
     received_at = delivery.get('received_at') or __import__("datetime").date.today()
-    try:
-        cur.execute("""INSERT INTO material_inspection_journal
-                       (project_name, delivery_id, material_name, unit, quantity, supplier,
-                        received_at, visual_inspection_result, remarks, inspected)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (project, delivery.get('id'), name, unit, qty, supplier, received_at,
-                     delivery.get('quality_status') or 'Принято',
-                     delivery.get('quality_notes') or '', True))
-    except Exception as e:
-        print("DELIVERY INSPECTION INSERT ERROR:", str(e))
+    has_inspection = False
+    if delivery_id:
+        try:
+            cur.execute("SELECT id FROM material_inspection_journal WHERE delivery_id=%s LIMIT 1", (delivery_id,))
+            has_inspection = bool(cur.fetchone())
+        except Exception as e:
+            print("DELIVERY INSPECTION CHECK ERROR:", str(e))
+    if not has_inspection:
+        try:
+            cur.execute("""INSERT INTO material_inspection_journal
+                           (project_name, delivery_id, material_name, unit, quantity, supplier,
+                            received_at, visual_inspection_result, remarks, inspected)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (project, delivery_id, name, unit, qty, supplier, received_at,
+                         delivery.get('quality_status') or 'Принято',
+                         delivery.get('quality_notes') or '', True))
+        except Exception as e:
+            print("DELIVERY INSPECTION INSERT ERROR:", str(e))
     cable_info = _detect_cable_info(name)
     if cable_info["isCable"]:
+        has_cable = False
+        if delivery_id:
+            try:
+                cur.execute("SELECT id FROM cable_journal WHERE delivery_id=%s LIMIT 1", (delivery_id,))
+                has_cable = bool(cur.fetchone())
+            except Exception as e:
+                print("DELIVERY CABLE CHECK ERROR:", str(e))
+        if not has_cable:
+            try:
+                cur.execute("""INSERT INTO cable_journal
+                               (project_name, delivery_id, cable_brand, cable_type, cross_section, cores_count,
+                                length_received, supplier, received_at)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (project, delivery_id, name, cable_info["cableType"],
+                             cable_info["section"], cable_info["cores"], qty, supplier, received_at))
+            except Exception as e:
+                print("DELIVERY CABLE INSERT ERROR:", str(e))
+
+def _create_supply_delivery_history(cur, delivery, status=None, received_qty=None, confirmed_by=None):
+    delivery_id = delivery.get('id')
+    request_id = delivery.get('request_id')
+    received_qty = _float_or_zero(received_qty if received_qty is not None else delivery.get('received_quantity'))
+    status = status or delivery.get('status') or 'Принято'
+    confirmed_by = confirmed_by if confirmed_by is not None else (delivery.get('received_by') or '')
+    try:
+        cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT")
+        cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT")
+    except Exception as e:
+        print("SUPPLY HISTORY MIGRATION ERROR:", str(e))
+    if delivery_id:
         try:
-            cur.execute("""INSERT INTO cable_journal
-                           (project_name, delivery_id, cable_brand, cable_type, cross_section, cores_count,
-                            length_received, supplier, received_at)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (project, delivery.get('id'), name, cable_info["cableType"],
-                         cable_info["section"], cable_info["cores"], qty, supplier, received_at))
+            cur.execute("SELECT id FROM supply_history WHERE delivery_id=%s LIMIT 1", (delivery_id,))
+            existing = cur.fetchone()
+            if existing:
+                cur.execute("""UPDATE supply_history SET quantity=%s, status=%s, confirmed_by=%s
+                               WHERE id=%s""",
+                            (received_qty, status, confirmed_by,
+                             existing['id'] if isinstance(existing, dict) else existing[0]))
+                return
         except Exception as e:
-            print("DELIVERY CABLE INSERT ERROR:", str(e))
+            print("SUPPLY HISTORY CHECK ERROR:", str(e))
+    try:
+        cur.execute("""INSERT INTO supply_history
+                       (supplier_id, material_name, quantity, unit, price_per_unit, total_price,
+                        project, date, status, confirmed_by, request_id, delivery_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (delivery.get('supplier_id'), delivery.get('material_name'), received_qty, delivery.get('unit'),
+                     _float_or_zero(delivery.get('price_per_unit')),
+                     _float_or_zero(delivery.get('price_per_unit')) * received_qty,
+                     delivery.get('project'), (delivery.get('received_at') or __import__("datetime").date.today()).date().isoformat()
+                     if hasattr(delivery.get('received_at'), 'date') else (delivery.get('received_at') or __import__("datetime").date.today().isoformat()),
+                     status, confirmed_by, request_id, delivery_id))
+    except Exception as e:
+        print("SUPPLY HISTORY LINKED INSERT ERROR:", str(e))
+        try:
+            cur.execute("""INSERT INTO supply_history
+                           (supplier_id, material_name, quantity, unit, price_per_unit, total_price,
+                            project, date, status, confirmed_by)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (delivery.get('supplier_id'), delivery.get('material_name'), received_qty, delivery.get('unit'),
+                         _float_or_zero(delivery.get('price_per_unit')),
+                         _float_or_zero(delivery.get('price_per_unit')) * received_qty,
+                         delivery.get('project'), __import__("datetime").date.today().isoformat(),
+                         status, confirmed_by))
+        except Exception as legacy_error:
+            print("SUPPLY HISTORY LEGACY INSERT ERROR:", str(legacy_error))
 
 @app.get("/supply-deliveries")
 def list_supply_deliveries(current_user: dict = Depends(get_current_user)):
@@ -3933,8 +3999,12 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Поставка не найдена")
     if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
+        _create_delivery_quality_records(cur, delivery)
+        _create_supply_delivery_history(cur, delivery)
+        cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
+        row = cur.fetchone()
         cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Поставка уже принята. Повторная приёмка запрещена, чтобы не задвоить склад.")
+        return {"ok": True, "delivery": dict(row), "claimId": delivery.get('claim_id'), "alreadyReceived": True}
     received_qty = _float_or_zero(data.get('receivedQuantity'))
     planned_qty = _float_or_zero(delivery['planned_quantity'])
     shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
@@ -3978,14 +4048,7 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
     cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (status, delivery['offer_id']))
     cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s",
                 ('Поставлено' if status == 'Принято' else 'Проблема поставки', delivery['request_id']))
-    cur.execute("""INSERT INTO supply_history
-                   (supplier_id, material_name, quantity, unit, price_per_unit, total_price,
-                    project, date, status, confirmed_by, request_id, delivery_id)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (delivery['supplier_id'], delivery['material_name'], received_qty, delivery['unit'],
-                 _float_or_zero(delivery['price_per_unit']), _float_or_zero(delivery['price_per_unit']) * received_qty,
-                 delivery['project'], received_at.date().isoformat(), status, data.get('receivedBy') or '',
-                 delivery['request_id'], id))
+    _create_supply_delivery_history(cur, updated, status, received_qty, data.get('receivedBy') or '')
     cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
     row = cur.fetchone()
     cur.close(); conn.close()
