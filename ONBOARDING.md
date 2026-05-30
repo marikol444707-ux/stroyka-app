@@ -1009,6 +1009,7 @@ su - postgres -c "psql stroyka -c \"INSERT INTO users (name, email, password, ro
 - `0141c80` Unified receipt flow scan/manual
 
 **Контроль объекта:**
+- `2026-05-30` В цепочке мастер → прораб найдено задвоение начислений: мастер при отправке работы создавал `piecework`, а прораб при подтверждении создавал второе начисление. Исправлено: `piecework` создаётся только после подтверждения прорабом, привязан к `workJournalId`, повторное начисление по одной записи журнала блокируется backend.
 - `2f9ce88` Cache AI summary per project
 - `96444df` Object control dashboard
 

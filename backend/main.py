@@ -328,6 +328,7 @@ def init_db():
             comment TEXT,
             photo_url VARCHAR(255)
         );
+        ALTER TABLE piecework ADD COLUMN IF NOT EXISTS work_journal_id INT;
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -1597,6 +1598,7 @@ class PieceworkModel(BaseModel):
     date: str = ""
     comment: str = ""
     photoUrl: str = ""
+    workJournalId: Optional[int] = None
 
 class UserModel(BaseModel):
     name: str
@@ -2384,12 +2386,13 @@ def get_piecework(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     allowed_projects = visible_project_names(current_user)
+    cols = "id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\",work_journal_id as \"workJournalId\""
     if allowed_projects is None:
-        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework ORDER BY id DESC")
+        cur.execute(f"SELECT {cols} FROM piecework ORDER BY id DESC")
     elif not allowed_projects:
-        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework WHERE staff_id=%s ORDER BY id DESC", (str(current_user.get("id")),))
+        cur.execute(f"SELECT {cols} FROM piecework WHERE staff_id=%s ORDER BY id DESC", (str(current_user.get("id")),))
     else:
-        cur.execute("SELECT id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\" FROM piecework WHERE project = ANY(%s) OR staff_id=%s ORDER BY id DESC", (allowed_projects, str(current_user.get("id"))))
+        cur.execute(f"SELECT {cols} FROM piecework WHERE project = ANY(%s) OR staff_id=%s ORDER BY id DESC", (allowed_projects, str(current_user.get("id"))))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -2399,8 +2402,14 @@ def create_piecework(p: PieceworkModel, _current_user: dict = Depends(require_ro
     require_project_access(_current_user, p.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO piecework (staff_id,description,unit,quantity,price_per_unit,total,project,date,comment,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (p.staffId,p.description,p.unit,p.quantity,p.pricePerUnit,p.total,p.project,p.date,p.comment,p.photoUrl))
+    if p.workJournalId:
+        cur.execute("SELECT id FROM piecework WHERE work_journal_id=%s LIMIT 1", (p.workJournalId,))
+        existing = cur.fetchone()
+        if existing:
+            conn.close()
+            return dict(existing)
+    cur.execute("INSERT INTO piecework (staff_id,description,unit,quantity,price_per_unit,total,project,date,comment,photo_url,work_journal_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                (p.staffId,p.description,p.unit,p.quantity,p.pricePerUnit,p.total,p.project,p.date,p.comment,p.photoUrl,p.workJournalId))
     row = cur.fetchone()
     conn.close()
     return dict(row)

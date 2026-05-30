@@ -2862,7 +2862,6 @@ function App() {
       hasWork = true;
       const ppu = item.price*coeff;
       const total = Number(workData.quantity)*ppu;
-      await fetch(API+'/piecework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({staffId:String(user.id),description:item.name,unit:item.unit,quantity:Number(workData.quantity),pricePerUnit:ppu,total,project:project.name,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||''})});
       const usedMats=(workData.materials||[]).filter(m=>m.name&&Number(m.quantity)>0).map(m=>({name:m.name,quantity:Number(m.quantity),unit:m.unit||'шт'}));
       const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:Number(workData.quantity),pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats})});
       if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось списать материалы: '+(er.detail||'ошибка'));return;}
@@ -2902,7 +2901,8 @@ function App() {
     await autoWriteOffMaterials(e.description, accepted, e.project);
     // Записываем в piecework (сдельные) — для расчёта зарплаты
     try {
-      if(e.masterId && accepted>0 && ppu>0){
+      const alreadyPaid = (piecework||[]).some(pw=>Number(pw.workJournalId)===Number(e.id));
+      if(!alreadyPaid && e.masterId && accepted>0 && ppu>0){
         await fetch(API+'/piecework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
           staffId:e.masterId,
           masterName:e.masterName||e.master_name||'',
