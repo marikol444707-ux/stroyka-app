@@ -853,6 +853,8 @@ def init_db():
             status VARCHAR(100),
             confirmed_by VARCHAR(255)
         );
+        ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT;
+        ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT;
         CREATE TABLE IF NOT EXISTS supplier_catalog (
             id SERIAL PRIMARY KEY,
             supplier_id INT,
@@ -1415,6 +1417,7 @@ def init_db():
             ai_filled BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
         CREATE TABLE IF NOT EXISTS supervisor_acts (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -1457,6 +1460,7 @@ def init_db():
             ai_filled BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS smeta_type VARCHAR(50) DEFAULT 'Заказчик';
         UPDATE estimates SET smeta_type='Заказчик' WHERE smeta_type IS NULL OR smeta_type='';
@@ -3136,12 +3140,72 @@ def update_supply_request(id: int, data: dict, _current_user: dict = Depends(req
     return dict(row) if row else {"ok": True}
 
 @app.delete("/supply-requests/{id}")
-def delete_supply_request(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def delete_supply_request(id: int, rollback_received: bool = False, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик", "прораб"))):
+    from datetime import datetime
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM supply_requests WHERE id=%s", (id,))
-    conn.close()
-    return {"ok": True}
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT id, project, material_name FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
+        req = cur.fetchone()
+        if not req:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Заявка не найдена")
+        if req.get("project"):
+            require_project_access(_current_user, req.get("project"))
+
+        cur.execute("SELECT * FROM supply_deliveries WHERE request_id=%s FOR UPDATE", (id,))
+        deliveries = cur.fetchall()
+        received_deliveries = [d for d in deliveries if float(d.get("received_quantity") or 0) > 0]
+        if received_deliveries and not rollback_received:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail="По заявке уже есть принятая поставка. Для удаления с откатом склада используйте rollback_received=true.")
+
+        restored = 0
+        if rollback_received:
+            for d in received_deliveries:
+                qty = float(d.get("received_quantity") or 0)
+                name = d.get("material_name") or ""
+                project = d.get("project") or ""
+                unit = d.get("unit") or "шт"
+                if not name or not project or qty <= 0:
+                    continue
+                cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, project))
+                mat = cur.fetchone()
+                if not mat:
+                    conn.rollback()
+                    raise HTTPException(status_code=400, detail="Нельзя откатить поставку: материал «"+name+"» не найден на складе объекта.")
+                stock_qty = float(mat.get("quantity") or 0)
+                if stock_qty + 0.000001 < qty:
+                    conn.rollback()
+                    raise HTTPException(status_code=400, detail="Нельзя откатить поставку «"+name+"»: на складе осталось "+str(stock_qty)+" "+unit+", а принять было "+str(qty)+" "+unit+". Материал уже списывали.")
+                cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, mat.get("id")))
+                cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                            (name, "откат поставки (удаление заявки)", qty, datetime.now().date().isoformat(), project, _current_user.get("name") or "", datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                restored += 1
+
+        delivery_ids = [d.get("id") for d in deliveries if d.get("id")]
+        if delivery_ids:
+            cur.execute("DELETE FROM material_inspection_journal WHERE delivery_id = ANY(%s)", (delivery_ids,))
+            cur.execute("DELETE FROM cable_journal WHERE delivery_id = ANY(%s)", (delivery_ids,))
+            cur.execute("DELETE FROM supply_history WHERE delivery_id = ANY(%s)", (delivery_ids,))
+            cur.execute("DELETE FROM supply_claims WHERE delivery_id = ANY(%s)", (delivery_ids,))
+        cur.execute("DELETE FROM supply_claims WHERE request_id=%s", (id,))
+        cur.execute("DELETE FROM supplier_invoices WHERE request_id=%s", (id,))
+        cur.execute("DELETE FROM supply_deliveries WHERE request_id=%s", (id,))
+        cur.execute("DELETE FROM supplier_offers WHERE request_id=%s", (id,))
+        cur.execute("DELETE FROM supply_requests WHERE id=%s", (id,))
+        conn.commit()
+        return {"ok": True, "deliveriesDeleted": len(deliveries), "materialsRolledBack": restored}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.get("/supply-requests/{id}/stock-check")
 def supply_request_stock_check(id: int):
@@ -3677,10 +3741,10 @@ def _create_delivery_quality_records(cur, delivery):
     received_at = delivery.get('received_at') or __import__("datetime").date.today()
     try:
         cur.execute("""INSERT INTO material_inspection_journal
-                       (project_name, material_name, unit, quantity, supplier,
+                       (project_name, delivery_id, material_name, unit, quantity, supplier,
                         received_at, visual_inspection_result, remarks, inspected)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (project, name, unit, qty, supplier, received_at,
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (project, delivery.get('id'), name, unit, qty, supplier, received_at,
                      delivery.get('quality_status') or 'Принято',
                      delivery.get('quality_notes') or '', True))
     except Exception as e:
@@ -3694,10 +3758,10 @@ def _create_delivery_quality_records(cur, delivery):
         section = float(m.group(2).replace(',', '.')) if m else None
         try:
             cur.execute("""INSERT INTO cable_journal
-                           (project_name, cable_brand, cross_section, cores_count,
+                           (project_name, delivery_id, cable_brand, cross_section, cores_count,
                             length_received, supplier, received_at)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                        (project, name, section, cores, qty, supplier, received_at))
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (project, delivery.get('id'), name, section, cores, qty, supplier, received_at))
         except Exception as e:
             print("DELIVERY CABLE INSERT ERROR:", str(e))
 
@@ -3880,11 +3944,12 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
                 ('Поставлено' if status == 'Принято' else 'Проблема поставки', delivery['request_id']))
     cur.execute("""INSERT INTO supply_history
                    (supplier_id, material_name, quantity, unit, price_per_unit, total_price,
-                    project, date, status, confirmed_by)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    project, date, status, confirmed_by, request_id, delivery_id)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (delivery['supplier_id'], delivery['material_name'], received_qty, delivery['unit'],
                  _float_or_zero(delivery['price_per_unit']), _float_or_zero(delivery['price_per_unit']) * received_qty,
-                 delivery['project'], received_at.date().isoformat(), status, data.get('receivedBy') or ''))
+                 delivery['project'], received_at.date().isoformat(), status, data.get('receivedBy') or '',
+                 delivery['request_id'], id))
     cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
     row = cur.fetchone()
     cur.close(); conn.close()
