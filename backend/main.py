@@ -3861,7 +3861,8 @@ def get_work_journal(current_user: dict = Depends(get_current_user)):
     return [dict(r) for r in rows]
 
 @app.post("/work-journal")
-def create_work_journal(w: WorkJournalModel):
+def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+    require_project_access(_current_user, w.project)
     used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
 
     conn = get_db()
@@ -3908,9 +3909,10 @@ def create_work_journal(w: WorkJournalModel):
         conn.close()
 
 @app.put("/work-journal/{id}")
-def update_work_journal(id: int, data: dict):
+def update_work_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "work_journal", id, _current_user, "project")
     # Динамически обновляем только переданные поля. Старая логика (status/confirmedBy/...) продолжает работать.
     fields_map = [
         ('status', 'status'),
@@ -3948,10 +3950,11 @@ def update_work_journal(id: int, data: dict):
     return {"ok": True}
 
 @app.post("/work-journal/{id}/ai-prefill")
-def ai_prefill_work_journal(id: int):
+def ai_prefill_work_journal(id: int, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "work_journal", id, _current_user, "project")
     cur.execute("""SELECT description, section_name, unit, quantity, materials_used, project, hidden_work
                    FROM work_journal WHERE id=%s""", (id,))
     row = cur.fetchone()
@@ -5093,10 +5096,16 @@ async def parse_smeta(file: UploadFile = File(...)):
 
 
 @app.get("/estimates")
-def get_estimates():
+def get_estimates(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,project_id,project_name,name,version,sections_json,COALESCE(smeta_type,'Заказчик'),COALESCE(is_template,FALSE),status FROM estimates ORDER BY id DESC")
+    allowed_projects = visible_project_names(current_user)
+    if allowed_projects is not None and not allowed_projects:
+        cur.execute("SELECT id,project_id,project_name,name,version,sections_json,COALESCE(smeta_type,'Заказчик'),COALESCE(is_template,FALSE),status FROM estimates WHERE COALESCE(is_template,FALSE)=TRUE ORDER BY id DESC")
+    elif allowed_projects is None:
+        cur.execute("SELECT id,project_id,project_name,name,version,sections_json,COALESCE(smeta_type,'Заказчик'),COALESCE(is_template,FALSE),status FROM estimates ORDER BY id DESC")
+    else:
+        cur.execute("SELECT id,project_id,project_name,name,version,sections_json,COALESCE(smeta_type,'Заказчик'),COALESCE(is_template,FALSE),status FROM estimates WHERE project_name = ANY(%s) OR COALESCE(is_template,FALSE)=TRUE ORDER BY id DESC", (allowed_projects,))
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
@@ -5110,8 +5119,9 @@ def get_estimates():
     return result
 
 @app.post("/estimates")
-def create_estimate(data: dict):
+def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     import json as j
+    require_project_access(_current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -5122,14 +5132,18 @@ def create_estimate(data: dict):
     return {"id":row[0],"ok":True}
 
 @app.put("/estimates/{id}")
-def update_estimate(id: int, data: dict):
+def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик"))):
     import json as j
     from datetime import date as _date
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT sections_json, version, project_name FROM estimates WHERE id=%s", (id,))
     prev = cur.fetchone()
+    if not prev:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
     project_name = (prev[2] or "") if prev else ""
+    require_project_access(_current_user, project_name)
 
     old_sections = []
     if prev and prev[0]:
@@ -5254,9 +5268,10 @@ def update_estimate(id: int, data: dict):
     return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced}
 
 @app.put("/estimates/{id}/toggle-template")
-def toggle_estimate_template(id: int):
+def toggle_estimate_template(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "estimates", id, _current_user, "project_name")
     cur.execute("UPDATE estimates SET is_template = NOT COALESCE(is_template,FALSE) WHERE id=%s RETURNING is_template", (id,))
     conn.commit()
     row = cur.fetchone()
@@ -5264,24 +5279,30 @@ def toggle_estimate_template(id: int):
     return {"ok": True, "isTemplate": bool(row[0]) if row else False}
 
 @app.get("/estimates/{id}/versions")
-def get_estimate_versions(id: int):
+def get_estimate_versions(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "estimates", id, _current_user, "project_name")
     cur.execute("SELECT id, version_label, total, comment, created_by, created_at FROM estimate_versions WHERE estimate_id=%s ORDER BY id DESC", (id,))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"versionLabel":r[1] or "","total":float(r[2] or 0),"comment":r[3] or "","createdBy":r[4] or "","createdAt":str(r[5])} for r in rows]
 
 @app.get("/estimate-version/{version_id}")
-def get_estimate_version_detail(version_id: int):
+def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     import json as j
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, estimate_id, version_label, sections_json, total, comment, created_by, created_at FROM estimate_versions WHERE id=%s", (version_id,))
+    cur.execute("""SELECT ev.id, ev.estimate_id, ev.version_label, ev.sections_json, ev.total, ev.comment, ev.created_by, ev.created_at, e.project_name
+                   FROM estimate_versions ev
+                   JOIN estimates e ON e.id = ev.estimate_id
+                   WHERE ev.id=%s""", (version_id,))
     r = cur.fetchone()
-    cur.close(); conn.close()
     if not r:
+        cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="version not found")
+    require_project_access(_current_user, r[8] or "")
+    cur.close(); conn.close()
     try:
         sections = j.loads(r[3]) if r[3] else []
     except:
@@ -5289,9 +5310,10 @@ def get_estimate_version_detail(version_id: int):
     return {"id":r[0],"estimateId":r[1],"versionLabel":r[2] or "","sections":sections,"total":float(r[4] or 0),"comment":r[5] or "","createdBy":r[6] or "","createdAt":str(r[7])}
 
 @app.delete("/estimates/{id}")
-def delete_estimate(id: int):
+def delete_estimate(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "estimates", id, _current_user, "project_name")
     cur.execute("DELETE FROM estimates WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
