@@ -5627,6 +5627,9 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     today = _date.today().isoformat()
     journal_added = 0
     acts_added = 0
+    auto_journal_status = "На проверке" if _current_user.get("role") in ("мастер", "субподрядчик") else "Подтверждено"
+    auto_confirmed_by = "" if auto_journal_status != "Подтверждено" else (_current_user.get("name") or "")
+    auto_confirmed_at = today if auto_journal_status == "Подтверждено" else None
     for s in new_sections:
         for it in (s.get("items") or []):
             new_done = float(it.get("doneQuantity") or 0)
@@ -5641,12 +5644,12 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
             try:
                 cur.execute("""INSERT INTO work_journal
                                (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
-                                estimate_id, section_name, hidden_work)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                                estimate_id, section_name, hidden_work, confirmed_by, confirmed_at)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (None, brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, price, round(delta*price,2), today,
-                     "Автоматически из сметы",
+                     auto_journal_status,
                      "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id),
-                     id, s.get("name",""), bool(it.get("hiddenWork"))))
+                     id, s.get("name",""), bool(it.get("hiddenWork")), auto_confirmed_by, auto_confirmed_at))
                 journal_added += 1
             except Exception as e:
                 print("AUTO-JOURNAL ERROR:", str(e))
