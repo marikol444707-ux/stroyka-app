@@ -4974,6 +4974,16 @@ def update_prescription(id: int, data: dict, current_user: dict = Depends(requir
     cur.close(); conn.close()
     return {"ok":True}
 
+@app.delete("/prescriptions/{id}")
+def delete_prescription(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_row_project_access(cur, "prescriptions", id, current_user, "project_name")
+    cur.execute("DELETE FROM prescriptions WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
 @app.get("/project-chat/{project_name}")
 def get_project_chat(project_name: str):
     conn = get_db()
