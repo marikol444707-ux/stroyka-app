@@ -3894,6 +3894,96 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
         except Exception as legacy_error:
             print("SUPPLY HISTORY LEGACY INSERT ERROR:", str(legacy_error))
 
+def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", received_at=None, delivery_id=None, invoice_id=None):
+    cable_info = _detect_cable_info(cable_brand)
+    if not cable_info["isCable"]:
+        return False
+    exists = False
+    if delivery_id:
+        try:
+            cur.execute("SELECT id FROM cable_journal WHERE delivery_id=%s LIMIT 1", (delivery_id,))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("CABLE BACKFILL DELIVERY CHECK ERROR:", str(e))
+    if not exists and invoice_id:
+        try:
+            cur.execute("SELECT id FROM cable_journal WHERE invoice_id=%s AND cable_brand=%s LIMIT 1", (invoice_id, cable_brand))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("CABLE BACKFILL INVOICE CHECK ERROR:", str(e))
+    if not exists:
+        try:
+            cur.execute("""SELECT id FROM cable_journal
+                           WHERE project_name=%s AND cable_brand=%s AND COALESCE(length_received,0)=%s
+                           LIMIT 1""", (project or "", cable_brand or "", _float_or_zero(qty)))
+            exists = bool(cur.fetchone())
+        except Exception as e:
+            print("CABLE BACKFILL LEGACY CHECK ERROR:", str(e))
+    if exists:
+        return False
+    try:
+        cur.execute("""INSERT INTO cable_journal
+                       (project_name, delivery_id, invoice_id, cable_brand, cable_type, cross_section, cores_count,
+                        length_received, supplier, received_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (project or "", delivery_id, invoice_id, cable_brand or "", cable_info["cableType"],
+                     cable_info["section"], cable_info["cores"], _float_or_zero(qty), supplier or "", received_at))
+        return True
+    except Exception as e:
+        print("CABLE BACKFILL INSERT ERROR:", str(e))
+        try:
+            cur.execute("""INSERT INTO cable_journal
+                           (project_name, cable_brand, cross_section, cores_count,
+                            length_received, supplier, received_at)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                        (project or "", cable_brand or "", cable_info["section"], cable_info["cores"],
+                         _float_or_zero(qty), supplier or "", received_at))
+            return True
+        except Exception as legacy_error:
+            print("CABLE BACKFILL LEGACY INSERT ERROR:", str(legacy_error))
+    return False
+
+def _backfill_cable_journal(cur, project_names=None):
+    import json as _json
+    repaired = 0
+    project_names = list(project_names or [])
+    delivery_where = "WHERE COALESCE(received_quantity,0)>0 AND status IN ('Принято','Проблема')"
+    delivery_params = []
+    if project_names:
+        delivery_where += " AND project = ANY(%s)"
+        delivery_params.append(project_names)
+    cur.execute("""SELECT id, project, material_name, received_quantity, supplier_name, received_at
+                   FROM supply_deliveries """ + delivery_where, delivery_params)
+    for d in cur.fetchall():
+        delivery_id, project, name, qty, supplier, received_at = d
+        if _ensure_cable_journal_row(cur, project=project, cable_brand=name, qty=qty,
+                                     supplier=supplier, received_at=received_at, delivery_id=delivery_id):
+            repaired += 1
+    invoice_where = ""
+    invoice_params = []
+    if project_names:
+        invoice_where = " WHERE project = ANY(%s) OR location = ANY(%s)"
+        invoice_params = [project_names, project_names]
+    cur.execute("SELECT id, project, location, supplier_name, date, items FROM warehouse_invoices" + invoice_where, invoice_params)
+    for inv in cur.fetchall():
+        invoice_id, project, location, supplier, date_value, items_json = inv
+        target_project = project or (location if location and location != "Основной склад" else "")
+        if project_names and target_project not in project_names:
+            continue
+        try:
+            items = _json.loads(items_json) if items_json else []
+        except Exception:
+            items = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = (item.get("name") or item.get("materialName") or "").strip()
+            qty = _float_or_zero(item.get("quantity"))
+            if _ensure_cable_journal_row(cur, project=target_project, cable_brand=name, qty=qty,
+                                         supplier=supplier, received_at=date_value, invoice_id=invoice_id):
+                repaired += 1
+    return repaired
+
 @app.get("/supply-deliveries")
 def list_supply_deliveries(current_user: dict = Depends(get_current_user)):
     conn = get_db()
@@ -7415,6 +7505,15 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
               installed_at, received_at, responsible_itr, normatives, ai_filled, created_at,
               cable_type"""
     allowed_projects = visible_project_names(_current_user)
+    backfill_projects = None
+    if project_name:
+        backfill_projects = [project_name]
+    elif allowed_projects is not None:
+        backfill_projects = allowed_projects
+    try:
+        _backfill_cable_journal(cur, backfill_projects)
+    except Exception as e:
+        print("CABLE JOURNAL BACKFILL ERROR:", str(e))
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
