@@ -6489,7 +6489,14 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         return []
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url FROM warehouse_invoices ORDER BY id DESC")
+    if current_user.get("role") == "прораб":
+        allowed_projects = user_project_names(current_user)
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+    else:
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url FROM warehouse_invoices ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
@@ -6503,6 +6510,9 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
 @app.post("/warehouse-invoices")
 def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     import json as j
+    target_project = data.get("project") or (data.get("location") if data.get("location") != "Основной склад" else "")
+    if _current_user.get("role") == "прораб" and target_project:
+        require_project_access(_current_user, target_project)
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO warehouse_invoices (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -6555,6 +6565,17 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
 def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    if _current_user.get("role") == "прораб":
+        cur.execute("SELECT COALESCE(project,''), COALESCE(location,'') FROM warehouse_invoices WHERE id=%s", (id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="Накладная не найдена")
+        target_project = row[0] or (row[1] if row[1] != "Основной склад" else "")
+        if target_project:
+            require_project_access(_current_user, target_project)
+    cur.execute("DELETE FROM material_inspection_journal WHERE invoice_id=%s", (id,))
+    cur.execute("DELETE FROM cable_journal WHERE invoice_id=%s", (id,))
     cur.execute("DELETE FROM warehouse_invoices WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
