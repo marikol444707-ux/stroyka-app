@@ -8982,7 +8982,7 @@ function App() {
               {(()=>{
                 const activeProj=projects.filter(pr=>pr.status==='В работе').length;
                 const totalBudget=projects.reduce((s,pr)=>s+Number(pr.budget||0),0);
-                const totalPayIn=(projectPayments||[]).reduce((s,p)=>s+Number(p.amount||0),0);
+                const totalPayIn=(projectPayments||[]).reduce((s,p)=>s+projectPaymentInAmount(p),0);
                 const totalExpOut=(ownExpenses||[]).reduce((s,e)=>s+Number(e.amount||0),0);
                 const totalAccount=(accountablePayments||[]).reduce((s,a)=>s+Number(a.amount||0),0);
                 // Расходы по всем каналам (фактически оплачено). АОСР — документ скрытых работ, к деньгам не относится (оплата бригад идёт через «Расчёт с бригадой»).
