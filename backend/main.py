@@ -5549,18 +5549,33 @@ def get_project_documents(project_name: str = None, _current_user: dict = Depend
     conn = get_db()
     cur = conn.cursor()
     allowed_projects = visible_project_names(_current_user)
+    side_filter = None
+    if _current_user.get("role") == "заказчик":
+        side_filter = "customer"
+    elif _current_user.get("role") in ("мастер", "субподрядчик"):
+        side_filter = "contractor"
+    side_sql = " AND side=%s" if side_filter else ""
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        params = [project_name]
+        if side_filter:
+            params.append(side_filter)
+        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name=%s" + side_sql + " ORDER BY id DESC", tuple(params))
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+        params = [allowed_projects]
+        if side_filter:
+            params.append(side_filter)
+        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name = ANY(%s)" + side_sql + " ORDER BY id DESC", tuple(params))
     else:
-        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents ORDER BY id DESC")
+        params = []
+        if side_filter:
+            params.append(side_filter)
+        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents" + (" WHERE side=%s" if side_filter else "") + " ORDER BY id DESC", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"side":r[2],"docType":r[3] or "","number":r[4] or "","docDate":str(r[5]) if r[5] else "","counterparty":r[6] or "","signStatus":r[7] or "","scanUrl":r[8] or "","amount":float(r[9] or 0),"notes":r[10] or "","uploadedBy":r[11] or "","createdAt":str(r[12])} for r in rows]
@@ -5613,18 +5628,33 @@ def get_project_letters(project_name: str = None, _current_user: dict = Depends(
     conn = get_db()
     cur = conn.cursor()
     allowed_projects = visible_project_names(_current_user)
+    side_filter = None
+    if _current_user.get("role") == "заказчик":
+        side_filter = "customer"
+    elif _current_user.get("role") in ("мастер", "субподрядчик"):
+        side_filter = "contractor"
+    side_sql = " AND side=%s" if side_filter else ""
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        params = [project_name]
+        if side_filter:
+            params.append(side_filter)
+        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name=%s" + side_sql + " ORDER BY id DESC", tuple(params))
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+        params = [allowed_projects]
+        if side_filter:
+            params.append(side_filter)
+        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name = ANY(%s)" + side_sql + " ORDER BY id DESC", tuple(params))
     else:
-        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters ORDER BY id DESC")
+        params = []
+        if side_filter:
+            params.append(side_filter)
+        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters" + (" WHERE side=%s" if side_filter else "") + " ORDER BY id DESC", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"side":r[2],"direction":r[3] or "","subject":r[4] or "","body":r[5] or "","counterparty":r[6] or "","letterDate":str(r[7]) if r[7] else "","fileUrl":r[8] or "","author":r[9] or "","createdAt":str(r[10])} for r in rows]
