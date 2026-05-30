@@ -195,6 +195,37 @@ def current_supplier_id(cur, user: dict):
 def can_see_all_company_data(user: dict) -> bool:
     return user.get("role") in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик")
 
+def visible_project_names(user: dict) -> Optional[List[str]]:
+    if can_see_all_company_data(user):
+        return None
+    return user_project_names(user)
+
+def has_project_access(user: dict, project_name: str) -> bool:
+    allowed = visible_project_names(user)
+    return allowed is None or bool(project_name and project_name in allowed)
+
+def require_project_access(user: dict, project_name: str):
+    if not has_project_access(user, project_name):
+        raise HTTPException(status_code=403, detail="Нет доступа к объекту")
+
+def require_row_project_access(cur, table: str, row_id: int, user: dict, project_column: str = "project_name"):
+    cur.execute(f"SELECT {project_column} FROM {table} WHERE id=%s", (row_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    project_name = row[0] if not isinstance(row, dict) else row.get(project_column)
+    require_project_access(user, project_name or "")
+
+def require_brigade_item_access(cur, item_id: int, user: dict):
+    cur.execute("""SELECT bc.project_name
+                   FROM brigade_contract_items bci
+                   JOIN brigade_contracts bc ON bc.id = bci.contract_id
+                   WHERE bci.id=%s""", (item_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    require_project_access(user, row[0] or "")
+
 def get_db():
     conn = psycopg2.connect(**DB_CONFIG)
     conn.autocommit = True
@@ -4125,13 +4156,21 @@ def create_master_profile(p: MasterProfileModel):
 def get_contracts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\" FROM contracts ORDER BY id DESC")
+    allowed_projects = visible_project_names(_current_user)
+    if allowed_projects is not None and not allowed_projects:
+        conn.close()
+        return []
+    if allowed_projects is None:
+        cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\" FROM contracts ORDER BY id DESC")
+    else:
+        cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\" FROM contracts WHERE project = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/contracts")
 def create_contract(c: ContractModel, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    require_project_access(_current_user, c.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO contracts (master_id,master_name,contract_type,contract_number,project,start_date,end_date) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
@@ -4152,13 +4191,21 @@ def delete_contract(id: int, _current_user: dict = Depends(require_roles(*LEADER
 def get_interim_acts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts ORDER BY id DESC")
+    allowed_projects = visible_project_names(_current_user)
+    if allowed_projects is not None and not allowed_projects:
+        conn.close()
+        return []
+    if allowed_projects is None:
+        cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts ORDER BY id DESC")
+    else:
+        cur.execute("SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts WHERE project = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.post("/interim-acts")
 def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    require_project_access(_current_user, a.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO interim_acts (master_id,master_name,project,period_start,period_end,total_amount,paid_amount,contract_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
@@ -4171,6 +4218,7 @@ def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require
 def update_interim_act(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "interim_acts", id, _current_user, "project")
     if 'status' in data:
         cur.execute("UPDATE interim_acts SET status=%s WHERE id=%s", (data['status'],id))
     if 'paidAmount' in data:
@@ -5260,8 +5308,17 @@ def get_brigade_contracts(project_name: str = None, _current_user: dict = Depend
             "COALESCE((SELECT SUM(COALESCE(bp.amount,0)) FROM brigade_payments bp WHERE bp.contract_id=bc.id),0) AS paid_amount,"
             "bc.act_scan_url "
             "FROM brigade_contracts bc")
+    allowed_projects = visible_project_names(_current_user)
     if project_name:
+        if allowed_projects is not None and project_name not in allowed_projects:
+            cur.close(); conn.close()
+            return []
         cur.execute(base + " WHERE bc.project_name=%s ORDER BY bc.id DESC", (project_name,))
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute(base + " WHERE bc.project_name = ANY(%s) ORDER BY bc.id DESC", (allowed_projects,))
     else:
         cur.execute(base + " ORDER BY bc.id DESC")
     rows = cur.fetchall()
@@ -5313,8 +5370,17 @@ def delete_brigade_payment(id: int, _current_user: dict = Depends(require_roles(
 def get_project_documents(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    allowed_projects = visible_project_names(_current_user)
     if project_name:
+        if allowed_projects is not None and project_name not in allowed_projects:
+            cur.close(); conn.close()
+            return []
         cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     else:
         cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents ORDER BY id DESC")
     rows = cur.fetchall()
@@ -5323,6 +5389,7 @@ def get_project_documents(project_name: str = None, _current_user: dict = Depend
 
 @app.post("/project-documents")
 def create_project_document(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    require_project_access(_current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO project_documents (project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -5338,6 +5405,7 @@ def create_project_document(data: dict, _current_user: dict = Depends(require_ro
 def update_project_document(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "project_documents", id, _current_user)
     fields = {"side":"side","docType":"doc_type","number":"number","docDate":"doc_date","counterparty":"counterparty","signStatus":"sign_status","scanUrl":"scan_url","amount":"amount","notes":"notes"}
     sets, vals = [], []
     for k, col in fields.items():
@@ -5355,6 +5423,7 @@ def update_project_document(id: int, data: dict, _current_user: dict = Depends(r
 def delete_project_document(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "project_documents", id, _current_user)
     cur.execute("DELETE FROM project_documents WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
@@ -5365,8 +5434,17 @@ def delete_project_document(id: int, _current_user: dict = Depends(require_roles
 def get_project_letters(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    allowed_projects = visible_project_names(_current_user)
     if project_name:
+        if allowed_projects is not None and project_name not in allowed_projects:
+            cur.close(); conn.close()
+            return []
         cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     else:
         cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters ORDER BY id DESC")
     rows = cur.fetchall()
@@ -5375,6 +5453,7 @@ def get_project_letters(project_name: str = None, _current_user: dict = Depends(
 
 @app.post("/project-letters")
 def create_project_letter(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    require_project_access(_current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO project_letters (project_name,side,direction,subject,body,counterparty,letter_date,file_url,author) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -5389,6 +5468,7 @@ def create_project_letter(data: dict, _current_user: dict = Depends(require_role
 def delete_project_letter(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "project_letters", id, _current_user)
     cur.execute("DELETE FROM project_letters WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
@@ -5464,6 +5544,7 @@ def delete_crm_lead(id: int):
 
 @app.post("/brigade-contracts")
 def create_brigade_contract(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    require_project_access(_current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     pricelist_id = data.get("pricelistId") or None
@@ -5496,6 +5577,7 @@ def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = F
     import json as _json
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "brigade_contracts", contract_id, _current_user)
     cur.execute("SELECT pricelist_id, project_name FROM brigade_contracts WHERE id=%s", (contract_id,))
     r = cur.fetchone()
     if not r or not r[0]:
@@ -5558,6 +5640,7 @@ def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = F
 def update_brigade_contract(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "brigade_contracts", id, _current_user)
     cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s,pricelist_id=%s,act_scan_url=COALESCE(%s,act_scan_url) WHERE id=%s",
         (data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("totalAmount",0),data.get("status","Черновик"),data.get("signedAt") or None,data.get("notes",""),data.get("pricelistId") or None,data.get("actScanUrl"),id))
     conn.commit()
@@ -5568,6 +5651,7 @@ def update_brigade_contract(id: int, data: dict, _current_user: dict = Depends(r
 def delete_brigade_contract(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "brigade_contracts", id, _current_user)
     cur.execute("DELETE FROM brigade_contracts WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
@@ -5578,13 +5662,28 @@ def list_all_brigade_contract_items(project_name: str = None, _current_user: dic
     """Все позиции нарядов сразу — для подсчёта прогресса по бюджету."""
     conn = get_db()
     cur = conn.cursor()
+    allowed_projects = visible_project_names(_current_user)
     if project_name:
+        if allowed_projects is not None and project_name not in allowed_projects:
+            cur.close(); conn.close()
+            return []
         cur.execute("""SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
                               bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
                               bc.project_name
                        FROM brigade_contract_items bci
                        JOIN brigade_contracts bc ON bc.id = bci.contract_id
                        WHERE bc.project_name=%s ORDER BY bci.id DESC""", (project_name,))
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("""SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
+                              bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
+                              bc.project_name
+                       FROM brigade_contract_items bci
+                       JOIN brigade_contracts bc ON bc.id = bci.contract_id
+                       WHERE bc.project_name = ANY(%s)
+                       ORDER BY bci.id DESC""", (allowed_projects,))
     else:
         cur.execute("""SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
                               bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
@@ -5600,7 +5699,7 @@ def list_all_brigade_contract_items(project_name: str = None, _current_user: dic
              "estimateSection":r[8] or "","projectName":r[9] or ""} for r in rows]
 
 @app.post("/estimates/{estimate_id}/distribute")
-def distribute_estimate_to_brigades(estimate_id: int, data: dict):
+def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     import json as _json
     assignments = data.get("assignments") or []
     default_coef = float(data.get("defaultCoefficient") or 0.6)
@@ -5615,6 +5714,7 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict):
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
     estimate_name, project_id, project_name = est[0] or "", est[1], est[2] or ""
+    require_project_access(_current_user, project_name)
 
     # group assignments by brigade
     brigades_map = {}
@@ -5668,7 +5768,7 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict):
     return {"ok": True, "createdContracts": created}
 
 @app.post("/estimates/{estimate_id}/ai-distribute-suggest")
-def ai_suggest_distribution(estimate_id: int, data: dict):
+def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
     import openai as oa
     import json as _json
     brigade_names = data.get("brigadeNames") or []
@@ -5677,11 +5777,12 @@ def ai_suggest_distribution(estimate_id: int, data: dict):
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT name, sections_json FROM estimates WHERE id=%s", (estimate_id,))
+    cur.execute("SELECT name, sections_json, project_name FROM estimates WHERE id=%s", (estimate_id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
+    require_project_access(_current_user, row[2] or "")
     try:
         sections = _json.loads(row[1]) if row[1] else []
     except Exception:
@@ -5750,6 +5851,7 @@ def ai_suggest_distribution(estimate_id: int, data: dict):
 def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES, "технадзор", "заказчик"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "brigade_contracts", contract_id, _current_user)
     cur.execute("SELECT id,contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity FROM brigade_contract_items WHERE contract_id=%s ORDER BY id", (contract_id,))
     rows = cur.fetchall()
     cur.close(); conn.close()
@@ -5769,6 +5871,7 @@ def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(r
 def create_brigade_contract_item(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "brigade_contracts", data.get("contractId"), _current_user)
     cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (data.get("contractId"),data.get("estimateSection",""),data.get("name","") or data.get("description",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0)))
     conn.commit()
@@ -5780,6 +5883,7 @@ def create_brigade_contract_item(data: dict, _current_user: dict = Depends(requi
 def update_brigade_contract_item(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
+    require_brigade_item_access(cur, id, _current_user)
     quantity = float(data.get("quantity", 0) or 0)
     done_quantity = float(data.get("doneQuantity", 0) or 0)
     done_quantity = max(0, min(done_quantity, quantity)) if quantity > 0 else 0
@@ -5793,6 +5897,7 @@ def update_brigade_contract_item(id: int, data: dict, _current_user: dict = Depe
 def delete_brigade_contract_item(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
+    require_brigade_item_access(cur, id, _current_user)
     cur.execute("DELETE FROM brigade_contract_items WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
@@ -6196,8 +6301,17 @@ def list_material_inspections(project_name: str = None, _current_user: dict = De
               batch_number, passport_number, certificate_number, test_protocol_number,
               visual_inspection_result, remarks, inspector_name,
               received_at, inspected_at, inspected, normatives, ai_filled, created_at"""
+    allowed_projects = visible_project_names(_current_user)
     if project_name:
+        if allowed_projects is not None and project_name not in allowed_projects:
+            cur.close(); conn.close()
+            return []
         cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     else:
         cur.execute(f"SELECT {cols} FROM material_inspection_journal ORDER BY id DESC")
     rows = cur.fetchall()
@@ -6215,6 +6329,7 @@ def list_material_inspections(project_name: str = None, _current_user: dict = De
 def update_material_inspection(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "material_inspection_journal", id, _current_user)
     fields_map = [
         ('batchNumber', 'batch_number'),
         ('passportNumber', 'passport_number'),
@@ -6255,6 +6370,7 @@ def ai_suggest_material_inspection(id: int, _current_user: dict = Depends(requir
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "material_inspection_journal", id, _current_user)
     cur.execute("SELECT material_name, unit, quantity FROM material_inspection_journal WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
@@ -6320,8 +6436,17 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
               certificate_number, passport_number, insulation_before, insulation_after,
               installation_location, installation_method,
               installed_at, received_at, responsible_itr, normatives, ai_filled, created_at"""
+    allowed_projects = visible_project_names(_current_user)
     if project_name:
+        if allowed_projects is not None and project_name not in allowed_projects:
+            cur.close(); conn.close()
+            return []
         cur.execute(f"SELECT {cols} FROM cable_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute(f"SELECT {cols} FROM cable_journal WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     else:
         cur.execute(f"SELECT {cols} FROM cable_journal ORDER BY id DESC")
     rows = cur.fetchall()
@@ -6341,6 +6466,7 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
 def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "cable_journal", id, _current_user)
     fields_map = [
         ('cableBrand','cable_brand'),
         ('crossSection','cross_section'),
@@ -6387,6 +6513,7 @@ def ai_suggest_cable_journal(id: int, _current_user: dict = Depends(require_role
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "cable_journal", id, _current_user)
     cur.execute("SELECT cable_brand, cross_section, cores_count, length_received FROM cable_journal WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
