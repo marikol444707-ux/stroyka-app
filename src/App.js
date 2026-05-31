@@ -3147,6 +3147,193 @@ function App() {
   };
   const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
   const lowMainStock = warehouseMain.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);
+  const fmtDocMoney = (n) => Math.round(Number(n||0)).toLocaleString('ru-RU')+' ₽';
+  const directorDocStyles = () => '<style>'
+    + '.dir-title{text-align:center;font-weight:800;font-size:17px;margin:0 0 4px;color:#111827}'
+    + '.dir-sub{text-align:center;font-size:11px;color:#6b7280;margin:0 0 16px}'
+    + '.dir-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 16px}'
+    + '.dir-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
+    + '.dir-card span{display:block;color:#64748b;font-size:10px}'
+    + '.dir-card b{display:block;font-size:15px;margin-top:2px;color:#111827}'
+    + '.dir-section{margin-top:18px;border-top:1.5px solid #334155;padding-top:9px;break-inside:avoid}'
+    + '.dir-section h3{font-size:13px;margin:0 0 8px;color:#111827}'
+    + '.dir-table{width:100%;border-collapse:collapse;font-size:10.5px;margin:6px 0}'
+    + '.dir-table th,.dir-table td{border:1px solid #64748b;padding:4px 5px;vertical-align:top}'
+    + '.dir-table th{background:#f1f5f9;font-weight:700;color:#111827}'
+    + '.dir-risk{border:1px solid #f59e0b;background:#fffbeb;border-radius:6px;padding:6px 8px;margin:5px 0;font-size:11px}'
+    + '.dir-danger{border-color:#ef4444;background:#fef2f2}'
+    + '.dir-ok{border:1px solid #22c55e;background:#f0fdf4;border-radius:6px;padding:6px 8px;margin:5px 0;font-size:11px}'
+    + '.dir-muted{color:#64748b}'
+    + '</style>';
+  const activeDirectorProjects = () => (projects||[]).filter(p=>!p.archived&&p.status!=='Завершён');
+  const buildDirectorBriefReportContent = (date) => {
+    const targetDate = normalizeDocDate(date)||new Date().toISOString().split('T')[0];
+    const fmtDate = (s) => new Date((normalizeDocDate(s)||targetDate)+'T00:00:00').toLocaleDateString('ru-RU');
+    const activeProjects = activeDirectorProjects();
+    const todayWorks = (workJournal||[]).filter(w=>workDocDate(w)===targetDate);
+    const pendingWorks = (workJournal||[]).filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы');
+    const worksWithoutPhoto = todayWorks.filter(w=>Number(w.quantity||0)>0&&!w.photoUrl);
+    const overdueProjects = activeProjects.filter(p=>p.deadline&&p.deadline<targetDate);
+    const openInspectionOrders = (inspectionOrders||[]).filter(o=>o.status!=='Закрыто');
+    const pendingExpenses = (ownExpenses||[]).filter(e=>e.status==='Ожидает');
+    const supplierInvoiceRows = (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status);
+    const supplierDebt = supplierInvoiceRows.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0);
+    const totalBudget = activeProjects.reduce((s,p)=>s+Number(p.budget||0),0);
+    const totalSpent = activeProjects.reduce((s,p)=>s+projectBudgetSpent(p).total,0);
+    const todaySum = todayWorks.reduce((s,w)=>s+Number(w.total||0),0);
+    const actions = [];
+    overdueProjects.slice(0,8).forEach(p=>actions.push({type:'Сроки',priority:'Критично',target:p.name,action:'Проверить план работ и ответственного',sum:''}));
+    pendingWorks.slice(0,8).forEach(w=>actions.push({type:'Работы',priority:'Проверка',target:w.project||'Без объекта',action:'Подтвердить или вернуть: '+(w.description||'работа без описания'),sum:fmtDocMoney(w.total)}));
+    worksWithoutPhoto.slice(0,6).forEach(w=>actions.push({type:'Фото',priority:'Внимание',target:w.project||'Без объекта',action:'Запросить фото: '+(w.description||'работа'),sum:''}));
+    lowStock.slice(0,6).forEach(m=>actions.push({type:'Материалы',priority:'Внимание',target:m.project||'Объект',action:'Пополнить '+m.name+' до минимума',sum:''}));
+    supplierInvoiceRows.slice(0,6).forEach(i=>actions.push({type:'Счёт',priority:i.status==='На утверждении'||!i.status?'Согласовать':'Оплатить',target:i.projectName||i.project||'Без объекта',action:(i.supplierName||'Поставщик')+' №'+(i.invoiceNumber||i.id||''),sum:fmtDocMoney(i.amount||i.totalAmount)}));
+    let html = directorDocStyles();
+    html += '<div class="dir-title">СВОДКА ДИРЕКТОРА</div>';
+    html += '<div class="dir-sub">'+docEsc(companyName||'СтройКа')+' · '+docEsc(fmtDate(targetDate))+' · сформировал: '+docEsc(user?.name||'')+'</div>';
+    html += '<div class="dir-grid">';
+    html += '<div class="dir-card"><span>Активных объектов</span><b>'+activeProjects.length+'</b></div>';
+    html += '<div class="dir-card"><span>Работ за день</span><b>'+todayWorks.length+'</b></div>';
+    html += '<div class="dir-card"><span>Сумма работ</span><b>'+fmtDocMoney(todaySum)+'</b></div>';
+    html += '<div class="dir-card"><span>Счета к оплате</span><b>'+fmtDocMoney(supplierDebt)+'</b></div>';
+    html += '</div>';
+    html += '<div class="dir-section"><h3>Финансовый контур</h3><table class="dir-table"><tr><th>Показатель</th><th>Сумма</th><th>Комментарий</th></tr>';
+    html += '<tr><td>Бюджет активных объектов</td><td>'+fmtDocMoney(totalBudget)+'</td><td>Сумма бюджетов по активным объектам</td></tr>';
+    html += '<tr><td>Себестоимость/факт</td><td>'+fmtDocMoney(totalSpent)+'</td><td>'+docEsc(totalBudget>0?Math.round(totalSpent/totalBudget*100)+'% от бюджета':'бюджет не заполнен')+'</td></tr>';
+    html += '<tr><td>Возмещения сотрудникам</td><td>'+fmtDocMoney(pendingExpenses.reduce((s,e)=>s+Number(e.amount||0),0))+'</td><td>'+pendingExpenses.length+' заявок ожидают решения</td></tr>';
+    html += '</table></div>';
+    html += '<div class="dir-section"><h3>Что сделать сегодня</h3>';
+    if (actions.length) {
+      html += '<table class="dir-table"><tr><th>N</th><th>Блок</th><th>Приоритет</th><th>Объект</th><th>Действие</th><th>Сумма</th></tr>';
+      actions.slice(0,18).forEach((a,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+docEsc(a.type)+'</td><td>'+docEsc(a.priority)+'</td><td>'+docEsc(a.target)+'</td><td>'+docEsc(a.action)+'</td><td>'+docEsc(a.sum)+'</td></tr>';});
+      html += '</table>';
+    } else {
+      html += '<div class="dir-ok">Критичных действий по загруженным данным не найдено.</div>';
+    }
+    html += '</div>';
+    html += '<div class="dir-section"><h3>Риски</h3>';
+    [
+      {label:'Просроченные объекты',value:overdueProjects.length,danger:true},
+      {label:'Работы на проверке',value:pendingWorks.length,danger:pendingWorks.length>0},
+      {label:'Работы за день без фото',value:worksWithoutPhoto.length,danger:worksWithoutPhoto.length>0},
+      {label:'Открытые замечания ГСН',value:openInspectionOrders.length,danger:openInspectionOrders.length>0},
+      {label:'Низкие остатки на объектах',value:lowStock.length,danger:lowStock.length>0},
+      {label:'Низкие остатки на основном складе',value:lowMainStock.length,danger:lowMainStock.length>0},
+    ].forEach(r=>{html+='<div class="'+(r.danger?'dir-risk dir-danger':'dir-ok')+'"><b>'+docEsc(r.label)+': '+r.value+'</b></div>';});
+    html += '</div>';
+    return html;
+  };
+  const estimateControlIssues = () => {
+    const issues = [];
+    activeDirectorProjects().forEach(p=>{
+      if(activeEstimatesForProject(p,'Заказчик').length===0) issues.push({severity:'Критично',project:p.name,estimate:'-',where:'Смета заказчика',problem:'Нет активной сметы заказчика',action:'Назначить или создать активную смету'});
+    });
+    (estimatesList||[]).filter(e=>!e.isTemplate&&!isArchivedEstimate(e)).forEach(est=>{
+      const sections = _sectionsOfEst(est);
+      const projectName = est.projectName || projects.find(p=>Number(p.id)===Number(est.projectId))?.name || '';
+      if(!sections.length) issues.push({severity:'Критично',project:projectName,estimate:est.name,where:'Состав сметы',problem:'В смете нет разделов и позиций',action:'Заполнить позиции до запуска работ'});
+      const seen = {};
+      let total = 0;
+      sections.forEach(s=>(s.items||[]).forEach((it,idx)=>{
+        const name = String(it.name||'').trim();
+        const qty = toNum(it.quantity);
+        const price = toNum(it.priceWork)+toNum(it.priceMaterial);
+        const itemSum = estimateItemTotal(it);
+        total += itemSum;
+        const where = (s.name||'Раздел')+' / '+(name||'позиция '+(idx+1));
+        if(!name) issues.push({severity:'Критично',project:projectName,estimate:est.name,where,problem:'Пустое наименование позиции',action:'Заполнить название'});
+        if(!it.unit) issues.push({severity:'Внимание',project:projectName,estimate:est.name,where,problem:'Не указана единица измерения',action:'Проверить единицу'});
+        if(qty<=0) issues.push({severity:'Критично',project:projectName,estimate:est.name,where,problem:'Количество равно нулю или пустое',action:'Заполнить объём'});
+        if(price<=0) issues.push({severity:'Внимание',project:projectName,estimate:est.name,where,problem:'Цена работ и материалов нулевая',action:'Проверить расценку'});
+        const key = name.toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
+        if(key&&seen[key]) issues.push({severity:'Внимание',project:projectName,estimate:est.name,where,problem:'Возможный дубль позиции',action:'Сравнить с разделом: '+seen[key]});
+        else if(key) seen[key] = s.name||'без раздела';
+      }));
+      const project = projects.find(p=>p.name===projectName||Number(p.id)===Number(est.projectId));
+      if(project&&Number(project.budget||0)>0&&total>Number(project.budget)*1.1) {
+        issues.push({severity:'Критично',project:projectName,estimate:est.name,where:'Бюджет',problem:'Смета выше бюджета объекта на '+Math.round((total/Number(project.budget)-1)*100)+'%',action:'Проверить бюджет или состав сметы'});
+      }
+    });
+    return issues.sort((a,b)=>(a.severity==='Критично'?-1:1)-(b.severity==='Критично'?-1:1));
+  };
+  const buildEstimateControlReportContent = () => {
+    const estimates = (estimatesList||[]).filter(e=>!e.isTemplate);
+    const activeEstimates = estimates.filter(e=>e.status==='Активная');
+    const issues = estimateControlIssues();
+    const topItems = activeEstimates.flatMap(est=>_sectionsOfEst(est).flatMap(s=>(s.items||[]).map(it=>({
+      project: est.projectName||'',
+      estimate: est.name||'',
+      section: s.name||'',
+      name: it.name||'',
+      qty: it.quantity,
+      unit: it.unit,
+      sum: estimateItemTotal(it)
+    })))).filter(i=>i.sum>0).sort((a,b)=>b.sum-a.sum).slice(0,12);
+    let html = directorDocStyles();
+    html += '<div class="dir-title">ПРОВЕРКА СМЕТ ДИРЕКТОРА</div>';
+    html += '<div class="dir-sub">'+docEsc(companyName||'СтройКа')+' · '+new Date().toLocaleDateString('ru-RU')+' · сформировал: '+docEsc(user?.name||'')+'</div>';
+    html += '<div class="dir-grid">';
+    html += '<div class="dir-card"><span>Всего смет</span><b>'+estimates.length+'</b></div>';
+    html += '<div class="dir-card"><span>Активных</span><b>'+activeEstimates.length+'</b></div>';
+    html += '<div class="dir-card"><span>Замечаний</span><b>'+issues.length+'</b></div>';
+    html += '<div class="dir-card"><span>Активная сумма</span><b>'+fmtDocMoney(activeEstimates.reduce((s,e)=>s+estimateTotal(e),0))+'</b></div>';
+    html += '</div>';
+    html += '<div class="dir-section"><h3>Замечания</h3>';
+    if(issues.length){
+      html += '<table class="dir-table"><tr><th>N</th><th>Приоритет</th><th>Объект</th><th>Смета</th><th>Где</th><th>Проблема</th><th>Действие</th></tr>';
+      issues.slice(0,40).forEach((r,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+docEsc(r.severity)+'</td><td>'+docEsc(r.project)+'</td><td>'+docEsc(r.estimate)+'</td><td>'+docEsc(r.where)+'</td><td>'+docEsc(r.problem)+'</td><td>'+docEsc(r.action)+'</td></tr>';});
+      html += '</table>';
+    } else {
+      html += '<div class="dir-ok">По активным и рабочим сметам критичных замечаний не найдено.</div>';
+    }
+    html += '</div>';
+    html += '<div class="dir-section"><h3>Самые дорогие позиции активных смет</h3>';
+    if(topItems.length){
+      html += '<table class="dir-table"><tr><th>N</th><th>Объект</th><th>Смета</th><th>Раздел</th><th>Позиция</th><th>Кол-во</th><th>Сумма</th></tr>';
+      topItems.forEach((i,n)=>{html+='<tr><td>'+(n+1)+'</td><td>'+docEsc(i.project)+'</td><td>'+docEsc(i.estimate)+'</td><td>'+docEsc(i.section)+'</td><td>'+docEsc(i.name)+'</td><td>'+docEsc(fmtMeasure(i.qty,i.unit))+'</td><td>'+fmtDocMoney(i.sum)+'</td></tr>';});
+      html += '</table>';
+    } else {
+      html += '<div class="dir-risk">Активных позиций со стоимостью пока нет.</div>';
+    }
+    html += '</div>';
+    return html;
+  };
+  const supplyControlIssues = () => {
+    const issues = [];
+    lowMainStock.forEach(m=>issues.push({severity:'Внимание',project:'Основной склад',where:m.name,problem:'Остаток ниже минимума: '+fmtMeasure(m.quantity,m.unit),action:'Пополнить склад'}));
+    lowStock.forEach(m=>issues.push({severity:'Внимание',project:m.project||'Объект',where:m.name,problem:'Остаток ниже минимума: '+fmtMeasure(m.quantity,m.unit),action:'Создать заявку или перемещение'}));
+    (supplyRequests||[]).filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').forEach(r=>issues.push({severity:r.status==='Новая'?'Внимание':'Критично',project:r.project||'',where:r.materialName||'Заявка #'+r.id,problem:'Заявка ждёт решения: '+(r.status||'Новая'),action:'Открыть снабжение'}));
+    (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).forEach(i=>issues.push({severity:'Критично',project:i.projectName||i.project||'',where:i.supplierName||'Поставщик',problem:'Счёт ждёт утверждения: '+fmtDocMoney(i.amount||i.totalAmount),action:'Утвердить или отклонить'}));
+    activeDirectorProjects().slice(0,12).forEach(p=>{
+      materialReconciliationRows(p.name).filter(r=>r.toBuy>0).slice(0,3).forEach(r=>issues.push({severity:'Внимание',project:p.name,where:r.name,problem:'К закупке по плану: '+fmtMeasure(r.toBuy,r.unit),action:'Проверить заявку/поставку'}));
+    });
+    return issues.sort((a,b)=>(a.severity==='Критично'?-1:1)-(b.severity==='Критично'?-1:1));
+  };
+  const buildSupplyControlReportContent = () => {
+    const issues = supplyControlIssues();
+    const inWorkRequests = (supplyRequests||[]).filter(r=>['Новая','Подтверждена прорабом','Утверждена','КП запрошены'].includes(r.status||'Новая'));
+    const offersToReview = (supplierOffers||[]).filter(o=>o.status==='Получено');
+    const invoicesToPay = (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status);
+    const debt = invoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0);
+    let html = directorDocStyles();
+    html += '<div class="dir-title">КОНТРОЛЬ СНАБЖЕНИЯ И СКЛАДА</div>';
+    html += '<div class="dir-sub">'+docEsc(companyName||'СтройКа')+' · '+new Date().toLocaleDateString('ru-RU')+' · сформировал: '+docEsc(user?.name||'')+'</div>';
+    html += '<div class="dir-grid">';
+    html += '<div class="dir-card"><span>Заявки в работе</span><b>'+inWorkRequests.length+'</b></div>';
+    html += '<div class="dir-card"><span>КП на выбор</span><b>'+offersToReview.length+'</b></div>';
+    html += '<div class="dir-card"><span>Счета к оплате</span><b>'+invoicesToPay.length+'</b></div>';
+    html += '<div class="dir-card"><span>Долг по счетам</span><b>'+fmtDocMoney(debt)+'</b></div>';
+    html += '</div>';
+    html += '<div class="dir-section"><h3>Замечания</h3>';
+    if(issues.length){
+      html += '<table class="dir-table"><tr><th>N</th><th>Приоритет</th><th>Объект/склад</th><th>Позиция</th><th>Проблема</th><th>Действие</th></tr>';
+      issues.slice(0,45).forEach((r,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+docEsc(r.severity)+'</td><td>'+docEsc(r.project)+'</td><td>'+docEsc(r.where)+'</td><td>'+docEsc(r.problem)+'</td><td>'+docEsc(r.action)+'</td></tr>';});
+      html += '</table>';
+    } else {
+      html += '<div class="dir-ok">По снабжению и складу критичных замечаний не найдено.</div>';
+    }
+    html += '</div>';
+    return html;
+  };
   const unreadNotifications = myNotifications(notifications).filter(n=>!n.read).length;
 
   const exportToExcel = (data, filename) => {
@@ -6879,6 +7066,18 @@ function App() {
             const supplyInvoicesToPay = (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status);
             const supplyInvoiceDebt = supplyInvoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0);
             const openSupplyDashboard = (tab) => { setActivePage('supply'); setSupplyTab(tab); setShowSupplyForm(false); setShowForm(false); };
+            const directorSkillDate = normalizeDocDate(dailyReportDate)||_today;
+            const directorSkillDailyWorks = (workJournal||[]).filter(w=>workDocDate(w)===directorSkillDate);
+            const directorSkillEstimateIssues = isLeadership()?estimateControlIssues().length:0;
+            const directorSkillSupplyIssues = lowStock.length+lowMainStock.length
+              +(supplyRequests||[]).filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').length
+              +(supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).length;
+            const directorSkillCards = [
+              {label:'Сводка директору',sub:'риски, деньги, задачи',icon:<Bot size={18}/>,color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',metric:risks.length+' рисков',onClick:()=>showPreview(buildDirectorBriefReportContent(directorSkillDate),'Сводка директора — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
+              {label:'Ежедневный отчёт',sub:'работы по объектам',icon:<FileText size={18}/>,color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',metric:directorSkillDailyWorks.length+' работ',onClick:()=>showPreview(buildDailyObjectReportContent(directorSkillDate),'Ежедневный отчет — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
+              {label:'Проверка смет',sub:'нули, дубли, бюджет',icon:<Calculator size={18}/>,color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',metric:directorSkillEstimateIssues+' замеч.',onClick:()=>showPreview(buildEstimateControlReportContent(),'Проверка смет директора')},
+              {label:'Склад и снабжение',sub:'остатки, заявки, счета',icon:<Package size={18}/>,color:'#c4b5fd',bg:'rgba(139,92,246,.12)',border:'rgba(139,92,246,.28)',metric:directorSkillSupplyIssues+' задач',onClick:()=>showPreview(buildSupplyControlReportContent(),'Контроль снабжения и склада')},
+            ];
             return(
             <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'28px',flexWrap:'wrap',gap:'12px'}}>
@@ -6926,6 +7125,29 @@ function App() {
                   </div>
                 ))}
               </div>
+              {isLeadership()&&(
+                <div style={{marginBottom:'20px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
+                    <div>
+                      <h2 style={{margin:0,fontSize:'18px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}><Bot size={18} color='#fdba74'/>ИИ-контроль директора</h2>
+                      <p style={{color:'#94a3b8',fontSize:'12px',margin:'3px 0 0'}}>Автопроверки по данным программы</p>
+                    </div>
+                    <input type='date' value={dailyReportDate} onChange={e=>setDailyReportDate(e.target.value)} style={{height:'34px',padding:'6px 8px',borderRadius:'8px',border:'1px solid rgba(148,163,184,.32)',background:'rgba(15,23,42,.72)',color:'#f8fafc',fontSize:'12px',boxSizing:'border-box'}}/>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'12px'}}>
+                    {directorSkillCards.map((k,i)=>(
+                      <button key={i} onClick={k.onClick} style={{textAlign:'left',padding:'14px',borderRadius:'16px',background:k.bg,border:'1px solid '+k.border,cursor:'pointer',transition:'transform 0.15s, background 0.15s',color:'#f8fafc',display:'flex',flexDirection:'column',gap:'10px',minHeight:'116px'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.background='rgba(30,41,59,.75)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.background=k.bg;}}>
+                        <span style={{width:'34px',height:'34px',borderRadius:'12px',display:'inline-flex',alignItems:'center',justifyContent:'center',background:'rgba(15,23,42,.55)',border:'1px solid '+k.border,color:k.color}}>{k.icon}</span>
+                        <span style={{display:'block'}}>
+                          <b style={{display:'block',fontSize:'13px',color:'#f8fafc'}}>{k.label}</b>
+                          <span style={{display:'block',marginTop:'3px',color:'#94a3b8',fontSize:'11px'}}>{k.sub}</span>
+                        </span>
+                        <span style={{marginTop:'auto',fontSize:'12px',fontWeight:'800',color:k.color}}>{k.metric}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {showSupplyDashboard&&(<div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'18px 20px',marginBottom:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.28)'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
                   <div>
