@@ -2031,7 +2031,10 @@ function App() {
 
   const buildInvoiceContent = (inv) => {
     const req = companyRequisites||{};
-    const vatCalc = calcVat(inv.totalBase||0, inv.vat||'Без НДС');
+    const invoiceRows = warehouseInvoiceItems(inv);
+    const rowsTotal = invoiceRows.items.reduce((s,it)=>s+(Number(it.total||0)||Number(it.quantity||0)*Number(it.price||0)),0);
+    const invoiceAmount = Number(inv.totalBase||0) || Number(inv.totalWithVat||0) || rowsTotal;
+    const vatCalc = calcVat(invoiceAmount, inv.vat||'Без НДС');
     const qrUrl = generateQR(window.location.origin+'/?invoice='+inv.id+'&number='+inv.number);
     let html = '<h2 style="text-align:center">ПРИХОДНАЯ НАКЛАДНАЯ № '+inv.number+'</h2>';
     html += '<p style="text-align:center">'+(req.fullName||req.shortName||companyName||'_____')+'</p>';
@@ -2039,8 +2042,9 @@ function App() {
     html += '<table><tr><th>Дата</th><td>'+inv.date+'</td><th>Поставщик</th><td>'+inv.supplierName+'</td></tr>';
     html += '<tr><th>Принял</th><td>'+inv.acceptedBy+'</td><th>Место</th><td>'+(inv.location==='Основной склад'?'Основной склад':inv.project||'')+'</td></tr>';
     html += '<tr><th>НДС</th><td colspan="3">'+inv.vat+'</td></tr></table>';
+    if(invoiceRows.reconstructed) html += '<p style="font-size:11px;color:#666;margin:6px 0">Строки восстановлены из '+invoiceRows.source+', потому что в старой накладной был сохранён только итог.</p>';
     html += '<table><tr><th>N</th><th>Наименование товара</th><th>Категория</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th></tr>';
-    (inv.items||[]).forEach((item,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+(Number(item.quantity)*Number(item.price||0)).toLocaleString()+'</td></tr>'; });
+    (invoiceRows.items||[]).forEach((item,i) => { const rowSum=Number(item.total||0)||Number(item.quantity||0)*Number(item.price||0); html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+rowSum.toLocaleString()+'</td></tr>'; });
     html += '<tr><td colspan="6">Итого без НДС:</td><td>'+vatCalc.base.toLocaleString()+' руб.</td></tr>';
     if (inv.vat==='С НДС 22%') html += '<tr><td colspan="6">НДС 22%:</td><td>'+vatCalc.vat.toLocaleString()+' руб.</td></tr><tr><td colspan="6"><b>Итого с НДС:</b></td><td><b>'+vatCalc.total.toLocaleString()+' руб.</b></td></tr>';
     html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Поставщик</div></div><div class="sig"><div class="sig-line">Принял: '+inv.acceptedBy+'</div></div></div>';
@@ -2305,6 +2309,44 @@ function App() {
     const works=Math.max(journal,brigades);
     const mats=(materials||[]).filter(m=>m.project===p.name).reduce((s,m)=>s+Number(m.quantity||0)*Number(m.price||0),0);
     return {works,materials:mats,total:works+mats};
+  };
+  const warehouseInvoiceItems = (inv) => {
+    const direct = Array.isArray(inv?.items) ? inv.items.filter(it=>(it?.name||'').trim()) : [];
+    if (direct.length>0) return {items:direct,reconstructed:false,source:''};
+    const norm = (v) => String(v||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
+    const place = inv?.location==='Основной склад' ? 'Основной склад' : (inv?.project || inv?.location || '');
+    const metaFor = (name) => {
+      const n = norm(name);
+      const projectItems = (materials||[]).filter(m=>m.project===place);
+      const pools = [...projectItems, ...(materials||[]), ...(warehouseMain||[])];
+      return pools.find(m=>norm(m.name)===n) || pools.find(m=>n && (norm(m.name).includes(n) || n.includes(norm(m.name)))) || {};
+    };
+    const rowsFromInspections = (materialInspections||[])
+      .filter(mi=>String(mi.invoiceId||'')===String(inv?.id||''))
+      .map(mi=>{
+        const meta = metaFor(mi.materialName);
+        const price = Number(meta.price||0);
+        const qty = Number(mi.quantity||0);
+        return {name:mi.materialName||'', category:meta.category||'', quantity:qty, unit:mi.unit||meta.unit||'шт', price, total:qty*price};
+      })
+      .filter(it=>it.name&&it.quantity>0);
+    if (rowsFromInspections.length>0) return {items:rowsFromInspections,reconstructed:true,source:'журнала входного контроля'};
+
+    const byName = {};
+    const invDate = String(inv?.date||'').slice(0,10);
+    (history||[])
+      .filter(h=>String(h.date||'').slice(0,10)===invDate && (h.project||'')===place)
+      .filter(h=>String(h.type||'').toLowerCase().includes('приход') && !String(h.type||'').toLowerCase().includes('откат'))
+      .forEach(h=>{
+        const key = norm(h.material);
+        if(!key) return;
+        const meta = metaFor(h.material);
+        if(!byName[key]) byName[key] = {name:h.material||'', category:meta.category||'', quantity:0, unit:meta.unit||'шт', price:Number(meta.price||0), total:0};
+        byName[key].quantity += Number(h.quantity||0);
+        byName[key].total = byName[key].quantity * Number(byName[key].price||0);
+      });
+    const rowsFromHistory = Object.values(byName).filter(it=>it.name&&it.quantity>0);
+    return {items:rowsFromHistory,reconstructed:rowsFromHistory.length>0,source:'истории склада'};
   };
   // Себестоимость объекта = все категории из expByCategory (работы, материалы, доставка, топливо, и т.д.)
   const projectBudgetSpent = (p) => {
@@ -8395,12 +8437,13 @@ function App() {
                 </div>
                 <div style={{display:'flex',gap:'8px'}}><button onClick={saveInvoiceNew} style={btnO}><Check size={14}/>Сохранить и оприходовать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
-              {invoices.map(inv=>{const items=Array.isArray(inv.items)?inv.items:[];return(<div key={inv.id} style={{...card,padding:'16px',marginBottom:'10px'}}>
+              {invoices.map(inv=>{const invoiceRows=warehouseInvoiceItems(inv);const items=invoiceRows.items;return(<div key={inv.id} style={{...card,padding:'16px',marginBottom:'10px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                   <div>
                     <b style={{color:C.text,fontSize:'14px'}}>{'Накладная № '+inv.number}</b>
                     <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{inv.date+' · '+inv.supplierName+' · '+(inv.location==='Основной склад'?'Основной склад':inv.project||'')}</p>
                     <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat+' · позиций: '+items.length}</p>
+                    {invoiceRows.reconstructed&&<p style={{color:C.warning,margin:'2px 0 0',fontSize:'11px'}}>Строки восстановлены из {invoiceRows.source}</p>}
                   </div>
                   <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
                     <b style={{color:C.success,fontSize:'14px'}}>{(inv.totalWithVat||inv.totalBase||0).toLocaleString()+' ₽'}</b>
@@ -8412,7 +8455,7 @@ function App() {
                   <summary style={{cursor:'pointer',color:C.accent,fontSize:'12px',fontWeight:'600',padding:'4px 0'}}>📋 Показать материалы ({items.length})</summary>
                   <div style={{marginTop:'8px',overflowX:'auto'}}>
                     <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th></tr></thead><tbody>
-                      {items.map((it,i)=>(<tr key={i}><td style={tblC}>{it.name||''}</td><td style={tblC}>{it.unit||''}</td><td style={tblC}>{it.quantity||0}</td><td style={tblC}>{Number(it.price||0).toLocaleString('ru-RU')+' ₽'}</td><td style={tblC}>{Number((it.quantity||0)*(it.price||0)).toLocaleString('ru-RU')+' ₽'}</td></tr>))}
+                      {items.map((it,i)=>{const rowSum=Number(it.total||0)||Number((it.quantity||0)*(it.price||0));return(<tr key={i}><td style={tblC}>{it.name||''}</td><td style={tblC}>{it.unit||''}</td><td style={tblC}>{it.quantity||0}</td><td style={tblC}>{Number(it.price||0).toLocaleString('ru-RU')+' ₽'}</td><td style={tblC}>{rowSum.toLocaleString('ru-RU')+' ₽'}</td></tr>);})}
                     </tbody></table>
                   </div>
                 </details>)}
