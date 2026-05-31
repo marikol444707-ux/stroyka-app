@@ -153,9 +153,25 @@ button { touch-action: manipulation; }
 
 @media (max-width: 768px) {
   input[type="text"], input[type="number"], input[type="email"], input[type="password"], input[type="tel"], input[type="date"], textarea, select { font-size: 16px !important; }
-  table { font-size: 11px !important; }
-  table th, table td { padding: 6px 4px !important; }
-  table { display: block; overflow-x: auto; white-space: nowrap; }
+  table {
+    display: block;
+    width: 100% !important;
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+    font-size: 11px !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  table th, table td {
+    padding: 7px 8px !important;
+    min-width: 78px;
+  }
+  table th:first-child, table td:first-child {
+    min-width: 210px;
+    max-width: 260px;
+    white-space: normal;
+    line-height: 1.25;
+  }
 }
 
 .mobile-modal {
@@ -166,6 +182,7 @@ button { touch-action: manipulation; }
 }
 @media (max-width: 768px) {
   .mobile-modal { width: 95vw !important; height: auto !important; max-height: 92vh !important; }
+  .mobile-modal.estimate-chat-modal { height: calc(100vh - 24px) !important; }
   .grid-2-mobile-1 { grid-template-columns: 1fr !important; }
   .grid-3-mobile-1 { grid-template-columns: 1fr !important; }
 }

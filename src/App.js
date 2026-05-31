@@ -625,6 +625,7 @@ function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [previewContent, setPreviewContent] = useState(null);
   const [previewTitle, setPreviewTitle] = useState('');
+  const [dailyReportDate, setDailyReportDate] = useState(new Date().toISOString().split('T')[0]);
   const [globalSearch, setGlobalSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -1360,6 +1361,116 @@ function App() {
     });
     html += '</table><p><b>Итого недостача: '+totalShortage.toLocaleString()+' руб.</b></p><p><b>Итого излишек: '+totalSurplus.toLocaleString()+' руб.</b></p>';
     html += '<div class="signatures"><div class="sig"><div class="sig-line">Директор<br/>'+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Прораб</div></div><div class="sig"><div class="sig-line">Кладовщик</div></div><div class="sig"><div class="sig-line">Мастер</div></div></div>';
+    return html;
+  };
+
+  const docEsc = (v) => String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const workDocDate = (w) => String(w.date||w.confirmedAt||'').split('T')[0];
+  const parseWorkMaterials = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      const text=value.trim();
+      if (!text) return [];
+      try { const parsed=JSON.parse(text); return Array.isArray(parsed)?parsed:[parsed]; } catch(e) { return [{name:text}]; }
+    }
+    return [value];
+  };
+  const photoCount = (value) => String(value||'').split(/[,\s;]+/).filter(Boolean).length;
+  const buildDailyObjectReportContent = (date) => {
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'СтройКа';
+    const works = (workJournal||[]).filter(w=>workDocDate(w)===date);
+    const activeProjectNames = new Set((projects||[]).filter(p=>!p.archived&&p.status!=='Завершён').map(p=>p.name).filter(Boolean));
+    const projectsWithWorks = Array.from(new Set(works.map(w=>w.project||'Без объекта'))).sort((a,b)=>a.localeCompare(b,'ru'));
+    const missingProjects = Array.from(activeProjectNames).filter(name=>!projectsWithWorks.includes(name)).sort((a,b)=>a.localeCompare(b,'ru'));
+    const totalAmount = works.reduce((s,w)=>s+Number(w.total||0),0);
+    const confirmedCount = works.filter(w=>w.status==='Подтверждено').length;
+    const pendingCount = works.filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы').length;
+    const hiddenCount = works.filter(w=>w.hiddenWork).length;
+    const fmtMoney = (n) => Math.round(Number(n||0)).toLocaleString('ru-RU')+' ₽';
+    const fmtDate = (s) => s ? new Date(s+'T00:00:00').toLocaleDateString('ru-RU') : '';
+    let html = '<style>'
+      + '.dor-title{text-align:center;font-weight:700;font-size:17px;margin:0 0 4px}'
+      + '.dor-sub{text-align:center;font-size:11px;color:#555;margin:0 0 16px}'
+      + '.dor-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 16px}'
+      + '.dor-card{border:1px solid #bbb;border-radius:8px;padding:8px;background:#fafafa}'
+      + '.dor-card b{display:block;font-size:15px;margin-top:2px}'
+      + '.dor-muted{color:#666;font-size:10px}'
+      + '.dor-section{margin-top:18px;border-top:1.5px solid #333;padding-top:8px;break-inside:avoid}'
+      + '.dor-section h3{font-size:13px;margin:0 0 8px}'
+      + '.dor-table{width:100%;border-collapse:collapse;font-size:10.5px;margin:6px 0}'
+      + '.dor-table th,.dor-table td{border:1px solid #555;padding:4px 5px;vertical-align:top}'
+      + '.dor-table th{background:#f1f5f9;font-weight:700}'
+      + '.dor-risk{margin:4px 0;padding:5px 7px;border:1px solid #f59e0b;background:#fffbeb;border-radius:6px;font-size:11px}'
+      + '.dor-ok{margin:4px 0;padding:5px 7px;border:1px solid #22c55e;background:#f0fdf4;border-radius:6px;font-size:11px}'
+      + '.dor-empty{padding:14px;border:1px dashed #aaa;border-radius:8px;color:#666;text-align:center}'
+      + '</style>';
+    html += '<div class="dor-title">ЕЖЕДНЕВНЫЙ ОТЧЕТ ПО ОБЪЕКТАМ</div>';
+    html += '<div class="dor-sub">'+docEsc(orgName)+' · '+docEsc(fmtDate(date))+' · сформировал: '+docEsc(user?.name||'')+'</div>';
+    html += '<div class="dor-grid">';
+    html += '<div class="dor-card"><span class="dor-muted">Записей</span><b>'+works.length+'</b></div>';
+    html += '<div class="dor-card"><span class="dor-muted">Подтверждено</span><b>'+confirmedCount+'</b></div>';
+    html += '<div class="dor-card"><span class="dor-muted">На проверке</span><b>'+pendingCount+'</b></div>';
+    html += '<div class="dor-card"><span class="dor-muted">Сумма</span><b>'+fmtMoney(totalAmount)+'</b></div>';
+    html += '</div>';
+    if (!works.length) {
+      html += '<div class="dor-empty">За выбранную дату работы в журнале не зафиксированы.</div>';
+    }
+    projectsWithWorks.forEach(projectName=>{
+      const list = works.filter(w=>(w.project||'Без объекта')===projectName);
+      const project = projects.find(p=>p.name===projectName)||{};
+      const byStatus = list.reduce((acc,w)=>{const k=w.status||'Без статуса';acc[k]=(acc[k]||0)+1;return acc;},{});
+      const byUnit = list.reduce((acc,w)=>{if(w.unit&&Number(w.quantity||0)>0) acc[w.unit]=(acc[w.unit]||0)+Number(w.quantity||0);return acc;},{});
+      const projectSum = list.reduce((s,w)=>s+Number(w.total||0),0);
+      const materialsList = [];
+      list.forEach(w=>parseWorkMaterials(w.materialsUsed).forEach(m=>materialsList.push({
+        work:w.description||'',
+        name:m.name||m.materialName||m.material||String(m),
+        qty:m.quantity||m.qty||'',
+        unit:m.unit||''
+      })));
+      const risks = [];
+      list.forEach(w=>{
+        const label=w.description||'Запись без описания';
+        if(!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы') risks.push(label+': требуется подтверждение.');
+        if(w.status==='Отклонено') risks.push(label+': работа отклонена.');
+        if(!w.photoUrl&&Number(w.quantity||0)>0) risks.push(label+': нет фотофиксации.');
+        if(w.hiddenWork) risks.push(label+': скрытая работа, проверить АОСР.');
+        if(w.qualityStatus&&!(String(w.qualityStatus).toLowerCase().includes('прин')||String(w.qualityStatus).toLowerCase().includes('норм'))) risks.push(label+': статус качества - '+w.qualityStatus+'.');
+        if((w.comment||'').toLowerCase().includes('материал')&&!w.materialsUsed) risks.push(label+': в комментарии есть материалы, но списание не указано.');
+      });
+      html += '<div class="dor-section">';
+      html += '<h3>'+docEsc(projectName)+'</h3>';
+      html += '<p><b>Заказчик:</b> '+docEsc(project.client||'не указан')+' &nbsp; <b>Статус объекта:</b> '+docEsc(project.status||'')+'</p>';
+      html += '<p><b>Записей:</b> '+list.length+' &nbsp; <b>Статусы:</b> '+Object.entries(byStatus).map(([k,v])=>docEsc(k)+': '+v).join(', ')+' &nbsp; <b>Сумма:</b> '+fmtMoney(projectSum)+'</p>';
+      html += '<p><b>Объемы:</b> '+(Object.keys(byUnit).length?Object.entries(byUnit).map(([unit,qty])=>fmtMeasure(qty,unit)).join(', '):'нет данных')+'</p>';
+      html += '<table class="dor-table"><tr><th>N</th><th>Работа</th><th>Раздел</th><th>Исполнитель</th><th>Кол-во</th><th>Статус</th><th>Комментарий</th><th>Фото</th></tr>';
+      list.forEach((w,i)=>{
+        html += '<tr><td>'+(i+1)+'</td><td>'+docEsc(w.description||'')+'</td><td>'+docEsc(w.sectionName||'')+'</td><td>'+docEsc(w.masterName||w.master_name||'')+'</td><td>'+docEsc(fmtMeasure(w.quantity,w.unit))+'</td><td>'+docEsc(w.status||'')+'</td><td>'+docEsc(w.comment||'')+'</td><td>'+photoCount(w.photoUrl)+'</td></tr>';
+      });
+      html += '</table>';
+      if (materialsList.length) {
+        html += '<p><b>Материалы:</b></p><table class="dor-table"><tr><th>Работа</th><th>Материал</th><th>Кол-во</th></tr>';
+        materialsList.slice(0,25).forEach(m=>{html+='<tr><td>'+docEsc(m.work)+'</td><td>'+docEsc(m.name)+'</td><td>'+docEsc(String(m.qty||'')+' '+String(m.unit||''))+'</td></tr>';});
+        html += '</table>';
+      } else {
+        html += '<p><b>Материалы:</b> списания в журнале не указаны.</p>';
+      }
+      const dedupRisks = Array.from(new Set(risks));
+      if (dedupRisks.length) dedupRisks.slice(0,12).forEach(r=>{html+='<div class="dor-risk">'+docEsc(r)+'</div>';});
+      else html += '<div class="dor-ok">Критичных отклонений по данным журнала не найдено.</div>';
+      html += '</div>';
+    });
+    if (missingProjects.length) {
+      html += '<div class="dor-section"><h3>Объекты без записей за день</h3><p>'+missingProjects.map(docEsc).join(', ')+'</p></div>';
+    }
+    html += '<div class="dor-section"><h3>Итоговые действия</h3><ul>';
+    html += pendingCount?'<li>Проверить и подтвердить работы со статусом "На проверке".</li>':'<li>Все зафиксированные работы подтверждены или не требуют проверки по статусу.</li>';
+    html += hiddenCount?'<li>Проверить АОСР/исполнительную документацию по скрытым работам: '+hiddenCount+'.</li>':'';
+    html += '<li>Уточнить материалы по объектам, где списания не заполнены.</li>';
+    html += '<li>Запросить фотофиксацию по строкам без фото.</li>';
+    html += '</ul></div>';
     return html;
   };
 
@@ -6838,13 +6949,25 @@ function App() {
                     const wj=(workJournal||[]).filter(w=>w.status==='Подтверждено');
                     const todayWorks=wj.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===today);
                     const yestWorks=wj.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===yest);
+                    const reportDate=dailyReportDate||today;
+                    const reportWorks=(workJournal||[]).filter(w=>workDocDate(w)===reportDate);
+                    const reportProjects=new Set(reportWorks.map(w=>w.project).filter(Boolean)).size;
                     const sumToday=todayWorks.reduce((s,w)=>s+Number(w.total||0),0);
                     const sumYest=yestWorks.reduce((s,w)=>s+Number(w.total||0),0);
                     const byMaster={};
                     todayWorks.forEach(w=>{const n=w.masterName||w.master_name||'—';byMaster[n]=(byMaster[n]||0)+Number(w.total||0);});
                     const masters=Object.entries(byMaster).sort((a,b)=>b[1]-a[1]).slice(0,5);
                     return(<div onClick={()=>{setActivePage('accounting');setAccountingTab('acts');}} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',cursor:'pointer'}}>
-                      <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>👷 Производство работ <span style={{fontSize:'12px',color:'#94a3b8',fontWeight:'400'}}>→ Акты</span></h2>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:'12px',flexWrap:'wrap'}}>
+                        <div>
+                          <h2 style={{margin:'0 0 4px',fontSize:'17px',color:'#f8fafc'}}>👷 Производство работ <span style={{fontSize:'12px',color:'#94a3b8',fontWeight:'400'}}>→ Акты</span></h2>
+                          <p style={{margin:0,color:'#94a3b8',fontSize:'11px'}}>{'Отчёт за день: '+reportWorks.length+' работ · '+reportProjects+' объектов'}</p>
+                        </div>
+                        {user&&['директор','зам_директора'].includes(user.role)&&(<div onClick={e=>e.stopPropagation()} style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                          <input type='date' value={dailyReportDate} onChange={e=>setDailyReportDate(e.target.value)} style={{height:'34px',padding:'6px 8px',borderRadius:'8px',border:'1px solid rgba(148,163,184,.32)',background:'rgba(15,23,42,.72)',color:'#f8fafc',fontSize:'12px',boxSizing:'border-box'}}/>
+                          <button onClick={e=>{e.stopPropagation();showPreview(buildDailyObjectReportContent(reportDate),'Ежедневный отчет — '+new Date(reportDate+'T00:00:00').toLocaleDateString('ru-RU'));}} style={{height:'34px',padding:'7px 10px',borderRadius:'8px',border:'1px solid rgba(34,197,94,.34)',background:'rgba(34,197,94,.14)',color:'#86efac',fontWeight:'700',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'5px'}}><FileText size={13}/>Ежедневный отчёт</button>
+                        </div>)}
+                      </div>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
                         <div style={{padding:'12px',borderRadius:'14px',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.28)'}}>
                           <p style={{color:'#86efac',fontSize:'11px',margin:'0 0 4px'}}>Сегодня</p>
@@ -6962,9 +7085,9 @@ function App() {
                       </div>);
                     })()}
                   </div>
-                  <div style={{padding:'20px'}}>
+                  <div style={{padding:isMobile?'12px':'20px',overflowX:'hidden'}}>
                     {activeProjectTab==='Общее'&&(<div>
-                      {isFinanceRole()&&(<div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'12px',marginBottom:'16px'}}>
+                      {isFinanceRole()&&(<div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'1fr 1fr 1fr',gap:isMobile?'8px':'12px',marginBottom:'16px'}}>
                         {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'14px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
                       </div>)}
                       {(()=>{const wj=(workJournal||[]).filter(w=>w.project===p.name);const pending=wj.filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы');const confirmed=wj.filter(w=>w.status==='Подтверждено');const rejected=wj.filter(w=>w.status==='Отклонено');const last7=wj.filter(w=>{if(!w.date) return false;const d=new Date(w.date);return (Date.now()-d.getTime())<7*24*3600*1000;});const sumConfirmed=confirmed.reduce((s,w)=>s+Number(w.total||0),0);return(<div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:pending.length>0?C.warningLight:C.bg,border:'1.5px solid '+(pending.length>0?C.warningBorder:C.border)}}>
@@ -6982,7 +7105,7 @@ function App() {
                       </div>);})()}
                       <div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
                         <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'12px'}}>📊 Бригады и выполнение</b>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'12px'}}>
+                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(3,1fr)',gap:'10px',marginBottom:'12px'}}>
                           <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Бригад</p><b style={{color:C.text,fontSize:'18px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).length}</b></div>
                           <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>По договорам</p><b style={{color:C.accent,fontSize:'16px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+Number(bc.totalAmount||0),0).toLocaleString()+' ₽'}</b></div>
                           <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смет</p><b style={{color:C.text,fontSize:'18px'}}>{estimatesList.filter(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id)).length}</b></div>
@@ -7002,7 +7125,7 @@ function App() {
                             <div style={{backgroundColor:C.success,width:(()=>{const pBrigades=brigadeContracts.filter(bc=>bc.projectName===p.name);const totalSmeta=pBrigades.reduce((s,bc)=>s+Number(bc.totalAmount||0),0);const totalDone=pBrigades.reduce((s,bc)=>s+Number(bc.doneAmount||0),0);return Math.min(100,totalSmeta>0?Math.round(totalDone/totalSmeta*100):0)+'%';})(),height:'100%',borderRadius:'6px'}}/>
                           </div>
                         </div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'10px'}}>
+                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(2,1fr)',gap:'10px'}}>
                           <div style={{backgroundColor:C.successLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смета заказчика</p><b style={{color:C.success,fontSize:'14px'}}>{Math.round(projectPlanDone(p).plan).toLocaleString('ru-RU')+' ₽'}</b></div>
                           <div style={{backgroundColor:C.warningLight,padding:'10px',borderRadius:'8px',border:'1px solid '+C.warningBorder}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Подрядчикам</p><b style={{color:C.warning,fontSize:'14px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+Number(bc.totalAmount||0),0).toLocaleString()+' ₽'}</b></div>
                         </div>
@@ -11692,7 +11815,7 @@ function App() {
       </div>
     </div>)}
     {showEstimateChat&&selectedEstimate&&(<div onClick={()=>setShowEstimateChat(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:0,width:'640px',height:'700px',margin:'20px',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div onClick={e=>e.stopPropagation()} className='mobile-modal estimate-chat-modal' style={{...card,padding:0,width:'640px',height:'700px',margin:isMobile?'12px':'20px',display:'flex',flexDirection:'column',overflow:'hidden'}}>
         <div style={{padding:'14px 18px',backgroundColor:'#0ea5e9',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
             <span style={{fontSize:'22px'}}>💬</span>
@@ -11716,9 +11839,9 @@ function App() {
             </div>
           </div>)}
           {estimateChatMessages.map((m,i)=>(<div key={m.id||i} style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}>
-            <div style={{maxWidth:'85%',padding:'12px 16px',borderRadius:m.role==='user'?'14px 14px 4px 14px':'14px 14px 14px 4px',backgroundColor:m.role==='user'?C.accent:C.bgWhite,color:m.role==='user'?'white':C.text,fontSize:'14px',lineHeight:'1.6',boxShadow:'0 1px 3px rgba(0,0,0,0.10)',border:m.role==='user'?'none':'1.5px solid '+C.border,whiteSpace:'pre-wrap'}}>{m.content}</div>
+            <div style={{maxWidth:isMobile?'92%':'85%',padding:'12px 16px',borderRadius:m.role==='user'?'14px 14px 4px 14px':'14px 14px 14px 4px',backgroundColor:m.role==='user'?C.accent:(darkMode?'#f8fafc':C.bgWhite),color:m.role==='user'?'white':(darkMode?'#0f172a':C.text),fontSize:'14px',lineHeight:'1.6',boxShadow:'0 1px 3px rgba(0,0,0,0.10)',border:m.role==='user'?'none':'1.5px solid '+(darkMode?'#cbd5e1':C.border),whiteSpace:'pre-wrap'}}>{m.content}</div>
           </div>))}
-          {estimateChatLoading&&(<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{padding:'12px 16px',borderRadius:'14px 14px 14px 4px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,fontSize:'14px',color:C.textSec}}>⏳ Думаю над вопросом…</div></div>)}
+          {estimateChatLoading&&(<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{padding:'12px 16px',borderRadius:'14px 14px 14px 4px',backgroundColor:darkMode?'#f8fafc':C.bgWhite,border:'1.5px solid '+(darkMode?'#cbd5e1':C.border),fontSize:'14px',color:darkMode?'#334155':C.textSec}}>⏳ Думаю над вопросом…</div></div>)}
         </div>
         <div style={{padding:'12px 14px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bgWhite,display:'flex',gap:'8px'}}>
           <input value={estimateChatInput} onChange={e=>setEstimateChatInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendEstimateChatMessage();}}} placeholder='Спросите по смете... (Enter — отправить)' disabled={estimateChatLoading} style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}}/>
@@ -11949,8 +12072,8 @@ function App() {
       </div>
     </div>)}
     {showMobileMenu&&(<div onMouseDown={e=>{e.preventDefault();setShowMobileMenu(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>)}
-      {showMobileMenu&&(<div style={{position:'fixed',bottom:'60px',left:0,right:0,backgroundColor:'white',borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,maxHeight:'60vh',overflowY:'auto',boxShadow:'0 -8px 30px rgba(0,0,0,0.15)'}}>
-        <div style={{textAlign:'center',marginBottom:'12px'}}><div style={{width:'36px',height:'4px',backgroundColor:'#e5e7eb',borderRadius:'2px',margin:'0 auto'}}/></div>
+      {showMobileMenu&&(<div style={{position:'fixed',bottom:'60px',left:0,right:0,backgroundColor:C.bgWhite,borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,maxHeight:'60vh',overflowY:'auto',boxShadow:'0 -8px 30px rgba(0,0,0,0.15)',borderTop:'1.5px solid '+C.border}}>
+        <div style={{textAlign:'center',marginBottom:'12px'}}><div style={{width:'36px',height:'4px',backgroundColor:C.borderDark,borderRadius:'2px',margin:'0 auto'}}/></div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
           {menuItems.map(m=>(<div key={m.id} onClick={()=>{setActivePage(m.id);setShowMobileMenu(false);}} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'12px 8px',borderRadius:'12px',cursor:'pointer',backgroundColor:activePage===m.id?'rgba(249,115,22,0.15)':'rgba(30,41,59,0.6)',border:'1px solid rgba(148,163,184,0.12)'}}><span style={{fontSize:'24px',marginBottom:'4px'}}>{m.icon}</span><span style={{fontSize:'11px',color:activePage===m.id?'#f97316':'#94a3b8',fontWeight:activePage===m.id?'700':'400',textAlign:'center',lineHeight:'1.3'}}>{m.label}</span></div>))}
         </div>
