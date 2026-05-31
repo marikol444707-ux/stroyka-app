@@ -10728,11 +10728,12 @@ function App() {
                     }catch(e){alert('Не удалось загрузить историю');}
                   }} style={btnG}>📜 История</button>
                   <button onClick={async()=>{
+                    setEstimateChatMessages([]);
+                    setShowEstimateChat(true);
                     try{
                       const h=await fetch(API+'/estimates/'+selectedEstimate.id+'/chat-history').then(r=>r.json());
                       setEstimateChatMessages(Array.isArray(h)?h:[]);
                     }catch(e){setEstimateChatMessages([]);}
-                    setShowEstimateChat(true);
                   }} style={{...btnB,backgroundColor:'#0ea5e9'}}><MessageSquare size={14}/>Чат</button>
                   <button onClick={()=>{
                     setDistributeAssignments({});
