@@ -101,13 +101,13 @@ const PreviewModal = ({content, title, onClose}) => (
 );
 
 const ROLES = {
-  директор: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
-  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','suppliers','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
+  директор: ['dashboard','projects','clients','warehouse','staff','pricelists','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
+  зам_директора: ['dashboard','projects','clients','warehouse','staff','pricelists','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
   главный_инженер: ['dashboard','projects','warehouse','staff','companychat','estimates','weather','myexpenses'],
   прораб: ['projects','supply','companychat','weather','myexpenses'],
-  кладовщик: ['warehouse','suppliers','supply','companychat','myexpenses'],
+  кладовщик: ['warehouse','supply','companychat','myexpenses'],
   бухгалтер: ['dashboard','accounting','supply','personnel','companychat','settings','myexpenses'],
-  снабженец: ['warehouse','suppliers','supply','companychat','myexpenses'],
+  снабженец: ['warehouse','supply','companychat','myexpenses'],
   стройконтроль: ['projects','companychat','myexpenses'],
   менеджер_crm: ['crm','companychat'],
   сметчик: ['estimates','projects','accounting','companychat'],
@@ -730,6 +730,7 @@ function App() {
   const [editingPlItem, setEditingPlItem] = useState(null);
   const [inlineEditPl, setInlineEditPl] = useState(null);
   const [inlineEditPrice, setInlineEditPrice] = useState('');
+  const [inlineEditPlData, setInlineEditPlData] = useState({name:'',unit:'м2',price:'',category:''});
   const [editingWindow, setEditingWindow] = useState(null);
   const [editingDoor, setEditingDoor] = useState(null);
   const [selectedPricelist, setSelectedPricelist] = useState(null);
@@ -909,7 +910,7 @@ function App() {
   };
 
   const getNotifPage = (type) => {
-    const map = {work:'projects',material:'warehouse',stock:'warehouse',supply:'suppliers',delivery:'suppliers',invoice:'accounting',act:'accounting',contract:'accounting',unexpected:'dashboard',prescription:'projects',project:'projects',crm:'crm'};
+    const map = {work:'projects',material:'warehouse',stock:'warehouse',supply:'supply',delivery:'supply',invoice:'accounting',act:'accounting',contract:'accounting',unexpected:'dashboard',prescription:'projects',project:'projects',crm:'crm'};
     return map[type]||'dashboard';
   };
 
@@ -3210,10 +3211,24 @@ function App() {
     setNewPlItem({name:'',unit:'м2',price:'',category:''}); setEditingPlItem(null);
   };
 
+  const startInlinePlEdit = (item) => {
+    setInlineEditPl(item.id);
+    setInlineEditPrice(String(item.price ?? ''));
+    setInlineEditPlData({name:item.name||'',unit:item.unit||'м2',price:String(item.price ?? ''),category:item.category||''});
+  };
+
+  const cancelInlinePlEdit = () => {
+    setInlineEditPl(null);
+    setInlineEditPrice('');
+    setInlineEditPlData({name:'',unit:'м2',price:'',category:''});
+  };
+
   const saveInlinePlItem = async (item) => {
-    await fetch(API+'/pricelist-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...item,price:Number(inlineEditPrice),pricelistId:selectedPricelist.id})});
+    const data = inlineEditPlData.name ? inlineEditPlData : {...item,price:inlineEditPrice};
+    if (!String(data.name||'').trim() || String(data.price||'').trim()==='') return;
+    await fetch(API+'/pricelist-items/'+item.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...item,...data,price:Number(data.price),pricelistId:selectedPricelist.id})});
     await loadPricelistItems(selectedPricelist.id);
-    setInlineEditPl(null); setInlineEditPrice('');
+    cancelInlinePlEdit();
   };
 
   const deletePlItem = async (id) => { await fetch(API+'/pricelist-items/'+id,{method:'DELETE'}); await loadPricelistItems(selectedPricelist.id); };
@@ -3226,6 +3241,57 @@ function App() {
   };
 
   const deleteSupplier = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/suppliers/'+id,{method:'DELETE'}); await loadAll(); } };
+
+  const renderSuppliersDirectory = () => {
+    const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец'].includes(user.role);
+    return (<div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'8px',flexWrap:'wrap'}}>
+        <div>
+          <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🚚 Поставщики</b>
+          <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Справочник поставщиков теперь находится внутри снабжения.</p>
+        </div>
+        {canEditSuppliers&&<div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+          <button onClick={()=>{setSupplierInviteForm({presetName:'',presetCategory:'Сыпучие и бетон',supplierId:null,expiresInDays:14});setGeneratedInviteLink(null);setShowSupplierInviteModal(true);}} style={btnGr}><Plus size={14}/>🔗 Пригласить по ссылке</button>
+          <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewSupplier({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'});}} style={btnO}><Plus size={14}/>Добавить вручную</button>
+        </div>}
+      </div>
+      {showForm&&canEditSuppliers&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'10px'}}>
+          <input placeholder="Название *" value={newSupplier.name} onChange={e=>setNewSupplier({...newSupplier,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+          <input placeholder="Телефон" value={newSupplier.phone} onChange={e=>setNewSupplier({...newSupplier,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
+          <input placeholder="Email" value={newSupplier.email} onChange={e=>setNewSupplier({...newSupplier,email:e.target.value})} style={{...inp,marginBottom:0}}/>
+          <select value={newSupplier.category} onChange={e=>setNewSupplier({...newSupplier,category:e.target.value})} style={{...inp,marginBottom:0}}>{SUPPLIER_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select>
+          <input placeholder="Специализация" value={newSupplier.specialization} onChange={e=>setNewSupplier({...newSupplier,specialization:e.target.value})} style={{...inp,marginBottom:0}}/>
+          <select value={newSupplier.status} onChange={e=>setNewSupplier({...newSupplier,status:e.target.value})} style={{...inp,marginBottom:0}}>{['Активный','Неактивный','Заблокирован'].map(s=><option key={s}>{s}</option>)}</select>
+        </div>
+        <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveSupplier} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
+      </div>)}
+      <div style={{position:'relative',marginBottom:'12px'}}>
+        <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+        <input placeholder='🔍 Поиск поставщика' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
+      </div>
+      {SUPPLIER_CATEGORIES.map(cat=>{
+        const catSuppliers=suppliers.filter(s=>s.category===cat&&matchSearch(listSearch,s.name,s.specialization,s.phone,s.email));
+        if(catSuppliers.length===0) return null;
+        return(<div key={cat} style={{marginBottom:'20px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px',padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}>
+            <b style={{color:C.accent,fontSize:'13px'}}>{'🏭 '+cat}</b>
+            <span style={{color:C.textSec,fontSize:'12px'}}>{'('+catSuppliers.length+')'}</span>
+          </div>
+          {catSuppliers.map(s=>(<div key={s.id} style={{...card,padding:'14px',marginBottom:'8px',marginLeft:'12px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+              <div><b style={{color:C.text,fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{s.phone+(s.email?' · '+s.email:'')+(s.specialization?' · '+s.specialization:'')}</p><div style={{display:'flex',gap:'4px',marginTop:'4px'}}>{[1,2,3,4,5].map(star=>(<span key={star} style={{color:star<=s.rating?'#f59e0b':'#d1d5db',fontSize:'14px',cursor:canEditSuppliers?'pointer':'default'}} onClick={async()=>{if(!canEditSuppliers) return; await fetch(API+'/suppliers/'+s.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...s,rating:star})});await loadAll();}}>★</span>))}</div></div>
+              {canEditSuppliers&&<div style={{display:'flex',gap:'6px'}}>
+                <button onClick={()=>{setEditingItem(s);setNewSupplier({...s});setShowForm(true);}} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>
+                <button onClick={()=>deleteSupplier(s.id)} style={{...btnR,padding:'5px 10px'}}><Trash2 size={11}/></button>
+              </div>}
+            </div>
+          </div>))}
+        </div>);
+      })}
+      {suppliers.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Поставщиков нет</p>}
+    </div>);
+  };
 
   const saveRequest = async () => {
     const validItems = newRequest.items.filter(i=>i.materialName&&i.quantity);
@@ -4717,7 +4783,6 @@ function App() {
 
     {id:'warehouse',icon:<Package size={18}/>,label:'Склад'},
     {id:'supply',icon:<ShoppingCart size={18}/>,label:'Снабжение'},
-    {id:'suppliers',icon:<Truck size={18}/>,label:'Поставщики'},
     {id:'accounting',icon:<DollarSign size={18}/>,label:'Бухгалтерия'},
     {id:'personnel',icon:<UserCheck size={18}/>,label:'Персонал'},
 
@@ -8541,13 +8606,15 @@ function App() {
             const canCreate = ['мастер','субподрядчик','прораб','директор','зам_директора','кладовщик','снабженец'].includes(role);
             const canConfirmProrab = role==='прораб'||isLeadership();
             const canApprove = isLeadership();
+            const canViewSuppliers = ['директор','зам_директора','прораб','кладовщик','снабженец','бухгалтер'].includes(role);
             // вкладки в зависимости от роли
             let tabs = [];
             if (role==='мастер'||role==='субподрядчик') tabs=[{id:'mine',label:'📋 Мои заявки'}];
-            else if (role==='прораб') tabs=[{id:'inbox',label:'⏳ Ждут подтверждения'},{id:'all',label:'📋 Все заявки'},{id:'catalog',label:'📦 Каталоги'}];
-            else if (role==='бухгалтер') tabs=[{id:'invoices',label:'💳 Счета'},{id:'all',label:'📋 Все заявки'},{id:'catalog',label:'📦 Каталоги'}];
-            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'},{id:'invoices',label:'💳 Счета'},{id:'catalog',label:'📦 Каталоги'}];
-            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'},{id:'invoices',label:'💳 Счета'},{id:'catalog',label:'📦 Каталоги'}];
+            else if (role==='прораб') tabs=[{id:'inbox',label:'⏳ Ждут подтверждения'},{id:'all',label:'📋 Все заявки'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
+            else if (role==='бухгалтер') tabs=[{id:'invoices',label:'💳 Счета'},{id:'all',label:'📋 Все заявки'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
+            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'},{id:'invoices',label:'💳 Счета'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
+            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'},{id:'invoices',label:'💳 Счета'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
+            if (!canViewSuppliers) tabs = tabs.filter(t=>t.id!=='suppliers');
             // фильтрация
             let list = supplyRequests || [];
             const curTab = tabs.find(t=>t.id===supplyTab) ? supplyTab : tabs[0].id;
@@ -8582,14 +8649,16 @@ function App() {
                     'Утверждённые заявки на закупку'
                   }</p>
                 </div>
-                {canCreate && curTab!=='catalog' && curTab!=='invoices' && <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>Новая заявка</button>}
+                {canCreate && curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>Новая заявка</button>}
               </div>
               {/* Вкладки */}
               <div style={{display:'flex',gap:'8px',marginBottom:'16px',flexWrap:'wrap'}}>
-                {tabs.map(t=>(<button key={t.id} onClick={()=>setSupplyTab(t.id)} style={{...curTab===t.id?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{t.label}</button>))}
+                {tabs.map(t=>(<button key={t.id} onClick={()=>{setSupplyTab(t.id);setShowSupplyForm(false);if(t.id!=='suppliers') setShowForm(false);}} style={{...curTab===t.id?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{t.label}</button>))}
               </div>
               {/* Вкладка «Счета» — входящие счета от поставщиков (Ф5a.2: переехали из Бухгалтерии) */}
               {curTab==='invoices' && renderSupplierInvoices()}
+              {/* Вкладка «Поставщики» — справочник поставщиков внутри снабжения */}
+              {curTab==='suppliers' && renderSuppliersDirectory()}
               {/* Вкладка «Каталоги» — прайсы поставщиков (просмотр) */}
               {curTab==='catalog' && (()=>{
                 const q = (listSearch||'').toLowerCase().trim();
@@ -8634,7 +8703,7 @@ function App() {
                   ))}
                 </div>);
               })()}
-              {curTab!=='catalog' && curTab!=='invoices' && !(role==='мастер'||role==='субподрядчик') && (<div style={{...card,padding:'16px',marginBottom:'16px'}}>
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && !(role==='мастер'||role==='субподрядчик') && (<div style={{...card,padding:'16px',marginBottom:'16px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
                   <div>
                     <b style={{color:C.text,fontSize:'14px'}}>🚚 Поставки и приёмка</b>
@@ -8714,7 +8783,7 @@ function App() {
                 })}
               </div>)}
               {/* Форма создания — мультистрочная */}
-              {curTab!=='catalog' && curTab!=='invoices' && showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка на материал</b>
                 {/* Сн.5: шаблоны заявок */}
                 {(supplyTemplates||[]).length>0 && (<div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
@@ -8772,12 +8841,12 @@ function App() {
                 </div>
               </div>)}
               {/* Поиск */}
-              <div style={{position:'relative',marginBottom:'12px'}}>
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && <div style={{position:'relative',marginBottom:'12px'}}>
                 <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
                 <input placeholder='🔍 Поиск по материалу, объекту, автору' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
-              </div>
+              </div>}
               {/* Список заявок — группировка по объектам */}
-              {curTab!=='catalog' && curTab!=='invoices' && (()=>{
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && (()=>{
                 const byProject = new Map();
                 list.forEach(r=>{
                   const key = r.project || '— Без объекта —';
@@ -9025,7 +9094,7 @@ function App() {
                   </div>);
                 });
               })()}
-              {curTab!=='catalog' && curTab!=='invoices' && list.length===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>}
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && list.length===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>}
             </div>);
           })()}
 
@@ -10101,13 +10170,17 @@ function App() {
                     return(<div key={cat||'nocat'} style={{marginBottom:'20px'}}>
                       {cat&&<div style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,marginBottom:'8px',display:'flex',alignItems:'center',gap:'8px'}}><b style={{color:C.accent,fontSize:'12px',textTransform:'uppercase'}}>{'🔧 '+cat}</b><span style={{color:C.textSec,fontSize:'11px'}}>{'('+catItems.length+' позиций)'}</span></div>}
                       <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Цена</th><th style={tblH}>С коэф.</th><th style={tblH}></th></tr></thead><tbody>
-                        {catItems.map(item=>(<tr key={item.id}>
-                          <td style={tblC}>{item.name}</td>
-                          <td style={tblC}>{item.unit}</td>
-                          <td style={tblC}>{inlineEditPl===item.id?(<div style={{display:'flex',gap:'4px',alignItems:'center'}}><input type='number' step='any' inputMode='decimal' value={inlineEditPrice} onChange={e=>setInlineEditPrice(e.target.value)} onKeyDown={async e=>{if(e.key==='Enter') saveInlinePlItem(item);if(e.key==='Escape'){setInlineEditPl(null);setInlineEditPrice('');}}} autoFocus style={{width:'80px',padding:'4px 6px',border:'1.5px solid '+C.accent,borderRadius:'6px',fontSize:'12px'}}/><button onClick={()=>saveInlinePlItem(item)} style={{...btnGr,padding:'3px 6px'}}><Check size={11}/></button><button onClick={()=>{setInlineEditPl(null);setInlineEditPrice('');}} style={{...btnR,padding:'3px 6px'}}><X size={11}/></button></div>):(<span style={{cursor:'pointer',fontWeight:'500'}} onClick={()=>{setInlineEditPl(item.id);setInlineEditPrice(String(item.price));}}>{item.price.toLocaleString()+' ₽'}</span>)}</td>
-                          <td style={{...tblC,color:C.info,fontWeight:'600'}}>{(item.price*selectedPricelist.coefficient).toLocaleString()+' ₽'}</td>
-                          <td style={tblC}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingPlItem(item);setNewPlItem({name:item.name,unit:item.unit,price:String(item.price),category:item.category||''});}} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><Edit2 size={11}/></button><button onClick={()=>deletePlItem(item.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button></div></td>
-                        </tr>))}
+                        {catItems.map(item=>{
+                          const editing = inlineEditPl===item.id;
+                          const editKey = async e => { if(e.key==='Enter') await saveInlinePlItem(item); if(e.key==='Escape') cancelInlinePlEdit(); };
+                          return (<tr key={item.id}>
+                            <td style={tblC}>{editing?<input value={inlineEditPlData.name} onChange={e=>setInlineEditPlData({...inlineEditPlData,name:e.target.value})} onKeyDown={editKey} autoFocus style={{...inp,marginBottom:0,fontSize:'12px',padding:'5px 8px',minWidth:'260px'}}/>:item.name}</td>
+                            <td style={tblC}>{editing?<select value={inlineEditPlData.unit} onChange={e=>setInlineEditPlData({...inlineEditPlData,unit:e.target.value})} onKeyDown={editKey} style={{...inp,marginBottom:0,fontSize:'12px',padding:'5px 8px',width:'82px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>:item.unit}</td>
+                            <td style={tblC}>{editing?<input type='number' step='any' inputMode='decimal' value={inlineEditPlData.price} onChange={e=>{setInlineEditPlData({...inlineEditPlData,price:e.target.value});setInlineEditPrice(e.target.value);}} onKeyDown={editKey} style={{...inp,marginBottom:0,fontSize:'12px',padding:'5px 8px',width:'105px'}}/>:<span style={{cursor:'pointer',fontWeight:'500'}} onClick={()=>startInlinePlEdit(item)}>{item.price.toLocaleString()+' ₽'}</span>}</td>
+                            <td style={{...tblC,color:C.info,fontWeight:'600'}}>{((editing?Number(inlineEditPlData.price||0):item.price)*selectedPricelist.coefficient).toLocaleString()+' ₽'}</td>
+                            <td style={tblC}><div style={{display:'flex',gap:'4px'}}>{editing?<><button onClick={()=>saveInlinePlItem(item)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/></button><button onClick={cancelInlinePlEdit} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button></>:<><button onClick={()=>startInlinePlEdit(item)} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><Edit2 size={11}/></button><button onClick={()=>deletePlItem(item.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button></>}</div></td>
+                          </tr>);
+                        })}
                       </tbody></table>
                     </div>);
                   })}
@@ -10981,7 +11054,7 @@ function App() {
             </div>
             {suggestedSuppliers.suppliers.length===0 && (
               <div style={{padding:'30px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>
-                Поставщиков по этой категории нет.<br/>Добавьте поставщиков в разделе «Поставщики».
+                Поставщиков по этой категории нет.<br/>Добавьте поставщиков в разделе «Снабжение → Поставщики».
               </div>
             )}
             {suggestedSuppliers.suppliers.map(s=>{
