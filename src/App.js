@@ -3572,6 +3572,86 @@ function App() {
     return [];
   };
 
+  const supplyMaterialKey = (v) => String(v||'')
+    .toLowerCase()
+    .replace(/[.,;:()«»"']/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+  const supplyUnitKey = (v) => String(v||'')
+    .toLowerCase()
+    .replace(/[²]/g,'2')
+    .replace(/[³]/g,'3')
+    .replace(/\s+/g,'')
+    .trim();
+  const isSameSupplyMaterial = (a,b) => {
+    const ak = supplyMaterialKey(a);
+    const bk = supplyMaterialKey(b);
+    if (!ak || !bk) return false;
+    return ak===bk || ak.includes(bk) || bk.includes(ak);
+  };
+  const supplyPlanningHint = (it, idx) => {
+    const projectName = newSupplyReq.project;
+    const materialName = (it?.materialName||'').trim();
+    if (!projectName || !materialName) return null;
+    const rows = materialReconciliationRows(projectName);
+    const row = rows.find(r=>isSameSupplyMaterial(r.name, materialName));
+    const sameUnit = !row?.unit || !it?.unit || supplyUnitKey(row.unit)===supplyUnitKey(it.unit);
+    const openStatuses = new Set(['Новая','Подтверждена прорабом','Утверждена','КП запрошены']);
+    const ordered = (supplyRequests||[])
+      .filter(r=>r.project===projectName && openStatuses.has(r.status||'Новая'))
+      .filter(r=>!(supplyDeliveries||[]).some(d=>d.requestId===r.id && d.status==='Принято'))
+      .reduce((sum,r)=>{
+        return sum + parseSupplyItems(r)
+          .filter(x=>isSameSupplyMaterial(x.materialName, materialName))
+          .reduce((s,x)=>s+toNum(x.quantity),0);
+      },0);
+    const draftOther = (newSupplyReq.items||[])
+      .filter((x,i)=>i!==idx && isSameSupplyMaterial(x.materialName, materialName))
+      .reduce((sum,x)=>sum+toNum(x.quantity),0);
+    const planQty = toNum(row?.planQty);
+    const supplied = toNum(row?.supplied);
+    const stock = toNum(row?.stock);
+    const requested = toNum(it?.quantity);
+    const unit = row?.unit || it?.unit || 'шт';
+    const recommended = row && planQty>0 && sameUnit ? Math.max(0, planQty - supplied - ordered - draftOther) : null;
+    const outsideEstimate = !row || planQty<=0;
+    const tooMuch = recommended!==null && requested>0 && requested>recommended+0.0001;
+    return {row, unit, sameUnit, planQty, supplied, stock, ordered, draftOther, requested, recommended, outsideEstimate, tooMuch};
+  };
+  const applySupplyRecommendedQty = (idx, hint) => {
+    if (!hint || hint.recommended===null) return;
+    const qty = Number(hint.recommended.toFixed(3));
+    const items = [...(newSupplyReq.items||[])];
+    items[idx] = {...items[idx], quantity: String(qty), unit: hint.unit || items[idx].unit || 'шт'};
+    setNewSupplyReq({...newSupplyReq, items});
+  };
+  const renderSupplyPlanningHint = (it, idx) => {
+    const hint = supplyPlanningHint(it, idx);
+    if (!hint) return null;
+    const pill = (label, value, color=C.text) => (
+      <span style={{padding:'4px 7px',borderRadius:'8px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color,fontSize:'11px',whiteSpace:'nowrap'}}>
+        {label}: <b>{value}</b>
+      </span>
+    );
+    return (
+      <div style={{display:'flex',gap:'6px',flexWrap:'wrap',alignItems:'center',margin:'0 0 8px 2px',padding:'7px 8px',backgroundColor:hint.outsideEstimate?C.warningLight:C.successLight,border:'1px solid '+(hint.outsideEstimate?C.warningBorder:C.successBorder),borderRadius:'8px'}}>
+        {hint.outsideEstimate
+          ? <span style={{fontSize:'11px',color:C.warning,fontWeight:'700'}}>⚠️ Материала нет в активной смете</span>
+          : pill('По смете', fmtMeasure(hint.planQty, hint.unit), C.text)}
+        {pill('Поставлено', fmtMeasure(hint.supplied, hint.unit), hint.supplied>0?C.success:C.textSec)}
+        {pill('На объекте', fmtMeasure(hint.stock, hint.unit), hint.stock>0?C.success:C.textSec)}
+        {hint.ordered>0 && pill('Уже в заявках', fmtMeasure(hint.ordered, hint.unit), C.info)}
+        {hint.draftOther>0 && pill('В этой заявке ещё', fmtMeasure(hint.draftOther, hint.unit), C.info)}
+        {hint.recommended!==null && pill('Докупить', fmtMeasure(hint.recommended, hint.unit), hint.recommended>0?C.warning:C.success)}
+        {!hint.sameUnit && <span style={{fontSize:'11px',color:C.danger,fontWeight:'700'}}>Ед. изм. отличается от сметы</span>}
+        {hint.tooMuch && <span style={{fontSize:'11px',color:C.danger,fontWeight:'700'}}>Заявка больше расчётной потребности</span>}
+        {hint.recommended!==null && hint.recommended>0 && (
+          <button onClick={()=>applySupplyRecommendedQty(idx, hint)} style={{...btnB,padding:'3px 7px',fontSize:'11px'}}>Подставить {fmtMeasure(hint.recommended, hint.unit)}</button>
+        )}
+      </div>
+    );
+  };
+
   // Парсер itemsKp из supplier_offer: возвращает массив с ценой по каждой позиции
   // Если поставщик заполнил постатейно — вернётся массив. Иначе пусто.
   const parseOfferItems = (offer) => {
@@ -4698,6 +4778,7 @@ function App() {
                     {hint.catalog && hint.catalog[0] && <span> · мин. в каталоге: {hint.catalog[0].price.toLocaleString('ru-RU')} ₽ ({hint.catalog[0].supplierName})</span>}
                   </div>}
                   {hint && hint.stats===null && <div style={{fontSize:'11px',color:C.textMuted,margin:'0 0 8px 2px'}}>💡 По этому материалу истории цен пока нет</div>}
+                  {renderSupplyPlanningHint(it,idx)}
                   </React.Fragment>);
                 })}
                 <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:[...(newSupplyReq.items||[]),{materialName:'',quantity:'',unit:'шт'}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
@@ -8945,6 +9026,7 @@ function App() {
                     {hint.catalog && hint.catalog[0] && <span> · мин. в каталоге: {hint.catalog[0].price.toLocaleString('ru-RU')} ₽ ({hint.catalog[0].supplierName})</span>}
                   </div>}
                   {hint && hint.stats===null && <div style={{fontSize:'11px',color:C.textMuted,margin:'0 0 8px 2px'}}>💡 По этому материалу истории цен пока нет</div>}
+                  {renderSupplyPlanningHint(it,idx)}
                   </React.Fragment>);
                 })}
                 <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:[...(newSupplyReq.items||[]),{materialName:'',quantity:'',unit:'шт'}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
