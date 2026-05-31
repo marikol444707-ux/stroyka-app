@@ -2350,7 +2350,7 @@ function App() {
     return {items:rowsFromHistory,reconstructed:rowsFromHistory.length>0,source:'истории склада'};
   };
   const materialReconciliationRows = (projectName) => {
-    const project = projects.find(pr=>pr.name===projectName) || {};
+    const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
     const keyOf = (v) => String(v||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
     const rows = {};
     const ensure = (name, unit) => {
@@ -2361,11 +2361,18 @@ function App() {
       if (!rows[key].unit && unit) rows[key].unit = unit;
       return rows[key];
     };
-    activeEstimatesForProject(project, 'Заказчик').forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
-      if ((it.itemType||'')==='material' || Number(it.priceMaterial||0)>0) {
+    const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
+    const fallbackEstimates = (estimatesList||[]).filter(e=>
+      !e.isTemplate &&
+      estimateKind(e)==='Заказчик' &&
+      !isArchivedEstimate(e) &&
+      ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
+    );
+    (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+      if ((it.itemType||'')==='material' || toNum(it.priceMaterial)>0) {
         const r = ensure(it.name, it.unit);
         if (!r) return;
-        r.planQty += Number(it.quantity||0);
+        r.planQty += toNum(it.quantity);
         r.planSum += estimateItemMaterialSum(it);
         const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
         if (sectionLabel && !r.sections.includes(sectionLabel)) r.sections.push(sectionLabel);
