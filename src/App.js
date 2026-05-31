@@ -397,6 +397,9 @@ const btnGr = {padding:'7px 14px',backgroundColor:C.successLight,color:C.success
 const btnB = {padding:'7px 14px',backgroundColor:C.infoLight,color:C.info,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',cursor:'pointer',fontSize:'13px',display:'inline-flex',alignItems:'center',gap:'6px'};
 const card = {backgroundColor:C.bgWhite,borderRadius:'12px',border:'1.5px solid '+C.border,overflow:'hidden'};
 const badge = (color,bg,border) => ({backgroundColor:bg,color:color,border:'1.5px solid '+border,padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:'600',display:'inline-flex',alignItems:'center',gap:'4px'});
+const aiNotice = {marginBottom:'14px',padding:'12px 14px',backgroundColor:'#ecfdf5',border:'1.5px solid #10b981',borderRadius:'10px',display:'flex',alignItems:'flex-start',gap:'10px',boxShadow:'0 1px 0 rgba(16,185,129,0.08)'};
+const aiNoticeIcon = {fontSize:'20px',lineHeight:'1.2',flex:'0 0 auto'};
+const aiNoticeText = {fontSize:'13px',color:'#064e3b',lineHeight:1.45,fontWeight:'500'};
 const tbl = {width:'100%',borderCollapse:'collapse',fontSize:'13px'};
 const tblH = {padding:'8px 12px',backgroundColor:C.bg,color:C.textSec,fontWeight:'600',fontSize:'11px',textTransform:'uppercase',borderBottom:'1.5px solid '+C.border,textAlign:'left'};
 const tblC = {padding:'8px 12px',borderBottom:'1px solid '+C.border,color:C.text,fontSize:'13px'};
@@ -6293,7 +6296,7 @@ function App() {
               </div>
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {act.aiFilled&&(<div style={{marginBottom:'14px',padding:'10px 12px',backgroundColor:'#d1fae5',border:'1.5px solid #10b981',borderRadius:'10px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'20px'}}>🤖</span><span style={{fontSize:'12px',color:C.text,lineHeight:1.4}}><b>Черновик заполнен AI.</b> Проверьте формулировки перед подписью — при сохранении после правки метка снимется.</span></div>)}
+              {act.aiFilled&&(<div style={aiNotice}><span style={aiNoticeIcon}>🤖</span><span style={aiNoticeText}><b>Черновик заполнен AI.</b> Проверьте формулировки перед подписью — при сохранении после правки метка снимется.</span></div>)}
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
                 <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize:'13px',color:C.text}}>{act.sectionName||'—'}</b></div>
                 <div><p style={labelStyle}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{act.workName}</b></div>
@@ -6439,7 +6442,7 @@ function App() {
               </div>
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {j.aiFilled&&(<div style={{marginBottom:'14px',padding:'10px 12px',backgroundColor:'#d1fae5',border:'1.5px solid #10b981',borderRadius:'10px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'20px'}}>🤖</span><span style={{fontSize:'12px',color:C.text,lineHeight:1.4}}><b>Поля заполнены AI.</b> Проверь нормативы и проектные документы — при сохранении после правки метка снимется.</span></div>)}
+              {j.aiFilled&&(<div style={aiNotice}><span style={aiNoticeIcon}>🤖</span><span style={aiNoticeText}><b>Поля заполнены AI.</b> Проверь нормативы и проектные документы — при сохранении после правки метка снимется.</span></div>)}
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
                 <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize:'13px',color:C.text}}>{j.sectionName||'—'}</b></div>
                 <div><p style={labelStyle}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{j.description}</b></div>
@@ -6603,7 +6606,7 @@ function App() {
               </div>
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {mi.aiFilled&&(<div style={{marginBottom:'14px',padding:'10px 12px',backgroundColor:'#d1fae5',border:'1.5px solid #10b981',borderRadius:'10px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'20px'}}>🤖</span><span style={{fontSize:'12px',color:C.text,lineHeight:1.4}}><b>Поле «Нормативы» подсказано AI.</b> Проверь и сохрани — при правке метка снимется.</span></div>)}
+              {mi.aiFilled&&(<div style={aiNotice}><span style={aiNoticeIcon}>🤖</span><span style={aiNoticeText}><b>Поле «Нормативы» подсказано AI.</b> Проверь и сохрани — при правке метка снимется.</span></div>)}
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
                 <div><p style={labelStyle}>Материал</p><b style={{fontSize:'13px',color:C.text}}>{mi.materialName||'—'}</b></div>
                 <div><p style={labelStyle}>Количество</p><b style={{fontSize:'13px',color:C.text}}>{(mi.quantity||0)+' '+(mi.unit||'')}</b></div>
@@ -6693,7 +6696,7 @@ function App() {
               </div>
             </div>
             <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {cb.aiFilled&&(<div style={{marginBottom:'14px',padding:'10px 12px',backgroundColor:'#d1fae5',border:'1.5px solid #10b981',borderRadius:'10px',display:'flex',alignItems:'center',gap:'10px'}}><span style={{fontSize:'20px'}}>🤖</span><span style={{fontSize:'12px',color:C.text,lineHeight:1.4}}><b>Нормативы и мин. R подсказаны AI.</b> Проверь и сохрани — при правке поля метка снимется.</span></div>)}
+              {cb.aiFilled&&(<div style={aiNotice}><span style={aiNoticeIcon}>🤖</span><span style={aiNoticeText}><b>Нормативы и мин. R подсказаны AI.</b> Проверь и сохрани — при правке поля метка снимется.</span></div>)}
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
                 <div><p style={labelStyle}>Марка кабеля</p><b style={{fontSize:'13px',color:C.text}}>{cb.cableBrand||'—'}</b></div>
                 <div><p style={labelStyle}>Тип системы</p><b style={{fontSize:'13px',color:C.text}}>{cableTypeOf(cb)}</b></div>
