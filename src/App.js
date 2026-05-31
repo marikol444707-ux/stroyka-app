@@ -927,6 +927,14 @@ function App() {
     if (['кладовщик','снабженец'].includes(user.role)) return notifs.filter(n=>['stock','supply','delivery','supplyinv'].includes(n.type));
     return notifs;
   };
+  const toggleNotifications = (e) => { e?.stopPropagation?.(); setShowNotifications(v=>!v); };
+  const closeNotifications = () => setShowNotifications(false);
+  const markMyNotificationsRead = () => {
+    const visibleIds = new Set(myNotifications(notifications).map(n=>n.id));
+    const updated = notifications.map(n=>visibleIds.has(n.id)?{...n,read:true}:n);
+    setNotifications(updated);
+    localStorage.setItem('notifications',JSON.stringify(updated));
+  };
 
   const notify = (text, type) => {
     const n = {id:Date.now(),text,type,time:new Date().toLocaleString('ru-RU'),read:false};
@@ -940,11 +948,18 @@ function App() {
   };
 
   useEffect(() => {
-    const handleClickOutside = (e) => {
+    const handleOutside = (e) => {
       if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifications(false);
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    const handleKey = (e) => { if (e.key === 'Escape') setShowNotifications(false); };
+    document.addEventListener('pointerdown', handleOutside);
+    document.addEventListener('touchstart', handleOutside, {passive:true});
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('pointerdown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
   }, []);
 
   useEffect(() => {
@@ -4400,14 +4415,17 @@ function App() {
             <div><h2 style={{margin:0,color:C.text,fontSize:'20px',fontWeight:'800'}}>СтройКа</h2><p style={{margin:0,color:C.textSec,fontSize:'12px'}}>{user.name+' — '+(ROLE_LABELS[user.role]||user.role)}</p></div>
             <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
               <div ref={notifRef} style={{position:'relative'}}>
-                <button onClick={()=>setShowNotifications(!showNotifications)} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <button onClick={toggleNotifications} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
                   <Bell size={16} color={C.textSec}/>
                   {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
                 </button>
                 {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:0,width:'300px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.3)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}>
-                  <div style={{padding:'12px 16px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{padding:'12px 16px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
                     <b style={{color:C.text,fontSize:'13px'}}>Уведомления</b>
-                    <button onClick={()=>{const u=myNotifications(notifications).map(n=>({...n,read:true}));setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{...btnG,fontSize:'10px',padding:'2px 8px'}}>Все прочитано</button>
+                    <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+                      <button onClick={markMyNotificationsRead} style={{...btnG,fontSize:'10px',padding:'2px 8px'}}>Все прочитано</button>
+                      <button onClick={closeNotifications} title="Свернуть" style={{...btnG,fontSize:'10px',padding:'2px 7px'}}><X size={12}/></button>
+                    </div>
                   </div>
                   {myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>Нет уведомлений</p>}
                   {myNotifications(notifications).map(n=>(<div key={n.id} onClick={()=>{navigateTo(getNotifPage(n.type));setShowNotifications(false);const u=notifications.map(x=>x.id===n.id?{...x,read:true}:x);setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{padding:'10px 16px',borderBottom:'1px solid '+C.border,backgroundColor:n.read?'transparent':C.accentLight,cursor:'pointer'}}>
@@ -6809,11 +6827,11 @@ function App() {
             <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{padding:'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',fontSize:'16px',display:'flex',alignItems:'center'}}>{darkMode?'☀️':'🌙'}</button>
             <button onClick={()=>setShowQuickActions(true)} title='Быстрые действия' style={{padding:'8px 12px',background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'10px',cursor:'pointer',color:'white',fontWeight:'700',fontSize:'13px',display:'flex',alignItems:'center',gap:'4px'}}>⚡ Быстро</button>
             <button onClick={()=>setShowChatPanel(s=>!s)} title='Чат' style={{position:'relative',padding:'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><MessageSquare size={18} color={C.textSec}/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
-            <button onClick={()=>setShowNotifications(!showNotifications)} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <button onClick={toggleNotifications} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               <Bell size={18} color={C.textSec}/>
               {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:C.danger,color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
             </button>
-            {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:0,width:'360px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.12)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}><div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><b style={{color:C.text,fontSize:'14px'}}>Уведомления</b><button onClick={()=>{const u=myNotifications(notifications).map(n=>({...n,read:true}));setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{...btnG,fontSize:'11px',padding:'3px 10px'}}>Прочитать все</button></div>{myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted}}>Нет уведомлений</p>}
+            {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:0,width:'360px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.12)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}><div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}><b style={{color:C.text,fontSize:'14px'}}>Уведомления</b><div style={{display:'flex',gap:'6px',alignItems:'center'}}><button onClick={markMyNotificationsRead} style={{...btnG,fontSize:'11px',padding:'3px 10px'}}>Прочитать все</button><button onClick={closeNotifications} title="Свернуть" style={{...btnG,fontSize:'11px',padding:'3px 8px'}}><X size={13}/></button></div></div>{myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted}}>Нет уведомлений</p>}
                   <div style={{padding:'12px 18px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg}}>
                     <p style={{fontSize:'11px',color:C.textSec,margin:'0 0 8px'}}>📱 Уведомления в ВКонтакте:</p>
                     {user.vkId ? <span style={{fontSize:'12px',color:C.success}}>✅ ВК подключён (ID: {user.vkId})</span> :
@@ -6870,14 +6888,17 @@ function App() {
                   <button onClick={()=>setShowChatPanel(s=>!s)} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><MessageSquare size={18} color='#94a3b8'/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
                   <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><Bot size={18} color='#94a3b8'/></button>
                   <div ref={notifRef} style={{position:'relative'}}>
-                    <button onClick={()=>setShowNotifications(!showNotifications)} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    <button onClick={toggleNotifications} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
                       <Bell size={18} color='#94a3b8'/>
                       {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
                     </button>
                     {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:0,width:'360px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.3)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}>
-                      <div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
                         <b style={{color:C.text,fontSize:'14px'}}>Уведомления</b>
-                        <button onClick={()=>{const u=myNotifications(notifications).map(n=>({...n,read:true}));setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{...btnG,fontSize:'11px',padding:'3px 10px'}}>Прочитать все</button>
+                        <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+                          <button onClick={markMyNotificationsRead} style={{...btnG,fontSize:'11px',padding:'3px 10px'}}>Прочитать все</button>
+                          <button onClick={closeNotifications} title="Свернуть" style={{...btnG,fontSize:'11px',padding:'3px 8px'}}><X size={13}/></button>
+                        </div>
                       </div>
                       {myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted}}>Нет уведомлений</p>}
                       {myNotifications(notifications).map(n=>(<div key={n.id} onClick={()=>{navigateTo(getNotifPage(n.type));setShowNotifications(false);const u=notifications.map(x=>x.id===n.id?{...x,read:true}:x);setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{padding:'12px 18px',borderBottom:'1px solid '+C.border,backgroundColor:n.read?'transparent':C.accentLight,cursor:'pointer'}}>
