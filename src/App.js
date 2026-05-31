@@ -1365,7 +1365,23 @@ function App() {
   };
 
   const docEsc = (v) => String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const workDocDate = (w) => String(w.date||w.confirmedAt||'').split('T')[0];
+  const normalizeDocDate = (value) => {
+    const raw = String(value||'').trim();
+    if (!raw) return '';
+    let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+    m = raw.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+    if (m) return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      const yyyy = parsed.getFullYear();
+      const mm = String(parsed.getMonth()+1).padStart(2,'0');
+      const dd = String(parsed.getDate()).padStart(2,'0');
+      return yyyy+'-'+mm+'-'+dd;
+    }
+    return raw.split('T')[0].split(' ')[0];
+  };
+  const workDocDate = (w) => normalizeDocDate(w.date) || normalizeDocDate(w.confirmedAt);
   const parseWorkMaterials = (value) => {
     if (!value) return [];
     if (Array.isArray(value)) return value;
@@ -1380,7 +1396,8 @@ function App() {
   const buildDailyObjectReportContent = (date) => {
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'СтройКа';
-    const works = (workJournal||[]).filter(w=>workDocDate(w)===date);
+    const targetDate = normalizeDocDate(date);
+    const works = (workJournal||[]).filter(w=>workDocDate(w)===targetDate);
     const activeProjectNames = new Set((projects||[]).filter(p=>!p.archived&&p.status!=='Завершён').map(p=>p.name).filter(Boolean));
     const projectsWithWorks = Array.from(new Set(works.map(w=>w.project||'Без объекта'))).sort((a,b)=>a.localeCompare(b,'ru'));
     const missingProjects = Array.from(activeProjectNames).filter(name=>!projectsWithWorks.includes(name)).sort((a,b)=>a.localeCompare(b,'ru'));
@@ -1389,7 +1406,7 @@ function App() {
     const pendingCount = works.filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы').length;
     const hiddenCount = works.filter(w=>w.hiddenWork).length;
     const fmtMoney = (n) => Math.round(Number(n||0)).toLocaleString('ru-RU')+' ₽';
-    const fmtDate = (s) => s ? new Date(s+'T00:00:00').toLocaleDateString('ru-RU') : '';
+    const fmtDate = (s) => { const d=normalizeDocDate(s); return d ? new Date(d+'T00:00:00').toLocaleDateString('ru-RU') : ''; };
     let html = '<style>'
       + '.dor-title{text-align:center;font-weight:700;font-size:17px;margin:0 0 4px}'
       + '.dor-sub{text-align:center;font-size:11px;color:#555;margin:0 0 16px}'
@@ -6947,9 +6964,9 @@ function App() {
                     const today=new Date().toISOString().split('T')[0];
                     const yest=new Date(Date.now()-24*3600*1000).toISOString().split('T')[0];
                     const wj=(workJournal||[]).filter(w=>w.status==='Подтверждено');
-                    const todayWorks=wj.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===today);
-                    const yestWorks=wj.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===yest);
-                    const reportDate=dailyReportDate||today;
+                    const todayWorks=wj.filter(w=>workDocDate(w)===today);
+                    const yestWorks=wj.filter(w=>workDocDate(w)===yest);
+                    const reportDate=normalizeDocDate(dailyReportDate)||today;
                     const reportWorks=(workJournal||[]).filter(w=>workDocDate(w)===reportDate);
                     const reportProjects=new Set(reportWorks.map(w=>w.project).filter(Boolean)).size;
                     const sumToday=todayWorks.reduce((s,w)=>s+Number(w.total||0),0);
