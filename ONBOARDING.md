@@ -1067,6 +1067,7 @@ su - postgres -c "psql stroyka -c \"INSERT INTO users (name, email, password, ro
 - `4161b99` AI-generate-estimate
 
 **Склад / материалы:**
+- `2026-05-31` Добавлена сводка материалов в карточке объекта → вкладка `Материалы`: план из активной сметы заказчика сопоставляется с фактом по накладным, внутренним перемещениям, выдачам мастерам, списанию в работах и текущему остатку склада. Печатная `📦 Потребность` теперь использует тот же расчёт и показывает недопоставку, сверх сметы и материалы вне сметы.
 - `fcbd971` Deduct materials on work entry
 - `db3e9c5` Material transfer deducts stock, scan role-gated
 - `0141c80` Unified receipt flow scan/manual
