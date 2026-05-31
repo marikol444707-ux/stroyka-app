@@ -3222,12 +3222,12 @@ function App() {
     html += '</div>';
     return html;
   };
-  const estimateControlIssues = () => {
+  const estimateControlIssues = (sourceEstimates = estimatesList) => {
     const issues = [];
     activeDirectorProjects().forEach(p=>{
       if(activeEstimatesForProject(p,'Заказчик').length===0) issues.push({severity:'Критично',project:p.name,estimate:'-',where:'Смета заказчика',problem:'Нет активной сметы заказчика',action:'Назначить или создать активную смету'});
     });
-    (estimatesList||[]).filter(e=>!e.isTemplate&&!isArchivedEstimate(e)).forEach(est=>{
+    (sourceEstimates||[]).filter(e=>!e.isTemplate&&!isArchivedEstimate(e)).forEach(est=>{
       const sections = _sectionsOfEst(est);
       const projectName = est.projectName || projects.find(p=>Number(p.id)===Number(est.projectId))?.name || '';
       if(!sections.length) issues.push({severity:'Критично',project:projectName,estimate:est.name,where:'Состав сметы',problem:'В смете нет разделов и позиций',action:'Заполнить позиции до запуска работ'});
@@ -3255,10 +3255,10 @@ function App() {
     });
     return issues.sort((a,b)=>(a.severity==='Критично'?-1:1)-(b.severity==='Критично'?-1:1));
   };
-  const buildEstimateControlReportContent = () => {
-    const estimates = (estimatesList||[]).filter(e=>!e.isTemplate);
+  const buildEstimateControlReportContent = (sourceEstimates = estimatesList) => {
+    const estimates = (sourceEstimates||[]).filter(e=>!e.isTemplate);
     const activeEstimates = estimates.filter(e=>e.status==='Активная');
-    const issues = estimateControlIssues();
+    const issues = estimateControlIssues(sourceEstimates);
     const topItems = activeEstimates.flatMap(est=>_sectionsOfEst(est).flatMap(s=>(s.items||[]).map(it=>({
       project: est.projectName||'',
       estimate: est.name||'',
@@ -3296,6 +3296,23 @@ function App() {
     }
     html += '</div>';
     return html;
+  };
+  const loadEstimatesForDirectorReport = async () => {
+    if ((estimatesList||[]).length) return estimatesList;
+    try {
+      const res = await fetch(API+'/estimates');
+      if (!res.ok) return estimatesList||[];
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      if (list.length) setEstimatesList(list);
+      return list;
+    } catch(e) {
+      return estimatesList||[];
+    }
+  };
+  const openEstimateControlReport = async () => {
+    const list = await loadEstimatesForDirectorReport();
+    showPreview(buildEstimateControlReportContent(list),'Проверка смет директора');
   };
   const supplyControlIssues = () => {
     const issues = [];
@@ -7075,7 +7092,7 @@ function App() {
             const directorSkillCards = [
               {label:'Сводка директору',sub:'риски, деньги, задачи',icon:<Bot size={18}/>,color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',metric:risks.length+' рисков',onClick:()=>showPreview(buildDirectorBriefReportContent(directorSkillDate),'Сводка директора — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
               {label:'Ежедневный отчёт',sub:'работы по объектам',icon:<FileText size={18}/>,color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',metric:directorSkillDailyWorks.length+' работ',onClick:()=>showPreview(buildDailyObjectReportContent(directorSkillDate),'Ежедневный отчет — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
-              {label:'Проверка смет',sub:'нули, дубли, бюджет',icon:<Calculator size={18}/>,color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',metric:directorSkillEstimateIssues+' замеч.',onClick:()=>showPreview(buildEstimateControlReportContent(),'Проверка смет директора')},
+              {label:'Проверка смет',sub:'нули, дубли, бюджет',icon:<Calculator size={18}/>,color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',metric:directorSkillEstimateIssues+' замеч.',onClick:openEstimateControlReport},
               {label:'Склад и снабжение',sub:'остатки, заявки, счета',icon:<Package size={18}/>,color:'#c4b5fd',bg:'rgba(139,92,246,.12)',border:'rgba(139,92,246,.28)',metric:directorSkillSupplyIssues+' задач',onClick:()=>showPreview(buildSupplyControlReportContent(),'Контроль снабжения и склада')},
             ];
             return(
