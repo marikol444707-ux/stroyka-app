@@ -3300,7 +3300,8 @@ function App() {
   const loadEstimatesForDirectorReport = async () => {
     if ((estimatesList||[]).length) return estimatesList;
     try {
-      const res = await fetch(API+'/estimates');
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(API+'/estimates', token ? {headers:{Authorization:'Bearer '+token}} : undefined);
       if (!res.ok) return estimatesList||[];
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
