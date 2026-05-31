@@ -159,6 +159,7 @@ LEADERSHIP_ROLES = ("директор", "зам_директора")
 FINANCE_ROLES = ("директор", "зам_директора", "бухгалтер")
 WAREHOUSE_ROLES = ("директор", "зам_директора", "кладовщик", "снабженец", "прораб")
 SUPPLY_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "мастер", "субподрядчик", "поставщик", "бухгалтер")
+SUPPLY_INTERNAL_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "бухгалтер")
 PROJECT_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 PROJECT_DOCUMENT_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "кладовщик", "снабженец", "технадзор", "заказчик", "стройконтроль")
 PROJECT_DOCUMENT_WRITE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "технадзор", "стройконтроль")
@@ -2178,7 +2179,7 @@ def delete_project(id: int, _current_user: dict = Depends(require_roles(*LEADERS
     return {"ok": True}
 
 @app.get("/clients")
-def get_clients():
+def get_clients(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM clients")
@@ -2740,7 +2741,7 @@ def delete_pricelist_item(id: int, _current_user: dict = Depends(require_roles(*
     return {"ok": True}
 
 @app.get("/invite-codes")
-def get_invite_codes():
+def get_invite_codes(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM invite_codes ORDER BY id DESC")
@@ -2749,7 +2750,7 @@ def get_invite_codes():
     return [dict(r) for r in rows]
 
 @app.post("/invite-codes")
-def create_invite_code(data: dict):
+def create_invite_code(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
     from datetime import datetime, timedelta
     role = data.get('role') or ''
     if not role:
@@ -2769,7 +2770,7 @@ def create_invite_code(data: dict):
     return dict(row)
 
 @app.delete("/invite-codes/{id}")
-def delete_invite_code(id: int):
+def delete_invite_code(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM invite_codes WHERE id=%s", (id,))
@@ -2777,7 +2778,7 @@ def delete_invite_code(id: int):
     return {"ok": True}
 
 @app.get("/companies")
-def list_companies():
+def list_companies(_current_user: dict = Depends(get_current_user)):
     """Список компаний-клиентов системы. Сейчас одна (СтройКа).
        В будущем — multi-tenancy: поставщик видит заявки от разных компаний."""
     conn = get_db()
@@ -2931,7 +2932,7 @@ def system_create_payment(data: dict, _current_user: dict = Depends(require_role
     return {"id": new_id, "ok": True}
 
 @app.get("/demo-requests")
-def list_demo_requests():
+def list_demo_requests(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM demo_requests ORDER BY created_at DESC LIMIT 200")
@@ -2955,7 +2956,7 @@ def create_demo_request(data: dict):
     return {"id": new_id, "ok": True, "message": "Заявка принята, с вами свяжутся в течение рабочего дня"}
 
 @app.put("/demo-requests/{id}")
-def update_demo_request(id: int, data: dict):
+def update_demo_request(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
     from datetime import datetime
     conn = get_db()
     cur = conn.cursor()
@@ -3239,7 +3240,7 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
         conn.close()
 
 @app.get("/supply-requests/{id}/stock-check")
-def supply_request_stock_check(id: int):
+def supply_request_stock_check(id: int, current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     """Возвращает остатки похожих материалов на складе и бюджет проекта.
        Используется UI чтобы показать «есть X из Y, закупить Z»."""
     conn = None
@@ -3252,6 +3253,8 @@ def supply_request_stock_check(id: int):
             return {"error": "Заявка не найдена"}
         name = (req['material_name'] or '').strip()
         project = (req['project'] or '').strip()
+        if project:
+            require_project_access(current_user, project)
         needed = float(req['quantity'] or 0)
         # Поиск похожих материалов на основном складе (ILIKE по части имени)
         stock_matches = []
@@ -3504,7 +3507,7 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
     return {"ok": True, "created": len(created), "ids": created}
 
 @app.get("/supply-requests/{id}/suggest-suppliers")
-def suggest_suppliers_for_request(id: int):
+def suggest_suppliers_for_request(id: int, current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
     """Возвращает список поставщиков подходящих под категорию материала, ранжированных
        по рейтингу + истории успешных поставок. AI-комментарий опциональный."""
     conn = get_db()
@@ -3514,6 +3517,8 @@ def suggest_suppliers_for_request(id: int):
     if not req:
         conn.close()
         return {"error": "not found"}
+    if req.get('project'):
+        require_project_access(current_user, req.get('project') or "")
     category = (req['category'] or '').strip()
     material_name = (req['material_name'] or '').lower()
     # Фильтр по категории если задана. Иначе берём всех активных
@@ -3555,7 +3560,7 @@ def suggest_suppliers_for_request(id: int):
     }
 
 @app.get("/supply-requests/{id}/compare-kp")
-def compare_kp_for_request(id: int):
+def compare_kp_for_request(id: int, current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
     """Сравнивает все полученные КП по заявке и возвращает AI-вердикт.
        Учитывает цену, срок поставки, условия оплаты, НДС, рейтинг поставщика."""
     conn = get_db()
@@ -3565,6 +3570,8 @@ def compare_kp_for_request(id: int):
     if not req:
         conn.close()
         return {"error": "Заявка не найдена"}
+    if req.get('project'):
+        require_project_access(current_user, req.get('project') or "")
     cur.execute(
         "SELECT o.id, o.supplier_id, o.price_per_unit, o.total_price, o.delivery_days, "
         "o.payment_terms, o.vat_included, o.valid_until, o.supplier_message, o.status, "
@@ -4696,16 +4703,24 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
     return {"ok": True, "count": count, "detected": len(hidden_set), "sections": sections, "method": method}
 
 @app.get("/master-profiles")
-def get_master_profiles():
+def get_master_profiles(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles")
+    if current_user.get("role") in FINANCE_ROLES or current_user.get("role") in ("прораб", "главный_инженер"):
+        cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles")
+    elif current_user.get("role") in ("мастер", "субподрядчик"):
+        cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles WHERE user_id=%s", (current_user.get("id"),))
+    else:
+        cur.close(); conn.close()
+        return []
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 @app.get("/master-profile/{user_id}")
-def get_master_profile(user_id: int):
+def get_master_profile(user_id: int, current_user: dict = Depends(get_current_user)):
+    if current_user.get("id") != user_id and current_user.get("role") not in FINANCE_ROLES and current_user.get("role") not in ("прораб", "главный_инженер"):
+        raise HTTPException(status_code=403, detail="Нет доступа к профилю")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles WHERE user_id=%s", (user_id,))
@@ -4716,7 +4731,9 @@ def get_master_profile(user_id: int):
     return dict(row)
 
 @app.post("/master-profile")
-def create_master_profile(p: MasterProfileModel):
+def create_master_profile(p: MasterProfileModel, current_user: dict = Depends(get_current_user)):
+    if current_user.get("id") != p.userId and current_user.get("role") not in FINANCE_ROLES:
+        raise HTTPException(status_code=403, detail="Можно редактировать только свой профиль")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
@@ -5289,7 +5306,7 @@ def delete_room_door(id: int, _current_user: dict = Depends(require_roles(*PROJE
     return {"ok": True}
 
 @app.get("/messages")
-def get_messages():
+def get_messages(_current_user: dict = Depends(get_current_user)):
     import json as _j
     conn = get_db()
     cur = conn.cursor()
@@ -5304,27 +5321,25 @@ def get_messages():
     return out
 
 @app.post("/messages")
-def create_message(data: dict):
+def create_message(data: dict, current_user: dict = Depends(get_current_user)):
     import json as _j
     conn = get_db()
     cur = conn.cursor()
     # Автор сразу попадает в read_by
-    author_id = data.get('authorId')
+    author_id = current_user.get("id")
     read_by = _j.dumps([author_id] if author_id else [])
     cur.execute("INSERT INTO messages (chat_type,project_id,author_id,author_name,author_role,text,photo_url,read_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb) RETURNING *",
-        (data.get('chatType','company'),data.get('projectId'),author_id,data.get('authorName',''),data.get('authorRole',''),data.get('text',''),data.get('photoUrl',''),read_by))
+        (data.get('chatType','company'),data.get('projectId'),author_id,current_user.get("name",""),current_user.get("role",""),data.get('text',''),data.get('photoUrl',''),read_by))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
     return row
 
 @app.post("/messages/mark-read")
-def mark_messages_read(data: dict):
+def mark_messages_read(data: dict, current_user: dict = Depends(get_current_user)):
     """Помечает все сообщения как прочитанные данным пользователем.
        data: {userId, chatType?, projectId?} — фильтры опциональны."""
-    user_id = data.get('userId')
-    if not user_id:
-        return {"ok": False, "error": "userId required"}
+    user_id = current_user.get("id")
     chat_type = data.get('chatType')
     project_id = data.get('projectId')
     conn = get_db()
@@ -5350,7 +5365,7 @@ import urllib.request
 import json as json_lib
 
 @app.post("/ai-chat")
-def ai_chat(data: dict):
+def ai_chat(data: dict, current_user: dict = Depends(get_current_user)):
     from openai import OpenAI
     FOLDER_ID = YANDEX_FOLDER_ID
     API_KEY = YANDEX_API_KEY
@@ -5365,20 +5380,45 @@ def ai_chat(data: dict):
     else:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT name, status FROM projects")
+        allowed_projects = visible_project_names(current_user)
+        if allowed_projects is None:
+            cur.execute("SELECT name, status FROM projects")
+        elif allowed_projects:
+            cur.execute("SELECT name, status FROM projects WHERE name = ANY(%s)", (allowed_projects,))
+        else:
+            cur.execute("SELECT name, status FROM projects WHERE FALSE")
         projects = cur.fetchall()
-        cur.execute("SELECT name, quantity, unit FROM warehouse_main")
-        materials = cur.fetchall()
-        cur.execute("SELECT name, role FROM users WHERE role NOT IN ('заказчик','поставщик')")
-        staff = cur.fetchall()
+        if current_user.get("role") in WAREHOUSE_ROLES or current_user.get("role") in FINANCE_ROLES:
+            cur.execute("SELECT name, quantity, unit FROM warehouse_main")
+            materials = cur.fetchall()
+        else:
+            materials = []
+        if can_see_all_company_data(current_user):
+            cur.execute("SELECT name, role FROM users WHERE role NOT IN ('заказчик','поставщик')")
+            staff = cur.fetchall()
+        else:
+            staff = [(current_user.get("name",""), current_user.get("role",""))]
         cur.close()
         cur2 = conn.cursor()
-        cur2.execute("SELECT name, quantity, unit, project FROM materials WHERE quantity > 0 ORDER BY project")
+        if allowed_projects is None:
+            cur2.execute("SELECT name, quantity, unit, project FROM materials WHERE quantity > 0 ORDER BY project")
+        elif allowed_projects:
+            cur2.execute("SELECT name, quantity, unit, project FROM materials WHERE quantity > 0 AND project = ANY(%s) ORDER BY project", (allowed_projects,))
+        else:
+            cur2.execute("SELECT name, quantity, unit, project FROM materials WHERE FALSE")
         obj_materials = cur2.fetchall()
-        cur2.execute("SELECT project_name, brigade_name, status FROM brigade_contracts")
+        if allowed_projects is None:
+            cur2.execute("SELECT project_name, brigade_name, status FROM brigade_contracts")
+        elif allowed_projects:
+            cur2.execute("SELECT project_name, brigade_name, status FROM brigade_contracts WHERE project_name = ANY(%s)", (allowed_projects,))
+        else:
+            cur2.execute("SELECT project_name, brigade_name, status FROM brigade_contracts WHERE FALSE")
         brigades = cur2.fetchall()
-        cur2.execute("SELECT project_name, amount, note FROM project_payments ORDER BY id DESC LIMIT 10")
-        payments = cur2.fetchall()
+        if current_user.get("role") in FINANCE_ROLES:
+            cur2.execute("SELECT project_name, amount, note FROM project_payments ORDER BY id DESC LIMIT 10")
+            payments = cur2.fetchall()
+        else:
+            payments = []
         cur2.close()
         context = "Ты ИИ помощник строительной компании СтройКа. Отвечай кратко на русском.\n"
         context += "ПРОЕКТЫ ("+str(len(projects))+"): "+", ".join([p[0]+" ("+p[1]+")" for p in projects])+"\n"
@@ -5421,7 +5461,7 @@ def ai_chat(data: dict):
 
 
 @app.get("/warehouses")
-def get_warehouses():
+def get_warehouses(_current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер", "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id,name,city,address,notes FROM warehouses ORDER BY id")
@@ -5430,7 +5470,7 @@ def get_warehouses():
     return [{"id":r[0],"name":r[1],"city":r[2],"address":r[3],"notes":r[4]} for r in rows]
 
 @app.post("/warehouses")
-def create_warehouse(data: dict):
+def create_warehouse(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO warehouses (name,city,address,notes) VALUES (%s,%s,%s,%s) RETURNING id,name,city,address,notes",
@@ -5441,7 +5481,7 @@ def create_warehouse(data: dict):
     return {"id":row[0],"name":row[1],"city":row[2],"address":row[3],"notes":row[4]}
 
 @app.put("/warehouses/{id}")
-def update_warehouse(id: int, data: dict):
+def update_warehouse(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE warehouses SET name=%s,city=%s,address=%s,notes=%s WHERE id=%s RETURNING id,name,city,address,notes",
@@ -5452,7 +5492,7 @@ def update_warehouse(id: int, data: dict):
     return {"id":row[0],"name":row[1],"city":row[2],"address":row[3],"notes":row[4]}
 
 @app.delete("/warehouses/{id}")
-def delete_warehouse(id: int):
+def delete_warehouse(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM warehouses WHERE id=%s",(id,))
@@ -5461,7 +5501,7 @@ def delete_warehouse(id: int):
     return {"ok":True}
 
 @app.get("/company-requisites")
-def get_company_requisites():
+def get_company_requisites(_current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id,full_name,short_name,inn,kpp,ogrn,legal_address,actual_address,phone,email,director_name,director_position,basis,bank_name,bik,rs,ks FROM company_requisites ORDER BY id LIMIT 1")
@@ -5703,7 +5743,8 @@ def delete_prescription(id: int, current_user: dict = Depends(require_roles(*PRO
     return {"ok": True}
 
 @app.get("/project-chat/{project_name}")
-def get_project_chat(project_name: str):
+def get_project_chat(project_name: str, current_user: dict = Depends(get_current_user)):
+    require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id,project_name,author_id,author_name,author_role,text,photo_url,created_at FROM project_chat WHERE project_name=%s ORDER BY created_at ASC LIMIT 200",(project_name,))
@@ -5712,11 +5753,13 @@ def get_project_chat(project_name: str):
     return [{"id":r[0],"projectName":r[1],"authorId":r[2],"authorName":r[3],"authorRole":r[4],"text":r[5],"photoUrl":r[6],"createdAt":str(r[7])} for r in rows]
 
 @app.post("/project-chat")
-def create_project_chat(data: dict):
+def create_project_chat(data: dict, current_user: dict = Depends(get_current_user)):
+    project_name = data.get("projectName", "")
+    require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO project_chat (project_name,author_id,author_name,author_role,text,photo_url) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectName",""),data.get("authorId"),data.get("authorName",""),data.get("authorRole",""),data.get("text",""),data.get("photoUrl","")))
+        (project_name,current_user.get("id"),current_user.get("name",""),current_user.get("role",""),data.get("text",""),data.get("photoUrl","")))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -7002,11 +7045,18 @@ def delete_brigade_contract_item(id: int, _current_user: dict = Depends(require_
     return {"ok":True}
 
 @app.get("/brigade-acts")
-def get_brigade_acts(contract_id: int = None):
+def get_brigade_acts(contract_id: int = None, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
     if contract_id:
+        require_row_project_access(cur, "brigade_contracts", contract_id, current_user, "project_name")
         cur.execute("SELECT id,contract_id,project_name,brigade_name,period_from,period_to,total_amount,status,created_at FROM brigade_acts WHERE contract_id=%s ORDER BY id DESC", (contract_id,))
+    elif visible_project_names(current_user) is not None:
+        projects = user_project_names(current_user)
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,contract_id,project_name,brigade_name,period_from,period_to,total_amount,status,created_at FROM brigade_acts WHERE project_name = ANY(%s) ORDER BY id DESC", (projects,))
     else:
         cur.execute("SELECT id,contract_id,project_name,brigade_name,period_from,period_to,total_amount,status,created_at FROM brigade_acts ORDER BY id DESC")
     rows = cur.fetchall()
@@ -7014,7 +7064,8 @@ def get_brigade_acts(contract_id: int = None):
     return [{"id":r[0],"contractId":r[1],"projectName":r[2],"brigadeName":r[3],"periodFrom":str(r[4]) if r[4] else "","periodTo":str(r[5]) if r[5] else "","totalAmount":float(r[6] or 0),"status":r[7],"createdAt":str(r[8])} for r in rows]
 
 @app.post("/brigade-acts")
-def create_brigade_act(data: dict):
+def create_brigade_act(data: dict, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    require_project_access(current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO brigade_acts (contract_id,project_name,brigade_name,period_from,period_to,total_amount,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -7025,11 +7076,18 @@ def create_brigade_act(data: dict):
     return {"id":row[0],"ok":True}
 
 @app.get("/material-transfers")
-def get_material_transfers(project_name: str = None):
+def get_material_transfers(project_name: str = None, current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     if project_name:
+        require_project_access(current_user, project_name)
         cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    elif visible_project_names(current_user) is not None:
+        projects = user_project_names(current_user)
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name = ANY(%s) ORDER BY id DESC", (projects,))
     else:
         cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers ORDER BY id DESC")
     rows = cur.fetchall()
@@ -7868,12 +7926,19 @@ def delete_supervisor_act(id: int, current_user: dict = Depends(require_roles(*P
     return {"ok": True}
 
 @app.get("/tb-journal")
-def list_tb_journal(project_name: str = None):
+def list_tb_journal(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cols = "id, project_name, master_name, instructor, instruction_type, program, instruction_text, participants_json, photo_url, date, ai_filled, created_at"
     if project_name:
+        require_project_access(current_user, project_name)
         cur.execute(f"SELECT {cols} FROM tb_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    elif visible_project_names(current_user) is not None:
+        projects = user_project_names(current_user)
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute(f"SELECT {cols} FROM tb_journal WHERE project_name = ANY(%s) ORDER BY id DESC", (projects,))
     else:
         cur.execute(f"SELECT {cols} FROM tb_journal ORDER BY id DESC")
     rows = cur.fetchall()
@@ -7892,8 +7957,9 @@ def list_tb_journal(project_name: str = None):
     return out
 
 @app.post("/tb-journal")
-def create_tb_entry(data: dict):
+def create_tb_entry(data: dict, current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     import json as j
+    require_project_access(current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     parts = j.dumps(data.get("participants") or [], ensure_ascii=False)
@@ -7912,21 +7978,24 @@ def create_tb_entry(data: dict):
     return {"id": row[0], "ok": True}
 
 @app.delete("/tb-journal/{id}")
-def delete_tb_entry(id: int):
+def delete_tb_entry(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "tb_journal", id, current_user, "project_name")
     cur.execute("DELETE FROM tb_journal WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
 
 @app.post("/tb-journal/ai-generate")
-def ai_generate_tb_instruction(data: dict):
+def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     """AI генерирует текст инструктажа по ГОСТ 12.0.004-2015 для указанного типа работ."""
     import openai as oa
     instruction_type = data.get("instructionType", "Первичный инструктаж")
     work_context = data.get("workContext", "")
     project_name = data.get("projectName", "")
+    if project_name:
+        require_project_access(current_user, project_name)
 
     user_text = (
         "Тип инструктажа: " + instruction_type + "\n"
@@ -7957,7 +8026,7 @@ def ai_generate_tb_instruction(data: dict):
     return {"ok": True, "instructionText": answer.strip()}
 
 @app.get("/audit-log")
-def list_audit_log(limit: int = 200):
+def list_audit_log(limit: int = 200, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id, user_id, user_name, user_role, action, entity_type, entity_id, description, project_name, created_at FROM audit_log ORDER BY id DESC LIMIT %s", (limit,))
@@ -8038,7 +8107,7 @@ def update_inspection_order(id: int, data: dict, current_user: dict = Depends(re
     return {"ok": True}
 
 @app.get("/expense-reports")
-def list_expense_reports(employee_id: int = None, project_name: str = None):
+def list_expense_reports(employee_id: int = None, project_name: str = None, current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cols = "id, employee_id, employee_name, project_name, report_type, purpose, total_amount, issued_amount, spent_amount, balance, items_json, photo_url, date_from, date_to, status, approved_by, approved_at, created_at"
@@ -8067,7 +8136,7 @@ def list_expense_reports(employee_id: int = None, project_name: str = None):
     return out
 
 @app.post("/expense-reports")
-def create_expense_report(data: dict):
+def create_expense_report(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     import json as j
     conn = get_db()
     cur = conn.cursor()
@@ -8089,7 +8158,7 @@ def create_expense_report(data: dict):
     return {"id": row[0], "ok": True}
 
 @app.put("/expense-reports/{id}")
-def update_expense_report(id: int, data: dict):
+def update_expense_report(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
@@ -8110,7 +8179,7 @@ def update_expense_report(id: int, data: dict):
     return {"ok": True}
 
 @app.delete("/expense-reports/{id}")
-def delete_expense_report(id: int):
+def delete_expense_report(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM expense_reports WHERE id=%s", (id,))
@@ -8216,12 +8285,19 @@ def delete_supplier_invoice(id: int, _current_user: dict = Depends(require_roles
     return {"ok": True}
 
 @app.get("/warranty-defects")
-def list_warranty_defects(project_name: str = None):
+def list_warranty_defects(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cols = "id, project_name, description, found_at, reported_by, reporter_phone, status, assigned_to, fix_notes, fixed_at, photo_url, severity, created_at"
     if project_name:
+        require_project_access(current_user, project_name)
         cur.execute(f"SELECT {cols} FROM warranty_defects WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    elif visible_project_names(current_user) is not None:
+        projects = user_project_names(current_user)
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute(f"SELECT {cols} FROM warranty_defects WHERE project_name = ANY(%s) ORDER BY id DESC", (projects,))
     else:
         cur.execute(f"SELECT {cols} FROM warranty_defects ORDER BY id DESC")
     rows = cur.fetchall()
@@ -8234,7 +8310,8 @@ def list_warranty_defects(project_name: str = None):
              "createdAt":str(r[12])} for r in rows]
 
 @app.post("/warranty-defects")
-def create_warranty_defect(data: dict):
+def create_warranty_defect(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    require_project_access(current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""INSERT INTO warranty_defects
@@ -8252,9 +8329,10 @@ def create_warranty_defect(data: dict):
     return {"id": row[0], "ok": True}
 
 @app.put("/warranty-defects/{id}")
-def update_warranty_defect(id: int, data: dict):
+def update_warranty_defect(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "warranty_defects", id, current_user, "project_name")
     fields_map = [('status','status'),('assignedTo','assigned_to'),('fixNotes','fix_notes'),
                   ('fixedAt','fixed_at'),('severity','severity'),('photoUrl','photo_url')]
     sets, vals = [], []
@@ -8273,9 +8351,10 @@ def update_warranty_defect(id: int, data: dict):
     return {"ok": True}
 
 @app.delete("/warranty-defects/{id}")
-def delete_warranty_defect(id: int):
+def delete_warranty_defect(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "warranty_defects", id, current_user, "project_name")
     cur.execute("DELETE FROM warranty_defects WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
@@ -8407,7 +8486,7 @@ def save_doc_version(document_type, document_id, snapshot_json, changed_by="", c
         return None
 
 @app.get("/document-versions")
-def list_document_versions(document_type: str = None, document_id: int = None):
+def list_document_versions(document_type: str = None, document_id: int = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cols = "id, document_type, document_id, version_label, changed_by, change_reason, created_at"
@@ -8425,7 +8504,7 @@ def list_document_versions(document_type: str = None, document_id: int = None):
              "changedBy":r[4] or "","changeReason":r[5] or "","createdAt":str(r[6])} for r in rows]
 
 @app.get("/document-versions/{vid}")
-def get_document_version(vid: int):
+def get_document_version(vid: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     import json as _j
     conn = get_db()
     cur = conn.cursor()
@@ -8443,13 +8522,13 @@ def get_document_version(vid: int):
             "createdAt":str(r[7])}
 
 @app.post("/audit-log")
-def create_audit_entry(data: dict):
+def create_audit_entry(data: dict, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""INSERT INTO audit_log
                    (user_id, user_name, user_role, action, entity_type, entity_id, description, project_name)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (data.get("userId"), data.get("userName",""), data.get("userRole",""),
+                (current_user.get("id"), current_user.get("name",""), current_user.get("role",""),
                  data.get("action",""), data.get("entityType",""), data.get("entityId"),
                  data.get("description",""), data.get("projectName","")))
     conn.commit()
@@ -8461,20 +8540,20 @@ def create_audit_entry(data: dict):
 online_users = {}
 
 @app.post("/online")
-def update_online(data: dict):
-    user_id = data.get("userId")
+def update_online(data: dict, current_user: dict = Depends(get_current_user)):
+    user_id = current_user.get("id")
     if user_id:
         online_users[str(user_id)] = {
             "userId": user_id,
-            "userName": data.get("userName",""),
-            "userRole": data.get("userRole",""),
+            "userName": current_user.get("name",""),
+            "userRole": current_user.get("role",""),
             "lastSeen": data.get("lastSeen",""),
             "page": data.get("page","")
         }
     return {"ok": True}
 
 @app.get("/online")
-def get_online():
+def get_online(_current_user: dict = Depends(get_current_user)):
     import time
     now = time.time()
     # Возвращаем пользователей активных за последние 2 минуты
@@ -8580,7 +8659,9 @@ def send_vk_notification(vk_user_id: int, message: str):
         print("VK error:", e)
 
 @app.post("/vk-connect")
-def vk_connect(data: dict):
+def vk_connect(data: dict, current_user: dict = Depends(get_current_user)):
+    if data.get("email") and data.get("email") != current_user.get("email"):
+        raise HTTPException(status_code=403, detail="Можно подключить только свой VK")
     conn = get_db()
     cur = conn.cursor()
     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS vk_id INTEGER")
@@ -8590,7 +8671,7 @@ def vk_connect(data: dict):
     return {"ok": True}
 
 @app.post("/vk-notify")
-def vk_notify(data: dict):
+def vk_notify(data: dict, _current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT vk_id FROM users WHERE id=%s", (data.get("userId"),))
@@ -8601,7 +8682,7 @@ def vk_notify(data: dict):
     return {"ok": True}
 
 @app.get("/accountable-payments")
-def get_accountable_payments(project_name: str = ""):
+def get_accountable_payments(project_name: str = "", _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     if project_name:
@@ -8613,7 +8694,7 @@ def get_accountable_payments(project_name: str = ""):
     return [{"id":r[0],"projectName":r[1],"givenTo":r[2],"amount":float(r[3] or 0),"paymentMethod":r[4] or "Наличные","purpose":r[5] or "","date":str(r[6]) if r[6] else "","addedBy":r[7] or "","status":r[8] or "Открыт","spentAmount":float(r[9] or 0)} for r in rows]
 
 @app.post("/accountable-payments")
-def create_accountable_payment(data: dict):
+def create_accountable_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO accountable_payments (project_name,given_to,given_to_id,amount,payment_method,purpose,date,added_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -8624,7 +8705,7 @@ def create_accountable_payment(data: dict):
     return {"id":row[0],"ok":True}
 
 @app.get("/accountable-expenses")
-def get_accountable_expenses(payment_id: int = 0):
+def get_accountable_expenses(payment_id: int = 0, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     if payment_id:
@@ -8636,7 +8717,7 @@ def get_accountable_expenses(payment_id: int = 0):
     return [{"id":r[0],"paymentId":r[1],"projectName":r[2],"description":r[3],"amount":float(r[4] or 0),"photoUrl":r[5] or "","date":str(r[6]) if r[6] else "","addedBy":r[7] or ""} for r in rows]
 
 @app.post("/accountable-expenses")
-def create_accountable_expense(data: dict):
+def create_accountable_expense(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO accountable_expenses (payment_id,project_name,description,amount,photo_url,date,added_by) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -8724,7 +8805,7 @@ def delete_own_expense(id: int, _current_user: dict = Depends(require_roles(*FIN
     return {"ok": True}
 
 @app.get("/expenses")
-def get_expenses(project: str = ""):
+def get_expenses(project: str = "", _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     if project:
@@ -8736,7 +8817,7 @@ def get_expenses(project: str = ""):
     return [{"id":r[0],"project":r[1],"category":r[2],"amount":float(r[3] or 0),"note":r[4] or "","date":str(r[5]) if r[5] else "","addedBy":r[6] or ""} for r in rows]
 
 @app.post("/expenses")
-def create_expense(data: dict):
+def create_expense(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO expenses (project,category,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s,%s)",
@@ -8746,7 +8827,8 @@ def create_expense(data: dict):
     return {"ok":True}
 
 @app.get("/project-ai-summary/{project_name}")
-def get_project_ai_summary(project_name: str):
+def get_project_ai_summary(project_name: str, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT payload_hash, summary, updated_at FROM project_ai_summary WHERE project_name=%s", (project_name,))
@@ -8757,10 +8839,11 @@ def get_project_ai_summary(project_name: str):
     return {"exists": True, "payloadHash": row[0], "summary": row[1] or "", "updatedAt": str(row[2])}
 
 @app.post("/project-ai-summary")
-def save_project_ai_summary(data: dict):
+def save_project_ai_summary(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     project_name = data.get("projectName", "")
     if not project_name:
         raise HTTPException(status_code=400, detail="projectName required")
+    require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
@@ -8776,7 +8859,7 @@ def save_project_ai_summary(data: dict):
     return {"ok": True}
 
 @app.post("/ai-generate-estimate")
-def ai_generate_estimate(data: dict):
+def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     import openai as oa
     import json as _json
     description = (data.get("description") or "").strip()
@@ -8929,7 +9012,7 @@ def ai_generate_estimate(data: dict):
     return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "sections": sections, "smetaType": smeta_type, "workPackage": work_package, "status": status}
 
 @app.post("/pricelists/from-estimate")
-def pricelist_from_estimate(data: dict):
+def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
     import json as _json
     estimate_id = data.get("estimateId")
     name = (data.get("name") or "").strip()
@@ -8992,7 +9075,7 @@ def pricelist_from_estimate(data: dict):
     return {"ok": True, "id": pricelist_id, "name": final_name, "itemsCount": inserted}
 
 @app.post("/ai-generate-pricelist")
-def ai_generate_pricelist(data: dict):
+def ai_generate_pricelist(data: dict, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
     import openai as oa
     import json as _json
     description = (data.get("description") or "").strip()
@@ -9310,16 +9393,22 @@ def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(requi
     return {"ok": True, "conclusion": full_conclusion, "projectDocs": project_docs, "normatives": normatives, "aiFilled": True}
 
 @app.get("/estimates/{estimate_id}/chat-history")
-def get_estimate_chat(estimate_id: int):
+def get_estimate_chat(estimate_id: int, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT project_name FROM estimates WHERE id=%s", (estimate_id,))
+    est = cur.fetchone()
+    if not est:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    require_project_access(current_user, est[0] or "")
     cur.execute("SELECT id, role, content, created_at FROM estimate_chat_messages WHERE estimate_id=%s ORDER BY id ASC", (estimate_id,))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id": r[0], "role": r[1], "content": r[2], "createdAt": str(r[3])} for r in rows]
 
 @app.post("/estimate-chat")
-def estimate_chat(data: dict):
+def estimate_chat(data: dict, current_user: dict = Depends(get_current_user)):
     import openai as oa
     estimate_id = data.get("estimateId")
     user_message = (data.get("message") or "").strip()
@@ -9330,6 +9419,12 @@ def estimate_chat(data: dict):
 
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT project_name FROM estimates WHERE id=%s", (int(estimate_id),))
+    est = cur.fetchone()
+    if not est:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    require_project_access(current_user, est[0] or "")
     cur.execute("INSERT INTO estimate_chat_messages (estimate_id, role, content) VALUES (%s, %s, %s) RETURNING id, created_at",
                 (estimate_id, "user", user_message))
     user_row = cur.fetchone()
@@ -9371,16 +9466,22 @@ def estimate_chat(data: dict):
     return {"response": answer, "userMessageId": user_row[0], "assistantMessageId": asst_row[0]}
 
 @app.delete("/estimates/{estimate_id}/chat-history")
-def clear_estimate_chat(estimate_id: int):
+def clear_estimate_chat(estimate_id: int, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT project_name FROM estimates WHERE id=%s", (estimate_id,))
+    est = cur.fetchone()
+    if not est:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    require_project_access(current_user, est[0] or "")
     cur.execute("DELETE FROM estimate_chat_messages WHERE estimate_id=%s", (estimate_id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
 
 @app.post("/scan-invoice")
-def scan_invoice(data: dict):
+def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     import openai as oa
     FOLDER_ID = YANDEX_FOLDER_ID
     API_KEY = YANDEX_API_KEY
