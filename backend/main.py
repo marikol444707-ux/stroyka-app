@@ -1066,6 +1066,16 @@ def init_db():
             photo_url TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS change_type VARCHAR(80) DEFAULT 'Работа вне сметы';
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS estimate_id INT;
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS section_name VARCHAR(255);
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS estimate_item_name TEXT;
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS base_quantity NUMERIC(14,4);
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS new_required_quantity NUMERIC(14,4);
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS delta_quantity NUMERIC(14,4);
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS included_in_estimate_id INT;
+        ALTER TABLE unexpected_works ADD COLUMN IF NOT EXISTS reason TEXT;
+        UPDATE unexpected_works SET change_type='Работа вне сметы' WHERE change_type IS NULL OR change_type='';
         CREATE TABLE IF NOT EXISTS prescriptions (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -5710,33 +5720,60 @@ def create_project_chat(data: dict):
     cur.close(); conn.close()
     return {"id":row[0],"ok":True}
 
+ESTIMATE_CHANGE_APPROVED_STATUSES = ("Утверждено", "Утверждено отдельной допработой")
+ESTIMATE_CHANGE_CUSTOMER_STATUSES = ("Ожидает согласования", "Утверждено", "Утверждено отдельной допработой", "Включено в новую смету")
+
 @app.get("/unexpected-works")
 def get_unexpected_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     allowed_projects = visible_project_names(current_user)
     role = current_user.get("role")
+    cols = """id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,
+              approved_by,approved_at,notes,photo_url,change_type,estimate_id,section_name,
+              estimate_item_name,base_quantity,new_required_quantity,delta_quantity,
+              included_in_estimate_id,reason"""
     if allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
         if role == "заказчик":
-            cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works WHERE project_name = ANY(%s) AND status IN ('Ожидает согласования','Утверждено') ORDER BY id DESC", (allowed_projects,))
+            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) AND status = ANY(%s) ORDER BY id DESC", (allowed_projects, list(ESTIMATE_CHANGE_CUSTOMER_STATUSES)))
         else:
-            cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     else:
-        cur.execute("SELECT id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,approved_by,approved_at,notes,photo_url FROM unexpected_works ORDER BY id DESC")
+        cur.execute(f"SELECT {cols} FROM unexpected_works ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"description":r[2],"unit":r[3],"quantity":r[4],"price":r[5],"total":r[6],"addedBy":r[7],"addedByRole":r[8],"status":r[9],"approvedBy":r[10],"approvedAt":r[11],"notes":r[12],"photoUrl":r[13]} for r in rows]
+    return [{"id":r[0],"projectName":r[1],"description":r[2],"unit":r[3],
+             "quantity":float(r[4] or 0),"price":float(r[5] or 0),"total":float(r[6] or 0),
+             "addedBy":r[7],"addedByRole":r[8],"status":r[9],"approvedBy":r[10],
+             "approvedAt":r[11],"notes":r[12],"photoUrl":r[13],
+             "changeType":r[14] or "Работа вне сметы","estimateId":r[15],
+             "sectionName":r[16] or "","estimateItemName":r[17] or "",
+             "baseQuantity":float(r[18] or 0),"newRequiredQuantity":float(r[19] or 0),
+             "deltaQuantity":float(r[20] or 0),"includedInEstimateId":r[21],
+             "reason":r[22] or ""} for r in rows]
 
 @app.post("/unexpected-works")
 def create_unexpected_work(data: dict, current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     require_project_access(current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO unexpected_works (project_name,description,unit,quantity,price,total,added_by,added_by_role,status,notes,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectName",""),data.get("description",""),data.get("unit","шт"),float(data.get("quantity",0)),float(data.get("price",0)),float(data.get("total",0)),data.get("addedBy",""),data.get("addedByRole",""),data.get("status","Ожидает согласования"),data.get("notes",""),data.get("photoUrl","")))
+    cur.execute("""INSERT INTO unexpected_works
+                   (project_name,description,unit,quantity,price,total,added_by,added_by_role,status,notes,photo_url,
+                    change_type,estimate_id,section_name,estimate_item_name,base_quantity,new_required_quantity,
+                    delta_quantity,included_in_estimate_id,reason)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (data.get("projectName",""),data.get("description",""),data.get("unit","шт"),
+         float(data.get("quantity",0)),float(data.get("price",0)),float(data.get("total",0)),
+         data.get("addedBy",""),data.get("addedByRole",""),data.get("status","Ожидает согласования"),
+         data.get("notes",""),data.get("photoUrl",""),
+         data.get("changeType") or "Работа вне сметы", data.get("estimateId") or None,
+         data.get("sectionName",""), data.get("estimateItemName",""),
+         float(data.get("baseQuantity") or 0), float(data.get("newRequiredQuantity") or 0),
+         float(data.get("deltaQuantity") or 0), data.get("includedInEstimateId") or None,
+         data.get("reason","")))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -5750,19 +5787,25 @@ def update_unexpected_work(id: int, data: dict, current_user: dict = Depends(req
     price = float(data.get("price",0))
     total = float(data.get("total",0))
     # Считываем текущее состояние и описательные поля до апдейта
-    cur.execute("SELECT status, project_name, description, unit, quantity, added_by FROM unexpected_works WHERE id=%s", (id,))
+    cur.execute("SELECT status, project_name, description, unit, quantity, added_by, change_type FROM unexpected_works WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Запись не найдена")
     require_project_access(current_user, row[1] or "")
     old_status = row[0] if row else ""
-    cur.execute("UPDATE unexpected_works SET status=%s,price=%s,total=%s,approved_by=%s,approved_at=%s WHERE id=%s",
-        (new_status, price, total, data.get("approvedBy",""), data.get("approvedAt",""), id))
-    # Если работа стала «Утверждено» и записи в журнале ещё нет — авто-создаём
+    cur.execute("""UPDATE unexpected_works SET
+                   status=%s, price=%s, total=%s, approved_by=%s, approved_at=%s,
+                   included_in_estimate_id=COALESCE(%s,included_in_estimate_id),
+                   reason=COALESCE(%s,reason)
+                   WHERE id=%s""",
+        (new_status, price, total, data.get("approvedBy",""), data.get("approvedAt",""),
+         data.get("includedInEstimateId") or None, data.get("reason") if "reason" in data else None, id))
+    # Если изменение стало утверждённой отдельной допработой и записи в журнале ещё нет — авто-создаём.
+    # Статус «Включено в новую смету» в журнал не пишет, чтобы не задвоить объём.
     auto_journal_id = None
-    if row and new_status == "Утверждено" and old_status != "Утверждено":
-        proj, desc, unit, qty, added_by = row[1] or "", row[2] or "", row[3] or "шт", float(row[4] or 0), row[5] or ""
+    if row and new_status in ESTIMATE_CHANGE_APPROVED_STATUSES and old_status not in ESTIMATE_CHANGE_APPROVED_STATUSES:
+        proj, desc, unit, qty, added_by, change_type = row[1] or "", row[2] or "", row[3] or "шт", float(row[4] or 0), row[5] or "", row[6] or "Работа вне сметы"
         cur.execute("SELECT id FROM work_journal WHERE unexpected_work_id=%s LIMIT 1", (id,))
         existing = cur.fetchone()
         if not existing and desc:
@@ -5773,9 +5816,9 @@ def update_unexpected_work(id: int, data: dict, current_user: dict = Depends(req
                                (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
                                 unexpected_work_id)
                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                            (None, added_by or "(непредвиденная)", proj, desc, unit, qty, price, total, today,
+                            (None, added_by or "(изменение к смете)", proj, desc, unit, qty, price, total, today,
                              "На проверке",
-                             "Авто-запись по утверждённой непредвиденной работе №"+str(id),
+                             "Авто-запись по утверждённому изменению к смете №"+str(id)+" ("+change_type+")",
                              id))
                 auto_journal_id = cur.fetchone()[0]
             except Exception as e:
@@ -8220,7 +8263,7 @@ def delete_warranty_defect(id: int):
 
 @app.post("/unexpected-works/{id}/ai-estimate")
 def ai_estimate_unexpected_work(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    """AI оценивает стоимость непредвиденной работы по аналогии со сметой и прайсами."""
+    """AI оценивает стоимость изменения к смете по аналогии со сметой и прайсами."""
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
@@ -8275,7 +8318,7 @@ def ai_estimate_unexpected_work(id: int, current_user: dict = Depends(require_ro
 
 @app.get("/unexpected-works/limit-check")
 def check_unexpected_limit(project_name: str, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    """Проверка превышения лимита % непредвиденных работ от бюджета проекта."""
+    """Проверка превышения контрольного % изменений к смете от бюджета проекта."""
     require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor()
@@ -8285,7 +8328,7 @@ def check_unexpected_limit(project_name: str, current_user: dict = Depends(requi
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="проект не найден")
     budget = float(row[0] or 0)
-    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status='Утверждено'", (project_name,))
+    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status = ANY(%s) AND included_in_estimate_id IS NULL", (project_name, list(ESTIMATE_CHANGE_APPROVED_STATUSES)))
     approved_sum = float(cur.fetchone()[0] or 0)
     cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status='Ожидает согласования'", (project_name,))
     pending_sum = float(cur.fetchone()[0] or 0)
@@ -8296,7 +8339,7 @@ def check_unexpected_limit(project_name: str, current_user: dict = Depends(requi
     return {"projectName": project_name, "budget": budget, "approvedSum": approved_sum,
             "pendingSum": pending_sum, "percentOfBudget": round(percent, 2),
             "limitPct": LIMIT_PCT, "overLimit": over_limit,
-            "warning": "Утверждённые непредвиденные превысили "+str(LIMIT_PCT)+"% от бюджета — требуется особое согласование заказчика" if over_limit else None}
+            "warning": "Утверждённые изменения к смете превысили "+str(LIMIT_PCT)+"% от бюджета — стоит оформить доп.соглашение или новую редакцию сметы" if over_limit else None}
 
 @app.delete("/inspection-orders/{id}")
 def delete_inspection_order(id: int, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
