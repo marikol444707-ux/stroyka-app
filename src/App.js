@@ -2216,8 +2216,7 @@ function App() {
     const groups = {};
     (estimatesList||[]).filter(e=>
       (e.projectName===p.name||Number(e.projectId)===Number(p.id)) &&
-      estimateKind(e)===kind &&
-      !e.isTemplate
+      estimateKind(e)===kind
     ).forEach(e=>{
       const k = estimatePackage(e);
       if(!groups[k]) groups[k] = [];
@@ -2363,7 +2362,6 @@ function App() {
     };
     const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
     const fallbackEstimates = (estimatesList||[]).filter(e=>
-      !e.isTemplate &&
       estimateKind(e)==='Заказчик' &&
       !isArchivedEstimate(e) &&
       ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
