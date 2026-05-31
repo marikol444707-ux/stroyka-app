@@ -1488,7 +1488,9 @@ def init_db():
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Черновик';
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS smeta_type VARCHAR(50) DEFAULT 'Заказчик';
+        ALTER TABLE estimates ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT 'Основная';
         UPDATE estimates SET smeta_type='Заказчик' WHERE smeta_type IS NULL OR smeta_type='';
+        UPDATE estimates SET work_package='Основная' WHERE work_package IS NULL OR work_package='';
         CREATE TABLE IF NOT EXISTS estimate_versions (
             id SERIAL PRIMARY KEY,
             estimate_id INT NOT NULL,
@@ -5998,7 +6000,7 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
     allowed_projects = visible_project_names(current_user)
     role = current_user.get("role")
     base_cols = """e.id,e.project_id,e.project_name,e.name,e.version,e.sections_json,
-                   COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
+                   COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.work_package,'Основная'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
                    (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at"""
     if role == "заказчик":
@@ -6021,7 +6023,7 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
             sections = j.loads(r[5]) if r[5] else []
         except:
             sections = []
-        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","isTemplate":bool(r[7]),"status":r[8] or "Черновик","createdAt":str(r[9]) if r[9] else "","versionCount":int(r[10] or 0),"latestVersionAt":str(r[11]) if r[11] else ""})
+        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","workPackage":r[7] or "Основная","isTemplate":bool(r[8]),"status":r[9] or "Черновик","createdAt":str(r[10]) if r[10] else "","versionCount":int(r[11] or 0),"latestVersionAt":str(r[12]) if r[12] else ""})
     return result
 
 @app.post("/estimates")
@@ -6032,13 +6034,16 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FIN
     cur = conn.cursor()
     status = data.get("status") or "Активная"
     smeta_type = data.get("smetaType") or "Заказчик"
+    work_package = data.get("workPackage") or data.get("work_package") or "Основная"
     project_name = data.get("projectName","")
     if status == "Активная" and project_name:
         cur.execute("""UPDATE estimates SET status='Архив'
-                       WHERE project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s""",
-                    (project_name, smeta_type))
-    cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId"),project_name,data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),smeta_type,status))
+                       WHERE project_name=%s
+                         AND COALESCE(smeta_type,'Заказчик')=%s
+                         AND COALESCE(work_package,'Основная')=%s""",
+                    (project_name, smeta_type, work_package))
+    cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type,work_package,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectId"),project_name,data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),smeta_type,work_package,status))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -6050,7 +6055,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     from datetime import date as _date
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT sections_json, version, project_name, COALESCE(smeta_type,'Заказчик'), status FROM estimates WHERE id=%s", (id,))
+    cur.execute("SELECT sections_json, version, project_name, COALESCE(smeta_type,'Заказчик'), status, COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (id,))
     prev = cur.fetchone()
     if not prev:
         cur.close(); conn.close()
@@ -6088,12 +6093,16 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 it["doneQuantity"] = 0
     new_status = data.get("status") or prev[4] or "Черновик"
     new_smeta_type = data.get("smetaType") or prev[3] or "Заказчик"
+    new_work_package = data.get("workPackage") or data.get("work_package") or prev[5] or "Основная"
     if new_status == "Активная" and project_name:
         cur.execute("""UPDATE estimates SET status='Архив'
-                       WHERE id<>%s AND project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s""",
-                    (id, project_name, new_smeta_type))
-    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s,status=%s WHERE id=%s",
-        (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_status,id))
+                       WHERE id<>%s
+                         AND project_name=%s
+                         AND COALESCE(smeta_type,'Заказчик')=%s
+                         AND COALESCE(work_package,'Основная')=%s""",
+                    (id, project_name, new_smeta_type, new_work_package))
+    cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s,work_package=%s,status=%s WHERE id=%s",
+        (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_work_package,new_status,id))
 
     # Build lookup of old done qty by (section name, item name)
     old_done = {}
@@ -6196,17 +6205,20 @@ def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(re
         raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name, COALESCE(smeta_type,'Заказчик') FROM estimates WHERE id=%s", (id,))
+    cur.execute("SELECT project_name, COALESCE(smeta_type,'Заказчик'), COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
-    project_name, smeta_type = row[0] or "", row[1] or "Заказчик"
+    project_name, smeta_type, work_package = row[0] or "", row[1] or "Заказчик", row[2] or "Основная"
     require_project_access(_current_user, project_name)
     if status == "Активная" and project_name:
         cur.execute("""UPDATE estimates SET status='Архив'
-                       WHERE id<>%s AND project_name=%s AND COALESCE(smeta_type,'Заказчик')=%s""",
-                    (id, project_name, smeta_type))
+                       WHERE id<>%s
+                         AND project_name=%s
+                         AND COALESCE(smeta_type,'Заказчик')=%s
+                         AND COALESCE(work_package,'Основная')=%s""",
+                    (id, project_name, smeta_type, work_package))
     cur.execute("UPDATE estimates SET status=%s WHERE id=%s", (status, id))
     conn.commit()
     cur.close(); conn.close()
@@ -6640,18 +6652,26 @@ def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = F
     # Build estimate name -> qty lookup for this project
     estimate_lookup = {}
     if project_name:
-        cur.execute("SELECT sections_json FROM estimates WHERE project_name=%s ORDER BY id DESC LIMIT 1", (project_name,))
-        est_row = cur.fetchone()
-        if est_row and est_row[0]:
-            try:
-                sections = _json.loads(est_row[0])
-                for s in sections:
-                    for it in (s.get("items") or []):
-                        nm = (it.get("name") or "").strip().lower()
-                        if nm and nm not in estimate_lookup:
-                            estimate_lookup[nm] = float(it.get("quantity") or 0)
-            except Exception:
-                pass
+        cur.execute("""SELECT sections_json FROM estimates
+                       WHERE project_name=%s
+                         AND COALESCE(smeta_type,'Заказчик')='Заказчик'
+                         AND status='Активная'
+                       ORDER BY COALESCE(work_package,'Основная'), id DESC""", (project_name,))
+        est_rows = cur.fetchall()
+        if not est_rows:
+            cur.execute("SELECT sections_json FROM estimates WHERE project_name=%s ORDER BY id DESC LIMIT 1", (project_name,))
+            est_rows = cur.fetchall()
+        for est_row in est_rows:
+            if est_row and est_row[0]:
+                try:
+                    sections = _json.loads(est_row[0])
+                    for s in sections:
+                        for it in (s.get("items") or []):
+                            nm = (it.get("name") or "").strip().lower()
+                            if nm:
+                                estimate_lookup[nm] = estimate_lookup.get(nm, 0) + float(it.get("quantity") or 0)
+                except Exception:
+                    pass
 
     cur.execute("SELECT description FROM brigade_contract_items WHERE contract_id=%s", (contract_id,))
     existing_names = {row[0] for row in cur.fetchall()}
@@ -8764,6 +8784,9 @@ def ai_generate_estimate(data: dict):
     pricelist_id = data.get("pricelistId")
     name_hint = (data.get("name") or "Сгенерированная смета").strip()
     area = data.get("area")
+    smeta_type = data.get("smetaType") or "Заказчик"
+    status = data.get("status") or "Активная"
+    work_package = data.get("workPackage") or data.get("work_package") or "Основная"
     if not description:
         raise HTTPException(status_code=400, detail="Опишите объект — поле обязательно")
 
@@ -8889,13 +8912,21 @@ def ai_generate_estimate(data: dict):
         sections.append({"id": int(_time.time()*1000) + i, "name": str(s.get("name") or ("Раздел " + str(i+1))), "items": items})
 
     final_name = (parsed.get("name") or name_hint or "Сгенерированная смета")
-    cur.execute("INSERT INTO estimates (project_id, project_name, name, version, sections_json) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (int(project_id) if project_id else None, project_name, final_name, "1.0", _json.dumps(sections, ensure_ascii=False)))
+    if status == "Активная" and project_name:
+        cur.execute("""UPDATE estimates SET status='Архив'
+                       WHERE project_name=%s
+                         AND COALESCE(smeta_type,'Заказчик')=%s
+                         AND COALESCE(work_package,'Основная')=%s""",
+                    (project_name, smeta_type, work_package))
+    cur.execute("""INSERT INTO estimates
+                   (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (int(project_id) if project_id else None, project_name, final_name, "1.0", _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
     new_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
 
-    return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "sections": sections}
+    return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "sections": sections, "smetaType": smeta_type, "workPackage": work_package, "status": status}
 
 @app.post("/pricelists/from-estimate")
 def pricelist_from_estimate(data: dict):

@@ -178,6 +178,7 @@ const MATERIAL_CATEGORIES = [
 ];
 
 const UNITS = ['шт','мешок','м','м2','м3','кг','т','л','рулон','лист','упак','компл','пог.м','ящик','бутылка','банка','труба','секция','пара','набор','пачка','флакон','ведро','бухта'];
+const ESTIMATE_PACKAGES = ['Основная','Общестрой','Отопление','ВК / канализация','Электрика','Слаботочка','Вентиляция','Отделка','Благоустройство'];
 const ESTIMATE_CHANGE_TYPES = ['Работа вне сметы','Дополнительный объём к строке сметы','Замена решения','Исключение объёма'];
 const ESTIMATE_CHANGE_APPROVED_STATUSES = ['Утверждено','Утверждено отдельной допработой'];
 const ESTIMATE_CHANGE_VISIBLE_STATUSES = ['Ожидает согласования','Утверждено отдельной допработой','Утверждено','Включено в новую смету','Отклонено'];
@@ -801,7 +802,7 @@ function App() {
   const [newDoor, setNewDoor] = useState({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});
   const [newInventory, setNewInventory] = useState({project:'',date:'',notes:''});
   const [newWeather, setNewWeather] = useState({projectName:'',date:'',temperature:'',condition:'Ясно',windSpeed:'',notes:''});
-  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',status:'Активная',templateId:''});
+  const [newEstimate, setNewEstimate] = useState({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',workPackage:'Основная',status:'Активная',templateId:''});
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [estimateVersions, setEstimateVersions] = useState([]);
   const [selectedVersionsToCompare, setSelectedVersionsToCompare] = useState([]);
@@ -812,7 +813,7 @@ function App() {
   const [estimateChatInput, setEstimateChatInput] = useState('');
   const [estimateChatLoading, setEstimateChatLoading] = useState(false);
   const [showGenerateEstimate, setShowGenerateEstimate] = useState(false);
-  const [generateForm, setGenerateForm] = useState({description:'',projectId:'',pricelistId:'',area:'',name:''});
+  const [generateForm, setGenerateForm] = useState({description:'',projectId:'',pricelistId:'',area:'',name:'',smetaType:'Заказчик',workPackage:'Основная',status:'Активная'});
   const [generating, setGenerating] = useState(false);
   const [showGeneratePricelist, setShowGeneratePricelist] = useState(false);
   const [generatePricelistForm, setGeneratePricelistForm] = useState({description:'',name:'',forWho:'',coefficient:1.0});
@@ -2178,6 +2179,7 @@ function App() {
   const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
   const estimateTotal = (est) => _sectionsOfEst(est).reduce((sum,s)=>sum+(s.items||[]).reduce((ss,it)=>ss+estimateItemTotal(it),0),0);
   const estimateKind = (est) => est?.smetaType || 'Заказчик';
+  const estimatePackage = (est) => est?.workPackage || est?.work_package || 'Основная';
   const estimateTypeIcon = (type) => ({'Заказчик':'📋','Работы':'👷','Материалы':'📦'}[type||'Заказчик'] || '📄');
   const isArchivedEstimate = (est) => (est?.status || 'Черновик') === 'Архив';
   const estimateUpdatedTs = (est) => {
@@ -2185,7 +2187,7 @@ function App() {
     const t = raw ? new Date(raw).getTime() : 0;
     return Number.isFinite(t) ? t : 0;
   };
-  const estimateGroupKey = (est) => [est?.projectId||'', est?.projectName||'', estimateKind(est)].join('|');
+  const estimateGroupKey = (est) => [est?.projectId||'', est?.projectName||'', estimateKind(est), estimatePackage(est)].join('|');
   const sameEstimateGroup = (a,b) => estimateGroupKey(a) === estimateGroupKey(b);
   const activeEstimateFromList = (list) => {
     const arr = [...(list||[])].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
@@ -2205,9 +2207,20 @@ function App() {
     if(activeEstimateFromList(groupItems)?.id === est?.id) return {label:'Используется', color:C.info, bg:C.infoLight, border:C.infoBorder};
     return {label:'Черновик', color:C.warning, bg:C.warningLight, border:C.warningBorder};
   };
-  const _estimateForProject = (p) => {
-    const byCustomer = estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))&&estimateKind(e)==='Заказчик');
-    return activeEstimateFromList(byCustomer) || activeEstimateFromList(estimatesList.filter(e=>(e.projectName===p.name||Number(e.projectId)===Number(p.id))));
+  const activeEstimatesForProject = (p, kind='Заказчик') => {
+    const groups = {};
+    (estimatesList||[]).filter(e=>
+      (e.projectName===p.name||Number(e.projectId)===Number(p.id)) &&
+      estimateKind(e)===kind &&
+      !e.isTemplate
+    ).forEach(e=>{
+      const k = estimatePackage(e);
+      if(!groups[k]) groups[k] = [];
+      groups[k].push(e);
+    });
+    return Object.values(groups)
+      .map(items=>activeEstimateFromList(items))
+      .filter(e=>e && !isArchivedEstimate(e));
   };
   const setEstimateStatusRemote = async (est, status) => {
     if(!est?.id) return;
@@ -2221,36 +2234,45 @@ function App() {
     }));
     setSelectedEstimate(prev=>prev&&prev.id===est.id?updated:prev);
   };
-  const projectPlanDone = (p) => { const est=_estimateForProject(p); if(!est) return {plan:0,done:0}; let pl=0,dn=0; _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ pl+=estimateItemTotal(it); dn+=estimateItemDoneTotal(it); })); return {plan:pl,done:dn}; };
+  const projectPlanDone = (p) => {
+    const active = activeEstimatesForProject(p, 'Заказчик');
+    if(active.length===0) return {plan:0,done:0};
+    let pl=0,dn=0;
+    active.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ pl+=estimateItemTotal(it); dn+=estimateItemDoneTotal(it); })));
+    return {plan:pl,done:dn};
+  };
   // Выполненные позиции сметы для КС-2/КС-3 — по цене ЗАКАЗЧИКУ (priceWork+priceMaterial).
   // Смета — единый источник: берём позиции с doneQuantity>0 напрямую из сметы объекта.
   const ks2ItemsFromEstimate = (p) => {
-    const est=_estimateForProject(p); if(!est) return [];
+    const active = activeEstimatesForProject(p, 'Заказчик');
+    if(active.length===0) return [];
     const rows=[];
-    _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
-      const dq=Number(it.doneQuantity||0); if(dq<=0) return;
-      const total=estimateItemDoneTotal(it);
-      const price=dq>0 ? total/dq : 0;
-      rows.push({section:s.name||'', description:it.name||'', unit:it.unit||'', quantity:dq, pricePerUnit:price, total:Math.round(total)});
-    }));
+    active.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+        const dq=Number(it.doneQuantity||0); if(dq<=0) return;
+        const total=estimateItemDoneTotal(it);
+        const price=dq>0 ? total/dq : 0;
+        const pkg=estimatePackage(est);
+        rows.push({section:(pkg&&pkg!=='Основная'?pkg+' / ':'')+(s.name||''), workPackage:pkg, description:it.name||'', unit:it.unit||'', quantity:dq, pricePerUnit:price, total:Math.round(total)});
+      })));
     return rows;
   };
   const estimateItemOptionsForProject = (p) => {
-    const est=_estimateForProject(p);
-    if(!est) return [];
+    const active = activeEstimatesForProject(p, 'Заказчик');
+    if(active.length===0) return [];
     const rows=[];
-    _sectionsOfEst(est).forEach((s,sectionIdx)=>(s.items||[]).forEach((it,itemIdx)=>{
-      rows.push({
-        key:[est.id,sectionIdx,itemIdx].join(':'),
-        estimateId:est.id,
-        sectionName:s.name||'',
-        name:it.name||'',
-        unit:it.unit||'шт',
-        quantity:Number(it.quantity||0),
-        pricePerUnit:Number(it.priceWork||0)+Number(it.priceMaterial||0),
-        total:estimateItemTotal(it)
-      });
-    }));
+    active.forEach(est=>_sectionsOfEst(est).forEach((s,sectionIdx)=>(s.items||[]).forEach((it,itemIdx)=>{
+        rows.push({
+          key:[est.id,sectionIdx,itemIdx].join(':'),
+          estimateId:est.id,
+          workPackage:estimatePackage(est),
+          sectionName:s.name||'',
+          name:it.name||'',
+          unit:it.unit||'шт',
+          quantity:Number(it.quantity||0),
+          pricePerUnit:Number(it.priceWork||0)+Number(it.priceMaterial||0),
+          total:estimateItemTotal(it)
+        });
+      })));
     return rows;
   };
   const approvedEstimateChanges = (projectName) => (unexpectedWorksList||[]).filter(u=>
@@ -2569,8 +2591,7 @@ function App() {
     transfers.forEach(t=>{const k=(t.materialName||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:t.materialName,unit:t.unit||'',limit:0,issued:0};byMat[k].issued+=Number(t.quantity||0);});
     // Лимит = объём по смете (priceMaterial>0 или itemType='material')
     const project=projects.find(p=>p.name===projectName)||{};
-    const est=_estimateForProject(project);
-    if (est) _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if((it.itemType||'')==='material'||Number(it.priceMaterial||0)>0){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:it.name,unit:it.unit||'',limit:0,issued:0};byMat[k].limit+=Number(it.quantity||0);}}));
+    activeEstimatesForProject(project, 'Заказчик').forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if((it.itemType||'')==='material'||Number(it.priceMaterial||0)>0){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:it.name,unit:it.unit||'',limit:0,issued:0};byMat[k].limit+=Number(it.quantity||0);}})));
     const rows=Object.values(byMat).sort((a,b)=>(b.issued/b.limit||0)-(a.issued/a.limit||0));
     let html='<style>.m8-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.m8-tbl th,.m8-tbl td{border:1px solid #333;padding:5px 6px}.m8-tbl th{background:#f3f4f6}.m8-over{background:#fee2e2}.m8-ok{background:#dcfce7}</style>';
     html+='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-8</h3>';
@@ -2595,11 +2616,11 @@ function App() {
 
   const buildMaterialRequirementContent = (projectName) => {
     const project=projects.find(p=>p.name===projectName)||{};
-    const est=_estimateForProject(project);
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
     const items={};
-    if (est) _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if((it.itemType||'')==='material'||Number(it.priceMaterial||0)>0){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:it.name,unit:it.unit||'',planQty:0,planSum:0,sections:[]};items[k].planQty+=Number(it.quantity||0);items[k].planSum+=estimateItemMaterialSum(it);if(!items[k].sections.includes(s.name||''))items[k].sections.push(s.name||'');}}));
+    const activeEsts = activeEstimatesForProject(project, 'Заказчик');
+    activeEsts.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if((it.itemType||'')==='material'||Number(it.priceMaterial||0)>0){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:it.name,unit:it.unit||'',planQty:0,planSum:0,sections:[]};items[k].planQty+=Number(it.quantity||0);items[k].planSum+=estimateItemMaterialSum(it);const sectionLabel=(estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');if(!items[k].sections.includes(sectionLabel))items[k].sections.push(sectionLabel);}})));
     // Уже принято/выдано
     (materialTransfers||[]).filter(t=>t.projectName===projectName).forEach(t=>{const k=(t.materialName||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:t.materialName,unit:t.unit||'',planQty:0,planSum:0,sections:[]};items[k].issued=(items[k].issued||0)+Number(t.quantity||0);});
     (invoices||[]).filter(inv=>inv.project===projectName).forEach(inv=>{(inv.items||[]).forEach(invIt=>{const k=(invIt.name||'').trim().toLowerCase();if(!k)return;if(!items[k])items[k]={name:invIt.name,unit:invIt.unit||'',planQty:0,planSum:0,sections:[]};items[k].received=(items[k].received||0)+Number(invIt.quantity||0);});});
@@ -2608,7 +2629,7 @@ function App() {
     html+='<h2 style="text-align:center;margin:6px 0">ВЕДОМОСТЬ ПОТРЕБНОСТИ МАТЕРИАЛОВ</h2>';
     html+='<p style="text-align:center;font-size:11px;color:#444">по смете объекта (план / закуплено / выдано / нужно докупить)</p>';
     html+='<p style="font-size:12px"><b>Объект:</b> '+projectName+' · <b>Подрядчик:</b> '+orgName+'</p>';
-    if (!est) html+='<p style="color:#dc2626;font-size:12px;text-align:center;padding:14px">⚠️ Смета не загружена — план посчитать невозможно</p>';
+    if (activeEsts.length===0) html+='<p style="color:#dc2626;font-size:12px;text-align:center;padding:14px">⚠️ Смета не загружена — план посчитать невозможно</p>';
     if (rows.length===0) html+='<p style="text-align:center;color:#888;font-size:11px;padding:14px">Материалов в смете нет</p>';
     else {
       html+='<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Раздел</th><th>Ед.</th><th>План (смета)</th><th>Закуплено (накладные)</th><th>Выдано (со склада)</th><th>Нужно докупить</th></tr>';
@@ -2726,17 +2747,16 @@ function App() {
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
     const project = projects.find(p=>p.name===projectName)||{};
-    const est = _estimateForProject(project);
     // План из сметы по материалам (priceMaterial)
     const planByName = {};
-    if (est) _sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+    activeEstimatesForProject(project, 'Заказчик').forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
       if ((it.itemType||'material')==='material' || Number(it.priceMaterial||0)>0) {
         const key = (it.name||'').trim().toLowerCase();
         if (!key) return;
         if (!planByName[key]) planByName[key] = {name:it.name||'', unit:it.unit||'', plan:0, fact:0};
         planByName[key].plan += Number(it.quantity||0);
       }
-    }));
+    })));
     // Факт из material_transfers и warehouse_history по проекту
     (materialTransfers||[]).filter(t=>t.projectName===projectName).forEach(t=>{
       const key = (t.materialName||'').trim().toLowerCase();
@@ -5617,16 +5637,17 @@ function App() {
               <div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📐 Смета объекта</b>
                 {(()=>{
-                  const est=_estimateForProject(myProject);
-                  if(!est) return <p style={{color:C.textMuted,fontSize:'12px'}}>Смета подрядчиком ещё не загружена.</p>;
+                  const activeEsts=activeEstimatesForProject(myProject,'Заказчик');
+                  const est=activeEsts[0];
+                  if(activeEsts.length===0) return <p style={{color:C.textMuted,fontSize:'12px'}}>Смета подрядчиком ещё не загружена.</p>;
                   const pd=projectPlanDone(myProject);
                   return(<div>
-                    <p style={{color:C.text,fontSize:'13px',margin:'0 0 8px'}}><b>{est.name}</b> · v{est.version||'1.0'}</p>
+                    <p style={{color:C.text,fontSize:'13px',margin:'0 0 8px'}}><b>{activeEsts.length===1?est.name:'Активные сметы: '+activeEsts.length}</b>{activeEsts.length===1?' · 📁 '+estimatePackage(est)+' · v'+(est.version||'1.0'):''}</p>
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}}>
                       <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>По смете</p><b style={{color:C.text,fontSize:'14px'}}>{Math.round(pd.plan).toLocaleString('ru-RU')+' ₽'}</b></div>
                       <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px'}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Выполнено</p><b style={{color:C.success,fontSize:'14px'}}>{Math.round(pd.done).toLocaleString('ru-RU')+' ₽'}</b></div>
                     </div>
-                    <button onClick={()=>{const sections=_sectionsOfEst(est);let html='<h2>Смета: '+est.name+'</h2><p>Объект: '+myProject.name+'</p><table><tr><th>Раздел</th><th>Работа</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>';sections.forEach(s=>(s.items||[]).forEach(it=>{html+='<tr><td>'+(s.name||'')+'</td><td>'+(it.name||'')+'</td><td>'+(it.unit||'')+'</td><td>'+(it.quantity||0)+'</td><td>'+Number(it.priceWork||0).toLocaleString('ru-RU')+'</td><td>'+Math.round(estimateItemMaterialSum(it)).toLocaleString('ru-RU')+'</td><td>'+Math.round(estimateItemTotal(it)).toLocaleString('ru-RU')+'</td></tr>';}));html+='<tr><td colspan=6><b>ИТОГО:</b></td><td><b>'+Math.round(pd.plan).toLocaleString('ru-RU')+' ₽</b></td></tr></table>';showPreview(html,'Смета — '+est.name);}} style={btnB}><Eye size={14}/>📄 Посмотреть смету</button>
+                    <button onClick={()=>{let html='<h2>Сметы объекта</h2><p>Объект: '+myProject.name+'</p><table><tr><th>Пакет</th><th>Раздел</th><th>Работа</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>';activeEsts.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{html+='<tr><td>'+estimatePackage(est)+'</td><td>'+(s.name||'')+'</td><td>'+(it.name||'')+'</td><td>'+(it.unit||'')+'</td><td>'+(it.quantity||0)+'</td><td>'+Number(it.priceWork||0).toLocaleString('ru-RU')+'</td><td>'+Math.round(estimateItemMaterialSum(it)).toLocaleString('ru-RU')+'</td><td>'+Math.round(estimateItemTotal(it)).toLocaleString('ru-RU')+'</td></tr>';})));html+='<tr><td colspan=7><b>ИТОГО:</b></td><td><b>'+Math.round(pd.plan).toLocaleString('ru-RU')+' ₽</b></td></tr></table>';showPreview(html,'Сметы — '+myProject.name);}} style={btnB}><Eye size={14}/>📄 Посмотреть смету</button>
                   </div>);
                 })()}
               </div>
@@ -6696,8 +6717,7 @@ function App() {
                       </div>
 
                       {user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&(()=>{
-                        const projSmeta=_estimateForProject(p);
-                        const smetaItems=projSmeta?(projSmeta.sections||[]).flatMap(s=>(s.items||[]).map(i=>({...i,section:s.name}))):[];
+                        const smetaItems=activeEstimatesForProject(p,'Заказчик').flatMap(est=>(_sectionsOfEst(est)||[]).flatMap(s=>(s.items||[]).map(i=>({...i,section:s.name,workPackage:estimatePackage(est)}))));
                         const norm=(s)=>(s||'').toLowerCase().replace(/[.,;:()«»"'-]/g,' ').replace(/\s+/g,' ').trim();
                         const matchScore=(a,b)=>{const aw=norm(a).split(' ').filter(w=>w.length>=3);const bw=new Set(norm(b).split(' ').filter(w=>w.length>=3));if(!aw.length||!bw.size) return 0;const common=aw.filter(w=>bw.has(w)).length;return common/Math.max(aw.length,1);};
                         const projMaterials=materials.filter(m=>m.project===p.name);
@@ -6773,8 +6793,8 @@ function App() {
                             <div style={{fontSize:'12px',color:C.text,whiteSpace:'pre-wrap',lineHeight:'1.5'}}>{cached.summary}</div>
                           </div>)}
                           {(!cached||(!cached.summary&&!cached.loading&&!cached.error))&&<p style={{fontSize:'12px',color:C.textMuted,marginBottom:'12px',padding:'8px',backgroundColor:C.bg,borderRadius:'8px'}}>💡 AI-сводка ещё не делалась. Нажмите «AI-сводка» — анализ сохранится в системе.</p>}
-                          {!projSmeta&&<p style={{color:C.textMuted,fontSize:'12px',padding:'10px',textAlign:'center'}}>У объекта нет сметы — нечего сравнивать. Добавьте смету в разделе «Сметы».</p>}
-                          {projSmeta&&(<>
+                          {smetaItems.length===0&&<p style={{color:C.textMuted,fontSize:'12px',padding:'10px',textAlign:'center'}}>У объекта нет сметы — нечего сравнивать. Добавьте смету в разделе «Сметы».</p>}
+                          {smetaItems.length>0&&(<>
                           <div style={{marginBottom:'14px'}}>
                             <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>📋 Прогресс по смете (работы)</b>
                             <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Позиция</th><th style={tblH}>План</th><th style={tblH}>Выполнено</th><th style={tblH}>Осталось</th><th style={tblH}>%</th></tr></thead><tbody>
@@ -6957,7 +6977,7 @@ function App() {
                         if(projEstimates.length===0) return(<div style={{textAlign:'center',padding:'30px',color:C.textMuted}}><p>Смета не привязана</p><button onClick={()=>navigateTo('estimates')} style={btnO}>Перейти в Сметы</button></div>);
                         return projEstimates.map(est=>(<div key={est.id} style={{...card,padding:'14px',marginBottom:'10px'}}>
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                            <div><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'v'+est.version}</p></div>
+                            <div><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{estimateKind(est)+' · 📁 '+estimatePackage(est)+' · v'+est.version}</p></div>
                             <div style={{display:'flex',gap:'6px'}}>
                               <button onClick={()=>{setSelectedEstimate(est);navigateTo('estimates');}} style={btnB}><Eye size={13}/>Открыть</button>
                             </div>
@@ -7237,7 +7257,7 @@ function App() {
                       {unexpectedWorksList.filter(u=>u.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Изменений к смете нет</p>}
                   </div>)}
 
-                    {activeProjectTab==='Расчёт с бригадой'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}><b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Расчёт с бригадой</b><button onClick={()=>setShowBrigadeForm(!showBrigadeForm)} style={btnO}><Plus size={14}/>Новая бригада</button></div>{(()=>{const projBCs=brigadeContracts.filter(bc=>bc.projectName===p.name);const allBrigItemsSum=projBCs.reduce((s,bc)=>s+Number(bc.totalAmount||0),0);const projEst=_estimateForProject(p);const smetaTotal=projEst?_sectionsOfEst(projEst).reduce((s,sec)=>s+(sec.items||[]).reduce((sm,it)=>sm+estimateItemTotal(it),0),0):0;if(projBCs.length===0||smetaTotal===0) return null;const pct=Math.round(allBrigItemsSum/smetaTotal*100);const over=allBrigItemsSum>smetaTotal;return(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:over?C.dangerLight:pct>85?C.warningLight:C.successLight,border:'1.5px solid '+(over?C.dangerBorder:pct>85?C.warningBorder:C.successBorder)}}>
+                    {activeProjectTab==='Расчёт с бригадой'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}><b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Расчёт с бригадой</b><button onClick={()=>setShowBrigadeForm(!showBrigadeForm)} style={btnO}><Plus size={14}/>Новая бригада</button></div>{(()=>{const projBCs=brigadeContracts.filter(bc=>bc.projectName===p.name);const allBrigItemsSum=projBCs.reduce((s,bc)=>s+Number(bc.totalAmount||0),0);const smetaTotal=projectPlanDone(p).plan;if(projBCs.length===0||smetaTotal===0) return null;const pct=Math.round(allBrigItemsSum/smetaTotal*100);const over=allBrigItemsSum>smetaTotal;return(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:over?C.dangerLight:pct>85?C.warningLight:C.successLight,border:'1.5px solid '+(over?C.dangerBorder:pct>85?C.warningBorder:C.successBorder)}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
                         <div>
                           <b style={{color:C.text,fontSize:'13px'}}>📊 Сумма работ бригадам vs смета: {pct}%</b>
@@ -10121,7 +10141,7 @@ function App() {
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
                 <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сметы</b>
                 <div style={{display:'flex',gap:'8px'}}>
-                  <button onClick={()=>{setGenerateForm({description:'',projectId:'',pricelistId:'',area:'',name:''});setShowGenerateEstimate(true);}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
+                  <button onClick={()=>{setGenerateForm({description:'',projectId:'',pricelistId:'',area:'',name:'',smetaType:'Заказчик',workPackage:'Основная',status:'Активная'});setShowGenerateEstimate(true);}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
                   <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая смета</button>
                 </div>
               </div>
@@ -10164,6 +10184,9 @@ function App() {
                     <option value="Работы">👷 Смета работ</option>
                     <option value="Материалы">📦 Смета материалов</option>
                   </select>
+                  <select value={newEstimate.workPackage||'Основная'} onChange={e=>setNewEstimate({...newEstimate,workPackage:e.target.value})} style={{...inp,marginBottom:0}}>
+                    {ESTIMATE_PACKAGES.map(pkg=><option key={pkg} value={pkg}>📁 {pkg}</option>)}
+                  </select>
                   <select value={newEstimate.status||'Активная'} onChange={e=>setNewEstimate({...newEstimate,status:e.target.value})} style={{...inp,marginBottom:0}}>
                     <option value="Активная">Активная</option>
                     <option value="Черновик">Черновик</option>
@@ -10182,11 +10205,11 @@ function App() {
                   }
                   const res=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections})});
                   const est=await res.json();
-                  const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',status:newEstimate.status||'Активная'};
+                  const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};
                   setEstimatesList(prev=>[...prev.map(e=>(newEst.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,newEst))?{...e,status:'Архив'}:e),newEst]);
                   setSelectedEstimate(newEst);
                   setShowForm(false);
-                  setNewEstimate({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',status:'Активная',templateId:''});
+                  setNewEstimate({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',workPackage:'Основная',status:'Активная',templateId:''});
                 }} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
               {selectedEstimate?(<div>
@@ -10199,7 +10222,7 @@ function App() {
                 </div>)}
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center',flexWrap:'wrap'}}>
                   <button onClick={()=>setSelectedEstimate(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
-                  {(()=>{const group=(estimatesList||[]).filter(e=>sameEstimateGroup(e,selectedEstimate));const st=estimateStatusView(selectedEstimate,group);return(<div style={{minWidth:'220px',flex:'1 1 260px'}}><b style={{color:C.text,fontSize:'15px',display:'block'}}>{selectedEstimate.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'3px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span><span style={badge(C.info,C.infoLight,C.infoBorder)}>{estimateTypeIcon(estimateKind(selectedEstimate))+' '+estimateKind(selectedEstimate)}</span>{selectedEstimate.version&&<span style={badge(C.textSec,C.bgGray,C.border)}>{'v'+selectedEstimate.version}</span>}</div></div>);})()}
+                  {(()=>{const group=(estimatesList||[]).filter(e=>sameEstimateGroup(e,selectedEstimate));const st=estimateStatusView(selectedEstimate,group);return(<div style={{minWidth:'220px',flex:'1 1 260px'}}><b style={{color:C.text,fontSize:'15px',display:'block'}}>{selectedEstimate.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'3px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span><span style={badge(C.info,C.infoLight,C.infoBorder)}>{estimateTypeIcon(estimateKind(selectedEstimate))+' '+estimateKind(selectedEstimate)}</span><span style={badge(C.accent,C.accentLight,C.accentBorder)}>{'📁 '+estimatePackage(selectedEstimate)}</span>{selectedEstimate.version&&<span style={badge(C.textSec,C.bgGray,C.border)}>{'v'+selectedEstimate.version}</span>}</div></div>);})()}
                   {selectedEstimate.status!=='Активная'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Активная')} style={btnGr}><CheckCircle size={14}/>Активной</button>}
                   {selectedEstimate.status!=='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Архив')} style={btnG}><Archive size={14}/>В архив</button>}
                   {selectedEstimate.status==='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>↩ Черновик</button>}
@@ -10431,9 +10454,9 @@ function App() {
                     </div>
                     <button onClick={()=>setShowArchivedEstimates(!showArchivedEstimates)} style={btnG}><Archive size={14}/>{showArchivedEstimates?'Скрыть архив':'Показать архив'}</button>
                   </div>
-                  {grouped.map(([key,items])=>{const sorted=[...items].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));const active=activeEstimateFromList(sorted);const projectName=active?.projectName||sorted[0]?.projectName||'Без проекта';const kind=estimateKind(active||sorted[0]);return(<div key={key} style={{...card,marginBottom:'12px'}}>
+                  {grouped.map(([key,items])=>{const sorted=[...items].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));const active=activeEstimateFromList(sorted);const projectName=active?.projectName||sorted[0]?.projectName||'Без проекта';const kind=estimateKind(active||sorted[0]);const pkg=estimatePackage(active||sorted[0]);return(<div key={key} style={{...card,marginBottom:'12px'}}>
                     <div style={{padding:'12px 14px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
-                      <div><b style={{color:C.text,fontSize:'13px'}}>{estimateTypeIcon(kind)+' '+projectName}</b><p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>{kind+' · '+sorted.length+' верс.'+(active?' · используется: '+active.name:'')}</p></div>
+                      <div><b style={{color:C.text,fontSize:'13px'}}>{estimateTypeIcon(kind)+' '+projectName}</b><p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>{kind+' · 📁 '+pkg+' · '+sorted.length+' верс.'+(active?' · используется: '+active.name:'')}</p></div>
                       <b style={{color:C.success,fontSize:'14px'}}>{active?Math.round(estimateTotal(active)).toLocaleString('ru-RU')+' ₽':'—'}</b>
                     </div>
                     <div style={{padding:'8px 12px'}}>
@@ -10463,6 +10486,9 @@ function App() {
                   <option value="Работы">👷 Смета работ (для бригады)</option>
                   <option value="Материалы">📦 Смета материалов (для закупки)</option>
                 </select>
+                <select value={newEstimate.workPackage||'Основная'} onChange={e=>setNewEstimate({...newEstimate,workPackage:e.target.value})} style={{...inp,maxWidth:'400px'}}>
+                  {ESTIMATE_PACKAGES.map(pkg=><option key={pkg} value={pkg}>📁 {pkg}</option>)}
+                </select>
                 <select value={newEstimate.status||'Активная'} onChange={e=>setNewEstimate({...newEstimate,status:e.target.value})} style={{...inp,maxWidth:'400px'}}>
                   <option value="Активная">Активная</option>
                   <option value="Черновик">Черновик</option>
@@ -10485,8 +10511,8 @@ function App() {
                         const tm=Number(item.totalMaterial||0);
                         sections[item.section].items.push({id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:tw>0||tm===0?(tw||item.total):0,priceMaterial:tm>0?tm:0,isImported:true,itemType:item.type||'work'});
                       });
-                      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',smetaType:newEstimate.smetaType||'Заказчик',status:newEstimate.status||'Активная',sections:Object.values(sections)};
-                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',status:newEstimate.status||'Активная'};setEstimatesList(prev=>[...prev.map(e=>(estWithId.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');
+                      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная',sections:Object.values(sections)};
+                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};setEstimatesList(prev=>[...prev.map(e=>(estWithId.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');
                       setImportValidating(true);
                       setImportValidationWarnings([]);
                       try{
@@ -11273,6 +11299,14 @@ function App() {
           </select>
           <input placeholder='Название сметы' value={generateForm.name} onChange={e=>setGenerateForm({...generateForm,name:e.target.value})} style={{...inp,marginBottom:0}}/>
           <input placeholder='Площадь (м²)' type='number' step='any' inputMode='decimal' value={generateForm.area} onChange={e=>setGenerateForm({...generateForm,area:e.target.value})} style={{...inp,marginBottom:0}}/>
+          <select value={generateForm.smetaType||'Заказчик'} onChange={e=>setGenerateForm({...generateForm,smetaType:e.target.value})} style={{...inp,marginBottom:0}}>
+            <option value="Заказчик">📋 Смета заказчика</option>
+            <option value="Работы">👷 Смета работ</option>
+            <option value="Материалы">📦 Смета материалов</option>
+          </select>
+          <select value={generateForm.workPackage||'Основная'} onChange={e=>setGenerateForm({...generateForm,workPackage:e.target.value})} style={{...inp,marginBottom:0}}>
+            {ESTIMATE_PACKAGES.map(pkg=><option key={pkg} value={pkg}>📁 {pkg}</option>)}
+          </select>
         </div>
         <textarea placeholder='Опишите объект как можно подробнее: тип помещения, что нужно сделать, материалы, особенности. Например: "Квартира 3-комн 75 м² в новостройке без отделки. Стяжка, штукатурка/шпатлёвка/окраска стен, плитка в санузле и кухне, ламинат в комнатах, натяжные потолки. Установка межкомнатных дверей (4 шт), сантехника под ключ."' rows={6} value={generateForm.description} onChange={e=>setGenerateForm({...generateForm,description:e.target.value})} style={{...inp,marginBottom:'10px',resize:'vertical',fontFamily:'inherit',fontSize:'13px',lineHeight:'1.5'}}/>
         <div style={{display:'flex',gap:'8px',justifyContent:'flex-end',marginTop:'8px'}}>
@@ -11284,8 +11318,8 @@ function App() {
               const res=await fetch(API+'/ai-generate-estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(generateForm)});
               const data=await res.json();
               if(!res.ok||!data.ok){alert('ИИ не справился: '+(data.detail||'попробуйте ещё раз с более детальным описанием'));setGenerating(false);return;}
-              const est={id:data.id,name:data.name,projectId:data.projectId||'',projectName:data.projectName||'',version:'1.0',sections:data.sections};
-              setEstimatesList(prev=>[...prev,est]);
+              const est={id:data.id,name:data.name,projectId:data.projectId||'',projectName:data.projectName||'',version:'1.0',smetaType:data.smetaType||generateForm.smetaType||'Заказчик',workPackage:data.workPackage||generateForm.workPackage||'Основная',status:data.status||generateForm.status||'Активная',sections:data.sections};
+              setEstimatesList(prev=>[...prev.map(e=>(est.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,est))?{...e,status:'Архив'}:e),est]);
               setSelectedEstimate(est);
               setShowGenerateEstimate(false);
               setGenerating(false);
