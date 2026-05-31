@@ -879,7 +879,6 @@ function App() {
   const [newLead, setNewLead] = useState({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});
   const [newTbEntry, setNewTbEntry] = useState({project:'',type:'Вводный инструктаж',participants:[],date:'',program:'',instructionText:'',aiLoading:false});
   const [newParticipant, setNewParticipant] = useState('');
-  const notifRef = useRef(null);
   const sidebarRef = useRef(null);
   const chatEndRef = useRef(null);
 
@@ -949,7 +948,9 @@ function App() {
 
   useEffect(() => {
     const handleOutside = (e) => {
-      if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifications(false);
+      const target = e.target;
+      if (target && typeof target.closest === 'function' && target.closest('[data-notification-root="1"]')) return;
+      setShowNotifications(false);
     };
     const handleKey = (e) => { if (e.key === 'Escape') setShowNotifications(false); };
     document.addEventListener('pointerdown', handleOutside);
@@ -4414,7 +4415,7 @@ function App() {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',gap:'8px'}}>
             <div><h2 style={{margin:0,color:C.text,fontSize:'20px',fontWeight:'800'}}>СтройКа</h2><p style={{margin:0,color:C.textSec,fontSize:'12px'}}>{user.name+' — '+(ROLE_LABELS[user.role]||user.role)}</p></div>
             <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-              <div ref={notifRef} style={{position:'relative'}}>
+              <div data-notification-root="1" style={{position:'relative'}}>
                 <button onClick={toggleNotifications} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
                   <Bell size={16} color={C.textSec}/>
                   {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
@@ -6823,10 +6824,11 @@ function App() {
             <input placeholder="Поиск..." value={globalSearch} onChange={e=>{setGlobalSearch(e.target.value);setShowSearch(e.target.value.length>=2);}} onBlur={()=>setTimeout(()=>setShowSearch(false),200)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'13px'}}/>
             {showSearch&&searchResults.length>0&&(<div style={{position:'absolute',top:'100%',left:0,right:0,backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'10px',boxShadow:'0 8px 25px rgba(0,0,0,0.1)',zIndex:1000,maxHeight:'280px',overflowY:'auto',marginTop:'4px'}}>{searchResults.map((r,i)=>(<div key={i} onClick={()=>{navigateTo(r.page);setGlobalSearch('');setShowSearch(false);}} style={{padding:'10px 15px',cursor:'pointer',borderBottom:'1px solid '+C.border,display:'flex',gap:'10px',alignItems:'center'}}><span style={{fontSize:'16px'}}>{r.icon}</span><div><b style={{fontSize:'13px',color:C.text}}>{r.title}</b><p style={{color:C.textSec,margin:0,fontSize:'11px'}}>{r.subtitle}</p></div></div>))}</div>)}
           </div>
-          <div ref={notifRef} style={{position:'relative',display:'flex',gap:'8px',alignItems:'center'}}>
+          <div style={{position:'relative',display:'flex',gap:'8px',alignItems:'center'}}>
             <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{padding:'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',fontSize:'16px',display:'flex',alignItems:'center'}}>{darkMode?'☀️':'🌙'}</button>
             <button onClick={()=>setShowQuickActions(true)} title='Быстрые действия' style={{padding:'8px 12px',background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'10px',cursor:'pointer',color:'white',fontWeight:'700',fontSize:'13px',display:'flex',alignItems:'center',gap:'4px'}}>⚡ Быстро</button>
             <button onClick={()=>setShowChatPanel(s=>!s)} title='Чат' style={{position:'relative',padding:'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><MessageSquare size={18} color={C.textSec}/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
+            <div data-notification-root="1" style={{position:'relative',display:'flex',alignItems:'center'}}>
             <button onClick={toggleNotifications} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               <Bell size={18} color={C.textSec}/>
               {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:C.danger,color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
@@ -6837,6 +6839,7 @@ function App() {
                     {user.vkId ? <span style={{fontSize:'12px',color:C.success}}>✅ ВК подключён (ID: {user.vkId})</span> :
                     <button onClick={()=>{const vkId=prompt('Введите ваш ID ВКонтакте (число из vk.com/id12345):');if(vkId&&Number(vkId)){fetch(API+'/vk-connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vkId:Number(vkId),email:user.email})}).then(()=>{const updated={...user,vkId:Number(vkId)};setUser(updated);localStorage.setItem('user',JSON.stringify(updated));alert('ВК подключён!');});}}} style={{...btnO,fontSize:'11px',padding:'5px 12px',width:'100%',justifyContent:'center'}}>Подключить ВК</button>}
                   </div>{myNotifications(notifications).map(n=>(<div key={n.id} onClick={()=>{navigateTo(getNotifPage(n.type));setShowNotifications(false);const u=notifications.map(x=>x.id===n.id?{...x,read:true}:x);setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{padding:'12px 18px',borderBottom:'1px solid '+C.border,backgroundColor:n.read?'transparent':C.accentLight,cursor:'pointer'}}><p style={{margin:0,fontSize:'13px',color:C.text}}>{n.text}</p><p style={{margin:'3px 0 0',fontSize:'11px',color:C.textMuted}}>{n.time}</p></div>))}</div>)}
+            </div>
           </div>
         </div>
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
@@ -6887,7 +6890,7 @@ function App() {
                   <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'16px'}}>{darkMode?'☀️':'🌙'}</button>
                   <button onClick={()=>setShowChatPanel(s=>!s)} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><MessageSquare size={18} color='#94a3b8'/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
                   <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><Bot size={18} color='#94a3b8'/></button>
-                  <div ref={notifRef} style={{position:'relative'}}>
+                  <div data-notification-root="1" style={{position:'relative'}}>
                     <button onClick={toggleNotifications} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
                       <Bell size={18} color='#94a3b8'/>
                       {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
