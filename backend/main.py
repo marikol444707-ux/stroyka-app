@@ -4559,7 +4559,7 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         require_row_project_access(cur, "work_journal", id, _current_user, "project")
-        cur.execute("SELECT project, master_name, date, materials_used FROM work_journal WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT project, master_id, master_name, date, materials_used FROM work_journal WHERE id=%s FOR UPDATE", (id,))
         work = cur.fetchone()
         if not work:
             conn.rollback()
@@ -4578,15 +4578,23 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
             name = m.get("name") or ""
             qty = float(m.get("quantity") or 0)
             unit = m.get("unit") or "шт"
-            cur.execute("SELECT id FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, work.get("project") or ""))
+            project_name = work.get("project") or ""
+            master_name = work.get("master_name") or ""
+            master_id = work.get("master_id")
+            personal_balance = _personal_material_balance(cur, project_name, master_id, master_name, name)
+            if personal_balance["issued"] > 0:
+                cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (name, "отмена списания мастера", qty, str(work.get("date") or ""), project_name, master_name, _current_user.get("name") or "", datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                continue
+            cur.execute("SELECT id FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, project_name))
             mat = cur.fetchone()
             if mat:
                 cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=COALESCE(NULLIF(unit,''),%s) WHERE id=%s", (qty, unit, mat["id"]))
             else:
                 cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                            (name, unit, qty, 0, 0, work.get("project") or "", "Возврат"))
+                            (name, unit, qty, 0, 0, project_name, "Возврат"))
             cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                        (name, "возврат (удаление работы)", qty, str(work.get("date") or ""), work.get("project") or "", work.get("master_name") or "", datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                        (name, "возврат (удаление работы)", qty, str(work.get("date") or ""), project_name, master_name, datetime.now().strftime("%d.%m.%Y, %H:%M")))
         cur.execute("DELETE FROM piecework WHERE work_journal_id=%s", (id,))
         cur.execute("DELETE FROM work_journal WHERE id=%s", (id,))
         conn.commit()
