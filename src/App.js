@@ -345,19 +345,6 @@ const POSITION_INSTRUCTIONS = {
   сметчик: '<h2 style="text-align:center">ДОЛЖНОСТНАЯ ИНСТРУКЦИЯ СМЕТЧИКА</h2><p><b>1. ОБЩИЕ ПОЛОЖЕНИЯ</b></p><p>1.1. Подчиняется директору. Высшее строительное или экономическое образование.</p><p><b>2. ОБЯЗАННОСТИ</b></p><p>2.1. Составляет сметную документацию. 2.2. Проверяет КС-2 и КС-3. 2.3. Контролирует соответствие факта смете. 2.4. Работает с Гранд Сметой.</p><p><b>3. ОТВЕТСТВЕННОСТЬ</b></p><p>3.1. За достоверность сметной документации.</p>',
 };
 
-const WORK_NORMS = {
-  'Штукатурка гипсовая 10мм': [{mat:'Штукатурка гипсовая',qty:8,unit:'кг'},{mat:'Грунтовка',qty:0.15,unit:'л'}],
-  'Штукатурка гипсовая 20мм': [{mat:'Штукатурка гипсовая',qty:16,unit:'кг'},{mat:'Грунтовка',qty:0.15,unit:'л'}],
-  'Стяжка ЦПС 50мм': [{mat:'Цемент М500',qty:12,unit:'кг'},{mat:'Песок',qty:0.035,unit:'м3'}],
-  'Шпаклёвка финишная': [{mat:'Шпаклёвка финишная',qty:0.8,unit:'кг'},{mat:'Грунтовка',qty:0.1,unit:'л'}],
-  'Покраска стен 2 слоя': [{mat:'Грунтовка',qty:0.1,unit:'л'},{mat:'Краска интерьерная',qty:0.35,unit:'л'}],
-  'Укладка плитки на пол': [{mat:'Плиточный клей С1',qty:4,unit:'кг'},{mat:'Затирка',qty:0.3,unit:'кг'}],
-  'Укладка плитки на стены': [{mat:'Плиточный клей С2',qty:6,unit:'кг'},{mat:'Затирка',qty:0.3,unit:'кг'}],
-  'Укладка ламината': [{mat:'Подложка 3мм',qty:1.05,unit:'м2'}],
-  'Кладка кирпича рядового': [{mat:'Кирпич рядовой',qty:400,unit:'шт'},{mat:'Цемент М500',qty:175,unit:'кг'}],
-  'Кладка газобетона 200мм': [{mat:'Блок газобетон 200мм',qty:12.5,unit:'шт'},{mat:'Клей для газобетона',qty:3,unit:'кг'}],
-};
-
 const PRICELISTS_DATA = {
   'Земляные работы': [{name:'Разработка грунта вручную',unit:'м3'},{name:'Обратная засыпка',unit:'м3'},{name:'Планировка территории',unit:'м2'}],
   'Фундаментные работы': [{name:'Устройство опалубки',unit:'м2'},{name:'Вязка арматуры ø12',unit:'кг'},{name:'Заливка бетона М300',unit:'м3'}],
@@ -2784,6 +2771,70 @@ function App() {
     if (r.over>0) return {label:'Сверх сметы', color:C.info, bg:C.infoLight, border:C.infoBorder};
     return {label:'Закрыто', color:C.success, bg:C.successLight, border:C.successBorder};
   };
+  const materialNameKey = (name) => String(name||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
+  const materialStockMapForProject = (projectName) => {
+    const byName = {};
+    (materials||[])
+      .filter(m=>m.project===projectName && toNum(m.quantity)>0)
+      .forEach(m=>{
+        const key = materialNameKey(m.name);
+        if (!key) return;
+        if (!byName[key]) byName[key] = {name:m.name, unit:m.unit||'шт', quantity:0, rows:[]};
+        byName[key].quantity += toNum(m.quantity);
+        if (!byName[key].unit && m.unit) byName[key].unit = m.unit;
+        byName[key].rows.push(m);
+      });
+    return byName;
+  };
+  const materialHintForProject = (projectName, materialName) => {
+    const key = materialNameKey(materialName);
+    if (!key) return null;
+    return materialReconciliationRows(projectName).find(r=>materialNameKey(r.name)===key) || null;
+  };
+  const materialSuggestionsForWork = (projectName, workName, sectionName='') => {
+    const rows = materialReconciliationRows(projectName).filter(r=>toNum(r.stock)>0 || toNum(r.planQty)>0);
+    const stop = new Set(['работ','работа','монтаж','установка','устройство','демонтаж','прочее','раздел']);
+    const tokens = materialNameKey(workName+' '+sectionName).split(' ').filter(w=>w.length>3&&!stop.has(w));
+    return rows.map(r=>{
+      const text = materialNameKey([r.name, ...(r.sections||[])].join(' '));
+      let score = 0;
+      if (toNum(r.stock)>0) score += 20;
+      if (toNum(r.planQty)>0) score += 12;
+      if (toNum(r.toBuy)>0) score -= 4;
+      if (r.isOutsideEstimate) score -= 3;
+      tokens.forEach(t=>{ if (text.includes(t)) score += 7; });
+      if (sectionName && text.includes(materialNameKey(sectionName))) score += 10;
+      return {...r, score};
+    }).sort((a,b)=>(b.score-a.score)||(b.stock-a.stock)||(b.planQty-a.planQty)||a.name.localeCompare(b.name,'ru')).slice(0,8);
+  };
+  const upsertSelectedWorkMaterial = (itemId, material, quantity='') => {
+    const key = materialNameKey(material.name);
+    setSelectedWorks(prev=>{
+      const cur = prev[itemId] || {};
+      const list = Array.isArray(cur.materials) ? cur.materials : [];
+      const exists = list.some(m=>materialNameKey(m.name)===key);
+      const next = exists
+        ? list.map(m=>materialNameKey(m.name)===key ? {...m, unit:material.unit||m.unit||'шт', quantity:quantity!==undefined?quantity:m.quantity} : m)
+        : [...list, {name:material.name, quantity, unit:material.unit||'шт'}];
+      return {...prev, [itemId]: {...cur, materials: next}};
+    });
+  };
+  const removeSelectedWorkMaterial = (itemId, materialName) => {
+    const key = materialNameKey(materialName);
+    setSelectedWorks(prev=>{
+      const cur = prev[itemId] || {};
+      const list = Array.isArray(cur.materials) ? cur.materials : [];
+      return {...prev, [itemId]: {...cur, materials: list.filter(m=>materialNameKey(m.name)!==key)}};
+    });
+  };
+  const updateSelectedWorkMaterialQty = (itemId, materialName, quantity) => {
+    const key = materialNameKey(materialName);
+    setSelectedWorks(prev=>{
+      const cur = prev[itemId] || {};
+      const list = Array.isArray(cur.materials) ? cur.materials : [];
+      return {...prev, [itemId]: {...cur, materials: list.map(m=>materialNameKey(m.name)===key ? {...m, quantity} : m)}};
+    });
+  };
   const renderMaterialReconciliationPanel = (projectName, options={}) => {
     const limit = options.limit || 25;
     const title = options.title || '📊 Материалы: смета ↔ поставки ↔ склад';
@@ -3660,21 +3711,6 @@ function App() {
     await loadAll(); setShowReturnToolModal(null); setReturnToolCondition('Исправен');
   };
 
-  const autoWriteOffMaterials = async (workName, quantity, projectName) => {
-    const norms = WORK_NORMS[workName];
-    if (!norms) return;
-    const now = new Date();
-    for (const norm of norms) {
-      const mat = materials.find(m=>m.name===norm.mat&&m.project===projectName);
-      if (!mat) continue;
-      const writeOff = norm.qty * quantity;
-      const nq = Math.max(0, mat.quantity - writeOff);
-      await fetch(API+'/materials/'+mat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mat,quantity:nq})});
-      await fetch(API+'/warehouse-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({material:mat.name,type:'расход',quantity:writeOff,date:now.toISOString().split('T')[0],project:projectName,issuedTo:'Автосписание',issuedBy:'Система',dateTime:now.toLocaleDateString('ru-RU')})});
-      if (mat.minQuantity&&nq<mat.minQuantity) notify('Заканчивается: '+mat.name,'stock');
-    }
-  };
-
   const saveStaff = async () => {
     if (!newStaff.name && !newStaff.lastName && !newStaff.firstName) { alert('Заполните хотя бы фамилию и имя'); return; }
     const fullName = newStaff.name || [newStaff.lastName, newStaff.firstName, newStaff.middleName].filter(Boolean).join(' ');
@@ -3734,18 +3770,40 @@ function App() {
     const coeff = pl?pl.coefficient:1.0;
     const now = new Date();
     let hasWork = false;
-    for (const [itemId,workData] of Object.entries(selectedWorks)) {
-      if (!workData.quantity||Number(workData.quantity)<=0) continue;
+    const selectedEntries = Object.entries(selectedWorks).filter(([itemId,workData])=>{
+      const item = pricelistItems.find(i=>i.id===Number(itemId));
+      return item && workData.quantity && toNum(workData.quantity)>0;
+    });
+    if (!selectedEntries.length) { alert('Введите количество хотя бы для одной работы'); return; }
+    const stockByName = materialStockMapForProject(project.name);
+    const plannedUsage = {};
+    for (const [itemId, workData] of selectedEntries) {
+      const item = pricelistItems.find(i=>i.id===Number(itemId));
+      for (const m of (workData.materials||[]).filter(mm=>mm.name)) {
+        const qty = toNum(m.quantity);
+        if (qty<=0) { alert('Укажите количество материала «'+m.name+'» для работы «'+item.name+'» или снимите галочку.'); return; }
+        const key = materialNameKey(m.name);
+        if (!plannedUsage[key]) plannedUsage[key] = {name:m.name, unit:m.unit||'шт', quantity:0};
+        plannedUsage[key].quantity += qty;
+      }
+    }
+    for (const u of Object.values(plannedUsage)) {
+      const stock = stockByName[materialNameKey(u.name)];
+      if (!stock) { alert('Материал «'+u.name+'» не найден на складе объекта «'+project.name+'». Сначала примите или переместите материал на объект.'); return; }
+      if (u.quantity > stock.quantity + 0.0001) { alert('Недостаточно материала «'+u.name+'»: выбрано '+fmtMeasure(u.quantity,u.unit)+', на объекте '+fmtMeasure(stock.quantity,stock.unit)+'.'); return; }
+    }
+    for (const [itemId,workData] of selectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
       if (!item) continue;
       hasWork = true;
       const ppu = item.price*coeff;
-      const total = Number(workData.quantity)*ppu;
-      const usedMats=(workData.materials||[]).filter(m=>m.name&&Number(m.quantity)>0).map(m=>({name:m.name,quantity:Number(m.quantity),unit:m.unit||'шт'}));
-      const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:Number(workData.quantity),pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats})});
+      const workQty = toNum(workData.quantity);
+      const total = workQty*ppu;
+      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>({name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт'}));
+      const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats})});
       if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось списать материалы: '+(er.detail||'ошибка'));return;}
       if (workData.roomId) {
-        await fetch(API+'/room-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({roomId:Number(workData.roomId),project:project.name,roomName:workData.roomName||'',masterId:user.id,masterName:user.name,description:item.name,surface:workData.surface||'Стены',unit:item.unit,quantity:Number(workData.quantity),pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],photoUrl:workData.photoUrl||''})});
+        await fetch(API+'/room-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({roomId:Number(workData.roomId),project:project.name,roomName:workData.roomName||'',masterId:user.id,masterName:user.name,description:item.name,surface:workData.surface||'Стены',unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],photoUrl:workData.photoUrl||''})});
       }
     }
     if (!hasWork) { alert('Введите количество хотя бы для одной работы'); return; }
@@ -3777,7 +3835,6 @@ function App() {
     };
     if(comment) body.comment = comment;
     await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    await autoWriteOffMaterials(e.description, accepted, e.project);
     // Записываем в piecework (сдельные) — для расчёта зарплаты
     try {
       const alreadyPaid = (piecework||[]).some(pw=>Number(pw.workJournalId)===Number(e.id));
@@ -4990,26 +5047,50 @@ function App() {
                         <input type="file" accept="image/*" onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],photoUrl:url}}));}}} style={{...inp,padding:'8px'}}/>
                         {(()=>{
                           const proj=projects.find(pp=>pp.id===Number(masterProjectId));
-                          const projMats=proj?materials.filter(m=>m.project===proj.name&&Number(m.quantity||0)>0):[];
+                          const projMats=proj?materials.filter(m=>m.project===proj.name&&toNum(m.quantity)>0):[];
                           const used=selectedWorks[item.id]?.materials||[];
-                          const usedMap={};used.forEach(u=>{usedMap[u.name]=u;});
-                          if(!projMats.length) return null;
-                          return(<div style={{marginTop:'8px',padding:'8px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
-                            <p style={{fontSize:'11px',color:C.textSec,margin:'0 0 6px'}}>📦 Использованные материалы (опционально, спишутся со склада объекта):</p>
-                            <div style={{maxHeight:'150px',overflowY:'auto'}}>
-                              {projMats.map(m=>{const checked=!!usedMap[m.name];return(<div key={m.id} style={{display:'flex',alignItems:'center',gap:'6px',padding:'4px 0',fontSize:'11px'}}>
-                                <input type='checkbox' checked={checked} onChange={e=>{
-                                  const next=e.target.checked?[...used,{name:m.name,quantity:'',unit:m.unit}]:used.filter(u=>u.name!==m.name);
-                                  setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],materials:next}}));
-                                }} style={{width:'14px',height:'14px',cursor:'pointer'}}/>
-                                <span style={{flex:1,color:C.text}}>{m.name}</span>
-                                <span style={{color:C.textSec}}>остаток {m.quantity} {m.unit}</span>
-                                {checked&&<input type='number' step='any' inputMode='decimal' placeholder='кол-во' value={usedMap[m.name].quantity} max={m.quantity} onChange={e=>{
-                                  const next=used.map(u=>u.name===m.name?{...u,quantity:e.target.value}:u);
-                                  setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],materials:next}}));
-                                }} style={{width:'70px',padding:'3px 6px',border:'1px solid '+C.border,borderRadius:'4px',fontSize:'11px'}}/>}
-                              </div>);})}
+                          const usedMap={};used.forEach(u=>{usedMap[materialNameKey(u.name)]=u;});
+                          if(!proj) return null;
+                          const suggestions=materialSuggestionsForWork(proj.name,item.name,cat);
+                          if(!projMats.length&&!suggestions.length) return(<div style={{marginTop:'8px',padding:'10px',backgroundColor:C.warningLight,borderRadius:'8px',border:'1px solid '+C.warningBorder,fontSize:'11px',color:C.warning}}>На складе объекта пока нет материалов для списания. Сначала примите поставку или переместите материал на объект.</div>);
+                          return(<div style={{marginTop:'8px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+                              <b style={{fontSize:'12px',color:C.text}}>📦 Материалы к списанию</b>
+                              <span style={{fontSize:'10px',color:C.textSec}}>спишутся при отправке ЖПР</span>
                             </div>
+                            {suggestions.length>0&&<div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'8px'}}>
+                              {suggestions.map(r=>{
+                                const key=materialNameKey(r.name);
+                                const checked=!!usedMap[key];
+                                const hasStock=toNum(r.stock)>0;
+                                const st=materialControlStatus(r);
+                                return(<button type="button" key={'sug-'+key} disabled={!hasStock} onClick={()=>checked?removeSelectedWorkMaterial(item.id,r.name):upsertSelectedWorkMaterial(item.id,{name:r.name,unit:r.unit||'шт'},'')} style={{padding:'5px 8px',borderRadius:'8px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>
+                                  {(checked?'✓ ':'')+r.name+' · '+(hasStock?'остаток '+fmtMeasure(r.stock,r.unit):'нет на объекте')}
+                                </button>);
+                              })}
+                            </div>}
+                            {projMats.length>0&&<div style={{maxHeight:'190px',overflowY:'auto',display:'grid',gap:'6px'}}>
+                              {projMats.map(m=>{
+                                const key=materialNameKey(m.name);
+                                const checked=!!usedMap[key];
+                                const selected=usedMap[key]||{};
+                                const hint=materialHintForProject(proj.name,m.name);
+                                const stock=toNum(m.quantity);
+                                const over=checked&&toNum(selected.quantity)>stock;
+                                const status=hint?materialControlStatus(hint):null;
+                                return(<div key={m.id} style={{display:'grid',gridTemplateColumns:'18px minmax(0,1fr) auto',alignItems:'center',gap:'8px',padding:'7px 8px',backgroundColor:checked?C.bgWhite:'transparent',border:'1px solid '+(over?C.dangerBorder:checked?C.accentBorder:C.border),borderRadius:'8px',fontSize:'11px'}}>
+                                  <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertSelectedWorkMaterial(item.id,{name:m.name,unit:m.unit||'шт'},''):removeSelectedWorkMaterial(item.id,m.name)} style={{width:'14px',height:'14px',cursor:'pointer',accentColor:C.accent}}/>
+                                  <div style={{minWidth:0}}>
+                                    <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
+                                      <b style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}</b>
+                                      {status&&<span style={{padding:'1px 6px',borderRadius:'8px',fontSize:'9px',fontWeight:'700',backgroundColor:status.bg,color:status.color,border:'1px solid '+status.border}}>{status.label}</span>}
+                                    </div>
+                                    <div style={{color:over?C.danger:C.textSec,marginTop:'2px'}}>{'остаток '+fmtMeasure(stock,m.unit)}{hint?.planQty>0?' · по смете '+fmtMeasure(hint.planQty,hint.unit):''}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}</div>
+                                  </div>
+                                  {checked&&<input type='number' step='any' inputMode='decimal' placeholder='кол-во' value={selected.quantity||''} max={stock} onChange={e=>updateSelectedWorkMaterialQty(item.id,m.name,e.target.value)} style={{width:'86px',padding:'5px 7px',border:'1.5px solid '+(over?C.danger:C.border),borderRadius:'6px',fontSize:'11px',backgroundColor:C.bgWhite,color:C.text}}/>}
+                                </div>);
+                              })}
+                            </div>}
                           </div>);
                         })()}
                       <button onClick={async()=>{
