@@ -6160,8 +6160,31 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     auto_journal_status = "На проверке" if _current_user.get("role") in ("мастер", "субподрядчик") else "Подтверждено"
     auto_confirmed_by = "" if auto_journal_status != "Подтверждено" else (_current_user.get("name") or "")
     auto_confirmed_at = today if auto_journal_status == "Подтверждено" else None
-    for s in new_sections:
-        for it in (s.get("items") or []):
+    work_journal_materials = data.get("_workJournalMaterials") or {}
+    def _materials_for_delta(section_idx, item_idx, section_name, item_name):
+        keys = [
+            str(id) + ":" + str(section_idx) + ":" + str(item_idx),
+            str(section_idx) + ":" + str(item_idx),
+            str(section_name or "") + "|" + str(item_name or ""),
+        ]
+        raw = []
+        for k in keys:
+            if k in work_journal_materials:
+                raw = work_journal_materials.get(k) or []
+                break
+        used = []
+        for m in raw if isinstance(raw, list) else []:
+            try:
+                qty = float(m.get("quantity") or 0)
+            except Exception:
+                qty = 0
+            name = (m.get("name") or "").strip()
+            if name and qty > 0:
+                used.append({"name": name, "quantity": qty, "unit": m.get("unit") or "шт"})
+        return used
+
+    for section_idx, s in enumerate(new_sections):
+        for item_idx, it in enumerate(s.get("items") or []):
             new_done = float(it.get("doneQuantity") or 0)
             key = (s.get("name",""), it.get("name",""))
             old_q = old_done.get(key, 0)
@@ -6171,16 +6194,31 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
             brigade = (it.get("brigadeName") or "").strip()
             unit = it.get("unit") or "шт"
             price = float(it.get("priceWork") or 0) + float(it.get("priceMaterial") or 0)
+            used_materials = _materials_for_delta(section_idx, item_idx, s.get("name",""), it.get("name",""))
             try:
+                for m in used_materials:
+                    cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (m["name"], project_name))
+                    mat_row = cur.fetchone()
+                    if not mat_row:
+                        raise HTTPException(status_code=400, detail="Материал «"+m["name"]+"» не найден на складе объекта «"+project_name+"»")
+                    stock_qty = float(mat_row[1] or 0)
+                    if stock_qty < float(m["quantity"] or 0):
+                        raise HTTPException(status_code=400, detail="На складе «"+project_name+"» только "+str(stock_qty)+" "+(m.get("unit") or "")+" «"+m["name"]+"», запрошено "+str(m["quantity"]))
+                    cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (float(m["quantity"]), mat_row[0]))
+                    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (m["name"], "расход (работа)", float(m["quantity"]), today, project_name, _current_user.get("name") or brigade or "", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal
                                (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
-                                estimate_id, section_name, hidden_work, confirmed_by, confirmed_at)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (None, brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, price, round(delta*price,2), today,
+                                materials_used, estimate_id, section_name, hidden_work, confirmed_by, confirmed_at)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (_current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, price, round(delta*price,2), today,
                      auto_journal_status,
                      "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id),
-                     id, s.get("name",""), bool(it.get("hiddenWork")), auto_confirmed_by, auto_confirmed_at))
+                     materials_json, id, s.get("name",""), bool(it.get("hiddenWork")), auto_confirmed_by, auto_confirmed_at))
                 journal_added += 1
+            except HTTPException:
+                raise
             except Exception as e:
                 print("AUTO-JOURNAL ERROR:", str(e))
 
