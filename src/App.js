@@ -2352,6 +2352,154 @@ function App() {
       || arr[0]
       || null;
   };
+  const estimateDiffTextKey = (value) => String(value||'').toLowerCase().replace(/ё/g,'е').replace(/[^a-zа-я0-9]+/gi,' ').trim();
+  const estimateDiffItemKey = (sectionName, item) => [
+    estimateDiffTextKey(sectionName),
+    estimateDiffTextKey(item?.name),
+    estimateDiffTextKey(normalizeMeasure(1,item?.unit).unit||item?.unit)
+  ].join('|');
+  const estimateRowsForDiff = (est) => {
+    const grouped = new Map();
+    _sectionsOfEst(est).forEach((section,sectionIdx)=>(section.items||[]).forEach((item,itemIdx)=>{
+      const rawQty = toNum(item.quantity);
+      const normalized = normalizeMeasure(rawQty,item.unit);
+      const qty = normalized.qty;
+      const workSum = estimateItemWorkSum(item);
+      const materialSum = estimateItemMaterialSum(item);
+      const sum = workSum + materialSum;
+      const key = estimateDiffItemKey(section.name,item) || ['row',sectionIdx,itemIdx].join('|');
+      const row = {
+        key,
+        section: section.name || 'Без раздела',
+        name: item.name || 'Без названия',
+        unit: normalized.unit || item.unit || '',
+        qty,
+        workSum,
+        materialSum,
+        sum,
+        unitPrice: qty ? sum / qty : 0
+      };
+      if(!grouped.has(key)){
+        grouped.set(key,row);
+        return;
+      }
+      const prev = grouped.get(key);
+      const mergedQty = prev.qty + row.qty;
+      const sameSection = prev.section === row.section;
+      grouped.set(key,{
+        ...prev,
+        section: sameSection ? prev.section : 'Несколько разделов',
+        qty: mergedQty,
+        workSum: prev.workSum + row.workSum,
+        materialSum: prev.materialSum + row.materialSum,
+        sum: prev.sum + row.sum,
+        unitPrice: mergedQty ? (prev.sum + row.sum) / mergedQty : 0
+      });
+    }));
+    return Array.from(grouped.values());
+  };
+  const buildEstimateDiff = (baseEst, nextEst) => {
+    const baseRows = estimateRowsForDiff(baseEst);
+    const nextRows = estimateRowsForDiff(nextEst);
+    const baseMap = new Map(baseRows.map(r=>[r.key,r]));
+    const nextMap = new Map(nextRows.map(r=>[r.key,r]));
+    const added = [];
+    const removed = [];
+    const changed = [];
+    nextRows.forEach(next=>{
+      const base = baseMap.get(next.key);
+      if(!base){ added.push({...next,impact:next.sum}); return; }
+      const qtyChanged = Math.abs(next.qty - base.qty) > 0.0001;
+      const priceChanged = Math.abs(next.unitPrice - base.unitPrice) > 0.01;
+      const sumChanged = Math.abs(next.sum - base.sum) > 0.5;
+      if(qtyChanged || priceChanged || sumChanged){
+        changed.push({base,next,impact:next.sum-base.sum});
+      }
+    });
+    baseRows.forEach(base=>{ if(!nextMap.has(base.key)) removed.push({...base,impact:-base.sum}); });
+    const sortImpact = (a,b)=>Math.abs(b.impact)-Math.abs(a.impact);
+    return {
+      added: added.sort(sortImpact),
+      removed: removed.sort(sortImpact),
+      changed: changed.sort(sortImpact),
+      baseTotal: estimateTotal(baseEst),
+      nextTotal: estimateTotal(nextEst),
+      impact: estimateTotal(nextEst)-estimateTotal(baseEst)
+    };
+  };
+  const estimateDiffBaseFor = (est) => {
+    const group = (estimatesList||[])
+      .filter(e=>!e.isTemplate && est?.id!==e.id && sameEstimateGroup(e,est))
+      .sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
+    return group.find(e=>e.status==='Активная') || group[0] || null;
+  };
+  const buildEstimateDiffContent = (baseEst, nextEst) => {
+    const diff = buildEstimateDiff(baseEst,nextEst);
+    const fmtMoney = (n) => (Math.round(Number(n||0)*100)/100).toLocaleString('ru-RU')+' ₽';
+    const fmtQty = (n) => {
+      const q = Number(n||0);
+      return Math.abs(q - Math.round(q)) < 0.001 ? String(Math.round(q)) : q.toLocaleString('ru-RU', {maximumFractionDigits: 3});
+    };
+    const signMoney = (n) => (n>0?'+':'')+fmtMoney(n);
+    const diffColor = (n) => n>0 ? '#b45309' : n<0 ? '#047857' : '#374151';
+    const meta = (est) => [
+      est?.name || 'Смета',
+      (est?.version || est?.versionLabel) ? 'v'+(est.version||est.versionLabel) : '',
+      est?.status || '',
+      est?.createdAt ? String(est.createdAt).slice(0,10) : ''
+    ].filter(Boolean).join(' · ');
+    const rowBase = (row,impact=null) => '<tr>'
+      + '<td>'+docEsc(row.section)+'</td>'
+      + '<td>'+docEsc(row.name)+'</td>'
+      + '<td>'+docEsc(row.unit)+'</td>'
+      + '<td class="num">'+docEsc(fmtQty(row.qty))+'</td>'
+      + '<td class="num">'+fmtMoney(row.unitPrice)+'</td>'
+      + '<td class="num">'+fmtMoney(row.sum)+'</td>'
+      + (impact!==null?'<td class="num" style="color:'+diffColor(impact)+';font-weight:700">'+signMoney(impact)+'</td>':'')
+      + '</tr>';
+    const changedRows = diff.changed.map(({base,next,impact})=>'<tr>'
+      + '<td>'+docEsc(next.section)+'</td>'
+      + '<td>'+docEsc(next.name)+'</td>'
+      + '<td>'+docEsc(next.unit)+'</td>'
+      + '<td class="num">'+docEsc(fmtQty(base.qty))+'</td>'
+      + '<td class="num">'+docEsc(fmtQty(next.qty))+'</td>'
+      + '<td class="num">'+fmtMoney(base.unitPrice)+'</td>'
+      + '<td class="num">'+fmtMoney(next.unitPrice)+'</td>'
+      + '<td class="num">'+fmtMoney(base.sum)+'</td>'
+      + '<td class="num">'+fmtMoney(next.sum)+'</td>'
+      + '<td class="num" style="color:'+diffColor(impact)+';font-weight:700">'+signMoney(impact)+'</td>'
+      + '</tr>').join('');
+    const empty = (cols) => '<tr><td colspan="'+cols+'" style="text-align:center;color:#6b7280">Нет изменений</td></tr>';
+    let html = '<style>'
+      + '.ediff-title{text-align:center;font-size:18px;font-weight:700;margin:0 0 4px}'
+      + '.ediff-sub{text-align:center;color:#555;font-size:11px;margin:0 0 14px}'
+      + '.ediff-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0 14px}'
+      + '.ediff-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
+      + '.ediff-card span{display:block;color:#64748b;font-size:10px}.ediff-card b{font-size:14px}'
+      + '.ediff-table{font-size:10px;table-layout:fixed}.ediff-table th{font-size:9px}.ediff-table td,.ediff-table th{vertical-align:top;word-break:break-word}'
+      + '.ediff-table .num{text-align:right;white-space:nowrap}'
+      + '.ediff-h{font-size:13px;font-weight:700;margin:16px 0 6px}'
+      + '@media print{.ediff-grid{grid-template-columns:repeat(3,1fr)}.ediff-table{font-size:9px}}'
+      + '</style>';
+    html += '<div class="ediff-title">ДОКУМЕНТ РАЗНИЦЫ СМЕТ</div>';
+    html += '<div class="ediff-sub">Объект: '+docEsc(nextEst?.projectName||baseEst?.projectName||'')+' · Тип: '+docEsc(estimateKind(nextEst||baseEst))+' · Пакет: '+docEsc(estimatePackage(nextEst||baseEst))+'</div>';
+    html += '<table><tr><th>База сравнения</th><td>'+docEsc(meta(baseEst))+'</td></tr><tr><th>Новая / выбранная смета</th><td>'+docEsc(meta(nextEst))+'</td></tr></table>';
+    html += '<div class="ediff-grid">'
+      + '<div class="ediff-card"><span>Было</span><b>'+fmtMoney(diff.baseTotal)+'</b></div>'
+      + '<div class="ediff-card"><span>Стало</span><b>'+fmtMoney(diff.nextTotal)+'</b></div>'
+      + '<div class="ediff-card"><span>Разница</span><b style="color:'+diffColor(diff.impact)+'">'+signMoney(diff.impact)+'</b></div>'
+      + '</div>';
+    html += '<div class="ediff-grid">'
+      + '<div class="ediff-card"><span>Изменено позиций</span><b>'+diff.changed.length+'</b></div>'
+      + '<div class="ediff-card"><span>Добавлено позиций</span><b>'+diff.added.length+'</b></div>'
+      + '<div class="ediff-card"><span>Исключено позиций</span><b>'+diff.removed.length+'</b></div>'
+      + '</div>';
+    html += '<div class="ediff-h">Изменён объём или цена</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Было кол.</th><th>Стало кол.</th><th>Было цена/ед.</th><th>Стало цена/ед.</th><th>Было сумма</th><th>Стало сумма</th><th>Влияние</th></tr>'+(changedRows||empty(10))+'</table>';
+    html += '<div class="ediff-h">Добавлено в новую смету</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Влияние</th></tr>'+(diff.added.map(r=>rowBase(r,r.impact)).join('')||empty(7))+'</table>';
+    html += '<div class="ediff-h">Исключено из новой сметы</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Влияние</th></tr>'+(diff.removed.map(r=>rowBase(r,r.impact)).join('')||empty(7))+'</table>';
+    html += '<p style="font-size:10px;color:#555;margin-top:16px">Документ сформирован автоматически по строкам сметы. Архивные сметы не участвуют в текущих расчётах объекта, но используются для доказательного сравнения версий.</p>';
+    return html;
+  };
   const estimateStatusView = (est, groupItems=[]) => {
     const status = est?.status || 'Черновик';
     if(status === 'Активная') return {label:'Активная', color:C.success, bg:C.successLight, border:C.successBorder};
@@ -10995,6 +11143,7 @@ function App() {
                   {selectedEstimate.status!=='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Архив')} style={btnG}><Archive size={14}/>В архив</button>}
                   {selectedEstimate.status==='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>↩ Черновик</button>}
                   <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="7"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`)]).join('')+'<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
+                  {(()=>{const base=estimateDiffBaseFor(selectedEstimate);return base?<button onClick={()=>showPreview(buildEstimateDiffContent(base,selectedEstimate),'Разница смет')} style={btnB}><FileText size={14}/>Разница</button>:null;})()}
                   <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
                   <button onClick={async()=>{
                     const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/toggle-template',{method:'PUT'});
@@ -11229,9 +11378,9 @@ function App() {
                       <b style={{color:C.success,fontSize:'14px'}}>{active?Math.round(estimateTotal(active)).toLocaleString('ru-RU')+' ₽':'—'}</b>
                     </div>
                     <div style={{padding:'8px 12px'}}>
-                      {sorted.map(est=>{const st=estimateStatusView(est,sorted);const isUsed=active?.id===est.id;return(<div key={est.id} onClick={()=>setSelectedEstimate(est)} style={{padding:'10px 8px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',cursor:'pointer',opacity:isArchivedEstimate(est)?0.72:1}}>
+                      {sorted.map(est=>{const st=estimateStatusView(est,sorted);const isUsed=active?.id===est.id;const diffBase=(active&&active.id!==est.id)?active:sorted.find(other=>other.id!==est.id);return(<div key={est.id} onClick={()=>setSelectedEstimate(est)} style={{padding:'10px 8px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',cursor:'pointer',opacity:isArchivedEstimate(est)?0.72:1}}>
                         <div style={{flex:1,minWidth:0}}><b style={{color:C.text,fontSize:'13px'}}>{isUsed?'✓ ':''}{est.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'4px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span>{est.version&&<span style={badge(C.textSec,C.bgGray,C.border)}>{'v'+est.version}</span>}{est.versionCount>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'история '+est.versionCount}</span>}{est.createdAt&&<span style={{color:C.textMuted,fontSize:'11px',alignSelf:'center'}}>{String(est.createdAt).slice(0,10)}</span>}</div></div>
-                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b>{est.status!=='Активная'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Активная');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><CheckCircle size={11}/>Активной</button>}{est.status!=='Архив'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Архив');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}><Archive size={11}/></button>}<ChevronRight size={16} color={C.textMuted}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));if(selectedEstimate?.id===est.id)setSelectedEstimate(null);}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div>
+                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b>{diffBase&&<button onClick={e=>{e.stopPropagation();showPreview(buildEstimateDiffContent(diffBase,est),'Разница смет');}} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><FileText size={11}/>Разница</button>}{est.status!=='Активная'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Активная');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><CheckCircle size={11}/>Активной</button>}{est.status!=='Архив'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Архив');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}><Archive size={11}/></button>}<ChevronRight size={16} color={C.textMuted}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));if(selectedEstimate?.id===est.id)setSelectedEstimate(null);}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div>
                       </div>);})}
                     </div>
                   </div>);})}
@@ -12141,7 +12290,7 @@ function App() {
           <button onClick={()=>setShowVersionHistory(false)} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',color:C.textSec}}>×</button>
         </div>
         {estimateVersions.length===0?(<p style={{color:C.textMuted,fontSize:'13px',padding:'20px',textAlign:'center'}}>История пуста. Снимки сохраняются автоматически при сохранении изменений сметы.</p>):(<>
-          <p style={{color:C.textSec,fontSize:'12px',marginBottom:'10px'}}>Отметьте 2 версии чтобы сравнить через ИИ:</p>
+          <p style={{color:C.textSec,fontSize:'12px',marginBottom:'10px'}}>Отметьте 2 версии, чтобы распечатать разницу или сравнить через ИИ:</p>
           <div style={{maxHeight:'320px',overflowY:'auto',marginBottom:'12px'}}>
             {estimateVersions.map(v=>{const sel=selectedVersionsToCompare.includes(v.id);return(<div key={v.id} style={{padding:'10px',marginBottom:'6px',borderRadius:'8px',border:'1.5px solid '+(sel?C.accent:C.border),backgroundColor:sel?C.accentLight:C.bg,display:'flex',alignItems:'center',gap:'10px'}}>
               <input type='checkbox' checked={sel} onChange={e=>{if(e.target.checked){if(selectedVersionsToCompare.length<2)setSelectedVersionsToCompare([...selectedVersionsToCompare,v.id]);}else{setSelectedVersionsToCompare(selectedVersionsToCompare.filter(id=>id!==v.id));}}} style={{width:'16px',height:'16px',accentColor:C.accent}}/>
@@ -12164,9 +12313,20 @@ function App() {
               }} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>↶ Восстановить</button>
             </div>);})}
           </div>
-          {selectedVersionsToCompare.length===2&&(<button onClick={async()=>{
+          {selectedVersionsToCompare.length===2&&(<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'8px'}}>
+            <button onClick={async()=>{
+              const [aId,bId]=selectedVersionsToCompare;
+              const [a,b]=await Promise.all([fetch(API+'/estimate-version/'+aId).then(r=>r.json()),fetch(API+'/estimate-version/'+bId).then(r=>r.json())]);
+              const [older,newer]=[a,b].sort((x,y)=>(new Date(x.createdAt||0).getTime()-new Date(y.createdAt||0).getTime())||(Number(x.id||0)-Number(y.id||0)));
+              const base={...selectedEstimate,name:'Версия '+(older.versionLabel||'?'),version:older.versionLabel,status:'История',createdAt:older.createdAt,sections:older.sections||[]};
+              const next={...selectedEstimate,name:'Версия '+(newer.versionLabel||'?'),version:newer.versionLabel,status:'История',createdAt:newer.createdAt,sections:newer.sections||[]};
+              setShowVersionHistory(false);
+              showPreview(buildEstimateDiffContent(base,next),'Разница версий сметы');
+            }} style={{...btnB,width:'100%',justifyContent:'center'}}><FileText size={14}/>Печать разницы</button>
+            <button onClick={async()=>{
             const [aId,bId]=selectedVersionsToCompare;
-            const [a,b]=await Promise.all([fetch(API+'/estimate-version/'+aId).then(r=>r.json()),fetch(API+'/estimate-version/'+bId).then(r=>r.json())]);
+            const pair=await Promise.all([fetch(API+'/estimate-version/'+aId).then(r=>r.json()),fetch(API+'/estimate-version/'+bId).then(r=>r.json())]);
+            const [a,b]=pair.sort((x,y)=>(new Date(x.createdAt||0).getTime()-new Date(y.createdAt||0).getTime())||(Number(x.id||0)-Number(y.id||0)));
             const totalOf=(secs)=>secs.flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);
             const flatten=(secs)=>secs.flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:Number(i.quantity||0),work:Number(i.priceWork||0),mat:Number(i.priceMaterial||0),sum:estimateItemTotal(i)})));
             const payload={a:{label:a.versionLabel,total:totalOf(a.sections||[]),items:flatten(a.sections||[])},b:{label:b.versionLabel,total:totalOf(b.sections||[]),items:flatten(b.sections||[])}};
@@ -12191,7 +12351,8 @@ function App() {
               setAiMessages([{role:'user',content:'Сравнение v'+a.versionLabel+' ↔ v'+b.versionLabel},{role:'assistant',content:out}]);
             }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
             setAiLoading(false);
-          }} style={{...btnO,backgroundColor:'#10b981',width:'100%',justifyContent:'center'}}><Bot size={14}/>🤖 Сравнить через ИИ</button>)}
+          }} style={{...btnO,backgroundColor:'#10b981',width:'100%',justifyContent:'center'}}><Bot size={14}/>🤖 Сравнить через ИИ</button>
+          </div>)}
         </>)}
       </div>
     </div>)}
