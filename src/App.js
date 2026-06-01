@@ -200,6 +200,23 @@ const EMPTY_ESTIMATE_CHANGE = {
 };
 const isApprovedEstimateChangeStatus = (status) => ESTIMATE_CHANGE_APPROVED_STATUSES.includes(status);
 
+const WORK_MATERIAL_NORM_RULES = [
+  {id:'plaster_mix', work:['штукатур'], blockWork:['демонтаж','разбор'], material:['штукатур','ротбанд','гипсов'], workUnit:'м2', materialUnit:'кг', qtyPerUnit:8.5, thicknessBaseMm:10, defaultThicknessMm:10, label:'штукатурная смесь 8.5 кг/м2 на 10 мм'},
+  {id:'screed_mix', work:['стяжк','наливн'], blockWork:['демонтаж','разбор'], material:['пескобетон','смесь','стяжк'], workUnit:'м2', materialUnit:'кг', qtyPerUnit:18, thicknessBaseMm:10, defaultThicknessMm:40, label:'смесь для стяжки 18 кг/м2 на 10 мм'},
+  {id:'putty_mix', work:['шпаклев','шпатлев'], blockWork:['демонтаж','разбор'], material:['шпаклев','шпатлев'], workUnit:'м2', materialUnit:'кг', qtyPerUnit:1.2, label:'шпаклевка 1.2 кг/м2'},
+  {id:'tile_glue', work:['плитк','керамогранит','облицов'], blockWork:['демонтаж','разбор'], material:['клей','плиточ'], workUnit:'м2', materialUnit:'кг', qtyPerUnit:4.5, label:'плиточный клей 4.5 кг/м2'},
+  {id:'tile_grout', work:['плитк','керамогранит','облицов'], blockWork:['демонтаж','разбор'], material:['затир'], workUnit:'м2', materialUnit:'кг', qtyPerUnit:0.3, label:'затирка 0.3 кг/м2'},
+  {id:'paint', work:['окраск','покраск'], blockWork:['демонтаж','разбор'], material:['краск','эмал'], workUnit:'м2', materialUnit:'л', qtyPerUnit:0.2, label:'краска 0.2 л/м2'},
+  {id:'primer', work:['грунтов','окраск','шпаклев','шпатлев'], blockWork:['демонтаж','разбор'], material:['грунтов'], workUnit:'м2', materialUnit:'л', qtyPerUnit:0.12, label:'грунтовка 0.12 л/м2'},
+  {id:'gkl_sheet', work:['гипсокарт','гкл','обшив'], blockWork:['демонтаж','разбор'], material:['гипсокарт','гкл','лист'], workUnit:'м2', materialUnit:'шт', qtyPerUnit:0.35, label:'ГКЛ 0.35 листа/м2'},
+  {id:'gkl_profile', work:['гипсокарт','гкл','обшив'], blockWork:['демонтаж','разбор'], material:['профиль'], workUnit:'м2', materialUnit:'м', qtyPerUnit:1.6, label:'профиль 1.6 м/м2'},
+  {id:'gkl_screws', work:['гипсокарт','гкл','обшив'], blockWork:['демонтаж','разбор'], material:['саморез'], workUnit:'м2', materialUnit:'шт', qtyPerUnit:20, label:'саморезы 20 шт/м2'},
+  {id:'cable_line', work:['кабел','провод','проклад'], blockWork:['демонтаж','разбор'], material:['кабель','провод','utp','ftp','f-utp','u-utp','кпс','ксвв','кспв','ввг','nym'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'кабель 1.05 м на 1 м трассы'},
+  {id:'cable_protection', work:['кабел','провод','проклад'], blockWork:['демонтаж','разбор'], material:['гофр','труба пнд','кабель-канал','кабель канал'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'защита кабеля 1.05 м на 1 м трассы'},
+  {id:'brick_masonry', work:['кладк'], blockWork:['демонтаж','разбор'], material:['кирпич'], workUnit:'м2', materialUnit:'шт', qtyPerUnit:51, label:'кирпич 51 шт/м2 кладки в 1/2 кирпича'},
+  {id:'concrete', work:['бетон'], blockWork:['демонтаж','разбор'], material:['бетон'], workUnit:'м3', materialUnit:'м3', qtyPerUnit:1, label:'бетон 1 м3/м3'}
+];
+
 // === Конвертация единиц для строительных материалов ===
 // Арматура: вес погонного метра в зависимости от диаметра (ГОСТ 5781-82)
 const REBAR_KG_PER_M = { 6:0.222, 8:0.395, 10:0.617, 12:0.888, 14:1.21, 16:1.58, 18:2.0, 20:2.47, 22:2.98, 25:3.85, 28:4.83, 32:6.31 };
@@ -242,6 +259,11 @@ const convertUnits = (materialName, qty, fromUnit, toUnit) => {
   if (n.includes('цемент')) {
     if (from === 'мешок' && to === 'кг') return { qty: qty*50, factor: 50, note: '1 мешок = 50 кг' };
     if (from === 'кг' && to === 'мешок') return { qty: qty/50, factor: 1/50, note: '50 кг = 1 мешок' };
+  }
+  // Сухие строительные смеси чаще всего учитываются мешками по 25 кг.
+  if (n.includes('штукатур') || n.includes('шпаклев') || n.includes('шпатлев') || n.includes('клей') || n.includes('пескобетон') || n.includes('стяжк')) {
+    if (from === 'мешок' && to === 'кг') return { qty: qty*25, factor: 25, note: '1 мешок ≈ 25 кг' };
+    if (from === 'кг' && to === 'мешок') return { qty: qty/25, factor: 1/25, note: '25 кг ≈ 1 мешок' };
   }
   // Бетон: м3 ↔ т ↔ кг (2400 кг/м3)
   if (n.includes('бетон')) {
@@ -744,6 +766,7 @@ function App() {
   const [selectedWorks, setSelectedWorks] = useState({});
   const [estimateDoneDrafts, setEstimateDoneDrafts] = useState({});
   const [estimateWorkMaterials, setEstimateWorkMaterials] = useState({});
+  const [estimateWorkParams, setEstimateWorkParams] = useState({});
   const [companyName, setCompanyName] = useState('');
   const [issueToolData, setIssueToolData] = useState({masterName:'',project:'',issueType:'Временно'});
   const [returnToolCondition, setReturnToolCondition] = useState('Исправен');
@@ -2852,15 +2875,119 @@ function App() {
       return {...r, score};
     }).sort((a,b)=>(b.score-a.score)||(b.stock-a.stock)||(b.planQty-a.planQty)||a.name.localeCompare(b.name,'ru')).slice(0,8);
   };
+  const normTextIncludes = (text, words=[]) => {
+    const t = materialNameKey(text);
+    return words.some(w=>t.includes(materialNameKey(w)));
+  };
+  const workNormRulesFor = (workName, sectionName='') => {
+    const text = workName+' '+sectionName;
+    return WORK_MATERIAL_NORM_RULES.filter(rule=>
+      normTextIncludes(text, rule.work) &&
+      !normTextIncludes(text, rule.blockWork||[])
+    );
+  };
+  const workNeedsThicknessParam = (workName, sectionName='') =>
+    workNormRulesFor(workName, sectionName).some(r=>r.thicknessBaseMm);
+  const roundNormQty = (qty) => {
+    const q = Number(qty)||0;
+    if (q <= 0) return 0;
+    if (q >= 100) return Math.ceil(q);
+    if (q >= 10) return Math.round(q*10)/10;
+    return Math.round(q*100)/100;
+  };
+  const materialNormForWork = (projectName, workName, sectionName, workQty, workUnit, material, params={}) => {
+    if (!projectName || !material?.name || toNum(workQty)<=0) return null;
+    const normalizedWork = normalizeMeasure(workQty, workUnit);
+    const rules = workNormRulesFor(workName, sectionName).filter(rule=>
+      _normalizeUnit(normalizedWork.unit)===_normalizeUnit(rule.workUnit) &&
+      normTextIncludes(material.name, rule.material)
+    );
+    if (!rules.length) return null;
+    const rule = rules[0];
+    let qty = normalizedWork.qty * Number(rule.qtyPerUnit||0);
+    let label = rule.label;
+    if (rule.thicknessBaseMm) {
+      const thickness = toNum(params.thicknessMm) || Number(rule.defaultThicknessMm||rule.thicknessBaseMm);
+      qty *= thickness / Number(rule.thicknessBaseMm);
+      label += ' · слой '+thickness+' мм';
+    }
+    const targetUnit = material.unit || rule.materialUnit;
+    let outQty = qty;
+    let outUnit = targetUnit;
+    if (_normalizeUnit(rule.materialUnit)!==_normalizeUnit(targetUnit)) {
+      const conv = convertUnits(material.name, qty, rule.materialUnit, targetUnit);
+      if (!conv) return null;
+      outQty = conv.qty;
+      label += ' · '+conv.note;
+    }
+    const rounded = roundNormQty(outQty);
+    return {
+      ruleId: rule.id,
+      quantity: rounded,
+      unit: outUnit,
+      normQuantity: rounded,
+      normSource: label,
+      autoNorm: true
+    };
+  };
+  const autoFillNormMaterialsForWork = (projectName, workName, sectionName, workQty, workUnit, currentMaterials=[], params={}) => {
+    if (!projectName || toNum(workQty)<=0) return currentMaterials || [];
+    const available = materialRowsAvailableForWork(projectName);
+    const matches = available.map(m=>({material:m, norm:materialNormForWork(projectName, workName, sectionName, workQty, workUnit, m, params)})).filter(x=>x.norm);
+    if (!matches.length) return currentMaterials || [];
+    const byRule = {};
+    matches.forEach(x=>{ byRule[x.norm.ruleId]=(byRule[x.norm.ruleId]||0)+1; });
+    const matchByName = {};
+    matches.forEach(x=>{ matchByName[materialNameKey(x.material.name)] = x; });
+    const present = new Set();
+    const next = (currentMaterials||[]).map(m=>{
+      const key = materialNameKey(m.name);
+      present.add(key);
+      const match = matchByName[key];
+      if (!match) return m;
+      const patch = {
+        unit: m.unit || match.norm.unit,
+        normQuantity: match.norm.normQuantity,
+        normSource: match.norm.normSource
+      };
+      if (m.autoNorm || m.quantity==='' || m.quantity===undefined || m.quantity===null) {
+        return {...m, ...patch, quantity: match.norm.quantity, autoNorm: true};
+      }
+      return {...m, ...patch, autoNorm: false};
+    });
+    matches
+      .filter(x=>byRule[x.norm.ruleId]===1 && !present.has(materialNameKey(x.material.name)))
+      .slice(0, Math.max(0, 5-next.length))
+      .forEach(x=>next.push({
+        name:x.material.name,
+        unit:x.norm.unit || x.material.unit || 'шт',
+        quantity:x.norm.quantity,
+        autoNorm:true,
+        normQuantity:x.norm.normQuantity,
+        normSource:x.norm.normSource
+      }));
+    return next;
+  };
+  const materialNormStatus = (m) => {
+    const norm = toNum(m?.normQuantity);
+    const qty = toNum(m?.quantity);
+    if (!norm || !qty) return null;
+    const tolerance = Math.max(0.001, norm*0.1);
+    const diff = qty - norm;
+    if (Math.abs(diff)<=tolerance) return {label:m.autoNorm?'по норме':'около нормы', color:C.success, bg:C.successLight, border:C.successBorder};
+    if (diff>0) return {label:'перерасход '+fmtMeasure(diff,m.unit), color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
+    return {label:'экономия '+fmtMeasure(Math.abs(diff),m.unit), color:C.info, bg:C.infoLight, border:C.infoBorder};
+  };
   const upsertSelectedWorkMaterial = (itemId, material, quantity='') => {
     const key = materialNameKey(material.name);
     setSelectedWorks(prev=>{
       const cur = prev[itemId] || {};
       const list = Array.isArray(cur.materials) ? cur.materials : [];
       const exists = list.some(m=>materialNameKey(m.name)===key);
+      const row = {name:material.name, quantity, unit:material.unit||'шт', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||''};
       const next = exists
-        ? list.map(m=>materialNameKey(m.name)===key ? {...m, unit:material.unit||m.unit||'шт', quantity:quantity!==undefined?quantity:m.quantity} : m)
-        : [...list, {name:material.name, quantity, unit:material.unit||'шт'}];
+        ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
+        : [...list, row];
       return {...prev, [itemId]: {...cur, materials: next}};
     });
   };
@@ -2877,7 +3004,7 @@ function App() {
     setSelectedWorks(prev=>{
       const cur = prev[itemId] || {};
       const list = Array.isArray(cur.materials) ? cur.materials : [];
-      return {...prev, [itemId]: {...cur, materials: list.map(m=>materialNameKey(m.name)===key ? {...m, quantity} : m)}};
+      return {...prev, [itemId]: {...cur, materials: list.map(m=>materialNameKey(m.name)===key ? {...m, quantity, autoNorm:false} : m)}};
     });
   };
   const estimateWorkKey = (estId, sectionIdx, itemIdx) => String(estId)+':'+String(sectionIdx)+':'+String(itemIdx);
@@ -2886,9 +3013,10 @@ function App() {
     setEstimateWorkMaterials(prev=>{
       const list = Array.isArray(prev[workKey]) ? prev[workKey] : [];
       const exists = list.some(m=>materialNameKey(m.name)===key);
+      const row = {name:material.name, quantity, unit:material.unit||'шт', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||''};
       const next = exists
-        ? list.map(m=>materialNameKey(m.name)===key ? {...m, unit:material.unit||m.unit||'шт', quantity:quantity!==undefined?quantity:m.quantity} : m)
-        : [...list, {name:material.name, quantity, unit:material.unit||'шт'}];
+        ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
+        : [...list, row];
       return {...prev, [workKey]: next};
     });
   };
@@ -2903,7 +3031,7 @@ function App() {
     const key = materialNameKey(materialName);
     setEstimateWorkMaterials(prev=>{
       const list = Array.isArray(prev[workKey]) ? prev[workKey] : [];
-      return {...prev, [workKey]: list.map(m=>materialNameKey(m.name)===key ? {...m, quantity} : m)};
+      return {...prev, [workKey]: list.map(m=>materialNameKey(m.name)===key ? {...m, quantity, autoNorm:false} : m)};
     });
   };
   const renderMaterialReconciliationPanel = (projectName, options={}) => {
@@ -3846,7 +3974,7 @@ function App() {
     const workKey = estimateWorkKey(mi.estId, mi.sectionIdx, mi.itemIdx);
     const usedMats = (estimateWorkMaterials[workKey]||[])
       .filter(m=>m.name)
-      .map(m=>({name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт'}));
+      .map(m=>({name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт', normQuantity:toNum(m.normQuantity), normSource:m.normSource||'', autoNorm:!!m.autoNorm, overNorm:toNum(m.normQuantity)>0 && toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
     for (const m of usedMats) {
       if (toNum(m.quantity)<=0) { alert('Укажите количество материала «'+m.name+'» или снимите галочку.'); return; }
     }
@@ -3873,9 +4001,10 @@ function App() {
     setEstimatesList(prev=>prev.map(e=>Number(e.id)===Number(est.id)?{...est,sections:newSections}:e));
     setEstimateDoneDrafts(prev=>{const next={...prev};delete next[workKey];return next;});
     setEstimateWorkMaterials(prev=>{const next={...prev};delete next[workKey];return next;});
+    setEstimateWorkParams(prev=>{const next={...prev};delete next[workKey];return next;});
     await loadAll();
     notify('Работа отправлена в ЖПР: '+mi.name,'work');
-    alert('Работа отправлена на проверку. Материалы списаны со склада объекта.');
+    alert('Работа отправлена на проверку. Материалы списаны по выбранным нормам/количествам.');
   };
 
   const addMasterWorks = async () => {
@@ -3914,7 +4043,7 @@ function App() {
       const ppu = item.price*coeff;
       const workQty = toNum(workData.quantity);
       const total = workQty*ppu;
-      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>({name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт'}));
+      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>({name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',autoNorm:!!m.autoNorm,overNorm:toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
       const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats})});
       if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось списать материалы: '+(er.detail||'ошибка'));return;}
       if (workData.roomId) {
@@ -5124,7 +5253,8 @@ function App() {
                         <b style={{fontSize:'12px',color:C.text}}>{mi.name}</b>
                         <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{mi.section+' · план '+fmtMeasure(qty,mi.unit)+' · сделано '+fmtMeasure(done,mi.unit)+' · осталось '+fmtMeasure(remain,mi.unit)}</p>
                       </div>
-                      <input type='number' step='any' inputMode='decimal' placeholder={'+'+(normalizeMeasure(1,mi.unit).unit||mi.unit)} value={draft} onChange={e=>setEstimateDoneDrafts(prev=>({...prev,[wKey]:e.target.value}))} style={{...inp,marginBottom:0,width:'80px',fontSize:'12px',padding:'4px 6px'}}/>
+                      <input type='number' step='any' inputMode='decimal' placeholder={'+'+(normalizeMeasure(1,mi.unit).unit||mi.unit)} value={draft} onChange={e=>{const val=e.target.value;setEstimateDoneDrafts(prev=>({...prev,[wKey]:val}));const raw=denormalizeMeasure(val,mi.unit);const nextDelta=Math.max(0,raw-done);if(proj){const params=estimateWorkParams[wKey]||{};setEstimateWorkMaterials(prev=>({...prev,[wKey]:autoFillNormMaterialsForWork(proj.name,mi.name,mi.section,nextDelta,mi.unit,prev[wKey]||[],params)}));}}} style={{...inp,marginBottom:0,width:'80px',fontSize:'12px',padding:'4px 6px'}}/>
+                      {workNeedsThicknessParam(mi.name,mi.section)&&<input type='number' step='any' inputMode='decimal' placeholder='слой, мм' value={estimateWorkParams[wKey]?.thicknessMm||''} onChange={e=>{const val=e.target.value;const params={...(estimateWorkParams[wKey]||{}),thicknessMm:val};setEstimateWorkParams(prev=>({...prev,[wKey]:params}));if(proj){setEstimateWorkMaterials(prev=>({...prev,[wKey]:autoFillNormMaterialsForWork(proj.name,mi.name,mi.section,delta,mi.unit,prev[wKey]||[],params)}));}}} style={{...inp,marginBottom:0,width:'78px',fontSize:'12px',padding:'4px 6px'}}/>}
                       <span style={{fontSize:'11px',color:C.success,fontWeight:'600',whiteSpace:'nowrap'}}>{Math.round(estimateItemDoneTotal(mi)).toLocaleString('ru-RU')+' ₽'}</span>
                       <button onClick={()=>submitEstimateWorkDone(mi,draft)} disabled={delta<=0} style={{...(delta>0?btnO:btnG),padding:'5px 9px',fontSize:'11px',opacity:delta>0?1:0.65}}>Отправить</button>
                     </div>
@@ -5134,12 +5264,12 @@ function App() {
                         <span style={{fontSize:'10px',color:C.textSec}}>{delta>0?'новый объём: '+fmtMeasure(delta,mi.unit):'сначала укажите новый объём'}</span>
                       </div>
                       {suggestions.length>0&&<div style={{display:'flex',gap:'5px',flexWrap:'wrap',marginBottom:'6px'}}>
-                        {suggestions.slice(0,6).map(r=>{const key=materialNameKey(r.name);const checked=!!usedMap[key];const available=availMap[key];const hasStock=toNum(available?.quantity)>0;const st=materialControlStatus(r);return(<button type='button' key={key} disabled={!hasStock} onClick={()=>checked?removeEstimateWorkMaterial(wKey,r.name):upsertEstimateWorkMaterial(wKey,{name:r.name,unit:r.unit||available?.unit||'шт'},'')} style={{padding:'4px 7px',borderRadius:'7px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>{(checked?'✓ ':'')+r.name+(hasStock?' · '+fmtMeasure(available.quantity,available.unit):'')}</button>);})}
+                        {suggestions.slice(0,6).map(r=>{const key=materialNameKey(r.name);const checked=!!usedMap[key];const available=availMap[key];const unit=available?.unit||r.unit||'шт';const hasStock=toNum(available?.quantity)>0;const st=materialControlStatus(r);const norm=materialNormForWork(proj.name,mi.name,mi.section,delta,mi.unit,{name:r.name,unit},estimateWorkParams[wKey]||{});return(<button type='button' key={key} disabled={!hasStock} onClick={()=>checked?removeEstimateWorkMaterial(wKey,r.name):upsertEstimateWorkMaterial(wKey,{name:r.name,unit,autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||'')} style={{padding:'4px 7px',borderRadius:'7px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>{(checked?'✓ ':'')+r.name+(norm?' · норма '+fmtMeasure(norm.quantity,unit):(hasStock?' · '+fmtMeasure(available.quantity,available.unit):''))}</button>);})}
                       </div>}
                       {projMats.length>0?<div style={{maxHeight:'155px',overflowY:'auto',display:'grid',gap:'5px'}}>
-                        {projMats.map(m=>{const key=materialNameKey(m.name);const checked=!!usedMap[key];const selected=usedMap[key]||{};const hint=materialHintForProject(proj.name,m.name);const stock=toNum(m.quantity);const over=checked&&toNum(selected.quantity)>stock;return(<div key={m.id} style={{display:'grid',gridTemplateColumns:'18px minmax(0,1fr) auto',gap:'6px',alignItems:'center',fontSize:'11px',padding:'5px 6px',border:'1px solid '+(over?C.dangerBorder:checked?C.accentBorder:C.border),borderRadius:'7px'}}>
-                          <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertEstimateWorkMaterial(wKey,{name:m.name,unit:m.unit||'шт'},''):removeEstimateWorkMaterial(wKey,m.name)} style={{width:'14px',height:'14px',accentColor:C.accent}}/>
-                          <span style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}<span style={{color:over?C.danger:C.textSec}}>{' · доступно '+fmtMeasure(stock,m.unit)}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}</span></span>
+                        {projMats.map(m=>{const key=materialNameKey(m.name);const checked=!!usedMap[key];const selected=usedMap[key]||{};const hint=materialHintForProject(proj.name,m.name);const stock=toNum(m.quantity);const norm=materialNormForWork(proj.name,mi.name,mi.section,delta,mi.unit,m,estimateWorkParams[wKey]||{});const normStatus=checked?materialNormStatus(selected):null;const over=checked&&toNum(selected.quantity)>stock;return(<div key={m.id} style={{display:'grid',gridTemplateColumns:'18px minmax(0,1fr) auto',gap:'6px',alignItems:'center',fontSize:'11px',padding:'5px 6px',border:'1px solid '+(over?C.dangerBorder:checked?C.accentBorder:C.border),borderRadius:'7px'}}>
+                          <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertEstimateWorkMaterial(wKey,{name:m.name,unit:m.unit||'шт',autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||''):removeEstimateWorkMaterial(wKey,m.name)} style={{width:'14px',height:'14px',accentColor:C.accent}}/>
+                          <span style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}<span style={{color:over?C.danger:C.textSec}}>{' · доступно '+fmtMeasure(stock,m.unit)}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}{norm?' · норма '+fmtMeasure(norm.quantity,norm.unit):''}</span>{normStatus&&<span style={{marginLeft:'5px',padding:'1px 5px',borderRadius:'7px',fontSize:'9px',fontWeight:'700',backgroundColor:normStatus.bg,color:normStatus.color,border:'1px solid '+normStatus.border}}>{normStatus.label}</span>}</span>
                           {checked&&<input type='number' step='any' inputMode='decimal' placeholder='кол-во' value={selected.quantity||''} onChange={e=>updateEstimateWorkMaterialQty(wKey,m.name,e.target.value)} style={{width:'76px',padding:'4px 6px',border:'1.5px solid '+(over?C.danger:C.border),borderRadius:'6px',fontSize:'11px',backgroundColor:C.bgWhite,color:C.text}}/>}
                         </div>);})}
                       </div>:<p style={{margin:0,color:C.textMuted,fontSize:'11px'}}>{isPersonalMaterialRole()?'Нет подтверждённых материалов, выданных вам для списания.':'На складе объекта нет остатков для списания.'}</p>}
@@ -5164,7 +5294,8 @@ function App() {
                         <span style={{color:C.accent,fontWeight:'700',fontSize:'12px',whiteSpace:'nowrap'}}>{price.toLocaleString()+' ₽/'+item.unit}</span>
                       </div>
                       {isSel&&(<div style={{paddingLeft:'30px',marginTop:'10px'}}>
-                        <input placeholder={'Количество ('+item.unit+')'} type="number" step="any" inputMode="decimal" value={selectedWorks[item.id]?.quantity||''} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],quantity:e.target.value}}))} style={inp}/>
+                        <input placeholder={'Количество ('+item.unit+')'} type="number" step="any" inputMode="decimal" value={selectedWorks[item.id]?.quantity||''} onChange={e=>{const val=e.target.value;setSelectedWorks(prev=>{const cur=prev[item.id]||{materials:[]};const base={...cur,quantity:val};const mats=proj?autoFillNormMaterialsForWork(proj.name,item.name,cat,toNum(val),item.unit,base.materials||[],base):base.materials;return {...prev,[item.id]:{...base,materials:mats}};});}} style={inp}/>
+                        {workNeedsThicknessParam(item.name,cat)&&<input placeholder="Толщина слоя, мм" type="number" step="any" inputMode="decimal" value={selectedWorks[item.id]?.thicknessMm||''} onChange={e=>{const val=e.target.value;setSelectedWorks(prev=>{const cur=prev[item.id]||{materials:[]};const base={...cur,thicknessMm:val};const mats=proj?autoFillNormMaterialsForWork(proj.name,item.name,cat,toNum(base.quantity),item.unit,base.materials||[],base):base.materials;return {...prev,[item.id]:{...base,materials:mats}};});}} style={inp}/>}
                         {projectRooms.length>0&&(<><select value={selectedWorks[item.id]?.roomId||''} onChange={e=>{const room=projectRooms.find(r=>r.id===Number(e.target.value));setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],roomId:e.target.value,roomName:room?.name||''}}));}} style={inp}><option value="">Выберите помещение</option>{projectRooms.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select><select value={selectedWorks[item.id]?.surface||'Стены'} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],surface:e.target.value}}))} style={inp}>{SURFACES.map(s=><option key={s}>{s}</option>)}</select></>)}
                         <input placeholder="Комментарий" value={selectedWorks[item.id]?.comment||''} onChange={e=>setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],comment:e.target.value}}))} style={inp}/>
                         <input type="file" accept="image/*" onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],photoUrl:url}}));}}} style={{...inp,padding:'8px'}}/>
@@ -5189,8 +5320,10 @@ function App() {
                                 const available=availMap[key];
                                 const hasStock=toNum(available?.quantity)>0;
                                 const st=materialControlStatus(r);
-                                return(<button type="button" key={'sug-'+key} disabled={!hasStock} onClick={()=>checked?removeSelectedWorkMaterial(item.id,r.name):upsertSelectedWorkMaterial(item.id,{name:r.name,unit:r.unit||'шт'},'')} style={{padding:'5px 8px',borderRadius:'8px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>
-                                  {(checked?'✓ ':'')+r.name+' · '+(hasStock?'доступно '+fmtMeasure(available.quantity,available.unit):isPersonalMaterialRole()?'не выдано мне':'нет на объекте')}
+                                const unit=available?.unit||r.unit||'шт';
+                                const norm=materialNormForWork(proj.name,item.name,cat,toNum(selectedWorks[item.id]?.quantity),item.unit,{name:r.name,unit},selectedWorks[item.id]||{});
+                                return(<button type="button" key={'sug-'+key} disabled={!hasStock} onClick={()=>checked?removeSelectedWorkMaterial(item.id,r.name):upsertSelectedWorkMaterial(item.id,{name:r.name,unit,autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||'')} style={{padding:'5px 8px',borderRadius:'8px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>
+                                  {(checked?'✓ ':'')+r.name+' · '+(norm?'норма '+fmtMeasure(norm.quantity,unit):(hasStock?'доступно '+fmtMeasure(available.quantity,available.unit):isPersonalMaterialRole()?'не выдано мне':'нет на объекте'))}
                                 </button>);
                               })}
                             </div>}
@@ -5201,16 +5334,19 @@ function App() {
                                 const selected=usedMap[key]||{};
                                 const hint=materialHintForProject(proj.name,m.name);
                                 const stock=toNum(m.quantity);
+                                const norm=materialNormForWork(proj.name,item.name,cat,toNum(selectedWorks[item.id]?.quantity),item.unit,m,selectedWorks[item.id]||{});
+                                const normStatus=checked?materialNormStatus(selected):null;
                                 const over=checked&&toNum(selected.quantity)>stock;
                                 const status=hint?materialControlStatus(hint):null;
                                 return(<div key={m.id} style={{display:'grid',gridTemplateColumns:'18px minmax(0,1fr) auto',alignItems:'center',gap:'8px',padding:'7px 8px',backgroundColor:checked?C.bgWhite:'transparent',border:'1px solid '+(over?C.dangerBorder:checked?C.accentBorder:C.border),borderRadius:'8px',fontSize:'11px'}}>
-                                  <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertSelectedWorkMaterial(item.id,{name:m.name,unit:m.unit||'шт'},''):removeSelectedWorkMaterial(item.id,m.name)} style={{width:'14px',height:'14px',cursor:'pointer',accentColor:C.accent}}/>
+                                  <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertSelectedWorkMaterial(item.id,{name:m.name,unit:m.unit||'шт',autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||''):removeSelectedWorkMaterial(item.id,m.name)} style={{width:'14px',height:'14px',cursor:'pointer',accentColor:C.accent}}/>
                                   <div style={{minWidth:0}}>
                                     <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
                                       <b style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}</b>
                                       {status&&<span style={{padding:'1px 6px',borderRadius:'8px',fontSize:'9px',fontWeight:'700',backgroundColor:status.bg,color:status.color,border:'1px solid '+status.border}}>{status.label}</span>}
+                                      {normStatus&&<span style={{padding:'1px 6px',borderRadius:'8px',fontSize:'9px',fontWeight:'700',backgroundColor:normStatus.bg,color:normStatus.color,border:'1px solid '+normStatus.border}}>{normStatus.label}</span>}
                                     </div>
-                                    <div style={{color:over?C.danger:C.textSec,marginTop:'2px'}}>{'доступно '+fmtMeasure(stock,m.unit)}{hint?.planQty>0?' · по смете '+fmtMeasure(hint.planQty,hint.unit):''}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}</div>
+                                    <div style={{color:over?C.danger:C.textSec,marginTop:'2px'}}>{'доступно '+fmtMeasure(stock,m.unit)}{norm?' · норма '+fmtMeasure(norm.quantity,norm.unit):''}{hint?.planQty>0?' · по смете '+fmtMeasure(hint.planQty,hint.unit):''}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}</div>
                                   </div>
                                   {checked&&<input type='number' step='any' inputMode='decimal' placeholder='кол-во' value={selected.quantity||''} max={stock} onChange={e=>updateSelectedWorkMaterialQty(item.id,m.name,e.target.value)} style={{width:'86px',padding:'5px 7px',border:'1.5px solid '+(over?C.danger:C.border),borderRadius:'6px',fontSize:'11px',backgroundColor:C.bgWhite,color:C.text}}/>}
                                 </div>);
