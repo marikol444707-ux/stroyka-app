@@ -4395,6 +4395,83 @@ def get_work_journal(current_user: dict = Depends(get_current_user)):
     conn.close()
     return [dict(r) for r in rows]
 
+def _parse_materials_used(raw):
+    import json as _json
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        parsed = _json.loads(raw)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+def _personal_material_balance(cur, project: str, person_id, person_name: str, material_name: str):
+    key = (material_name or "").strip().lower()
+    if not key:
+        return {"issued": 0, "used": 0, "available": 0}
+    cur.execute("""SELECT COALESCE(SUM(quantity),0)
+                   FROM material_transfers
+                   WHERE project_name=%s AND to_person=%s AND signed=TRUE
+                     AND LOWER(TRIM(material_name))=LOWER(TRIM(%s))""",
+                (project, person_name or "", material_name or ""))
+    issued_row = cur.fetchone()
+    issued = float((next(iter(issued_row.values())) if isinstance(issued_row, dict) else ((issued_row or [0])[0])) or 0)
+    if person_id:
+        cur.execute("""SELECT materials_used FROM work_journal
+                       WHERE project=%s
+                         AND COALESCE(status,'') <> 'Отклонено'
+                         AND (master_id=%s OR master_name=%s)""",
+                    (project, person_id, person_name or ""))
+    else:
+        cur.execute("""SELECT materials_used FROM work_journal
+                       WHERE project=%s
+                         AND COALESCE(status,'') <> 'Отклонено'
+                         AND master_name=%s""",
+                    (project, person_name or ""))
+    used = 0
+    for row in cur.fetchall() or []:
+        raw = row.get("materials_used") if isinstance(row, dict) else row[0]
+        for m in _parse_materials_used(raw):
+            if (m.get("name") or "").strip().lower() == key:
+                try:
+                    used += float(m.get("quantity") or 0)
+                except Exception:
+                    pass
+    return {"issued": issued, "used": used, "available": issued - used}
+
+def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict, date_value: str, fallback_master_name: str = ""):
+    name = material.get("name") or ""
+    qty = float(material.get("quantity") or 0)
+    unit = material.get("unit") or ""
+    role = actor.get("role") or ""
+    actor_id = actor.get("id")
+    actor_name = actor.get("name") or fallback_master_name or ""
+    if not name or qty <= 0:
+        return
+    if role in ("мастер", "субподрядчик"):
+        balance = _personal_material_balance(cur, project, actor_id, actor_name, name)
+        if balance["issued"] <= 0:
+            raise HTTPException(status_code=400, detail="Материал «"+name+"» не выдан мастеру «"+actor_name+"» или получение не подтверждено")
+        if balance["available"] < qty:
+            raise HTTPException(status_code=400, detail="У мастера «"+actor_name+"» доступно "+str(round(balance["available"], 3))+" "+unit+" «"+name+"», запрошено "+str(qty)+". Лишний материал нужно выдать или вернуть/уточнить списание")
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (name, "расход (работа мастера)", qty, date_value or None, project, actor_name, actor_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        return
+
+    cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, project))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="Материал «"+name+"» не найден на складе объекта «"+project+"»")
+    mat_id = row.get("id") if isinstance(row, dict) else row[0]
+    stock_qty = float((row.get("quantity") if isinstance(row, dict) else row[1]) or 0)
+    if stock_qty < qty:
+        raise HTTPException(status_code=400, detail="На складе «"+project+"» только "+str(stock_qty)+" "+unit+" «"+name+"», запрошено "+str(qty))
+    cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, mat_id))
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (name, "расход (работа)", qty, date_value or None, project, actor_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+
 @app.post("/work-journal")
 def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     require_project_access(_current_user, w.project)
@@ -4405,18 +4482,7 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         for m in used:
-            name = m["name"]
-            qty = float(m["quantity"])
-            cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, w.project))
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=400, detail="Материал «"+name+"» не найден на складе объекта «"+w.project+"»")
-            stock_qty = float(row["quantity"] or 0)
-            if stock_qty < qty:
-                raise HTTPException(status_code=400, detail="На складе «"+w.project+"» только "+str(stock_qty)+" "+(m.get("unit") or "")+" «"+name+"», запрошено "+str(qty))
-            cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, row["id"]))
-            cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                (name, "расход (работа)", qty, w.date or None, w.project, w.masterName or "", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+            _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
 
         import json as _json
         materials_json = _json.dumps(used, ensure_ascii=False) if used else None
@@ -6197,16 +6263,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
             used_materials = _materials_for_delta(section_idx, item_idx, s.get("name",""), it.get("name",""))
             try:
                 for m in used_materials:
-                    cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (m["name"], project_name))
-                    mat_row = cur.fetchone()
-                    if not mat_row:
-                        raise HTTPException(status_code=400, detail="Материал «"+m["name"]+"» не найден на складе объекта «"+project_name+"»")
-                    stock_qty = float(mat_row[1] or 0)
-                    if stock_qty < float(m["quantity"] or 0):
-                        raise HTTPException(status_code=400, detail="На складе «"+project_name+"» только "+str(stock_qty)+" "+(m.get("unit") or "")+" «"+m["name"]+"», запрошено "+str(m["quantity"]))
-                    cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (float(m["quantity"]), mat_row[0]))
-                    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                        (m["name"], "расход (работа)", float(m["quantity"]), today, project_name, _current_user.get("name") or brigade or "", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                    _apply_material_work_writeoff(cur, project_name, m, _current_user, today, brigade)
                 materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal
                                (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,

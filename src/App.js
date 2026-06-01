@@ -2774,18 +2774,61 @@ function App() {
     return {label:'Закрыто', color:C.success, bg:C.successLight, border:C.successBorder};
   };
   const materialNameKey = (name) => String(name||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
-  const materialStockMapForProject = (projectName) => {
+  const isPersonalMaterialRole = () => ['мастер','субподрядчик'].includes(user?.role);
+  const parseJournalMaterials = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch(_) {
+      return [];
+    }
+  };
+  const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id) => {
     const byName = {};
-    (materials||[])
-      .filter(m=>m.project===projectName && toNum(m.quantity)>0)
-      .forEach(m=>{
-        const key = materialNameKey(m.name);
+    (materialTransfers||[])
+      .filter(t=>t.projectName===projectName && t.toPerson===personName && t.signed)
+      .forEach(t=>{
+        const key = materialNameKey(t.materialName);
         if (!key) return;
-        if (!byName[key]) byName[key] = {name:m.name, unit:m.unit||'шт', quantity:0, rows:[]};
-        byName[key].quantity += toNum(m.quantity);
-        if (!byName[key].unit && m.unit) byName[key].unit = m.unit;
-        byName[key].rows.push(m);
+        if (!byName[key]) byName[key] = {name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, pending:0, project:projectName};
+        byName[key].received += toNum(t.quantity);
+        byName[key].quantity += toNum(t.quantity);
       });
+    (materialTransfers||[])
+      .filter(t=>t.projectName===projectName && t.toPerson===personName && !t.signed)
+      .forEach(t=>{
+        const key = materialNameKey(t.materialName);
+        if (!key) return;
+        if (!byName[key]) byName[key] = {name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, pending:0, project:projectName};
+        byName[key].pending += toNum(t.quantity);
+      });
+    (workJournal||[])
+      .filter(w=>w.project===projectName && w.status!=='Отклонено' && (Number(w.masterId||w.master_id)===Number(personId) || w.masterName===personName || w.master_name===personName))
+      .forEach(w=>parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
+        const key = materialNameKey(m.name);
+        const cur = byName[key];
+        if (cur) {
+          cur.used += toNum(m.quantity);
+          cur.quantity -= toNum(m.quantity);
+        }
+      }));
+    return Object.values(byName).filter(r=>r.received>0 || r.pending>0).map(r=>({...r, quantity:Math.max(0,r.quantity)}));
+  };
+  const materialRowsAvailableForWork = (projectName) => {
+    if (isPersonalMaterialRole()) return personalMaterialRowsForProject(projectName).filter(r=>toNum(r.quantity)>0);
+    return (materials||[]).filter(m=>m.project===projectName&&toNum(m.quantity)>0);
+  };
+  const materialAvailabilityMapForWork = (projectName) => {
+    const byName = {};
+    materialRowsAvailableForWork(projectName).forEach(m=>{
+      const key = materialNameKey(m.name);
+      if (!key) return;
+      if (!byName[key]) byName[key] = {name:m.name, unit:m.unit||'шт', quantity:0};
+      byName[key].quantity += toNum(m.quantity);
+      if (!byName[key].unit && m.unit) byName[key].unit = m.unit;
+    });
     return byName;
   };
   const materialHintForProject = (projectName, materialName) => {
@@ -3807,7 +3850,7 @@ function App() {
     for (const m of usedMats) {
       if (toNum(m.quantity)<=0) { alert('Укажите количество материала «'+m.name+'» или снимите галочку.'); return; }
     }
-    const stockByName = materialStockMapForProject(project.name);
+    const stockByName = materialAvailabilityMapForWork(project.name);
     const usageByName = {};
     usedMats.forEach(m=>{
       const key = materialNameKey(m.name);
@@ -3816,8 +3859,8 @@ function App() {
     });
     for (const m of Object.values(usageByName)) {
       const stock = stockByName[materialNameKey(m.name)];
-      if (!stock) { alert('Материал «'+m.name+'» не найден на складе объекта «'+project.name+'».'); return; }
-      if (m.quantity > stock.quantity + 0.0001) { alert('Недостаточно материала «'+m.name+'»: выбрано '+fmtMeasure(m.quantity,m.unit)+', на объекте '+fmtMeasure(stock.quantity,stock.unit)+'.'); return; }
+      if (!stock) { alert(isPersonalMaterialRole()?'Материал «'+m.name+'» не выдан вам или получение не подтверждено.':'Материал «'+m.name+'» не найден на складе объекта «'+project.name+'».'); return; }
+      if (m.quantity > stock.quantity + 0.0001) { alert('Недостаточно материала «'+m.name+'»: выбрано '+fmtMeasure(m.quantity,m.unit)+', доступно '+fmtMeasure(stock.quantity,stock.unit)+'.'); return; }
     }
     const newSections = est.sections.map((s,si)=>si===mi.sectionIdx?{...s,items:s.items.map((it,ii)=>ii===mi.itemIdx?{...it,doneQuantity:raw}:it)}:s);
     const updated = {...est, sections:newSections, _workJournalMaterials:{[workKey]:usedMats}};
@@ -3847,7 +3890,7 @@ function App() {
       return item && workData.quantity && toNum(workData.quantity)>0;
     });
     if (!selectedEntries.length) { alert('Введите количество хотя бы для одной работы'); return; }
-    const stockByName = materialStockMapForProject(project.name);
+    const stockByName = materialAvailabilityMapForWork(project.name);
     const plannedUsage = {};
     for (const [itemId, workData] of selectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
@@ -3861,8 +3904,8 @@ function App() {
     }
     for (const u of Object.values(plannedUsage)) {
       const stock = stockByName[materialNameKey(u.name)];
-      if (!stock) { alert('Материал «'+u.name+'» не найден на складе объекта «'+project.name+'». Сначала примите или переместите материал на объект.'); return; }
-      if (u.quantity > stock.quantity + 0.0001) { alert('Недостаточно материала «'+u.name+'»: выбрано '+fmtMeasure(u.quantity,u.unit)+', на объекте '+fmtMeasure(stock.quantity,stock.unit)+'.'); return; }
+      if (!stock) { alert(isPersonalMaterialRole()?'Материал «'+u.name+'» не выдан вам или получение не подтверждено.':'Материал «'+u.name+'» не найден на складе объекта «'+project.name+'». Сначала примите или переместите материал на объект.'); return; }
+      if (u.quantity > stock.quantity + 0.0001) { alert('Недостаточно материала «'+u.name+'»: выбрано '+fmtMeasure(u.quantity,u.unit)+', доступно '+fmtMeasure(stock.quantity,stock.unit)+'.'); return; }
     }
     for (const [itemId,workData] of selectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
@@ -5075,7 +5118,7 @@ function App() {
                 if(myItems.length===0) return null;
                 return(<div style={{...card,padding:'14px',marginBottom:'15px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
                   <b style={{color:C.accent,fontSize:'13px',display:'block',marginBottom:'10px'}}>🎯 Мои работы по смете ({myItems.length})</b>
-                  {myItems.map((mi,n)=>{const qty=Number(mi.quantity)||0;const done=Number(mi.doneQuantity)||0;const remain=Math.max(0,qty-done);const doneNorm=normalizeMeasure(done,mi.unit);const wKey=estimateWorkKey(mi.estId,mi.sectionIdx,mi.itemIdx);const draft=estimateDoneDrafts[wKey]!==undefined?estimateDoneDrafts[wKey]:(doneNorm.qty||'');const rawDraft=denormalizeMeasure(draft,mi.unit);const delta=Math.max(0,rawDraft-done);const proj=projects.find(p=>p.id===Number(masterProjectId));const projMats=proj?materials.filter(m=>m.project===proj.name&&toNum(m.quantity)>0):[];const used=estimateWorkMaterials[wKey]||[];const usedMap={};used.forEach(u=>{usedMap[materialNameKey(u.name)]=u;});const suggestions=proj?materialSuggestionsForWork(proj.name,mi.name,mi.section):[];return(<div key={n} style={{padding:'10px',marginBottom:'6px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
+                  {myItems.map((mi,n)=>{const qty=Number(mi.quantity)||0;const done=Number(mi.doneQuantity)||0;const remain=Math.max(0,qty-done);const doneNorm=normalizeMeasure(done,mi.unit);const wKey=estimateWorkKey(mi.estId,mi.sectionIdx,mi.itemIdx);const draft=estimateDoneDrafts[wKey]!==undefined?estimateDoneDrafts[wKey]:(doneNorm.qty||'');const rawDraft=denormalizeMeasure(draft,mi.unit);const delta=Math.max(0,rawDraft-done);const proj=projects.find(p=>p.id===Number(masterProjectId));const projMats=proj?materialRowsAvailableForWork(proj.name):[];const availMap=proj?materialAvailabilityMapForWork(proj.name):{};const used=estimateWorkMaterials[wKey]||[];const usedMap={};used.forEach(u=>{usedMap[materialNameKey(u.name)]=u;});const suggestions=proj?materialSuggestionsForWork(proj.name,mi.name,mi.section):[];return(<div key={n} style={{padding:'10px',marginBottom:'6px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
                       <div style={{flex:1}}>
                         <b style={{fontSize:'12px',color:C.text}}>{mi.name}</b>
@@ -5091,15 +5134,15 @@ function App() {
                         <span style={{fontSize:'10px',color:C.textSec}}>{delta>0?'новый объём: '+fmtMeasure(delta,mi.unit):'сначала укажите новый объём'}</span>
                       </div>
                       {suggestions.length>0&&<div style={{display:'flex',gap:'5px',flexWrap:'wrap',marginBottom:'6px'}}>
-                        {suggestions.slice(0,6).map(r=>{const key=materialNameKey(r.name);const checked=!!usedMap[key];const hasStock=toNum(r.stock)>0;const st=materialControlStatus(r);return(<button type='button' key={key} disabled={!hasStock} onClick={()=>checked?removeEstimateWorkMaterial(wKey,r.name):upsertEstimateWorkMaterial(wKey,{name:r.name,unit:r.unit||'шт'},'')} style={{padding:'4px 7px',borderRadius:'7px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>{(checked?'✓ ':'')+r.name}</button>);})}
+                        {suggestions.slice(0,6).map(r=>{const key=materialNameKey(r.name);const checked=!!usedMap[key];const available=availMap[key];const hasStock=toNum(available?.quantity)>0;const st=materialControlStatus(r);return(<button type='button' key={key} disabled={!hasStock} onClick={()=>checked?removeEstimateWorkMaterial(wKey,r.name):upsertEstimateWorkMaterial(wKey,{name:r.name,unit:r.unit||available?.unit||'шт'},'')} style={{padding:'4px 7px',borderRadius:'7px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>{(checked?'✓ ':'')+r.name+(hasStock?' · '+fmtMeasure(available.quantity,available.unit):'')}</button>);})}
                       </div>}
                       {projMats.length>0?<div style={{maxHeight:'155px',overflowY:'auto',display:'grid',gap:'5px'}}>
                         {projMats.map(m=>{const key=materialNameKey(m.name);const checked=!!usedMap[key];const selected=usedMap[key]||{};const hint=materialHintForProject(proj.name,m.name);const stock=toNum(m.quantity);const over=checked&&toNum(selected.quantity)>stock;return(<div key={m.id} style={{display:'grid',gridTemplateColumns:'18px minmax(0,1fr) auto',gap:'6px',alignItems:'center',fontSize:'11px',padding:'5px 6px',border:'1px solid '+(over?C.dangerBorder:checked?C.accentBorder:C.border),borderRadius:'7px'}}>
                           <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertEstimateWorkMaterial(wKey,{name:m.name,unit:m.unit||'шт'},''):removeEstimateWorkMaterial(wKey,m.name)} style={{width:'14px',height:'14px',accentColor:C.accent}}/>
-                          <span style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}<span style={{color:over?C.danger:C.textSec}}>{' · остаток '+fmtMeasure(stock,m.unit)}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}</span></span>
+                          <span style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}<span style={{color:over?C.danger:C.textSec}}>{' · доступно '+fmtMeasure(stock,m.unit)}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}</span></span>
                           {checked&&<input type='number' step='any' inputMode='decimal' placeholder='кол-во' value={selected.quantity||''} onChange={e=>updateEstimateWorkMaterialQty(wKey,m.name,e.target.value)} style={{width:'76px',padding:'4px 6px',border:'1.5px solid '+(over?C.danger:C.border),borderRadius:'6px',fontSize:'11px',backgroundColor:C.bgWhite,color:C.text}}/>}
                         </div>);})}
-                      </div>:<p style={{margin:0,color:C.textMuted,fontSize:'11px'}}>На складе объекта нет остатков для списания.</p>}
+                      </div>:<p style={{margin:0,color:C.textMuted,fontSize:'11px'}}>{isPersonalMaterialRole()?'Нет подтверждённых материалов, выданных вам для списания.':'На складе объекта нет остатков для списания.'}</p>}
                     </div>}
                   </div>);})}
                 </div>);
@@ -5127,12 +5170,13 @@ function App() {
                         <input type="file" accept="image/*" onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0]);setSelectedWorks(prev=>({...prev,[item.id]:{...prev[item.id],photoUrl:url}}));}}} style={{...inp,padding:'8px'}}/>
                         {(()=>{
                           const proj=projects.find(pp=>pp.id===Number(masterProjectId));
-                          const projMats=proj?materials.filter(m=>m.project===proj.name&&toNum(m.quantity)>0):[];
+                          const projMats=proj?materialRowsAvailableForWork(proj.name):[];
+                          const availMap=proj?materialAvailabilityMapForWork(proj.name):{};
                           const used=selectedWorks[item.id]?.materials||[];
                           const usedMap={};used.forEach(u=>{usedMap[materialNameKey(u.name)]=u;});
                           if(!proj) return null;
                           const suggestions=materialSuggestionsForWork(proj.name,item.name,cat);
-                          if(!projMats.length&&!suggestions.length) return(<div style={{marginTop:'8px',padding:'10px',backgroundColor:C.warningLight,borderRadius:'8px',border:'1px solid '+C.warningBorder,fontSize:'11px',color:C.warning}}>На складе объекта пока нет материалов для списания. Сначала примите поставку или переместите материал на объект.</div>);
+                          if(!projMats.length&&!suggestions.length) return(<div style={{marginTop:'8px',padding:'10px',backgroundColor:C.warningLight,borderRadius:'8px',border:'1px solid '+C.warningBorder,fontSize:'11px',color:C.warning}}>{isPersonalMaterialRole()?'У вас пока нет подтверждённых материалов для списания. Подтвердите получение во вкладке «Склад» или попросите прораба/кладовщика выдать материал.':'На складе объекта пока нет материалов для списания. Сначала примите поставку или переместите материал на объект.'}</div>);
                           return(<div style={{marginTop:'8px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
                             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
                               <b style={{fontSize:'12px',color:C.text}}>📦 Материалы к списанию</b>
@@ -5142,10 +5186,11 @@ function App() {
                               {suggestions.map(r=>{
                                 const key=materialNameKey(r.name);
                                 const checked=!!usedMap[key];
-                                const hasStock=toNum(r.stock)>0;
+                                const available=availMap[key];
+                                const hasStock=toNum(available?.quantity)>0;
                                 const st=materialControlStatus(r);
                                 return(<button type="button" key={'sug-'+key} disabled={!hasStock} onClick={()=>checked?removeSelectedWorkMaterial(item.id,r.name):upsertSelectedWorkMaterial(item.id,{name:r.name,unit:r.unit||'шт'},'')} style={{padding:'5px 8px',borderRadius:'8px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>
-                                  {(checked?'✓ ':'')+r.name+' · '+(hasStock?'остаток '+fmtMeasure(r.stock,r.unit):'нет на объекте')}
+                                  {(checked?'✓ ':'')+r.name+' · '+(hasStock?'доступно '+fmtMeasure(available.quantity,available.unit):isPersonalMaterialRole()?'не выдано мне':'нет на объекте')}
                                 </button>);
                               })}
                             </div>}
@@ -5165,7 +5210,7 @@ function App() {
                                       <b style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}</b>
                                       {status&&<span style={{padding:'1px 6px',borderRadius:'8px',fontSize:'9px',fontWeight:'700',backgroundColor:status.bg,color:status.color,border:'1px solid '+status.border}}>{status.label}</span>}
                                     </div>
-                                    <div style={{color:over?C.danger:C.textSec,marginTop:'2px'}}>{'остаток '+fmtMeasure(stock,m.unit)}{hint?.planQty>0?' · по смете '+fmtMeasure(hint.planQty,hint.unit):''}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}</div>
+                                    <div style={{color:over?C.danger:C.textSec,marginTop:'2px'}}>{'доступно '+fmtMeasure(stock,m.unit)}{hint?.planQty>0?' · по смете '+fmtMeasure(hint.planQty,hint.unit):''}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}</div>
                                   </div>
                                   {checked&&<input type='number' step='any' inputMode='decimal' placeholder='кол-во' value={selected.quantity||''} max={stock} onChange={e=>updateSelectedWorkMaterialQty(item.id,m.name,e.target.value)} style={{width:'86px',padding:'5px 7px',border:'1.5px solid '+(over?C.danger:C.border),borderRadius:'6px',fontSize:'11px',backgroundColor:C.bgWhite,color:C.text}}/>}
                                 </div>);
@@ -5285,10 +5330,11 @@ function App() {
                 const balance = new Map();
                 myIssues.forEach(t=>{
                   const key = (t.materialName||'').toLowerCase().trim()+'|'+(t.project||'');
-                  if (!balance.has(key)) balance.set(key, {name:t.materialName, project:t.project, unit:t.unit, received:0, used:0, transfers:[]});
-                  const cur = balance.get(key);
-                  cur.received += Number(t.quantity||0);
-                  cur.transfers.push(t);
+	                  if (!balance.has(key)) balance.set(key, {name:t.materialName, project:t.project, unit:t.unit, received:0, pending:0, used:0, transfers:[]});
+	                  const cur = balance.get(key);
+	                  if (t.confirmed) cur.received += Number(t.quantity||0);
+	                  else cur.pending += Number(t.quantity||0);
+	                  cur.transfers.push(t);
                 });
                 // Считаем использованное из work_journal этого мастера
                 (workJournal||[]).filter(w=>Number(w.masterId||w.master_id)===user.id).forEach(w=>{
@@ -5315,10 +5361,11 @@ function App() {
                     </div>
                     {/* Бар Получено / Использовано / Остаток */}
                     <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'6px',marginBottom:'8px'}}>
-                      <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',border:'1px solid '+C.border}}>
-                        <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Получено</p>
-                        <b style={{color:C.text,fontSize:'13px'}}>{b.received+' '+b.unit}</b>
-                      </div>
+	                      <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',border:'1px solid '+C.border}}>
+	                        <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Получено</p>
+	                        <b style={{color:C.text,fontSize:'13px'}}>{b.received+' '+b.unit}</b>
+	                        {b.pending>0&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>+ ждёт подписи {b.pending+' '+b.unit}</p>}
+	                      </div>
                       <div style={{padding:'8px',backgroundColor:C.warningLight,borderRadius:'6px',border:'1px solid '+C.warningBorder}}>
                         <p style={{color:C.warning,fontSize:'10px',margin:'0 0 2px'}}>Использовано</p>
                         <b style={{color:C.warning,fontSize:'13px'}}>{b.used+' '+b.unit}</b>
