@@ -17,6 +17,46 @@ if (typeof window !== 'undefined' && !window.__stroykaAuthFetchInstalled) {
 }
 // Парсинг чисел с поддержкой запятой как разделителя (русская локаль): "0,027" → 0.027
 const toNum = (v) => { if(v===null||v===undefined||v==='') return 0; const s=String(v).replace(',', '.').replace(/\s+/g,''); const n=Number(s); return isNaN(n)?0:n; };
+const ESTIMATE_ITEM_TYPES = [
+  {id:'work', label:'Работа', icon:'🔨'},
+  {id:'material', label:'Материал', icon:'📦'},
+  {id:'equipment', label:'Оборудование', icon:'⚙️'},
+  {id:'transport', label:'Доставка/механизм', icon:'🚚'},
+  {id:'overhead', label:'Прочее', icon:'📄'}
+];
+const ESTIMATE_ITEM_TYPE_BY_ID = ESTIMATE_ITEM_TYPES.reduce((acc, t) => { acc[t.id] = t; return acc; }, {});
+const estimateTextKey = (value) => String(value||'').toLowerCase().replace(/ё/g,'е').replace(/[.,;:()[\]{}«»"'`]/g,' ').replace(/[-–—]/g,' ').replace(/\s+/g,' ').trim();
+const estimateTextHasAny = (text, tokens=[]) => {
+  const t = estimateTextKey(text);
+  return tokens.some(token => t.includes(estimateTextKey(token)));
+};
+const ESTIMATE_TYPE_TOKENS = {
+  work: ['работ','монтаж','демонтаж','установка','устройство','прокладка','разбор','сборка','кладка','штукатур','шпатлев','шпаклев','окраск','грунтов','облицов','стяжк','бетонир','заливка','укладка','замена','подключение','пусконалад','сверление','бурение','пробивка','нарезка','очистка','подготовка','герметизация','изоляция','армирование'],
+  material: ['материал','труба','трубопровод','фитинг','муфта','угольник','тройник','переход','хомут','кабель','провод','гофра','короб','лоток','автомат','розетка','выключатель','светильник','лампа','щит','кирпич','блок','бетон','цемент','пескобетон','смесь','штукатурка','шпатлевка','шпаклевка','клей','затирка','грунтовка','краска','лист','гкл','профиль','саморез','сверло','круг','герметик','пена','гвозд','дюбель'],
+  equipment: ['оборудование','прибор','аппарат','станция','насос','котел','радиатор','конвектор','вентилятор','решетка','механизм','инструмент','аренда','леса','подмости'],
+  transport: ['доставка','перевозка','транспорт','вывоз','погрузка','разгрузка','экспедирование'],
+  overhead: ['накладн','прочие','непредвид','коэффициент','сметная прибыль','заготовительно складские','компенсация','страхование']
+};
+const normalizeEstimateItemType = (it={}, sectionName='') => {
+  const explicit = estimateTextKey(it.itemType || it.type);
+  if (ESTIMATE_ITEM_TYPE_BY_ID[explicit]) return explicit;
+  if (explicit.includes('мат')) return 'material';
+  if (explicit.includes('оборуд') || explicit.includes('механизм')) return 'equipment';
+  if (explicit.includes('достав') || explicit.includes('транспорт')) return 'transport';
+  if (explicit.includes('проч') || explicit.includes('наклад')) return 'overhead';
+  if (explicit.includes('работ')) return 'work';
+  const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
+  if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.work)) return 'work';
+  if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.transport)) return 'transport';
+  if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.equipment)) return 'equipment';
+  if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.overhead)) return 'overhead';
+  if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.material)) return 'material';
+  if (toNum(it.priceMaterial)>0 && toNum(it.priceWork)===0) return 'material';
+  return 'work';
+};
+const estimateItemTypeMeta = (type) => ESTIMATE_ITEM_TYPE_BY_ID[type] || ESTIMATE_ITEM_TYPE_BY_ID.work;
+const isEstimateMaterialItem = (it, sectionName='') => normalizeEstimateItemType(it, sectionName)==='material';
+const isEstimateWorkItem = (it, sectionName='') => normalizeEstimateItemType(it, sectionName)==='work';
 const estimateItemWorkSum = (it) => toNum(it?.quantity) * toNum(it?.priceWork);
 const estimateItemMaterialSum = (it) => (it?.isImported ? toNum(it?.priceMaterial) : toNum(it?.quantity) * toNum(it?.priceMaterial));
 const estimateItemTotal = (it) => estimateItemWorkSum(it) + estimateItemMaterialSum(it);
@@ -879,7 +919,7 @@ function App() {
     setEstimateChatLoading(false);
   };
   const [newEstimateSection, setNewEstimateSection] = useState({name:''});
-  const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});
+  const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',itemType:'work',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});
   const [newStage, setNewStage] = useState({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
   const [newChecklist, setNewChecklist] = useState({name:'',template:''});
   const [newChecklistItem, setNewChecklistItem] = useState('');
@@ -2697,7 +2737,7 @@ function App() {
       ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
     );
     (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
-      if ((it.itemType||'')==='material' || toNum(it.priceMaterial)>0) {
+      if (isEstimateMaterialItem(it, s.name)) {
         const r = ensure(it.name, it.unit);
         if (!r) return;
         addQty(r, 'planQty', it.quantity, it.unit);
@@ -3357,9 +3397,9 @@ function App() {
     const transfers=(materialTransfers||[]).filter(t=>t.projectName===projectName&&(!masterName||t.toPerson===masterName)&&inRange(t.transferDate||t.date));
     const byMat={};
     transfers.forEach(t=>{const k=(t.materialName||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:t.materialName,unit:t.unit||'',limit:0,issued:0};byMat[k].issued+=Number(t.quantity||0);});
-    // Лимит = объём по смете (priceMaterial>0 или itemType='material')
+    // Лимит = только строки сметы, явно распознанные как материалы.
     const project=projects.find(p=>p.name===projectName)||{};
-    activeEstimatesForProject(project, 'Заказчик').forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if((it.itemType||'')==='material'||Number(it.priceMaterial||0)>0){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:it.name,unit:it.unit||'',limit:0,issued:0};byMat[k].limit+=Number(it.quantity||0);}})));
+    activeEstimatesForProject(project, 'Заказчик').forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{if(isEstimateMaterialItem(it, s.name)){const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:it.name,unit:it.unit||'',limit:0,issued:0};byMat[k].limit+=Number(it.quantity||0);}})));
     const rows=Object.values(byMat).sort((a,b)=>(b.issued/b.limit||0)-(a.issued/a.limit||0));
     let html='<style>.m8-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.m8-tbl th,.m8-tbl td{border:1px solid #333;padding:5px 6px}.m8-tbl th{background:#f3f4f6}.m8-over{background:#fee2e2}.m8-ok{background:#dcfce7}</style>';
     html+='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-8</h3>';
@@ -3510,10 +3550,10 @@ function App() {
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
     const project = projects.find(p=>p.name===projectName)||{};
-    // План из сметы по материалам (priceMaterial)
+    // План из сметы по строкам типа "Материал".
     const planByName = {};
     activeEstimatesForProject(project, 'Заказчик').forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
-      if ((it.itemType||'material')==='material' || Number(it.priceMaterial||0)>0) {
+      if (isEstimateMaterialItem(it, s.name)) {
         const key = (it.name||'').trim().toLowerCase();
         if (!key) return;
         if (!planByName[key]) planByName[key] = {name:it.name||'', unit:it.unit||'', plan:0, fact:0};
@@ -8011,14 +8051,14 @@ function App() {
                         const matchScore=(a,b)=>{const aw=norm(a).split(' ').filter(w=>w.length>=3);const bw=new Set(norm(b).split(' ').filter(w=>w.length>=3));if(!aw.length||!bw.size) return 0;const common=aw.filter(w=>bw.has(w)).length;return common/Math.max(aw.length,1);};
                         const projMaterials=materials.filter(m=>m.project===p.name);
                         const projTransfers=materialTransfers.filter(t=>t.projectName===p.name);
-                        const workProgress=smetaItems.map(it=>{
+                        const workProgress=smetaItems.filter(it=>isEstimateWorkItem(it,it.section)).map(it=>{
                           const plan=Number(it.quantity||0);
                           const done=Number(it.doneQuantity||0);
                           const left=Math.max(0,plan-done);
                           const pct=plan>0?Math.min(100,Math.round(done/plan*100)):0;
                           return {name:it.name,section:it.section,unit:it.unit,plan,done,left,pct};
                         });
-                        const matPlan=smetaItems.filter(i=>Number(i.priceMaterial||0)>0).map(it=>{
+                        const matPlan=smetaItems.filter(i=>isEstimateMaterialItem(i,i.section)).map(it=>{
                           const plan=Number(it.quantity||0);
                           const bought=projMaterials.filter(m=>matchScore(m.name,it.name)>=0.4).reduce((s,m)=>s+Number(m.quantity||0),0);
                           return {name:it.name,unit:it.unit,plan,bought,need:Math.max(0,plan-bought)};
@@ -11589,9 +11629,9 @@ function App() {
                   {selectedEstimate.status!=='Активная'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Активная')} style={btnGr}><CheckCircle size={14}/>Активной</button>}
                   {selectedEstimate.status!=='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Архив')} style={btnG}><Archive size={14}/>В архив</button>}
                   {selectedEstimate.status==='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>↩ Черновик</button>}
-                  <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="7"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>`<tr><td>${i+1}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`)]).join('')+'<tr><td colspan="6"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
+	                  <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Тип</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="8"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>{const meta=estimateItemTypeMeta(normalizeEstimateItemType(it,s.name));return `<tr><td>${i+1}</td><td>${meta.label}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`;})]).join('')+'<tr><td colspan="7"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
                   {(()=>{const base=estimateDiffBaseFor(selectedEstimate);return base?<button onClick={()=>showPreview(buildEstimateDiffContent(base,selectedEstimate),'Разница смет')} style={btnB}><FileText size={14}/>Разница</button>:null;})()}
-                  <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
+	                  <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Тип:estimateItemTypeMeta(normalizeEstimateItemType(i,s.name)).label,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
                   <button onClick={async()=>{
                     const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/toggle-template',{method:'PUT'});
                     const data=await res.json();
@@ -11741,19 +11781,23 @@ function App() {
                   </div>
                 </div>
                 {(selectedEstimate.sections||[]).map((section,si)=>{
-                  const itemKind=(it)=>it.itemType||(Number(it.priceMaterial||0)>0&&Number(it.priceWork||0)===0?'material':'work');
+                  const itemKind=(it)=>normalizeEstimateItemType(it, section.name);
                   const sumOf=(it)=>estimateItemTotal(it);
                   const allItems=section.items||[];
-                  const works=allItems.map((i,idx)=>({...i,_idx:idx})).filter(i=>itemKind(i)==='work');
-                  const mats=allItems.map((i,idx)=>({...i,_idx:idx})).filter(i=>itemKind(i)==='material');
+                  const typedItems=allItems.map((i,idx)=>({...i,_idx:idx,_type:itemKind(i)}));
+                  const works=typedItems.filter(i=>i._type==='work');
+                  const mats=typedItems.filter(i=>i._type==='material');
+                  const others=typedItems.filter(i=>!['work','material'].includes(i._type));
                   const total=allItems.reduce((s,i)=>s+sumOf(i),0);
                   const totalW=works.reduce((s,i)=>s+sumOf(i),0);
                   const totalM=mats.reduce((s,i)=>s+sumOf(i),0);
+                  const totalOther=others.reduce((s,i)=>s+sumOf(i),0);
                   const removeAt=(idx)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).filter((_,i)=>i!==idx)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
-                  const updateItem=(idx,field,val)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map((it,i)=>i===idx?{...it,[field]:val,isImported:field==='quantity'||field==='priceWork'||field==='priceMaterial'?false:it.isImported}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));};
+                  const updateItemPatch=(idx,patch,saveNow=false)=>{const fields=Object.keys(patch||{});const changesAmount=fields.some(f=>['quantity','priceWork','priceMaterial'].includes(f));const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map((it,i)=>i===idx?{...it,...patch,isImported:changesAmount?false:it.isImported}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));if(saveNow)persistEstimate(updated);return updated;};
+                  const updateItem=(idx,field,val,saveNow=false)=>updateItemPatch(idx,{[field]:val},saveNow);
                   const persist=()=>persistEstimate(selectedEstimate);
                   const inpCell={padding:'6px 8px',border:'1px solid '+C.border,borderRadius:'6px',fontSize:'12px',width:'100%',minWidth:0,backgroundColor:C.bgWhite,color:C.text,outline:'none'};
-                  const estimateTbl={...tbl,minWidth:'1520px',tableLayout:'fixed'};
+                  const estimateTbl={...tbl,minWidth:'1680px',tableLayout:'fixed'};
                   const projBrigades=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName).map(bc=>bc.brigadeName).filter(Boolean);
                   const renderGroup=(title,emoji,list,groupTotal,accent)=>(<div style={{marginBottom:'10px'}}>
                     <div style={{padding:'6px 10px',backgroundColor:accent+'15',borderRadius:'6px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px',borderLeft:'3px solid '+accent}}>
@@ -11761,8 +11805,9 @@ function App() {
                       <b style={{color:accent,fontSize:'12px'}}>{groupTotal.toLocaleString('ru-RU')+' ₽'}</b>
                     </div>
                     {list.length>0?(<div style={{overflowX:'auto',paddingBottom:'2px'}}><table style={estimateTbl}><thead><tr>
-                      <th style={{...tblH,width:'540px'}}>Наименование</th>
-                      <th style={{...tblH,width:'82px'}}>Ед.</th>
+	                      <th style={{...tblH,width:'500px'}}>Наименование</th>
+	                      <th style={{...tblH,width:'150px'}}>Тип</th>
+	                      <th style={{...tblH,width:'82px'}}>Ед.</th>
                       <th style={{...tblH,width:'110px'}}>План</th>
                       <th style={{...tblH,width:'130px'}}>👷 Кому</th>
                       <th style={{...tblH,width:'120px'}}>✅ Сделано</th>
@@ -11771,14 +11816,15 @@ function App() {
                       <th style={{...tblH,width:'180px'}}>Сумма</th>
                       <th style={{...tblH,width:'48px'}}></th>
                     </tr></thead><tbody>
-                      {list.map(item=>{const qty=Number(item.quantity)||0;const done=Number(item.doneQuantity)||0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);return(<tr key={item.id||item._idx}>
-                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}><button onClick={()=>{updateItem(item._idx,'hiddenWork',!item.hiddenWork);setTimeout(persist,100);}} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button><input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
-                        <td style={tblC}><select value={item.unit||'шт'} onChange={e=>{updateItem(item._idx,'unit',e.target.value);setTimeout(persist,100);}} style={inpCell}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
-                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={qtyNorm.qty||''} onChange={e=>updateItem(item._idx,'quantity',denormalizeMeasure(e.target.value,item.unit))} onBlur={persist} style={inpCell}/></td>
-                        <td style={tblC}><select value={item.brigadeName||''} onChange={e=>{updateItem(item._idx,'brigadeName',e.target.value);setTimeout(persist,100);}} style={inpCell}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
-                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={doneNorm.qty||''} onChange={e=>{const raw=denormalizeMeasure(e.target.value,item.unit);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+fmtMeasure(qty,item.unit)+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text}}/></td>
-                        <td style={{...tblC,color:qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted,fontWeight:'600',fontSize:'11px'}}>{qty>0?fmtMeasure(remain,item.unit):'—'}</td>
-                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={item.priceWork||item.priceMaterial||''} onChange={e=>{const v=e.target.value;if(itemKind(item)==='material')updateItem(item._idx,'priceMaterial',v);else updateItem(item._idx,'priceWork',v);}} onBlur={persist} style={inpCell}/></td>
+	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);return(<tr key={item.id||item._idx} data-estitem={item.id||item.name||item._idx}>
+	                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'13px',width:'18px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
+	                        <td style={tblC}><select value={kind} onChange={e=>{const next=e.target.value;const patch={itemType:next};if(next==='material'&&toNum(item.priceWork)>0&&!toNum(item.priceMaterial)){patch.priceMaterial=item.priceWork;patch.priceWork='';}if(next==='work'&&toNum(item.priceMaterial)>0&&!toNum(item.priceWork)){patch.priceWork=item.priceMaterial;patch.priceMaterial='';}updateItemPatch(item._idx,patch,true);}} style={inpCell}>{ESTIMATE_ITEM_TYPES.map(t=><option key={t.id} value={t.id}>{t.icon+' '+t.label}</option>)}</select></td>
+	                        <td style={tblC}><select value={item.unit||'шт'} onChange={e=>updateItem(item._idx,'unit',e.target.value,true)} style={inpCell}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
+	                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={qtyNorm.qty||''} onChange={e=>updateItem(item._idx,'quantity',denormalizeMeasure(e.target.value,item.unit))} onBlur={persist} style={inpCell}/></td>
+	                        <td style={tblC}><select disabled={!isWork} value={isWork?(item.brigadeName||''):''} onChange={e=>updateItem(item._idx,'brigadeName',e.target.value,true)} style={{...inpCell,opacity:isWork?1:0.55}}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
+	                        <td style={tblC}><input disabled={!isWork} type='number' step='any' inputMode='decimal' value={isWork?(doneNorm.qty||''):''} onChange={e=>{const raw=denormalizeMeasure(e.target.value,item.unit);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+fmtMeasure(qty,item.unit)+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text,opacity:isWork?1:0.55}}/></td>
+	                        <td style={{...tblC,color:isWork?(qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted):C.textMuted,fontWeight:'600',fontSize:'11px'}}>{isWork&&qty>0?fmtMeasure(remain,item.unit):'—'}</td>
+	                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={item[priceField]||''} onChange={e=>updateItem(item._idx,priceField,e.target.value)} onBlur={persist} style={inpCell}/></td>
                         <td style={{...tblC,fontWeight:'700',color:C.success,whiteSpace:'nowrap',fontSize:'14px'}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
                         <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
                       </tr>);})}
@@ -11789,16 +11835,18 @@ function App() {
                     <b style={{color:C.accent,fontSize:'13px'}}>{'📁 '+section.name}</b>
                     <b style={{color:C.text,fontSize:'13px'}}>{total.toLocaleString('ru-RU')+' ₽'}</b>
                   </div>
-                  <div style={{padding:'12px 16px'}}>
-                    {renderGroup('Работы','🔨',works,totalW,C.accent)}
-                    {renderGroup('Материалы','📦',mats,totalM,C.info)}
-                    <div style={{display:'grid',gridTemplateColumns:'minmax(320px,3fr) 110px 140px 160px 160px 54px',gap:'8px',marginTop:'10px',alignItems:'center',overflowX:'auto'}}>
-                      <input placeholder="Наименование работы *" value={newEstimateItem.sectionId===section.id?newEstimateItem.name:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                      <select value={newEstimateItem.sectionId===section.id?newEstimateItem.unit:'м2'} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                      <input placeholder="Кол-во" type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.quantity:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,quantity:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                      <input placeholder="Цена работ" type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.priceWork:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,priceWork:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                      <input placeholder="Цена мат." type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.priceMaterial:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,priceMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                      <button onClick={()=>{if(!newEstimateItem.name||newEstimateItem.sectionId!==section.id) return;const item={id:Date.now(),name:newEstimateItem.name,unit:newEstimateItem.unit,quantity:newEstimateItem.quantity,priceWork:newEstimateItem.priceWork,priceMaterial:newEstimateItem.priceMaterial};const sections=(selectedEstimate.sections||[]).map((s,idx)=>idx===si?{...s,items:[...(s.items||[]),item]}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));setNewEstimateItem({sectionId:'',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});}} style={{...btnO,padding:'7px 12px'}}><Plus size={13}/></button>
+	                  <div style={{padding:'12px 16px'}}>
+	                    {renderGroup('Работы','🔨',works,totalW,C.accent)}
+	                    {renderGroup('Материалы','📦',mats,totalM,C.info)}
+	                    {renderGroup('Оборудование / доставка / прочее','⚙️',others,totalOther,C.textSec)}
+	                    <div style={{display:'grid',gridTemplateColumns:'160px minmax(320px,3fr) 110px 140px 160px 160px 54px',gap:'8px',marginTop:'10px',alignItems:'center',overflowX:'auto'}}>
+	                      <select value={newEstimateItem.sectionId===section.id?(newEstimateItem.itemType||'work'):'work'} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,itemType:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{ESTIMATE_ITEM_TYPES.map(t=><option key={t.id} value={t.id}>{t.icon+' '+t.label}</option>)}</select>
+	                      <input placeholder="Наименование *" value={newEstimateItem.sectionId===section.id?newEstimateItem.name:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+	                      <select value={newEstimateItem.sectionId===section.id?newEstimateItem.unit:'м2'} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+	                      <input placeholder="Кол-во" type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.quantity:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,quantity:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+	                      <input placeholder="Цена работ" type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.priceWork:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,priceWork:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+	                      <input placeholder="Цена мат." type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.priceMaterial:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,priceMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+	                      <button onClick={()=>{if(!newEstimateItem.name||newEstimateItem.sectionId!==section.id) return;const itemType=newEstimateItem.itemType||normalizeEstimateItemType(newEstimateItem,section.name);const item={id:Date.now(),itemType,name:newEstimateItem.name,unit:newEstimateItem.unit,quantity:newEstimateItem.quantity,priceWork:newEstimateItem.priceWork,priceMaterial:newEstimateItem.priceMaterial};const sections=(selectedEstimate.sections||[]).map((s,idx)=>idx===si?{...s,items:[...(s.items||[]),item]}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);setNewEstimateItem({sectionId:'',itemType:'work',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});}} style={{...btnO,padding:'7px 12px'}}><Plus size={13}/></button>
                     </div>
                   </div>
                 </div>);})}
@@ -11874,7 +11922,9 @@ function App() {
                         if(!sections[item.section]) sections[item.section]={id:Date.now()+Math.random(),name:item.section,items:[]};
                         const tw=Number(item.totalWork||0);
                         const tm=Number(item.totalMaterial||0);
-                        sections[item.section].items.push({id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:tw>0||tm===0?(tw||item.total):0,priceMaterial:tm>0?tm:0,isImported:true,itemType:item.type||'work'});
+	                        const importedItem={id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:tw>0||tm===0?(tw||item.total):0,priceMaterial:tm>0?tm:0,isImported:true,itemType:item.type||''};
+	                        importedItem.itemType=normalizeEstimateItemType(importedItem,item.section);
+	                        sections[item.section].items.push(importedItem);
                       });
                       const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная',sections:Object.values(sections)};
                       const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};setEstimatesList(prev=>[...prev.map(e=>(estWithId.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');
