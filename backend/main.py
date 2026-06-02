@@ -985,6 +985,29 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_project_measurements_project ON project_measurements(project_name);
         CREATE INDEX IF NOT EXISTS idx_project_measurements_status ON project_measurements(status);
+        CREATE TABLE IF NOT EXISTS measurement_room_drafts (
+            id SERIAL PRIMARY KEY,
+            measurement_id INT,
+            project_name VARCHAR(255),
+            name VARCHAR(255),
+            floor INT DEFAULT 1,
+            liter VARCHAR(100),
+            room_type VARCHAR(100) DEFAULT 'Комната',
+            floor_area FLOAT DEFAULT 0,
+            wall_area FLOAT DEFAULT 0,
+            ceiling_area FLOAT DEFAULT 0,
+            height FLOAT DEFAULT 0,
+            windows INT DEFAULT 0,
+            doors INT DEFAULT 0,
+            notes TEXT,
+            status VARCHAR(50) DEFAULT 'Черновик ИИ',
+            created_by VARCHAR(255),
+            accepted_room_id INT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_measurement_room_drafts_project ON measurement_room_drafts(project_name);
+        CREATE INDEX IF NOT EXISTS idx_measurement_room_drafts_measurement ON measurement_room_drafts(measurement_id);
+        CREATE INDEX IF NOT EXISTS idx_measurement_room_drafts_status ON measurement_room_drafts(status);
         CREATE TABLE IF NOT EXISTS project_letters (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -7281,7 +7304,263 @@ def delete_project_measurement(id: int, _current_user: dict = Depends(require_ro
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "project_measurements", id, _current_user)
+    cur.execute("DELETE FROM measurement_room_drafts WHERE measurement_id=%s", (id,))
     cur.execute("DELETE FROM project_measurements WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+MEASUREMENT_ROOM_DRAFT_SELECT = """SELECT id,measurement_id,project_name,name,floor,liter,room_type,
+                                          floor_area,wall_area,ceiling_area,height,windows,doors,
+                                          notes,status,created_by,accepted_room_id,created_at
+                                   FROM measurement_room_drafts"""
+
+def _room_draft_dict(r):
+    return {
+        "id": r[0],
+        "measurementId": r[1],
+        "projectName": r[2] or "",
+        "name": r[3] or "",
+        "floor": int(r[4] or 1),
+        "liter": r[5] or "",
+        "roomType": r[6] or "Комната",
+        "floorArea": float(r[7] or 0),
+        "wallArea": float(r[8] or 0),
+        "ceilingArea": float(r[9] or 0),
+        "height": float(r[10] or 0),
+        "windows": int(r[11] or 0),
+        "doors": int(r[12] or 0),
+        "notes": r[13] or "",
+        "status": r[14] or "Черновик ИИ",
+        "createdBy": r[15] or "",
+        "acceptedRoomId": r[16],
+        "createdAt": str(r[17]) if r[17] else "",
+    }
+
+def _clean_ai_json(text: str):
+    clean = (text or "").replace("```json", "").replace("```", "").strip()
+    if not clean:
+        return None
+    try:
+        return json.loads(clean)
+    except Exception:
+        start = clean.find("{")
+        end = clean.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                return json.loads(clean[start:end+1])
+            except Exception:
+                return None
+    return None
+
+def _fallback_room_drafts_from_text(text: str):
+    import re
+    rooms = []
+    for line in (text or "").splitlines():
+        src = line.strip()
+        if len(src) < 4:
+            continue
+        nums = [float(x.replace(",", ".")) for x in re.findall(r"(\d+(?:[,.]\d+)?)\s*(?:м2|м²|кв\.?\s*м|м\b)", src.lower())]
+        if not nums:
+            continue
+        name = re.sub(r"\d+(?:[,.]\d+)?\s*(?:м2|м²|кв\.?\s*м|м\b)", "", src, flags=re.I).strip(" -:;,.")
+        if not name:
+            name = "Помещение " + str(len(rooms) + 1)
+        floor_area = nums[0]
+        height = nums[1] if len(nums) > 1 and nums[1] < 6 else 0
+        rooms.append({
+            "name": name[:120],
+            "floor": 1,
+            "liter": "",
+            "roomType": "Комната",
+            "floorArea": floor_area,
+            "wallArea": 0,
+            "ceilingArea": floor_area,
+            "height": height,
+            "windows": 0,
+            "doors": 0,
+            "notes": "Черновик из строки обмера: " + src[:300],
+        })
+    return rooms[:80]
+
+def _draft_rooms_with_ai(measurement: dict):
+    title = measurement.get("title") or ""
+    notes = measurement.get("notes") or ""
+    source_type = measurement.get("source_type") or ""
+    doc_type = measurement.get("doc_type") or ""
+    prompt = (
+        "Извлеки помещения из строительного проекта или обмера. Верни только JSON без markdown. "
+        "Формат: {\"rooms\":[{\"name\":\"\",\"floor\":1,\"liter\":\"\",\"roomType\":\"Комната\","
+        "\"floorArea\":0,\"wallArea\":0,\"ceilingArea\":0,\"height\":0,\"windows\":0,\"doors\":0,\"notes\":\"\"}]}. "
+        "Если точного значения нет — ставь 0 или пустую строку. Не выдумывай площади. "
+        "Оконные и дверные проёмы отдельно не считай в wallArea, только количество если явно есть.\n\n"
+        "Тип источника: " + source_type + "\n"
+        "Тип документа: " + doc_type + "\n"
+        "Название: " + title + "\n"
+        "Текст/примечания:\n" + notes
+    )
+    if not (YANDEX_API_KEY and YANDEX_FOLDER_ID):
+        return _fallback_room_drafts_from_text(title + "\n" + notes), "fallback"
+    import openai as oa
+    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+    image_payload = None
+    file_url = measurement.get("file_url") or ""
+    if file_url:
+        local_path = file_url.lstrip("/")
+        if local_path.startswith("uploads/") and os.path.exists(local_path):
+            ext = os.path.splitext(local_path)[1].lower()
+            if ext in (".jpg", ".jpeg", ".png", ".webp"):
+                with open(local_path, "rb") as f:
+                    image_payload = base64.b64encode(f.read()).decode("utf-8")
+    try:
+        if image_payload:
+            response = client.responses.create(
+                model=f"gpt://{YANDEX_FOLDER_ID}/qwen3.6-35b-a3b/latest",
+                temperature=0.1,
+                instructions="Ты извлекаешь помещения из обмеров и проектов. Верни только валидный JSON.",
+                input=[{"role":"user","content":[
+                    {"type":"input_image","image_url":"data:image/jpeg;base64,"+image_payload},
+                    {"type":"input_text","text":prompt}
+                ]}],
+                max_output_tokens=2500
+            )
+        else:
+            response = client.responses.create(
+                model=f"gpt://{YANDEX_FOLDER_ID}/qwen3.6-35b-a3b/latest",
+                temperature=0.1,
+                instructions="Ты извлекаешь помещения из обмеров и проектов. Верни только валидный JSON.",
+                input=prompt,
+                max_output_tokens=2500
+            )
+        parsed = _clean_ai_json(response.output_text or "")
+        rooms = parsed.get("rooms", []) if isinstance(parsed, dict) else []
+        if isinstance(rooms, list) and rooms:
+            return rooms[:100], "ai"
+    except Exception as e:
+        print("MEASUREMENT AI DRAFT ERROR:", str(e))
+    return _fallback_room_drafts_from_text(title + "\n" + notes), "fallback"
+
+@app.get("/measurement-room-drafts")
+def get_measurement_room_drafts(project_name: str = None, measurement_id: int = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    allowed_projects = visible_project_names(_current_user)
+    where, params = [], []
+    if project_name:
+        require_project_access(_current_user, project_name)
+        where.append("project_name=%s")
+        params.append(project_name)
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        where.append("project_name = ANY(%s)")
+        params.append(allowed_projects)
+    if measurement_id:
+        where.append("measurement_id=%s")
+        params.append(measurement_id)
+    q = MEASUREMENT_ROOM_DRAFT_SELECT
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY id DESC"
+    cur.execute(q, tuple(params))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [_room_draft_dict(r) for r in rows]
+
+@app.post("/project-measurements/{id}/ai-draft-rooms")
+def generate_measurement_room_drafts(id: int, data: dict = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    data = data or {}
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM project_measurements WHERE id=%s", (id,))
+    measurement = cur.fetchone()
+    if not measurement:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Источник обмера не найден")
+    require_project_access(_current_user, measurement.get("project_name") or "")
+    rooms, source = _draft_rooms_with_ai(dict(measurement))
+    if data.get("replaceExisting"):
+        cur.execute("DELETE FROM measurement_room_drafts WHERE measurement_id=%s AND status='Черновик ИИ'", (id,))
+    created = 0
+    for room in rooms:
+        name = (room.get("name") or "").strip()
+        if not name:
+            continue
+        cur.execute("""INSERT INTO measurement_room_drafts
+                       (measurement_id,project_name,name,floor,liter,room_type,floor_area,wall_area,ceiling_area,height,windows,doors,notes,status,created_by)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (id, measurement.get("project_name") or "", name[:255], int(room.get("floor") or 1),
+             str(room.get("liter") or ""), str(room.get("roomType") or room.get("room_type") or "Комната"),
+             float(room.get("floorArea") or room.get("floor_area") or 0),
+             float(room.get("wallArea") or room.get("wall_area") or 0),
+             float(room.get("ceilingArea") or room.get("ceiling_area") or room.get("floorArea") or room.get("floor_area") or 0),
+             float(room.get("height") or 0), int(room.get("windows") or 0), int(room.get("doors") or 0),
+             str(room.get("notes") or ""), "Черновик ИИ", _current_user.get("name") or ""))
+        created += 1
+    if created:
+        cur.execute("UPDATE project_measurements SET status=%s WHERE id=%s", ("На проверке", id))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "created": created, "source": source}
+
+@app.put("/measurement-room-drafts/{id}")
+def update_measurement_room_draft(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_row_project_access(cur, "measurement_room_drafts", id, _current_user, "project_name")
+    fields = {
+        "name": "name", "floor": "floor", "liter": "liter", "roomType": "room_type",
+        "floorArea": "floor_area", "wallArea": "wall_area", "ceilingArea": "ceiling_area",
+        "height": "height", "windows": "windows", "doors": "doors", "notes": "notes", "status": "status",
+    }
+    sets, vals = [], []
+    for k, col in fields.items():
+        if k in data:
+            sets.append(col + "=%s")
+            vals.append(data.get(k))
+    if sets:
+        vals.append(id)
+        cur.execute("UPDATE measurement_room_drafts SET " + ",".join(sets) + " WHERE id=%s", tuple(vals))
+        conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.post("/measurement-room-drafts/{id}/accept")
+def accept_measurement_room_draft(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_row_project_access(cur, "measurement_room_drafts", id, _current_user, "project_name")
+    cur.execute("""SELECT measurement_id,project_name,name,floor,liter,room_type,floor_area,wall_area,ceiling_area,height,windows,doors,notes,status,accepted_room_id
+                   FROM measurement_room_drafts WHERE id=%s""", (id,))
+    d = cur.fetchone()
+    if not d:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Черновик не найден")
+    if d[14]:
+        cur.close(); conn.close()
+        return {"ok": True, "roomId": d[14], "alreadyAccepted": True}
+    cur.execute("""INSERT INTO rooms (project,name,floor_area,wall_area,ceiling_area,height,ceiling_type,wall_material,floor_material,windows,doors,notes,floor,liter,room_type)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (d[1], d[2], float(d[6] or 0), float(d[7] or 0), float(d[8] or 0), float(d[9] or 0),
+         "Простой", "Штукатурка", "Стяжка", int(d[10] or 0), int(d[11] or 0),
+         ((d[12] or "") + "\nИсточник: черновик обмера №" + str(id)).strip(), int(d[3] or 1), d[4] or "", d[5] or "Комната"))
+    room_id = cur.fetchone()[0]
+    cur.execute("UPDATE measurement_room_drafts SET status='Принято', accepted_room_id=%s WHERE id=%s", (room_id, id))
+    if d[0]:
+        cur.execute("""UPDATE project_measurements
+                       SET rooms_created=(SELECT COUNT(*) FROM measurement_room_drafts WHERE measurement_id=%s AND accepted_room_id IS NOT NULL)
+                       WHERE id=%s""", (d[0], d[0]))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "roomId": room_id}
+
+@app.delete("/measurement-room-drafts/{id}")
+def delete_measurement_room_draft(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_row_project_access(cur, "measurement_room_drafts", id, _current_user, "project_name")
+    cur.execute("DELETE FROM measurement_room_drafts WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}

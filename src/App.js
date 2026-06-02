@@ -616,6 +616,8 @@ function App() {
   const [showDocForm, setShowDocForm] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [projectMeasurements, setProjectMeasurements] = useState([]);
+  const [measurementRoomDrafts, setMeasurementRoomDrafts] = useState([]);
+  const [measurementDraftLoadingId, setMeasurementDraftLoadingId] = useState(null);
   const [newMeasurementDoc, setNewMeasurementDoc] = useState({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
   const [showMeasurementForm, setShowMeasurementForm] = useState(false);
   const [uploadingMeasurementDoc, setUploadingMeasurementDoc] = useState(false);
@@ -1242,6 +1244,8 @@ function App() {
       if (canSeeProjectDocs) try {
         const pmeas = await get('/project-measurements');
         setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]);
+        const mdrafts = await get('/measurement-room-drafts');
+        setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
       } catch(e) {}
     } catch(e) { console.log('Load error:',e); }
   };
@@ -8489,12 +8493,15 @@ function App() {
 
                     {activeProjectTab==='Проект / Обмеры'&&(()=> {
                       const docs = (projectMeasurements||[]).filter(d=>d.projectName===p.name);
+                      const drafts = (measurementRoomDrafts||[]).filter(d=>d.projectName===p.name);
                       const projectRooms = rooms.filter(r=>r.project===p.name);
                       const roomChecks = projectRooms.map(roomCompleteness);
                       const fullRooms = roomChecks.filter(x=>x.status==='Обмер полный').length;
                       const missingRooms = roomChecks.filter(x=>x.status==='Не хватает данных').length;
                       const acceptedDocs = docs.filter(d=>d.status==='Принято').length;
                       const reviewDocs = docs.filter(d=>d.status==='На проверке').length;
+                      const pendingDrafts = drafts.filter(d=>d.status==='Черновик ИИ').length;
+                      const acceptedDrafts = drafts.filter(d=>d.acceptedRoomId||d.status==='Принято').length;
                       const canEditMeasurements = user&&['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user.role);
                       const statusMeta = (st) => st==='Принято'
                         ? [C.success,C.successLight,C.successBorder]
@@ -8519,6 +8526,26 @@ function App() {
                         await fetch(API+'/project-measurements/'+doc.id,{method:'DELETE'});
                         await loadAll();
                       };
+                      const generateRoomDrafts = async (doc) => {
+                        setMeasurementDraftLoadingId(doc.id);
+                        try {
+                          const r = await fetch(API+'/project-measurements/'+doc.id+'/ai-draft-rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replaceExisting:true})});
+                          const data = await r.json().catch(()=>({}));
+                          if (!r.ok || data.detail) alert('Не удалось разобрать источник: '+(data.detail||'ошибка'));
+                          else if (!data.created) alert('ИИ не нашёл помещений. Добавьте текст в комментарий или загрузите более читаемый скан.');
+                        } finally {
+                          setMeasurementDraftLoadingId(null);
+                          await loadAll();
+                        }
+                      };
+                      const acceptRoomDraft = async (draft) => {
+                        await fetch(API+'/measurement-room-drafts/'+draft.id+'/accept',{method:'POST'});
+                        await loadAll();
+                      };
+                      const rejectRoomDraft = async (draft) => {
+                        await fetch(API+'/measurement-room-drafts/'+draft.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено'})});
+                        await loadAll();
+                      };
                       return (<div>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
                           <div>
@@ -8528,10 +8555,11 @@ function App() {
                           {canEditMeasurements&&<button onClick={()=>setShowMeasurementForm(!showMeasurementForm)} style={btnO}><Plus size={14}/>Добавить источник</button>}
                         </div>
 
-                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:'10px',marginBottom:'14px'}}>
+                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(auto-fit,minmax(130px,1fr))',gap:'10px',marginBottom:'14px'}}>
                           <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Исходников</p><b style={{color:C.text,fontSize:'20px'}}>{docs.length}</b></div>
                           <div style={{padding:'12px',borderRadius:'10px',backgroundColor:acceptedDocs?C.successLight:C.bgWhite,border:'1.5px solid '+(acceptedDocs?C.successBorder:C.border)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Принято</p><b style={{color:acceptedDocs?C.success:C.text,fontSize:'20px'}}>{acceptedDocs}</b></div>
                           <div style={{padding:'12px',borderRadius:'10px',backgroundColor:reviewDocs?C.warningLight:C.bgWhite,border:'1.5px solid '+(reviewDocs?C.warningBorder:C.border)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>На проверке</p><b style={{color:reviewDocs?C.warning:C.text,fontSize:'20px'}}>{reviewDocs}</b></div>
+                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:pendingDrafts?C.infoLight:C.bgWhite,border:'1.5px solid '+(pendingDrafts?C.infoBorder:C.border)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Черновики ИИ</p><b style={{color:pendingDrafts?C.info:C.text,fontSize:'20px'}}>{pendingDrafts}</b><span style={{color:C.textMuted,fontSize:'11px',marginLeft:'6px'}}>принято {acceptedDrafts}</span></div>
                           <div style={{padding:'12px',borderRadius:'10px',backgroundColor:missingRooms?C.warningLight:C.successLight,border:'1.5px solid '+(missingRooms?C.warningBorder:C.successBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Помещения</p><b style={{color:missingRooms?C.warning:C.success,fontSize:'20px'}}>{fullRooms+'/'+projectRooms.length}</b></div>
                         </div>
 
@@ -8570,6 +8598,7 @@ function App() {
                         </div>)}
                         {docs.map(doc=>{
                           const sm=statusMeta(doc.status);
+                          const docDrafts = drafts.filter(d=>Number(d.measurementId)===Number(doc.id));
                           return (<div key={doc.id} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+sm[0]}}>
                             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                               <div style={{flex:1,minWidth:'220px'}}>
@@ -8584,12 +8613,47 @@ function App() {
                               </div>
                               <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                                 {doc.fileUrl&&<a href={API+doc.fileUrl} target='_blank' rel='noreferrer' style={{...btnB,padding:'5px 9px',fontSize:'11px',textDecoration:'none'}}><Eye size={11}/>Файл</a>}
+                                {canEditMeasurements&&<button disabled={measurementDraftLoadingId===doc.id} onClick={()=>generateRoomDrafts(doc)} style={{...btnB,padding:'5px 9px',fontSize:'11px',opacity:measurementDraftLoadingId===doc.id?0.7:1}}><Bot size={11}/>{measurementDraftLoadingId===doc.id?'Разбираю...':'ИИ разобрать'}</button>}
                                 {canEditMeasurements&&doc.status!=='На проверке'&&<button onClick={()=>updateMeasurement(doc,{status:'На проверке'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>На проверку</button>}
                                 {canEditMeasurements&&doc.status!=='Принято'&&<button onClick={()=>updateMeasurement(doc,{status:'Принято'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
                                 {canEditMeasurements&&doc.status!=='Отклонено'&&<button onClick={()=>updateMeasurement(doc,{status:'Отклонено'})} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}>Отклонить</button>}
                                 {canEditMeasurements&&<button onClick={()=>deleteMeasurement(doc)} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}><Trash2 size={11}/></button>}
                               </div>
                             </div>
+                            {docDrafts.length>0&&(<div style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
+                              <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>Черновики помещений из этого источника ({docDrafts.length})</b>
+                              <div style={{display:'grid',gap:'8px'}}>
+                                {docDrafts.map(draft=>{
+                                  const accepted = draft.acceptedRoomId || draft.status==='Принято';
+                                  const rejected = draft.status==='Отклонено';
+                                  const dColor = accepted ? C.success : rejected ? C.danger : C.info;
+                                  const dBg = accepted ? C.successLight : rejected ? C.dangerLight : C.infoLight;
+                                  const dBorder = accepted ? C.successBorder : rejected ? C.dangerBorder : C.infoBorder;
+                                  return (<div key={draft.id} style={{padding:'10px',borderRadius:'8px',backgroundColor:dBg,border:'1.5px solid '+dBorder}}>
+                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
+                                      <div style={{flex:1,minWidth:'210px'}}>
+                                        <span style={badge(dColor,dBg,dBorder)}>{draft.status||'Черновик ИИ'}</span>
+                                        <b style={{display:'block',color:C.text,fontSize:'13px',marginTop:'5px'}}>{draft.name}</b>
+                                        <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>
+                                          {'Этаж '+(draft.floor||1)+(draft.roomType?' · '+draft.roomType:'')+
+                                          ' · пол '+fmtMeasure(draft.floorArea||0,'м2')+
+                                          (draft.wallArea?(' · стены '+fmtMeasure(draft.wallArea,'м2')):'')+
+                                          (draft.ceilingArea?(' · потолок '+fmtMeasure(draft.ceilingArea,'м2')):'')+
+                                          (draft.height?(' · высота '+fmtMeasure(draft.height,'м')):'')+
+                                          ((draft.windows||draft.doors)?(' · окна '+(draft.windows||0)+' / двери '+(draft.doors||0)):'')}
+                                        </p>
+                                        {draft.notes&&<p style={{color:C.textMuted,fontSize:'11px',margin:'4px 0 0',lineHeight:1.4}}>{draft.notes}</p>}
+                                      </div>
+                                      {canEditMeasurements&&<div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                                        {!accepted&&!rejected&&<button onClick={()=>acceptRoomDraft(draft)} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}><Check size={11}/>В помещения</button>}
+                                        {!accepted&&!rejected&&<button onClick={()=>rejectRoomDraft(draft)} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}><X size={11}/>Отклонить</button>}
+                                        {accepted&&<button onClick={()=>setActiveProjectTab('Помещения')} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Открыть</button>}
+                                      </div>}
+                                    </div>
+                                  </div>);
+                                })}
+                              </div>
+                            </div>)}
                           </div>);
                         })}
                       </div>);
