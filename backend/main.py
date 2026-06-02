@@ -1302,9 +1302,16 @@ def init_db():
             id SERIAL PRIMARY KEY,
             project VARCHAR(255),
             name VARCHAR(255),
+            floor INT DEFAULT 1,
+            liter VARCHAR(100),
+            room_type VARCHAR(100) DEFAULT 'Комната',
             floor_area FLOAT DEFAULT 0,
             wall_area FLOAT DEFAULT 0,
             ceiling_area FLOAT DEFAULT 0,
+            height FLOAT DEFAULT 0,
+            ceiling_type VARCHAR(100),
+            wall_material VARCHAR(100),
+            floor_material VARCHAR(100),
             windows INT DEFAULT 0,
             doors INT DEFAULT 0,
             notes TEXT
@@ -1452,6 +1459,13 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_project ON ai_tasks(project_name);
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status);
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_finding ON ai_tasks(finding_id);
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor INT DEFAULT 1;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS liter VARCHAR(100);
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS room_type VARCHAR(100) DEFAULT 'Комната';
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS height FLOAT DEFAULT 0;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS ceiling_type VARCHAR(100);
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS wall_material VARCHAR(100);
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor_material VARCHAR(100);
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS materials_used TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS estimate_id INT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS section_name VARCHAR(255);
@@ -1919,6 +1933,10 @@ class RoomModel(BaseModel):
     floorArea: float = 0
     wallArea: float = 0
     ceilingArea: float = 0
+    height: float = 0
+    ceilingType: str = "Простой"
+    wallMaterial: str = "Штукатурка"
+    floorMaterial: str = "Стяжка"
     windows: int = 0
     doors: int = 0
     notes: str = ""
@@ -5036,13 +5054,23 @@ def get_rooms(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     allowed_projects = visible_project_names(current_user)
+    select_sql = """SELECT id,project,name,
+                           floor_area as "floorArea",
+                           wall_area as "wallArea",
+                           ceiling_area as "ceilingArea",
+                           height,
+                           ceiling_type as "ceilingType",
+                           wall_material as "wallMaterial",
+                           floor_material as "floorMaterial",
+                           windows,doors,notes,floor,liter,room_type as "roomType"
+                    FROM rooms"""
     if allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes,floor,liter,room_type as \"roomType\" FROM rooms WHERE project = ANY(%s) ORDER BY id", (allowed_projects,))
+        cur.execute(select_sql + " WHERE project = ANY(%s) ORDER BY id", (allowed_projects,))
     else:
-        cur.execute("SELECT id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes,floor,liter,room_type as \"roomType\" FROM rooms ORDER BY id")
+        cur.execute(select_sql + " ORDER BY id")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -5052,8 +5080,10 @@ def create_room(r: RoomModel, _current_user: dict = Depends(require_roles(*PROJE
     require_project_access(_current_user, r.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO rooms (project,name,floor_area,wall_area,ceiling_area,windows,doors,notes,floor,liter,room_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,project,name,floor_area as \"floorArea\",wall_area as \"wallArea\",ceiling_area as \"ceilingArea\",windows,doors,notes,floor,liter,room_type as \"roomType\"",
-                (r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.windows,r.doors,r.notes,r.floor,r.liter,r.roomType))
+    cur.execute("""INSERT INTO rooms (project,name,floor_area,wall_area,ceiling_area,height,ceiling_type,wall_material,floor_material,windows,doors,notes,floor,liter,room_type)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   RETURNING id,project,name,floor_area as "floorArea",wall_area as "wallArea",ceiling_area as "ceilingArea",height,ceiling_type as "ceilingType",wall_material as "wallMaterial",floor_material as "floorMaterial",windows,doors,notes,floor,liter,room_type as "roomType" """,
+                (r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.height,r.ceilingType,r.wallMaterial,r.floorMaterial,r.windows,r.doors,r.notes,r.floor,r.liter,r.roomType))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -5064,8 +5094,11 @@ def update_room(id: int, r: RoomModel, _current_user: dict = Depends(require_rol
     cur = conn.cursor()
     require_row_project_access(cur, "rooms", id, _current_user, "project")
     require_project_access(_current_user, r.project)
-    cur.execute("UPDATE rooms SET floor=%s,liter=%s,room_type=%s, project=%s,name=%s,floor_area=%s,wall_area=%s,ceiling_area=%s,windows=%s,doors=%s,notes=%s WHERE id=%s",
-                (r.floor,r.liter,r.roomType,r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.windows,r.doors,r.notes,id))
+    cur.execute("""UPDATE rooms SET floor=%s,liter=%s,room_type=%s, project=%s,name=%s,
+                   floor_area=%s,wall_area=%s,ceiling_area=%s,height=%s,
+                   ceiling_type=%s,wall_material=%s,floor_material=%s,
+                   windows=%s,doors=%s,notes=%s WHERE id=%s""",
+                (r.floor,r.liter,r.roomType,r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.height,r.ceilingType,r.wallMaterial,r.floorMaterial,r.windows,r.doors,r.notes,id))
     conn.close()
     return {"ok": True}
 
@@ -5350,7 +5383,7 @@ def generate_ai_findings(data: dict, current_user: dict = Depends(require_roles(
     require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""SELECT id, project, name, floor_area, wall_area, ceiling_area, windows, doors, notes, floor, liter, room_type
+    cur.execute("""SELECT id, project, name, floor_area, wall_area, ceiling_area, height, windows, doors, notes, floor, liter, room_type
                    FROM rooms WHERE project=%s ORDER BY id""", (project_name,))
     rooms_rows = [dict(r) for r in cur.fetchall()]
     room_ids = [r["id"] for r in rooms_rows]
@@ -5372,6 +5405,7 @@ def generate_ai_findings(data: dict, current_user: dict = Depends(require_roles(
             ("floor_area", "площади пола", "Заполнить площадь пола по проекту или фактическому обмеру."),
             ("wall_area", "площади стен", "Заполнить площадь стен. Окна и двери потом вычтутся из чистой площади."),
             ("ceiling_area", "площади потолка", "Заполнить площадь потолка по проекту или фактическому обмеру."),
+            ("height", "высоты помещения", "Заполнить высоту помещения. Она нужна для проверки стен, откосов и расчёта материалов."),
         ]:
             if float(room.get(field) or 0) <= 0:
                 findings.append({
