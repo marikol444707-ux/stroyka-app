@@ -653,6 +653,8 @@ function App() {
   const [activityLog, setActivityLog] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [aiFindings, setAiFindings] = useState([]);
+  const [aiTasks, setAiTasks] = useState([]);
   const [archivedProjects, setArchivedProjects] = useState([]);
   const [tbJournal, setTbJournal] = useState([]);
   const [geoCheckins, setGeoCheckins] = useState([]);
@@ -1052,7 +1054,7 @@ function App() {
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get('/materials'),
@@ -1104,6 +1106,8 @@ function App() {
         canSeeProjectDocs ? get('/warranty-defects') : skip([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
         isSupplyRole ? get('/supply-request-templates') : skip([]),
+        canSeeProjectDocs ? get('/ai-findings') : skip([]),
+        canSeeProjectDocs ? get('/ai-tasks') : skip([]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -1113,7 +1117,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -2420,6 +2424,31 @@ function App() {
       if(mine.length>0) return (list||[]).filter(p=>mine.includes(p.name));
     }
     return list||[];
+  };
+  const isOpenAiStatus = (status) => !['Закрыто','Отклонено'].includes(status||'');
+  const aiFindingsForProject = (projectName) => (aiFindings||[]).filter(f=>f.projectName===projectName&&isOpenAiStatus(f.status));
+  const aiTasksForProject = (projectName) => (aiTasks||[]).filter(t=>t.projectName===projectName&&isOpenAiStatus(t.status));
+  const aiSeverityMeta = (severity) => {
+    const s = severity || 'Проверить';
+    if (s === 'Критично') return {color:C.danger,bg:C.dangerLight,border:C.dangerBorder};
+    if (s === 'Не хватает данных') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
+    return {color:C.info,bg:C.infoLight,border:C.infoBorder};
+  };
+  const generateAiFindingsForProject = async (projectName) => {
+    if (!projectName) return;
+    const res = await fetch(API+'/ai-findings/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName})});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) { alert(data.detail || 'Не удалось запустить ИИ-контроль'); return; }
+    await loadAll();
+    alert('Проверка завершена: новых '+(data.created||0)+', обновлено '+(data.updated||0));
+  };
+  const updateAiFinding = async (id, patch) => {
+    await fetch(API+'/ai-findings/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+    await loadAll();
+  };
+  const updateAiTask = async (id, patch) => {
+    await fetch(API+'/ai-tasks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+    await loadAll();
   };
 
   // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
@@ -7802,6 +7831,9 @@ function App() {
             // Траты сотрудников на возмещении
             const pendingExp=(ownExpenses||[]).filter(e=>e.status==='Ожидает');
             if(pendingExp.length>0){const sum=pendingExp.reduce((s,e)=>s+Number(e.amount||0),0);risks.push({icon:'💸',text:'К возмещению сотрудникам: '+Math.round(sum).toLocaleString('ru-RU')+' ₽ ('+pendingExp.length+' трат)',severity:'warn',action:'reimburse'});}
+            const openAiControl=(aiFindings||[]).filter(f=>isOpenAiStatus(f.status));
+            const criticalAiControl=openAiControl.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных');
+            if(openAiControl.length>0) risks.push({icon:'🤖',text:'ИИ-контроль: '+openAiControl.length+' замечаний, из них важных '+criticalAiControl.length,severity:criticalAiControl.length?'danger':'warn',page:'projects'});
             const _planDoneOf=projectPlanDone; const _projProgress=projectRealProgress;
             const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+_projProgress(p),0)/projects.length):0;
             // Выполнено = работы (max сметы/журнала) + материалы + утв.доп.соглашения по всем проектам
@@ -7827,6 +7859,7 @@ function App() {
               +(supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).length;
             const directorSkillCards = [
               {label:'Сводка директору',sub:'риски, деньги, задачи',icon:<Bot size={18}/>,color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',metric:risks.length+' рисков',onClick:()=>showPreview(buildDirectorBriefReportContent(directorSkillDate),'Сводка директора — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
+              {label:'ИИ-контроль',sub:'обмеры и поручения',icon:<Bot size={18}/>,color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',metric:openAiControl.length+' замеч.',onClick:()=>setActivePage('projects')},
               {label:'Ежедневный отчёт',sub:'работы по объектам',icon:<FileText size={18}/>,color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',metric:directorSkillDailyWorks.length+' работ',onClick:()=>showPreview(buildDailyObjectReportContent(directorSkillDate),'Ежедневный отчет — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
               {label:'Проверка смет',sub:'нули, дубли, бюджет',icon:<Calculator size={18}/>,color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',metric:directorSkillEstimateIssues+' замеч.',onClick:openEstimateControlReport},
               {label:'Склад и снабжение',sub:'остатки, заявки, счета',icon:<Package size={18}/>,color:'#c4b5fd',bg:'rgba(139,92,246,.12)',border:'rgba(139,92,246,.28)',metric:directorSkillSupplyIssues+' задач',onClick:()=>showPreview(buildSupplyControlReportContent(),'Контроль снабжения и склада')},
@@ -8080,13 +8113,13 @@ function App() {
                       const _isForeman=user.role==='прораб';
                       const tabGroups=_isForeman?[
                         {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете','Чек-листы','Смета']},
-                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы','Материалы']},
+                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Помещения','График','Этапы','Материалы']},
                         {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
                         {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','Акты технадзора','Замечания ГСН','Гарантия']},
                       ]:[
                         {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете','Чек-листы']},
                         {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
-                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','Помещения','График','Этапы']},
+                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Помещения','График','Этапы']},
                         {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
                         {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','КС-2','КС-3','Паспорт','Акты технадзора','Замечания ГСН','Гарантия']},
                       ];
@@ -8298,6 +8331,66 @@ function App() {
                       await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
+
+                    {activeProjectTab==='ИИ-контроль'&&(()=> {
+                      const projectFindings = aiFindingsForProject(p.name);
+                      const projectTasks = aiTasksForProject(p.name);
+                      const byCategory = projectFindings.reduce((acc,f)=>{const k=f.category||'Общее';if(!acc[k])acc[k]=[];acc[k].push(f);return acc;},{});
+                      const importantCount = projectFindings.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных').length;
+                      const canRunAiControl = user&&['директор','зам_директора','прораб','главный_инженер','сметчик','технадзор','стройконтроль'].includes(user.role);
+                      return (<div>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
+                          <div>
+                            <b style={{color:C.text,fontSize:'15px'}}>🤖 ИИ-контроль объекта</b>
+                            <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Автопроверка обмеров, помещений, ЖПР и поручений по объекту.</p>
+                          </div>
+                          <button onClick={()=>generateAiFindingsForProject(p.name)} disabled={!canRunAiControl} style={{...btnO,opacity:canRunAiControl?1:.55}}><Bot size={14}/>Запустить проверку</button>
+                        </div>
+                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:'10px',marginBottom:'14px'}}>
+                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Открыто</p><b style={{color:C.text,fontSize:'20px'}}>{projectFindings.length}</b></div>
+                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:importantCount?C.warningLight:C.successLight,border:'1.5px solid '+(importantCount?C.warningBorder:C.successBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Важные</p><b style={{color:importantCount?C.warning:C.success,fontSize:'20px'}}>{importantCount}</b></div>
+                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Поручения</p><b style={{color:C.accent,fontSize:'20px'}}>{projectTasks.length}</b></div>
+                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Категорий</p><b style={{color:C.text,fontSize:'20px'}}>{Object.keys(byCategory).length}</b></div>
+                        </div>
+                        {projectFindings.length===0&&(<div style={{...card,padding:'18px',textAlign:'center',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
+                          <b style={{color:C.success,fontSize:'14px'}}>Замечаний пока нет</b>
+                          <p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 12px'}}>Запустите проверку, чтобы система нашла незаполненные обмеры, окна/двери без размеров и работы без привязки к помещению.</p>
+                          <button onClick={()=>generateAiFindingsForProject(p.name)} disabled={!canRunAiControl} style={{...btnGr,opacity:canRunAiControl?1:.55}}><Bot size={14}/>Проверить объект</button>
+                        </div>)}
+                        {Object.entries(byCategory).map(([category,list])=>(
+                          <div key={category} style={{...card,padding:'14px',marginBottom:'12px'}}>
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'10px'}}>
+                              <b style={{color:C.text,fontSize:'13px'}}>{category}</b>
+                              <span style={badge(C.accent,C.accentLight,C.accentBorder)}>{list.length}</span>
+                            </div>
+                            {list.map(f=>{
+                              const meta=aiSeverityMeta(f.severity);
+                              const task=projectTasks.find(t=>Number(t.findingId)===Number(f.id));
+                              return (<div key={f.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:meta.bg,border:'1.5px solid '+meta.border,marginBottom:'8px'}}>
+                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                                  <div style={{flex:1,minWidth:'220px'}}>
+                                    <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'5px'}}>
+                                      <span style={badge(meta.color,meta.bg,meta.border)}>{f.severity||'Проверить'}</span>
+                                      <span style={{fontSize:'11px',color:C.textSec}}>{f.assignedRole?'кому: '+f.assignedRole:'без роли'}{task&&task.status?' · '+task.status:''}</span>
+                                    </div>
+                                    <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.35}}>{f.title}</b>
+                                    {f.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45}}>{f.description}</p>}
+                                    {f.suggestedAction&&<p style={{color:C.text,fontSize:'12px',margin:'6px 0 0'}}><b>Что сделать:</b> {f.suggestedAction}</p>}
+                                  </div>
+                                  <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                                    {task&&task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
+                                    {task&&['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
+                                    <button onClick={()=>updateAiFinding(f.id,{status:'Исправлено'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Исправлено</button>
+                                    <button onClick={()=>updateAiFinding(f.id,{status:'Закрыто'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Закрыть</button>
+                                    <button onClick={()=>updateAiFinding(f.id,{status:'Отклонено'})} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}>Отклонить</button>
+                                  </div>
+                                </div>
+                              </div>);
+                            })}
+                          </div>
+                        ))}
+                      </div>);
+                    })()}
 
                     {activeProjectTab==='Этапы'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>

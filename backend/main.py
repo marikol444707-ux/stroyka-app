@@ -1406,6 +1406,52 @@ def init_db():
             summary TEXT,
             updated_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS ai_findings (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            finding_type VARCHAR(100) DEFAULT 'rule',
+            category VARCHAR(100) DEFAULT 'Общее',
+            severity VARCHAR(50) DEFAULT 'Проверить',
+            title TEXT,
+            description TEXT,
+            source VARCHAR(100) DEFAULT 'system_rules',
+            linked_entity_type VARCHAR(100),
+            linked_entity_id VARCHAR(100),
+            suggested_action TEXT,
+            assigned_role VARCHAR(100),
+            assigned_to VARCHAR(255),
+            status VARCHAR(50) DEFAULT 'Новое',
+            dedupe_key VARCHAR(255),
+            created_by VARCHAR(255),
+            created_by_id INT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_findings_project ON ai_findings(project_name);
+        CREATE INDEX IF NOT EXISTS idx_ai_findings_status ON ai_findings(status);
+        CREATE INDEX IF NOT EXISTS idx_ai_findings_dedupe ON ai_findings(project_name, dedupe_key);
+        CREATE TABLE IF NOT EXISTS ai_tasks (
+            id SERIAL PRIMARY KEY,
+            finding_id INT,
+            project_name VARCHAR(255),
+            title TEXT,
+            description TEXT,
+            assigned_role VARCHAR(100),
+            assigned_to VARCHAR(255),
+            status VARCHAR(50) DEFAULT 'Новое',
+            due_date DATE,
+            accepted_by VARCHAR(255),
+            accepted_at TIMESTAMP,
+            closed_by VARCHAR(255),
+            closed_at TIMESTAMP,
+            action_label VARCHAR(255),
+            action_payload TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_tasks_project ON ai_tasks(project_name);
+        CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status);
+        CREATE INDEX IF NOT EXISTS idx_ai_tasks_finding ON ai_tasks(finding_id);
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS materials_used TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS estimate_id INT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS section_name VARCHAR(255);
@@ -1891,6 +1937,34 @@ class RoomWorkModel(BaseModel):
     total: float = 0
     date: str = ""
     photoUrl: str = ""
+
+class AiFindingModel(BaseModel):
+    projectName: str = ""
+    findingType: str = "manual"
+    category: str = "Общее"
+    severity: str = "Проверить"
+    title: str = ""
+    description: str = ""
+    source: str = "manual"
+    linkedEntityType: str = ""
+    linkedEntityId: str = ""
+    suggestedAction: str = ""
+    assignedRole: str = ""
+    assignedTo: str = ""
+    status: str = "Новое"
+    dedupeKey: str = ""
+
+class AiTaskModel(BaseModel):
+    findingId: Optional[int] = None
+    projectName: str = ""
+    title: str = ""
+    description: str = ""
+    assignedRole: str = ""
+    assignedTo: str = ""
+    status: str = "Новое"
+    dueDate: str = ""
+    actionLabel: str = ""
+    actionPayload: str = ""
 
 class ToolModel(BaseModel):
     name: str
@@ -5044,6 +5118,453 @@ def update_room_work(id: int, data: dict, _current_user: dict = Depends(require_
                     (data['status'],data.get('confirmedBy',''),id))
     conn.close()
     return {"ok": True}
+
+AI_FINDING_SELECT = """
+SELECT id,
+       project_name as "projectName",
+       finding_type as "findingType",
+       category,
+       severity,
+       title,
+       description,
+       source,
+       linked_entity_type as "linkedEntityType",
+       linked_entity_id as "linkedEntityId",
+       suggested_action as "suggestedAction",
+       assigned_role as "assignedRole",
+       assigned_to as "assignedTo",
+       status,
+       dedupe_key as "dedupeKey",
+       created_by as "createdBy",
+       created_by_id as "createdById",
+       created_at as "createdAt",
+       updated_at as "updatedAt"
+FROM ai_findings
+"""
+
+AI_TASK_SELECT = """
+SELECT id,
+       finding_id as "findingId",
+       project_name as "projectName",
+       title,
+       description,
+       assigned_role as "assignedRole",
+       assigned_to as "assignedTo",
+       status,
+       due_date as "dueDate",
+       accepted_by as "acceptedBy",
+       accepted_at as "acceptedAt",
+       closed_by as "closedBy",
+       closed_at as "closedAt",
+       action_label as "actionLabel",
+       action_payload as "actionPayload",
+       created_at as "createdAt",
+       updated_at as "updatedAt"
+FROM ai_tasks
+"""
+
+def _insert_ai_task(cur, data: dict, current_user: dict):
+    project_name = data.get("projectName") or data.get("project_name") or ""
+    require_project_access(current_user, project_name)
+    cur.execute("""
+        INSERT INTO ai_tasks (
+            finding_id, project_name, title, description, assigned_role, assigned_to,
+            status, due_date, action_label, action_payload, created_at, updated_at
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,NULLIF(%s,'')::date,%s,%s,NOW(),NOW())
+        RETURNING id
+    """, (
+        data.get("findingId") or data.get("finding_id"),
+        project_name,
+        data.get("title") or "",
+        data.get("description") or "",
+        data.get("assignedRole") or data.get("assigned_role") or "",
+        data.get("assignedTo") or data.get("assigned_to") or "",
+        data.get("status") or "Новое",
+        data.get("dueDate") or data.get("due_date") or "",
+        data.get("actionLabel") or data.get("action_label") or "Принять к исполнению",
+        data.get("actionPayload") or data.get("action_payload") or "",
+    ))
+    row = cur.fetchone()
+    return row["id"] if isinstance(row, dict) else row[0]
+
+def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_user: dict):
+    cur.execute("SELECT id FROM ai_tasks WHERE finding_id=%s AND status NOT IN ('Закрыто','Отклонено') LIMIT 1", (finding_id,))
+    if cur.fetchone():
+        return None
+    return _insert_ai_task(cur, {
+        "findingId": finding_id,
+        "projectName": finding.get("projectName"),
+        "title": finding.get("title"),
+        "description": finding.get("suggestedAction") or finding.get("description") or "",
+        "assignedRole": finding.get("assignedRole") or "прораб",
+        "assignedTo": finding.get("assignedTo") or "",
+        "status": "Новое",
+        "actionLabel": "Принять к исполнению",
+        "actionPayload": json.dumps({
+            "linkedEntityType": finding.get("linkedEntityType") or "",
+            "linkedEntityId": finding.get("linkedEntityId") or "",
+            "dedupeKey": finding.get("dedupeKey") or "",
+        }, ensure_ascii=False),
+    }, current_user)
+
+def _upsert_ai_finding(cur, finding: dict, current_user: dict):
+    project_name = finding.get("projectName") or ""
+    require_project_access(current_user, project_name)
+    dedupe_key = finding.get("dedupeKey") or ""
+    if dedupe_key:
+        cur.execute("""
+            SELECT id FROM ai_findings
+            WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено')
+            LIMIT 1
+        """, (project_name, dedupe_key))
+        row = cur.fetchone()
+        if row:
+            finding_id = row["id"] if isinstance(row, dict) else row[0]
+            cur.execute("""
+                UPDATE ai_findings
+                SET finding_type=%s, category=%s, severity=%s, title=%s, description=%s,
+                    source=%s, linked_entity_type=%s, linked_entity_id=%s,
+                    suggested_action=%s, assigned_role=%s, assigned_to=%s,
+                    updated_at=NOW()
+                WHERE id=%s
+            """, (
+                finding.get("findingType") or "rule",
+                finding.get("category") or "Общее",
+                finding.get("severity") or "Проверить",
+                finding.get("title") or "",
+                finding.get("description") or "",
+                finding.get("source") or "system_rules",
+                finding.get("linkedEntityType") or "",
+                finding.get("linkedEntityId") or "",
+                finding.get("suggestedAction") or "",
+                finding.get("assignedRole") or "",
+                finding.get("assignedTo") or "",
+                finding_id,
+            ))
+            _ensure_ai_task_for_finding(cur, finding_id, finding, current_user)
+            return finding_id, False
+    cur.execute("""
+        INSERT INTO ai_findings (
+            project_name, finding_type, category, severity, title, description, source,
+            linked_entity_type, linked_entity_id, suggested_action, assigned_role,
+            assigned_to, status, dedupe_key, created_by, created_by_id, created_at, updated_at
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+        RETURNING id
+    """, (
+        project_name,
+        finding.get("findingType") or "rule",
+        finding.get("category") or "Общее",
+        finding.get("severity") or "Проверить",
+        finding.get("title") or "",
+        finding.get("description") or "",
+        finding.get("source") or "system_rules",
+        finding.get("linkedEntityType") or "",
+        finding.get("linkedEntityId") or "",
+        finding.get("suggestedAction") or "",
+        finding.get("assignedRole") or "",
+        finding.get("assignedTo") or "",
+        finding.get("status") or "Новое",
+        dedupe_key,
+        current_user.get("name") or "",
+        current_user.get("id"),
+    ))
+    row = cur.fetchone()
+    finding_id = row["id"] if isinstance(row, dict) else row[0]
+    _ensure_ai_task_for_finding(cur, finding_id, finding, current_user)
+    return finding_id, True
+
+@app.get("/ai-findings")
+def list_ai_findings(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    if project_name:
+        require_project_access(current_user, project_name)
+        cur.execute(AI_FINDING_SELECT + " WHERE project_name=%s ORDER BY updated_at DESC, id DESC", (project_name,))
+    else:
+        allowed_projects = visible_project_names(current_user)
+        if allowed_projects is not None:
+            if not allowed_projects:
+                cur.close(); conn.close()
+                return []
+            cur.execute(AI_FINDING_SELECT + " WHERE project_name = ANY(%s) ORDER BY updated_at DESC, id DESC", (allowed_projects,))
+        else:
+            cur.execute(AI_FINDING_SELECT + " ORDER BY updated_at DESC, id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/ai-findings")
+def create_ai_finding(data: AiFindingModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "мастер", "субподрядчик"))):
+    payload = data.dict()
+    if not payload.get("projectName"):
+        raise HTTPException(status_code=400, detail="projectName required")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    finding_id, _ = _upsert_ai_finding(cur, payload, current_user)
+    cur.execute(AI_FINDING_SELECT + " WHERE id=%s", (finding_id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return dict(row)
+
+@app.put("/ai-findings/{id}")
+def update_ai_finding(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    require_row_project_access(cur, "ai_findings", id, current_user, "project_name")
+    editable = {
+        "findingType": "finding_type",
+        "category": "category",
+        "severity": "severity",
+        "title": "title",
+        "description": "description",
+        "source": "source",
+        "linkedEntityType": "linked_entity_type",
+        "linkedEntityId": "linked_entity_id",
+        "suggestedAction": "suggested_action",
+        "assignedRole": "assigned_role",
+        "assignedTo": "assigned_to",
+        "status": "status",
+        "dedupeKey": "dedupe_key",
+    }
+    sets, vals = [], []
+    for js_key, db_col in editable.items():
+        if js_key in data:
+            sets.append(db_col + "=%s")
+            vals.append(data[js_key])
+    if sets:
+        vals.append(id)
+        cur.execute("UPDATE ai_findings SET " + ", ".join(sets) + ", updated_at=NOW() WHERE id=%s", vals)
+        if data.get("status") in ("Закрыто", "Отклонено"):
+            cur.execute("UPDATE ai_tasks SET status=%s, closed_by=%s, closed_at=NOW(), updated_at=NOW() WHERE finding_id=%s AND status NOT IN ('Закрыто','Отклонено')",
+                        (data.get("status"), current_user.get("name") or "", id))
+    cur.execute(AI_FINDING_SELECT + " WHERE id=%s", (id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return dict(row)
+
+@app.post("/ai-findings/generate")
+def generate_ai_findings(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    project_name = data.get("projectName") or data.get("project_name") or data.get("project") or ""
+    if not project_name:
+        raise HTTPException(status_code=400, detail="projectName required")
+    require_project_access(current_user, project_name)
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""SELECT id, project, name, floor_area, wall_area, ceiling_area, windows, doors, notes, floor, liter, room_type
+                   FROM rooms WHERE project=%s ORDER BY id""", (project_name,))
+    rooms_rows = [dict(r) for r in cur.fetchall()]
+    room_ids = [r["id"] for r in rooms_rows]
+    windows_by_room, doors_by_room = {}, {}
+    if room_ids:
+        cur.execute("""SELECT w.id,w.room_id,w.name,w.width,w.height,w.reveal_depth
+                       FROM room_windows w WHERE w.room_id = ANY(%s) ORDER BY w.id""", (room_ids,))
+        for w in cur.fetchall():
+            windows_by_room.setdefault(w["room_id"], []).append(dict(w))
+        cur.execute("""SELECT d.id,d.room_id,d.name,d.width,d.height,d.reveal_depth
+                       FROM room_doors d WHERE d.room_id = ANY(%s) ORDER BY d.id""", (room_ids,))
+        for d in cur.fetchall():
+            doors_by_room.setdefault(d["room_id"], []).append(dict(d))
+    findings = []
+    for room in rooms_rows:
+        room_title = (room.get("name") or f"Помещение {room.get('id')}")
+        room_prefix = f"{room_title}"
+        for field, label, action in [
+            ("floor_area", "площади пола", "Заполнить площадь пола по проекту или фактическому обмеру."),
+            ("wall_area", "площади стен", "Заполнить площадь стен. Окна и двери потом вычтутся из чистой площади."),
+            ("ceiling_area", "площади потолка", "Заполнить площадь потолка по проекту или фактическому обмеру."),
+        ]:
+            if float(room.get(field) or 0) <= 0:
+                findings.append({
+                    "projectName": project_name,
+                    "findingType": "rule",
+                    "category": "Помещения",
+                    "severity": "Не хватает данных",
+                    "title": f"Нет {label}: {room_prefix}",
+                    "description": f"В помещении «{room_title}» не заполнена {label}. Из-за этого система не сможет корректно сверять смету, факт работ и списание материалов.",
+                    "source": "system_rules",
+                    "linkedEntityType": "room",
+                    "linkedEntityId": str(room.get("id")),
+                    "suggestedAction": action,
+                    "assignedRole": "прораб",
+                    "dedupeKey": f"room:{room.get('id')}:{field}",
+                })
+        for w in windows_by_room.get(room["id"], []):
+            win_title = w.get("name") or f"Окно {w.get('id')}"
+            if float(w.get("width") or 0) <= 0 or float(w.get("height") or 0) <= 0:
+                findings.append({
+                    "projectName": project_name,
+                    "findingType": "rule",
+                    "category": "Помещения",
+                    "severity": "Не хватает данных",
+                    "title": f"Нет размеров окна: {room_title} / {win_title}",
+                    "description": "Без ширины и высоты окна нельзя правильно вычесть проём из площади стен.",
+                    "source": "system_rules",
+                    "linkedEntityType": "room_window",
+                    "linkedEntityId": str(w.get("id")),
+                    "suggestedAction": "Заполнить ширину и высоту окна.",
+                    "assignedRole": "прораб",
+                    "dedupeKey": f"window:{w.get('id')}:size",
+                })
+            if float(w.get("reveal_depth") or 0) <= 0:
+                findings.append({
+                    "projectName": project_name,
+                    "findingType": "rule",
+                    "category": "Помещения",
+                    "severity": "Проверить",
+                    "title": f"Нет глубины оконного откоса: {room_title} / {win_title}",
+                    "description": "Откосы считаются отдельным объёмом. Без глубины нельзя посчитать штукатурку/отделку откосов.",
+                    "source": "system_rules",
+                    "linkedEntityType": "room_window",
+                    "linkedEntityId": str(w.get("id")),
+                    "suggestedAction": "Указать глубину оконного откоса.",
+                    "assignedRole": "прораб",
+                    "dedupeKey": f"window:{w.get('id')}:reveal",
+                })
+        for d in doors_by_room.get(room["id"], []):
+            door_title = d.get("name") or f"Дверь {d.get('id')}"
+            if float(d.get("width") or 0) <= 0 or float(d.get("height") or 0) <= 0:
+                findings.append({
+                    "projectName": project_name,
+                    "findingType": "rule",
+                    "category": "Помещения",
+                    "severity": "Не хватает данных",
+                    "title": f"Нет размеров двери: {room_title} / {door_title}",
+                    "description": "Без ширины и высоты двери нельзя правильно вычесть проём из площади стен.",
+                    "source": "system_rules",
+                    "linkedEntityType": "room_door",
+                    "linkedEntityId": str(d.get("id")),
+                    "suggestedAction": "Заполнить ширину и высоту двери.",
+                    "assignedRole": "прораб",
+                    "dedupeKey": f"door:{d.get('id')}:size",
+                })
+            if float(d.get("reveal_depth") or 0) <= 0:
+                findings.append({
+                    "projectName": project_name,
+                    "findingType": "rule",
+                    "category": "Помещения",
+                    "severity": "Проверить",
+                    "title": f"Нет глубины дверного откоса: {room_title} / {door_title}",
+                    "description": "Дверные откосы считаются отдельно от стен. Без глубины система не сможет проверить объём.",
+                    "source": "system_rules",
+                    "linkedEntityType": "room_door",
+                    "linkedEntityId": str(d.get("id")),
+                    "suggestedAction": "Указать глубину дверного откоса.",
+                    "assignedRole": "прораб",
+                    "dedupeKey": f"door:{d.get('id')}:reveal",
+                })
+    cur.execute("""SELECT id, description, unit, quantity, date, master_name
+                   FROM work_journal
+                   WHERE project=%s AND COALESCE(status,'') <> 'Отклонено'
+                   ORDER BY id DESC LIMIT 80""", (project_name,))
+    journal_rows = [dict(r) for r in cur.fetchall()]
+    cur.execute("SELECT description, date FROM room_works WHERE project=%s", (project_name,))
+    bound_keys = set((str(r.get("description") or "").strip().lower(), str(r.get("date") or "")) for r in cur.fetchall())
+    for wj in journal_rows:
+        unit = (wj.get("unit") or "").lower()
+        if unit not in ("м2", "м", "шт", "м3"):
+            continue
+        desc = (wj.get("description") or "").strip()
+        if not desc:
+            continue
+        key = (desc.lower(), str(wj.get("date") or ""))
+        if key in bound_keys:
+            continue
+        findings.append({
+            "projectName": project_name,
+            "findingType": "rule",
+            "category": "ЖПР",
+            "severity": "Проверить",
+            "title": f"Работа без помещения: {desc[:90]}",
+            "description": "Запись журнала работ не привязана к помещению. Из-за этого сложнее сверять факт с обмерами, сметой и материалами.",
+            "source": "system_rules",
+            "linkedEntityType": "work_journal",
+            "linkedEntityId": str(wj.get("id")),
+            "suggestedAction": "Уточнить помещение и поверхность для этой работы.",
+            "assignedRole": "прораб",
+            "dedupeKey": f"work_journal:{wj.get('id')}:room_binding",
+        })
+    created = 0
+    updated = 0
+    for finding in findings:
+        _, is_created = _upsert_ai_finding(cur, finding, current_user)
+        if is_created:
+            created += 1
+        else:
+            updated += 1
+    cur.close(); conn.close()
+    return {"ok": True, "created": created, "updated": updated, "total": len(findings)}
+
+@app.get("/ai-tasks")
+def list_ai_tasks(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    if project_name:
+        require_project_access(current_user, project_name)
+        cur.execute(AI_TASK_SELECT + " WHERE project_name=%s ORDER BY updated_at DESC, id DESC", (project_name,))
+    else:
+        allowed_projects = visible_project_names(current_user)
+        if allowed_projects is not None:
+            if not allowed_projects:
+                cur.close(); conn.close()
+                return []
+            cur.execute(AI_TASK_SELECT + " WHERE project_name = ANY(%s) ORDER BY updated_at DESC, id DESC", (allowed_projects,))
+        else:
+            cur.execute(AI_TASK_SELECT + " ORDER BY updated_at DESC, id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/ai-tasks")
+def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "мастер", "субподрядчик"))):
+    payload = data.dict()
+    if not payload.get("projectName"):
+        raise HTTPException(status_code=400, detail="projectName required")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    task_id = _insert_ai_task(cur, payload, current_user)
+    cur.execute(AI_TASK_SELECT + " WHERE id=%s", (task_id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return dict(row)
+
+@app.put("/ai-tasks/{id}")
+def update_ai_task(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    require_row_project_access(cur, "ai_tasks", id, current_user, "project_name")
+    editable = {
+        "title": "title",
+        "description": "description",
+        "assignedRole": "assigned_role",
+        "assignedTo": "assigned_to",
+        "status": "status",
+        "dueDate": "due_date",
+        "actionLabel": "action_label",
+        "actionPayload": "action_payload",
+    }
+    sets, vals = [], []
+    for js_key, db_col in editable.items():
+        if js_key in data:
+            if js_key == "dueDate":
+                sets.append(db_col + "=NULLIF(%s,'')::date")
+            else:
+                sets.append(db_col + "=%s")
+            vals.append(data[js_key] or "")
+    if data.get("status") in ("Принято к исполнению", "В работе"):
+        sets.append("accepted_by=%s")
+        vals.append(current_user.get("name") or "")
+        sets.append("accepted_at=COALESCE(accepted_at,NOW())")
+    if data.get("status") in ("Закрыто", "Отклонено", "Исправлено"):
+        sets.append("closed_by=%s")
+        vals.append(current_user.get("name") or "")
+        sets.append("closed_at=NOW()")
+    if sets:
+        vals.append(id)
+        cur.execute("UPDATE ai_tasks SET " + ", ".join(sets) + ", updated_at=NOW() WHERE id=%s", vals)
+    cur.execute(AI_TASK_SELECT + " WHERE id=%s", (id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return dict(row)
 
 @app.get("/tools")
 def get_tools(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
