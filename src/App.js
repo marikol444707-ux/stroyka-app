@@ -4,6 +4,19 @@ import LoginPage from './pages/LoginPage';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
+const loadStoredUser = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const token = localStorage.getItem('authToken');
+    const rawUser = localStorage.getItem('user');
+    if (!token || !rawUser) return null;
+    return JSON.parse(rawUser);
+  } catch {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+    return null;
+  }
+};
 if (typeof window !== 'undefined' && !window.__stroykaAuthFetchInstalled) {
   const nativeFetch = window.fetch.bind(window);
   window.fetch = (input, init = {}) => {
@@ -521,7 +534,7 @@ function App() {
       }
     } catch(_) {}
   }, []);
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(loadStoredUser);
   const [page, setPage] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -2419,6 +2432,7 @@ function App() {
       if (!res.ok) { setLoginError('Неверный email или пароль'); return; }
       const data = await res.json();
       if (data.authToken) localStorage.setItem('authToken', data.authToken);
+      localStorage.setItem('user', JSON.stringify(data));
       setUser(data);
     } catch { setLoginError('Ошибка подключения к серверу'); }
   };
@@ -2435,6 +2449,7 @@ function App() {
       if (!res.ok) { const err=await res.json(); setLoginError(err.detail); return; }
       const data = await res.json();
       if (data.authToken) localStorage.setItem('authToken', data.authToken);
+      localStorage.setItem('user', JSON.stringify(data));
       setUser(data);
     } catch { setLoginError('Ошибка подключения'); }
   };
