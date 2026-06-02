@@ -7131,7 +7131,7 @@ def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(r
                    SET status='Включено в новую смету',
                        included_in_estimate_id=%s,
                        approved_by=COALESCE(NULLIF(approved_by,''), %s),
-                       approved_at=COALESCE(approved_at, CURRENT_DATE)
+                       approved_at=COALESCE(approved_at, TO_CHAR(CURRENT_DATE,'YYYY-MM-DD'))
                    WHERE id = ANY(%s)""", (new_id, current_user.get("name") or "", applied_ids))
     conn.commit()
     cur.close(); conn.close()
