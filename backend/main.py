@@ -968,6 +968,23 @@ def init_db():
             uploaded_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS project_measurements (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            source_type VARCHAR(100) DEFAULT 'Фактический обмер',
+            doc_type VARCHAR(100) DEFAULT 'Обмер',
+            title VARCHAR(255),
+            file_url TEXT,
+            status VARCHAR(50) DEFAULT 'Черновик',
+            rooms_created INT DEFAULT 0,
+            notes TEXT,
+            uploaded_by VARCHAR(255),
+            reviewed_by VARCHAR(255),
+            reviewed_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_measurements_project ON project_measurements(project_name);
+        CREATE INDEX IF NOT EXISTS idx_project_measurements_status ON project_measurements(status);
         CREATE TABLE IF NOT EXISTS project_letters (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -7169,6 +7186,102 @@ def delete_project_document(id: int, _current_user: dict = Depends(require_roles
     cur = conn.cursor()
     require_row_project_access(cur, "project_documents", id, _current_user)
     cur.execute("DELETE FROM project_documents WHERE id=%s",(id,))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+# --- Проект / обмеры объекта: исходники объёмов для помещений и сметы ---
+@app.get("/project-measurements")
+def get_project_measurements(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    allowed_projects = visible_project_names(_current_user)
+    select_sql = """SELECT id,project_name,source_type,doc_type,title,file_url,status,rooms_created,notes,
+                           uploaded_by,reviewed_by,reviewed_at,created_at
+                    FROM project_measurements"""
+    if project_name:
+        if allowed_projects is not None and project_name not in allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute(select_sql + " WHERE project_name=%s ORDER BY id DESC", (project_name,))
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute(select_sql + " WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+    else:
+        cur.execute(select_sql + " ORDER BY id DESC")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [{
+        "id": r[0],
+        "projectName": r[1],
+        "sourceType": r[2] or "Фактический обмер",
+        "docType": r[3] or "Обмер",
+        "title": r[4] or "",
+        "fileUrl": r[5] or "",
+        "status": r[6] or "Черновик",
+        "roomsCreated": int(r[7] or 0),
+        "notes": r[8] or "",
+        "uploadedBy": r[9] or "",
+        "reviewedBy": r[10] or "",
+        "reviewedAt": str(r[11]) if r[11] else "",
+        "createdAt": str(r[12]) if r[12] else "",
+    } for r in rows]
+
+@app.post("/project-measurements")
+def create_project_measurement(data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    project_name = data.get("projectName", "")
+    require_project_access(_current_user, project_name)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""INSERT INTO project_measurements
+                   (project_name,source_type,doc_type,title,file_url,status,rooms_created,notes,uploaded_by)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (project_name, data.get("sourceType","Фактический обмер"), data.get("docType","Обмер"),
+         data.get("title",""), data.get("fileUrl",""), data.get("status","Черновик"),
+         int(data.get("roomsCreated") or 0), data.get("notes",""), data.get("uploadedBy","")))
+    new_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "id": new_id}
+
+@app.put("/project-measurements/{id}")
+def update_project_measurement(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_row_project_access(cur, "project_measurements", id, _current_user)
+    fields = {
+        "sourceType": "source_type",
+        "docType": "doc_type",
+        "title": "title",
+        "fileUrl": "file_url",
+        "status": "status",
+        "roomsCreated": "rooms_created",
+        "notes": "notes",
+    }
+    sets, vals = [], []
+    for k, col in fields.items():
+        if k in data:
+            sets.append(col + "=%s")
+            vals.append(int(data.get(k) or 0) if k == "roomsCreated" else data.get(k, ""))
+    if data.get("status") == "Принято":
+        sets.append("reviewed_by=%s")
+        vals.append(_current_user.get("name") or "")
+        sets.append("reviewed_at=NOW()")
+    if sets:
+        vals.append(id)
+        cur.execute("UPDATE project_measurements SET " + ",".join(sets) + " WHERE id=%s", tuple(vals))
+        conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True}
+
+@app.delete("/project-measurements/{id}")
+def delete_project_measurement(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+    conn = get_db()
+    cur = conn.cursor()
+    require_row_project_access(cur, "project_measurements", id, _current_user)
+    cur.execute("DELETE FROM project_measurements WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}

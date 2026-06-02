@@ -86,6 +86,9 @@ const ESTIMATE_MEASUREMENT_BASES = [
 ];
 const ESTIMATE_MEASUREMENT_BASE_BY_ID = ESTIMATE_MEASUREMENT_BASES.reduce((acc,b)=>{acc[b.id]=b;return acc;},{});
 const estimateMeasurementBasisMeta = (basis) => ESTIMATE_MEASUREMENT_BASE_BY_ID[basis] || ESTIMATE_MEASUREMENT_BASE_BY_ID.manual;
+const PROJECT_MEASUREMENT_SOURCE_TYPES = ['Проект','Фактический ручной','Фактический из фото','Экспликация','Ведомость окон/дверей','Уточнённый'];
+const PROJECT_MEASUREMENT_DOC_TYPES = ['Проект','Обмер','Экспликация','Ведомость окон','Ведомость дверей','Фото обмера','Рукописный обмер','Прочее'];
+const PROJECT_MEASUREMENT_STATUSES = ['Черновик','На проверке','Принято','Отклонено'];
 const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
   const text = estimateTextKey([sectionName, it.section, it.name, it.unit].filter(Boolean).join(' '));
   const unit = estimateTextKey(it.unit || '');
@@ -612,6 +615,10 @@ function App() {
   const [newProjectDoc, setNewProjectDoc] = useState({side:'customer',docType:'Договор',number:'',docDate:'',counterparty:'',signStatus:'Не подписан',scanUrl:'',amount:'',notes:''});
   const [showDocForm, setShowDocForm] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [projectMeasurements, setProjectMeasurements] = useState([]);
+  const [newMeasurementDoc, setNewMeasurementDoc] = useState({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
+  const [showMeasurementForm, setShowMeasurementForm] = useState(false);
+  const [uploadingMeasurementDoc, setUploadingMeasurementDoc] = useState(false);
   const [projectLetters, setProjectLetters] = useState([]);
   const [newLetter, setNewLetter] = useState({side:'customer',direction:'outgoing',subject:'',body:'',counterparty:'',letterDate:'',fileUrl:''});
   const [showLetterForm, setShowLetterForm] = useState(false);
@@ -1231,6 +1238,10 @@ function App() {
         setProjectDocuments(Array.isArray(pdocs)?pdocs:[]);
         const plet = await get('/project-letters');
         setProjectLetters(Array.isArray(plet)?plet:[]);
+      } catch(e) {}
+      if (canSeeProjectDocs) try {
+        const pmeas = await get('/project-measurements');
+        setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]);
       } catch(e) {}
     } catch(e) { console.log('Load error:',e); }
   };
@@ -8197,13 +8208,13 @@ function App() {
                       const _isForeman=user.role==='прораб';
                       const tabGroups=_isForeman?[
                         {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете','Чек-листы','Смета']},
-                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Помещения','График','Этапы','Материалы']},
+                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения','График','Этапы','Материалы']},
                         {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
                         {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','Акты технадзора','Замечания ГСН','Гарантия']},
                       ]:[
                         {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете','Чек-листы']},
                         {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
-                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Помещения','График','Этапы']},
+                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения','График','Этапы']},
                         {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
                         {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','КС-2','КС-3','Паспорт','Акты технадзора','Замечания ГСН','Гарантия']},
                       ];
@@ -8473,6 +8484,114 @@ function App() {
                             })}
                           </div>
                         ))}
+                      </div>);
+                    })()}
+
+                    {activeProjectTab==='Проект / Обмеры'&&(()=> {
+                      const docs = (projectMeasurements||[]).filter(d=>d.projectName===p.name);
+                      const projectRooms = rooms.filter(r=>r.project===p.name);
+                      const roomChecks = projectRooms.map(roomCompleteness);
+                      const fullRooms = roomChecks.filter(x=>x.status==='Обмер полный').length;
+                      const missingRooms = roomChecks.filter(x=>x.status==='Не хватает данных').length;
+                      const acceptedDocs = docs.filter(d=>d.status==='Принято').length;
+                      const reviewDocs = docs.filter(d=>d.status==='На проверке').length;
+                      const canEditMeasurements = user&&['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user.role);
+                      const statusMeta = (st) => st==='Принято'
+                        ? [C.success,C.successLight,C.successBorder]
+                        : st==='На проверке'
+                          ? [C.warning,C.warningLight,C.warningBorder]
+                          : st==='Отклонено'
+                            ? [C.danger,C.dangerLight,C.dangerBorder]
+                            : [C.textSec,C.bgGray,C.border];
+                      const saveMeasurement = async () => {
+                        if (!newMeasurementDoc.title.trim() && !newMeasurementDoc.fileUrl) { alert('Укажите название или загрузите файл'); return; }
+                        await fetch(API+'/project-measurements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newMeasurementDoc,projectName:p.name,roomsCreated:Number(newMeasurementDoc.roomsCreated||0),uploadedBy:user.name})});
+                        setNewMeasurementDoc({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
+                        setShowMeasurementForm(false);
+                        await loadAll();
+                      };
+                      const updateMeasurement = async (doc, patch) => {
+                        await fetch(API+'/project-measurements/'+doc.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+                        await loadAll();
+                      };
+                      const deleteMeasurement = async (doc) => {
+                        if (!window.confirm('Удалить исходник «'+(doc.title||doc.docType||'обмер')+'»?')) return;
+                        await fetch(API+'/project-measurements/'+doc.id,{method:'DELETE'});
+                        await loadAll();
+                      };
+                      return (<div>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
+                          <div>
+                            <b style={{color:C.text,fontSize:'15px'}}>📐 Проект / Обмеры</b>
+                            <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Исходники объёмов: проект, экспликации, ведомости окон/дверей, ручные и фактические обмеры.</p>
+                          </div>
+                          {canEditMeasurements&&<button onClick={()=>setShowMeasurementForm(!showMeasurementForm)} style={btnO}><Plus size={14}/>Добавить источник</button>}
+                        </div>
+
+                        <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:'10px',marginBottom:'14px'}}>
+                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Исходников</p><b style={{color:C.text,fontSize:'20px'}}>{docs.length}</b></div>
+                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:acceptedDocs?C.successLight:C.bgWhite,border:'1.5px solid '+(acceptedDocs?C.successBorder:C.border)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Принято</p><b style={{color:acceptedDocs?C.success:C.text,fontSize:'20px'}}>{acceptedDocs}</b></div>
+                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:reviewDocs?C.warningLight:C.bgWhite,border:'1.5px solid '+(reviewDocs?C.warningBorder:C.border)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>На проверке</p><b style={{color:reviewDocs?C.warning:C.text,fontSize:'20px'}}>{reviewDocs}</b></div>
+                          <div style={{padding:'12px',borderRadius:'10px',backgroundColor:missingRooms?C.warningLight:C.successLight,border:'1.5px solid '+(missingRooms?C.warningBorder:C.successBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Помещения</p><b style={{color:missingRooms?C.warning:C.success,fontSize:'20px'}}>{fullRooms+'/'+projectRooms.length}</b></div>
+                        </div>
+
+                        {showMeasurementForm&&canEditMeasurements&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
+                          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr',gap:'8px'}}>
+                            <select value={newMeasurementDoc.sourceType} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,sourceType:e.target.value})} style={{...inp,marginBottom:0}}>{PROJECT_MEASUREMENT_SOURCE_TYPES.map(t=><option key={t}>{t}</option>)}</select>
+                            <select value={newMeasurementDoc.docType} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,docType:e.target.value})} style={{...inp,marginBottom:0}}>{PROJECT_MEASUREMENT_DOC_TYPES.map(t=><option key={t}>{t}</option>)}</select>
+                            <select value={newMeasurementDoc.status} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,status:e.target.value})} style={{...inp,marginBottom:0}}>{PROJECT_MEASUREMENT_STATUSES.map(t=><option key={t}>{t}</option>)}</select>
+                            <input placeholder="Название / лист / файл" value={newMeasurementDoc.title} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,title:e.target.value})} style={{...inp,marginBottom:0}}/>
+                            <input placeholder="Создано помещений" type="number" min="0" inputMode="numeric" value={newMeasurementDoc.roomsCreated} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,roomsCreated:e.target.value})} style={{...inp,marginBottom:0}}/>
+                            <label style={{...btnG,cursor:'pointer',justifyContent:'center',margin:0}}>
+                              <Upload size={14}/>{uploadingMeasurementDoc?'Загрузка...':(newMeasurementDoc.fileUrl?'Файл загружен':'Загрузить файл')}
+                              <input type='file' accept='.pdf,.doc,.docx,.xls,.xlsx,image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(!f)return;setUploadingMeasurementDoc(true);const url=await uploadPhoto(f);setUploadingMeasurementDoc(false);if(url)setNewMeasurementDoc(prev=>({...prev,fileUrl:url,title:prev.title||f.name}));}}/>
+                            </label>
+                          </div>
+                          <textarea placeholder="Комментарий: откуда взяты объёмы, что нужно проверить, какие помещения создать" value={newMeasurementDoc.notes} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,notes:e.target.value})} style={{...inp,minHeight:'70px',resize:'vertical',marginTop:'8px'}}/>
+                          <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                            <button onClick={saveMeasurement} style={btnO}><Check size={14}/>Сохранить</button>
+                            <button onClick={()=>setShowMeasurementForm(false)} style={btnG}><X size={14}/>Отмена</button>
+                          </div>
+                        </div>)}
+
+                        <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:missingRooms?C.warningLight:C.successLight,border:'1.5px solid '+(missingRooms?C.warningBorder:C.successBorder)}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                            <div>
+                              <b style={{color:C.text,fontSize:'13px'}}>Помещения и обмеры</b>
+                              <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>{projectRooms.length?('Полный обмер: '+fullRooms+' из '+projectRooms.length+(missingRooms?' · дозаполнить: '+missingRooms:'')):'Помещения ещё не заведены'}</p>
+                            </div>
+                            <button onClick={()=>setActiveProjectTab('Помещения')} style={btnG}>Открыть помещения</button>
+                          </div>
+                        </div>
+
+                        {docs.length===0&&(<div style={{...card,padding:'28px',textAlign:'center',color:C.textMuted}}>
+                          <FileText size={42} style={{opacity:.35,marginBottom:'10px'}}/>
+                          <p style={{margin:0}}>Исходники проекта и обмеров пока не добавлены</p>
+                        </div>)}
+                        {docs.map(doc=>{
+                          const sm=statusMeta(doc.status);
+                          return (<div key={doc.id} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+sm[0]}}>
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                              <div style={{flex:1,minWidth:'220px'}}>
+                                <div style={{display:'flex',gap:'6px',flexWrap:'wrap',alignItems:'center',marginBottom:'6px'}}>
+                                  <span style={badge(sm[0],sm[1],sm[2])}>{doc.status}</span>
+                                  <span style={{fontSize:'11px',color:C.textSec}}>{doc.sourceType+' · '+doc.docType}</span>
+                                </div>
+                                <b style={{color:C.text,fontSize:'13px',display:'block'}}>{doc.title||doc.docType}</b>
+                                <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0'}}>{(doc.uploadedBy?'Загрузил: '+doc.uploadedBy:'')+(doc.createdAt?' · '+String(doc.createdAt).slice(0,10):'')+(doc.roomsCreated?(' · помещений: '+doc.roomsCreated):'')}</p>
+                                {doc.notes&&<p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0',lineHeight:1.45}}>{doc.notes}</p>}
+                                {doc.reviewedBy&&<p style={{color:C.success,fontSize:'11px',margin:'4px 0 0'}}>{'Принял: '+doc.reviewedBy}</p>}
+                              </div>
+                              <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                                {doc.fileUrl&&<a href={API+doc.fileUrl} target='_blank' rel='noreferrer' style={{...btnB,padding:'5px 9px',fontSize:'11px',textDecoration:'none'}}><Eye size={11}/>Файл</a>}
+                                {canEditMeasurements&&doc.status!=='На проверке'&&<button onClick={()=>updateMeasurement(doc,{status:'На проверке'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>На проверку</button>}
+                                {canEditMeasurements&&doc.status!=='Принято'&&<button onClick={()=>updateMeasurement(doc,{status:'Принято'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
+                                {canEditMeasurements&&doc.status!=='Отклонено'&&<button onClick={()=>updateMeasurement(doc,{status:'Отклонено'})} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}>Отклонить</button>}
+                                {canEditMeasurements&&<button onClick={()=>deleteMeasurement(doc)} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}><Trash2 size={11}/></button>}
+                              </div>
+                            </div>
+                          </div>);
+                        })}
                       </div>);
                     })()}
 
