@@ -78,6 +78,8 @@ const ESTIMATE_MEASUREMENT_BASES = [
   {id:'ceiling_area', label:'Потолок', icon:'⬆️'},
   {id:'window_reveals', label:'Оконные откосы', icon:'🪟'},
   {id:'door_reveals', label:'Дверные откосы', icon:'🚪'},
+  {id:'window_area', label:'Окна, м2', icon:'🪟'},
+  {id:'door_area', label:'Двери, м2', icon:'🚪'},
   {id:'window_count', label:'Окна, шт', icon:'🪟'},
   {id:'door_count', label:'Двери, шт', icon:'🚪'},
   {id:'linear', label:'Погонные метры', icon:'📏'},
@@ -107,8 +109,8 @@ const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
   if (estimateTextHasAny(text, ['потолок','потолк','потолоч','подвесной потолок','натяжной потолок'])) return 'ceiling_area';
   if (hasFloorWord || estimateTextHasAny(text, ['стяжк','плитка пола','ламинат','линолеум','покрытие пола'])) return 'floor_area';
   if (estimateTextHasAny(text, ['штукатур','шпатлев','шпаклев','окраск','обои','облицовка стен','стен','перегород','фасад'])) return 'wall_net_area';
-  if (estimateTextHasAny(text, ['окно','оконный блок','подоконник'])) return 'window_reveals';
-  if (estimateTextHasAny(text, ['двер','дверной блок','полотно'])) return 'door_reveals';
+  if (estimateTextHasAny(text, ['окно','оконный блок','оконные блоки','замена окон','стеклопакет'])) return 'window_area';
+  if (estimateTextHasAny(text, ['двер','дверной блок','дверные блоки','полотно','замена двер'])) return 'door_area';
   return 'manual';
 };
 const estimateMeasurementBasisOf = (it={}, sectionName='') => (it.measurementBasis && ESTIMATE_MEASUREMENT_BASE_BY_ID[it.measurementBasis]) ? it.measurementBasis : suggestEstimateMeasurementBasis(it, sectionName);
@@ -2756,10 +2758,16 @@ function App() {
     const projectRoomIds = new Set(projectRooms.map(r=>Number(r.id)));
     const projectWindows = (roomWindows||[]).filter(w=>projectRoomIds.has(Number(w.room_id)));
     const projectDoors = (roomDoors||[]).filter(d=>projectRoomIds.has(Number(d.room_id)));
+    const wallGrossArea = projectRooms.reduce((s,r)=>s+toNum(r.wallArea),0);
+    const windowArea = projectWindows.reduce((s,w)=>s+calcWindowArea(w),0);
+    const doorArea = projectDoors.reduce((s,d)=>s+calcDoorArea(d),0);
     return {
       roomCount: projectRooms.length,
-      wall_net_area: projectRooms.reduce((s,r)=>s+getRoomNetWall(r),0),
-      wall_gross_area: projectRooms.reduce((s,r)=>s+toNum(r.wallArea),0),
+      wall_net_area: Math.max(0, Math.round((wallGrossArea-windowArea-doorArea)*100)/100),
+      wall_gross_area: wallGrossArea,
+      window_area: Math.round(windowArea*100)/100,
+      door_area: Math.round(doorArea*100)/100,
+      openings_area: Math.round((windowArea+doorArea)*100)/100,
       floor_area: projectRooms.reduce((s,r)=>s+toNum(r.floorArea),0),
       ceiling_area: projectRooms.reduce((s,r)=>s+toNum(r.ceilingArea),0),
       window_reveals: projectRooms.reduce((s,r)=>s+getRoomWindowRevealsTotal(r),0),
@@ -2769,7 +2777,7 @@ function App() {
     };
   };
   const measurementBasisExpectedUnit = (basis) => {
-    if (['wall_net_area','wall_gross_area','floor_area','ceiling_area','window_reveals','door_reveals'].includes(basis)) return 'м2';
+    if (['wall_net_area','wall_gross_area','floor_area','ceiling_area','window_reveals','door_reveals','window_area','door_area'].includes(basis)) return 'м2';
     if (['window_count','door_count'].includes(basis)) return 'шт';
     return '';
   };
@@ -2873,8 +2881,9 @@ function App() {
       + '<div class="emc-card"><span>Нет обмера/ед. изм.</span><b style="color:#b45309">'+(s.missingRows.length+s.manualRows.length)+'</b></div>'
       + '<div class="emc-card"><span>Оценка доп. объёма</span><b>'+money(s.overSum)+'</b></div>'
       + '</div>';
-    html += '<table><tr><th>Помещений</th><td>'+totals.roomCount+'</td><th>Стены чистые</th><td>'+qty(totals.wall_net_area,'м2')+'</td><th>Пол</th><td>'+qty(totals.floor_area,'м2')+'</td></tr>'
-      + '<tr><th>Стены общие</th><td>'+qty(totals.wall_gross_area,'м2')+'</td><th>Потолок</th><td>'+qty(totals.ceiling_area,'м2')+'</td><th>Откосы</th><td>'+qty(totals.window_reveals+totals.door_reveals,'м2')+'</td></tr></table>';
+    html += '<table><tr><th>Помещений</th><td>'+totals.roomCount+'</td><th>Стены общие</th><td>'+qty(totals.wall_gross_area,'м2')+'</td><th>Минус окна</th><td>'+qty(totals.window_area,'м2')+'</td></tr>'
+      + '<tr><th>Минус двери</th><td>'+qty(totals.door_area,'м2')+'</td><th>Стены чистые</th><td>'+qty(totals.wall_net_area,'м2')+'</td><th>Пол</th><td>'+qty(totals.floor_area,'м2')+'</td></tr>'
+      + '<tr><th>Потолок</th><td>'+qty(totals.ceiling_area,'м2')+'</td><th>Откосы</th><td>'+qty(totals.window_reveals+totals.door_reveals,'м2')+'</td><th>Формула стен</th><td>'+qty(totals.wall_gross_area,'м2')+' - '+qty(totals.openings_area,'м2')+' = '+qty(totals.wall_net_area,'м2')+'</td></tr></table>';
     html += '<table class="emc-table"><tr><th>Статус</th><th>Пакет</th><th>Раздел</th><th>Позиция</th><th>Основание</th><th>Смета</th><th>Обмер</th><th>Разница</th><th>Оценка</th></tr>';
     html += s.rows.map(r=>{
       const color = r.status==='Сверх сметы' ? '#dc2626' : r.status==='Сходится' ? '#059669' : '#b45309';
@@ -2897,6 +2906,7 @@ function App() {
   };
   const renderEstimateMeasurementComparisonPanel = (project) => {
     const s = estimateMeasurementComparisonSummary(project);
+    const totals = projectMeasurementBasisTotals(project?.name||'');
     const rows = s.rows.slice(0,12);
     return (<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+(s.overRows.length?C.dangerBorder:s.missingRows.length||s.manualRows.length?C.warningBorder:C.successBorder)}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'12px'}}>
@@ -2912,6 +2922,12 @@ function App() {
         <div style={{padding:'10px',backgroundColor:s.missingRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.missingRows.length?C.warningBorder:C.border)}}><p style={{color:s.missingRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Нет обмера</p><b style={{color:s.missingRows.length?C.warning:C.text,fontSize:'15px'}}>{s.missingRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:s.manualRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.manualRows.length?C.infoBorder:C.border)}}><p style={{color:s.manualRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Ед. изм.</p><b style={{color:s.manualRows.length?C.info:C.text,fontSize:'15px'}}>{s.manualRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Оценка доп.</p><b style={{color:s.overSum>0?C.danger:C.text,fontSize:'15px'}}>{Math.round(s.overSum).toLocaleString('ru-RU')+' ₽'}</b></div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'8px',marginBottom:'12px'}}>
+        <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Стены общие</p><b style={{color:C.text,fontSize:'14px'}}>{fmtMeasure(totals.wall_gross_area,'м2')}</b></div>
+        <div style={{padding:'10px',backgroundColor:C.dangerLight,borderRadius:'8px',border:'1px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'10px',margin:'0 0 3px'}}>Вычет окон</p><b style={{color:C.danger,fontSize:'14px'}}>{'- '+fmtMeasure(totals.window_area,'м2')}</b></div>
+        <div style={{padding:'10px',backgroundColor:C.dangerLight,borderRadius:'8px',border:'1px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'10px',margin:'0 0 3px'}}>Вычет дверей</p><b style={{color:C.danger,fontSize:'14px'}}>{'- '+fmtMeasure(totals.door_area,'м2')}</b></div>
+        <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 3px'}}>Стены чистые</p><b style={{color:C.success,fontSize:'14px'}}>{fmtMeasure(totals.wall_net_area,'м2')}</b></div>
       </div>
       {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет активной сметы заказчика или рабочих строк для сравнения.</p>:<div style={{overflowX:'auto'}}>
         <table style={{...tbl,fontSize:'11px',minWidth:'980px'}}><thead><tr><th style={tblH}>Статус</th><th style={tblH}>Раздел / позиция</th><th style={tblH}>Основание</th><th style={tblH}>Смета</th><th style={tblH}>Обмер</th><th style={tblH}>Разница</th><th style={tblH}>Оценка</th></tr></thead><tbody>
