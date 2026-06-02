@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
 const loadStoredUser = () => {
@@ -3088,6 +3088,41 @@ function App() {
     u.changeType!=='Исключение объёма' &&
     !u.includedInEstimateId
   );
+  const includableEstimateChanges = (projectName) => (unexpectedWorksList||[]).filter(u=>
+    u.projectName===projectName &&
+    isApprovedEstimateChangeStatus(u.status) &&
+    !u.includedInEstimateId
+  );
+  const estimateChangesForNewEstimate = (project, est) => {
+    if (!project || !est) return [];
+    const activeCustomerEstimates = activeEstimatesForProject(project, 'Заказчик');
+    return includableEstimateChanges(project.name).filter(u=>{
+      if (u.estimateId) return Number(u.estimateId)===Number(est.id);
+      return activeCustomerEstimates.length===1;
+    });
+  };
+  const signedEstimateChangeTotal = (rows) => (rows||[]).reduce((s,u)=>
+    s + Number(u.total||0) * (u.changeType==='Исключение объёма' ? -1 : 1), 0);
+  const includeChangesInNewEstimate = async (project, est, rows) => {
+    if (!project || !est || !rows?.length) return;
+    const signedTotal = signedEstimateChangeTotal(rows);
+    const msg = 'Создать новую активную версию сметы "'+(est.name||'')+'" и включить изменений: '+rows.length+' на '+(signedTotal>0?'+':'')+Math.round(signedTotal).toLocaleString('ru-RU')+' ₽?\n\nСтарая смета уйдёт в архив, изменения получат статус "Включено в новую смету" и не будут идти в КС отдельными строками.';
+    if (!window.confirm(msg)) return;
+    const res = await fetch(API+'/estimates/'+est.id+'/include-changes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({changeIds:rows.map(u=>u.id),updatedBy:user.name})});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) {
+      alert(data.detail || 'Не удалось включить изменения в смету');
+      return;
+    }
+    await loadAll();
+    const next = data.estimate || null;
+    if (next) {
+      setSelectedEstimate(next);
+      setActivePage('estimates');
+      setEstimatesTab('list');
+    }
+    notify('Создана новая версия сметы: '+(next?.name||''),'estimate');
+  };
   const estimateChangeRowsForDocs = (projectName, kind) => approvedEstimateChanges(projectName)
     .filter(u=>kind==='additional'
       ? u.changeType==='Дополнительный объём к строке сметы'
@@ -9319,6 +9354,23 @@ function App() {
                           {overLimit&&<span style={{padding:'4px 10px',backgroundColor:C.danger,color:'white',borderRadius:'10px',fontSize:'11px',fontWeight:'700'}}>⚠️ ПРЕВЫШЕН ЛИМИТ</span>}
                         </div>
                         {overLimit&&<p style={{color:C.danger,margin:'8px 0 0',fontSize:'11px',lineHeight:1.4}}>Сумма изменений превысила 10% бюджета. Это не блокировка, но стоит выпустить доп.соглашение или новую редакцию сметы, чтобы КС не задвоились.</p>}
+                      </div>);})()}
+                      {(()=>{const all=includableEstimateChanges(p.name);if(all.length===0) return null;const activeEsts=activeEstimatesForProject(p,'Заказчик');const unlinked=all.filter(u=>!u.estimateId);if(activeEsts.length===0) return(<div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><b style={{color:C.warning,fontSize:'13px'}}>📐 Есть утверждённые изменения, но нет активной сметы заказчика</b><p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px'}}>Создайте или активируйте смету заказчика, чтобы включить изменения в новую версию без задвоения КС.</p></div>);return(<div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'8px'}}>
+                          <div>
+                            <b style={{color:C.info,fontSize:'13px'}}>📐 Включение изменений в новую смету</b>
+                            <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>Утверждённые изменения можно перенести в новую активную версию сметы. После этого они не пойдут в КС отдельными строками.</p>
+                          </div>
+                          <span style={badge(C.info,C.bgWhite,C.infoBorder)}>{all.length+' изм.'}</span>
+                        </div>
+                        {activeEsts.map(est=>{const rows=estimateChangesForNewEstimate(p,est);if(rows.length===0) return null;const signed=signedEstimateChangeTotal(rows);return(<div key={est.id} style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border,marginTop:'8px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                          <div style={{minWidth:'220px',flex:1}}>
+                            <b style={{color:C.text,fontSize:'12px'}}>{est.name+' · v'+(est.version||'1.0')}</b>
+                            <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>{estimatePackage(est)+' · '+rows.length+' изм. · влияние '+(signed>0?'+':'')+Math.round(signed).toLocaleString('ru-RU')+' ₽'}</p>
+                          </div>
+                          <button onClick={()=>includeChangesInNewEstimate(p,est,rows)} style={{...btnB,padding:'6px 12px',fontSize:'12px'}}><GitBranch size={13}/>В новую смету</button>
+                        </div>);})}
+                        {activeEsts.length>1&&unlinked.length>0&&<p style={{color:C.warning,margin:'8px 0 0',fontSize:'11px'}}>Есть изменения без привязки к строке сметы: {unlinked.length}. При нескольких активных пакетах их нужно привязать вручную, чтобы не включить не туда.</p>}
                       </div>);})()}
                       {showForm==='unexpected'&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>

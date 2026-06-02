@@ -6965,6 +6965,182 @@ def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(re
     cur.close(); conn.close()
     return {"ok": True, "status": status}
 
+@app.post("/estimates/{id}/include-changes")
+def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    """Создать новую активную версию сметы с утверждёнными изменениями без задвоения КС."""
+    import copy
+    import json as j
+    import re
+    import time
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT project_id, project_name, name, version, sections_json,
+                          COALESCE(smeta_type,'Заказчик'), COALESCE(work_package,'Основная'), status
+                   FROM estimates WHERE id=%s""", (id,))
+    est = cur.fetchone()
+    if not est:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    project_id, project_name, name, version, sections_json, smeta_type, work_package, status = est
+    require_project_access(current_user, project_name or "")
+    try:
+        sections = j.loads(sections_json) if sections_json else []
+    except Exception:
+        sections = []
+    sections = copy.deepcopy(sections)
+
+    change_ids = data.get("changeIds") or data.get("change_ids") or []
+    if change_ids:
+        change_ids = [int(x) for x in change_ids if str(x).strip().isdigit()]
+    cols = """id, description, unit, quantity, price, total, change_type, estimate_id,
+              section_name, estimate_item_name, base_quantity, new_required_quantity,
+              delta_quantity, reason"""
+    if change_ids:
+        cur.execute(f"""SELECT {cols} FROM unexpected_works
+                       WHERE project_name=%s
+                         AND status = ANY(%s)
+                         AND included_in_estimate_id IS NULL
+                         AND id = ANY(%s)
+                       ORDER BY id""", (project_name, list(ESTIMATE_CHANGE_APPROVED_STATUSES), change_ids))
+    else:
+        cur.execute(f"""SELECT {cols} FROM unexpected_works
+                       WHERE project_name=%s
+                         AND status = ANY(%s)
+                         AND included_in_estimate_id IS NULL
+                         AND (estimate_id=%s OR estimate_id IS NULL)
+                       ORDER BY id""", (project_name, list(ESTIMATE_CHANGE_APPROVED_STATUSES), id))
+    changes = cur.fetchall() or []
+    if not changes:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Нет утверждённых изменений для включения")
+
+    def _num(v):
+        try:
+            return float(v or 0)
+        except Exception:
+            return 0.0
+
+    def _norm(v):
+        return re.sub(r"[^a-zа-я0-9]+", " ", str(v or "").lower().replace("ё", "е")).strip()
+
+    def _next_version(v):
+        raw = str(v or "1.0").strip()
+        parts = raw.split(".")
+        try:
+            parts[-1] = str(int(parts[-1]) + 1)
+            return ".".join(parts)
+        except Exception:
+            return raw + "+1"
+
+    def _item_total(it):
+        qty = _num(it.get("quantity"))
+        work = qty * _num(it.get("priceWork"))
+        mat = _num(it.get("priceMaterial")) if it.get("isImported") else qty * _num(it.get("priceMaterial"))
+        return work + mat
+
+    def _item_unit_price(it):
+        qty = _num(it.get("quantity"))
+        return (_item_total(it) / qty) if qty > 0 else (_num(it.get("priceWork")) + _num(it.get("priceMaterial")))
+
+    def _find_item(section_name, item_name):
+        sec_key, item_key = _norm(section_name), _norm(item_name)
+        fallback = None
+        for s in sections:
+            s_match = _norm(s.get("name")) == sec_key if sec_key else True
+            for it in (s.get("items") or []):
+                if _norm(it.get("name")) == item_key:
+                    if s_match:
+                        return s, it
+                    fallback = fallback or (s, it)
+        return fallback
+
+    def _changes_section():
+        for s in sections:
+            if _norm(s.get("name")) == _norm("Изменения к смете"):
+                return s
+        s = {"id": int(time.time() * 1000), "name": "Изменения к смете", "items": []}
+        sections.append(s)
+        return s
+
+    not_applied = []
+    applied_ids = []
+    for idx, r in enumerate(changes):
+        ch_id, desc, unit, qty, price, total, change_type, estimate_id, section_name, estimate_item_name, base_qty, new_qty, delta_qty, reason = r
+        qty = _num(delta_qty) or _num(qty)
+        price = _num(price)
+        change_type = change_type or "Работа вне сметы"
+        target = _find_item(section_name, estimate_item_name or desc) if estimate_item_name or desc else None
+        if change_type in ("Дополнительный объём к строке сметы", "Исключение объёма") and target:
+            _s, it = target
+            old_qty = _num(it.get("quantity"))
+            required = _num(new_qty)
+            if required <= 0:
+                required = old_qty + qty if change_type == "Дополнительный объём к строке сметы" else max(0, old_qty - qty)
+            it["quantity"] = required
+            if _num(it.get("doneQuantity")) > required:
+                it["doneQuantity"] = required
+            if price > 0:
+                if _num(it.get("priceWork")) > 0 or not _num(it.get("priceMaterial")):
+                    it["priceWork"] = price
+                else:
+                    it["priceMaterial"] = price
+            it["sourceUnexpectedWorkId"] = ch_id
+            it["changeType"] = change_type
+            applied_ids.append(ch_id)
+            continue
+        if change_type == "Исключение объёма":
+            not_applied.append(desc or estimate_item_name or str(ch_id))
+            continue
+        section = _changes_section()
+        item_id = int(time.time() * 1000) + idx + 1
+        section.setdefault("items", []).append({
+            "id": item_id,
+            "itemType": "work",
+            "name": desc or estimate_item_name or "Изменение к смете",
+            "unit": unit or "шт",
+            "quantity": qty,
+            "priceWork": price,
+            "priceMaterial": 0,
+            "measurementBasis": "manual",
+            "sourceUnexpectedWorkId": ch_id,
+            "changeType": change_type,
+            "reason": reason or "",
+        })
+        applied_ids.append(ch_id)
+
+    if not_applied:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Не найдены строки для исключения объёма: " + ", ".join(not_applied[:5]))
+    if not applied_ids:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Не удалось применить изменения")
+
+    new_version = data.get("version") or _next_version(version)
+    new_name = data.get("name") or (name or "Смета") + " — ред. " + str(new_version)
+    cur.execute("""UPDATE estimates SET status='Архив'
+                   WHERE project_name=%s
+                     AND COALESCE(smeta_type,'Заказчик')=%s
+                     AND COALESCE(work_package,'Основная')=%s""",
+                (project_name, smeta_type, work_package))
+    cur.execute("""INSERT INTO estimates
+                   (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,'Активная') RETURNING id, created_at""",
+                (project_id, project_name, new_name, new_version, j.dumps(sections, ensure_ascii=False), smeta_type, work_package))
+    new_id, created_at = cur.fetchone()
+    cur.execute("""UPDATE unexpected_works
+                   SET status='Включено в новую смету',
+                       included_in_estimate_id=%s,
+                       approved_by=COALESCE(NULLIF(approved_by,''), %s),
+                       approved_at=COALESCE(approved_at, CURRENT_DATE)
+                   WHERE id = ANY(%s)""", (new_id, current_user.get("name") or "", applied_ids))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "id": new_id, "includedChangeIds": applied_ids,
+            "estimate": {"id": new_id, "projectId": project_id, "projectName": project_name,
+                         "name": new_name, "version": new_version, "sections": sections,
+                         "smetaType": smeta_type, "workPackage": work_package,
+                         "status": "Активная", "createdAt": str(created_at) if created_at else ""}}
+
 @app.put("/estimates/{id}/toggle-template")
 def toggle_estimate_template(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
     conn = get_db()
