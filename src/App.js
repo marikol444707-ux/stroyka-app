@@ -2744,6 +2744,183 @@ function App() {
       .map(items=>activeEstimateFromList(items))
       .filter(e=>e && !isArchivedEstimate(e));
   };
+  const projectMeasurementBasisTotals = (projectName) => {
+    const projectRooms = (rooms||[]).filter(r=>r.project===projectName);
+    const projectRoomIds = new Set(projectRooms.map(r=>Number(r.id)));
+    const projectWindows = (roomWindows||[]).filter(w=>projectRoomIds.has(Number(w.room_id)));
+    const projectDoors = (roomDoors||[]).filter(d=>projectRoomIds.has(Number(d.room_id)));
+    return {
+      roomCount: projectRooms.length,
+      wall_net_area: projectRooms.reduce((s,r)=>s+getRoomNetWall(r),0),
+      wall_gross_area: projectRooms.reduce((s,r)=>s+toNum(r.wallArea),0),
+      floor_area: projectRooms.reduce((s,r)=>s+toNum(r.floorArea),0),
+      ceiling_area: projectRooms.reduce((s,r)=>s+toNum(r.ceilingArea),0),
+      window_reveals: projectRooms.reduce((s,r)=>s+getRoomWindowRevealsTotal(r),0),
+      door_reveals: projectRooms.reduce((s,r)=>s+getRoomDoorRevealsTotal(r),0),
+      window_count: projectWindows.length,
+      door_count: projectDoors.length,
+    };
+  };
+  const measurementBasisExpectedUnit = (basis) => {
+    if (['wall_net_area','wall_gross_area','floor_area','ceiling_area','window_reveals','door_reveals'].includes(basis)) return 'м2';
+    if (['window_count','door_count'].includes(basis)) return 'шт';
+    return '';
+  };
+  const measurementEstimateStatusMeta = (status) => {
+    if (status==='Сходится') return {color:C.success,bg:C.successLight,border:C.successBorder};
+    if (status==='Сверх сметы') return {color:C.danger,bg:C.dangerLight,border:C.dangerBorder};
+    if (status==='В смете больше') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
+    if (status==='Нет обмера') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
+    return {color:C.info,bg:C.infoLight,border:C.infoBorder};
+  };
+  const estimateMeasurementComparisonRows = (project) => {
+    if (!project) return [];
+    const totals = projectMeasurementBasisTotals(project.name);
+    const active = activeEstimatesForProject(project, 'Заказчик');
+    const rows = [];
+    active.forEach(est=>_sectionsOfEst(est).forEach(section=>(section.items||[]).forEach((item,itemIdx)=>{
+      if (!isEstimateWorkItem(item, section.name)) return;
+      const basis = estimateMeasurementBasisOf(item, section.name);
+      const basisMeta = estimateMeasurementBasisMeta(basis);
+      const expectedUnit = measurementBasisExpectedUnit(basis);
+      const norm = normalizeMeasure(item.quantity, item.unit);
+      const planQty = norm.qty;
+      const planUnit = norm.unit || item.unit || '';
+      const measuredQty = toNum(totals[basis]);
+      const supported = Boolean(expectedUnit);
+      const unitOk = supported ? _normalizeUnit(planUnit)===_normalizeUnit(expectedUnit) : false;
+      const tolerance = expectedUnit==='шт' ? 0.001 : Math.max(0.05, Math.abs(planQty)*0.01);
+      let status = 'Нужно основание';
+      let diff = 0;
+      if (supported && !unitOk) status = 'Ед. изм.';
+      else if (supported && measuredQty<=0) status = 'Нет обмера';
+      else if (supported) {
+        diff = measuredQty - planQty;
+        if (diff > tolerance) status = 'Сверх сметы';
+        else if (diff < -tolerance) status = 'В смете больше';
+        else status = 'Сходится';
+      }
+      const price = toNum(item.priceWork)+toNum(item.priceMaterial);
+      return rows.push({
+        key:[est.id, section.name||'', itemIdx].join('|'),
+        estimateId: est.id,
+        estimateName: est.name || 'Смета',
+        packageName: estimatePackage(est),
+        sectionName: section.name || 'Без раздела',
+        itemName: item.name || '',
+        basis,
+        basisLabel: basisMeta.label,
+        basisIcon: basisMeta.icon,
+        planQty,
+        planUnit,
+        measuredQty,
+        expectedUnit,
+        diff,
+        overQty: Math.max(0,diff),
+        shortageQty: Math.max(0,-diff),
+        price,
+        overSum: Math.max(0,diff)*price,
+        status,
+        supported,
+        unitOk,
+      });
+    })));
+    return rows.sort((a,b)=>{
+      const rank = {'Сверх сметы':0,'Нет обмера':1,'Ед. изм.':2,'Нужно основание':3,'В смете больше':4,'Сходится':5};
+      return (rank[a.status]??9)-(rank[b.status]??9) || Math.abs(b.diff)-Math.abs(a.diff);
+    });
+  };
+  const estimateMeasurementComparisonSummary = (project) => {
+    const rows = estimateMeasurementComparisonRows(project);
+    return {
+      rows,
+      overRows: rows.filter(r=>r.status==='Сверх сметы'),
+      shortageRows: rows.filter(r=>r.status==='В смете больше'),
+      missingRows: rows.filter(r=>r.status==='Нет обмера'),
+      manualRows: rows.filter(r=>r.status==='Нужно основание'||r.status==='Ед. изм.'),
+      okRows: rows.filter(r=>r.status==='Сходится'),
+      overSum: rows.reduce((s,r)=>s+toNum(r.overSum),0),
+    };
+  };
+  const buildEstimateMeasurementComparisonContent = (project) => {
+    const s = estimateMeasurementComparisonSummary(project);
+    const totals = projectMeasurementBasisTotals(project?.name||'');
+    const money = (n) => Math.round(toNum(n)).toLocaleString('ru-RU')+' ₽';
+    const qty = (n,u) => fmtMeasure(n,u||'');
+    let html = '<style>'
+      + '.emc-title{text-align:center;font-size:18px;font-weight:800;margin:0 0 4px}'
+      + '.emc-sub{text-align:center;color:#64748b;font-size:11px;margin:0 0 14px}'
+      + '.emc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}'
+      + '.emc-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
+      + '.emc-card span{display:block;color:#64748b;font-size:10px}.emc-card b{font-size:14px}'
+      + '.emc-table{font-size:10px;table-layout:fixed}.emc-table th{font-size:9px}.emc-table td,.emc-table th{vertical-align:top;word-break:break-word}'
+      + '.emc-num{text-align:right;white-space:nowrap}'
+      + '@media print{.emc-grid{grid-template-columns:repeat(4,1fr)}.emc-table{font-size:9px}}'
+      + '</style>';
+    html += '<div class="emc-title">СМЕТА ↔ ОБМЕРЫ ПОМЕЩЕНИЙ</div>';
+    html += '<div class="emc-sub">Объект: '+docEsc(project?.name||'')+' · '+new Date().toLocaleDateString('ru-RU')+' · сформировал: '+docEsc(user?.name||'')+'</div>';
+    html += '<div class="emc-grid">'
+      + '<div class="emc-card"><span>Строк проверено</span><b>'+s.rows.length+'</b></div>'
+      + '<div class="emc-card"><span>Сверх сметы</span><b style="color:#dc2626">'+s.overRows.length+'</b></div>'
+      + '<div class="emc-card"><span>Нет обмера/основания</span><b style="color:#b45309">'+(s.missingRows.length+s.manualRows.length)+'</b></div>'
+      + '<div class="emc-card"><span>Оценка доп. объёма</span><b>'+money(s.overSum)+'</b></div>'
+      + '</div>';
+    html += '<table><tr><th>Помещений</th><td>'+totals.roomCount+'</td><th>Стены чистые</th><td>'+qty(totals.wall_net_area,'м2')+'</td><th>Пол</th><td>'+qty(totals.floor_area,'м2')+'</td></tr>'
+      + '<tr><th>Стены общие</th><td>'+qty(totals.wall_gross_area,'м2')+'</td><th>Потолок</th><td>'+qty(totals.ceiling_area,'м2')+'</td><th>Откосы</th><td>'+qty(totals.window_reveals+totals.door_reveals,'м2')+'</td></tr></table>';
+    html += '<table class="emc-table"><tr><th>Статус</th><th>Пакет</th><th>Раздел</th><th>Позиция</th><th>Основание</th><th>Смета</th><th>Обмер</th><th>Разница</th><th>Оценка</th></tr>';
+    html += s.rows.map(r=>{
+      const color = r.status==='Сверх сметы' ? '#dc2626' : r.status==='Сходится' ? '#059669' : '#b45309';
+      const unit = r.expectedUnit || r.planUnit;
+      return '<tr>'
+        + '<td style="color:'+color+';font-weight:700">'+docEsc(r.status)+'</td>'
+        + '<td>'+docEsc(r.packageName)+'</td>'
+        + '<td>'+docEsc(r.sectionName)+'</td>'
+        + '<td>'+docEsc(r.itemName)+'</td>'
+        + '<td>'+docEsc(r.basisLabel)+'</td>'
+        + '<td class="emc-num">'+docEsc(qty(r.planQty,r.planUnit))+'</td>'
+        + '<td class="emc-num">'+(r.supported&&r.unitOk?docEsc(qty(r.measuredQty,unit)):'—')+'</td>'
+        + '<td class="emc-num">'+(r.supported&&r.unitOk?docEsc((r.diff>0?'+':'')+qty(r.diff,unit)):'—')+'</td>'
+        + '<td class="emc-num">'+(r.overSum>0?money(r.overSum):'—')+'</td>'
+        + '</tr>';
+    }).join('');
+    if(!s.rows.length) html += '<tr><td colspan="9" style="text-align:center;color:#64748b">Нет активной сметы заказчика или рабочих строк для сравнения</td></tr>';
+    html += '</table><p style="font-size:10px;color:#64748b;margin-top:12px">Отчёт не создаёт допработы автоматически. Он показывает, где фактическое основание объёма из помещений отличается от активной сметы заказчика.</p>';
+    return html;
+  };
+  const renderEstimateMeasurementComparisonPanel = (project) => {
+    const s = estimateMeasurementComparisonSummary(project);
+    const rows = s.rows.slice(0,12);
+    return (<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+(s.overRows.length?C.dangerBorder:s.missingRows.length||s.manualRows.length?C.warningBorder:C.successBorder)}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'12px'}}>
+        <div>
+          <b style={{color:C.text,fontSize:'14px'}}>📏 Смета ↔ обмеры помещений</b>
+          <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Сравнение активной сметы заказчика с площадями помещений: стены, пол, потолок, откосы, окна и двери.</p>
+        </div>
+        <button onClick={()=>showPreview(buildEstimateMeasurementComparisonContent(project),'Смета ↔ обмеры — '+project.name)} style={{...btnB,fontSize:'12px',padding:'6px 12px'}}><Printer size={13}/>Печать</button>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'8px',marginBottom:'12px'}}>
+        <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Строк</p><b style={{color:C.text,fontSize:'15px'}}>{s.rows.length}</b></div>
+        <div style={{padding:'10px',backgroundColor:s.overRows.length?C.dangerLight:C.successLight,borderRadius:'8px',border:'1px solid '+(s.overRows.length?C.dangerBorder:C.successBorder)}}><p style={{color:s.overRows.length?C.danger:C.success,fontSize:'10px',margin:'0 0 3px'}}>Сверх сметы</p><b style={{color:s.overRows.length?C.danger:C.success,fontSize:'15px'}}>{s.overRows.length}</b></div>
+        <div style={{padding:'10px',backgroundColor:s.missingRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.missingRows.length?C.warningBorder:C.border)}}><p style={{color:s.missingRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Нет обмера</p><b style={{color:s.missingRows.length?C.warning:C.text,fontSize:'15px'}}>{s.missingRows.length}</b></div>
+        <div style={{padding:'10px',backgroundColor:s.manualRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.manualRows.length?C.infoBorder:C.border)}}><p style={{color:s.manualRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Ручное основание</p><b style={{color:s.manualRows.length?C.info:C.text,fontSize:'15px'}}>{s.manualRows.length}</b></div>
+        <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Оценка доп.</p><b style={{color:s.overSum>0?C.danger:C.text,fontSize:'15px'}}>{Math.round(s.overSum).toLocaleString('ru-RU')+' ₽'}</b></div>
+      </div>
+      {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет активной сметы заказчика или рабочих строк для сравнения.</p>:<div style={{overflowX:'auto'}}>
+        <table style={{...tbl,fontSize:'11px',minWidth:'980px'}}><thead><tr><th style={tblH}>Статус</th><th style={tblH}>Раздел / позиция</th><th style={tblH}>Основание</th><th style={tblH}>Смета</th><th style={tblH}>Обмер</th><th style={tblH}>Разница</th><th style={tblH}>Оценка</th></tr></thead><tbody>
+          {rows.map(r=>{const st=measurementEstimateStatusMeta(r.status);const unit=r.expectedUnit||r.planUnit;return(<tr key={r.key}>
+            <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{r.status}</span></td>
+            <td style={tblC}><b style={{fontSize:'12px'}}>{r.itemName}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{(r.packageName&&r.packageName!=='Основная'?r.packageName+' / ':'')+r.sectionName}</p></td>
+            <td style={tblC}>{r.basisIcon+' '+r.basisLabel}{r.supported&&!r.unitOk&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>ожидается {r.expectedUnit}, в смете {r.planUnit||'—'}</p>}</td>
+            <td style={tblC}>{fmtMeasure(r.planQty,r.planUnit)}</td>
+            <td style={tblC}>{r.supported&&r.unitOk?fmtMeasure(r.measuredQty,unit):'—'}</td>
+            <td style={{...tblC,fontWeight:'700',color:r.diff>0?C.danger:r.diff<0?C.warning:C.success}}>{r.supported&&r.unitOk?((r.diff>0?'+':'')+fmtMeasure(r.diff,unit)):'—'}</td>
+            <td style={{...tblC,fontWeight:'700',color:r.overSum>0?C.danger:C.textMuted}}>{r.overSum>0?Math.round(r.overSum).toLocaleString('ru-RU')+' ₽':'—'}</td>
+          </tr>);})}
+        </tbody></table>
+        {s.rows.length>rows.length&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые {rows.length} строк. Полный список — в печатном отчёте.</p>}
+      </div>}
+    </div>);
+  };
   const setEstimateStatusRemote = async (est, status) => {
     if(!est?.id) return;
     const res = await fetch(API+'/estimates/'+est.id+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
@@ -8591,6 +8768,8 @@ function App() {
                             <button onClick={()=>setActiveProjectTab('Помещения')} style={btnG}>Открыть помещения</button>
                           </div>
                         </div>
+
+                        {renderEstimateMeasurementComparisonPanel(p)}
 
                         {docs.length===0&&(<div style={{...card,padding:'28px',textAlign:'center',color:C.textMuted}}>
                           <FileText size={42} style={{opacity:.35,marginBottom:'10px'}}/>
