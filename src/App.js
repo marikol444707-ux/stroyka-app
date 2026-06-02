@@ -2874,6 +2874,73 @@ function App() {
       overSum: rows.reduce((s,r)=>s+toNum(r.overSum),0),
     };
   };
+  const estimateChangeTypeForComparisonRow = (row) => row?.status==='Сверх сметы'
+    ? 'Дополнительный объём к строке сметы'
+    : row?.status==='В смете больше'
+      ? 'Исключение объёма'
+      : '';
+  const estimateChangeForComparisonRow = (projectName, row) => {
+    const changeType = estimateChangeTypeForComparisonRow(row);
+    if (!changeType) return null;
+    return (unexpectedWorksList||[]).find(u=>
+      u.projectName===projectName &&
+      u.changeType===changeType &&
+      Number(u.estimateId||0)===Number(row.estimateId||0) &&
+      (u.sectionName||'')===(row.sectionName||'') &&
+      (u.estimateItemName||'')===(row.itemName||'') &&
+      !['Отклонено','Включено в новую смету'].includes(u.status||'')
+    ) || null;
+  };
+  const createEstimateChangeFromComparisonRow = async (project, row) => {
+    const changeType = estimateChangeTypeForComparisonRow(row);
+    if (!project || !changeType) return;
+    const existing = estimateChangeForComparisonRow(project.name, row);
+    if (existing) {
+      alert('Изменение по этой строке уже оформлено: '+(existing.status||''));
+      setActiveProjectTab('Изменения к смете');
+      setActiveTabGroup('work');
+      return;
+    }
+    const unit = row.expectedUnit || row.planUnit || '';
+    const deltaQty = row.status==='Сверх сметы' ? toNum(row.overQty) : toNum(row.shortageQty);
+    if (deltaQty<=0) return;
+    const price = toNum(row.price);
+    const total = deltaQty * price;
+    const reason = row.status==='Сверх сметы'
+      ? 'По обмеру помещений требуется больше, чем указано в активной смете: '+fmtMeasure(row.measuredQty, unit)+' против '+fmtMeasure(row.planQty, row.planUnit)+'.'
+      : 'По обмеру помещений требуется меньше, чем указано в активной смете: '+fmtMeasure(row.measuredQty, unit)+' против '+fmtMeasure(row.planQty, row.planUnit)+'.';
+    const payload = {
+      projectName: project.name,
+      description: row.itemName,
+      unit,
+      quantity: deltaQty,
+      price,
+      total,
+      addedBy: user.name,
+      addedByRole: user.role,
+      status: 'Ожидает согласования',
+      notes: 'Создано из панели «Смета ↔ обмеры помещений». Основание: '+row.basisLabel+'.',
+      changeType,
+      estimateId: row.estimateId,
+      sectionName: row.sectionName,
+      estimateItemName: row.itemName,
+      baseQuantity: row.planQty,
+      newRequiredQuantity: row.measuredQty,
+      deltaQuantity: deltaQty,
+      reason
+    };
+    const res = await fetch(API+'/unexpected-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if (!res.ok) {
+      const data = await res.json().catch(()=>({}));
+      alert(data.detail||'Не удалось оформить изменение');
+      return;
+    }
+    notify('Оформлено изменение к смете: '+row.itemName,'unexpected');
+    await loadAll();
+    setActiveProjectTab('Изменения к смете');
+    setActiveTabGroup('work');
+    setShowForm(false);
+  };
   const buildEstimateMeasurementComparisonContent = (project) => {
     const s = estimateMeasurementComparisonSummary(project);
     const totals = projectMeasurementBasisTotals(project?.name||'');
@@ -2946,8 +3013,8 @@ function App() {
         <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 3px'}}>Стены чистые</p><b style={{color:C.success,fontSize:'14px'}}>{fmtMeasure(totals.wall_net_area,'м2')}</b></div>
       </div>
       {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет активной сметы заказчика или рабочих строк для сравнения.</p>:<div style={{overflowX:'auto'}}>
-        <table style={{...tbl,fontSize:'11px',minWidth:'980px'}}><thead><tr><th style={tblH}>Статус</th><th style={tblH}>Раздел / позиция</th><th style={tblH}>Основание</th><th style={tblH}>Смета</th><th style={tblH}>Обмер</th><th style={tblH}>Разница</th><th style={tblH}>Оценка</th></tr></thead><tbody>
-          {rows.map(r=>{const st=measurementEstimateStatusMeta(r.status);const unit=r.expectedUnit||r.planUnit;return(<tr key={r.key}>
+        <table style={{...tbl,fontSize:'11px',minWidth:'1080px'}}><thead><tr><th style={tblH}>Статус</th><th style={tblH}>Раздел / позиция</th><th style={tblH}>Основание</th><th style={tblH}>Смета</th><th style={tblH}>Обмер</th><th style={tblH}>Разница</th><th style={tblH}>Оценка</th><th style={tblH}>Действие</th></tr></thead><tbody>
+          {rows.map(r=>{const st=measurementEstimateStatusMeta(r.status);const unit=r.expectedUnit||r.planUnit;const existing=estimateChangeForComparisonRow(project.name,r);const canCreate=['Сверх сметы','В смете больше'].includes(r.status)&&r.supported&&r.unitOk;return(<tr key={r.key}>
             <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{r.status}</span></td>
             <td style={tblC}><b style={{fontSize:'12px'}}>{r.itemName}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{(r.packageName&&r.packageName!=='Основная'?r.packageName+' / ':'')+r.sectionName}</p></td>
             <td style={tblC}>{r.basisIcon+' '+r.basisLabel}{r.supported&&!r.unitOk&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>ожидается {r.expectedUnit}, в смете {r.planUnit||'—'}</p>}</td>
@@ -2955,6 +3022,7 @@ function App() {
             <td style={tblC}>{r.supported&&r.unitOk?fmtMeasure(r.measuredQty,unit):'—'}</td>
             <td style={{...tblC,fontWeight:'700',color:r.diff>0?C.danger:r.diff<0?C.warning:C.success}}>{r.supported&&r.unitOk?((r.diff>0?'+':'')+fmtMeasure(r.diff,unit)):'—'}</td>
             <td style={{...tblC,fontWeight:'700',color:r.overSum>0?C.danger:C.textMuted}}>{r.overSum>0?Math.round(r.overSum).toLocaleString('ru-RU')+' ₽':'—'}</td>
+            <td style={tblC}>{existing?<button onClick={()=>{setActiveProjectTab('Изменения к смете');setActiveTabGroup('work');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}>Уже оформлено</button>:canCreate?<button onClick={()=>createEstimateChangeFromComparisonRow(project,r)} style={{...(r.status==='Сверх сметы'?btnO:btnB),padding:'4px 8px',fontSize:'11px'}}>Оформить</button>:<span style={{color:C.textMuted}}>—</span>}</td>
           </tr>);})}
         </tbody></table>
         {s.rows.length>rows.length&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые {rows.length} строк. Полный список — в печатном отчёте.</p>}
@@ -3017,6 +3085,7 @@ function App() {
   const approvedEstimateChanges = (projectName) => (unexpectedWorksList||[]).filter(u=>
     u.projectName===projectName &&
     isApprovedEstimateChangeStatus(u.status) &&
+    u.changeType!=='Исключение объёма' &&
     !u.includedInEstimateId
   );
   const estimateChangeRowsForDocs = (projectName, kind) => approvedEstimateChanges(projectName)
@@ -3945,7 +4014,8 @@ function App() {
     const orgName = req.fullName||req.shortName||companyName||'_____';
     const fmtDate=(d)=>{if(!d)return '«___» __________ 20__ г.';const dt=new Date(d);if(isNaN(dt))return d;const m=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];return '«'+String(dt.getDate()).padStart(2,'0')+'» '+m[dt.getMonth()]+' '+dt.getFullYear()+' г.';};
     const num=unx.id||'____';
-    const total=Math.round(Number(unx.total||0)).toLocaleString('ru-RU');
+    const isReduction = unx.changeType==='Исключение объёма';
+    const total=Math.round(Math.abs(Number(unx.total||0))).toLocaleString('ru-RU');
     let html='<h2 style="text-align:center;margin:6px 0">ДОПОЛНИТЕЛЬНОЕ СОГЛАШЕНИЕ № '+num+'</h2>';
     html+='<p style="text-align:center;font-size:11px;color:#444">к договору подряда на объект «'+project.name+'»</p>';
     html+='<div style="display:flex;justify-content:space-between;font-size:11px;margin:14px 0"><span>г. '+(project.city||'____________')+'</span><span>'+fmtDate(unx.approvedAt||new Date().toISOString().slice(0,10))+'</span></div>';
@@ -3953,9 +4023,11 @@ function App() {
     html+='<h3 style="font-size:13px;margin-top:14px">1. Предмет соглашения</h3>';
     html+='<p style="font-size:12px">Стороны согласовали изменение к смете: <b>'+(unx.changeType||'Работа вне сметы')+'</b>'+(unx.reason?' Причина: '+unx.reason+'.':'')+'</p>';
     html+='<table style="border-collapse:collapse;width:100%;font-size:11px;margin:8px 0"><tr style="background:#f3f4f6"><th style="border:1px solid #333;padding:5px 6px">Наименование работ</th><th style="border:1px solid #333;padding:5px 6px">Ед.</th><th style="border:1px solid #333;padding:5px 6px">Кол-во</th><th style="border:1px solid #333;padding:5px 6px">Цена</th><th style="border:1px solid #333;padding:5px 6px">Сумма</th></tr>';
-    html+='<tr><td style="border:1px solid #333;padding:5px 6px">'+(unx.description||'')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(unx.unit||'')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(unx.deltaQuantity||unx.quantity||0)+'</td><td style="border:1px solid #333;padding:5px 6px">'+Math.round(Number(unx.price||0)).toLocaleString('ru-RU')+'</td><td style="border:1px solid #333;padding:5px 6px">'+total+'</td></tr></table>';
+    html+='<tr><td style="border:1px solid #333;padding:5px 6px">'+(unx.description||'')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(unx.unit||'')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(unx.deltaQuantity||unx.quantity||0)+'</td><td style="border:1px solid #333;padding:5px 6px">'+Math.round(Number(unx.price||0)).toLocaleString('ru-RU')+'</td><td style="border:1px solid #333;padding:5px 6px">'+(isReduction?'- ':'')+total+'</td></tr></table>';
     html+='<h3 style="font-size:13px;margin-top:14px">2. Стоимость и порядок оплаты</h3>';
-    html+='<p style="font-size:12px">Общая стоимость дополнительных работ по настоящему соглашению составляет <b>'+total+' ₽</b>. Оплата производится Заказчиком после фактического выполнения работ и подписания акта приёмки.</p>';
+    html+=isReduction
+      ? '<p style="font-size:12px">Стоимость работ по договорной смете уменьшается на <b>'+total+' ₽</b>. Уменьшенный объём не подлежит включению в акты КС как выполненная работа.</p>'
+      : '<p style="font-size:12px">Общая стоимость дополнительных работ по настоящему соглашению составляет <b>'+total+' ₽</b>. Оплата производится Заказчиком после фактического выполнения работ и подписания акта приёмки.</p>';
     html+='<h3 style="font-size:13px;margin-top:14px">3. Сроки выполнения</h3>';
     html+='<p style="font-size:12px">Подрядчик обязуется выполнить работы в течение 30 (тридцати) дней с даты подписания настоящего соглашения.</p>';
     html+='<h3 style="font-size:13px;margin-top:14px">4. Прочие условия</h3>';
@@ -4099,7 +4171,7 @@ function App() {
     // Ручные расходы директора
     manualExpenses.filter(e=>e.project===pn).forEach(e=>{r[e.category]=(r[e.category]||0)+Number(e.amount);});
     // Изменения к смете, утверждённые отдельной допработой
-    unexpectedWorksList.filter(u=>u.projectName===pn&&isApprovedEstimateChangeStatus(u.status)&&!u.includedInEstimateId).forEach(u=>{r['unexpected']=(r['unexpected']||0)+u.total;});
+    unexpectedWorksList.filter(u=>u.projectName===pn&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId).forEach(u=>{r['unexpected']=(r['unexpected']||0)+u.total;});
     // Подотчётные траты (только потраченное)
     accountablePayments.filter(ac=>ac.projectName===pn).forEach(ac=>{r['accountable']=(r['accountable']||0)+Number(ac.spentAmount||0);});
     // Возмещения своих трат — по указанной категории, fallback на accountable
@@ -5501,7 +5573,8 @@ function App() {
   const approveUnexpectedWork = async (work, price) => {
     const qty = Number(work.deltaQuantity||work.quantity||0);
     const total = qty * Number(price);
-    await fetch(API+'/unexpected-works/'+work.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено отдельной допработой',price:Number(price),total,approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});
+    const status = work.changeType==='Исключение объёма' ? 'Утверждено' : 'Утверждено отдельной допработой';
+    await fetch(API+'/unexpected-works/'+work.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,price:Number(price),total,approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});
     await loadAll();
   };
 
@@ -8143,7 +8216,7 @@ function App() {
             const openInsp=(inspectionOrders||[]).filter(o=>o.status!=='Закрыто').length;
             if(openInsp>0) risks.push({icon:'🏛',text:'Открытых замечаний ГСН: '+openInsp,severity:'danger',page:'projects'});
             // Изменения к смете отдельной допработой >10%
-            projects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&isApprovedEstimateChangeStatus(u.status)&&!u.includedInEstimateId).reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': изменения к смете '+pct.toFixed(1)+'% от бюджета',severity:'danger',page:'projects'});});
+            projects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId).reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': изменения к смете '+pct.toFixed(1)+'% от бюджета',severity:'danger',page:'projects'});});
             // Траты сотрудников на возмещении
             const pendingExp=(ownExpenses||[]).filter(e=>e.status==='Ожидает');
             if(pendingExp.length>0){const sum=pendingExp.reduce((s,e)=>s+Number(e.amount||0),0);risks.push({icon:'💸',text:'К возмещению сотрудникам: '+Math.round(sum).toLocaleString('ru-RU')+' ₽ ('+pendingExp.length+' трат)',severity:'warn',action:'reimburse'});}
@@ -9237,7 +9310,7 @@ function App() {
                         <b style={{color:C.text}}>Изменения к смете</b>
                         <button onClick={()=>setShowForm(showForm==='unexpected'?false:'unexpected')} style={btnO}><Plus size={14}/>Создать изменение</button>
                       </div>
-                      {(()=>{const budget=Number(p.budget||0);if(budget<=0) return null;const approved=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&isApprovedEstimateChangeStatus(u.status)&&!u.includedInEstimateId).reduce((s,u)=>s+Number(u.total||0),0);const pending=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Ожидает согласования').reduce((s,u)=>s+Number(u.total||0),0);const pct=Math.round(approved/budget*100*10)/10;const LIMIT=10;const overLimit=pct>LIMIT;if(approved===0&&pending===0) return null;return(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:overLimit?C.dangerLight:pct>LIMIT*0.7?C.warningLight:C.bg,border:'1.5px solid '+(overLimit?C.dangerBorder:pct>LIMIT*0.7?C.warningBorder:C.border)}}>
+                      {(()=>{const budget=Number(p.budget||0);if(budget<=0) return null;const approved=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId).reduce((s,u)=>s+Number(u.total||0),0);const pending=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&u.status==='Ожидает согласования'&&u.changeType!=='Исключение объёма').reduce((s,u)=>s+Number(u.total||0),0);const pct=Math.round(approved/budget*100*10)/10;const LIMIT=10;const overLimit=pct>LIMIT;if(approved===0&&pending===0) return null;return(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:overLimit?C.dangerLight:pct>LIMIT*0.7?C.warningLight:C.bg,border:'1.5px solid '+(overLimit?C.dangerBorder:pct>LIMIT*0.7?C.warningBorder:C.border)}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
                           <div>
                             <b style={{color:C.text,fontSize:'13px'}}>📊 Изменения отдельной допработой: {pct}% от бюджета (контрольный порог {LIMIT}%)</b>

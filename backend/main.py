@@ -6518,7 +6518,7 @@ def update_unexpected_work(id: int, data: dict, current_user: dict = Depends(req
     # Если изменение стало утверждённой отдельной допработой и записи в журнале ещё нет — авто-создаём.
     # Статус «Включено в новую смету» в журнал не пишет, чтобы не задвоить объём.
     auto_journal_id = None
-    if row and new_status in ESTIMATE_CHANGE_APPROVED_STATUSES and old_status not in ESTIMATE_CHANGE_APPROVED_STATUSES:
+    if row and new_status in ESTIMATE_CHANGE_APPROVED_STATUSES and old_status not in ESTIMATE_CHANGE_APPROVED_STATUSES and (row[6] or "") != "Исключение объёма":
         proj, desc, unit, qty, added_by, change_type = row[1] or "", row[2] or "", row[3] or "шт", float(row[4] or 0), row[5] or "", row[6] or "Работа вне сметы"
         cur.execute("SELECT id FROM work_journal WHERE unexpected_work_id=%s LIMIT 1", (id,))
         existing = cur.fetchone()
@@ -9477,9 +9477,9 @@ def check_unexpected_limit(project_name: str, current_user: dict = Depends(requi
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="проект не найден")
     budget = float(row[0] or 0)
-    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status = ANY(%s) AND included_in_estimate_id IS NULL", (project_name, list(ESTIMATE_CHANGE_APPROVED_STATUSES)))
+    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status = ANY(%s) AND COALESCE(change_type,'') <> %s AND included_in_estimate_id IS NULL", (project_name, list(ESTIMATE_CHANGE_APPROVED_STATUSES), "Исключение объёма"))
     approved_sum = float(cur.fetchone()[0] or 0)
-    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status='Ожидает согласования'", (project_name,))
+    cur.execute("SELECT COALESCE(SUM(total),0) FROM unexpected_works WHERE project_name=%s AND status='Ожидает согласования' AND COALESCE(change_type,'') <> %s", (project_name, "Исключение объёма"))
     pending_sum = float(cur.fetchone()[0] or 0)
     cur.close(); conn.close()
     LIMIT_PCT = 10.0  # лимит 10% от бюджета без особого согласования
