@@ -74,6 +74,7 @@ const ESTIMATE_MEASUREMENT_BASES = [
   {id:'manual', label:'Ручной объём', icon:'✍️'},
   {id:'wall_net_area', label:'Стены чистые', icon:'🧱'},
   {id:'wall_gross_area', label:'Стены общие', icon:'🏗️'},
+  {id:'wall_ceiling_area', label:'Стены+потолок', icon:'📏'},
   {id:'floor_area', label:'Пол', icon:'⬛'},
   {id:'ceiling_area', label:'Потолок', icon:'⬆️'},
   {id:'window_reveals', label:'Оконные откосы', icon:'🪟'},
@@ -110,12 +111,15 @@ const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
   const hasDoorWord = estimateTextHasAny(text, ['двер','дверной блок','дверные блоки','полотно']);
   const hasRevealWord = estimateTextHasAny(text, ['откос']);
   const hasOpeningBlockWord = estimateTextHasAny(text, ['проем','проём','блок','блоков','замена']);
+  const hasWallWord = estimateTextHasAny(text, ['стен','перегород','фасад']);
+  const hasCeilingWord = estimateTextHasAny(text, ['потолок','потолк','потолоч']);
   if (hasRevealWord && hasWindowWord && hasDoorWord) return 'opening_reveals';
   if (estimateTextHasAny(text, ['оконный откос','откос окон','откосы окон','оконные откосы'])) return 'window_reveals';
   if (estimateTextHasAny(text, ['дверной откос','откос двер','откосы двер','дверные откосы'])) return 'door_reveals';
   if (hasWindowWord && hasDoorWord && hasOpeningBlockWord) return 'openings_area';
   if (hasWindowWord && hasOpeningBlockWord) return 'window_area';
   if (hasDoorWord && hasOpeningBlockWord) return 'door_area';
+  if (hasWallWord && hasCeilingWord) return 'wall_ceiling_area';
   if (estimateTextHasAny(text, ['потолок','потолк','потолоч','подвесной потолок','натяжной потолок'])) return 'ceiling_area';
   if (hasFloorWord || estimateTextHasAny(text, ['стяжк','плитка пола','ламинат','линолеум','покрытие пола'])) return 'floor_area';
   if (estimateTextHasAny(text, ['окно','оконный блок','оконные блоки','замена окон','стеклопакет'])) return 'window_area';
@@ -2775,6 +2779,7 @@ function App() {
       roomCount: projectRooms.length,
       wall_net_area: Math.max(0, Math.round((wallGrossArea-windowArea-doorArea)*100)/100),
       wall_gross_area: wallGrossArea,
+      wall_ceiling_area: Math.max(0, Math.round((wallGrossArea-windowArea-doorArea)*100)/100) + projectRooms.reduce((s,r)=>s+toNum(r.ceilingArea),0),
       window_area: Math.round(windowArea*100)/100,
       door_area: Math.round(doorArea*100)/100,
       openings_area: Math.round((windowArea+doorArea)*100)/100,
@@ -2788,7 +2793,7 @@ function App() {
     };
   };
   const measurementBasisExpectedUnit = (basis) => {
-    if (['wall_net_area','wall_gross_area','floor_area','ceiling_area','window_reveals','door_reveals','opening_reveals','window_area','door_area','openings_area'].includes(basis)) return 'м2';
+    if (['wall_net_area','wall_gross_area','wall_ceiling_area','floor_area','ceiling_area','window_reveals','door_reveals','opening_reveals','window_area','door_area','openings_area'].includes(basis)) return 'м2';
     if (['window_count','door_count'].includes(basis)) return 'шт';
     return '';
   };
