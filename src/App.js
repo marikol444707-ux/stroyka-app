@@ -57,6 +57,49 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
 const estimateItemTypeMeta = (type) => ESTIMATE_ITEM_TYPE_BY_ID[type] || ESTIMATE_ITEM_TYPE_BY_ID.work;
 const isEstimateMaterialItem = (it, sectionName='') => normalizeEstimateItemType(it, sectionName)==='material';
 const isEstimateWorkItem = (it, sectionName='') => normalizeEstimateItemType(it, sectionName)==='work';
+const ESTIMATE_MEASUREMENT_BASES = [
+  {id:'manual', label:'Ручной объём', icon:'✍️'},
+  {id:'wall_net_area', label:'Стены чистые', icon:'🧱'},
+  {id:'wall_gross_area', label:'Стены общие', icon:'🏗️'},
+  {id:'floor_area', label:'Пол', icon:'⬛'},
+  {id:'ceiling_area', label:'Потолок', icon:'⬆️'},
+  {id:'window_reveals', label:'Оконные откосы', icon:'🪟'},
+  {id:'door_reveals', label:'Дверные откосы', icon:'🚪'},
+  {id:'window_count', label:'Окна, шт', icon:'🪟'},
+  {id:'door_count', label:'Двери, шт', icon:'🚪'},
+  {id:'linear', label:'Погонные метры', icon:'📏'},
+  {id:'point', label:'Точки/приборы', icon:'📍'},
+  {id:'demolition', label:'Демонтаж', icon:'🔨'}
+];
+const ESTIMATE_MEASUREMENT_BASE_BY_ID = ESTIMATE_MEASUREMENT_BASES.reduce((acc,b)=>{acc[b.id]=b;return acc;},{});
+const estimateMeasurementBasisMeta = (basis) => ESTIMATE_MEASUREMENT_BASE_BY_ID[basis] || ESTIMATE_MEASUREMENT_BASE_BY_ID.manual;
+const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
+  const text = estimateTextKey([sectionName, it.section, it.name, it.unit].filter(Boolean).join(' '));
+  const unit = estimateTextKey(it.unit || '');
+  if (estimateTextHasAny(text, ['демонтаж','разбор','разборка','снятие','удаление'])) return 'demolition';
+  if (estimateTextHasAny(text, ['оконный откос','откос окон','откосы окон','оконные откосы'])) return 'window_reveals';
+  if (estimateTextHasAny(text, ['дверной откос','откос двер','откосы двер','дверные откосы'])) return 'door_reveals';
+  if (estimateTextHasAny(text, ['потолок','потолоч','подвесной потолок','натяжной потолок'])) return 'ceiling_area';
+  if (estimateTextHasAny(text, ['стяжк','пол ','пола','плитка пола','ламинат','линолеум','покрытие пола','плинтус пола'])) return unit === 'м' ? 'linear' : 'floor_area';
+  if (estimateTextHasAny(text, ['штукатур','шпатлев','шпаклев','окраск','обои','облицовка стен','стен','перегород'])) return 'wall_net_area';
+  if (estimateTextHasAny(text, ['окно','оконный блок','подоконник'])) return unit === 'шт' ? 'window_count' : 'window_reveals';
+  if (estimateTextHasAny(text, ['двер','дверной блок','полотно'])) return unit === 'шт' ? 'door_count' : 'door_reveals';
+  if (unit === 'м' || estimateTextHasAny(text, ['плинтус','кабель','провод','труба','лоток','короб','шов','бордюр'])) return 'linear';
+  if (unit === 'шт' && estimateTextHasAny(text, ['розет','выключател','светильник','точк','прибор','радиатор','решетк','унитаз','раковин','смесител'])) return 'point';
+  return 'manual';
+};
+const estimateMeasurementBasisOf = (it={}, sectionName='') => (it.measurementBasis && ESTIMATE_MEASUREMENT_BASE_BY_ID[it.measurementBasis]) ? it.measurementBasis : suggestEstimateMeasurementBasis(it, sectionName);
+const enrichEstimateMeasurementBasis = (sections=[]) => (sections||[]).map(section => ({
+  ...section,
+  items: (section.items||[]).map(item => {
+    const itemType = normalizeEstimateItemType(item, section.name);
+    return {
+      ...item,
+      itemType: item.itemType || itemType,
+      measurementBasis: itemType === 'work' ? (item.measurementBasis || suggestEstimateMeasurementBasis(item, section.name)) : 'manual'
+    };
+  })
+}));
 const estimateItemWorkSum = (it) => toNum(it?.quantity) * toNum(it?.priceWork);
 const estimateItemMaterialSum = (it) => (it?.isImported ? toNum(it?.priceMaterial) : toNum(it?.quantity) * toNum(it?.priceMaterial));
 const estimateItemTotal = (it) => estimateItemWorkSum(it) + estimateItemMaterialSum(it);
@@ -921,7 +964,7 @@ function App() {
     setEstimateChatLoading(false);
   };
   const [newEstimateSection, setNewEstimateSection] = useState({name:''});
-  const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',itemType:'work',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});
+  const [newEstimateItem, setNewEstimateItem] = useState({sectionId:'',itemType:'work',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:'',measurementBasis:''});
   const [newStage, setNewStage] = useState({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
   const [newChecklist, setNewChecklist] = useState({name:'',template:''});
   const [newChecklistItem, setNewChecklistItem] = useState('');
@@ -11875,7 +11918,7 @@ function App() {
                   let sections=[];
                   if(newEstimate.templateId){
                     const tmpl=estimatesList.find(e=>String(e.id)===String(newEstimate.templateId));
-                    if(tmpl) sections=(tmpl.sections||[]).map(s=>({...s,id:Date.now()+Math.random(),items:(s.items||[]).map(i=>({...i,id:Date.now()+Math.random()}))}));
+                    if(tmpl) sections=enrichEstimateMeasurementBasis((tmpl.sections||[]).map(s=>({...s,id:Date.now()+Math.random(),items:(s.items||[]).map(i=>({...i,id:Date.now()+Math.random()}))})));
                   }
                   const res=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections})});
                   const est=await res.json();
@@ -11900,9 +11943,9 @@ function App() {
                   {selectedEstimate.status!=='Активная'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Активная')} style={btnGr}><CheckCircle size={14}/>Активной</button>}
                   {selectedEstimate.status!=='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Архив')} style={btnG}><Archive size={14}/>В архив</button>}
                   {selectedEstimate.status==='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>↩ Черновик</button>}
-	                  <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Тип</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="8"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>{const meta=estimateItemTypeMeta(normalizeEstimateItemType(it,s.name));return `<tr><td>${i+1}</td><td>${meta.label}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`;})]).join('')+'<tr><td colspan="7"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
+	                  <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Тип</th><th>Основание</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="9"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>{const meta=estimateItemTypeMeta(normalizeEstimateItemType(it,s.name));const basis=estimateMeasurementBasisMeta(estimateMeasurementBasisOf(it,s.name));return `<tr><td>${i+1}</td><td>${meta.label}</td><td>${basis.label}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`;})]).join('')+'<tr><td colspan="8"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
                   {(()=>{const base=estimateDiffBaseFor(selectedEstimate);return base?<button onClick={()=>showPreview(buildEstimateDiffContent(base,selectedEstimate),'Разница смет')} style={btnB}><FileText size={14}/>Разница</button>:null;})()}
-	                  <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Тип:estimateItemTypeMeta(normalizeEstimateItemType(i,s.name)).label,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
+	                  <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Тип:estimateItemTypeMeta(normalizeEstimateItemType(i,s.name)).label,Основание:estimateMeasurementBasisMeta(estimateMeasurementBasisOf(i,s.name)).label,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
                   <button onClick={async()=>{
                     const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/toggle-template',{method:'PUT'});
                     const data=await res.json();
@@ -12068,8 +12111,9 @@ function App() {
                   const updateItem=(idx,field,val,saveNow=false)=>updateItemPatch(idx,{[field]:val},saveNow);
                   const persist=()=>persistEstimate(selectedEstimate);
                   const inpCell={padding:'6px 8px',border:'1px solid '+C.border,borderRadius:'6px',fontSize:'12px',width:'100%',minWidth:0,backgroundColor:C.bgWhite,color:C.text,outline:'none'};
-                  const estimateTbl={...tbl,minWidth:'1680px',tableLayout:'fixed'};
+                  const estimateTbl={...tbl,minWidth:'1840px',tableLayout:'fixed'};
                   const projBrigades=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName).map(bc=>bc.brigadeName).filter(Boolean);
+                  const markSectionBasis=()=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map(it=>isEstimateWorkItem(it,s.name)?{...it,measurementBasis:estimateMeasurementBasisOf(it,s.name)}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
                   const renderGroup=(title,emoji,list,groupTotal,accent)=>(<div style={{marginBottom:'10px'}}>
                     <div style={{padding:'6px 10px',backgroundColor:accent+'15',borderRadius:'6px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px',borderLeft:'3px solid '+accent}}>
                       <b style={{color:accent,fontSize:'12px'}}>{emoji+' '+title+' ('+list.length+')'}</b>
@@ -12078,6 +12122,7 @@ function App() {
                     {list.length>0?(<div style={{overflowX:'auto',paddingBottom:'2px'}}><table style={estimateTbl}><thead><tr>
 	                      <th style={{...tblH,width:'500px'}}>Наименование</th>
 	                      <th style={{...tblH,width:'150px'}}>Тип</th>
+                        <th style={{...tblH,width:'170px'}}>Основание</th>
 	                      <th style={{...tblH,width:'82px'}}>Ед.</th>
                       <th style={{...tblH,width:'110px'}}>План</th>
                       <th style={{...tblH,width:'130px'}}>👷 Кому</th>
@@ -12087,9 +12132,10 @@ function App() {
                       <th style={{...tblH,width:'180px'}}>Сумма</th>
                       <th style={{...tblH,width:'48px'}}></th>
                     </tr></thead><tbody>
-	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);return(<tr key={item.id||item._idx} data-estitem={item.id||item.name||item._idx}>
+	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);return(<tr key={item.id||item._idx} data-estitem={item.id||item.name||item._idx}>
 	                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'13px',width:'18px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
-	                        <td style={tblC}><select value={kind} onChange={e=>{const next=e.target.value;const patch={itemType:next};if(next==='material'&&toNum(item.priceWork)>0&&!toNum(item.priceMaterial)){patch.priceMaterial=item.priceWork;patch.priceWork='';}if(next==='work'&&toNum(item.priceMaterial)>0&&!toNum(item.priceWork)){patch.priceWork=item.priceMaterial;patch.priceMaterial='';}updateItemPatch(item._idx,patch,true);}} style={inpCell}>{ESTIMATE_ITEM_TYPES.map(t=><option key={t.id} value={t.id}>{t.icon+' '+t.label}</option>)}</select></td>
+	                        <td style={tblC}><select value={kind} onChange={e=>{const next=e.target.value;const patch={itemType:next};if(next==='material'&&toNum(item.priceWork)>0&&!toNum(item.priceMaterial)){patch.priceMaterial=item.priceWork;patch.priceWork='';}if(next==='work'&&toNum(item.priceMaterial)>0&&!toNum(item.priceWork)){patch.priceWork=item.priceMaterial;patch.priceMaterial='';}patch.measurementBasis=next==='work'?estimateMeasurementBasisOf({...item,itemType:next},section.name):'manual';updateItemPatch(item._idx,patch,true);}} style={inpCell}>{ESTIMATE_ITEM_TYPES.map(t=><option key={t.id} value={t.id}>{t.icon+' '+t.label}</option>)}</select></td>
+                          <td style={tblC}><select disabled={!isWork} value={isWork?basis:'manual'} onChange={e=>updateItem(item._idx,'measurementBasis',e.target.value,true)} title={isWork?'Основание для сравнения со вкладкой Помещения':'Основание нужно только для работ'} style={{...inpCell,opacity:isWork?1:0.55}}>{ESTIMATE_MEASUREMENT_BASES.map(b=><option key={b.id} value={b.id}>{b.icon+' '+b.label}</option>)}</select></td>
 	                        <td style={tblC}><select value={item.unit||'шт'} onChange={e=>updateItem(item._idx,'unit',e.target.value,true)} style={inpCell}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
 	                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={qtyNorm.qty||''} onChange={e=>updateItem(item._idx,'quantity',denormalizeMeasure(e.target.value,item.unit))} onBlur={persist} style={inpCell}/></td>
 	                        <td style={tblC}><select disabled={!isWork} value={isWork?(item.brigadeName||''):''} onChange={e=>updateItem(item._idx,'brigadeName',e.target.value,true)} style={{...inpCell,opacity:isWork?1:0.55}}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
@@ -12104,20 +12150,24 @@ function App() {
                   return(<div key={section.id} style={{...card,marginBottom:'12px'}}>
                   <div style={{padding:'12px 16px',backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1.5px solid '+C.border}}>
                     <b style={{color:C.accent,fontSize:'13px'}}>{'📁 '+section.name}</b>
-                    <b style={{color:C.text,fontSize:'13px'}}>{total.toLocaleString('ru-RU')+' ₽'}</b>
+                    <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                      <button onClick={markSectionBasis} style={{...btnG,padding:'4px 9px',fontSize:'11px'}} title='Автоматически подобрать основание расчёта для работ раздела'><Bot size={11}/>Основания</button>
+                      <b style={{color:C.text,fontSize:'13px'}}>{total.toLocaleString('ru-RU')+' ₽'}</b>
+                    </div>
                   </div>
 	                  <div style={{padding:'12px 16px'}}>
 	                    {renderGroup('Работы','🔨',works,totalW,C.accent)}
 	                    {renderGroup('Материалы','📦',mats,totalM,C.info)}
 	                    {renderGroup('Оборудование / доставка / прочее','⚙️',others,totalOther,C.textSec)}
-	                    <div style={{display:'grid',gridTemplateColumns:'160px minmax(320px,3fr) 110px 140px 160px 160px 54px',gap:'8px',marginTop:'10px',alignItems:'center',overflowX:'auto'}}>
+	                    <div style={{display:'grid',gridTemplateColumns:'160px minmax(320px,3fr) 160px 110px 140px 160px 160px 54px',gap:'8px',marginTop:'10px',alignItems:'center',overflowX:'auto'}}>
 	                      <select value={newEstimateItem.sectionId===section.id?(newEstimateItem.itemType||'work'):'work'} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,itemType:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{ESTIMATE_ITEM_TYPES.map(t=><option key={t.id} value={t.id}>{t.icon+' '+t.label}</option>)}</select>
 	                      <input placeholder="Наименование *" value={newEstimateItem.sectionId===section.id?newEstimateItem.name:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                        <select value={newEstimateItem.sectionId===section.id?(newEstimateItem.measurementBasis||suggestEstimateMeasurementBasis(newEstimateItem,section.name)):'manual'} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,measurementBasis:e.target.value})} disabled={(newEstimateItem.sectionId===section.id?(newEstimateItem.itemType||'work'):'work')!=='work'} style={{...inp,marginBottom:0,fontSize:'12px'}}>{ESTIMATE_MEASUREMENT_BASES.map(b=><option key={b.id} value={b.id}>{b.icon+' '+b.label}</option>)}</select>
 	                      <select value={newEstimateItem.sectionId===section.id?newEstimateItem.unit:'м2'} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
 	                      <input placeholder="Кол-во" type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.quantity:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,quantity:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
 	                      <input placeholder="Цена работ" type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.priceWork:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,priceWork:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
 	                      <input placeholder="Цена мат." type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.priceMaterial:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,priceMaterial:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-	                      <button onClick={()=>{if(!newEstimateItem.name||newEstimateItem.sectionId!==section.id) return;const itemType=newEstimateItem.itemType||normalizeEstimateItemType(newEstimateItem,section.name);const item={id:Date.now(),itemType,name:newEstimateItem.name,unit:newEstimateItem.unit,quantity:newEstimateItem.quantity,priceWork:newEstimateItem.priceWork,priceMaterial:newEstimateItem.priceMaterial};const sections=(selectedEstimate.sections||[]).map((s,idx)=>idx===si?{...s,items:[...(s.items||[]),item]}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);setNewEstimateItem({sectionId:'',itemType:'work',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:''});}} style={{...btnO,padding:'7px 12px'}}><Plus size={13}/></button>
+	                      <button onClick={()=>{if(!newEstimateItem.name||newEstimateItem.sectionId!==section.id) return;const itemType=newEstimateItem.itemType||normalizeEstimateItemType(newEstimateItem,section.name);const item={id:Date.now(),itemType,name:newEstimateItem.name,unit:newEstimateItem.unit,quantity:newEstimateItem.quantity,priceWork:newEstimateItem.priceWork,priceMaterial:newEstimateItem.priceMaterial,measurementBasis:itemType==='work'?(newEstimateItem.measurementBasis||suggestEstimateMeasurementBasis(newEstimateItem,section.name)):'manual'};const sections=(selectedEstimate.sections||[]).map((s,idx)=>idx===si?{...s,items:[...(s.items||[]),item]}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);setNewEstimateItem({sectionId:'',itemType:'work',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:'',measurementBasis:''});}} style={{...btnO,padding:'7px 12px'}}><Plus size={13}/></button>
                     </div>
                   </div>
                 </div>);})}
@@ -12195,9 +12245,10 @@ function App() {
                         const tm=Number(item.totalMaterial||0);
 	                        const importedItem={id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:tw>0||tm===0?(tw||item.total):0,priceMaterial:tm>0?tm:0,isImported:true,itemType:item.type||''};
 	                        importedItem.itemType=normalizeEstimateItemType(importedItem,item.section);
+                          importedItem.measurementBasis=importedItem.itemType==='work'?suggestEstimateMeasurementBasis(importedItem,item.section):'manual';
 	                        sections[item.section].items.push(importedItem);
                       });
-                      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная',sections:Object.values(sections)};
+                      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная',sections:enrichEstimateMeasurementBasis(Object.values(sections))};
                       const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};setEstimatesList(prev=>[...prev.map(e=>(estWithId.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');
                       setImportValidating(true);
                       setImportValidationWarnings([]);
@@ -13004,7 +13055,7 @@ function App() {
               const res=await fetch(API+'/ai-generate-estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(generateForm)});
               const data=await res.json();
               if(!res.ok||!data.ok){alert('ИИ не справился: '+(data.detail||'попробуйте ещё раз с более детальным описанием'));setGenerating(false);return;}
-              const est={id:data.id,name:data.name,projectId:data.projectId||'',projectName:data.projectName||'',version:'1.0',smetaType:data.smetaType||generateForm.smetaType||'Заказчик',workPackage:data.workPackage||generateForm.workPackage||'Основная',status:data.status||generateForm.status||'Активная',sections:data.sections};
+              const est={id:data.id,name:data.name,projectId:data.projectId||'',projectName:data.projectName||'',version:'1.0',smetaType:data.smetaType||generateForm.smetaType||'Заказчик',workPackage:data.workPackage||generateForm.workPackage||'Основная',status:data.status||generateForm.status||'Активная',sections:enrichEstimateMeasurementBasis(data.sections||[])};
               setEstimatesList(prev=>[...prev.map(e=>(est.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,est))?{...e,status:'Архив'}:e),est]);
               setSelectedEstimate(est);
               setShowGenerateEstimate(false);
