@@ -90,18 +90,25 @@ const PROJECT_MEASUREMENT_SOURCE_TYPES = ['Проект','Фактический
 const PROJECT_MEASUREMENT_DOC_TYPES = ['Проект','Обмер','Экспликация','Ведомость окон','Ведомость дверей','Фото обмера','Рукописный обмер','Прочее'];
 const PROJECT_MEASUREMENT_STATUSES = ['Черновик','На проверке','Принято','Отклонено'];
 const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
-  const text = estimateTextKey([sectionName, it.section, it.name, it.unit].filter(Boolean).join(' '));
-  const unit = estimateTextKey(it.unit || '');
+  const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
+  const unit = _normalizeUnit(normalizeMeasure(1, it.unit).unit || it.unit || '');
   if (estimateTextHasAny(text, ['демонтаж','разбор','разборка','снятие','удаление'])) return 'demolition';
+  if (unit === 'м') return 'linear';
+  if (unit === 'шт') {
+    if (estimateTextHasAny(text, ['окно','оконный блок','подоконник'])) return 'window_count';
+    if (estimateTextHasAny(text, ['двер','дверной блок','полотно'])) return 'door_count';
+    if (estimateTextHasAny(text, ['розет','выключател','светильник','точк','прибор','радиатор','решетк','унитаз','раковин','смесител','коробка ответвительная'])) return 'point';
+    return 'manual';
+  }
+  if (unit !== 'м2') return 'manual';
+  const hasFloorWord = /(^| )пол( |$)/.test(text) || /(^| )пола( |$)/.test(text) || /(^| )полы( |$)/.test(text);
   if (estimateTextHasAny(text, ['оконный откос','откос окон','откосы окон','оконные откосы'])) return 'window_reveals';
   if (estimateTextHasAny(text, ['дверной откос','откос двер','откосы двер','дверные откосы'])) return 'door_reveals';
-  if (estimateTextHasAny(text, ['потолок','потолоч','подвесной потолок','натяжной потолок'])) return 'ceiling_area';
-  if (estimateTextHasAny(text, ['стяжк','пол ','пола','плитка пола','ламинат','линолеум','покрытие пола','плинтус пола'])) return unit === 'м' ? 'linear' : 'floor_area';
-  if (estimateTextHasAny(text, ['штукатур','шпатлев','шпаклев','окраск','обои','облицовка стен','стен','перегород'])) return 'wall_net_area';
-  if (estimateTextHasAny(text, ['окно','оконный блок','подоконник'])) return unit === 'шт' ? 'window_count' : 'window_reveals';
-  if (estimateTextHasAny(text, ['двер','дверной блок','полотно'])) return unit === 'шт' ? 'door_count' : 'door_reveals';
-  if (unit === 'м' || estimateTextHasAny(text, ['плинтус','кабель','провод','труба','лоток','короб','шов','бордюр'])) return 'linear';
-  if (unit === 'шт' && estimateTextHasAny(text, ['розет','выключател','светильник','точк','прибор','радиатор','решетк','унитаз','раковин','смесител'])) return 'point';
+  if (estimateTextHasAny(text, ['потолок','потолк','потолоч','подвесной потолок','натяжной потолок'])) return 'ceiling_area';
+  if (hasFloorWord || estimateTextHasAny(text, ['стяжк','плитка пола','ламинат','линолеум','покрытие пола'])) return 'floor_area';
+  if (estimateTextHasAny(text, ['штукатур','шпатлев','шпаклев','окраск','обои','облицовка стен','стен','перегород','фасад'])) return 'wall_net_area';
+  if (estimateTextHasAny(text, ['окно','оконный блок','подоконник'])) return 'window_reveals';
+  if (estimateTextHasAny(text, ['двер','дверной блок','полотно'])) return 'door_reveals';
   return 'manual';
 };
 const estimateMeasurementBasisOf = (it={}, sectionName='') => (it.measurementBasis && ESTIMATE_MEASUREMENT_BASE_BY_ID[it.measurementBasis]) ? it.measurementBasis : suggestEstimateMeasurementBasis(it, sectionName);
@@ -2788,13 +2795,14 @@ function App() {
       const planUnit = norm.unit || item.unit || '';
       const measuredQty = toNum(totals[basis]);
       const supported = Boolean(expectedUnit);
+      if (!supported) return;
       const unitOk = supported ? _normalizeUnit(planUnit)===_normalizeUnit(expectedUnit) : false;
       const tolerance = expectedUnit==='шт' ? 0.001 : Math.max(0.05, Math.abs(planQty)*0.01);
-      let status = 'Нужно основание';
+      let status = 'Сходится';
       let diff = 0;
-      if (supported && !unitOk) status = 'Ед. изм.';
-      else if (supported && measuredQty<=0) status = 'Нет обмера';
-      else if (supported) {
+      if (!unitOk) status = 'Ед. изм.';
+      else if (measuredQty<=0) status = 'Нет обмера';
+      else {
         diff = measuredQty - planQty;
         if (diff > tolerance) status = 'Сверх сметы';
         else if (diff < -tolerance) status = 'В смете больше';
@@ -2826,7 +2834,7 @@ function App() {
       });
     })));
     return rows.sort((a,b)=>{
-      const rank = {'Сверх сметы':0,'Нет обмера':1,'Ед. изм.':2,'Нужно основание':3,'В смете больше':4,'Сходится':5};
+      const rank = {'Сверх сметы':0,'Нет обмера':1,'Ед. изм.':2,'В смете больше':3,'Сходится':4};
       return (rank[a.status]??9)-(rank[b.status]??9) || Math.abs(b.diff)-Math.abs(a.diff);
     });
   };
@@ -2837,7 +2845,7 @@ function App() {
       overRows: rows.filter(r=>r.status==='Сверх сметы'),
       shortageRows: rows.filter(r=>r.status==='В смете больше'),
       missingRows: rows.filter(r=>r.status==='Нет обмера'),
-      manualRows: rows.filter(r=>r.status==='Нужно основание'||r.status==='Ед. изм.'),
+      manualRows: rows.filter(r=>r.status==='Ед. изм.'),
       okRows: rows.filter(r=>r.status==='Сходится'),
       overSum: rows.reduce((s,r)=>s+toNum(r.overSum),0),
     };
@@ -2862,7 +2870,7 @@ function App() {
     html += '<div class="emc-grid">'
       + '<div class="emc-card"><span>Строк проверено</span><b>'+s.rows.length+'</b></div>'
       + '<div class="emc-card"><span>Сверх сметы</span><b style="color:#dc2626">'+s.overRows.length+'</b></div>'
-      + '<div class="emc-card"><span>Нет обмера/основания</span><b style="color:#b45309">'+(s.missingRows.length+s.manualRows.length)+'</b></div>'
+      + '<div class="emc-card"><span>Нет обмера/ед. изм.</span><b style="color:#b45309">'+(s.missingRows.length+s.manualRows.length)+'</b></div>'
       + '<div class="emc-card"><span>Оценка доп. объёма</span><b>'+money(s.overSum)+'</b></div>'
       + '</div>';
     html += '<table><tr><th>Помещений</th><td>'+totals.roomCount+'</td><th>Стены чистые</th><td>'+qty(totals.wall_net_area,'м2')+'</td><th>Пол</th><td>'+qty(totals.floor_area,'м2')+'</td></tr>'
@@ -2902,7 +2910,7 @@ function App() {
         <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Строк</p><b style={{color:C.text,fontSize:'15px'}}>{s.rows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:s.overRows.length?C.dangerLight:C.successLight,borderRadius:'8px',border:'1px solid '+(s.overRows.length?C.dangerBorder:C.successBorder)}}><p style={{color:s.overRows.length?C.danger:C.success,fontSize:'10px',margin:'0 0 3px'}}>Сверх сметы</p><b style={{color:s.overRows.length?C.danger:C.success,fontSize:'15px'}}>{s.overRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:s.missingRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.missingRows.length?C.warningBorder:C.border)}}><p style={{color:s.missingRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Нет обмера</p><b style={{color:s.missingRows.length?C.warning:C.text,fontSize:'15px'}}>{s.missingRows.length}</b></div>
-        <div style={{padding:'10px',backgroundColor:s.manualRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.manualRows.length?C.infoBorder:C.border)}}><p style={{color:s.manualRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Ручное основание</p><b style={{color:s.manualRows.length?C.info:C.text,fontSize:'15px'}}>{s.manualRows.length}</b></div>
+        <div style={{padding:'10px',backgroundColor:s.manualRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.manualRows.length?C.infoBorder:C.border)}}><p style={{color:s.manualRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Ед. изм.</p><b style={{color:s.manualRows.length?C.info:C.text,fontSize:'15px'}}>{s.manualRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Оценка доп.</p><b style={{color:s.overSum>0?C.danger:C.text,fontSize:'15px'}}>{Math.round(s.overSum).toLocaleString('ru-RU')+' ₽'}</b></div>
       </div>
       {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет активной сметы заказчика или рабочих строк для сравнения.</p>:<div style={{overflowX:'auto'}}>
