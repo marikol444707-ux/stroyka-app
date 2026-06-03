@@ -2629,6 +2629,42 @@ function App() {
     await fetch(API+'/ai-tasks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
     await loadAll();
   };
+  const patchAiTaskSilent = async (id, patch) => {
+    const res = await fetch(API+'/ai-tasks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) return null;
+    setAiTasks(prev=>(prev||[]).map(t=>Number(t.id)===Number(id)?data:t));
+    return data;
+  };
+  const parseAiTaskPayload = (task) => {
+    try { return JSON.parse(task?.actionPayload || '{}'); } catch(e) { return {}; }
+  };
+  const openAiTaskAction = async (task) => {
+    const payload = parseAiTaskPayload(task);
+    if (['estimate_norm_review','material_norm_coverage'].includes(payload.type)) {
+      const projectName = payload.projectName || task.projectName || '';
+      const estimateId = payload.estimateId;
+      if (projectName) setMaterialNormCoverageProject(projectName);
+      if (estimateId) {
+        const est = (estimatesList||[]).find(e=>Number(e.id)===Number(estimateId));
+        if (est) setSelectedEstimate(est);
+      }
+      setEstimatesTab('norms');
+      navigateTo('estimates');
+      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
+        await patchAiTaskSilent(task.id,{status:'В работе'});
+      }
+      return;
+    }
+    if (task?.projectName) {
+      const project = (projects||[]).find(p=>p.name===task.projectName);
+      if (project) {
+        navigateTo('projects');
+        setExpandedProject(project.id);
+        setActiveProjectTab('ИИ-контроль');
+      }
+    }
+  };
 
   // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
   const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
@@ -4125,7 +4161,7 @@ function App() {
     return (users||[]).some(u=>roleOf(u.role)==='сметчик')
       || (staff||[]).some(s=>roleOf(s.systemRole||s.role)==='сметчик' && roleOf(s.status||'активен')!=='уволен');
   };
-  const estimateNormReviewTaskExists = (marker) => (aiTasks||[]).some(t=>
+  const estimateNormReviewExistingTask = (marker) => (aiTasks||[]).find(t=>
     isOpenAiStatus(t.status) && String(t.actionPayload||'').includes(marker)
   );
   const estimateNormReviewDescription = (est, rows, reason) => {
@@ -4154,16 +4190,38 @@ function App() {
     if (!est?.id || !est.projectName) return;
     if (estimateKind(est)!=='Заказчик' || isArchivedEstimate(est) || (est.status||'Черновик')!=='Активная') return;
     const marker = estimateNormReviewMarker(est.id);
-    if (estimateNormReviewQueuedRef.current.has(marker) || estimateNormReviewTaskExists(marker)) return;
+    const existingTask = estimateNormReviewExistingTask(marker);
     const rows = estimateNormCoverageRows(est.projectName, sourceEstimates)
       .filter(r=>Number(r.estimateId)===Number(est.id) && estimateNormReviewIssueStatuses.includes(r.status));
-    if (!rows.length) return;
-    estimateNormReviewQueuedRef.current.add(marker);
     const counts = estimateNormReviewIssueStatuses.reduce((acc,status)=>{
       const count = rows.filter(r=>r.status===status).length;
       if (count) acc[status] = count;
       return acc;
     }, {});
+    if (existingTask) {
+      if (!rows.length) {
+        await patchAiTaskSilent(existingTask.id,{status:'Закрыто'});
+        return;
+      }
+      await patchAiTaskSilent(existingTask.id,{
+        title:'Проверить смету: '+est.projectName+' — '+rows.length+' замеч.',
+        description:estimateNormReviewDescription(est, rows, reason),
+        assignedRole:hasActiveEstimator() ? 'сметчик' : 'директор',
+        actionPayload:JSON.stringify({
+          type:'estimate_norm_review',
+          marker,
+          estimateId:est.id,
+          estimateName:est.name||'',
+          projectName:est.projectName||'',
+          workPackage:estimatePackage(est),
+          reason,
+          counts
+        }),
+      });
+      return;
+    }
+    if (!rows.length || estimateNormReviewQueuedRef.current.has(marker)) return;
+    estimateNormReviewQueuedRef.current.add(marker);
     const payload = {
       projectName: est.projectName,
       title: 'Проверить смету: '+est.projectName+' — '+rows.length+' замеч.',
@@ -9730,6 +9788,7 @@ function App() {
                     {activeProjectTab==='ИИ-контроль'&&(()=> {
                       const projectFindings = aiFindingsForProject(p.name);
                       const projectTasks = aiTasksForProject(p.name);
+                      const standaloneTasks = projectTasks.filter(t=>!t.findingId);
                       const byCategory = projectFindings.reduce((acc,f)=>{const k=f.category||'Общее';if(!acc[k])acc[k]=[];acc[k].push(f);return acc;},{});
                       const importantCount = projectFindings.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных').length;
                       const canRunAiControl = user&&['директор','зам_директора','прораб','главный_инженер','сметчик','технадзор','стройконтроль'].includes(user.role);
@@ -9747,10 +9806,39 @@ function App() {
                           <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Поручения</p><b style={{color:C.accent,fontSize:'20px'}}>{projectTasks.length}</b></div>
                           <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Категорий</p><b style={{color:C.text,fontSize:'20px'}}>{Object.keys(byCategory).length}</b></div>
                         </div>
-                        {projectFindings.length===0&&(<div style={{...card,padding:'18px',textAlign:'center',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
+                        {projectFindings.length===0&&standaloneTasks.length===0&&(<div style={{...card,padding:'18px',textAlign:'center',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
                           <b style={{color:C.success,fontSize:'14px'}}>Замечаний пока нет</b>
                           <p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 12px'}}>Запустите проверку, чтобы система нашла незаполненные обмеры, окна/двери без размеров и работы без привязки к помещению.</p>
                           <button onClick={()=>generateAiFindingsForProject(p.name)} disabled={!canRunAiControl} style={{...btnGr,opacity:canRunAiControl?1:.55}}><Bot size={14}/>Проверить объект</button>
+                        </div>)}
+                        {standaloneTasks.length>0&&(<div style={{...card,padding:'14px',marginBottom:'12px'}}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'10px'}}>
+                            <b style={{color:C.text,fontSize:'13px'}}>Поручения</b>
+                            <span style={badge(C.accent,C.accentLight,C.accentBorder)}>{standaloneTasks.length}</span>
+                          </div>
+                          {standaloneTasks.map(task=>{
+                            const payload=parseAiTaskPayload(task);
+                            const isEstimateTask=['estimate_norm_review','material_norm_coverage'].includes(payload.type);
+                            return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
+                              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                                <div style={{flex:1,minWidth:'220px'}}>
+                                  <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'5px'}}>
+                                    <span style={badge(C.info,C.infoLight,C.infoBorder)}>{task.status||'Новое'}</span>
+                                    <span style={{fontSize:'11px',color:C.textSec}}>{task.assignedRole?'кому: '+task.assignedRole:'без роли'}</span>
+                                  </div>
+                                  <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.35}}>{task.title}</b>
+                                  {task.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45,whiteSpace:'pre-wrap'}}>{task.description}</p>}
+                                </div>
+                                <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                                  {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{isEstimateTask?<Calculator size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
+                                  {task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
+                                  {['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
+                                  <button onClick={()=>updateAiTask(task.id,{status:'Закрыто'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Закрыть</button>
+                                  <button onClick={()=>updateAiTask(task.id,{status:'Отклонено'})} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}>Отклонить</button>
+                                </div>
+                              </div>
+                            </div>);
+                          })}
                         </div>)}
                         {Object.entries(byCategory).map(([category,list])=>(
                           <div key={category} style={{...card,padding:'14px',marginBottom:'12px'}}>
