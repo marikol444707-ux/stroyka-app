@@ -80,6 +80,7 @@ DEFAULT_MATERIAL_NORMS = [
     {"ruleKey":"pipe_clamps","name":"Крепление трубопроводов","work":["трубопровод","водоснаб","отоплен"],"blockWork":["демонтаж","разбор"],"material":["хомут","креплен","кронштейн"],"workUnit":"м","materialUnit":"шт","qtyPerUnit":1.2,"label":"крепление трубы 1.2 шт/м"},
     {"ruleKey":"pipe_insulation","name":"Изоляция труб","work":["изоляц","трубопровод"],"blockWork":["демонтаж","разбор"],"material":["изоляц","энергофлекс","пенополиэтилен"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"изоляция трубы 1.05 м/м"},
     {"ruleKey":"thermal_insulation_board","name":"Теплоизоляция плитная/рулонная","work":["изоляция изделиями","теплоизоляц","изоляц"],"blockWork":["демонтаж","разбор"],"material":["пенополиэтилен","минераловат","теплоизоляц","изовер","технониколь","вата"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":1.05,"label":"теплоизоляция 1.05 м2/м2"},
+    {"ruleKey":"thermal_insulation_fasteners","name":"Крепеж теплоизоляции","work":["изоляция изделиями","теплоизоляц","изоляц"],"blockWork":["демонтаж","разбор"],"material":["дюбель-гвозд","дюбел","креплен","для теплоизоляции"],"workUnit":"м2","materialUnit":"шт","qtyPerUnit":5,"label":"крепеж теплоизоляции 5 шт/м2"},
     {"ruleKey":"radiator_device","name":"Радиатор отопления","work":["радиатор"],"blockWork":["демонтаж","разбор"],"material":["радиатор"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"радиатор 1 шт на прибор"},
     {"ruleKey":"radiator_mount","name":"Крепление радиатора","work":["радиатор"],"blockWork":["демонтаж","разбор"],"material":["кронштейн","креплен","крепеж"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":4,"label":"крепление радиатора 4 шт на прибор"},
     {"ruleKey":"radiator_connection_kit","name":"Комплект подключения радиатора","work":["радиатор"],"blockWork":["демонтаж","разбор"],"material":["комплект монтаж","комплект подключ","подключения радиатор","радиаторный комплект"],"workUnit":"шт","materialUnit":"компл","qtyPerUnit":1,"label":"комплект подключения радиатора 1 компл/прибор"},
@@ -93,6 +94,7 @@ DEFAULT_MATERIAL_NORMS = [
     {"ruleKey":"wood_frame","name":"Брус каркаса","work":["каркас","брус"],"blockWork":["демонтаж","разбор"],"material":["брус"],"workUnit":"м3","materialUnit":"м3","qtyPerUnit":1.05,"label":"брус 1.05 м3/м3 каркаса"},
     {"ruleKey":"door_block","name":"Дверной блок","work":["дверн","двер"],"blockWork":["демонтаж","разбор","снятие"],"material":["блок двер","дверн блок","дверь","полотно"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":1,"label":"дверной блок 1 м2/м2"},
     {"ruleKey":"windowsill","name":"Подоконник","work":["подокон"],"blockWork":["демонтаж","разбор"],"material":["подокон"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1,"label":"подоконник 1 м/м"},
+    {"ruleKey":"windowsill_end_caps","name":"Заглушки подоконника","work":["подокон"],"blockWork":["демонтаж","разбор"],"material":["заглушк","торцев","подокон"],"workUnit":"м","materialUnit":"шт","qtyPerUnit":1,"label":"заглушки подоконника 1 шт/м"},
     {"ruleKey":"brick_masonry","name":"Кирпич","work":["кладк"],"blockWork":["демонтаж","разбор"],"material":["кирпич"],"workUnit":"м2","materialUnit":"шт","qtyPerUnit":51,"label":"кирпич 51 шт/м2 кладки в 1/2 кирпича"},
     {"ruleKey":"concrete","name":"Бетон","work":["бетон"],"blockWork":["демонтаж","разбор"],"material":["бетон"],"workUnit":"м3","materialUnit":"м3","qtyPerUnit":1,"label":"бетон 1 м3/м3"},
 ]
@@ -9433,6 +9435,8 @@ def _norm_material_family_compatible(rule: dict, material_name: str = "") -> boo
         return has(insulation_words) and not has(fastener_words)
     if "thermal_insulation_board" in rule_key:
         return has(insulation_words) and not has(fastener_words)
+    if "thermal_insulation_fasteners" in rule_key:
+        return has(fastener_words) and has(("теплоизоляц", "изоляц"))
     if "radiator_connection_kit" in rule_key:
         return has(("комплект монтаж", "комплект подключ", "подключения радиатор", "радиаторный комплект"))
     if "radiator_mount" in rule_key:

@@ -346,6 +346,7 @@ const WORK_MATERIAL_NORM_RULES = [
   {id:'pipe_clamps', work:['трубопровод','водоснаб','отоплен'], blockWork:['демонтаж','разбор'], material:['хомут','креплен','кронштейн'], workUnit:'м', materialUnit:'шт', qtyPerUnit:1.2, label:'крепление трубы 1.2 шт/м'},
   {id:'pipe_insulation', work:['изоляц','трубопровод'], blockWork:['демонтаж','разбор'], material:['изоляц','энергофлекс','пенополиэтилен'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'изоляция трубы 1.05 м/м'},
   {id:'thermal_insulation_board', work:['изоляция изделиями','теплоизоляц','изоляц'], blockWork:['демонтаж','разбор'], material:['пенополиэтилен','минераловат','теплоизоляц','изовер','технониколь','вата'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:1.05, label:'теплоизоляция 1.05 м2/м2'},
+  {id:'thermal_insulation_fasteners', work:['изоляция изделиями','теплоизоляц','изоляц'], blockWork:['демонтаж','разбор'], material:['дюбель-гвозд','дюбел','креплен','для теплоизоляции'], workUnit:'м2', materialUnit:'шт', qtyPerUnit:5, label:'крепеж теплоизоляции 5 шт/м2'},
   {id:'radiator_device', work:['радиатор'], blockWork:['демонтаж','разбор'], material:['радиатор'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'радиатор 1 шт на прибор'},
   {id:'radiator_mount', work:['радиатор'], blockWork:['демонтаж','разбор'], material:['кронштейн','креплен','крепеж'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:4, label:'крепление радиатора 4 шт на прибор'},
   {id:'radiator_connection_kit', work:['радиатор'], blockWork:['демонтаж','разбор'], material:['комплект монтаж','комплект подключ','подключения радиатор','радиаторный комплект'], workUnit:'шт', materialUnit:'компл', qtyPerUnit:1, label:'комплект подключения радиатора 1 компл/прибор'},
@@ -359,6 +360,7 @@ const WORK_MATERIAL_NORM_RULES = [
   {id:'wood_frame', work:['каркас','брус'], blockWork:['демонтаж','разбор'], material:['брус'], workUnit:'м3', materialUnit:'м3', qtyPerUnit:1.05, label:'брус 1.05 м3/м3 каркаса'},
   {id:'door_block', work:['дверн','двер'], blockWork:['демонтаж','разбор','снятие'], material:['блок двер','дверн блок','дверь','полотно'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:1, label:'дверной блок 1 м2/м2'},
   {id:'windowsill', work:['подокон'], blockWork:['демонтаж','разбор'], material:['подокон'], workUnit:'м', materialUnit:'м', qtyPerUnit:1, label:'подоконник 1 м/м'},
+  {id:'windowsill_end_caps', work:['подокон'], blockWork:['демонтаж','разбор'], material:['заглушк','торцев','подокон'], workUnit:'м', materialUnit:'шт', qtyPerUnit:1, label:'заглушки подоконника 1 шт/м'},
   {id:'brick_masonry', work:['кладк'], blockWork:['демонтаж','разбор'], material:['кирпич'], workUnit:'м2', materialUnit:'шт', qtyPerUnit:51, label:'кирпич 51 шт/м2 кладки в 1/2 кирпича'},
   {id:'concrete', work:['бетон'], blockWork:['демонтаж','разбор'], material:['бетон'], workUnit:'м3', materialUnit:'м3', qtyPerUnit:1, label:'бетон 1 м3/м3'}
 ];
@@ -3643,6 +3645,7 @@ function App() {
     if (ruleKey.includes('pipe_clamps')) return has(pipeClampWords);
     if (ruleKey.includes('pipe_insulation')) return has(insulationWords) && !has(fastenerWords);
     if (ruleKey.includes('thermal_insulation_board')) return has(insulationWords) && !has(fastenerWords);
+    if (ruleKey.includes('thermal_insulation_fasteners')) return has(fastenerWords) && has(['теплоизоляц','изоляц']);
     if (ruleKey.includes('radiator_connection_kit')) return has(['комплект монтаж','комплект подключ','подключения радиатор','радиаторный комплект']);
     if (ruleKey.includes('radiator_mount')) return has(['кронштейн','консоль','крепление радиатор','крепеж радиатор','комплект крепления']);
     if (ruleText.includes('изоляция труб')) return has(insulationWords) && !has(fastenerWords);
@@ -3780,6 +3783,8 @@ function App() {
     wood_frame:'Брус каркаса',
     door_block:'Дверной блок',
     windowsill:'Подоконник',
+    windowsill_end_caps:'Заглушки подоконника',
+    thermal_insulation_fasteners:'Крепеж теплоизоляции',
     brick_masonry:'Кирпич',
     concrete:'Бетон'
   }[rule?.ruleKey || rule?.id] || rule?.name || rule?.material?.[0] || 'Материал по норме');
