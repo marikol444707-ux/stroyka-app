@@ -9295,7 +9295,7 @@ def _enhance_norm_suggestions_with_ai(suggestions: list[dict]) -> list[dict]:
         print("MATERIAL NORM SUGGEST AI PARSE ERROR:", str(e))
         return suggestions
 
-def _generate_material_norm_suggestions(cur, current_user: dict, project_name: str = "") -> list[dict]:
+def _generate_material_norm_suggestions(cur, current_user: dict, project_name: str = "", use_ai: bool = True) -> list[dict]:
     allowed_projects = visible_project_names(current_user)
     norm_rules = _load_active_norm_rules(cur)
     suggestions = {}
@@ -9443,7 +9443,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                     "label": f"{material_name}" + (f" {suggested} {mat.get('unit') or ''} / {work.get('unit') or 'ед.'}" if suggested else ""),
                     "dedupeKey": dedupe,
                 })
-    return _enhance_norm_suggestions_with_ai(list(suggestions.values()))
+    result = list(suggestions.values())
+    return _enhance_norm_suggestions_with_ai(result) if use_ai else result
 
 @app.get("/material-norm-suggestions")
 def list_material_norm_suggestions(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
@@ -9469,11 +9470,20 @@ def list_material_norm_suggestions(project_name: str = None, current_user: dict 
 def generate_material_norm_suggestions(data: dict = None, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
     data = data or {}
     project_name = data.get("projectName") or data.get("project_name") or ""
+    dry_run = bool(data.get("dryRun") or data.get("dry_run"))
+    use_ai = False if dry_run else (data.get("useAi", data.get("use_ai", True)) is not False)
     if project_name:
         require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    suggestions = _generate_material_norm_suggestions(cur, current_user, project_name)
+    suggestions = _generate_material_norm_suggestions(cur, current_user, project_name, use_ai=use_ai)
+    if dry_run:
+        for idx, suggestion in enumerate(suggestions, start=1):
+            suggestion["id"] = "preview-" + str(idx)
+            suggestion["status"] = "Предпросмотр"
+            suggestion["source"] = suggestion.get("source") or "rules-preview"
+        cur.close(); conn.close()
+        return {"ok": True, "dryRun": True, "created": 0, "updated": 0, "findings": 0, "total": len(suggestions), "aiUsed": False, "suggestions": suggestions}
     created = updated = findings = 0
     for suggestion in suggestions:
         sid, is_created = _upsert_material_norm_suggestion(cur, suggestion, current_user)
