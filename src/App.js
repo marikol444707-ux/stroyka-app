@@ -3426,7 +3426,7 @@ function App() {
       const key = keyOf(name);
       if (!key) return null;
       const cleanUnit = materialUnit(unit);
-      if (!rows[key]) rows[key] = {key,name:name||'',unit:cleanUnit,sections:[],planQty:0,planSum:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issued:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      if (!rows[key]) rows[key] = {key,name:name||'',unit:cleanUnit,sections:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
       if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
       if (!rows[key].unit && cleanUnit) rows[key].unit = cleanUnit;
       return rows[key];
@@ -3470,10 +3470,33 @@ function App() {
         if (!r) return;
         const qty = Number(it.quantity||0);
         const price = Number(it.price||0);
+        addQty(r, 'invoiceReceived', qty, it.unit);
         addQty(r, 'received', qty, it.unit);
         r.receivedSum += Number(it.total||qty*price||0);
       });
     });
+    const acceptedDeliveryKeys = new Set();
+    (supplyDeliveries||[])
+      .filter(d=>d.project===projectName && ['Принято','Проблема'].includes(d.status||'') && Number(d.receivedQuantity||0)>0)
+      .forEach(d=>{
+        const r = ensure(d.materialName, d.unit);
+        if (!r) return;
+        const qty = Number(d.receivedQuantity||0);
+        addQty(r, 'supplyReceived', qty, d.unit);
+        addQty(r, 'received', qty, d.unit);
+        r.receivedSum += Number(d.totalPrice||0) || qty * Number(d.pricePerUnit||0);
+        acceptedDeliveryKeys.add(r.key);
+      });
+    (supplyHistory||[])
+      .filter(h=>h.project===projectName && ['Доставлено','Поставлено','Принято'].includes(h.status||''))
+      .forEach(h=>{
+        const r = ensure(h.materialName, h.unit);
+        if (!r || acceptedDeliveryKeys.has(r.key)) return;
+        const qty = Number(h.quantity||0);
+        addQty(r, 'supplyReceived', qty, h.unit);
+        addQty(r, 'received', qty, h.unit);
+        r.receivedSum += Number(h.totalPrice||0) || qty * Number(h.pricePerUnit||0);
+      });
     (warehouseMovements||[]).forEach(m=>{
       const qty = Number(m.quantity||0);
       if ((m.toLocation||'')===projectName) {
@@ -3487,6 +3510,7 @@ function App() {
     });
     (materialTransfers||[]).filter(t=>t.projectName===projectName).forEach(t=>{
       const r = ensure(t.materialName, t.unit);
+      if ((t.fromLocation||'')==='Основной склад') addQty(r, 'issuedFromMain', t.quantity, t.unit);
       addQty(r, 'issued', t.quantity, t.unit);
     });
     (workJournal||[]).filter(w=>w.project===projectName&&w.status!=='Отклонено').forEach(w=>{
@@ -3517,14 +3541,16 @@ function App() {
       .forEach(d=>{
         const r = ensure(d.materialName, d.unit);
         addQty(r, 'inTransit', d.shippedQuantity || d.plannedQuantity, d.unit);
-      });
+    });
     return Object.values(rows).map(r=>{
-      const supplied = r.received + r.movedIn - r.movedOut;
+      const movedNet = r.movedIn + r.issuedFromMain - r.movedOut;
+      const supplied = r.received + movedNet;
       const toBuy = r.planQty>0 ? Math.max(0, (r.planQty||0) - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
       const coveredWithPipeline = supplied + (r.requested||0) + (r.inTransit||0);
       const hasMaterialActivity = coveredWithPipeline>0 || (r.stock||0)>0 || (r.issued||0)>0 || (r.used||0)>0;
       return {
         ...r,
+        movedNet,
         supplied,
         shortage: Math.max(0, (r.planQty||0) - supplied),
         toBuy,
@@ -3539,13 +3565,16 @@ function App() {
     const rows = materialReconciliationRows(projectName);
     const planRows = rows.filter(r=>r.planQty>0);
     const suppliedRows = rows.filter(r=>r.supplied>0);
+    const invoiceRows = rows.filter(r=>r.invoiceReceived>0);
+    const deliveryRows = rows.filter(r=>r.supplyReceived>0);
+    const movedRows = rows.filter(r=>r.movedNet!==0);
     const toBuyRows = rows.filter(r=>r.toBuy>0);
     const outsideRows = rows.filter(r=>r.isOutsideEstimate);
     const overRows = rows.filter(r=>r.over>0);
     const mismatchRows = rows.filter(r=>r.unitMismatch);
     const planSum = rows.reduce((s,r)=>s+Number(r.planSum||0),0);
     const suppliedSum = rows.reduce((s,r)=>s+Number(r.receivedSum||0),0);
-    return {rows, planRows, suppliedRows, toBuyRows, outsideRows, overRows, mismatchRows, planSum, suppliedSum};
+    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, planSum, suppliedSum};
   };
   const materialControlStatus = (r) => {
     if (r.isOutsideEstimate) return {label:'Вне сметы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
@@ -5137,18 +5166,24 @@ function App() {
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'8px',marginBottom:'12px'}}>
         <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>По смете</p><b style={{color:C.text,fontSize:'15px'}}>{s.planRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 3px'}}>Поставлялось</p><b style={{color:C.success,fontSize:'15px'}}>{s.suppliedRows.length}</b></div>
+        <div style={{padding:'10px',backgroundColor:s.invoiceRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.invoiceRows.length?C.infoBorder:C.border)}}><p style={{color:s.invoiceRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Накладные</p><b style={{color:s.invoiceRows.length?C.info:C.text,fontSize:'15px'}}>{s.invoiceRows.length}</b></div>
+        <div style={{padding:'10px',backgroundColor:s.deliveryRows.length?C.successLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.deliveryRows.length?C.successBorder:C.border)}}><p style={{color:s.deliveryRows.length?C.success:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Поставки</p><b style={{color:s.deliveryRows.length?C.success:C.text,fontSize:'15px'}}>{s.deliveryRows.length}</b></div>
+        <div style={{padding:'10px',backgroundColor:s.movedRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.movedRows.length?C.infoBorder:C.border)}}><p style={{color:s.movedRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Перемещения</p><b style={{color:s.movedRows.length?C.info:C.text,fontSize:'15px'}}>{s.movedRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:s.toBuyRows.length?C.warningLight:C.successLight,borderRadius:'8px',border:'1px solid '+(s.toBuyRows.length?C.warningBorder:C.successBorder)}}><p style={{color:s.toBuyRows.length?C.warning:C.success,fontSize:'10px',margin:'0 0 3px'}}>Докупить</p><b style={{color:s.toBuyRows.length?C.warning:C.success,fontSize:'15px'}}>{s.toBuyRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:s.outsideRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.outsideRows.length?C.dangerBorder:C.border)}}><p style={{color:s.outsideRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Вне сметы</p><b style={{color:s.outsideRows.length?C.danger:C.text,fontSize:'15px'}}>{s.outsideRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:s.mismatchRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.mismatchRows.length?C.warningBorder:C.border)}}><p style={{color:s.mismatchRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Ед. изм.</p><b style={{color:s.mismatchRows.length?C.warning:C.text,fontSize:'15px'}}>{s.mismatchRows.length}</b></div>
         {showMoney&&<div style={{padding:'10px',backgroundColor:C.infoLight,borderRadius:'8px',border:'1px solid '+C.infoBorder}}><p style={{color:C.info,fontSize:'10px',margin:'0 0 3px'}}>План ₽</p><b style={{color:C.info,fontSize:'15px'}}>{Math.round(s.planSum).toLocaleString('ru-RU')}</b></div>}
       </div>
       {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
-        <table style={{...tbl,fontSize:'11px',minWidth:'980px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Поставлено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>Остаток</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
+        <table style={{...tbl,fontSize:'11px',minWidth:'1160px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>Остаток</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
           {s.rows.slice(0,limit).map(r=>{const st=materialControlStatus(r);return(<tr key={r.key}>
             <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}</td>
             <td style={tblC}>{r.planQty>0?fmtMeasure(r.planQty,r.unit):'—'}</td>
             <td style={{...tblC,color:r.requested>0?C.info:C.textMuted}}>{fmtMeasure(r.requested,r.unit)}</td>
             <td style={{...tblC,color:r.inTransit>0?C.warning:C.textMuted}}>{fmtMeasure(r.inTransit,r.unit)}</td>
+            <td style={{...tblC,color:r.invoiceReceived>0?C.success:C.textMuted}}>{fmtMeasure(r.invoiceReceived,r.unit)}</td>
+            <td style={{...tblC,color:r.supplyReceived>0?C.success:C.textMuted}}>{fmtMeasure(r.supplyReceived,r.unit)}</td>
+            <td style={{...tblC,color:r.movedNet!==0?C.info:C.textMuted}}>{fmtMeasure(r.movedNet,r.unit)}</td>
             <td style={{...tblC,color:r.supplied>=r.planQty&&r.planQty>0?C.success:C.text}}>{fmtMeasure(r.supplied,r.unit)}</td>
             <td style={tblC}>{fmtMeasure(r.issued,r.unit)}</td>
             <td style={tblC}>{fmtMeasure(r.used,r.unit)}</td>
@@ -5479,15 +5514,15 @@ function App() {
     const normCtrl=materialNormControlSummaryForProject(projectName);
     let html='<style>.mr-tbl{border-collapse:collapse;width:100%;font-size:10.5px;margin:8px 0}.mr-tbl th,.mr-tbl td{border:1px solid #333;padding:5px 6px}.mr-tbl th{background:#f3f4f6}.mr-need{background:#fef3c7;font-weight:700}.mr-over{background:#dbeafe}.mr-out{background:#fee2e2}.mr-ok{background:#dcfce7}</style>';
     html+='<h2 style="text-align:center;margin:6px 0">ВЕДОМОСТЬ ПОТРЕБНОСТИ МАТЕРИАЛОВ</h2>';
-    html+='<p style="text-align:center;font-size:11px;color:#444">по смете объекта (план / заявки / в пути / поставлено / выдано / списано / остаток)</p>';
+    html+='<p style="text-align:center;font-size:11px;color:#444">по смете объекта (план / заявки / в пути / накладные / поставки / перемещения / выдано / списано / остаток)</p>';
     html+='<p style="font-size:12px"><b>Объект:</b> '+projectName+' · <b>Подрядчик:</b> '+orgName+'</p>';
     if (activeEsts.length===0) html+='<p style="color:#dc2626;font-size:12px;text-align:center;padding:14px">⚠️ Смета не загружена — план посчитать невозможно</p>';
     if (rows.length===0) html+='<p style="text-align:center;color:#888;font-size:11px;padding:14px">Материалов в смете нет</p>';
 	    else {
-	      html+='<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Раздел</th><th>Ед.</th><th>План</th><th>В заявках</th><th>В пути</th><th>Поставлено</th><th>Выдано</th><th>Списано</th><th>Остаток склада</th><th>Докупить</th><th>Статус</th></tr>';
-      rows.forEach((r,i)=>{const cls=r.isOutsideEstimate?'mr-out':r.toBuy>0?'mr-need':r.over>0?'mr-over':'mr-ok';const status=r.isOutsideEstimate?'вне сметы '+r.coveredWithPipeline.toLocaleString('ru-RU'):r.toBuy>0?'докупить '+r.toBuy.toLocaleString('ru-RU'):r.shortage>0?'закрывается заявками/поставками':r.over>0?'сверх '+r.over.toLocaleString('ru-RU'):'закрыто';html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+(r.unitMismatch?' ⚠ ед.изм.':'')+'</td><td>'+(r.sections||[]).join(', ')+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+r.requested.toLocaleString('ru-RU')+'</td><td>'+r.inTransit.toLocaleString('ru-RU')+'</td><td>'+r.supplied.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+r.used.toLocaleString('ru-RU')+'</td><td>'+r.stock.toLocaleString('ru-RU')+'</td><td>'+r.toBuy.toLocaleString('ru-RU')+'</td><td>'+status+'</td></tr>';});
+	      html+='<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Раздел</th><th>Ед.</th><th>План</th><th>В заявках</th><th>В пути</th><th>Накладные</th><th>Поставки</th><th>Перемещено</th><th>Всего получено</th><th>Выдано</th><th>Списано</th><th>Остаток склада</th><th>Докупить</th><th>Статус</th></tr>';
+      rows.forEach((r,i)=>{const cls=r.isOutsideEstimate?'mr-out':r.toBuy>0?'mr-need':r.over>0?'mr-over':'mr-ok';const status=r.isOutsideEstimate?'вне сметы '+r.coveredWithPipeline.toLocaleString('ru-RU'):r.toBuy>0?'докупить '+r.toBuy.toLocaleString('ru-RU'):r.shortage>0?'закрывается заявками/поставками':r.over>0?'сверх '+r.over.toLocaleString('ru-RU'):'закрыто';html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+(r.unitMismatch?' ⚠ ед.изм.':'')+'</td><td>'+(r.sections||[]).join(', ')+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+r.requested.toLocaleString('ru-RU')+'</td><td>'+r.inTransit.toLocaleString('ru-RU')+'</td><td>'+r.invoiceReceived.toLocaleString('ru-RU')+'</td><td>'+r.supplyReceived.toLocaleString('ru-RU')+'</td><td>'+r.movedNet.toLocaleString('ru-RU')+'</td><td>'+r.supplied.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+r.used.toLocaleString('ru-RU')+'</td><td>'+r.stock.toLocaleString('ru-RU')+'</td><td>'+r.toBuy.toLocaleString('ru-RU')+'</td><td>'+status+'</td></tr>';});
       const totalSum=rows.reduce((s,r)=>s+(r.planSum||0),0);
-      html+='<tr style="background:#f3f4f6"><td colspan="4"><b>ИТОГО плановая стоимость материалов:</b></td><td colspan="9"><b>'+Math.round(totalSum).toLocaleString('ru-RU')+' ₽</b></td></tr>';
+      html+='<tr style="background:#f3f4f6"><td colspan="4"><b>ИТОГО плановая стоимость материалов:</b></td><td colspan="12"><b>'+Math.round(totalSum).toLocaleString('ru-RU')+' ₽</b></td></tr>';
 	      html+='</table>';
 	    }
 	    if (normRows.length>0) {
@@ -11038,7 +11073,7 @@ function App() {
                           }} style={btnO}><Plus size={14}/>Передать материал</button>)}
                         </div>
                       </div>
-	                      {(()=>{const rows=materialReconciliationRows(p.name);const normRows=estimateWorkNormRequirementRows(p.name);const normCtrl=materialNormControlSummaryForProject(p.name);const planRows=rows.filter(r=>r.planQty>0);const toBuyRows=rows.filter(r=>r.toBuy>0);const pipelineRows=rows.filter(r=>r.requested>0||r.inTransit>0);const outsideRows=rows.filter(r=>r.isOutsideEstimate);const suppliedRows=rows.filter(r=>r.supplied>0);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
+	                      {(()=>{const rows=materialReconciliationRows(p.name);const normRows=estimateWorkNormRequirementRows(p.name);const normCtrl=materialNormControlSummaryForProject(p.name);const planRows=rows.filter(r=>r.planQty>0);const toBuyRows=rows.filter(r=>r.toBuy>0);const pipelineRows=rows.filter(r=>r.requested>0||r.inTransit>0);const outsideRows=rows.filter(r=>r.isOutsideEstimate);const suppliedRows=rows.filter(r=>r.supplied>0);const invoiceRows=rows.filter(r=>r.invoiceReceived>0);const deliveryRows=rows.filter(r=>r.supplyReceived>0);const movedRows=rows.filter(r=>r.movedNet!==0);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'12px'}}>
                           <div>
                             <b style={{color:C.text,fontSize:'14px'}}>📊 Материалы: смета ↔ поставки ↔ склад</b>
@@ -11047,8 +11082,11 @@ function App() {
                           <button onClick={()=>showPreview(buildMaterialRequirementContent(p.name),'Потребность материалов — '+p.name)} style={{...btnB,fontSize:'12px',padding:'6px 12px'}}><Printer size={13}/>Печать</button>
                         </div>
                         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'8px',marginBottom:'12px'}}>
-                          <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Позиций по смете</p><b style={{color:C.text,fontSize:'15px'}}>{planRows.length}</b></div>
+	                          <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Позиций по смете</p><b style={{color:C.text,fontSize:'15px'}}>{planRows.length}</b></div>
 	                          <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 3px'}}>Поставлялось</p><b style={{color:C.success,fontSize:'15px'}}>{suppliedRows.length}</b></div>
+	                          <div style={{padding:'10px',backgroundColor:invoiceRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(invoiceRows.length?C.infoBorder:C.border)}}><p style={{color:invoiceRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Накладные</p><b style={{color:invoiceRows.length?C.info:C.text,fontSize:'15px'}}>{invoiceRows.length}</b></div>
+	                          <div style={{padding:'10px',backgroundColor:deliveryRows.length?C.successLight:C.bg,borderRadius:'8px',border:'1px solid '+(deliveryRows.length?C.successBorder:C.border)}}><p style={{color:deliveryRows.length?C.success:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Поставки</p><b style={{color:deliveryRows.length?C.success:C.text,fontSize:'15px'}}>{deliveryRows.length}</b></div>
+	                          <div style={{padding:'10px',backgroundColor:movedRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(movedRows.length?C.infoBorder:C.border)}}><p style={{color:movedRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Перемещения</p><b style={{color:movedRows.length?C.info:C.text,fontSize:'15px'}}>{movedRows.length}</b></div>
 	                          <div style={{padding:'10px',backgroundColor:pipelineRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(pipelineRows.length?C.infoBorder:C.border)}}><p style={{color:pipelineRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>В заявках/пути</p><b style={{color:pipelineRows.length?C.info:C.text,fontSize:'15px'}}>{pipelineRows.length}</b></div>
 	                          <div style={{padding:'10px',backgroundColor:toBuyRows.length?C.warningLight:C.successLight,borderRadius:'8px',border:'1px solid '+(toBuyRows.length?C.warningBorder:C.successBorder)}}><p style={{color:toBuyRows.length?C.warning:C.success,fontSize:'10px',margin:'0 0 3px'}}>Докупить</p><b style={{color:toBuyRows.length?C.warning:C.success,fontSize:'15px'}}>{toBuyRows.length}</b></div>
 	                          <div style={{padding:'10px',backgroundColor:outsideRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(outsideRows.length?C.dangerBorder:C.border)}}><p style={{color:outsideRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Вне сметы</p><b style={{color:outsideRows.length?C.danger:C.text,fontSize:'15px'}}>{outsideRows.length}</b></div>
@@ -11057,12 +11095,15 @@ function App() {
 	                          <div style={{padding:'10px',backgroundColor:normCtrl.withoutNormRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(normCtrl.withoutNormRows.length?C.warningBorder:C.border)}}><p style={{color:normCtrl.withoutNormRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Списано без нормы</p><b style={{color:normCtrl.withoutNormRows.length?C.warning:C.text,fontSize:'15px'}}>{normCtrl.withoutNormRows.length}</b></div>
 	                        </div>
                         {rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
-                          <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Поставлено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>Остаток</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
+                          <table style={{...tbl,fontSize:'11px',minWidth:'1160px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>Остаток</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
                             {rows.slice(0,25).map(r=>{const status=r.isOutsideEstimate?'Вне сметы':r.toBuy>0?'Докупить':r.shortage>0?'В работе':r.over>0?'Сверх сметы':'Закрыто';const col=r.isOutsideEstimate?C.danger:r.toBuy>0?C.warning:r.shortage>0?C.info:r.over>0?C.info:C.success;const bg=r.isOutsideEstimate?C.dangerLight:r.toBuy>0?C.warningLight:r.shortage>0?C.infoLight:r.over>0?C.infoLight:C.successLight;const bd=r.isOutsideEstimate?C.dangerBorder:r.toBuy>0?C.warningBorder:r.shortage>0?C.infoBorder:r.over>0?C.infoBorder:C.successBorder;return(<tr key={r.key}>
                               <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}</td>
                               <td style={tblC}>{r.planQty>0?fmtMeasure(r.planQty,r.unit):'—'}</td>
                               <td style={{...tblC,color:r.requested>0?C.info:C.textMuted}}>{fmtMeasure(r.requested,r.unit)}</td>
                               <td style={{...tblC,color:r.inTransit>0?C.warning:C.textMuted}}>{fmtMeasure(r.inTransit,r.unit)}</td>
+                              <td style={{...tblC,color:r.invoiceReceived>0?C.success:C.textMuted}}>{fmtMeasure(r.invoiceReceived,r.unit)}</td>
+                              <td style={{...tblC,color:r.supplyReceived>0?C.success:C.textMuted}}>{fmtMeasure(r.supplyReceived,r.unit)}</td>
+                              <td style={{...tblC,color:r.movedNet!==0?C.info:C.textMuted}}>{fmtMeasure(r.movedNet,r.unit)}</td>
                               <td style={{...tblC,color:r.supplied>=r.planQty&&r.planQty>0?C.success:C.text}}>{fmtMeasure(r.supplied,r.unit)}</td>
                               <td style={tblC}>{fmtMeasure(r.issued,r.unit)}</td>
                               <td style={tblC}>{fmtMeasure(r.used,r.unit)}</td>
@@ -11885,7 +11926,7 @@ function App() {
                   <h3 style={{color:C.text,margin:'0 0 4px',fontSize:'15px',fontWeight:'700'}}>Контроль материалов по сметам</h3>
                   <p style={{color:C.textSec,margin:0,fontSize:'12px'}}>Один экран: план из активных смет, заявки, поставки, перемещения, выдача мастерам и списание по работам.</p>
                 </div>
-                <button onClick={()=>exportToExcel(visibleProjects(projects).flatMap(p=>materialReconciliationRows(p.name).map(r=>({Объект:p.name,Материал:r.name,Ед:r.unit,План:r.planQty,Заявки:r.requested,'В пути':r.inTransit,Поставлено:r.supplied,Выдано:r.issued,Списано:r.used,Остаток:r.stock,Докупить:r.toBuy,Статус:r.isOutsideEstimate?'Вне сметы':r.toBuy>0?'Докупить':r.shortage>0?'Закрывается':r.over>0?'Сверх сметы':'Закрыто'}))),'Контроль_материалов')} style={btnG}><Download size={14}/>Excel</button>
+                <button onClick={()=>exportToExcel(visibleProjects(projects).flatMap(p=>materialReconciliationRows(p.name).map(r=>({Объект:p.name,Материал:r.name,Ед:r.unit,План:r.planQty,Заявки:r.requested,'В пути':r.inTransit,Накладные:r.invoiceReceived,Поставки:r.supplyReceived,Перемещено:r.movedNet,'Всего получено':r.supplied,Выдано:r.issued,Списано:r.used,Остаток:r.stock,Докупить:r.toBuy,Статус:r.isOutsideEstimate?'Вне сметы':r.toBuy>0?'Докупить':r.shortage>0?'Закрывается':r.over>0?'Сверх сметы':'Закрыто'}))),'Контроль_материалов')} style={btnG}><Download size={14}/>Excel</button>
               </div>
               {visibleProjects(projects).map(p=>{const s=materialControlSummaryForProject(p.name);const hasIssue=s.toBuyRows.length||s.outsideRows.length||s.mismatchRows.length;return(<div key={p.id||p.name} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(s.toBuyRows.length?C.warning:s.outsideRows.length?C.danger:hasIssue?C.info:C.success)}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
@@ -11894,6 +11935,9 @@ function App() {
                     <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'6px'}}>
                       <span style={badge(C.textSec,C.bgGray,C.border)}>{'План: '+s.planRows.length}</span>
                       <span style={badge(C.success,C.successLight,C.successBorder)}>{'Поставлялось: '+s.suppliedRows.length}</span>
+                      {s.invoiceRows.length>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Накладные: '+s.invoiceRows.length}</span>}
+                      {s.deliveryRows.length>0&&<span style={badge(C.success,C.successLight,C.successBorder)}>{'Поставки: '+s.deliveryRows.length}</span>}
+                      {s.movedRows.length>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Перемещ.: '+s.movedRows.length}</span>}
                       <span style={badge(s.toBuyRows.length?C.warning:C.success,s.toBuyRows.length?C.warningLight:C.successLight,s.toBuyRows.length?C.warningBorder:C.successBorder)}>{'Докупить: '+s.toBuyRows.length}</span>
                       {s.outsideRows.length>0&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Вне сметы: '+s.outsideRows.length}</span>}
                       {s.mismatchRows.length>0&&<span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Ед. изм.: '+s.mismatchRows.length}</span>}
