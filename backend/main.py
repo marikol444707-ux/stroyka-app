@@ -9291,7 +9291,7 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                 "workUnit": work.get("unit") or "",
                 "materialName": material_name,
                 "materialUnit": mat_unit,
-                "currentNormId": matching_rule.get("id") if matching_rule else None,
+                "currentNormId": matching_rule.get("id") if matching_rule and suggestion_type == "over_norm" else None,
                 "currentQtyPerUnit": _safe_float(matching_rule.get("qty_per_unit")) if matching_rule else 0,
                 "_workQty": 0.0,
                 "actualQty": 0.0,
@@ -9502,7 +9502,7 @@ def accept_material_norm_suggestion(id: int, current_user: dict = Depends(requir
     material_keywords = suggestion["material"] or _norm_keywords_from_text(suggestion["materialName"])
     block_keywords = suggestion["blockWork"] or ["демонтаж", "разбор"]
     label = suggestion["label"] or (suggestion["materialName"] + " " + str(qty) + " " + suggestion["materialUnit"] + " / " + (suggestion["workUnit"] or "ед."))
-    if suggestion["currentNormId"]:
+    if suggestion["currentNormId"] and suggestion["suggestionType"] == "over_norm":
         cur.execute("""
             UPDATE material_norms
             SET name=%s, work_keywords=%s, block_work_keywords=%s, material_keywords=%s,
