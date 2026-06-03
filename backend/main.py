@@ -9245,13 +9245,42 @@ def _norm_base_unit(value: str) -> str:
     text = _norm_key_text(str(value or "").replace("²", "2").replace("³", "3"))
     return re.sub(r"^\d{2,}\s*", "", text).strip()
 
+def _work_no_material_norm_reason(work_name: str = "", section_name: str = "") -> str:
+    text = _norm_key_text((work_name or "") + " " + (section_name or ""))
+    if any(w in text for w in ("демонтаж", "разбор", "разборка", "снятие", "отбивка")):
+        return "Демонтажная/разборочная работа — материал по норме не требуется."
+    if any(w in text for w in ("очистка", "обеспыливание", "пробивка", "погрузка", "перевозка", "затаривание")):
+        return "Подготовительная или транспортная операция — материал по норме не требуется."
+    return ""
+
+def _norm_rule_specific_enough(rule: dict, work_text: str) -> bool:
+    text = _norm_key_text(work_text or "")
+    words = text.split()
+    has_cable_word = any(
+        w.startswith("кабел") or w.startswith("гофр") or (w.startswith("провод") and not w.startswith("трубопровод"))
+        for w in words
+    )
+    rule_key = _norm_key_text(rule.get("rule_key") or "")
+    material_text = _norm_key_text(" ".join(_norm_list(rule.get("material_keywords"))))
+    is_cable_rule = (
+        "cable" in rule_key or
+        any(w in material_text for w in ("кабел", "провод", "utp", "ftp", "гофр", "кабель канал"))
+    )
+    if is_cable_rule and "проклад" in text and not has_cable_word:
+        return False
+    return True
+
 def _norm_rule_matches(rule: dict, work_name: str, section_name: str, material_name: str, work_unit: str = "") -> bool:
     work_text = _norm_key_text((work_name or "") + " " + (section_name or ""))
     mat_text = _norm_key_text(material_name or "")
     work_words = _norm_list(rule.get("work_keywords"))
     block_words = _norm_list(rule.get("block_work_keywords"))
     material_words = _norm_list(rule.get("material_keywords"))
+    if _work_no_material_norm_reason(work_name, section_name):
+        return False
     if work_unit and rule.get("work_unit") and _norm_base_unit(work_unit) != _norm_base_unit(rule.get("work_unit")):
+        return False
+    if not _norm_rule_specific_enough(rule, work_text):
         return False
     return (
         any(_norm_key_text(w) and _norm_key_text(w) in work_text for w in work_words) and
@@ -9292,6 +9321,15 @@ def _estimate_norm_candidate_work(material_name: str, works: list[dict], section
     best = (0, {})
     for work in works:
         work_text = _norm_key_text(work.get("name") or "")
+        if _work_no_material_norm_reason(work.get("name"), section_name):
+            continue
+        work_words = work_text.split()
+        has_cable_word = any(
+            w.startswith("кабел") or w.startswith("гофр") or (w.startswith("провод") and not w.startswith("трубопровод"))
+            for w in work_words
+        )
+        if any(w in material_text for w in ("кабел", "провод", "utp", "ftp", "кпс", "кпкв")) and not has_cable_word:
+            continue
         semantic_score = 0
         for material_words, work_words in pairs:
             if any(w in material_text for w in material_words) and any(w in work_text for w in work_words):

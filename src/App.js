@@ -3497,6 +3497,21 @@ function App() {
     const t = materialNameKey(text);
     return words.some(w=>t.includes(materialNameKey(w)));
   };
+  const workNoMaterialNormReason = (workName='', sectionName='') => {
+    const t = materialNameKey(workName+' '+sectionName);
+    if (['демонтаж','разбор','разборка','снятие','отбивка'].some(w=>t.includes(w))) return 'Демонтажная/разборочная работа — материал по норме не требуется';
+    if (['очистка','обеспыливание','пробивка','погрузка','перевозка','затаривание'].some(w=>t.includes(w))) return 'Подготовительная или транспортная операция — материал по норме не требуется';
+    return '';
+  };
+  const normRuleSpecificEnough = (rule, workText='') => {
+    const t = materialNameKey(workText);
+    const words = t.split(' ');
+    const hasCableWord = words.some(w=>w.startsWith('кабел')||w.startsWith('гофр')||(w.startsWith('провод')&&!w.startsWith('трубопровод')));
+    const mat = materialNameKey([rule.ruleKey, rule.name, ...(rule.material||[])].join(' '));
+    const isCableRule = ['cable','кабел','провод','utp','ftp','гофр','кабель канал'].some(w=>mat.includes(w));
+    if (isCableRule && t.includes('проклад') && !hasCableWord) return false;
+    return true;
+  };
   const normListFromText = (value) => String(value||'').split(/[,;\n]/).map(v=>v.trim()).filter(Boolean);
   const normListToText = (value) => Array.isArray(value) ? value.join(', ') : String(value||'');
   const materialNormRuleForCalc = (rule) => ({
@@ -3534,9 +3549,11 @@ function App() {
   };
   const workNormRulesFor = (workName, sectionName='', projectName='', estimateId=null) => {
     const text = workName+' '+sectionName;
+    if (workNoMaterialNormReason(workName, sectionName)) return [];
     return materialNormRulesForCalculation(projectName, estimateId).filter(rule=>
       normTextIncludes(text, rule.work) &&
-      !normTextIncludes(text, rule.blockWork||[])
+      !normTextIncludes(text, rule.blockWork||[]) &&
+      normRuleSpecificEnough(rule, text)
     );
   };
   const workNeedsThicknessParam = (workName, sectionName='') =>
@@ -3654,7 +3671,8 @@ function App() {
         const rules = workNormRulesFor(it.name, section.name, projectName, est.id)
           .filter(rule=>_normalizeUnit(normalizeMeasure(workQty,workUnit).unit)===_normalizeUnit(rule.workUnit));
         if (!rules.length) {
-          rows.push({key:[est.id,section.name,itemIdx,'no'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:'Нет нормы',severity:'warning',message:'Для работы не найдено правило расхода материала',rule:null,materialName:'',materialQty:0,materialUnit:''});
+          const noMaterialReason = workNoMaterialNormReason(it.name, section.name);
+          rows.push({key:[est.id,section.name,itemIdx,'no'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:noMaterialReason?'Норма не нужна':'Нет нормы',severity:noMaterialReason?'info':'warning',message:noMaterialReason||'Для работы не найдено правило расхода материала',rule:null,materialName:'',materialQty:0,materialUnit:''});
           return;
         }
         rules.forEach(rule=>{
@@ -3694,6 +3712,7 @@ function App() {
   };
   const materialNormCoverageMeta = (status) => {
     if (['Норма применена','Поправка объекта','Поправка сметы'].includes(status)) return {color:C.success,bg:C.successLight,border:C.successBorder};
+    if (status==='Норма не нужна') return {color:C.textSec,bg:C.bgGray,border:C.border};
     if (status==='Нет нормы' || status==='Материал без работы') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
     return {color:C.info,bg:C.infoLight,border:C.infoBorder};
   };
@@ -13236,7 +13255,7 @@ function App() {
                 </div>
                 <button onClick={()=>setMaterialNormNotice(null)} style={{...btnG,padding:'4px 8px',fontSize:'11px',flex:'0 0 auto'}}><X size={12}/></button>
               </div>;})()}
-              {(()=>{const projectOptions=visibleProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+              {(()=>{const projectOptions=visibleProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
                   <div>
                     <b style={{color:C.text,fontSize:'13px',display:'block'}}>📐 Вся смета по нормам</b>
@@ -13249,6 +13268,7 @@ function App() {
                 </div>
                 <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
                   <span style={badge(C.success,C.successLight,C.successBorder)}>{'Покрыто: '+okCount}</span>
+                  <span style={badge(C.textSec,C.bgGray,C.border)}>{'Без материалов: '+skippedCount}</span>
                   <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Нет нормы: '+missingCount}</span>
                   <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Материал без работы: '+unlinkedCount}</span>
                   <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Нет материала в разделе: '+infoCount}</span>
