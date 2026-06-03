@@ -338,6 +338,19 @@ const WORK_MATERIAL_NORM_RULES = [
   {id:'brick_masonry', work:['кладк'], blockWork:['демонтаж','разбор'], material:['кирпич'], workUnit:'м2', materialUnit:'шт', qtyPerUnit:51, label:'кирпич 51 шт/м2 кладки в 1/2 кирпича'},
   {id:'concrete', work:['бетон'], blockWork:['демонтаж','разбор'], material:['бетон'], workUnit:'м3', materialUnit:'м3', qtyPerUnit:1, label:'бетон 1 м3/м3'}
 ];
+const EMPTY_MATERIAL_NORM_FORM = {
+  ruleKey:'',
+  name:'',
+  workText:'',
+  blockWorkText:'демонтаж, разбор',
+  materialText:'',
+  workUnit:'м2',
+  materialUnit:'кг',
+  qtyPerUnit:'',
+  thicknessBaseMm:'',
+  defaultThicknessMm:'',
+  label:'',
+};
 
 // === Конвертация единиц для строительных материалов ===
 // Арматура: вес погонного метра в зависимости от диаметра (ГОСТ 5781-82)
@@ -830,6 +843,9 @@ function App() {
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
   const [toolsTab, setToolsTab] = useState('list');
   const [estimatesTab, setEstimatesTab] = useState('list');
+  const [materialNorms, setMaterialNorms] = useState([]);
+  const [newMaterialNorm, setNewMaterialNorm] = useState(EMPTY_MATERIAL_NORM_FORM);
+  const [editingMaterialNormId, setEditingMaterialNormId] = useState(null);
   const [estimateSearch, setEstimateSearch] = useState('');
   const [showArchivedEstimates, setShowArchivedEstimates] = useState(false);
   const [listSearch, setListSearch] = useState('');
@@ -1142,7 +1158,7 @@ function App() {
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get('/materials'),
@@ -1196,6 +1212,7 @@ function App() {
         isSupplyRole ? get('/supply-request-templates') : skip([]),
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
         canSeeProjectDocs ? get('/ai-tasks') : skip([]),
+        canSeeProjectDocs ? get('/material-norms') : skip([]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -1205,7 +1222,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -3411,9 +3428,27 @@ function App() {
     const t = materialNameKey(text);
     return words.some(w=>t.includes(materialNameKey(w)));
   };
+  const normListFromText = (value) => String(value||'').split(/[,;\n]/).map(v=>v.trim()).filter(Boolean);
+  const normListToText = (value) => Array.isArray(value) ? value.join(', ') : String(value||'');
+  const materialNormRuleForCalc = (rule) => ({
+    ...rule,
+    id: rule.ruleKey || rule.id,
+    ruleKey: rule.ruleKey || rule.id,
+    name: rule.name || materialTitleForNormRule(rule),
+    work: Array.isArray(rule.work) ? rule.work : normListFromText(rule.work),
+    blockWork: Array.isArray(rule.blockWork) ? rule.blockWork : normListFromText(rule.blockWork),
+    material: Array.isArray(rule.material) ? rule.material : normListFromText(rule.material),
+    qtyPerUnit: toNum(rule.qtyPerUnit),
+    thicknessBaseMm: toNum(rule.thicknessBaseMm),
+    defaultThicknessMm: toNum(rule.defaultThicknessMm),
+  });
+  const materialNormRulesForCalculation = () => {
+    const dbRules = (materialNorms||[]).filter(r=>r.active!==false).map(materialNormRuleForCalc).filter(r=>r.qtyPerUnit>0 && r.work?.length && r.material?.length);
+    return dbRules.length ? dbRules : WORK_MATERIAL_NORM_RULES;
+  };
   const workNormRulesFor = (workName, sectionName='') => {
     const text = workName+' '+sectionName;
-    return WORK_MATERIAL_NORM_RULES.filter(rule=>
+    return materialNormRulesForCalculation().filter(rule=>
       normTextIncludes(text, rule.work) &&
       !normTextIncludes(text, rule.blockWork||[])
     );
@@ -3454,7 +3489,7 @@ function App() {
     }
     const rounded = roundNormQty(outQty);
     return {
-      ruleId: rule.id,
+      ruleId: rule.ruleKey || rule.id,
       quantity: rounded,
       unit: outUnit,
       normQuantity: rounded,
@@ -3477,7 +3512,7 @@ function App() {
     cable_protection:'Гофра / кабель-канал',
     brick_masonry:'Кирпич',
     concrete:'Бетон'
-  }[rule?.id] || rule?.material?.[0] || 'Материал по норме');
+  }[rule?.ruleKey || rule?.id] || rule?.name || rule?.material?.[0] || 'Материал по норме');
   const normRequirementsForWork = (workName, sectionName, workQty, workUnit, params={}) => {
     const normalizedWork = normalizeMeasure(workQty, workUnit);
     if (toNum(normalizedWork.qty)<=0) return [];
@@ -3491,7 +3526,7 @@ function App() {
           qty *= thickness / Number(rule.thicknessBaseMm);
           label += ' · слой '+thickness+' мм';
         }
-        return {ruleId:rule.id,name:materialTitleForNormRule(rule),quantity:roundNormQty(qty),unit:rule.materialUnit,normSource:label};
+        return {ruleId:rule.ruleKey || rule.id,name:materialTitleForNormRule(rule),quantity:roundNormQty(qty),unit:rule.materialUnit,normSource:label};
       }).filter(r=>r.quantity>0);
   };
   const estimateWorkNormRequirementRows = (projectName) => {
@@ -3554,6 +3589,70 @@ function App() {
         normSource:x.norm.normSource
       }));
     return next;
+  };
+  const canEditMaterialNorms = () => ['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user?.role);
+  const materialNormPayload = () => ({
+    ruleKey: newMaterialNorm.ruleKey.trim(),
+    name: newMaterialNorm.name.trim(),
+    work: normListFromText(newMaterialNorm.workText),
+    blockWork: normListFromText(newMaterialNorm.blockWorkText),
+    material: normListFromText(newMaterialNorm.materialText),
+    workUnit: newMaterialNorm.workUnit || 'м2',
+    materialUnit: newMaterialNorm.materialUnit || 'кг',
+    qtyPerUnit: toNum(newMaterialNorm.qtyPerUnit),
+    thicknessBaseMm: newMaterialNorm.thicknessBaseMm===''?null:toNum(newMaterialNorm.thicknessBaseMm),
+    defaultThicknessMm: newMaterialNorm.defaultThicknessMm===''?null:toNum(newMaterialNorm.defaultThicknessMm),
+    label: newMaterialNorm.label.trim(),
+    active: true,
+  });
+  const resetMaterialNormForm = () => {
+    setNewMaterialNorm(EMPTY_MATERIAL_NORM_FORM);
+    setEditingMaterialNormId(null);
+  };
+  const editMaterialNorm = (rule) => {
+    setEditingMaterialNormId(rule.id);
+    setNewMaterialNorm({
+      ruleKey: rule.ruleKey || rule.id || '',
+      name: rule.name || materialTitleForNormRule(rule),
+      workText: normListToText(rule.work),
+      blockWorkText: normListToText(rule.blockWork),
+      materialText: normListToText(rule.material),
+      workUnit: rule.workUnit || 'м2',
+      materialUnit: rule.materialUnit || 'кг',
+      qtyPerUnit: String(rule.qtyPerUnit || ''),
+      thicknessBaseMm: rule.thicknessBaseMm ? String(rule.thicknessBaseMm) : '',
+      defaultThicknessMm: rule.defaultThicknessMm ? String(rule.defaultThicknessMm) : '',
+      label: rule.label || '',
+    });
+    if (estimatesTab !== 'norms') setEstimatesTab('norms');
+  };
+  const saveMaterialNorm = async () => {
+    if (!canEditMaterialNorms()) return;
+    const payload = materialNormPayload();
+    if (!payload.name || !payload.work.length || !payload.material.length || payload.qtyPerUnit<=0) {
+      alert('Заполни название, ключевые слова работы, материал и расход больше 0');
+      return;
+    }
+    const path = editingMaterialNormId ? '/material-norms/'+editingMaterialNormId : '/material-norms';
+    const method = editingMaterialNormId ? 'PUT' : 'POST';
+    const res = await fetch(API+path,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if (!res.ok) {
+      const data = await res.json().catch(()=>({detail:'Не удалось сохранить норму'}));
+      alert(data.detail || 'Не удалось сохранить норму');
+      return;
+    }
+    resetMaterialNormForm();
+    await loadAll();
+  };
+  const disableMaterialNorm = async (id) => {
+    if (!canEditMaterialNorms() || !id) return;
+    if (!window.confirm('Отключить норму? Она пропадёт из расчётов, но история останется.')) return;
+    const res = await fetch(API+'/material-norms/'+id,{method:'DELETE'});
+    if (!res.ok) {
+      alert('Не удалось отключить норму');
+      return;
+    }
+    await loadAll();
   };
   const materialNormStatus = (m) => {
     const norm = toNum(m?.normQuantity);
@@ -12392,7 +12491,7 @@ function App() {
           </div>)}
           {activePage==='estimates'&&(<div>
             <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['list','import'].map(tab=>(<button key={tab} onClick={()=>setEstimatesTab(tab)} style={{...estimatesTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{list:'📋 Сметы',import:'📥 Импорт Гранд Смета'}[tab]}</button>))}
+              {['list','import','norms'].map(tab=>(<button key={tab} onClick={()=>setEstimatesTab(tab)} style={{...estimatesTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{list:'📋 Сметы',import:'📥 Импорт Гранд Смета',norms:'⚙️ Нормы материалов'}[tab]}</button>))}
               <button onClick={()=>setActivePage('pricelists')} style={{...btnG,fontSize:'12px',padding:'7px 14px'}}>🏷️ Прайс-листы</button>
             </div>
 
@@ -12817,6 +12916,54 @@ function App() {
                   <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0'}}>✅ До 5000+ позиций</p>
                 </div>
               </div>
+            </div>)}
+
+            {estimatesTab==='norms'&&(<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
+                <div>
+                  <h3 style={{color:C.text,margin:'0 0 4px',fontSize:'15px',fontWeight:'700'}}>Справочник норм расхода материалов</h3>
+                  <p style={{color:C.textSec,margin:0,fontSize:'12px'}}>Используется в списании материалов мастером и в блоке нормативной потребности по работам.</p>
+                </div>
+                <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Норм: '+((materialNorms||[]).length || WORK_MATERIAL_NORM_RULES.length)}</span>
+              </div>
+              {canEditMaterialNorms()&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}>
+                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>{editingMaterialNormId?'Редактировать норму':'Новая норма'}</b>
+                <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr',gap:'10px'}}>
+                  <input placeholder='Код нормы (например plaster_mix)' value={newMaterialNorm.ruleKey} onChange={e=>setNewMaterialNorm({...newMaterialNorm,ruleKey:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Название материала' value={newMaterialNorm.name} onChange={e=>setNewMaterialNorm({...newMaterialNorm,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Расход на единицу' type='number' step='any' inputMode='decimal' value={newMaterialNorm.qtyPerUnit} onChange={e=>setNewMaterialNorm({...newMaterialNorm,qtyPerUnit:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <select value={newMaterialNorm.workUnit} onChange={e=>setNewMaterialNorm({...newMaterialNorm,workUnit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+                  <select value={newMaterialNorm.materialUnit} onChange={e=>setNewMaterialNorm({...newMaterialNorm,materialUnit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+                  <input placeholder='База слоя, мм' type='number' step='any' inputMode='decimal' value={newMaterialNorm.thicknessBaseMm} onChange={e=>setNewMaterialNorm({...newMaterialNorm,thicknessBaseMm:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <textarea placeholder='Ключевые слова работы: штукатур, стяжк...' value={newMaterialNorm.workText} onChange={e=>setNewMaterialNorm({...newMaterialNorm,workText:e.target.value})} style={{...inp,marginBottom:0,minHeight:'72px',resize:'vertical'}}/>
+                  <textarea placeholder='Ключевые слова материала: ротбанд, гипсов...' value={newMaterialNorm.materialText} onChange={e=>setNewMaterialNorm({...newMaterialNorm,materialText:e.target.value})} style={{...inp,marginBottom:0,minHeight:'72px',resize:'vertical'}}/>
+                  <textarea placeholder='Исключить работы: демонтаж, разбор...' value={newMaterialNorm.blockWorkText} onChange={e=>setNewMaterialNorm({...newMaterialNorm,blockWorkText:e.target.value})} style={{...inp,marginBottom:0,minHeight:'72px',resize:'vertical'}}/>
+                  <input placeholder='Типовой слой, мм' type='number' step='any' inputMode='decimal' value={newMaterialNorm.defaultThicknessMm} onChange={e=>setNewMaterialNorm({...newMaterialNorm,defaultThicknessMm:e.target.value})} style={{...inp,marginBottom:0}}/>
+                  <input placeholder='Подпись нормы' value={newMaterialNorm.label} onChange={e=>setNewMaterialNorm({...newMaterialNorm,label:e.target.value})} style={{...inp,marginBottom:0,gridColumn:isMobile?'auto':'span 2'}}/>
+                </div>
+                <div style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:'wrap'}}>
+                  <button onClick={saveMaterialNorm} style={btnO}><Check size={14}/>{editingMaterialNormId?'Сохранить':'Добавить'}</button>
+                  {editingMaterialNormId&&<button onClick={resetMaterialNormForm} style={btnG}><X size={14}/>Отмена</button>}
+                </div>
+              </div>)}
+              {(()=>{const normsToShow=(materialNorms||[]).length?(materialNorms||[]):WORK_MATERIAL_NORM_RULES.map(r=>({...r,ruleKey:r.id,name:materialTitleForNormRule(r),active:true}));return(<div style={{display:'grid',gap:'10px'}}>
+                {normsToShow.map(n=>{const rule=materialNormRuleForCalc(n);return(<div key={rule.id || rule.ruleKey} style={{...card,padding:'12px 14px',display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(220px,1.3fr) minmax(260px,2fr) auto',gap:'12px',alignItems:'center'}}>
+                  <div style={{minWidth:0}}>
+                    <b style={{color:C.text,fontSize:'13px',display:'block'}}>{rule.name || materialTitleForNormRule(rule)}</b>
+                    <p style={{color:C.textMuted,margin:'3px 0 0',fontSize:'11px'}}>{rule.ruleKey || rule.id}</p>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'8px',minWidth:0}}>
+                    <div><span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Работа</span><p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{(rule.work||[]).join(', ') || '—'}</p></div>
+                    <div><span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Материал</span><p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{(rule.material||[]).join(', ') || '—'}</p></div>
+                    <div><span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Норма</span><p style={{color:C.success,margin:'2px 0 0',fontSize:'12px',fontWeight:'700'}}>{Number(rule.qtyPerUnit||0).toLocaleString('ru-RU')+' '+(rule.materialUnit||'')+' / '+(rule.workUnit||'')}</p></div>
+                    <div><span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Слой</span><p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{rule.thicknessBaseMm?('база '+rule.thicknessBaseMm+' мм'+(rule.defaultThicknessMm?' · типовой '+rule.defaultThicknessMm+' мм':'')):'не учитывается'}</p></div>
+                  </div>
+                  <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end'}}>
+                    <button disabled={!n.id || !canEditMaterialNorms()} onClick={()=>editMaterialNorm(n)} style={{...btnG,padding:'5px 9px',opacity:n.id&&canEditMaterialNorms()?1:0.45}} title={n.id?'Редактировать':'После деплоя справочника можно будет редактировать'}><Edit2 size={12}/></button>
+                    {canEditMaterialNorms()&&n.id&&<button onClick={()=>disableMaterialNorm(n.id)} style={{...btnR,padding:'5px 9px'}} title='Отключить норму'><Trash2 size={12}/></button>}
+                  </div>
+                </div>);})}
+              </div>);})()}
             </div>)}
           </div>)}
 

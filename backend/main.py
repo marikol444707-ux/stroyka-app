@@ -56,6 +56,23 @@ DB_CONFIG = {
     "port": os.getenv("DB_PORT", "5432"),
 }
 
+DEFAULT_MATERIAL_NORMS = [
+    {"ruleKey":"plaster_mix","name":"Штукатурная смесь","work":["штукатур"],"blockWork":["демонтаж","разбор"],"material":["штукатур","ротбанд","гипсов"],"workUnit":"м2","materialUnit":"кг","qtyPerUnit":8.5,"thicknessBaseMm":10,"defaultThicknessMm":10,"label":"штукатурная смесь 8.5 кг/м2 на 10 мм"},
+    {"ruleKey":"screed_mix","name":"Смесь для стяжки","work":["стяжк","наливн"],"blockWork":["демонтаж","разбор"],"material":["пескобетон","смесь","стяжк"],"workUnit":"м2","materialUnit":"кг","qtyPerUnit":18,"thicknessBaseMm":10,"defaultThicknessMm":40,"label":"смесь для стяжки 18 кг/м2 на 10 мм"},
+    {"ruleKey":"putty_mix","name":"Шпаклевка","work":["шпаклев","шпатлев"],"blockWork":["демонтаж","разбор"],"material":["шпаклев","шпатлев"],"workUnit":"м2","materialUnit":"кг","qtyPerUnit":1.2,"label":"шпаклевка 1.2 кг/м2"},
+    {"ruleKey":"tile_glue","name":"Плиточный клей","work":["плитк","керамогранит","облицов"],"blockWork":["демонтаж","разбор"],"material":["клей","плиточ"],"workUnit":"м2","materialUnit":"кг","qtyPerUnit":4.5,"label":"плиточный клей 4.5 кг/м2"},
+    {"ruleKey":"tile_grout","name":"Затирка","work":["плитк","керамогранит","облицов"],"blockWork":["демонтаж","разбор"],"material":["затир"],"workUnit":"м2","materialUnit":"кг","qtyPerUnit":0.3,"label":"затирка 0.3 кг/м2"},
+    {"ruleKey":"paint","name":"Краска","work":["окраск","покраск"],"blockWork":["демонтаж","разбор"],"material":["краск","эмал"],"workUnit":"м2","materialUnit":"л","qtyPerUnit":0.2,"label":"краска 0.2 л/м2"},
+    {"ruleKey":"primer","name":"Грунтовка","work":["грунтов","окраск","шпаклев","шпатлев"],"blockWork":["демонтаж","разбор"],"material":["грунтов"],"workUnit":"м2","materialUnit":"л","qtyPerUnit":0.12,"label":"грунтовка 0.12 л/м2"},
+    {"ruleKey":"gkl_sheet","name":"ГКЛ лист","work":["гипсокарт","гкл","обшив"],"blockWork":["демонтаж","разбор"],"material":["гипсокарт","гкл","лист"],"workUnit":"м2","materialUnit":"шт","qtyPerUnit":0.35,"label":"ГКЛ 0.35 листа/м2"},
+    {"ruleKey":"gkl_profile","name":"Профиль ГКЛ","work":["гипсокарт","гкл","обшив"],"blockWork":["демонтаж","разбор"],"material":["профиль"],"workUnit":"м2","materialUnit":"м","qtyPerUnit":1.6,"label":"профиль 1.6 м/м2"},
+    {"ruleKey":"gkl_screws","name":"Саморезы ГКЛ","work":["гипсокарт","гкл","обшив"],"blockWork":["демонтаж","разбор"],"material":["саморез"],"workUnit":"м2","materialUnit":"шт","qtyPerUnit":20,"label":"саморезы 20 шт/м2"},
+    {"ruleKey":"cable_line","name":"Кабель / провод","work":["кабел","провод","проклад"],"blockWork":["демонтаж","разбор"],"material":["кабель","провод","utp","ftp","f-utp","u-utp","кпс","ксвв","кспв","ввг","nym"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"кабель 1.05 м на 1 м трассы"},
+    {"ruleKey":"cable_protection","name":"Гофра / кабель-канал","work":["кабел","провод","проклад"],"blockWork":["демонтаж","разбор"],"material":["гофр","труба пнд","кабель-канал","кабель канал"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"защита кабеля 1.05 м на 1 м трассы"},
+    {"ruleKey":"brick_masonry","name":"Кирпич","work":["кладк"],"blockWork":["демонтаж","разбор"],"material":["кирпич"],"workUnit":"м2","materialUnit":"шт","qtyPerUnit":51,"label":"кирпич 51 шт/м2 кладки в 1/2 кирпича"},
+    {"ruleKey":"concrete","name":"Бетон","work":["бетон"],"blockWork":["демонтаж","разбор"],"material":["бетон"],"workUnit":"м3","materialUnit":"м3","qtyPerUnit":1,"label":"бетон 1 м3/м3"},
+]
+
 app = FastAPI()
 
 app.add_middleware(
@@ -1499,6 +1516,24 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_project ON ai_tasks(project_name);
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status);
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_finding ON ai_tasks(finding_id);
+        CREATE TABLE IF NOT EXISTS material_norms (
+            id SERIAL PRIMARY KEY,
+            rule_key VARCHAR(100) UNIQUE,
+            name VARCHAR(255),
+            work_keywords TEXT,
+            block_work_keywords TEXT,
+            material_keywords TEXT,
+            work_unit VARCHAR(50),
+            material_unit VARCHAR(50),
+            qty_per_unit NUMERIC(14,4) DEFAULT 0,
+            thickness_base_mm NUMERIC(14,4),
+            default_thickness_mm NUMERIC(14,4),
+            label TEXT,
+            active BOOLEAN DEFAULT TRUE,
+            updated_by VARCHAR(255),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
         ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor INT DEFAULT 1;
         ALTER TABLE rooms ADD COLUMN IF NOT EXISTS liter VARCHAR(100);
         ALTER TABLE rooms ADD COLUMN IF NOT EXISTS room_type VARCHAR(100) DEFAULT 'Комната';
@@ -1712,6 +1747,28 @@ def init_db():
             VALUES (%s,%s,%s,%s)
             ON CONFLICT (email) DO NOTHING
         """, (seed_name, seed_email, hash_password(seed_password), seed_role))
+    for rule in DEFAULT_MATERIAL_NORMS:
+        cur.execute("""
+            INSERT INTO material_norms (
+                rule_key, name, work_keywords, block_work_keywords, material_keywords,
+                work_unit, material_unit, qty_per_unit, thickness_base_mm,
+                default_thickness_mm, label, active
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
+            ON CONFLICT (rule_key) DO NOTHING
+        """, (
+            rule.get("ruleKey", ""),
+            rule.get("name", ""),
+            json.dumps(rule.get("work", []), ensure_ascii=False),
+            json.dumps(rule.get("blockWork", []), ensure_ascii=False),
+            json.dumps(rule.get("material", []), ensure_ascii=False),
+            rule.get("workUnit", ""),
+            rule.get("materialUnit", ""),
+            rule.get("qtyPerUnit", 0),
+            rule.get("thicknessBaseMm"),
+            rule.get("defaultThicknessMm"),
+            rule.get("label", ""),
+        ))
     conn.close()
 
 init_db()
@@ -1901,6 +1958,20 @@ class SupplyHistoryModel(BaseModel):
     project: str = ""
     date: str = ""
     status: str = "Ожидает поставки"
+
+class MaterialNormModel(BaseModel):
+    ruleKey: str = ""
+    name: str = ""
+    work: List[str] = []
+    blockWork: List[str] = []
+    material: List[str] = []
+    workUnit: str = "м2"
+    materialUnit: str = "кг"
+    qtyPerUnit: float = 0
+    thicknessBaseMm: Optional[float] = None
+    defaultThicknessMm: Optional[float] = None
+    label: str = ""
+    active: bool = True
 
 class WorkJournalModel(BaseModel):
     masterId: int
@@ -8786,6 +8857,132 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
+
+def _norm_list(value):
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if not value:
+        return []
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if str(v).strip()]
+        except Exception:
+            pass
+        return [v.strip() for v in raw.replace("\n", ",").split(",") if v.strip()]
+    return []
+
+def _material_norm_row(row):
+    return {
+        "id": row["id"],
+        "ruleKey": row["rule_key"] or "",
+        "name": row["name"] or "",
+        "work": _norm_list(row["work_keywords"]),
+        "blockWork": _norm_list(row["block_work_keywords"]),
+        "material": _norm_list(row["material_keywords"]),
+        "workUnit": row["work_unit"] or "",
+        "materialUnit": row["material_unit"] or "",
+        "qtyPerUnit": float(row["qty_per_unit"] or 0),
+        "thicknessBaseMm": float(row["thickness_base_mm"]) if row["thickness_base_mm"] is not None else None,
+        "defaultThicknessMm": float(row["default_thickness_mm"]) if row["default_thickness_mm"] is not None else None,
+        "label": row["label"] or "",
+        "active": bool(row["active"]),
+        "updatedBy": row["updated_by"] or "",
+        "updatedAt": str(row["updated_at"]) if row["updated_at"] else "",
+    }
+
+def _material_norm_values(data: MaterialNormModel, user_name: str):
+    rule_key = (data.ruleKey or "").strip() or ("custom_" + uuid.uuid4().hex[:8])
+    return (
+        rule_key,
+        data.name.strip() or rule_key,
+        json.dumps(_norm_list(data.work), ensure_ascii=False),
+        json.dumps(_norm_list(data.blockWork), ensure_ascii=False),
+        json.dumps(_norm_list(data.material), ensure_ascii=False),
+        data.workUnit or "м2",
+        data.materialUnit or "кг",
+        data.qtyPerUnit or 0,
+        data.thicknessBaseMm,
+        data.defaultThicknessMm,
+        data.label.strip(),
+        bool(data.active),
+        user_name or "",
+    )
+
+@app.get("/material-norms")
+def list_material_norms(_current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""SELECT id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
+                          work_unit, material_unit, qty_per_unit, thickness_base_mm,
+                          default_thickness_mm, label, active, updated_by, updated_at
+                   FROM material_norms
+                   WHERE active=TRUE
+                   ORDER BY name, id""")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [_material_norm_row(r) for r in rows]
+
+@app.post("/material-norms")
+def create_material_norm(data: MaterialNormModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    vals = _material_norm_values(data, current_user.get("name", ""))
+    try:
+        cur.execute("""
+            INSERT INTO material_norms (
+                rule_key, name, work_keywords, block_work_keywords, material_keywords,
+                work_unit, material_unit, qty_per_unit, thickness_base_mm,
+                default_thickness_mm, label, active, updated_by, updated_at
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+            RETURNING id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
+                      work_unit, material_unit, qty_per_unit, thickness_base_mm,
+                      default_thickness_mm, label, active, updated_by, updated_at
+        """, vals)
+    except psycopg2.errors.UniqueViolation:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Код нормы уже используется")
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return _material_norm_row(row)
+
+@app.put("/material-norms/{id}")
+def update_material_norm(id: int, data: MaterialNormModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    vals = _material_norm_values(data, current_user.get("name", ""))
+    cur.execute("""
+        UPDATE material_norms
+        SET rule_key=%s, name=%s, work_keywords=%s, block_work_keywords=%s,
+            material_keywords=%s, work_unit=%s, material_unit=%s, qty_per_unit=%s,
+            thickness_base_mm=%s, default_thickness_mm=%s, label=%s, active=%s,
+            updated_by=%s, updated_at=NOW()
+        WHERE id=%s
+        RETURNING id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
+                  work_unit, material_unit, qty_per_unit, thickness_base_mm,
+                  default_thickness_mm, label, active, updated_by, updated_at
+    """, vals + (id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Норма не найдена")
+    return _material_norm_row(row)
+
+@app.delete("/material-norms/{id}")
+def delete_material_norm(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE material_norms SET active=FALSE, updated_by=%s, updated_at=NOW() WHERE id=%s", (current_user.get("name", ""), id))
+    affected = cur.rowcount
+    cur.close(); conn.close()
+    if affected == 0:
+        raise HTTPException(status_code=404, detail="Норма не найдена")
+    return {"ok": True}
 
 @app.get("/material-inspection")
 def list_material_inspections(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
