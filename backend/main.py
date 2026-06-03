@@ -5771,8 +5771,26 @@ def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles
     payload = data.dict()
     if not payload.get("projectName"):
         raise HTTPException(status_code=400, detail="projectName required")
+    project_name = payload.get("projectName")
+    require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    action_payload = payload.get("actionPayload") or ""
+    marker = ""
+    if "ESTIMATE_NORM_REVIEW:" in action_payload:
+        try:
+            marker = json.loads(action_payload).get("marker") or ""
+        except Exception:
+            marker = action_payload[action_payload.find("ESTIMATE_NORM_REVIEW:"):].split('"')[0].split("'")[0].split()[0]
+    if marker:
+        cur.execute(
+            AI_TASK_SELECT + " WHERE project_name=%s AND action_payload LIKE %s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
+            (project_name, "%"+marker+"%")
+        )
+        existing = cur.fetchone()
+        if existing:
+            cur.close(); conn.close()
+            return dict(existing)
     task_id = _insert_ai_task(cur, payload, current_user)
     cur.execute(AI_TASK_SELECT + " WHERE id=%s", (task_id,))
     row = cur.fetchone()

@@ -786,6 +786,7 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [aiFindings, setAiFindings] = useState([]);
   const [aiTasks, setAiTasks] = useState([]);
+  const estimateNormReviewQueuedRef = useRef(new Set());
   const [archivedProjects, setArchivedProjects] = useState([]);
   const [tbJournal, setTbJournal] = useState([]);
   const [geoCheckins, setGeoCheckins] = useState([]);
@@ -1029,7 +1030,8 @@ function App() {
   const persistEstimate = async (est) => {
     if (!est || !est.id) return;
     try {
-      await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});
+      const res = await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});
+      if (res.ok) await queueEstimateNormReviewTask(est, 'Смета сохранена', estimateListWithUpdatedEstimate(est));
     } catch(e) {}
   };
 
@@ -2808,9 +2810,9 @@ function App() {
     if(activeEstimateFromList(groupItems)?.id === est?.id) return {label:'Используется', color:C.info, bg:C.infoLight, border:C.infoBorder};
     return {label:'Черновик', color:C.warning, bg:C.warningLight, border:C.warningBorder};
   };
-  const activeEstimatesForProject = (p, kind='Заказчик') => {
+  const activeEstimatesForProject = (p, kind='Заказчик', sourceEstimates=null) => {
     const groups = {};
-    (estimatesList||[]).filter(e=>
+    (sourceEstimates||estimatesList||[]).filter(e=>
       (e.projectName===p.name||Number(e.projectId)===Number(p.id)) &&
       estimateKind(e)===kind
     ).forEach(e=>{
@@ -3089,12 +3091,14 @@ function App() {
     const res = await fetch(API+'/estimates/'+est.id+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
     if(!res.ok){const data=await res.json().catch(()=>({}));alert(data.detail||'Не удалось изменить статус сметы');return;}
     const updated = {...est,status};
-    setEstimatesList(prev=>prev.map(e=>{
+    const nextEstimates = (estimatesList||[]).map(e=>{
       if(status==='Активная' && e.id!==est.id && !e.isTemplate && sameEstimateGroup(e, est)) return {...e,status:'Архив'};
       if(e.id===est.id) return updated;
       return e;
-    }));
+    });
+    setEstimatesList(nextEstimates);
     setSelectedEstimate(prev=>prev&&prev.id===est.id?updated:prev);
+    if (status==='Активная') await queueEstimateNormReviewTask(updated, 'Смета активирована', nextEstimates);
   };
   const projectPlanDone = (p) => {
     const active = activeEstimatesForProject(p, 'Заказчик');
@@ -3827,9 +3831,9 @@ function App() {
     })));
     return Object.values(rows).map(r=>({...r,planQty:roundNormQty(r.planQty)})).sort((a,b)=>b.planQty-a.planQty || a.name.localeCompare(b.name,'ru'));
   };
-  const estimateNormCoverageRows = (projectName) => {
+  const estimateNormCoverageRows = (projectName, sourceEstimates=null) => {
     const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
-    const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
+    const activeEstimates = activeEstimatesForProject(project, 'Заказчик', sourceEstimates);
     const rows = [];
     activeEstimates.forEach(est=>_sectionsOfEst(est).forEach((section,sectionIdx)=>{
       const items = section.items || [];
@@ -4103,6 +4107,98 @@ function App() {
     if (!res.ok) { alert(data.detail || 'Не удалось создать поручение'); return; }
     setAiTasks(prev=>[data,...(prev||[])]);
     setMaterialNormNotice({tone:'success',title:'Поручение создано',text:'Сметчику поставлена задача уточнить материал или подтвердить, что он не нужен.'});
+  };
+  const estimateNormReviewIssueStatuses = ['Нет материала в смете','Материал без количества','Материал без работы','Нет нормы'];
+  const estimateNormReviewMarker = (estimateId) => 'ESTIMATE_NORM_REVIEW:'+String(estimateId||'');
+  const estimateListWithUpdatedEstimate = (est) => {
+    if (!est?.id) return estimatesList||[];
+    let found = false;
+    const mapped = (estimatesList||[]).map(e=>{
+      if (est.status==='Активная' && e.id!==est.id && !e.isTemplate && sameEstimateGroup(e, est)) return {...e,status:'Архив'};
+      if (Number(e.id)===Number(est.id)) { found = true; return est; }
+      return e;
+    });
+    return found ? mapped : [...mapped, est];
+  };
+  const hasActiveEstimator = () => {
+    const roleOf = (v) => String(v||'').trim().toLowerCase();
+    return (users||[]).some(u=>roleOf(u.role)==='сметчик')
+      || (staff||[]).some(s=>roleOf(s.systemRole||s.role)==='сметчик' && roleOf(s.status||'активен')!=='уволен');
+  };
+  const estimateNormReviewTaskExists = (marker) => (aiTasks||[]).some(t=>
+    isOpenAiStatus(t.status) && String(t.actionPayload||'').includes(marker)
+  );
+  const estimateNormReviewDescription = (est, rows, reason) => {
+    const counts = estimateNormReviewIssueStatuses
+      .map(status=>({status,count:rows.filter(r=>r.status===status).length}))
+      .filter(x=>x.count>0);
+    const lines = [
+      'Автопроверка сметы после события: '+(reason||'сохранение сметы')+'.',
+      'Объект: '+(est.projectName||'')+'. Смета: '+(est.name||'')+'. Пакет: '+estimatePackage(est)+'.',
+      '',
+      'Найдено замечаний: '+rows.length+'.',
+      ...counts.map(x=>'• '+x.status+': '+x.count),
+      '',
+      'Первые строки для проверки:'
+    ];
+    rows.slice(0, 12).forEach((row, idx)=>{
+      const need = row.requiredQty ? ', потребность '+fmtMeasure(row.requiredQty,row.requiredUnit) : '';
+      const inEstimate = row.materialQty ? ', в смете '+fmtMeasure(row.materialQty,row.materialUnit) : '';
+      lines.push((idx+1)+'. '+row.status+' — '+(row.sectionName||'Без раздела')+' / '+(row.workName||row.materialName||'позиция')+'; материал: '+(row.materialName||materialTitleForNormRule(row.rule)||'—')+need+inEstimate+'.');
+    });
+    if (rows.length > 12) lines.push('...и ещё '+(rows.length-12)+' строк.');
+    lines.push('', 'Что сделать: открыть смету или ведомость норм, добавить недостающие материалы/количество, создать поправку нормы или пометить работу как не требующую материала.');
+    return lines.join('\n');
+  };
+  const queueEstimateNormReviewTask = async (est, reason='Автопроверка сметы', sourceEstimates=null) => {
+    if (!est?.id || !est.projectName) return;
+    if (estimateKind(est)!=='Заказчик' || isArchivedEstimate(est) || (est.status||'Черновик')!=='Активная') return;
+    const marker = estimateNormReviewMarker(est.id);
+    if (estimateNormReviewQueuedRef.current.has(marker) || estimateNormReviewTaskExists(marker)) return;
+    const rows = estimateNormCoverageRows(est.projectName, sourceEstimates)
+      .filter(r=>Number(r.estimateId)===Number(est.id) && estimateNormReviewIssueStatuses.includes(r.status));
+    if (!rows.length) return;
+    estimateNormReviewQueuedRef.current.add(marker);
+    const counts = estimateNormReviewIssueStatuses.reduce((acc,status)=>{
+      const count = rows.filter(r=>r.status===status).length;
+      if (count) acc[status] = count;
+      return acc;
+    }, {});
+    const payload = {
+      projectName: est.projectName,
+      title: 'Проверить смету: '+est.projectName+' — '+rows.length+' замеч.',
+      description: estimateNormReviewDescription(est, rows, reason),
+      assignedRole: hasActiveEstimator() ? 'сметчик' : 'директор',
+      status: 'Новое',
+      actionLabel: 'Открыть проверку сметы',
+      actionPayload: JSON.stringify({
+        type:'estimate_norm_review',
+        marker,
+        estimateId:est.id,
+        estimateName:est.name||'',
+        projectName:est.projectName||'',
+        workPackage:estimatePackage(est),
+        reason,
+        counts
+      }),
+    };
+    try {
+      const res = await fetch(API+'/ai-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) {
+        estimateNormReviewQueuedRef.current.delete(marker);
+        return;
+      }
+      setAiTasks(prev=>{
+        const list = prev||[];
+        if (data?.id && list.some(t=>Number(t.id)===Number(data.id))) {
+          return list.map(t=>Number(t.id)===Number(data.id)?data:t);
+        }
+        return [data,...list];
+      });
+    } catch(e) {
+      estimateNormReviewQueuedRef.current.delete(marker);
+    }
   };
   const materialNormSupplyMarker = (row) => {
     const ruleKey = row?.rule?.ruleKey || row?.rule?.id || '';
@@ -13353,10 +13449,12 @@ function App() {
                   const res=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections})});
                   const est=await res.json();
                   const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};
-                  setEstimatesList(prev=>[...prev.map(e=>(newEst.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,newEst))?{...e,status:'Архив'}:e),newEst]);
+                  const nextEstimates=[...(estimatesList||[]).map(e=>(newEst.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,newEst))?{...e,status:'Архив'}:e),newEst];
+                  setEstimatesList(nextEstimates);
                   setSelectedEstimate(newEst);
                   setShowForm(false);
                   setNewEstimate({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',workPackage:'Основная',status:'Активная',templateId:''});
+                  await queueEstimateNormReviewTask(newEst, 'Смета создана', nextEstimates);
                 }} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
               {selectedEstimate?(<div>
@@ -13679,7 +13777,7 @@ function App() {
 	                        sections[item.section].items.push(importedItem);
                       });
                       const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:'1.0',smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная',sections:enrichEstimateMeasurementBasis(Object.values(sections))};
-                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};setEstimatesList(prev=>[...prev.map(e=>(estWithId.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId]);setSelectedEstimate(estWithId);setEstimatesTab('list');
+                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});const saved=await saveRes.json();const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};const nextEstimates=[...(estimatesList||[]).map(e=>(estWithId.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId];setEstimatesList(nextEstimates);setSelectedEstimate(estWithId);setEstimatesTab('list');await queueEstimateNormReviewTask(estWithId, 'Импорт сметы', nextEstimates);
                       setImportValidating(true);
                       setImportValidationWarnings([]);
                       try{
@@ -14652,8 +14750,10 @@ function App() {
               const data=await res.json();
               if(!res.ok||!data.ok){alert('ИИ не справился: '+(data.detail||'попробуйте ещё раз с более детальным описанием'));setGenerating(false);return;}
               const est={id:data.id,name:data.name,projectId:data.projectId||'',projectName:data.projectName||'',version:'1.0',smetaType:data.smetaType||generateForm.smetaType||'Заказчик',workPackage:data.workPackage||generateForm.workPackage||'Основная',status:data.status||generateForm.status||'Активная',sections:enrichEstimateMeasurementBasis(data.sections||[])};
-              setEstimatesList(prev=>[...prev.map(e=>(est.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,est))?{...e,status:'Архив'}:e),est]);
+              const nextEstimates=[...(estimatesList||[]).map(e=>(est.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,est))?{...e,status:'Архив'}:e),est];
+              setEstimatesList(nextEstimates);
               setSelectedEstimate(est);
+              await queueEstimateNormReviewTask(est, 'ИИ-смета создана', nextEstimates);
               setShowGenerateEstimate(false);
               setGenerating(false);
               alert('Смета создана! Проверьте позиции и объёмы — можно редактировать вручную.');
