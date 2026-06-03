@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
 const loadStoredUser = () => {
@@ -9061,6 +9061,7 @@ function App() {
 
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%'}}>
         <div style={{backgroundColor:C.bgWhite,padding:'12px 24px',borderBottom:'1.5px solid '+C.border,display:activePage==='dashboard'?'none':'flex',alignItems:'center',gap:'15px',flexShrink:0,boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
+          <button onClick={()=>setSidebarVisible(true)} title="Открыть меню" style={{padding:'8px 10px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.textSec,flexShrink:0}}><Menu size={18}/></button>
           <div style={{width:'8px',height:'32px',borderRadius:'4px',background:'linear-gradient(135deg,#f97316,#ea580c)',flexShrink:0}}/>
           <h2 style={{margin:0,color:C.text,fontSize:'18px',fontWeight:'700',flex:1}}>{allMenuItems.find(m=>m.id===activePage)?.label||'СтройКа'}</h2>
           <div style={{flex:1,maxWidth:'320px',position:'relative'}}>
@@ -9147,6 +9148,7 @@ function App() {
                   <p style={{color:'#94a3b8',margin:'6px 0 0',fontSize:'14px'}}>Контроль объектов, финансов, склада и рисков</p>
                 </div>
                 <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                  <button onClick={()=>setSidebarVisible(true)} title="Открыть меню" style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#94a3b8'}}><Menu size={18}/></button>
                   <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'16px'}}>{darkMode?'☀️':'🌙'}</button>
                   <button onClick={()=>setShowChatPanel(s=>!s)} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><MessageSquare size={18} color='#94a3b8'/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
                   <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><Bot size={18} color='#94a3b8'/></button>
