@@ -3776,6 +3776,47 @@ function App() {
     if (status==='Нет нормы' || status==='Материал без работы') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
     return {color:C.info,bg:C.infoLight,border:C.infoBorder};
   };
+  const materialNormCoverageExportRows = (rows=[]) => rows.map(r=>({
+    Статус: r.status || '',
+    Смета: r.estimateName || '',
+    Пакет: r.packageName || '',
+    Раздел: r.sectionName || '',
+    Работа: r.workName || '',
+    'Объем работы': r.workQty ? fmtMeasure(r.workQty,r.workUnit) : '',
+    'Материал / норма': r.materialName || materialTitleForNormRule(r.rule) || '',
+    'Потребность': r.requiredQty ? fmtMeasure(r.requiredQty,r.requiredUnit) : '',
+    'В смете': r.materialQty ? fmtMeasure(r.materialQty,r.materialUnit) : '',
+    'Код нормы': r.rule?.ruleKey || r.rule?.id || '',
+    Комментарий: r.message || '',
+  }));
+  const buildMaterialNormCoverageContent = (projectName) => {
+    const rows = projectName ? estimateNormCoverageRows(projectName) : [];
+    const okCount = rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;
+    const skippedCount = rows.filter(r=>r.status==='Норма не нужна').length;
+    const missingCount = rows.filter(r=>r.status==='Нет нормы').length;
+    const unlinkedCount = rows.filter(r=>r.status==='Материал без работы').length;
+    const infoCount = rows.filter(r=>r.status==='Нет материала в смете').length;
+    const req = companyRequisites||{};
+    const orgName = req.fullName||req.shortName||companyName||'_____';
+    let html = '<style>.mn-tbl{border-collapse:collapse;width:100%;font-size:10.5px;margin:8px 0}.mn-tbl th,.mn-tbl td{border:1px solid #333;padding:5px 6px;vertical-align:top}.mn-tbl th{background:#f3f4f6}.mn-ok{background:#dcfce7}.mn-info{background:#dbeafe}.mn-skip{background:#f3f4f6}.mn-warn{background:#fef3c7}.mn-note{font-size:10px;color:#555}.mn-summary{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:10px 0}.mn-summary div{border:1px solid #333;padding:6px;text-align:center}.mn-summary b{display:block;font-size:14px}</style>';
+    html += '<h2 style="text-align:center;margin:6px 0">ВЕДОМОСТЬ ПОКРЫТИЯ СМЕТЫ НОРМАМИ МАТЕРИАЛОВ</h2>';
+    html += '<p style="text-align:center;font-size:11px;color:#444">контроль связки: работа сметы → норма расхода → материал сметы</p>';
+    html += '<p style="font-size:12px"><b>Объект:</b> '+docEsc(projectName||'')+' · <b>Организация:</b> '+docEsc(orgName)+' · <b>Дата:</b> '+new Date().toLocaleDateString('ru-RU')+'</p>';
+    html += '<div class="mn-summary"><div><span>Покрыто</span><b>'+okCount+'</b></div><div><span>Без материалов</span><b>'+skippedCount+'</b></div><div><span>Нет нормы</span><b>'+missingCount+'</b></div><div><span>Материал без работы</span><b>'+unlinkedCount+'</b></div><div><span>Нет материала</span><b>'+infoCount+'</b></div><div><span>Всего</span><b>'+rows.length+'</b></div></div>';
+    if (!rows.length) {
+      html += '<p style="text-align:center;color:#888;font-size:12px;padding:16px">Нет активной сметы заказчика или нет строк для проверки.</p>';
+      return html;
+    }
+    html += '<table class="mn-tbl"><tr><th>№</th><th>Статус</th><th>Смета / раздел</th><th>Работа</th><th>Объём</th><th>Материал / норма</th><th>Потребность</th><th>В смете</th><th>Комментарий</th></tr>';
+    rows.forEach((r,i)=>{
+      const cls = ['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status) ? 'mn-ok' : r.status==='Норма не нужна' ? 'mn-skip' : r.status==='Нет материала в смете' ? 'mn-info' : 'mn-warn';
+      html += '<tr class="'+cls+'"><td>'+(i+1)+'</td><td><b>'+docEsc(r.status||'')+'</b></td><td>'+docEsc((r.estimateName||'')+' / '+(r.packageName||''))+'<div class="mn-note">'+docEsc(r.sectionName||'')+'</div></td><td>'+docEsc(r.workName||'')+'</td><td>'+docEsc(r.workQty?fmtMeasure(r.workQty,r.workUnit):'')+'</td><td>'+docEsc(r.materialName||materialTitleForNormRule(r.rule)||'')+'<div class="mn-note">'+docEsc(r.rule?.label||r.rule?.ruleKey||'')+'</div></td><td>'+docEsc(r.requiredQty?fmtMeasure(r.requiredQty,r.requiredUnit):'')+'</td><td>'+docEsc(r.materialQty?fmtMeasure(r.materialQty,r.materialUnit):'')+'</td><td>'+docEsc(r.message||'')+'</td></tr>';
+    });
+    html += '</table>';
+    html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px"><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Сметчик:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Прораб / главный инженер:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div></div>';
+    html += '<p style="margin-top:16px;font-size:10px;color:#666;text-align:center">Строки `Нет материала в смете` нужно закрыть: добавить материал, пометить работу как не требующую материала или поставить поручение сметчику.</p>';
+    return html;
+  };
   const saveMaterialNormOverrideFromCoverage = async (row) => {
     if (!canEditMaterialNorms() || !row?.projectName || !row?.rule) return;
     const nextQty = window.prompt('Расход для этого объекта/сметы ('+(row.rule.materialUnit||row.materialUnit||'')+' / '+(row.rule.workUnit||row.workUnit||'')+'):', String(row.qtyPerUnit || row.rule.qtyPerUnit || ''));
@@ -13403,10 +13444,14 @@ function App() {
                     <b style={{color:C.text,fontSize:'13px',display:'block'}}>📐 Вся смета по нормам</b>
                     <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>Показывает не только проблемы, а полный проход по работам и материалам активной сметы.</p>
                   </div>
-                  <select value={selectedProject} onChange={e=>setMaterialNormCoverageProject(e.target.value)} style={{...inp,marginBottom:0,width:isMobile?'100%':'260px'}}>
-                    {projectOptions.length===0&&<option value="">Нет объектов</option>}
-                    {projectOptions.map(p=><option key={p.id||p.name} value={p.name}>{p.name}</option>)}
-                  </select>
+                  <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap',justifyContent:isMobile?'stretch':'flex-end',width:isMobile?'100%':'auto'}}>
+                    <select value={selectedProject} onChange={e=>setMaterialNormCoverageProject(e.target.value)} style={{...inp,marginBottom:0,width:isMobile?'100%':'260px'}}>
+                      {projectOptions.length===0&&<option value="">Нет объектов</option>}
+                      {projectOptions.map(p=><option key={p.id||p.name} value={p.name}>{p.name}</option>)}
+                    </select>
+                    <button disabled={!rows.length} onClick={()=>showPreview(buildMaterialNormCoverageContent(selectedProject),'Смета по нормам — '+selectedProject)} style={btnState(btnB,!rows.length,{padding:'7px 10px',fontSize:'12px'})}><Printer size={13}/>Печать</button>
+                    <button disabled={!rows.length} onClick={()=>exportToExcel(materialNormCoverageExportRows(rows),'Смета_по_нормам_'+selectedProject)} style={btnState(btnG,!rows.length,{padding:'7px 10px',fontSize:'12px'})}><Download size={13}/>Excel</button>
+                  </div>
                 </div>
                 <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
                   <span style={badge(C.success,C.successLight,C.successBorder)}>{'Покрыто: '+okCount}</span>
