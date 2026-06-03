@@ -11527,6 +11527,7 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
     smeta_type = data.get("smetaType") or "Заказчик"
     status = data.get("status") or "Активная"
     work_package = data.get("workPackage") or data.get("work_package") or "Основная"
+    version = data.get("version") or "1.0"
     if not description:
         raise HTTPException(status_code=400, detail="Опишите объект — поле обязательно")
 
@@ -11661,12 +11662,12 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
     cur.execute("""INSERT INTO estimates
                    (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (int(project_id) if project_id else None, project_name, final_name, "1.0", _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
+        (int(project_id) if project_id else None, project_name, final_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
     new_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
 
-    return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "sections": sections, "smetaType": smeta_type, "workPackage": work_package, "status": status}
+    return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "version": version, "sections": sections, "smetaType": smeta_type, "workPackage": work_package, "status": status}
 
 @app.post("/pricelists/from-estimate")
 def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
