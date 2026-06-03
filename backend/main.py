@@ -69,6 +69,28 @@ DEFAULT_MATERIAL_NORMS = [
     {"ruleKey":"gkl_screws","name":"Саморезы ГКЛ","work":["гипсокарт","гкл","обшив"],"blockWork":["демонтаж","разбор"],"material":["саморез"],"workUnit":"м2","materialUnit":"шт","qtyPerUnit":20,"label":"саморезы 20 шт/м2"},
     {"ruleKey":"cable_line","name":"Кабель / провод","work":["кабел","провод","проклад"],"blockWork":["демонтаж","разбор"],"material":["кабель","провод","utp","ftp","f-utp","u-utp","кпс","ксвв","кспв","ввг","nym"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"кабель 1.05 м на 1 м трассы"},
     {"ruleKey":"cable_protection","name":"Гофра / кабель-канал","work":["кабел","провод","проклад"],"blockWork":["демонтаж","разбор"],"material":["гофр","труба пнд","кабель-канал","кабель канал"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"защита кабеля 1.05 м на 1 м трассы"},
+    {"ruleKey":"cable_channel_box","name":"Короб / кабель-канал","work":["короб","кабель-канал","кабель канал","проклад"],"blockWork":["демонтаж","разбор"],"material":["короб","кабель-канал","кабель канал"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"короб/кабель-канал 1.05 м на 1 м трассы"},
+    {"ruleKey":"junction_box","name":"Коробка ответвительная","work":["коробка ответв","распаечн","распределительн короб"],"blockWork":["демонтаж","разбор"],"material":["коробка ответв","распаечн","распределительн короб"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"коробка 1 шт на точку"},
+    {"ruleKey":"luminaire","name":"Светильник / табло","work":["светильник","табло","транспарант"],"blockWork":["демонтаж","разбор"],"material":["светильник","табло","транспарант"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"светильник/табло 1 шт на точку"},
+    {"ruleKey":"socket_switch","name":"Розетка / выключатель","work":["розет","выключател","штепсель"],"blockWork":["демонтаж","разбор"],"material":["розет","выключател","штепсель"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"механизм 1 шт на точку"},
+    {"ruleKey":"electric_panel","name":"Щит / шкаф распределительный","work":["щит","шкаф","распределительн"],"blockWork":["демонтаж","разбор"],"material":["щит","шкаф","бокс распредел"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"щит/шкаф 1 шт на точку"},
+    {"ruleKey":"pipe_pp","name":"Труба полипропиленовая","work":["трубопровод","водоснаб","отоплен"],"blockWork":["демонтаж","разбор"],"material":["труба полипропилен","трубы полипропилен","полипропилен","ppr","pprc","ppr-c"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.03,"label":"труба 1.03 м на 1 м трассы"},
+    {"ruleKey":"pipe_fittings","name":"Фитинги трубопроводов","work":["соединен","сварк","узл","трубопровод"],"blockWork":["демонтаж","разбор"],"material":["муфта","угольник","угол","тройник","переход","кран","фитинг"],"workUnit":"соединений","materialUnit":"шт","qtyPerUnit":1,"label":"фитинг 1 шт на соединение"},
+    {"ruleKey":"pipe_clamps","name":"Крепление трубопроводов","work":["трубопровод","водоснаб","отоплен"],"blockWork":["демонтаж","разбор"],"material":["хомут","креплен","кронштейн"],"workUnit":"м","materialUnit":"шт","qtyPerUnit":1.2,"label":"крепление трубы 1.2 шт/м"},
+    {"ruleKey":"pipe_insulation","name":"Изоляция труб","work":["изоляц","трубопровод"],"blockWork":["демонтаж","разбор"],"material":["изоляц","энергофлекс","пенополиэтилен"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"изоляция трубы 1.05 м/м"},
+    {"ruleKey":"thermal_insulation_board","name":"Теплоизоляция плитная/рулонная","work":["изоляция изделиями","теплоизоляц","изоляц"],"blockWork":["демонтаж","разбор"],"material":["пенополиэтилен","минераловат","теплоизоляц","изовер","технониколь","вата"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":1.05,"label":"теплоизоляция 1.05 м2/м2"},
+    {"ruleKey":"radiator_device","name":"Радиатор отопления","work":["радиатор"],"blockWork":["демонтаж","разбор"],"material":["радиатор"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"радиатор 1 шт на прибор"},
+    {"ruleKey":"radiator_mount","name":"Крепление радиатора","work":["радиатор"],"blockWork":["демонтаж","разбор"],"material":["кронштейн","креплен","крепеж"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":4,"label":"крепление радиатора 4 шт на прибор"},
+    {"ruleKey":"plaster_mesh","name":"Штукатурная сетка","work":["сетка","штукатур"],"blockWork":["демонтаж","разбор"],"material":["сетка"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":1.1,"label":"штукатурная сетка 1.1 м2/м2"},
+    {"ruleKey":"plaster_beacon","name":"Маячный профиль","work":["маяк","маяч"],"blockWork":["демонтаж","разбор"],"material":["маяк","маяч","профиль маяч"],"workUnit":"м2","materialUnit":"м","qtyPerUnit":0.85,"label":"маячный профиль 0.85 м/м2"},
+    {"ruleKey":"linoleum_sheet","name":"Линолеум","work":["линолеум"],"blockWork":["демонтаж","разбор"],"material":["линолеум"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":1.02,"label":"линолеум 1.02 м2/м2"},
+    {"ruleKey":"linoleum_glue","name":"Клей для линолеума","work":["линолеум"],"blockWork":["демонтаж","разбор"],"material":["клей","мастик"],"workUnit":"м2","materialUnit":"кг","qtyPerUnit":0.5,"label":"клей для линолеума 0.5 кг/м2"},
+    {"ruleKey":"pvc_plinth","name":"Плинтус","work":["плинтус"],"blockWork":["демонтаж","разбор"],"material":["плинтус"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.03,"label":"плинтус 1.03 м/м"},
+    {"ruleKey":"plywood_subfloor","name":"Фанера / основание пола","work":["фанер","основания полов","оснований полов"],"blockWork":["демонтаж","разбор"],"material":["фанер"],"workUnit":"м2","materialUnit":"м3","qtyPerUnit":0.025,"label":"фанера 0.025 м3/м2 основания"},
+    {"ruleKey":"osb_subfloor","name":"OSB / древесная плита","work":["фанер","основания полов","оснований полов"],"blockWork":["демонтаж","разбор"],"material":["osb","осп","древесноструж","ориентированной стружкой"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":2.04,"label":"OSB/плита 2.04 м2/м2 основания"},
+    {"ruleKey":"wood_frame","name":"Брус каркаса","work":["каркас","брус"],"blockWork":["демонтаж","разбор"],"material":["брус"],"workUnit":"м3","materialUnit":"м3","qtyPerUnit":1.05,"label":"брус 1.05 м3/м3 каркаса"},
+    {"ruleKey":"door_block","name":"Дверной блок","work":["дверн","двер"],"blockWork":["демонтаж","разбор","снятие"],"material":["блок двер","дверн блок","дверь","полотно"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":1,"label":"дверной блок 1 м2/м2"},
+    {"ruleKey":"windowsill","name":"Подоконник","work":["подокон"],"blockWork":["демонтаж","разбор"],"material":["подокон"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1,"label":"подоконник 1 м/м"},
     {"ruleKey":"brick_masonry","name":"Кирпич","work":["кладк"],"blockWork":["демонтаж","разбор"],"material":["кирпич"],"workUnit":"м2","materialUnit":"шт","qtyPerUnit":51,"label":"кирпич 51 шт/м2 кладки в 1/2 кирпича"},
     {"ruleKey":"concrete","name":"Бетон","work":["бетон"],"blockWork":["демонтаж","разбор"],"material":["бетон"],"workUnit":"м3","materialUnit":"м3","qtyPerUnit":1,"label":"бетон 1 м3/м3"},
 ]
@@ -9251,6 +9273,14 @@ def _work_no_material_norm_reason(work_name: str = "", section_name: str = "") -
         return "Демонтажная/разборочная работа — материал по норме не требуется."
     if any(w in text for w in ("очистка", "обеспыливание", "пробивка", "погрузка", "перевозка", "затаривание")):
         return "Подготовительная или транспортная операция — материал по норме не требуется."
+    if "без стоимости оборудования" in text or "ранее демонтирован" in text:
+        return "Установка ранее демонтированного оборудования — новый материал по норме не требуется."
+    return ""
+
+def _material_no_norm_reason(material_name: str = "") -> str:
+    text = _norm_key_text(material_name or "")
+    if any(w in text for w in ("сверло", "бур", "диск отрез", "круг отрез", "коронка алмаз", "оснастк", "инструмент")):
+        return "Расходный инструмент/оснастка — не участвует в подборе нормы строительного материала."
     return ""
 
 def _norm_rule_specific_enough(rule: dict, work_text: str) -> bool:
@@ -9300,9 +9330,12 @@ def _estimate_norm_candidate_work(material_name: str, works: list[dict], section
         (("клей", "плиточ", "затир"), ("плитк", "керамогранит", "облицов")),
         (("кабель", "провод", "ввг", "nym", "utp", "ftp", "кпс", "кпкв"), ("кабел", "провод", "проклад")),
         (("гофр", "кабель канал", "короб"), ("гофр", "труб", "кабель", "короб")),
+        (("коробка ответв", "распаечн"), ("коробка ответв", "распаечн")),
+        (("розет", "выключател", "штепсель"), ("розет", "выключател", "штепсель")),
+        (("щит", "шкаф", "бокс распредел"), ("щит", "шкаф", "распределительн")),
         (("труб", "полипропилен", "муфта", "угольник", "хомут"), ("трубопровод", "водоснаб", "отоплен")),
         (("радиатор", "кронштейн", "клапан"), ("радиатор", "отоплен")),
-        (("светильник",), ("светильник",)),
+        (("светильник", "табло", "транспарант"), ("светильник", "табло", "транспарант")),
         (("фанер",), ("фанер", "пол")),
         (("osb", "древесн", "плиты"), ("основан", "фанер", "пол")),
         (("линолеум", "плинтус"), ("линолеум", "плинтус")),
@@ -9581,6 +9614,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             mat_qty = _safe_float((mat or {}).get("quantity"))
             if not material_name or mat_qty <= 0:
                 continue
+            if _material_no_norm_reason(material_name):
+                continue
             mat_unit = str((mat or {}).get("unit") or "шт")
             norm_qty = _safe_float((mat or {}).get("normQuantity"))
             matching_rule = next((r for r in norm_rules if _norm_rule_matches(r, work.get("description"), work.get("section_name"), material_name, work.get("unit"))), None)
@@ -9657,6 +9692,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             for mat in mats:
                 material_name = str(mat.get("name") or "").strip()
                 if not material_name:
+                    continue
+                if _material_no_norm_reason(material_name):
                     continue
                 mat_qty = _safe_float(mat.get("quantity"))
                 if mat_qty <= 0:

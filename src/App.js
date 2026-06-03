@@ -335,6 +335,28 @@ const WORK_MATERIAL_NORM_RULES = [
   {id:'gkl_screws', work:['гипсокарт','гкл','обшив'], blockWork:['демонтаж','разбор'], material:['саморез'], workUnit:'м2', materialUnit:'шт', qtyPerUnit:20, label:'саморезы 20 шт/м2'},
   {id:'cable_line', work:['кабел','провод','проклад'], blockWork:['демонтаж','разбор'], material:['кабель','провод','utp','ftp','f-utp','u-utp','кпс','ксвв','кспв','ввг','nym'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'кабель 1.05 м на 1 м трассы'},
   {id:'cable_protection', work:['кабел','провод','проклад'], blockWork:['демонтаж','разбор'], material:['гофр','труба пнд','кабель-канал','кабель канал'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'защита кабеля 1.05 м на 1 м трассы'},
+  {id:'cable_channel_box', work:['короб','кабель-канал','кабель канал','проклад'], blockWork:['демонтаж','разбор'], material:['короб','кабель-канал','кабель канал'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'короб/кабель-канал 1.05 м на 1 м трассы'},
+  {id:'junction_box', work:['коробка ответв','распаечн','распределительн короб'], blockWork:['демонтаж','разбор'], material:['коробка ответв','распаечн','распределительн короб'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'коробка 1 шт на точку'},
+  {id:'luminaire', work:['светильник','табло','транспарант'], blockWork:['демонтаж','разбор'], material:['светильник','табло','транспарант'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'светильник/табло 1 шт на точку'},
+  {id:'socket_switch', work:['розет','выключател','штепсель'], blockWork:['демонтаж','разбор'], material:['розет','выключател','штепсель'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'механизм 1 шт на точку'},
+  {id:'electric_panel', work:['щит','шкаф','распределительн'], blockWork:['демонтаж','разбор'], material:['щит','шкаф','бокс распредел'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'щит/шкаф 1 шт на точку'},
+  {id:'pipe_pp', work:['трубопровод','водоснаб','отоплен'], blockWork:['демонтаж','разбор'], material:['труба полипропилен','трубы полипропилен','полипропилен','ppr','pprc','ppr-c'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.03, label:'труба 1.03 м на 1 м трассы'},
+  {id:'pipe_fittings', work:['соединен','сварк','узл','трубопровод'], blockWork:['демонтаж','разбор'], material:['муфта','угольник','угол','тройник','переход','кран','фитинг'], workUnit:'соединений', materialUnit:'шт', qtyPerUnit:1, label:'фитинг 1 шт на соединение'},
+  {id:'pipe_clamps', work:['трубопровод','водоснаб','отоплен'], blockWork:['демонтаж','разбор'], material:['хомут','креплен','кронштейн'], workUnit:'м', materialUnit:'шт', qtyPerUnit:1.2, label:'крепление трубы 1.2 шт/м'},
+  {id:'pipe_insulation', work:['изоляц','трубопровод'], blockWork:['демонтаж','разбор'], material:['изоляц','энергофлекс','пенополиэтилен'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'изоляция трубы 1.05 м/м'},
+  {id:'thermal_insulation_board', work:['изоляция изделиями','теплоизоляц','изоляц'], blockWork:['демонтаж','разбор'], material:['пенополиэтилен','минераловат','теплоизоляц','изовер','технониколь','вата'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:1.05, label:'теплоизоляция 1.05 м2/м2'},
+  {id:'radiator_device', work:['радиатор'], blockWork:['демонтаж','разбор'], material:['радиатор'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'радиатор 1 шт на прибор'},
+  {id:'radiator_mount', work:['радиатор'], blockWork:['демонтаж','разбор'], material:['кронштейн','креплен','крепеж'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:4, label:'крепление радиатора 4 шт на прибор'},
+  {id:'plaster_mesh', work:['сетка','штукатур'], blockWork:['демонтаж','разбор'], material:['сетка'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:1.1, label:'штукатурная сетка 1.1 м2/м2'},
+  {id:'plaster_beacon', work:['маяк','маяч'], blockWork:['демонтаж','разбор'], material:['маяк','маяч','профиль маяч'], workUnit:'м2', materialUnit:'м', qtyPerUnit:0.85, label:'маячный профиль 0.85 м/м2'},
+  {id:'linoleum_sheet', work:['линолеум'], blockWork:['демонтаж','разбор'], material:['линолеум'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:1.02, label:'линолеум 1.02 м2/м2'},
+  {id:'linoleum_glue', work:['линолеум'], blockWork:['демонтаж','разбор'], material:['клей','мастик'], workUnit:'м2', materialUnit:'кг', qtyPerUnit:0.5, label:'клей для линолеума 0.5 кг/м2'},
+  {id:'pvc_plinth', work:['плинтус'], blockWork:['демонтаж','разбор'], material:['плинтус'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.03, label:'плинтус 1.03 м/м'},
+  {id:'plywood_subfloor', work:['фанер','основания полов','оснований полов'], blockWork:['демонтаж','разбор'], material:['фанер'], workUnit:'м2', materialUnit:'м3', qtyPerUnit:0.025, label:'фанера 0.025 м3/м2 основания'},
+  {id:'osb_subfloor', work:['фанер','основания полов','оснований полов'], blockWork:['демонтаж','разбор'], material:['osb','осп','древесноструж','ориентированной стружкой'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:2.04, label:'OSB/плита 2.04 м2/м2 основания'},
+  {id:'wood_frame', work:['каркас','брус'], blockWork:['демонтаж','разбор'], material:['брус'], workUnit:'м3', materialUnit:'м3', qtyPerUnit:1.05, label:'брус 1.05 м3/м3 каркаса'},
+  {id:'door_block', work:['дверн','двер'], blockWork:['демонтаж','разбор','снятие'], material:['блок двер','дверн блок','дверь','полотно'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:1, label:'дверной блок 1 м2/м2'},
+  {id:'windowsill', work:['подокон'], blockWork:['демонтаж','разбор'], material:['подокон'], workUnit:'м', materialUnit:'м', qtyPerUnit:1, label:'подоконник 1 м/м'},
   {id:'brick_masonry', work:['кладк'], blockWork:['демонтаж','разбор'], material:['кирпич'], workUnit:'м2', materialUnit:'шт', qtyPerUnit:51, label:'кирпич 51 шт/м2 кладки в 1/2 кирпича'},
   {id:'concrete', work:['бетон'], blockWork:['демонтаж','разбор'], material:['бетон'], workUnit:'м3', materialUnit:'м3', qtyPerUnit:1, label:'бетон 1 м3/м3'}
 ];
@@ -3501,6 +3523,12 @@ function App() {
     const t = materialNameKey(workName+' '+sectionName);
     if (['демонтаж','разбор','разборка','снятие','отбивка'].some(w=>t.includes(w))) return 'Демонтажная/разборочная работа — материал по норме не требуется';
     if (['очистка','обеспыливание','пробивка','погрузка','перевозка','затаривание'].some(w=>t.includes(w))) return 'Подготовительная или транспортная операция — материал по норме не требуется';
+    if (t.includes('без стоимости оборудования') || t.includes('ранее демонтирован')) return 'Установка ранее демонтированного оборудования — новый материал по норме не требуется';
+    return '';
+  };
+  const materialNoNormCoverageReason = (materialName='') => {
+    const t = materialNameKey(materialName);
+    if (['сверло','бур','диск отрез','круг отрез','коронка алмаз','оснастк','инструмент'].some(w=>t.includes(w))) return 'Расходный инструмент/оснастка — не участвует в подборе нормы строительного материала';
     return '';
   };
   const normRuleSpecificEnough = (rule, workText='') => {
@@ -3614,6 +3642,28 @@ function App() {
     gkl_screws:'Саморезы ГКЛ',
     cable_line:'Кабель / провод',
     cable_protection:'Гофра / кабель-канал',
+    cable_channel_box:'Короб / кабель-канал',
+    junction_box:'Коробка ответвительная',
+    luminaire:'Светильник / табло',
+    socket_switch:'Розетка / выключатель',
+    electric_panel:'Щит / шкаф распределительный',
+    pipe_pp:'Труба полипропиленовая',
+    pipe_fittings:'Фитинги трубопроводов',
+    pipe_clamps:'Крепление трубопроводов',
+    pipe_insulation:'Изоляция труб',
+    thermal_insulation_board:'Теплоизоляция плитная/рулонная',
+    radiator_device:'Радиатор отопления',
+    radiator_mount:'Крепление радиатора',
+    plaster_mesh:'Штукатурная сетка',
+    plaster_beacon:'Маячный профиль',
+    linoleum_sheet:'Линолеум',
+    linoleum_glue:'Клей для линолеума',
+    pvc_plinth:'Плинтус',
+    plywood_subfloor:'Фанера / основание пола',
+    osb_subfloor:'OSB / древесная плита',
+    wood_frame:'Брус каркаса',
+    door_block:'Дверной блок',
+    windowsill:'Подоконник',
     brick_masonry:'Кирпич',
     concrete:'Бетон'
   }[rule?.ruleKey || rule?.id] || rule?.name || rule?.material?.[0] || 'Материал по норме');
@@ -3662,7 +3712,7 @@ function App() {
     const rows = [];
     activeEstimates.forEach(est=>_sectionsOfEst(est).forEach(section=>{
       const items = section.items || [];
-      const materialsInSection = items.filter(it=>isEstimateMaterialItem(it, section.name));
+      const materialsInSection = items.filter(it=>isEstimateMaterialItem(it, section.name) && !materialNoNormCoverageReason(it.name));
       const coveredMaterialKeys = new Set();
       items.forEach((it,itemIdx)=>{
         if (!isEstimateWorkItem(it, section.name)) return;
@@ -3677,8 +3727,9 @@ function App() {
         }
         rules.forEach(rule=>{
           const req = normRequirementsForWork(it.name, section.name, workQty, workUnit, {projectName, estimateId:est.id}).find(r=>String(r.ruleId)===String(rule.ruleKey||rule.id));
-          const material = materialsInSection.find(m=>normTextIncludes(m.name, rule.material));
-          if (material) coveredMaterialKeys.add(materialNameKey(material.name));
+          const matchingMaterials = materialsInSection.filter(m=>normTextIncludes(m.name, rule.material));
+          matchingMaterials.forEach(m=>coveredMaterialKeys.add(materialNameKey(m.name)));
+          const material = matchingMaterials[0];
           rows.push({
             key:[est.id,section.name,itemIdx,rule.ruleKey||rule.id].join('|'),
             projectName,
