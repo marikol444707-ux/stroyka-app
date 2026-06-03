@@ -336,6 +336,7 @@ const WORK_MATERIAL_NORM_RULES = [
   {id:'cable_line', work:['кабел','провод','проклад'], blockWork:['демонтаж','разбор'], material:['кабель','провод','utp','ftp','f-utp','u-utp','кпс','ксвв','кспв','ввг','nym'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'кабель 1.05 м на 1 м трассы'},
   {id:'cable_protection', work:['кабел','провод','проклад'], blockWork:['демонтаж','разбор'], material:['гофр','труба пнд','кабель-канал','кабель канал'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'защита кабеля 1.05 м на 1 м трассы'},
   {id:'cable_channel_box', work:['короб','кабель-канал','кабель канал','проклад'], blockWork:['демонтаж','разбор'], material:['короб','кабель-канал','кабель канал'], workUnit:'м', materialUnit:'м', qtyPerUnit:1.05, label:'короб/кабель-канал 1.05 м на 1 м трассы'},
+  {id:'cable_fasteners', work:['кабел','провод','гофр','кабель-канал','кабель канал','короб','лоток','проклад'], blockWork:['демонтаж','разбор'], material:['скоб','клипс','держатель','хомут','креплен','крепеж'], workUnit:'м', materialUnit:'шт', qtyPerUnit:2, label:'крепеж кабельной трассы 2 шт/м'},
   {id:'junction_box', work:['коробка ответв','распаечн','распределительн короб'], blockWork:['демонтаж','разбор'], material:['коробка ответв','распаечн','распределительн короб'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'коробка 1 шт на точку'},
   {id:'luminaire', work:['светильник','табло','транспарант'], blockWork:['демонтаж','разбор'], material:['светильник','табло','транспарант'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'светильник/табло 1 шт на точку'},
   {id:'socket_switch', work:['розет','выключател','штепсель'], blockWork:['демонтаж','разбор'], material:['розет','выключател','штепсель'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'механизм 1 шт на точку'},
@@ -347,6 +348,7 @@ const WORK_MATERIAL_NORM_RULES = [
   {id:'thermal_insulation_board', work:['изоляция изделиями','теплоизоляц','изоляц'], blockWork:['демонтаж','разбор'], material:['пенополиэтилен','минераловат','теплоизоляц','изовер','технониколь','вата'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:1.05, label:'теплоизоляция 1.05 м2/м2'},
   {id:'radiator_device', work:['радиатор'], blockWork:['демонтаж','разбор'], material:['радиатор'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:1, label:'радиатор 1 шт на прибор'},
   {id:'radiator_mount', work:['радиатор'], blockWork:['демонтаж','разбор'], material:['кронштейн','креплен','крепеж'], workUnit:'шт', materialUnit:'шт', qtyPerUnit:4, label:'крепление радиатора 4 шт на прибор'},
+  {id:'radiator_connection_kit', work:['радиатор'], blockWork:['демонтаж','разбор'], material:['комплект монтаж','комплект подключ','подключения радиатор','радиаторный комплект'], workUnit:'шт', materialUnit:'компл', qtyPerUnit:1, label:'комплект подключения радиатора 1 компл/прибор'},
   {id:'plaster_mesh', work:['сетка','штукатур'], blockWork:['демонтаж','разбор'], material:['сетка'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:1.1, label:'штукатурная сетка 1.1 м2/м2'},
   {id:'plaster_beacon', work:['маяк','маяч'], blockWork:['демонтаж','разбор'], material:['маяк','маяч','профиль маяч'], workUnit:'м2', materialUnit:'м', qtyPerUnit:0.85, label:'маячный профиль 0.85 м/м2'},
   {id:'linoleum_sheet', work:['линолеум'], blockWork:['демонтаж','разбор'], material:['линолеум'], workUnit:'м2', materialUnit:'м2', qtyPerUnit:1.02, label:'линолеум 1.02 м2/м2'},
@@ -378,7 +380,8 @@ const EMPTY_MATERIAL_NORM_FORM = {
 // Арматура: вес погонного метра в зависимости от диаметра (ГОСТ 5781-82)
 const REBAR_KG_PER_M = { 6:0.222, 8:0.395, 10:0.617, 12:0.888, 14:1.21, 16:1.58, 18:2.0, 20:2.47, 22:2.98, 25:3.85, 28:4.83, 32:6.31 };
 const _normalizeUnit = (u) => {
-  const x = (u||'').toLowerCase().trim().replace(/\s+/g,'');
+  const raw = (u||'').toLowerCase().trim().replace(/[²]/g,'2').replace(/[³]/g,'3');
+  const x = raw.replace(/^\d{2,}\s*/, '').replace(/\s+/g,'');
   if (['кг','kg','килограмм','килограмма','килограммов'].includes(x)) return 'кг';
   if (['м','м.п','пог.м','погм','п.м','пм','метр','метра','метров'].includes(x)) return 'м';
   if (['л','литр','литра','литров','l'].includes(x)) return 'л';
@@ -387,6 +390,7 @@ const _normalizeUnit = (u) => {
   if (['м2','м²','кв.м','квм'].includes(x)) return 'м2';
   if (['т','тонн','тонна','тонны'].includes(x)) return 'т';
   if (['шт','штук','штука','штуки','шт.'].includes(x)) return 'шт';
+  if (['компл','комплект','комплекта','комплектов'].includes(x)) return 'компл';
   return x;
 };
 const _rebarDiameter = (name) => { const m = (name||'').match(/[ØФø]?\s*(\d{1,2})\s*мм/i); return m ? Number(m[1]) : null; };
@@ -3628,6 +3632,7 @@ function App() {
     const cableWords = ['кабель','провод','utp','ftp','sftp','f-utp','u-utp','кпс','ксвв','кспв','квп','ввг','nym','frls','frhf'];
     const cableProtectionWords = ['кабель-канал','кабель канал','короб','гофр','гофра','гофрирован','труба пнд','труба пвх','трубы гибкие','лоток','металлорукав'];
     const cableFastenerWords = ['скоб','хомут','крепеж','креплен','клипс','держатель','дюбел','дюбель','саморез','анкер','болт','шуруп'];
+    if (ruleKey.includes('cable_fasteners')) return has(cableFastenerWords);
     if (ruleKey.includes('cable_line')) return has(cableWords) && !has(cableProtectionWords) && !has(cableFastenerWords);
     if (ruleKey.includes('cable_protection')) return has(cableProtectionWords);
     if (ruleKey.includes('cable_channel_box')) return has(['кабель-канал','кабель канал','короб']);
@@ -3636,6 +3641,7 @@ function App() {
     if (ruleKey.includes('pipe_clamps')) return has(pipeClampWords);
     if (ruleKey.includes('pipe_insulation')) return has(insulationWords) && !has(fastenerWords);
     if (ruleKey.includes('thermal_insulation_board')) return has(insulationWords) && !has(fastenerWords);
+    if (ruleKey.includes('radiator_connection_kit')) return has(['комплект монтаж','комплект подключ','подключения радиатор','радиаторный комплект']);
     if (ruleKey.includes('radiator_mount')) return has(['кронштейн','консоль','крепление радиатор','крепеж радиатор','комплект крепления']);
     if (ruleText.includes('изоляция труб')) return has(insulationWords) && !has(fastenerWords);
     if (ruleText.includes('трубопровод') && has(fastenerWords) && !has(pipeClampWords)) return false;
@@ -3749,6 +3755,7 @@ function App() {
     cable_line:'Кабель / провод',
     cable_protection:'Гофра / кабель-канал',
     cable_channel_box:'Короб / кабель-канал',
+    cable_fasteners:'Крепеж кабельной трассы',
     junction_box:'Коробка ответвительная',
     luminaire:'Светильник / табло',
     socket_switch:'Розетка / выключатель',
@@ -3760,6 +3767,7 @@ function App() {
     thermal_insulation_board:'Теплоизоляция плитная/рулонная',
     radiator_device:'Радиатор отопления',
     radiator_mount:'Крепление радиатора',
+    radiator_connection_kit:'Комплект подключения радиатора',
     plaster_mesh:'Штукатурная сетка',
     plaster_beacon:'Маячный профиль',
     linoleum_sheet:'Линолеум',

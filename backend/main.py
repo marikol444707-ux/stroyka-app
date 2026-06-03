@@ -70,6 +70,7 @@ DEFAULT_MATERIAL_NORMS = [
     {"ruleKey":"cable_line","name":"Кабель / провод","work":["кабел","провод","проклад"],"blockWork":["демонтаж","разбор"],"material":["кабель","провод","utp","ftp","f-utp","u-utp","кпс","ксвв","кспв","ввг","nym"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"кабель 1.05 м на 1 м трассы"},
     {"ruleKey":"cable_protection","name":"Гофра / кабель-канал","work":["кабел","провод","проклад"],"blockWork":["демонтаж","разбор"],"material":["гофр","труба пнд","кабель-канал","кабель канал"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"защита кабеля 1.05 м на 1 м трассы"},
     {"ruleKey":"cable_channel_box","name":"Короб / кабель-канал","work":["короб","кабель-канал","кабель канал","проклад"],"blockWork":["демонтаж","разбор"],"material":["короб","кабель-канал","кабель канал"],"workUnit":"м","materialUnit":"м","qtyPerUnit":1.05,"label":"короб/кабель-канал 1.05 м на 1 м трассы"},
+    {"ruleKey":"cable_fasteners","name":"Крепеж кабельной трассы","work":["кабел","провод","гофр","кабель-канал","кабель канал","короб","лоток","проклад"],"blockWork":["демонтаж","разбор"],"material":["скоб","клипс","держатель","хомут","креплен","крепеж"],"workUnit":"м","materialUnit":"шт","qtyPerUnit":2,"label":"крепеж кабельной трассы 2 шт/м"},
     {"ruleKey":"junction_box","name":"Коробка ответвительная","work":["коробка ответв","распаечн","распределительн короб"],"blockWork":["демонтаж","разбор"],"material":["коробка ответв","распаечн","распределительн короб"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"коробка 1 шт на точку"},
     {"ruleKey":"luminaire","name":"Светильник / табло","work":["светильник","табло","транспарант"],"blockWork":["демонтаж","разбор"],"material":["светильник","табло","транспарант"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"светильник/табло 1 шт на точку"},
     {"ruleKey":"socket_switch","name":"Розетка / выключатель","work":["розет","выключател","штепсель"],"blockWork":["демонтаж","разбор"],"material":["розет","выключател","штепсель"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"механизм 1 шт на точку"},
@@ -81,6 +82,7 @@ DEFAULT_MATERIAL_NORMS = [
     {"ruleKey":"thermal_insulation_board","name":"Теплоизоляция плитная/рулонная","work":["изоляция изделиями","теплоизоляц","изоляц"],"blockWork":["демонтаж","разбор"],"material":["пенополиэтилен","минераловат","теплоизоляц","изовер","технониколь","вата"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":1.05,"label":"теплоизоляция 1.05 м2/м2"},
     {"ruleKey":"radiator_device","name":"Радиатор отопления","work":["радиатор"],"blockWork":["демонтаж","разбор"],"material":["радиатор"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":1,"label":"радиатор 1 шт на прибор"},
     {"ruleKey":"radiator_mount","name":"Крепление радиатора","work":["радиатор"],"blockWork":["демонтаж","разбор"],"material":["кронштейн","креплен","крепеж"],"workUnit":"шт","materialUnit":"шт","qtyPerUnit":4,"label":"крепление радиатора 4 шт на прибор"},
+    {"ruleKey":"radiator_connection_kit","name":"Комплект подключения радиатора","work":["радиатор"],"blockWork":["демонтаж","разбор"],"material":["комплект монтаж","комплект подключ","подключения радиатор","радиаторный комплект"],"workUnit":"шт","materialUnit":"компл","qtyPerUnit":1,"label":"комплект подключения радиатора 1 компл/прибор"},
     {"ruleKey":"plaster_mesh","name":"Штукатурная сетка","work":["сетка","штукатур"],"blockWork":["демонтаж","разбор"],"material":["сетка"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":1.1,"label":"штукатурная сетка 1.1 м2/м2"},
     {"ruleKey":"plaster_beacon","name":"Маячный профиль","work":["маяк","маяч"],"blockWork":["демонтаж","разбор"],"material":["маяк","маяч","профиль маяч"],"workUnit":"м2","materialUnit":"м","qtyPerUnit":0.85,"label":"маячный профиль 0.85 м/м2"},
     {"ruleKey":"linoleum_sheet","name":"Линолеум","work":["линолеум"],"blockWork":["демонтаж","разбор"],"material":["линолеум"],"workUnit":"м2","materialUnit":"м2","qtyPerUnit":1.02,"label":"линолеум 1.02 м2/м2"},
@@ -9275,6 +9277,8 @@ def _norm_base_unit(value: str) -> str:
         return "м3"
     if compact in ("шт", "штук", "штука", "штуки"):
         return "шт"
+    if compact in ("компл", "комплект", "комплекта", "комплектов"):
+        return "компл"
     if compact in ("кг", "килограмм", "килограмма", "килограммов"):
         return "кг"
     if compact in ("л", "литр", "литра", "литров"):
@@ -9409,6 +9413,8 @@ def _norm_material_family_compatible(rule: dict, material_name: str = "") -> boo
     cable_words = ("кабель", "провод", "utp", "ftp", "sftp", "f-utp", "u-utp", "кпс", "ксвв", "кспв", "квп", "ввг", "nym", "frls", "frhf")
     cable_protection_words = ("кабель канал", "короб", "гофр", "гофра", "гофрирован", "труба пнд", "труба пвх", "трубы гибкие", "лоток", "металлорукав")
     cable_fastener_words = ("скоб", "хомут", "крепеж", "креплен", "клипс", "держатель", "дюбел", "дюбель", "саморез", "анкер", "болт", "шуруп")
+    if "cable_fasteners" in rule_key:
+        return has(cable_fastener_words)
     if "cable_line" in rule_key:
         return has(cable_words) and not has(cable_protection_words) and not has(cable_fastener_words)
     if "cable_protection" in rule_key:
@@ -9425,6 +9431,8 @@ def _norm_material_family_compatible(rule: dict, material_name: str = "") -> boo
         return has(insulation_words) and not has(fastener_words)
     if "thermal_insulation_board" in rule_key:
         return has(insulation_words) and not has(fastener_words)
+    if "radiator_connection_kit" in rule_key:
+        return has(("комплект монтаж", "комплект подключ", "подключения радиатор", "радиаторный комплект"))
     if "radiator_mount" in rule_key:
         return has(("кронштейн", "консоль", "крепление радиатор", "крепеж радиатор", "комплект крепления"))
     if "изоляция труб" in rule_text:
