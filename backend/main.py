@@ -7117,23 +7117,28 @@ def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(r
 
     new_version = data.get("version") or _next_version(version)
     new_name = data.get("name") or (name or "Смета") + " — ред. " + str(new_version)
-    cur.execute("""UPDATE estimates SET status='Архив'
-                   WHERE project_name=%s
-                     AND COALESCE(smeta_type,'Заказчик')=%s
-                     AND COALESCE(work_package,'Основная')=%s""",
-                (project_name, smeta_type, work_package))
-    cur.execute("""INSERT INTO estimates
-                   (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,'Активная') RETURNING id, created_at""",
-                (project_id, project_name, new_name, new_version, j.dumps(sections, ensure_ascii=False), smeta_type, work_package))
-    new_id, created_at = cur.fetchone()
-    cur.execute("""UPDATE unexpected_works
-                   SET status='Включено в новую смету',
-                       included_in_estimate_id=%s,
-                       approved_by=COALESCE(NULLIF(approved_by,''), %s),
-                       approved_at=COALESCE(approved_at, TO_CHAR(CURRENT_DATE,'YYYY-MM-DD'))
-                   WHERE id = ANY(%s)""", (new_id, current_user.get("name") or "", applied_ids))
-    conn.commit()
+    conn.autocommit = False
+    try:
+        cur.execute("""UPDATE estimates SET status='Архив'
+                       WHERE project_name=%s
+                         AND COALESCE(smeta_type,'Заказчик')=%s
+                         AND COALESCE(work_package,'Основная')=%s""",
+                    (project_name, smeta_type, work_package))
+        cur.execute("""INSERT INTO estimates
+                       (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,'Активная') RETURNING id, created_at""",
+                    (project_id, project_name, new_name, new_version, j.dumps(sections, ensure_ascii=False), smeta_type, work_package))
+        new_id, created_at = cur.fetchone()
+        cur.execute("""UPDATE unexpected_works
+                       SET status='Включено в новую смету',
+                           included_in_estimate_id=%s,
+                           approved_by=COALESCE(NULLIF(approved_by,''), %s),
+                           approved_at=COALESCE(approved_at, TO_CHAR(CURRENT_DATE,'YYYY-MM-DD'))
+                       WHERE id = ANY(%s)""", (new_id, current_user.get("name") or "", applied_ids))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     cur.close(); conn.close()
     return {"ok": True, "id": new_id, "includedChangeIds": applied_ids,
             "estimate": {"id": new_id, "projectId": project_id, "projectName": project_name,
