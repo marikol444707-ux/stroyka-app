@@ -4363,27 +4363,28 @@ function App() {
     if (type === 'Исключение объёма') {
       const removed = findEstimateChangeRowMatch(change, removedRows);
       if (removed && required.qty <= tolerance) {
-        return {change, autoInclude:true, reason:'строка исключена из новой сметы'};
+        return {change, autoInclude:true, reason:'строка исключена из новой сметы', candidate:removed.row, score:removed.score};
       }
       const changed = findEstimateChangeRowMatch(change, changedNextRows) || findEstimateChangeRowMatch(change, nextRows);
       if (changed && changed.row.qty <= required.qty + tolerance) {
-        return {change, autoInclude:true, reason:'объём уменьшен до '+fmtMeasure(required.qty, required.unit)};
+        return {change, autoInclude:true, reason:'объём уменьшен до '+fmtMeasure(required.qty, required.unit), candidate:changed.row, score:changed.score};
       }
-      return {change, autoInclude:false, reason:'не найдено уверенное уменьшение объёма'};
+      return {change, autoInclude:false, reason:'не найдено уверенное уменьшение объёма', candidate:changed?.row||removed?.row||null, score:changed?.score||removed?.score||0};
     }
     if (type === 'Дополнительный объём к строке сметы') {
       const changed = findEstimateChangeRowMatch(change, changedNextRows) || findEstimateChangeRowMatch(change, nextRows);
       if (changed && required.qty > 0 && changed.row.qty + tolerance >= required.qty) {
-        return {change, autoInclude:true, reason:'новая смета содержит требуемый объём '+fmtMeasure(required.qty, required.unit)};
+        return {change, autoInclude:true, reason:'новая смета содержит требуемый объём '+fmtMeasure(required.qty, required.unit), candidate:changed.row, score:changed.score};
       }
-      return {change, autoInclude:false, reason:'новая смета не закрывает требуемый объём'};
+      return {change, autoInclude:false, reason:'новая смета не закрывает требуемый объём', candidate:changed?.row||null, score:changed?.score||0};
     }
     const added = findEstimateChangeRowMatch(change, addedRows);
     const qty = estimateChangeNormalizedQty(change?.deltaQuantity || change?.quantity, change?.unit);
     if (added && (!qty.qty || added.row.qty + tolerance >= qty.qty * 0.95)) {
-      return {change, autoInclude:true, reason:'работа появилась новой строкой сметы'};
+      return {change, autoInclude:true, reason:'работа появилась новой строкой сметы', candidate:added.row, score:added.score};
     }
-    return {change, autoInclude:false, reason:'работа не найдена как новая строка сметы'};
+    const candidate = findEstimateChangeRowMatch(change, nextRows);
+    return {change, autoInclude:false, reason:'работа не найдена как новая строка сметы', candidate:candidate?.row||null, score:candidate?.score||0};
   };
   const estimateChangeReconcileDescription = (baseEst, nextEst, decisions, includedCount, reason) => {
     const unresolved = decisions || [];
@@ -4484,6 +4485,80 @@ function App() {
     } catch(e) {
       estimateChangeReconcileQueuedRef.current.delete(marker);
     }
+  };
+  const estimateChangeReconcileRowsForTask = (task) => {
+    const payload = parseAiTaskPayload(task);
+    if (payload.type !== 'estimate_change_reconcile') return [];
+    const nextEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.nextEstimateId));
+    const baseEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.baseEstimateId)) || (nextEst ? estimateDiffBaseFor(nextEst) : null);
+    if (!baseEst || !nextEst) return [];
+    const diff = buildEstimateDiff(baseEst,nextEst);
+    const projectName = payload.projectName || task.projectName || nextEst.projectName || baseEst.projectName || '';
+    return includableEstimateChanges(projectName).map(change=>estimateChangeAutoDecision(change,nextEst,diff));
+  };
+  const confirmEstimateChangeIncluded = async (task, decision) => {
+    const payload = parseAiTaskPayload(task);
+    const changeId = Number(decision?.change?.id);
+    const estimateId = Number(payload.nextEstimateId);
+    if (!changeId || !estimateId) return;
+    const res = await fetch(API+'/estimates/'+estimateId+'/reconcile-changes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({changeIds:[changeId],updatedBy:user.name})});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) {
+      alert(data.detail || 'Не удалось включить изменение в новую смету');
+      return;
+    }
+    const included = new Set((data.includedChangeIds||[]).map(Number));
+    if (included.size) {
+      setUnexpectedWorksList(prev=>(prev||[]).map(u=>included.has(Number(u.id))?{...u,status:'Включено в новую смету',includedInEstimateId:estimateId,reason:u.reason||('Подтверждено при сверке с новой сметой №'+estimateId)}:u));
+      const remaining = estimateChangeReconcileRowsForTask(task).filter(r=>Number(r.change?.id)!==changeId);
+      if (remaining.length === 0 && task?.id) await patchAiTaskSilent(task.id,{status:'Закрыто'});
+    }
+  };
+  const renderEstimateChangeReconcileTask = (task) => {
+    const payload = parseAiTaskPayload(task);
+    const nextEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.nextEstimateId));
+    const baseEst = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.baseEstimateId)) || (nextEst ? estimateDiffBaseFor(nextEst) : null);
+    const rows = estimateChangeReconcileRowsForTask(task);
+    const scoreLabel = (score) => score ? Math.round(score*100)+'%' : '—';
+    return (
+      <div style={{marginTop:'10px',padding:'10px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+        <div style={{display:'flex',justifyContent:'space-between',gap:'8px',flexWrap:'wrap',marginBottom:'8px'}}>
+          <div>
+            <b style={{color:C.text,fontSize:'12px'}}>Сверка изменений с новой сметой</b>
+            <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{(baseEst?.name||'База')+' → '+(nextEst?.name||'Новая смета')}</p>
+          </div>
+          <span style={badge(rows.length?C.warning:C.success,rows.length?C.warningLight:C.successLight,rows.length?C.warningBorder:C.successBorder)}>{rows.length?rows.length+' на проверке':'закрыто'}</span>
+        </div>
+        {rows.length===0?<p style={{color:C.success,fontSize:'12px',margin:0}}>Спорных изменений не осталось.</p>:(
+          <div style={{overflowX:'auto'}}>
+            <table style={{...tbl,fontSize:'12px'}}>
+              <thead><tr><th style={tblH}>Изменение</th><th style={tblH}>Кандидат в новой смете</th><th style={tblH}>Причина</th><th style={tblH}>Увер.</th><th style={tblH}></th></tr></thead>
+              <tbody>{rows.map(d=>{
+                const u=d.change||{};
+                const c=d.candidate||null;
+                return (<tr key={u.id}>
+                  <td style={{...tblC,minWidth:'220px'}}>
+                    <b style={{display:'block',color:C.text,fontSize:'12px'}}>{u.estimateItemName||u.description||'Изменение'}</b>
+                    <span style={{color:C.textSec,fontSize:'11px'}}>{(u.changeType||'')+' · '+fmtMeasure(u.deltaQuantity||u.quantity,u.unit)}</span>
+                  </td>
+                  <td style={{...tblC,minWidth:'240px'}}>
+                    {c?<><b style={{display:'block',color:C.text,fontSize:'12px'}}>{c.name}</b><span style={{color:C.textSec,fontSize:'11px'}}>{(c.section||'')+' · '+fmtMeasure(c.qty,c.unit)+' · '+Math.round(c.sum||0).toLocaleString('ru-RU')+' ₽'}</span></>:<span style={{color:C.textMuted}}>Не найден</span>}
+                  </td>
+                  <td style={{...tblC,color:d.autoInclude?C.success:C.warning,fontWeight:'600',minWidth:'180px'}}>{d.reason||'Нужно проверить'}</td>
+                  <td style={tblC}>{scoreLabel(d.score)}</td>
+                  <td style={tblC}>
+                    <div style={{display:'flex',gap:'5px',justifyContent:'flex-end',flexWrap:'wrap'}}>
+                      {c&&<button onClick={()=>confirmEstimateChangeIncluded(task,d)} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><Check size={11}/>Включить</button>}
+                      <button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><Eye size={11}/>Открыть</button>
+                    </div>
+                  </td>
+                </tr>);
+              })}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
   };
   const estimateNormReviewDescription = (est, rows, reason) => {
     const counts = estimateNormReviewIssueStatuses
@@ -10148,7 +10223,9 @@ function App() {
                                     <span style={{fontSize:'11px',color:C.textSec}}>{task.assignedRole?'кому: '+task.assignedRole:'без роли'}</span>
                                   </div>
                                   <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.35}}>{task.title}</b>
-                                  {task.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45,whiteSpace:'pre-wrap'}}>{task.description}</p>}
+                                  {payload.type==='estimate_change_reconcile'
+                                    ? renderEstimateChangeReconcileTask(task)
+                                    : task.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45,whiteSpace:'pre-wrap'}}>{task.description}</p>}
                                 </div>
                                 <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                                   {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
