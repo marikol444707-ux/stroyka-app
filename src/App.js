@@ -3882,6 +3882,36 @@ function App() {
     if (status==='Нет нормы' || status==='Материал без работы') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
     return {color:C.info,bg:C.infoLight,border:C.infoBorder};
   };
+  const materialNormCoverageSpecText = (row) => {
+    const ruleKey = materialNameKey(row?.rule?.ruleKey || row?.rule?.id || '');
+    const workText = [row?.workName, row?.sectionName].filter(Boolean).join(' ');
+    const materialText = row?.materialName || '';
+    const spec = (label, left, right) => {
+      if (left.length && right.length) return label+': '+left.join('/')+' ↔ '+right.join('/');
+      if (left.length) return label+': в работе '+left.join('/')+', в материале не указано';
+      if (right.length) return label+': в материале '+right.join('/')+', в работе не указано';
+      return '';
+    };
+    const parts = [];
+    const diameters = ['pipe_pp','pipe_fittings','pipe_clamps','pipe_insulation','cable_protection'];
+    if (diameters.some(k=>ruleKey.includes(k))) parts.push(spec('диаметр', normExtractDiameters(workText), normExtractDiameters(materialText)));
+    if (ruleKey.includes('cable_line')) parts.push(spec('сечение кабеля', normExtractCableSections(workText), normExtractCableSections(materialText)));
+    if (ruleKey.includes('cable_channel_box') || ruleKey.includes('cable_protection')) parts.push(spec('размер короба/гофры', normExtractRectSizes(workText), normExtractRectSizes(materialText)));
+    return parts.filter(Boolean).join('; ');
+  };
+  const materialNormCoverageComment = (row) => {
+    const base = row?.message || '';
+    if (!row?.rule) return base;
+    const pieces = [];
+    const ruleName = materialTitleForNormRule(row.rule);
+    if (ruleName) pieces.push('норма "'+ruleName+'"');
+    if (row.rule.materialUnit) pieces.push('ед. материала '+row.rule.materialUnit);
+    const spec = materialNormCoverageSpecText(row);
+    if (spec) pieces.push(spec);
+    if (row.status === 'Нет материала в смете') pieces.push('подходящая строка материала в этом разделе не найдена');
+    if (!pieces.length) return base;
+    return base + '. Проверено: ' + pieces.join('; ');
+  };
   const materialNormCoveragePriority = (status) => ({
     'Нет материала в смете': 0,
     'Нет нормы': 1,
@@ -3909,7 +3939,7 @@ function App() {
     'Потребность': r.requiredQty ? fmtMeasure(r.requiredQty,r.requiredUnit) : '',
     'В смете': r.materialQty ? fmtMeasure(r.materialQty,r.materialUnit) : '',
     'Код нормы': r.rule?.ruleKey || r.rule?.id || '',
-    Комментарий: r.message || '',
+    Комментарий: materialNormCoverageComment(r),
   }));
   const buildMaterialNormCoverageContent = (projectName) => {
     const rows = projectName ? estimateNormCoverageRows(projectName) : [];
@@ -3932,7 +3962,7 @@ function App() {
     html += '<table class="mn-tbl"><tr><th>№</th><th>Статус</th><th>Смета / раздел</th><th>Работа</th><th>Объём</th><th>Материал / норма</th><th>Потребность</th><th>В смете</th><th>Комментарий</th></tr>';
     rows.forEach((r,i)=>{
       const cls = ['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status) ? 'mn-ok' : r.status==='Норма не нужна' ? 'mn-skip' : r.status==='Нет материала в смете' ? 'mn-info' : 'mn-warn';
-      html += '<tr class="'+cls+'"><td>'+(i+1)+'</td><td><b>'+docEsc(r.status||'')+'</b></td><td>'+docEsc((r.estimateName||'')+' / '+(r.packageName||''))+'<div class="mn-note">'+docEsc(r.sectionName||'')+'</div></td><td>'+docEsc(r.workName||'')+'</td><td>'+docEsc(r.workQty?fmtMeasure(r.workQty,r.workUnit):'')+'</td><td>'+docEsc(r.materialName||materialTitleForNormRule(r.rule)||'')+'<div class="mn-note">'+docEsc(r.rule?.label||r.rule?.ruleKey||'')+'</div></td><td>'+docEsc(r.requiredQty?fmtMeasure(r.requiredQty,r.requiredUnit):'')+'</td><td>'+docEsc(r.materialQty?fmtMeasure(r.materialQty,r.materialUnit):'')+'</td><td>'+docEsc(r.message||'')+'</td></tr>';
+      html += '<tr class="'+cls+'"><td>'+(i+1)+'</td><td><b>'+docEsc(r.status||'')+'</b></td><td>'+docEsc((r.estimateName||'')+' / '+(r.packageName||''))+'<div class="mn-note">'+docEsc(r.sectionName||'')+'</div></td><td>'+docEsc(r.workName||'')+'</td><td>'+docEsc(r.workQty?fmtMeasure(r.workQty,r.workUnit):'')+'</td><td>'+docEsc(r.materialName||materialTitleForNormRule(r.rule)||'')+'<div class="mn-note">'+docEsc(r.rule?.label||r.rule?.ruleKey||'')+'</div></td><td>'+docEsc(r.requiredQty?fmtMeasure(r.requiredQty,r.requiredUnit):'')+'</td><td>'+docEsc(r.materialQty?fmtMeasure(r.materialQty,r.materialUnit):'')+'</td><td>'+docEsc(materialNormCoverageComment(r))+'</td></tr>';
     });
     html += '</table>';
     html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px"><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Сметчик:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Прораб / главный инженер:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div></div>';
@@ -13714,14 +13744,14 @@ function App() {
                     <div>
                       <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Смета</span>
                       <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{r.materialQty>0?fmtMeasure(r.materialQty,r.materialUnit):'—'}</p>
-                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>{r.message}</p>
+                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px',lineHeight:1.35}}>{materialNormCoverageComment(r)}</p>
                     </div>
                     <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end',flexWrap:'wrap'}}>
-                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>addEstimateMaterialFromCoverage(r)} style={{...btnGr,padding:'5px 8px',fontSize:'11px'}}><Plus size={11}/>Материал</button>}
-                      {r.status==='Нет материала в смете'&&canCreateSupplyRequestFromNorm()&&(materialNormSupplyRequestExists(r)?<span style={badge(C.success,C.successLight,C.successBorder)}>Заявка уже есть</span>:<button onClick={()=>createSupplyRequestFromNormCoverage(r)} style={{...btnO,padding:'5px 8px',fontSize:'11px'}}><ShoppingCart size={11}/>Заявка</button>)}
-                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>markEstimateWorkNoMaterialFromCoverage(r)} style={{...btnG,padding:'5px 8px',fontSize:'11px'}}><Check size={11}/>Без материала</button>}
-                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>createMaterialNormCoverageTask(r)} style={{...btnB,padding:'5px 8px',fontSize:'11px'}}><Bot size={11}/>Поручение</button>}
-                      {r.rule&&canEditMaterialNorms()&&<button onClick={()=>saveMaterialNormOverrideFromCoverage(r)} style={{...btnB,padding:'5px 8px',fontSize:'11px'}}>Поправка</button>}
+                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>addEstimateMaterialFromCoverage(r)} style={btnState(btnGr,false,{padding:'5px 8px',fontSize:'11px'})}><Plus size={11}/>Материал</button>}
+                      {r.status==='Нет материала в смете'&&canCreateSupplyRequestFromNorm()&&(materialNormSupplyRequestExists(r)?<span style={badge(C.success,C.successLight,C.successBorder)}>Заявка уже есть</span>:<button onClick={()=>createSupplyRequestFromNormCoverage(r)} style={btnState(btnO,false,{padding:'5px 8px',fontSize:'11px'})}><ShoppingCart size={11}/>Заявка</button>)}
+                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>markEstimateWorkNoMaterialFromCoverage(r)} style={btnState(btnG,false,{padding:'5px 8px',fontSize:'11px'})}><Check size={11}/>Без материала</button>}
+                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>createMaterialNormCoverageTask(r)} style={btnState(btnB,false,{padding:'5px 8px',fontSize:'11px'})}><Bot size={11}/>Поручение</button>}
+                      {r.rule&&canEditMaterialNorms()&&<button onClick={()=>saveMaterialNormOverrideFromCoverage(r)} style={btnState(btnB,false,{padding:'5px 8px',fontSize:'11px'})}>Поправка</button>}
                     </div>
                   </div>);})}
                   {rows.length>80&&<p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Показано 80 из {rows.length}. Сначала обработайте строки без нормы и материалы без работы.</p>}
