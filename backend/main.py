@@ -2530,7 +2530,11 @@ def get_materials(current_user: dict = Depends(get_current_user)):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     base = "SELECT id,name,unit,quantity,price,min_quantity as \"minQuantity\",project,category FROM materials"
     projects = user_project_names(current_user)
-    if current_user.get("role") in WAREHOUSE_ROLES or can_see_all_company_data(current_user):
+    role = current_user.get("role")
+    if role in ("заказчик", "технадзор"):
+        cur.close(); conn.close()
+        return []
+    if role in WAREHOUSE_ROLES or can_see_all_company_data(current_user):
         cur.execute(base)
     elif projects:
         cur.execute(base + " WHERE project = ANY(%s)", (projects,))
@@ -2539,7 +2543,14 @@ def get_materials(current_user: dict = Depends(get_current_user)):
         return []
     rows = cur.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    can_see_prices = role in WAREHOUSE_ROLES or can_see_all_company_data(current_user)
+    out = []
+    for r in rows:
+        d = dict(r)
+        if not can_see_prices:
+            d["price"] = 0
+        out.append(d)
+    return out
 
 @app.post("/materials")
 def create_material(m: MaterialModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
@@ -3383,7 +3394,7 @@ def get_supply_requests(current_user: dict = Depends(get_current_user)):
             cur.close(); conn.close()
             return []
         cur.execute(SUPPLY_SELECT + " WHERE selected_suppliers::text LIKE %s ORDER BY id DESC", ('%"'+str(supplier_id)+'"%',))
-    else:
+    elif role == "прораб":
         projects = user_project_names(current_user)
         clauses = ["requested_by_id=%s", "created_by=%s"]
         params = [current_user.get("id"), current_user.get("name") or ""]
@@ -3391,6 +3402,12 @@ def get_supply_requests(current_user: dict = Depends(get_current_user)):
             clauses.append("project = ANY(%s)")
             params.append(projects)
         cur.execute(SUPPLY_SELECT + " WHERE (" + " OR ".join(clauses) + ") ORDER BY id DESC", params)
+    elif role in ("мастер", "субподрядчик"):
+        cur.execute(SUPPLY_SELECT + " WHERE (requested_by_id=%s OR created_by=%s) ORDER BY id DESC",
+                    (current_user.get("id"), current_user.get("name") or ""))
+    else:
+        cur.close(); conn.close()
+        return []
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -3690,12 +3707,18 @@ def get_supplier_offers(current_user: dict = Depends(get_current_user)):
             cur.close(); conn.close()
             return []
         cur.execute(OFFERS_SELECT + " WHERE supplier_id=%s ORDER BY id DESC", (supplier_id,))
-    else:
+    elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
         cur.execute(OFFERS_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE project = ANY(%s)) ORDER BY id DESC", (projects,))
+    elif role in ("мастер", "субподрядчик"):
+        cur.execute(OFFERS_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY id DESC",
+                    (current_user.get("id"), current_user.get("name") or ""))
+    else:
+        cur.close(); conn.close()
+        return []
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -4350,12 +4373,18 @@ def list_supply_deliveries(current_user: dict = Depends(get_current_user)):
             cur.close(); conn.close()
             return []
         cur.execute(DELIVERY_SELECT + " WHERE d.supplier_id=%s ORDER BY d.id DESC", (supplier_id,))
-    else:
+    elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
         cur.execute(DELIVERY_SELECT + " WHERE d.project = ANY(%s) ORDER BY d.id DESC", (projects,))
+    elif role in ("мастер", "субподрядчик"):
+        cur.execute(DELIVERY_SELECT + " WHERE d.request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY d.id DESC",
+                    (current_user.get("id"), current_user.get("name") or ""))
+    else:
+        cur.close(); conn.close()
+        return []
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [dict(r) for r in rows]
@@ -4373,12 +4402,18 @@ def list_supply_claims(current_user: dict = Depends(get_current_user)):
             cur.close(); conn.close()
             return []
         cur.execute(CLAIM_SELECT + " WHERE supplier_id=%s ORDER BY id DESC", (supplier_id,))
-    else:
+    elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
         cur.execute(CLAIM_SELECT + " WHERE project = ANY(%s) ORDER BY id DESC", (projects,))
+    elif role in ("мастер", "субподрядчик"):
+        cur.execute(CLAIM_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY id DESC",
+                    (current_user.get("id"), current_user.get("name") or ""))
+    else:
+        cur.close(); conn.close()
+        return []
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [dict(r) for r in rows]
@@ -4637,12 +4672,18 @@ def get_supply_history(current_user: dict = Depends(get_current_user)):
             cur.close(); conn.close()
             return []
         cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE supplier_id=%s ORDER BY id DESC", (supplier_id,))
-    else:
+    elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
         cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE project = ANY(%s) ORDER BY id DESC", (projects,))
+    elif role in ("мастер", "субподрядчик"):
+        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY id DESC",
+                    (current_user.get("id"), current_user.get("name") or ""))
+    else:
+        cur.close(); conn.close()
+        return []
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
