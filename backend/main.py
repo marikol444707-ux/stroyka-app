@@ -9046,6 +9046,8 @@ def _norm_keywords_from_text(value: str, limit: int = 5) -> list[str]:
 def _estimate_item_type_backend(item: dict, section_name: str = "") -> str:
     raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").lower()
     text = _norm_key_text((item.get("name") or "") + " " + section_name)
+    if raw in ("work", "работа", "works", "работы"):
+        return "work"
     if raw in ("material", "материал", "materials", "материалы") or "материал" in raw:
         return "material"
     if raw in ("equipment", "оборудование", "delivery", "доставка", "other", "прочее"):
@@ -9056,19 +9058,76 @@ def _estimate_item_type_backend(item: dict, section_name: str = "") -> str:
         return "material"
     return "work"
 
+def _norm_base_unit(value: str) -> str:
+    import re
+    text = _norm_key_text(str(value or "").replace("²", "2").replace("³", "3"))
+    return re.sub(r"^\d{2,}\s*", "", text).strip()
+
 def _norm_rule_matches(rule: dict, work_name: str, section_name: str, material_name: str, work_unit: str = "") -> bool:
     work_text = _norm_key_text((work_name or "") + " " + (section_name or ""))
     mat_text = _norm_key_text(material_name or "")
     work_words = _norm_list(rule.get("work_keywords"))
     block_words = _norm_list(rule.get("block_work_keywords"))
     material_words = _norm_list(rule.get("material_keywords"))
-    if work_unit and rule.get("work_unit") and _norm_key_text(work_unit) != _norm_key_text(rule.get("work_unit")):
+    if work_unit and rule.get("work_unit") and _norm_base_unit(work_unit) != _norm_base_unit(rule.get("work_unit")):
         return False
     return (
         any(_norm_key_text(w) and _norm_key_text(w) in work_text for w in work_words) and
         not any(_norm_key_text(w) and _norm_key_text(w) in work_text for w in block_words) and
         any(_norm_key_text(w) and _norm_key_text(w) in mat_text for w in material_words)
     )
+
+def _estimate_norm_candidate_work(material_name: str, works: list[dict], section_name: str = "", material_unit: str = "") -> dict:
+    material_text = _norm_key_text(material_name)
+    if not material_text or not works:
+        return {}
+    pairs = [
+        (("штукатур", "ротбанд", "гипсов"), ("штукатур",)),
+        (("грунтов",), ("грунтов",)),
+        (("краск", "эмал"), ("окраск", "покраск")),
+        (("шпаклев", "шпатлев"), ("шпаклев", "шпатлев")),
+        (("клей", "плиточ", "затир"), ("плитк", "керамогранит", "облицов")),
+        (("кабель", "провод", "ввг", "nym", "utp", "ftp", "кпс", "кпкв"), ("кабел", "провод", "проклад")),
+        (("гофр", "кабель канал", "короб"), ("гофр", "труб", "кабель", "короб")),
+        (("труб", "полипропилен", "муфта", "угольник", "хомут"), ("трубопровод", "водоснаб", "отоплен")),
+        (("радиатор", "кронштейн", "клапан"), ("радиатор", "отоплен")),
+        (("светильник",), ("светильник",)),
+        (("фанер",), ("фанер", "пол")),
+        (("osb", "древесн", "плиты"), ("основан", "фанер", "пол")),
+        (("линолеум", "плинтус"), ("линолеум", "плинтус")),
+        (("двер", "блок двер"), ("двер", "блок")),
+        (("окон", "подокон"), ("окон", "подокон")),
+        (("бетон",), ("бетон",)),
+        (("кирпич",), ("кладк", "кирпич")),
+        (("сетка", "маяч"), ("штукатур",)),
+        (("дюбель", "саморез"), ("креп", "гипсокарт", "гкл", "профиль", "теплоизоляц")),
+        (("сверло", "алмаз"), ("пробив", "отверст")),
+        (("изоляц", "пенополиэтилен"), ("изоляц", "теплоизоляц")),
+    ]
+    stop = {"материал", "изделия", "разные", "прочие", "наружный", "диаметр", "номинальный", "давление", "размер"}
+    material_tokens = {t for t in material_text.split() if len(t) >= 5 and t not in stop}
+    material_base_unit = _norm_base_unit(material_unit)
+    best = (0, {})
+    for work in works:
+        work_text = _norm_key_text(work.get("name") or "")
+        semantic_score = 0
+        for material_words, work_words in pairs:
+            if any(w in material_text for w in material_words) and any(w in work_text for w in work_words):
+                semantic_score += 5
+        work_tokens = {t for t in work_text.split() if len(t) >= 5 and t not in stop}
+        semantic_score += min(3, len(material_tokens & work_tokens))
+        if semantic_score <= 0:
+            continue
+        score = semantic_score
+        work_base_unit = _norm_base_unit(work.get("unit"))
+        if material_base_unit and work_base_unit:
+            if material_base_unit == work_base_unit:
+                score += 4
+            elif material_base_unit in ("шт", "компл") and work_base_unit in ("шт", "соединений", "точк"):
+                score += 2
+        if score > best[0]:
+            best = (score, work)
+    return best[1] if best[0] >= 2 else {}
 
 def _material_norm_suggestion_row(row):
     return {
@@ -9345,11 +9404,15 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                 material_name = str(mat.get("name") or "").strip()
                 if not material_name:
                     continue
+                mat_qty = _safe_float(mat.get("quantity"))
+                if mat_qty <= 0:
+                    continue
                 if any(_norm_rule_matches(r, w.get("name"), section_name, material_name, w.get("unit")) for r in norm_rules for w in works):
                     continue
-                work = works[0] if works else {}
-                work_qty = sum(_safe_float(w.get("quantity")) for w in works) if works else 0
-                mat_qty = _safe_float(mat.get("quantity"))
+                work = _estimate_norm_candidate_work(material_name, works, section_name, mat.get("unit") or "")
+                if not work:
+                    continue
+                work_qty = _safe_float(work.get("quantity"))
                 suggested = round(mat_qty / work_qty, 4) if work_qty > 0 and mat_qty > 0 else 0
                 dedupe = "|".join([
                     "estimate_material_without_norm",
