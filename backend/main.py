@@ -5777,7 +5777,7 @@ def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     action_payload = payload.get("actionPayload") or ""
     marker = ""
-    marker_prefixes = ("ESTIMATE_NORM_REVIEW:", "ESTIMATE_DIFF_REVIEW:")
+    marker_prefixes = ("ESTIMATE_NORM_REVIEW:", "ESTIMATE_DIFF_REVIEW:", "ESTIMATE_CHANGE_RECONCILE:")
     if any(prefix in action_payload for prefix in marker_prefixes):
         try:
             marker = json.loads(action_payload).get("marker") or ""
@@ -7345,6 +7345,55 @@ def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(r
                          "name": new_name, "version": new_version, "sections": sections,
                          "smetaType": smeta_type, "workPackage": work_package,
                          "status": "Активная", "createdAt": str(created_at) if created_at else ""}}
+
+@app.post("/estimates/{id}/reconcile-changes")
+def reconcile_estimate_changes(id: int, data: dict, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    """Пометить утверждённые изменения как уже вошедшие в существующую новую смету."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""SELECT project_name, COALESCE(smeta_type,'Заказчик'), COALESCE(work_package,'Основная'), status
+                   FROM estimates WHERE id=%s""", (id,))
+    est = cur.fetchone()
+    if not est:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    project_name, smeta_type, _work_package, status = est
+    require_project_access(current_user, project_name or "")
+    if (smeta_type or "Заказчик") != "Заказчик" or (status or "Черновик") != "Активная":
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сверка изменений доступна только для активной сметы заказчика")
+
+    change_ids = data.get("changeIds") or data.get("change_ids") or []
+    change_ids = [int(x) for x in change_ids if str(x).strip().isdigit()]
+    if not change_ids:
+        cur.close(); conn.close()
+        return {"ok": True, "includedChangeIds": []}
+
+    updated_by = data.get("updatedBy") or current_user.get("name") or ""
+    cur.execute("""SELECT id FROM unexpected_works
+                   WHERE project_name=%s
+                     AND status = ANY(%s)
+                     AND included_in_estimate_id IS NULL
+                     AND id = ANY(%s)""",
+                (project_name, list(ESTIMATE_CHANGE_APPROVED_STATUSES), change_ids))
+    allowed_ids = [int(r[0]) for r in (cur.fetchall() or [])]
+    if allowed_ids:
+        note = "Автоматически сопоставлено с новой сметой №" + str(id)
+        cur.execute("""UPDATE unexpected_works
+                       SET status='Включено в новую смету',
+                           included_in_estimate_id=%s,
+                           approved_by=COALESCE(NULLIF(approved_by,''), %s),
+                           approved_at=COALESCE(approved_at, TO_CHAR(CURRENT_DATE,'YYYY-MM-DD')),
+                           reason=CASE
+                             WHEN COALESCE(reason,'')='' THEN %s
+                             WHEN reason LIKE %s THEN reason
+                             ELSE reason || '; ' || %s
+                           END
+                       WHERE id = ANY(%s)""",
+                    (id, updated_by, note, "%" + note + "%", note, allowed_ids))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"ok": True, "includedChangeIds": allowed_ids}
 
 @app.put("/estimates/{id}/toggle-template")
 def toggle_estimate_template(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):

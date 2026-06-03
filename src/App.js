@@ -788,6 +788,7 @@ function App() {
   const [aiTasks, setAiTasks] = useState([]);
   const estimateNormReviewQueuedRef = useRef(new Set());
   const estimateDiffReviewQueuedRef = useRef(new Set());
+  const estimateChangeReconcileQueuedRef = useRef(new Set());
   const [archivedProjects, setArchivedProjects] = useState([]);
   const [tbJournal, setTbJournal] = useState([]);
   const [geoCheckins, setGeoCheckins] = useState([]);
@@ -2670,6 +2671,20 @@ function App() {
       }
       return;
     }
+    if (payload.type === 'estimate_change_reconcile') {
+      const projectName = payload.projectName || task.projectName || '';
+      const project = (projects||[]).find(p=>p.name===projectName);
+      if (project) {
+        navigateTo('projects');
+        setExpandedProject(project.id);
+        setActiveProjectTab('Изменения к смете');
+        setActiveTabGroup('work');
+      }
+      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
+        await patchAiTaskSilent(task.id,{status:'В работе'});
+      }
+      return;
+    }
     if (task?.projectName) {
       const project = (projects||[]).find(p=>p.name===task.projectName);
       if (project) {
@@ -3152,7 +3167,10 @@ function App() {
     setEstimatesList(nextEstimates);
     setSelectedEstimate(prev=>prev&&prev.id===est.id?updated:prev);
     if (status==='Активная') {
-      if (diffBase) await queueEstimateDiffReviewTask(diffBase, updated, 'Смета активирована');
+      if (diffBase) {
+        await queueEstimateDiffReviewTask(diffBase, updated, 'Смета активирована');
+        await autoReconcileEstimateChanges(diffBase, updated, 'Смета активирована');
+      }
       await queueEstimateNormReviewTask(updated, 'Смета активирована', nextEstimates);
     }
   };
@@ -4281,6 +4299,190 @@ function App() {
       });
     } catch(e) {
       estimateDiffReviewQueuedRef.current.delete(marker);
+    }
+  };
+  const estimateChangeReconcileMarker = (nextEstimateId) => 'ESTIMATE_CHANGE_RECONCILE:'+String(nextEstimateId||'');
+  const estimateChangeUnitKey = (unit) => estimateDiffTextKey(normalizeMeasure(1, unit).unit || unit || '');
+  const estimateChangeNameScore = (left, right) => {
+    const a = estimateDiffTextKey(left);
+    const b = estimateDiffTextKey(right);
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    if (a.includes(b) || b.includes(a)) return 0.92;
+    const aw = a.split(' ').filter(w=>w.length>3);
+    const bw = b.split(' ').filter(w=>w.length>3);
+    if (!aw.length || !bw.length) return 0;
+    const overlap = aw.filter(w=>bw.includes(w)).length;
+    return overlap / Math.max(aw.length, bw.length);
+  };
+  const estimateChangeTargetNames = (change) => [...new Set([change?.estimateItemName, change?.description].map(v=>String(v||'').trim()).filter(Boolean))];
+  const estimateChangeNormalizedQty = (qty, unit) => {
+    const n = normalizeMeasure(toNum(qty), unit);
+    return {qty:toNum(n.qty), unit:n.unit || unit || ''};
+  };
+  const estimateChangeRequiredQty = (change) => {
+    const type = change?.changeType || 'Работа вне сметы';
+    const base = toNum(change?.baseQuantity);
+    const delta = toNum(change?.deltaQuantity || change?.quantity);
+    let raw = toNum(change?.newRequiredQuantity);
+    if (raw <= 0 && (base > 0 || delta > 0)) {
+      raw = type === 'Исключение объёма' ? Math.max(0, base - delta) : base + delta;
+    }
+    return estimateChangeNormalizedQty(raw || delta, change?.unit);
+  };
+  const findEstimateChangeRowMatch = (change, rows=[]) => {
+    const names = estimateChangeTargetNames(change);
+    const unitKey = estimateChangeUnitKey(change?.unit);
+    if (!names.length) return null;
+    const exactKeys = names.map(name=>[
+      estimateDiffTextKey(change?.sectionName),
+      estimateDiffTextKey(name),
+      unitKey
+    ].join('|'));
+    let best = null;
+    rows.forEach(row=>{
+      if (!row) return;
+      const rowUnitKey = estimateChangeUnitKey(row.unit);
+      if (unitKey && rowUnitKey && unitKey !== rowUnitKey) return;
+      const exact = exactKeys.includes(row.key);
+      const nameScore = Math.max(...names.map(name=>estimateChangeNameScore(name,row.name)));
+      const sectionScore = estimateDiffTextKey(change?.sectionName) && estimateDiffTextKey(change?.sectionName) === estimateDiffTextKey(row.section) ? 0.08 : 0;
+      const score = exact ? 1 : Math.min(0.99, nameScore + sectionScore);
+      if (score >= 0.72 && (!best || score > best.score)) best = {row,score,exact};
+    });
+    return best;
+  };
+  const estimateChangeAutoDecision = (change, nextEst, diff) => {
+    const type = change?.changeType || 'Работа вне сметы';
+    const required = estimateChangeRequiredQty(change);
+    const tolerance = Math.max(0.001, Math.abs(required.qty || 0) * 0.01);
+    const nextRows = estimateRowsForDiff(nextEst);
+    const addedRows = diff.added || [];
+    const changedNextRows = (diff.changed || []).map(x=>x.next);
+    const removedRows = diff.removed || [];
+    if (type === 'Исключение объёма') {
+      const removed = findEstimateChangeRowMatch(change, removedRows);
+      if (removed && required.qty <= tolerance) {
+        return {change, autoInclude:true, reason:'строка исключена из новой сметы'};
+      }
+      const changed = findEstimateChangeRowMatch(change, changedNextRows) || findEstimateChangeRowMatch(change, nextRows);
+      if (changed && changed.row.qty <= required.qty + tolerance) {
+        return {change, autoInclude:true, reason:'объём уменьшен до '+fmtMeasure(required.qty, required.unit)};
+      }
+      return {change, autoInclude:false, reason:'не найдено уверенное уменьшение объёма'};
+    }
+    if (type === 'Дополнительный объём к строке сметы') {
+      const changed = findEstimateChangeRowMatch(change, changedNextRows) || findEstimateChangeRowMatch(change, nextRows);
+      if (changed && required.qty > 0 && changed.row.qty + tolerance >= required.qty) {
+        return {change, autoInclude:true, reason:'новая смета содержит требуемый объём '+fmtMeasure(required.qty, required.unit)};
+      }
+      return {change, autoInclude:false, reason:'новая смета не закрывает требуемый объём'};
+    }
+    const added = findEstimateChangeRowMatch(change, addedRows);
+    const qty = estimateChangeNormalizedQty(change?.deltaQuantity || change?.quantity, change?.unit);
+    if (added && (!qty.qty || added.row.qty + tolerance >= qty.qty * 0.95)) {
+      return {change, autoInclude:true, reason:'работа появилась новой строкой сметы'};
+    }
+    return {change, autoInclude:false, reason:'работа не найдена как новая строка сметы'};
+  };
+  const estimateChangeReconcileDescription = (baseEst, nextEst, decisions, includedCount, reason) => {
+    const unresolved = decisions || [];
+    const lines = [
+      'Фоновая сверка утверждённых изменений к смете после события: '+(reason||'новая смета')+'.',
+      'Объект: '+(nextEst.projectName||baseEst.projectName||'')+'. Пакет: '+estimatePackage(nextEst)+'.',
+      'База: '+(baseEst.name||'')+'. Новая смета: '+(nextEst.name||'')+'.',
+      '',
+      'Автоматически включено в новую смету: '+includedCount+'.',
+      'Нужно проверить вручную: '+unresolved.length+'.',
+      '',
+      'Спорные позиции:'
+    ];
+    unresolved.slice(0,12).forEach((d,idx)=>{
+      const u = d.change || {};
+      lines.push((idx+1)+'. '+(u.changeType||'Изменение')+' — '+(u.sectionName?u.sectionName+' / ':'')+(u.estimateItemName||u.description||'без названия')+'; '+fmtMeasure(u.deltaQuantity||u.quantity,u.unit)+'; причина: '+(d.reason||'не сопоставлено')+'.');
+    });
+    if (unresolved.length > 12) lines.push('...и ещё '+(unresolved.length-12)+' поз.');
+    if (!unresolved.length) lines.push('Спорных позиций нет.');
+    lines.push('', 'Что сделать: открыть изменения к смете, проверить спорные позиции и решить, оставить их отдельной допработой или выпустить корректировку сметы.');
+    return lines.join('\n');
+  };
+  const autoReconcileEstimateChanges = async (baseEst, nextEst, reason='Новая смета') => {
+    if (!baseEst?.id || !nextEst?.id || Number(baseEst.id)===Number(nextEst.id)) return;
+    if (!sameEstimateGroup(baseEst,nextEst) || nextEst.isTemplate || estimateKind(nextEst)!=='Заказчик' || (nextEst.status||'Черновик')!=='Активная') return;
+    const marker = estimateChangeReconcileMarker(nextEst.id);
+    const candidates = includableEstimateChanges(nextEst.projectName || baseEst.projectName || '');
+    const existingTask = aiTaskByMarker(marker);
+    if (!candidates.length) {
+      if (existingTask) await patchAiTaskSilent(existingTask.id,{status:'Закрыто'});
+      return;
+    }
+    const diff = buildEstimateDiff(baseEst,nextEst);
+    const decisions = candidates.map(change=>estimateChangeAutoDecision(change,nextEst,diff));
+    const autoIds = decisions.filter(d=>d.autoInclude).map(d=>Number(d.change.id)).filter(Boolean);
+    let includedIds = [];
+    if (autoIds.length) {
+      try {
+        const res = await fetch(API+'/estimates/'+nextEst.id+'/reconcile-changes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({changeIds:autoIds,updatedBy:user.name})});
+        const data = await res.json().catch(()=>({}));
+        if (res.ok) {
+          includedIds = (data.includedChangeIds||[]).map(Number);
+          if (includedIds.length) {
+            const includedSet = new Set(includedIds);
+            setUnexpectedWorksList(prev=>(prev||[]).map(u=>includedSet.has(Number(u.id))?{...u,status:'Включено в новую смету',includedInEstimateId:nextEst.id,reason:u.reason||('Автоматически сопоставлено с новой сметой №'+nextEst.id)}:u));
+          }
+        }
+      } catch(e) {}
+    }
+    const includedSet = new Set(includedIds);
+    const unresolved = decisions.filter(d=>!includedSet.has(Number(d.change.id)));
+    if (!unresolved.length) {
+      if (existingTask) await patchAiTaskSilent(existingTask.id,{status:'Закрыто'});
+      return;
+    }
+    const payloadData = {
+      type:'estimate_change_reconcile',
+      marker,
+      baseEstimateId:baseEst.id,
+      nextEstimateId:nextEst.id,
+      projectName:nextEst.projectName||baseEst.projectName||'',
+      workPackage:estimatePackage(nextEst),
+      reason,
+      included:includedIds.length,
+      unresolved:unresolved.length
+    };
+    const patch = {
+      title:'Проверить включение допработ: '+(nextEst.projectName||baseEst.projectName||'')+' — '+unresolved.length+' спорн.',
+      description:estimateChangeReconcileDescription(baseEst,nextEst,unresolved,includedIds.length,reason),
+      assignedRole:hasActiveEstimator() ? 'сметчик' : 'директор',
+      actionPayload:JSON.stringify(payloadData),
+    };
+    if (existingTask) {
+      await patchAiTaskSilent(existingTask.id,patch);
+      return;
+    }
+    if (estimateChangeReconcileQueuedRef.current.has(marker)) return;
+    estimateChangeReconcileQueuedRef.current.add(marker);
+    try {
+      const res = await fetch(API+'/ai-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        projectName:nextEst.projectName||baseEst.projectName||'',
+        ...patch,
+        status:'Новое',
+        actionLabel:'Открыть изменения к смете',
+      })});
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) {
+        estimateChangeReconcileQueuedRef.current.delete(marker);
+        return;
+      }
+      setAiTasks(prev=>{
+        const list = prev||[];
+        if (data?.id && list.some(t=>Number(t.id)===Number(data.id))) {
+          return list.map(t=>Number(t.id)===Number(data.id)?data:t);
+        }
+        return [data,...list];
+      });
+    } catch(e) {
+      estimateChangeReconcileQueuedRef.current.delete(marker);
     }
   };
   const estimateNormReviewDescription = (est, rows, reason) => {
@@ -9937,7 +10139,7 @@ function App() {
                           </div>
                           {standaloneTasks.map(task=>{
                             const payload=parseAiTaskPayload(task);
-                            const isEstimateTask=['estimate_norm_review','material_norm_coverage','estimate_diff_review'].includes(payload.type);
+                            const isEstimateTask=['estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
                             return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
                               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                                 <div style={{flex:1,minWidth:'220px'}}>
@@ -13662,7 +13864,10 @@ function App() {
                   setSelectedEstimate(newEst);
                   setShowForm(false);
                   setNewEstimate({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',workPackage:'Основная',status:'Активная',templateId:''});
-                  if(diffBase) await queueEstimateDiffReviewTask(diffBase,newEst,'Смета создана');
+                  if(diffBase) {
+                    await queueEstimateDiffReviewTask(diffBase,newEst,'Смета создана');
+                    await autoReconcileEstimateChanges(diffBase,newEst,'Смета создана');
+                  }
                   await queueEstimateNormReviewTask(newEst, 'Смета создана', nextEstimates);
                 }} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
@@ -13994,7 +14199,10 @@ function App() {
                       setEstimatesList(nextEstimates);
                       setSelectedEstimate(estWithId);
                       setEstimatesTab('list');
-                      if(diffBase) await queueEstimateDiffReviewTask(diffBase,estWithId,'Импорт сметы');
+                      if(diffBase) {
+                        await queueEstimateDiffReviewTask(diffBase,estWithId,'Импорт сметы');
+                        await autoReconcileEstimateChanges(diffBase,estWithId,'Импорт сметы');
+                      }
                       await queueEstimateNormReviewTask(estWithId, 'Импорт сметы', nextEstimates);
                       setImportValidating(true);
                       setImportValidationWarnings([]);
@@ -14972,7 +15180,10 @@ function App() {
               const nextEstimates=[...(estimatesList||[]).map(e=>(est.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,est))?{...e,status:'Архив'}:e),est];
               setEstimatesList(nextEstimates);
               setSelectedEstimate(est);
-              if(diffBase) await queueEstimateDiffReviewTask(diffBase,est,'ИИ-смета создана');
+              if(diffBase) {
+                await queueEstimateDiffReviewTask(diffBase,est,'ИИ-смета создана');
+                await autoReconcileEstimateChanges(diffBase,est,'ИИ-смета создана');
+              }
               await queueEstimateNormReviewTask(est, 'ИИ-смета создана', nextEstimates);
               setShowGenerateEstimate(false);
               setGenerating(false);
