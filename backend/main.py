@@ -9316,6 +9316,8 @@ def _norm_rule_specific_enough(rule: dict, work_text: str) -> bool:
     )
     if is_cable_rule and "проклад" in text and not has_cable_word:
         return False
+    if "cable_line" in rule_key and any(w in text for w in ("труба гофр", "гофрирован", "кабель канал", "короб", "лоток", "металлорукав")) and not any(w in text for w in ("затягивание", "прокладка кабел", "прокладка провод", "провод в короб", "кабель в короб")):
+        return False
     if "pipe_insulation" in rule_key and not any(w in text for w in ("изоляц", "теплоизоляц", "утепл", "энергофлекс")):
         return False
     return True
@@ -9348,6 +9350,14 @@ def _norm_material_family_compatible(rule: dict, material_name: str = "") -> boo
     pipe_clamp_words = ("хомут", "кронштейн", "клипс", "клипса", "скоба", "держатель", "опора", "подвес", "консоль")
     insulation_words = ("изоляц", "теплоизоляц", "утепл", "утеплител", "минераловат", "минвата", "вата", "изовер", "технониколь", "пенополиэтилен", "энергофлекс")
     fastener_words = ("дюбел", "дюбель", "саморез", "шуруп", "анкер", "гвозд", "болт")
+    cable_words = ("кабель", "провод", "utp", "ftp", "sftp", "f-utp", "u-utp", "кпс", "ксвв", "кспв", "квп", "ввг", "nym", "frls", "frhf")
+    cable_protection_words = ("кабель канал", "короб", "гофр", "гофра", "гофрирован", "труба пнд", "труба пвх", "трубы гибкие", "лоток", "металлорукав")
+    if "cable_line" in rule_key:
+        return has(cable_words) and not has(cable_protection_words)
+    if "cable_protection" in rule_key:
+        return has(cable_protection_words)
+    if "cable_channel_box" in rule_key:
+        return has(("кабель канал", "короб"))
     if "pipe_pp" in rule_key:
         return has(pipe_words) and not has(fitting_words) and not has(pipe_clamp_words) and not has(fastener_words)
     if "pipe_fittings" in rule_key:

@@ -3543,6 +3543,7 @@ function App() {
     const mat = materialNameKey([ruleKey, rule.name, ...(rule.material||[])].join(' '));
     const isCableRule = ['cable','кабел','провод','utp','ftp','гофр','кабель канал'].some(w=>mat.includes(w));
     if (isCableRule && t.includes('проклад') && !hasCableWord) return false;
+    if (ruleKey.includes('cable_line') && normHasAny(t, ['труба гофр','гофрирован','кабель-канал','кабель канал','короб','лоток','металлорукав']) && !normHasAny(t, ['затягивание','прокладка кабел','прокладка провод','провод в короб','кабель в короб'])) return false;
     if (ruleKey.includes('pipe_insulation') && !normHasAny(t, ['изоляц','теплоизоляц','утепл','энергофлекс'])) return false;
     return true;
   };
@@ -3562,6 +3563,11 @@ function App() {
     const pipeClampWords = ['хомут','кронштейн','клипс','клипса','скоба','держатель','опора','подвес','консоль'];
     const insulationWords = ['изоляц','теплоизоляц','утепл','утеплител','минераловат','минвата','вата','изовер','технониколь','пенополиэтилен','энергофлекс'];
     const fastenerWords = ['дюбел','дюбель','саморез','шуруп','анкер','гвозд','болт'];
+    const cableWords = ['кабель','провод','utp','ftp','sftp','f-utp','u-utp','кпс','ксвв','кспв','квп','ввг','nym','frls','frhf'];
+    const cableProtectionWords = ['кабель-канал','кабель канал','короб','гофр','гофра','гофрирован','труба пнд','труба пвх','трубы гибкие','лоток','металлорукав'];
+    if (ruleKey.includes('cable_line')) return has(cableWords) && !has(cableProtectionWords);
+    if (ruleKey.includes('cable_protection')) return has(cableProtectionWords);
+    if (ruleKey.includes('cable_channel_box')) return has(['кабель-канал','кабель канал','короб']);
     if (ruleKey.includes('pipe_pp')) return has(pipeWords) && !has(fittingWords) && !has(pipeClampWords) && !has(fastenerWords);
     if (ruleKey.includes('pipe_fittings')) return has(fittingWords);
     if (ruleKey.includes('pipe_clamps')) return has(pipeClampWords);
