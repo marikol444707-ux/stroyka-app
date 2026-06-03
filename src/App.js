@@ -539,6 +539,8 @@ const btnG = {padding:'7px 14px',backgroundColor:C.bgGray,color:C.textSec,border
 const btnR = {padding:'7px 14px',backgroundColor:C.dangerLight,color:C.danger,border:'1.5px solid '+C.dangerBorder,borderRadius:'8px',cursor:'pointer',fontSize:'13px',display:'inline-flex',alignItems:'center',gap:'6px'};
 const btnGr = {padding:'7px 14px',backgroundColor:C.successLight,color:C.success,border:'1.5px solid '+C.successBorder,borderRadius:'8px',cursor:'pointer',fontSize:'13px',display:'inline-flex',alignItems:'center',gap:'6px'};
 const btnB = {padding:'7px 14px',backgroundColor:C.infoLight,color:C.info,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',cursor:'pointer',fontSize:'13px',display:'inline-flex',alignItems:'center',gap:'6px'};
+const btnDisabledReadable = {background:'none',backgroundColor:'#334155',color:'#f8fafc',border:'1.5px solid #64748b',cursor:'not-allowed',opacity:1};
+const btnState = (base, disabled=false, overrides={}) => ({...base,...overrides,...(disabled?btnDisabledReadable:{})});
 const card = {backgroundColor:C.bgWhite,borderRadius:'12px',border:'1.5px solid '+C.border,overflow:'hidden'};
 const badge = (color,bg,border) => ({backgroundColor:bg,color:color,border:'1.5px solid '+border,padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:'600',display:'inline-flex',alignItems:'center',gap:'4px'});
 const aiNotice = {marginBottom:'14px',padding:'12px 14px',backgroundColor:'#ecfdf5',border:'1.5px solid #10b981',borderRadius:'10px',display:'flex',alignItems:'flex-start',gap:'10px',boxShadow:'0 1px 0 rgba(16,185,129,0.08)'};
@@ -846,6 +848,7 @@ function App() {
   const [materialNorms, setMaterialNorms] = useState([]);
   const [materialNormSuggestions, setMaterialNormSuggestions] = useState([]);
   const [materialNormPreviewSuggestions, setMaterialNormPreviewSuggestions] = useState([]);
+  const [materialNormNotice, setMaterialNormNotice] = useState(null);
   const [materialNormSuggestionLoading, setMaterialNormSuggestionLoading] = useState(false);
   const [newMaterialNorm, setNewMaterialNorm] = useState(EMPTY_MATERIAL_NORM_FORM);
   const [editingMaterialNormId, setEditingMaterialNormId] = useState(null);
@@ -3730,23 +3733,40 @@ function App() {
       if (projectName === null) return;
       projectName = projectName.trim();
     }
+    if (!dryRun && !projectName) {
+      projectName = window.prompt('Объект для AI-проверки норм (пусто — все объекты):', 'Лермонтова Спорт зал');
+      if (projectName === null) return;
+      projectName = projectName.trim();
+    }
     setMaterialNormSuggestionLoading(true);
+    setMaterialNormNotice(null);
     try {
-      const res = await fetch(API+'/material-norm-suggestions/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(dryRun?{dryRun:true,useAi:false,projectName}:{})});
+      const payload = dryRun ? {dryRun:true,useAi:false,projectName} : (projectName ? {projectName} : {});
+      const res = await fetch(API+'/material-norm-suggestions/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const data = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(data.detail || 'Не удалось проверить нормы');
+      const scopeText = projectName ? 'Объект: '+projectName : 'Все объекты';
       if (dryRun) {
         setMaterialNormPreviewSuggestions((data.suggestions||[]).map((s,i)=>({...s,id:s.id||('preview-'+i),status:'Предпросмотр',previewOnly:true})));
-        alert('Предпросмотр норм: найдено '+(data.total||0)+' · без сохранения · без внешнего ИИ');
+        setMaterialNormNotice({
+          tone:'info',
+          title:'Предпросмотр норм',
+          text:'Найдено '+(data.total||0)+' · '+scopeText+' · без сохранения · без внешнего ИИ'
+        });
       } else {
         setMaterialNormPreviewSuggestions([]);
         await loadAll();
-        alert('ИИ-проверка норм: найдено '+(data.total||0)+', новых '+(data.created||0)+', обновлено '+(data.updated||0)+(data.aiUsed?' · YandexGPT подключён':' · без внешнего ИИ'));
+        setMaterialNormNotice({
+          tone:'success',
+          title:'AI-проверка норм',
+          text:'Найдено '+(data.total||0)+', новых '+(data.created||0)+', обновлено '+(data.updated||0)+' · '+scopeText+(data.aiUsed?' · YandexGPT подключён':' · без внешнего ИИ')
+        });
       }
     } catch(e) {
       alert(e.message || 'Не удалось проверить нормы');
+    } finally {
+      setMaterialNormSuggestionLoading(false);
     }
-    setMaterialNormSuggestionLoading(false);
   };
   const acceptMaterialNormSuggestion = async (id) => {
     if (!canEditMaterialNorms() || !id) return;
@@ -13082,17 +13102,24 @@ function App() {
                   <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Норм: '+((materialNorms||[]).length || WORK_MATERIAL_NORM_RULES.length)}</span>
                   {activeMaterialNormSuggestions().length>0&&<span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'AI-предложений: '+activeMaterialNormSuggestions().length}</span>}
                   {materialNormPreviewSuggestions.length>0&&<button onClick={()=>setMaterialNormPreviewSuggestions([])} style={{...btnG,padding:'6px 10px',fontSize:'12px'}}><X size={13}/>Очистить предпросмотр</button>}
-                  {canEditMaterialNorms()&&<button disabled={materialNormSuggestionLoading} onClick={()=>generateMaterialNormSuggestions({dryRun:true})} style={{...btnG,opacity:materialNormSuggestionLoading?0.65:1}}><Eye size={14}/>Предпросмотр</button>}
-                  {canEditMaterialNorms()&&<button disabled={materialNormSuggestionLoading} onClick={generateMaterialNormSuggestions} style={{...btnB,backgroundColor:'#0ea5e9',opacity:materialNormSuggestionLoading?0.65:1}}><Bot size={14}/>{materialNormSuggestionLoading?'Проверяю...':'ИИ проверить нормы'}</button>}
+                  {canEditMaterialNorms()&&<button disabled={materialNormSuggestionLoading} onClick={()=>generateMaterialNormSuggestions({dryRun:true})} style={btnState(btnG,materialNormSuggestionLoading)}><Eye size={14}/>Предпросмотр</button>}
+                  {canEditMaterialNorms()&&<button disabled={materialNormSuggestionLoading} onClick={generateMaterialNormSuggestions} style={btnState(btnO,materialNormSuggestionLoading,{border:'1.5px solid #fb923c',boxShadow:'none'})}><Bot size={14}/>{materialNormSuggestionLoading?'Проверяю...':'Сохранить AI-проверку'}</button>}
                 </div>
               </div>
+              {materialNormNotice&&(()=>{const ok=materialNormNotice.tone==='success';return <div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:ok?C.successLight:C.infoLight,border:'1.5px solid '+(ok?C.successBorder:C.infoBorder),display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
+                <div>
+                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'3px'}}>{materialNormNotice.title}</b>
+                  <p style={{color:C.textSec,margin:0,fontSize:'12px',lineHeight:1.45}}>{materialNormNotice.text}</p>
+                </div>
+                <button onClick={()=>setMaterialNormNotice(null)} style={{...btnG,padding:'4px 8px',fontSize:'11px',flex:'0 0 auto'}}><X size={12}/></button>
+              </div>;})()}
               {activeMaterialNormSuggestions().length>0&&(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
                   <div>
                     <b style={{color:C.warning,fontSize:'13px',display:'block'}}>🤖 AI-подсказки к нормам</b>
                     <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>Система нашла списания без нормы, перерасходы и материалы из сметы, которые не связаны со справочником норм.</p>
                   </div>
-                  <button onClick={generateMaterialNormSuggestions} disabled={materialNormSuggestionLoading} style={{...btnG,opacity:materialNormSuggestionLoading?0.65:1}}><RefreshCw size={14}/>Обновить</button>
+                  <button onClick={generateMaterialNormSuggestions} disabled={materialNormSuggestionLoading} style={btnState(btnG,materialNormSuggestionLoading)}><RefreshCw size={14}/>Обновить</button>
                 </div>
                 <div style={{display:'grid',gap:'8px'}}>
                   {activeMaterialNormSuggestions().slice(0,12).map(s=>{
@@ -13125,7 +13152,7 @@ function App() {
                           {isPreview ? <>
                             <span style={badge(C.textMuted,C.bgGray,C.border)}>Без сохранения</span>
                           </> : <>
-                            <button onClick={()=>acceptMaterialNormSuggestion(s.id)} disabled={!s.suggestedQtyPerUnit} style={{...btnGr,padding:'6px 9px',fontSize:'11px',opacity:s.suggestedQtyPerUnit?1:0.5}}><Check size={12}/>Принять</button>
+                            <button onClick={()=>acceptMaterialNormSuggestion(s.id)} disabled={!s.suggestedQtyPerUnit} style={btnState(btnGr,!s.suggestedQtyPerUnit,{padding:'6px 9px',fontSize:'11px'})}><Check size={12}/>Принять</button>
                             <button onClick={()=>createTaskFromMaterialNormSuggestion(s.id)} style={{...btnB,padding:'6px 9px',fontSize:'11px'}}><Bot size={12}/>Поручение</button>
                             <button onClick={()=>rejectMaterialNormSuggestion(s.id)} style={{...btnR,padding:'6px 9px',fontSize:'11px'}}><X size={12}/></button>
                           </>}
@@ -13169,7 +13196,7 @@ function App() {
                     <div><span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Слой</span><p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{rule.thicknessBaseMm?('база '+rule.thicknessBaseMm+' мм'+(rule.defaultThicknessMm?' · типовой '+rule.defaultThicknessMm+' мм':'')):'не учитывается'}</p></div>
                   </div>
                   <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end'}}>
-                    <button disabled={!n.id || !canEditMaterialNorms()} onClick={()=>editMaterialNorm(n)} style={{...btnG,padding:'5px 9px',opacity:n.id&&canEditMaterialNorms()?1:0.45}} title={n.id?'Редактировать':'После деплоя справочника можно будет редактировать'}><Edit2 size={12}/></button>
+                    <button disabled={!n.id || !canEditMaterialNorms()} onClick={()=>editMaterialNorm(n)} style={btnState(btnG,!n.id || !canEditMaterialNorms(),{padding:'5px 9px'})} title={n.id?'Редактировать':'После деплоя справочника можно будет редактировать'}><Edit2 size={12}/></button>
                     {canEditMaterialNorms()&&n.id&&<button onClick={()=>disableMaterialNorm(n.id)} style={{...btnR,padding:'5px 9px'}} title='Отключить норму'><Trash2 size={12}/></button>}
                   </div>
                 </div>);})}
