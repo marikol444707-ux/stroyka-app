@@ -2647,10 +2647,10 @@ function App() {
       const next = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.nextEstimateId));
       const base = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.baseEstimateId)) || (next ? estimateDiffBaseFor(next) : null);
       if (!base || !next) {
-        alert('Не удалось открыть разницу: одна из смет не найдена');
+        alert('Не удалось открыть ведомость: одна из смет не найдена');
         return;
       }
-      showPreview(buildEstimateDiffContent(base,next),'Разница смет');
+      showPreview(buildEstimateDiffContent(base,next),'Сопоставительная ведомость');
       if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
         await patchAiTaskSilent(task.id,{status:'В работе'});
       }
@@ -2825,6 +2825,88 @@ function App() {
       + '<td class="num">'+fmtMoney(row.sum)+'</td>'
       + (impact!==null?'<td class="num" style="color:'+diffColor(impact)+';font-weight:700">'+signMoney(impact)+'</td>':'')
       + '</tr>';
+    const docUnitKey = (unit) => estimateDiffTextKey(normalizeMeasure(1, unit).unit || unit || '');
+    const docNameScore = (left, right) => {
+      const a = estimateDiffTextKey(left);
+      const b = estimateDiffTextKey(right);
+      if (!a || !b) return 0;
+      if (a === b) return 1;
+      if (a.includes(b) || b.includes(a)) return 0.92;
+      const aw = a.split(' ').filter(w=>w.length>3);
+      const bw = b.split(' ').filter(w=>w.length>3);
+      if (!aw.length || !bw.length) return 0;
+      return aw.filter(w=>bw.includes(w)).length / Math.max(aw.length, bw.length);
+    };
+    const docChangeRequiredQty = (u) => {
+      const type = u?.changeType || 'Работа вне сметы';
+      const base = Number(u?.baseQuantity||0);
+      const delta = Number(u?.deltaQuantity||u?.quantity||0);
+      let raw = Number(u?.newRequiredQuantity||0);
+      if (raw <= 0 && (base > 0 || delta > 0)) raw = type === 'Исключение объёма' ? Math.max(0, base - delta) : base + delta;
+      const n = normalizeMeasure(raw || delta, u?.unit);
+      return {qty:Number(n.qty||0), unit:n.unit || u?.unit || ''};
+    };
+    const docFindChangeCandidate = (u) => {
+      const names = [...new Set([u?.estimateItemName,u?.description].map(v=>String(v||'').trim()).filter(Boolean))];
+      const unitKey = docUnitKey(u?.unit);
+      const nextRows = estimateRowsForDiff(nextEst);
+      const priorityRows = [
+        ...diff.added.map(r=>({...r,_kind:'Добавлена'})),
+        ...diff.changed.map(x=>({...x.next,_kind:'Изменена'})),
+        ...nextRows.map(r=>({...r,_kind:'Найдена'}))
+      ];
+      let best = null;
+      priorityRows.forEach(row=>{
+        if (!names.length) return;
+        const rowUnitKey = docUnitKey(row.unit);
+        if (unitKey && rowUnitKey && unitKey !== rowUnitKey) return;
+        const sectionBonus = estimateDiffTextKey(u?.sectionName) && estimateDiffTextKey(u?.sectionName) === estimateDiffTextKey(row.section) ? 0.08 : 0;
+        const score = Math.min(0.99, Math.max(...names.map(name=>docNameScore(name,row.name))) + sectionBonus);
+        if (score >= 0.7 && (!best || score > best.score)) best = {row, score, kind:row._kind};
+      });
+      return best;
+    };
+    const projectName = nextEst?.projectName || baseEst?.projectName || '';
+    const relatedChanges = (unexpectedWorksList||[]).filter(u=>
+      u.projectName===projectName &&
+      (isApprovedEstimateChangeStatus(u.status) || u.status==='Включено в новую смету') &&
+      (!u.includedInEstimateId || Number(u.includedInEstimateId)===Number(nextEst?.id))
+    );
+    const changeAmount = (u) => Number(u?.total||0) * (u?.changeType==='Исключение объёма' ? -1 : 1);
+    const changeRows = relatedChanges.map(u=>{
+      const decision = estimateChangeAutoDecision(u,nextEst,diff);
+      const fallbackCandidate = docFindChangeCandidate(u);
+      const candidate = decision?.candidate ? {row:decision.candidate, score:decision.score||0} : fallbackCandidate;
+      const required = docChangeRequiredQty(u);
+      const included = u.status==='Включено в новую смету' && Number(u.includedInEstimateId)===Number(nextEst?.id);
+      const covered = included || Boolean(decision?.autoInclude);
+      const status = included
+        ? 'Уже включено в новую смету'
+        : decision?.autoInclude
+          ? 'Новая смета закрывает изменение: '+(decision.reason||'найдено совпадение')
+          : candidate?.row
+            ? 'Похоже найдено, нужна проверка: '+(decision?.reason||'совпадение не подтверждено автоматически')
+            : 'Остаётся отдельной допработой вне новой сметы';
+      return {change:u,candidate:candidate?.row||null,score:candidate?.score||0,required,status,covered,needsReview:!covered&&Boolean(candidate?.row),amount:changeAmount(u)};
+    });
+    const changeSummary = {
+      total:changeRows.length,
+      covered:changeRows.filter(r=>r.covered).length,
+      review:changeRows.filter(r=>r.needsReview).length,
+      outside:changeRows.filter(r=>!r.covered).length,
+      outsideSum:changeRows.filter(r=>!r.covered).reduce((s,r)=>s+r.amount,0)
+    };
+    const changeRowsHtml = changeRows.map(({change:u,candidate:c,score,required,status,amount})=>'<tr>'
+      + '<td>'+docEsc(u.changeType||'Изменение')+'</td>'
+      + '<td>'+docEsc((u.sectionName?u.sectionName+' / ':'')+(u.estimateItemName||u.description||''))+'</td>'
+      + '<td class="num">'+docEsc(fmtQty(required.qty))+'</td>'
+      + '<td>'+docEsc(required.unit||u.unit||'')+'</td>'
+      + '<td class="num" style="color:'+diffColor(amount)+';font-weight:700">'+signMoney(amount)+'</td>'
+      + '<td>'+docEsc(c ? (c.section+' / '+c.name) : 'Не найдено')+'</td>'
+      + '<td class="num">'+docEsc(c ? fmtQty(c.qty) : '—')+'</td>'
+      + '<td>'+docEsc(status)+'</td>'
+      + '<td class="num">'+docEsc(score ? Math.round(score*100)+'%' : '—')+'</td>'
+      + '</tr>').join('');
     const changedRows = diff.changed.map(({base,next,impact})=>'<tr>'
       + '<td>'+docEsc(next.section)+'</td>'
       + '<td>'+docEsc(next.name)+'</td>'
@@ -2849,7 +2931,7 @@ function App() {
       + '.ediff-h{font-size:13px;font-weight:700;margin:16px 0 6px}'
       + '@media print{.ediff-grid{grid-template-columns:repeat(3,1fr)}.ediff-table{font-size:9px}}'
       + '</style>';
-    html += '<div class="ediff-title">ДОКУМЕНТ РАЗНИЦЫ СМЕТ</div>';
+    html += '<div class="ediff-title">СОПОСТАВИТЕЛЬНАЯ ВЕДОМОСТЬ СМЕТ</div>';
     html += '<div class="ediff-sub">Объект: '+docEsc(nextEst?.projectName||baseEst?.projectName||'')+' · Тип: '+docEsc(estimateKind(nextEst||baseEst))+' · Пакет: '+docEsc(estimatePackage(nextEst||baseEst))+'</div>';
     html += '<table><tr><th>База сравнения</th><td>'+docEsc(meta(baseEst))+'</td></tr><tr><th>Новая / выбранная смета</th><td>'+docEsc(meta(nextEst))+'</td></tr></table>';
     html += '<div class="ediff-grid">'
@@ -2862,10 +2944,21 @@ function App() {
       + '<div class="ediff-card"><span>Добавлено позиций</span><b>'+diff.added.length+'</b></div>'
       + '<div class="ediff-card"><span>Исключено позиций</span><b>'+diff.removed.length+'</b></div>'
       + '</div>';
+    if (changeSummary.total) {
+      html += '<div class="ediff-grid">'
+        + '<div class="ediff-card"><span>Изменений к смете</span><b>'+changeSummary.total+'</b></div>'
+        + '<div class="ediff-card"><span>Закрыто новой сметой</span><b style="color:#047857">'+changeSummary.covered+'</b></div>'
+        + '<div class="ediff-card"><span>Остаётся/проверить</span><b style="color:'+diffColor(changeSummary.outsideSum)+'">'+changeSummary.outside+' · '+signMoney(changeSummary.outsideSum)+'</b></div>'
+        + '</div>';
+      if (changeSummary.review) {
+        html += '<p style="font-size:10px;color:#92400e;margin:0 0 8px">Есть спорные совпадения: '+changeSummary.review+'. Их нужно проверить сметчику/директору, чтобы не задвоить объём в КС.</p>';
+      }
+    }
     html += '<div class="ediff-h">Изменён объём или цена</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Было кол.</th><th>Стало кол.</th><th>Было цена/ед.</th><th>Стало цена/ед.</th><th>Было сумма</th><th>Стало сумма</th><th>Влияние</th></tr>'+(changedRows||empty(10))+'</table>';
     html += '<div class="ediff-h">Добавлено в новую смету</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Влияние</th></tr>'+(diff.added.map(r=>rowBase(r,r.impact)).join('')||empty(7))+'</table>';
     html += '<div class="ediff-h">Исключено из новой сметы</div><table class="ediff-table"><tr><th>Раздел</th><th>Позиция</th><th>Ед.</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Влияние</th></tr>'+(diff.removed.map(r=>rowBase(r,r.impact)).join('')||empty(7))+'</table>';
-    html += '<p style="font-size:10px;color:#555;margin-top:16px">Документ сформирован автоматически по строкам сметы. Архивные сметы не участвуют в текущих расчётах объекта, но используются для доказательного сравнения версий.</p>';
+    html += '<div class="ediff-h">Сопоставление утверждённых изменений к смете</div><table class="ediff-table"><tr><th>Тип</th><th>Изменение / исходная строка</th><th>Кол-во</th><th>Ед.</th><th>Сумма</th><th>Кандидат в новой смете</th><th>Кол-во новой</th><th>Решение</th><th>Увер.</th></tr>'+(changeRowsHtml||empty(9))+'</table>';
+    html += '<p style="font-size:10px;color:#555;margin-top:16px">Документ сформирован автоматически по строкам старой и новой сметы. Раздел сопоставления показывает, какие утверждённые работы вне/сверх сметы уже отражены в новой редакции, а какие остаются отдельной допработой для ДС/КС. После подтверждения включённые изменения не должны повторно попадать в КС отдельным блоком.</p>';
     return html;
   };
   const estimateStatusView = (est, groupItems=[]) => {
@@ -4225,7 +4318,7 @@ function App() {
     ].sort((a,b)=>Math.abs(b.impact)-Math.abs(a.impact)).slice(0,12);
     rows.forEach((row,idx)=>lines.push((idx+1)+'. '+row.kind+' — '+row.section+' / '+row.name+'; влияние '+(row.impact>0?'+':'')+fmtMoney(row.impact)+'.'));
     if (!rows.length) lines.push('Существенных изменений по позициям не найдено.');
-    lines.push('', 'Что сделать: открыть документ разницы, проверить добавленные/исключённые объёмы и решить, что уже закрывает утверждённые изменения к смете, а что остаётся отдельной допработой.');
+    lines.push('', 'Что сделать: открыть сопоставительную ведомость, проверить добавленные/исключённые объёмы и решить, что уже закрывает утверждённые изменения к смете, а что остаётся отдельной допработой.');
     return lines.join('\n');
   };
   const queueEstimateDiffReviewTask = async (baseEst, nextEst, reason='Новая смета') => {
@@ -4268,7 +4361,7 @@ function App() {
       description:estimateDiffReviewDescription(baseEst,nextEst,diff,reason),
       assignedRole:hasActiveEstimator() ? 'сметчик' : 'директор',
       status:'Новое',
-      actionLabel:'Открыть разницу смет',
+      actionLabel:'Открыть ведомость смет',
       actionPayload:JSON.stringify({
         type:'estimate_diff_review',
         marker,
@@ -4404,7 +4497,7 @@ function App() {
     });
     if (unresolved.length > 12) lines.push('...и ещё '+(unresolved.length-12)+' поз.');
     if (!unresolved.length) lines.push('Спорных позиций нет.');
-    lines.push('', 'Что сделать: открыть изменения к смете, проверить спорные позиции и решить, оставить их отдельной допработой или выпустить корректировку сметы.');
+    lines.push('', 'Что сделать: открыть сопоставительную ведомость и изменения к смете, проверить спорные позиции и решить, оставить их отдельной допработой или выпустить корректировку сметы.');
     return lines.join('\n');
   };
   const autoReconcileEstimateChanges = async (baseEst, nextEst, reason='Новая смета') => {
@@ -13963,7 +14056,7 @@ function App() {
                   {selectedEstimate.status!=='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Архив')} style={btnG}><Archive size={14}/>В архив</button>}
                   {selectedEstimate.status==='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>↩ Черновик</button>}
 	                  <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Тип</th><th>Основание</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="9"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>{const meta=estimateItemTypeMeta(normalizeEstimateItemType(it,s.name));const basis=estimateMeasurementBasisMeta(estimateMeasurementBasisOf(it,s.name));return `<tr><td>${i+1}</td><td>${meta.label}</td><td>${basis.label}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`;})]).join('')+'<tr><td colspan="8"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
-                  {(()=>{const base=estimateDiffBaseFor(selectedEstimate);return base?<button onClick={()=>showPreview(buildEstimateDiffContent(base,selectedEstimate),'Разница смет')} style={btnB}><FileText size={14}/>Разница</button>:null;})()}
+                  {(()=>{const base=estimateDiffBaseFor(selectedEstimate);return base?<button onClick={()=>showPreview(buildEstimateDiffContent(base,selectedEstimate),'Сопоставительная ведомость')} style={btnB}><FileText size={14}/>Ведомость</button>:null;})()}
 	                  <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Тип:estimateItemTypeMeta(normalizeEstimateItemType(i,s.name)).label,Основание:estimateMeasurementBasisMeta(estimateMeasurementBasisOf(i,s.name)).label,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
                   <button onClick={async()=>{
                     const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/toggle-template',{method:'PUT'});
@@ -14215,7 +14308,7 @@ function App() {
                     <div style={{padding:'8px 12px'}}>
                       {sorted.map(est=>{const st=estimateStatusView(est,sorted);const isUsed=active?.id===est.id;const diffBase=(active&&active.id!==est.id)?active:sorted.find(other=>other.id!==est.id);return(<div key={est.id} onClick={()=>setSelectedEstimate(est)} style={{padding:'10px 8px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',cursor:'pointer',opacity:isArchivedEstimate(est)?0.72:1}}>
                         <div style={{flex:1,minWidth:0}}><b style={{color:C.text,fontSize:'13px'}}>{isUsed?'✓ ':''}{est.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'4px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span>{est.version&&<span style={badge(C.textSec,C.bgGray,C.border)}>{'v'+est.version}</span>}{est.versionCount>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'история '+est.versionCount}</span>}{est.createdAt&&<span style={{color:C.textMuted,fontSize:'11px',alignSelf:'center'}}>{String(est.createdAt).slice(0,10)}</span>}</div></div>
-                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b>{diffBase&&<button onClick={e=>{e.stopPropagation();showPreview(buildEstimateDiffContent(diffBase,est),'Разница смет');}} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><FileText size={11}/>Разница</button>}{est.status!=='Активная'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Активная');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><CheckCircle size={11}/>Активной</button>}{est.status!=='Архив'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Архив');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}><Archive size={11}/></button>}<ChevronRight size={16} color={C.textMuted}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));if(selectedEstimate?.id===est.id)setSelectedEstimate(null);}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div>
+                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b>{diffBase&&<button onClick={e=>{e.stopPropagation();showPreview(buildEstimateDiffContent(diffBase,est),'Сопоставительная ведомость');}} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><FileText size={11}/>Ведомость</button>}{est.status!=='Активная'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Активная');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><CheckCircle size={11}/>Активной</button>}{est.status!=='Архив'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Архив');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}><Archive size={11}/></button>}<ChevronRight size={16} color={C.textMuted}/><button onClick={e=>{e.stopPropagation();if(window.confirm('Удалить смету?')){fetch(API+'/estimates/'+est.id,{method:'DELETE'});setEstimatesList(prev=>prev.filter(e=>e.id!==est.id));if(selectedEstimate?.id===est.id)setSelectedEstimate(null);}}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div>
                       </div>);})}
                     </div>
                   </div>);})}
@@ -15344,8 +15437,8 @@ function App() {
               const base={...selectedEstimate,name:'Версия '+(older.versionLabel||'?'),version:older.versionLabel,status:'История',createdAt:older.createdAt,sections:older.sections||[]};
               const next={...selectedEstimate,name:'Версия '+(newer.versionLabel||'?'),version:newer.versionLabel,status:'История',createdAt:newer.createdAt,sections:newer.sections||[]};
               setShowVersionHistory(false);
-              showPreview(buildEstimateDiffContent(base,next),'Разница версий сметы');
-            }} style={{...btnB,width:'100%',justifyContent:'center'}}><FileText size={14}/>Печать разницы</button>
+              showPreview(buildEstimateDiffContent(base,next),'Сопоставительная ведомость версий');
+            }} style={{...btnB,width:'100%',justifyContent:'center'}}><FileText size={14}/>Печать ведомости</button>
             <button onClick={async()=>{
             const [aId,bId]=selectedVersionsToCompare;
             const pair=await Promise.all([fetch(API+'/estimate-version/'+aId).then(r=>r.json()),fetch(API+'/estimate-version/'+bId).then(r=>r.json())]);
