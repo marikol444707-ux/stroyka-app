@@ -9265,7 +9265,25 @@ def _estimate_item_type_backend(item: dict, section_name: str = "") -> str:
 def _norm_base_unit(value: str) -> str:
     import re
     text = _norm_key_text(str(value or "").replace("²", "2").replace("³", "3"))
-    return re.sub(r"^\d{2,}\s*", "", text).strip()
+    text = re.sub(r"^\d{2,}\s*", "", text).strip()
+    compact = text.replace(" ", "")
+    if compact in ("м", "мп", "пм", "погм", "погметр", "метр", "метра", "метров"):
+        return "м"
+    if compact in ("м2", "квм", "квадратныйметр", "квадратногометра", "квадратныхметров"):
+        return "м2"
+    if compact in ("м3", "кубм", "кубическийметр", "кубическогометра", "кубическихметров"):
+        return "м3"
+    if compact in ("шт", "штук", "штука", "штуки"):
+        return "шт"
+    if compact in ("кг", "килограмм", "килограмма", "килограммов"):
+        return "кг"
+    if compact in ("л", "литр", "литра", "литров"):
+        return "л"
+    if compact in ("т", "тонна", "тонны", "тонн"):
+        return "т"
+    if compact in ("мешок", "мешка", "мешков"):
+        return "мешок"
+    return text
 
 def _work_no_material_norm_reason(work_name: str = "", section_name: str = "") -> str:
     text = _norm_key_text((work_name or "") + " " + (section_name or ""))
@@ -9298,9 +9316,57 @@ def _norm_rule_specific_enough(rule: dict, work_text: str) -> bool:
     )
     if is_cable_rule and "проклад" in text and not has_cable_word:
         return False
+    if "pipe_insulation" in rule_key and not any(w in text for w in ("изоляц", "теплоизоляц", "утепл", "энергофлекс")):
+        return False
     return True
 
-def _norm_rule_matches(rule: dict, work_name: str, section_name: str, material_name: str, work_unit: str = "") -> bool:
+def _norm_material_unit_compatible(rule: dict, material_name: str = "", material_unit: str = "") -> bool:
+    rule_unit = _norm_base_unit(rule.get("material_unit") or "")
+    unit = _norm_base_unit(material_unit or "")
+    if not rule_unit or not unit or rule_unit == unit:
+        return True
+    material_text = _norm_key_text(material_name or "")
+    pair = {rule_unit, unit}
+    if pair == {"кг", "мешок"} and any(w in material_text for w in ("цемент", "штукатур", "шпаклев", "шпатлев", "клей", "пескобетон", "стяжк", "смесь")):
+        return True
+    if pair == {"л", "кг"} and any(w in material_text for w in ("краск", "эмал", "грунтов", "лак")):
+        return True
+    if pair == {"т", "кг"}:
+        return True
+    if pair == {"м", "кг"} and any(w in material_text for w in ("арматур", "арм")):
+        return True
+    return False
+
+def _norm_material_family_compatible(rule: dict, material_name: str = "") -> bool:
+    rule_key = _norm_key_text(rule.get("rule_key") or "")
+    rule_text = _norm_key_text(" ".join([rule_key, rule.get("name") or "", " ".join(_norm_list(rule.get("material_keywords")))]))
+    material_text = _norm_key_text(material_name or "")
+    def has(words):
+        return any(w in material_text for w in words)
+    fitting_words = ("муфта", "угольник", "угол", "тройник", "переход", "кран", "фитинг", "отвод", "вентиль", "клапан")
+    pipe_words = ("труба", "трубы", "трубн", "ppr", "pprc", "ppr c", "ppr-c", "полипропилен")
+    pipe_clamp_words = ("хомут", "кронштейн", "клипс", "клипса", "скоба", "держатель", "опора", "подвес", "консоль")
+    insulation_words = ("изоляц", "теплоизоляц", "утепл", "утеплител", "минераловат", "минвата", "вата", "изовер", "технониколь", "пенополиэтилен", "энергофлекс")
+    fastener_words = ("дюбел", "дюбель", "саморез", "шуруп", "анкер", "гвозд", "болт")
+    if "pipe_pp" in rule_key:
+        return has(pipe_words) and not has(fitting_words) and not has(pipe_clamp_words) and not has(fastener_words)
+    if "pipe_fittings" in rule_key:
+        return has(fitting_words)
+    if "pipe_clamps" in rule_key:
+        return has(pipe_clamp_words)
+    if "pipe_insulation" in rule_key:
+        return has(insulation_words) and not has(fastener_words)
+    if "thermal_insulation_board" in rule_key:
+        return has(insulation_words) and not has(fastener_words)
+    if "radiator_mount" in rule_key:
+        return has(("кронштейн", "консоль", "крепление радиатор", "крепеж радиатор", "комплект крепления"))
+    if "изоляция труб" in rule_text:
+        return has(insulation_words) and not has(fastener_words)
+    if "трубопровод" in rule_text and has(fastener_words) and not has(pipe_clamp_words):
+        return False
+    return True
+
+def _norm_rule_matches(rule: dict, work_name: str, section_name: str, material_name: str, work_unit: str = "", material_unit: str = "") -> bool:
     work_text = _norm_key_text((work_name or "") + " " + (section_name or ""))
     mat_text = _norm_key_text(material_name or "")
     work_words = _norm_list(rule.get("work_keywords"))
@@ -9311,6 +9377,10 @@ def _norm_rule_matches(rule: dict, work_name: str, section_name: str, material_n
     if work_unit and rule.get("work_unit") and _norm_base_unit(work_unit) != _norm_base_unit(rule.get("work_unit")):
         return False
     if not _norm_rule_specific_enough(rule, work_text):
+        return False
+    if not _norm_material_unit_compatible(rule, material_name, material_unit):
+        return False
+    if not _norm_material_family_compatible(rule, material_name):
         return False
     return (
         any(_norm_key_text(w) and _norm_key_text(w) in work_text for w in work_words) and
@@ -9618,7 +9688,7 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                 continue
             mat_unit = str((mat or {}).get("unit") or "шт")
             norm_qty = _safe_float((mat or {}).get("normQuantity"))
-            matching_rule = next((r for r in norm_rules if _norm_rule_matches(r, work.get("description"), work.get("section_name"), material_name, work.get("unit"))), None)
+            matching_rule = next((r for r in norm_rules if _norm_rule_matches(r, work.get("description"), work.get("section_name"), material_name, work.get("unit"), mat_unit)), None)
             if norm_qty > 0 and mat_qty <= norm_qty * 1.15:
                 continue
             suggestion_type = "over_norm" if norm_qty > 0 else "without_norm"
@@ -9698,7 +9768,7 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                 mat_qty = _safe_float(mat.get("quantity"))
                 if mat_qty <= 0:
                     continue
-                if any(_norm_rule_matches(r, w.get("name"), section_name, material_name, w.get("unit")) for r in est_norm_rules for w in works):
+                if any(_norm_rule_matches(r, w.get("name"), section_name, material_name, w.get("unit"), mat.get("unit") or "") for r in est_norm_rules for w in works):
                     continue
                 work = _estimate_norm_candidate_work(material_name, works, section_name, mat.get("unit") or "")
                 if not work:

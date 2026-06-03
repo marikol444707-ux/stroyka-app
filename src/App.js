@@ -3519,6 +3519,10 @@ function App() {
     const t = materialNameKey(text);
     return words.some(w=>t.includes(materialNameKey(w)));
   };
+  const normHasAny = (text, words=[]) => {
+    const t = materialNameKey(text);
+    return words.some(w=>t.includes(materialNameKey(w)));
+  };
   const workNoMaterialNormReason = (workName='', sectionName='') => {
     const t = materialNameKey(workName+' '+sectionName);
     if (['демонтаж','разбор','разборка','снятие','отбивка'].some(w=>t.includes(w))) return 'Демонтажная/разборочная работа — материал по норме не требуется';
@@ -3535,11 +3539,43 @@ function App() {
     const t = materialNameKey(workText);
     const words = t.split(' ');
     const hasCableWord = words.some(w=>w.startsWith('кабел')||w.startsWith('гофр')||(w.startsWith('провод')&&!w.startsWith('трубопровод')));
-    const mat = materialNameKey([rule.ruleKey, rule.name, ...(rule.material||[])].join(' '));
+    const ruleKey = materialNameKey(rule.ruleKey || rule.id || '');
+    const mat = materialNameKey([ruleKey, rule.name, ...(rule.material||[])].join(' '));
     const isCableRule = ['cable','кабел','провод','utp','ftp','гофр','кабель канал'].some(w=>mat.includes(w));
     if (isCableRule && t.includes('проклад') && !hasCableWord) return false;
+    if (ruleKey.includes('pipe_insulation') && !normHasAny(t, ['изоляц','теплоизоляц','утепл','энергофлекс'])) return false;
     return true;
   };
+  const materialNormUnitCompatible = (rule, materialName='', materialUnit='') => {
+    const ruleUnit = _normalizeUnit(rule?.materialUnit || '');
+    const unit = _normalizeUnit(materialUnit || '');
+    if (!ruleUnit || !unit || ruleUnit === unit) return true;
+    return !!convertUnits(materialName, 1, rule.materialUnit, materialUnit);
+  };
+  const materialNormFamilyCompatible = (rule, materialName='') => {
+    const ruleKey = materialNameKey(rule?.ruleKey || rule?.id || '');
+    const ruleText = materialNameKey([ruleKey, rule?.name, ...(rule?.material||[])].join(' '));
+    const materialText = materialNameKey(materialName);
+    const has = (words) => normHasAny(materialText, words);
+    const fittingWords = ['муфта','угольник','угол','тройник','переход','кран','фитинг','отвод','вентиль','клапан'];
+    const pipeWords = ['труба','трубы','трубн','ppr','pprc','ppr c','ppr-c','полипропилен'];
+    const pipeClampWords = ['хомут','кронштейн','клипс','клипса','скоба','держатель','опора','подвес','консоль'];
+    const insulationWords = ['изоляц','теплоизоляц','утепл','утеплител','минераловат','минвата','вата','изовер','технониколь','пенополиэтилен','энергофлекс'];
+    const fastenerWords = ['дюбел','дюбель','саморез','шуруп','анкер','гвозд','болт'];
+    if (ruleKey.includes('pipe_pp')) return has(pipeWords) && !has(fittingWords) && !has(pipeClampWords) && !has(fastenerWords);
+    if (ruleKey.includes('pipe_fittings')) return has(fittingWords);
+    if (ruleKey.includes('pipe_clamps')) return has(pipeClampWords);
+    if (ruleKey.includes('pipe_insulation')) return has(insulationWords) && !has(fastenerWords);
+    if (ruleKey.includes('thermal_insulation_board')) return has(insulationWords) && !has(fastenerWords);
+    if (ruleKey.includes('radiator_mount')) return has(['кронштейн','консоль','крепление радиатор','крепеж радиатор','комплект крепления']);
+    if (ruleText.includes('изоляция труб')) return has(insulationWords) && !has(fastenerWords);
+    if (ruleText.includes('трубопровод') && has(fastenerWords) && !has(pipeClampWords)) return false;
+    return true;
+  };
+  const materialNormMatchesMaterial = (rule, materialName='', materialUnit='') =>
+    normTextIncludes(materialName, rule?.material||[]) &&
+    materialNormUnitCompatible(rule, materialName, materialUnit) &&
+    materialNormFamilyCompatible(rule, materialName);
   const normListFromText = (value) => String(value||'').split(/[,;\n]/).map(v=>v.trim()).filter(Boolean);
   const normListToText = (value) => Array.isArray(value) ? value.join(', ') : String(value||'');
   const materialNormRuleForCalc = (rule) => ({
@@ -3598,7 +3634,7 @@ function App() {
     const normalizedWork = normalizeMeasure(workQty, workUnit);
     const rules = workNormRulesFor(workName, sectionName, projectName, params.estimateId).filter(rule=>
       _normalizeUnit(normalizedWork.unit)===_normalizeUnit(rule.workUnit) &&
-      normTextIncludes(material.name, rule.material)
+      materialNormMatchesMaterial(rule, material.name, material.unit)
     );
     if (!rules.length) return null;
     const rule = rules[0];
@@ -3733,7 +3769,7 @@ function App() {
             rows.push({key:[est.id,section.name,itemIdx,rule.ruleKey||rule.id,'skip'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionIdx,itemIdx,itemId:it.id,sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:'Норма не нужна',severity:'info',message:it.materialNormSkipReason||'Помечено в смете: материал по этой норме не требуется',rule,materialName:materialTitleForNormRule(rule),materialQty:0,materialUnit:rule.materialUnit||'',requiredQty:0,requiredUnit:rule.materialUnit||'',qtyPerUnit:rule.qtyPerUnit});
             return;
           }
-          const matchingMaterials = materialsInSection.filter(m=>normTextIncludes(m.name, rule.material));
+          const matchingMaterials = materialsInSection.filter(m=>materialNormMatchesMaterial(rule, m.name, m.unit));
           matchingMaterials.forEach(m=>coveredMaterialKeys.add(materialNameKey(m.name)));
           const material = matchingMaterials[0];
           rows.push({
