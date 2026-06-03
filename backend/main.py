@@ -1534,6 +1534,31 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW(),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS material_norm_overrides (
+            id SERIAL PRIMARY KEY,
+            base_norm_id INT,
+            project_name VARCHAR(255),
+            estimate_id INT,
+            section_name TEXT,
+            work_name TEXT,
+            material_name TEXT,
+            work_keywords TEXT,
+            block_work_keywords TEXT,
+            material_keywords TEXT,
+            work_unit VARCHAR(50),
+            material_unit VARCHAR(50),
+            qty_per_unit NUMERIC(14,4) DEFAULT 0,
+            thickness_base_mm NUMERIC(14,4),
+            default_thickness_mm NUMERIC(14,4),
+            label TEXT,
+            reason TEXT,
+            active BOOLEAN DEFAULT TRUE,
+            updated_by VARCHAR(255),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_material_norm_overrides_project ON material_norm_overrides(project_name);
+        CREATE INDEX IF NOT EXISTS idx_material_norm_overrides_estimate ON material_norm_overrides(estimate_id);
         CREATE TABLE IF NOT EXISTS material_norm_suggestions (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -2005,6 +2030,25 @@ class MaterialNormModel(BaseModel):
     thicknessBaseMm: Optional[float] = None
     defaultThicknessMm: Optional[float] = None
     label: str = ""
+    active: bool = True
+
+class MaterialNormOverrideModel(BaseModel):
+    baseNormId: Optional[int] = None
+    projectName: str = ""
+    estimateId: Optional[int] = None
+    sectionName: str = ""
+    workName: str = ""
+    materialName: str = ""
+    work: List[str] = []
+    blockWork: List[str] = []
+    material: List[str] = []
+    workUnit: str = "м2"
+    materialUnit: str = "кг"
+    qtyPerUnit: float = 0
+    thicknessBaseMm: Optional[float] = None
+    defaultThicknessMm: Optional[float] = None
+    label: str = ""
+    reason: str = ""
     active: bool = True
 
 class MaterialNormSuggestionUpdateModel(BaseModel):
@@ -8950,6 +8994,52 @@ def _material_norm_values(data: MaterialNormModel, user_name: str):
         user_name or "",
     )
 
+def _material_norm_override_row(row):
+    return {
+        "id": row["id"],
+        "baseNormId": row["base_norm_id"],
+        "projectName": row["project_name"] or "",
+        "estimateId": row["estimate_id"],
+        "sectionName": row["section_name"] or "",
+        "workName": row["work_name"] or "",
+        "materialName": row["material_name"] or "",
+        "work": _norm_list(row["work_keywords"]),
+        "blockWork": _norm_list(row["block_work_keywords"]),
+        "material": _norm_list(row["material_keywords"]),
+        "workUnit": row["work_unit"] or "",
+        "materialUnit": row["material_unit"] or "",
+        "qtyPerUnit": float(row["qty_per_unit"] or 0),
+        "thicknessBaseMm": float(row["thickness_base_mm"]) if row["thickness_base_mm"] is not None else None,
+        "defaultThicknessMm": float(row["default_thickness_mm"]) if row["default_thickness_mm"] is not None else None,
+        "label": row["label"] or "",
+        "reason": row["reason"] or "",
+        "active": bool(row["active"]),
+        "updatedBy": row["updated_by"] or "",
+        "updatedAt": str(row["updated_at"]) if row["updated_at"] else "",
+    }
+
+def _material_norm_override_values(data: MaterialNormOverrideModel, user_name: str):
+    return (
+        data.baseNormId,
+        (data.projectName or "").strip(),
+        data.estimateId,
+        (data.sectionName or "").strip(),
+        (data.workName or "").strip(),
+        (data.materialName or "").strip(),
+        json.dumps(_norm_list(data.work), ensure_ascii=False),
+        json.dumps(_norm_list(data.blockWork), ensure_ascii=False),
+        json.dumps(_norm_list(data.material), ensure_ascii=False),
+        data.workUnit or "м2",
+        data.materialUnit or "кг",
+        data.qtyPerUnit or 0,
+        data.thicknessBaseMm,
+        data.defaultThicknessMm,
+        (data.label or "").strip(),
+        (data.reason or "").strip(),
+        bool(data.active),
+        user_name or "",
+    )
+
 @app.get("/material-norms")
 def list_material_norms(_current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
@@ -8987,6 +9077,98 @@ def create_material_norm(data: MaterialNormModel, current_user: dict = Depends(r
     row = cur.fetchone()
     cur.close(); conn.close()
     return _material_norm_row(row)
+
+@app.get("/material-norms/overrides")
+def list_material_norm_overrides(project_name: str = None, estimate_id: int = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    where = ["active=TRUE"]
+    params = []
+    if project_name:
+        require_project_access(current_user, project_name)
+        where.append("project_name=%s")
+        params.append(project_name)
+    else:
+        allowed = visible_project_names(current_user)
+        if allowed is not None:
+            if not allowed:
+                cur.close(); conn.close()
+                return []
+            where.append("project_name = ANY(%s)")
+            params.append(allowed)
+    if estimate_id:
+        where.append("estimate_id=%s")
+        params.append(estimate_id)
+    cur.execute(f"""SELECT * FROM material_norm_overrides
+                    WHERE {' AND '.join(where)}
+                    ORDER BY updated_at DESC, id DESC""", tuple(params))
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [_material_norm_override_row(r) for r in rows]
+
+@app.post("/material-norms/overrides")
+def create_material_norm_override(data: MaterialNormOverrideModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    project_name = (data.projectName or "").strip()
+    if not project_name:
+        raise HTTPException(status_code=400, detail="Укажите объект для поправки нормы")
+    require_project_access(current_user, project_name)
+    if (data.qtyPerUnit or 0) <= 0:
+        raise HTTPException(status_code=400, detail="Расход должен быть больше 0")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    vals = _material_norm_override_values(data, current_user.get("name", ""))
+    cur.execute("""
+        INSERT INTO material_norm_overrides (
+            base_norm_id, project_name, estimate_id, section_name, work_name, material_name,
+            work_keywords, block_work_keywords, material_keywords, work_unit, material_unit,
+            qty_per_unit, thickness_base_mm, default_thickness_mm, label, reason, active,
+            updated_by, updated_at, created_at
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+        RETURNING *
+    """, vals)
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return _material_norm_override_row(row)
+
+@app.put("/material-norms/overrides/{id}")
+def update_material_norm_override(id: int, data: MaterialNormOverrideModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    project_name = (data.projectName or "").strip()
+    if not project_name:
+        raise HTTPException(status_code=400, detail="Укажите объект для поправки нормы")
+    require_project_access(current_user, project_name)
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    vals = _material_norm_override_values(data, current_user.get("name", ""))
+    cur.execute("""
+        UPDATE material_norm_overrides
+        SET base_norm_id=%s, project_name=%s, estimate_id=%s, section_name=%s,
+            work_name=%s, material_name=%s, work_keywords=%s, block_work_keywords=%s,
+            material_keywords=%s, work_unit=%s, material_unit=%s, qty_per_unit=%s,
+            thickness_base_mm=%s, default_thickness_mm=%s, label=%s, reason=%s,
+            active=%s, updated_by=%s, updated_at=NOW()
+        WHERE id=%s
+        RETURNING *
+    """, vals + (id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Поправка нормы не найдена")
+    return _material_norm_override_row(row)
+
+@app.delete("/material-norms/overrides/{id}")
+def delete_material_norm_override(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT project_name FROM material_norm_overrides WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Поправка нормы не найдена")
+    require_project_access(current_user, row["project_name"] or "")
+    cur.execute("UPDATE material_norm_overrides SET active=FALSE, updated_by=%s, updated_at=NOW() WHERE id=%s", (current_user.get("name", ""), id))
+    cur.close(); conn.close()
+    return {"ok": True}
 
 @app.put("/material-norms/{id}")
 def update_material_norm(id: int, data: MaterialNormModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
@@ -9162,12 +9344,45 @@ def _material_norm_suggestion_row(row):
         "updatedAt": str(row["updated_at"]) if row["updated_at"] else "",
     }
 
-def _load_active_norm_rules(cur):
+def _load_active_norm_rules(cur, project_name: str = "", estimate_id: int = None):
     cur.execute("""SELECT id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
                           work_unit, material_unit, qty_per_unit, thickness_base_mm,
                           default_thickness_mm, label
                    FROM material_norms WHERE active=TRUE ORDER BY id""")
-    return [dict(r) for r in cur.fetchall()]
+    base_rules = [dict(r) for r in cur.fetchall()]
+    if not project_name:
+        return base_rules
+    params = [project_name]
+    estimate_clause = ""
+    if estimate_id:
+        estimate_clause = "AND (estimate_id IS NULL OR estimate_id=%s)"
+        params.append(estimate_id)
+    cur.execute(f"""SELECT * FROM material_norm_overrides
+                    WHERE active=TRUE AND project_name=%s {estimate_clause}
+                    ORDER BY CASE WHEN estimate_id IS NULL THEN 1 ELSE 0 END, id DESC""", tuple(params))
+    overrides = []
+    for row in cur.fetchall():
+        r = dict(row)
+        overrides.append({
+            "id": r.get("base_norm_id"),
+            "override_id": r.get("id"),
+            "base_norm_id": r.get("base_norm_id"),
+            "rule_key": "override_" + str(r.get("id")),
+            "name": r.get("material_name") or r.get("label") or "Поправка нормы",
+            "work_keywords": r.get("work_keywords"),
+            "block_work_keywords": r.get("block_work_keywords"),
+            "material_keywords": r.get("material_keywords"),
+            "work_unit": r.get("work_unit"),
+            "material_unit": r.get("material_unit"),
+            "qty_per_unit": r.get("qty_per_unit"),
+            "thickness_base_mm": r.get("thickness_base_mm"),
+            "default_thickness_mm": r.get("default_thickness_mm"),
+            "label": r.get("label") or ("Поправка объекта: " + str(r.get("qty_per_unit") or 0)),
+            "project_name": r.get("project_name"),
+            "estimate_id": r.get("estimate_id"),
+            "reason": r.get("reason"),
+        })
+    return overrides + base_rules
 
 def _upsert_material_norm_suggestion(cur, suggestion: dict, current_user: dict):
     project_name = suggestion.get("projectName") or ""
@@ -9297,7 +9512,7 @@ def _enhance_norm_suggestions_with_ai(suggestions: list[dict]) -> list[dict]:
 
 def _generate_material_norm_suggestions(cur, current_user: dict, project_name: str = "", use_ai: bool = True) -> list[dict]:
     allowed_projects = visible_project_names(current_user)
-    norm_rules = _load_active_norm_rules(cur)
+    norm_rules = _load_active_norm_rules(cur, project_name)
     suggestions = {}
     where = "WHERE COALESCE(status,'') <> 'Отклонено'"
     params = []
@@ -9391,6 +9606,7 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
         estimate_params.append(allowed_projects)
     cur.execute(f"""SELECT e.id, e.project_name, e.sections_json FROM estimates e {estimate_where} ORDER BY e.id DESC LIMIT 120""", tuple(estimate_params))
     for est in cur.fetchall():
+        est_norm_rules = _load_active_norm_rules(cur, est["project_name"] or "", est["id"])
         try:
             sections = json.loads(est["sections_json"] or "[]")
         except Exception:
@@ -9407,7 +9623,7 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                 mat_qty = _safe_float(mat.get("quantity"))
                 if mat_qty <= 0:
                     continue
-                if any(_norm_rule_matches(r, w.get("name"), section_name, material_name, w.get("unit")) for r in norm_rules for w in works):
+                if any(_norm_rule_matches(r, w.get("name"), section_name, material_name, w.get("unit")) for r in est_norm_rules for w in works):
                     continue
                 work = _estimate_norm_candidate_work(material_name, works, section_name, mat.get("unit") or "")
                 if not work:
@@ -9632,6 +9848,56 @@ def accept_material_norm_suggestion(id: int, current_user: dict = Depends(requir
     cur.execute("""UPDATE ai_findings
                    SET status='Закрыто', updated_at=NOW()
                    WHERE linked_entity_type='material_norm_suggestion' AND linked_entity_id=%s""", (str(id),))
+    cur.close(); conn.close()
+    return _material_norm_suggestion_row(dict(row))
+
+@app.post("/material-norm-suggestions/{id}/accept-override")
+def accept_material_norm_suggestion_as_override(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM material_norm_suggestions WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Предложение не найдено")
+    suggestion = _material_norm_suggestion_row(dict(row))
+    require_project_access(current_user, suggestion["projectName"])
+    qty = suggestion["suggestedQtyPerUnit"]
+    if qty <= 0:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="В предложении нет расчётной нормы. Уточните вручную.")
+    work_keywords = suggestion["work"] or _norm_keywords_from_text(suggestion["workName"] + " " + suggestion["sectionName"])
+    material_keywords = suggestion["material"] or _norm_keywords_from_text(suggestion["materialName"])
+    block_keywords = suggestion["blockWork"] or ["демонтаж", "разбор"]
+    label = suggestion["label"] or ("Поправка объекта: " + suggestion["materialName"] + " " + str(qty) + " " + suggestion["materialUnit"] + " / " + (suggestion["workUnit"] or "ед."))
+    cur.execute("""
+        INSERT INTO material_norm_overrides (
+            base_norm_id, project_name, section_name, work_name, material_name,
+            work_keywords, block_work_keywords, material_keywords, work_unit, material_unit,
+            qty_per_unit, label, reason, active, updated_by, updated_at, created_at
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,%s,NOW(),NOW())
+        RETURNING id
+    """, (
+        suggestion["currentNormId"],
+        suggestion["projectName"],
+        suggestion["sectionName"],
+        suggestion["workName"],
+        suggestion["materialName"],
+        json.dumps(work_keywords, ensure_ascii=False),
+        json.dumps(block_keywords, ensure_ascii=False),
+        json.dumps(material_keywords, ensure_ascii=False),
+        suggestion["workUnit"] or "м2",
+        suggestion["materialUnit"] or "шт",
+        qty,
+        label,
+        suggestion["reason"] or suggestion["aiSummary"] or "Принято как поправка объекта, базовая норма не изменена",
+        current_user.get("name") or "",
+    ))
+    norm_row = cur.fetchone()
+    override_id = norm_row["id"] if norm_row else None
+    cur.execute("UPDATE material_norm_suggestions SET status='Принята', applied_norm_id=%s, updated_at=NOW() WHERE id=%s RETURNING *", (override_id, id))
+    row = cur.fetchone()
     cur.close(); conn.close()
     return _material_norm_suggestion_row(dict(row))
 

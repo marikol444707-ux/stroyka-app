@@ -846,10 +846,12 @@ function App() {
   const [toolsTab, setToolsTab] = useState('list');
   const [estimatesTab, setEstimatesTab] = useState('list');
   const [materialNorms, setMaterialNorms] = useState([]);
+  const [materialNormOverrides, setMaterialNormOverrides] = useState([]);
   const [materialNormSuggestions, setMaterialNormSuggestions] = useState([]);
   const [materialNormPreviewSuggestions, setMaterialNormPreviewSuggestions] = useState([]);
   const [materialNormNotice, setMaterialNormNotice] = useState(null);
   const [materialNormSuggestionLoading, setMaterialNormSuggestionLoading] = useState(false);
+  const [materialNormCoverageProject, setMaterialNormCoverageProject] = useState('');
   const [newMaterialNorm, setNewMaterialNorm] = useState(EMPTY_MATERIAL_NORM_FORM);
   const [editingMaterialNormId, setEditingMaterialNormId] = useState(null);
   const [estimateSearch, setEstimateSearch] = useState('');
@@ -1164,7 +1166,7 @@ function App() {
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,mns] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,mno,mns] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get('/materials'),
@@ -1219,6 +1221,7 @@ function App() {
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
         canSeeProjectDocs ? get('/ai-tasks') : skip([]),
         canSeeProjectDocs ? get('/material-norms') : skip([]),
+        canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),
         canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
@@ -1229,7 +1232,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -3498,6 +3501,7 @@ function App() {
   const normListToText = (value) => Array.isArray(value) ? value.join(', ') : String(value||'');
   const materialNormRuleForCalc = (rule) => ({
     ...rule,
+    dbId: Number(rule.id) || null,
     id: rule.ruleKey || rule.id,
     ruleKey: rule.ruleKey || rule.id,
     name: rule.name || materialTitleForNormRule(rule),
@@ -3507,14 +3511,30 @@ function App() {
     qtyPerUnit: toNum(rule.qtyPerUnit),
     thicknessBaseMm: toNum(rule.thicknessBaseMm),
     defaultThicknessMm: toNum(rule.defaultThicknessMm),
+    projectName: rule.projectName || '',
+    estimateId: rule.estimateId || null,
+    baseNormId: rule.baseNormId || (rule.scope ? null : (Number(rule.id) || null)),
+    reason: rule.reason || '',
+    scope: rule.scope || '',
   });
-  const materialNormRulesForCalculation = () => {
+  const materialNormRulesForCalculation = (projectName='', estimateId=null) => {
     const dbRules = (materialNorms||[]).filter(r=>r.active!==false).map(materialNormRuleForCalc).filter(r=>r.qtyPerUnit>0 && r.work?.length && r.material?.length);
-    return dbRules.length ? dbRules : WORK_MATERIAL_NORM_RULES;
+    const baseRules = dbRules.length ? dbRules : WORK_MATERIAL_NORM_RULES.map(materialNormRuleForCalc);
+    if (!projectName) return baseRules;
+    const overrides = (materialNormOverrides||[])
+      .filter(r=>r.active!==false && r.projectName===projectName && (!r.estimateId || !estimateId || Number(r.estimateId)===Number(estimateId)))
+      .map(r=>materialNormRuleForCalc({
+        ...r,
+        ruleKey:'override_'+r.id,
+        name:r.materialName || r.name || 'Поправка нормы',
+        scope:r.estimateId?'estimate':'project',
+      }))
+      .filter(r=>r.qtyPerUnit>0 && r.work?.length && r.material?.length);
+    return [...overrides, ...baseRules];
   };
-  const workNormRulesFor = (workName, sectionName='') => {
+  const workNormRulesFor = (workName, sectionName='', projectName='', estimateId=null) => {
     const text = workName+' '+sectionName;
-    return materialNormRulesForCalculation().filter(rule=>
+    return materialNormRulesForCalculation(projectName, estimateId).filter(rule=>
       normTextIncludes(text, rule.work) &&
       !normTextIncludes(text, rule.blockWork||[])
     );
@@ -3531,7 +3551,7 @@ function App() {
   const materialNormForWork = (projectName, workName, sectionName, workQty, workUnit, material, params={}) => {
     if (!projectName || !material?.name || toNum(workQty)<=0) return null;
     const normalizedWork = normalizeMeasure(workQty, workUnit);
-    const rules = workNormRulesFor(workName, sectionName).filter(rule=>
+    const rules = workNormRulesFor(workName, sectionName, projectName, params.estimateId).filter(rule=>
       _normalizeUnit(normalizedWork.unit)===_normalizeUnit(rule.workUnit) &&
       normTextIncludes(material.name, rule.material)
     );
@@ -3556,6 +3576,7 @@ function App() {
     const rounded = roundNormQty(outQty);
     return {
       ruleId: rule.ruleKey || rule.id,
+      scope: rule.scope || 'base',
       quantity: rounded,
       unit: outUnit,
       normQuantity: rounded,
@@ -3582,7 +3603,7 @@ function App() {
   const normRequirementsForWork = (workName, sectionName, workQty, workUnit, params={}) => {
     const normalizedWork = normalizeMeasure(workQty, workUnit);
     if (toNum(normalizedWork.qty)<=0) return [];
-    return workNormRulesFor(workName, sectionName)
+    return workNormRulesFor(workName, sectionName, params.projectName||'', params.estimateId||null)
       .filter(rule=>_normalizeUnit(normalizedWork.unit)===_normalizeUnit(rule.workUnit))
       .map(rule=>{
         let qty = normalizedWork.qty * Number(rule.qtyPerUnit||0);
@@ -3592,7 +3613,7 @@ function App() {
           qty *= thickness / Number(rule.thicknessBaseMm);
           label += ' · слой '+thickness+' мм';
         }
-        return {ruleId:rule.ruleKey || rule.id,name:materialTitleForNormRule(rule),quantity:roundNormQty(qty),unit:rule.materialUnit,normSource:label};
+        return {ruleId:rule.ruleKey || rule.id,scope:rule.scope||'base',rule,name:materialTitleForNormRule(rule),quantity:roundNormQty(qty),unit:rule.materialUnit,normSource:label};
       }).filter(r=>r.quantity>0);
   };
   const estimateWorkNormRequirementRows = (projectName) => {
@@ -3606,7 +3627,7 @@ function App() {
     const rows = {};
     (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
       if (!isEstimateWorkItem(it, s.name)) return;
-      normRequirementsForWork(it.name, s.name, it.quantity, it.unit).forEach(req=>{
+      normRequirementsForWork(it.name, s.name, it.quantity, it.unit, {projectName, estimateId:est.id}).forEach(req=>{
         const key = req.ruleId+'|'+materialNameKey(req.name)+'|'+_normalizeUnit(req.unit);
         if (!rows[key]) rows[key] = {key,name:req.name,unit:req.unit,planQty:0,works:[],sections:[],normSources:[]};
         rows[key].planQty += toNum(req.quantity);
@@ -3617,6 +3638,95 @@ function App() {
       });
     })));
     return Object.values(rows).map(r=>({...r,planQty:roundNormQty(r.planQty)})).sort((a,b)=>b.planQty-a.planQty || a.name.localeCompare(b.name,'ru'));
+  };
+  const estimateNormCoverageRows = (projectName) => {
+    const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
+    const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
+    const rows = [];
+    activeEstimates.forEach(est=>_sectionsOfEst(est).forEach(section=>{
+      const items = section.items || [];
+      const materialsInSection = items.filter(it=>isEstimateMaterialItem(it, section.name));
+      const coveredMaterialKeys = new Set();
+      items.forEach((it,itemIdx)=>{
+        if (!isEstimateWorkItem(it, section.name)) return;
+        const workQty = toNum(it.quantity);
+        const workUnit = it.unit || '';
+        const rules = workNormRulesFor(it.name, section.name, projectName, est.id)
+          .filter(rule=>_normalizeUnit(normalizeMeasure(workQty,workUnit).unit)===_normalizeUnit(rule.workUnit));
+        if (!rules.length) {
+          rows.push({key:[est.id,section.name,itemIdx,'no'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:'Нет нормы',severity:'warning',message:'Для работы не найдено правило расхода материала',rule:null,materialName:'',materialQty:0,materialUnit:''});
+          return;
+        }
+        rules.forEach(rule=>{
+          const req = normRequirementsForWork(it.name, section.name, workQty, workUnit, {projectName, estimateId:est.id}).find(r=>String(r.ruleId)===String(rule.ruleKey||rule.id));
+          const material = materialsInSection.find(m=>normTextIncludes(m.name, rule.material));
+          if (material) coveredMaterialKeys.add(materialNameKey(material.name));
+          rows.push({
+            key:[est.id,section.name,itemIdx,rule.ruleKey||rule.id].join('|'),
+            projectName,
+            estimateId:est.id,
+            estimateName:est.name,
+            packageName:estimatePackage(est),
+            sectionName:section.name||'',
+            workName:it.name||'',
+            workQty,
+            workUnit,
+            status: material ? (rule.scope==='estimate'?'Поправка сметы':rule.scope==='project'?'Поправка объекта':'Норма применена') : 'Нет материала в смете',
+            severity: material ? 'success' : 'info',
+            message: material ? 'Работа покрыта нормой и материал найден в разделе сметы' : 'Норма есть, но строка материала в этом разделе сметы не найдена',
+            rule,
+            materialName: material?.name || materialTitleForNormRule(rule),
+            materialQty: toNum(material?.quantity),
+            materialUnit: material?.unit || rule.materialUnit || '',
+            requiredQty: req?.quantity || 0,
+            requiredUnit: req?.unit || rule.materialUnit || '',
+            qtyPerUnit: rule.qtyPerUnit,
+          });
+        });
+      });
+      materialsInSection.forEach((m,idx)=>{
+        const key = materialNameKey(m.name);
+        if (!key || coveredMaterialKeys.has(key)) return;
+        rows.push({key:[est.id,section.name,'mat',idx].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionName:section.name||'',workName:'—',workQty:0,workUnit:'',status:'Материал без работы',severity:'warning',message:'Материал есть в смете, но система не связала его с работой раздела',rule:null,materialName:m.name||'',materialQty:toNum(m.quantity),materialUnit:m.unit||''});
+      });
+    }));
+    return rows;
+  };
+  const materialNormCoverageMeta = (status) => {
+    if (['Норма применена','Поправка объекта','Поправка сметы'].includes(status)) return {color:C.success,bg:C.successLight,border:C.successBorder};
+    if (status==='Нет нормы' || status==='Материал без работы') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
+    return {color:C.info,bg:C.infoLight,border:C.infoBorder};
+  };
+  const saveMaterialNormOverrideFromCoverage = async (row) => {
+    if (!canEditMaterialNorms() || !row?.projectName || !row?.rule) return;
+    const nextQty = window.prompt('Расход для этого объекта/сметы ('+(row.rule.materialUnit||row.materialUnit||'')+' / '+(row.rule.workUnit||row.workUnit||'')+'):', String(row.qtyPerUnit || row.rule.qtyPerUnit || ''));
+    if (nextQty === null) return;
+    const qty = toNum(nextQty);
+    if (qty <= 0) { alert('Расход должен быть больше 0'); return; }
+    const payload = {
+      baseNormId: row.rule.baseNormId || row.rule.dbId || null,
+      projectName: row.projectName,
+      estimateId: row.estimateId || null,
+      sectionName: row.sectionName || '',
+      workName: row.workName || '',
+      materialName: row.materialName || row.rule.name || '',
+      work: row.rule.work || [],
+      blockWork: row.rule.blockWork || [],
+      material: row.rule.material || [],
+      workUnit: row.rule.workUnit || row.workUnit || 'м2',
+      materialUnit: row.rule.materialUnit || row.materialUnit || 'кг',
+      qtyPerUnit: qty,
+      thicknessBaseMm: row.rule.thicknessBaseMm || null,
+      defaultThicknessMm: row.rule.defaultThicknessMm || null,
+      label: 'Поправка '+row.projectName+': '+qty+' '+(row.rule.materialUnit||row.materialUnit||'')+' / '+(row.rule.workUnit||row.workUnit||''),
+      reason: 'Уточнение по активной смете: '+(row.estimateName||'')+' / '+(row.sectionName||''),
+      active: true,
+    };
+    const res = await fetch(API+'/material-norms/overrides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) { alert(data.detail || 'Не удалось сохранить поправку'); return; }
+    setMaterialNormNotice({tone:'success',title:'Поправка нормы сохранена',text:'Поправка применится к объекту '+row.projectName+' и этой смете. Базовый справочник не изменён.'});
+    await loadAll();
   };
   const autoFillNormMaterialsForWork = (projectName, workName, sectionName, workQty, workUnit, currentMaterials=[], params={}) => {
     if (!projectName || toNum(workQty)<=0) return currentMaterials || [];
@@ -3777,6 +3887,18 @@ function App() {
       alert(data.detail || 'Не удалось принять предложение');
       return;
     }
+    await loadAll();
+  };
+  const acceptMaterialNormSuggestionAsOverride = async (id) => {
+    if (!canEditMaterialNorms() || !id) return;
+    if (!window.confirm('Принять как поправку объекта? Базовая норма компании не изменится.')) return;
+    const res = await fetch(API+'/material-norm-suggestions/'+id+'/accept-override',{method:'POST'});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) {
+      alert(data.detail || 'Не удалось сохранить поправку объекта');
+      return;
+    }
+    setMaterialNormNotice({tone:'success',title:'Поправка объекта сохранена',text:'Базовая норма не изменена. Поправка будет применяться при расчётах по этому объекту.'});
     await loadAll();
   };
   const rejectMaterialNormSuggestion = async (id) => {
@@ -13100,6 +13222,7 @@ function App() {
                 </div>
                 <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
                   <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Норм: '+((materialNorms||[]).length || WORK_MATERIAL_NORM_RULES.length)}</span>
+                  {(materialNormOverrides||[]).length>0&&<span style={badge(C.success,C.successLight,C.successBorder)}>{'Поправок: '+materialNormOverrides.length}</span>}
                   {activeMaterialNormSuggestions().length>0&&<span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'AI-предложений: '+activeMaterialNormSuggestions().length}</span>}
                   {materialNormPreviewSuggestions.length>0&&<button onClick={()=>setMaterialNormPreviewSuggestions([])} style={{...btnG,padding:'6px 10px',fontSize:'12px'}}><X size={13}/>Очистить предпросмотр</button>}
                   {canEditMaterialNorms()&&<button disabled={materialNormSuggestionLoading} onClick={()=>generateMaterialNormSuggestions({dryRun:true})} style={btnState(btnG,materialNormSuggestionLoading)}><Eye size={14}/>Предпросмотр</button>}
@@ -13113,6 +13236,48 @@ function App() {
                 </div>
                 <button onClick={()=>setMaterialNormNotice(null)} style={{...btnG,padding:'4px 8px',fontSize:'11px',flex:'0 0 auto'}}><X size={12}/></button>
               </div>;})()}
+              {(()=>{const projectOptions=visibleProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
+                  <div>
+                    <b style={{color:C.text,fontSize:'13px',display:'block'}}>📐 Вся смета по нормам</b>
+                    <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>Показывает не только проблемы, а полный проход по работам и материалам активной сметы.</p>
+                  </div>
+                  <select value={selectedProject} onChange={e=>setMaterialNormCoverageProject(e.target.value)} style={{...inp,marginBottom:0,width:isMobile?'100%':'260px'}}>
+                    {projectOptions.length===0&&<option value="">Нет объектов</option>}
+                    {projectOptions.map(p=><option key={p.id||p.name} value={p.name}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
+                  <span style={badge(C.success,C.successLight,C.successBorder)}>{'Покрыто: '+okCount}</span>
+                  <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Нет нормы: '+missingCount}</span>
+                  <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Материал без работы: '+unlinkedCount}</span>
+                  <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Нет материала в разделе: '+infoCount}</span>
+                  <span style={badge(C.textSec,C.bgGray,C.border)}>{'Всего строк: '+rows.length}</span>
+                </div>
+                {rows.length>0?<div style={{display:'grid',gap:'7px',maxHeight:'420px',overflowY:'auto',paddingRight:'2px'}}>
+                  {rows.slice(0,80).map(r=>{const meta=materialNormCoverageMeta(r.status);return(<div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1.6fr) minmax(220px,1fr) 170px auto',gap:'10px',alignItems:'center',padding:'10px 11px',borderRadius:'9px',border:'1px solid '+C.border,backgroundColor:C.bg}}>
+                    <div style={{minWidth:0}}>
+                      <span style={badge(meta.color,meta.bg,meta.border)}>{r.status}</span>
+                      <b style={{display:'block',color:C.text,fontSize:'12px',marginTop:'5px',overflow:'hidden',textOverflow:'ellipsis'}}>{r.workName}</b>
+                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{r.packageName+' · '+r.sectionName+' · '+fmtMeasure(r.workQty,r.workUnit)}</p>
+                    </div>
+                    <div style={{minWidth:0}}>
+                      <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Материал / норма</span>
+                      <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px',overflow:'hidden',textOverflow:'ellipsis'}}>{r.materialName||'—'}</p>
+                      {r.requiredQty>0&&<p style={{color:C.success,margin:'2px 0 0',fontSize:'11px',fontWeight:'700'}}>{'Потребность: '+fmtMeasure(r.requiredQty,r.requiredUnit)}</p>}
+                    </div>
+                    <div>
+                      <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Смета</span>
+                      <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{r.materialQty>0?fmtMeasure(r.materialQty,r.materialUnit):'—'}</p>
+                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>{r.message}</p>
+                    </div>
+                    <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end',flexWrap:'wrap'}}>
+                      {r.rule&&canEditMaterialNorms()&&<button onClick={()=>saveMaterialNormOverrideFromCoverage(r)} style={{...btnB,padding:'5px 8px',fontSize:'11px'}}>Поправка</button>}
+                    </div>
+                  </div>);})}
+                  {rows.length>80&&<p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Показано 80 из {rows.length}. Сначала обработайте строки без нормы и материалы без работы.</p>}
+                </div>:<p style={{color:C.textMuted,fontSize:'12px',margin:'8px 0 0'}}>Выберите объект с активной сметой заказчика.</p>}
+              </div>);})()}
               {activeMaterialNormSuggestions().length>0&&(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
                   <div>
@@ -13153,6 +13318,7 @@ function App() {
                             <span style={badge(C.textMuted,C.bgGray,C.border)}>Без сохранения</span>
                           </> : <>
                             <button onClick={()=>acceptMaterialNormSuggestion(s.id)} disabled={!s.suggestedQtyPerUnit} style={btnState(btnGr,!s.suggestedQtyPerUnit,{padding:'6px 9px',fontSize:'11px'})}><Check size={12}/>Принять</button>
+                            <button onClick={()=>acceptMaterialNormSuggestionAsOverride(s.id)} disabled={!s.suggestedQtyPerUnit} style={btnState(btnB,!s.suggestedQtyPerUnit,{padding:'6px 9px',fontSize:'11px'})}><Check size={12}/>В объект</button>
                             <button onClick={()=>createTaskFromMaterialNormSuggestion(s.id)} style={{...btnB,padding:'6px 9px',fontSize:'11px'}}><Bot size={12}/>Поручение</button>
                             <button onClick={()=>rejectMaterialNormSuggestion(s.id)} style={{...btnR,padding:'6px 9px',fontSize:'11px'}}><X size={12}/></button>
                           </>}
