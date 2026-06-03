@@ -2702,6 +2702,7 @@ function App() {
   const estimatePackage = (est) => est?.workPackage || est?.work_package || 'Основная';
   const estimateTypeIcon = (type) => ({'Заказчик':'📋','Работы':'👷','Материалы':'📦'}[type||'Заказчик'] || '📄');
   const isArchivedEstimate = (est) => (est?.status || 'Черновик') === 'Архив';
+  const isGlobalEstimateTemplate = (est) => Boolean(est?.isTemplate) && !est?.projectName && !est?.projectId;
   const estimateUpdatedTs = (est) => {
     const raw = est?.latestVersionAt || est?.createdAt || '';
     const t = raw ? new Date(raw).getTime() : 0;
@@ -2712,7 +2713,7 @@ function App() {
   const sameEstimateGroup = (a,b) => estimateGroupKey(a) === estimateGroupKey(b);
   const activeEstimateFromList = (list) => {
     const arr = [...(list||[])].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
-    const normal = arr.filter(e=>!e.isTemplate);
+    const normal = arr.filter(e=>!isGlobalEstimateTemplate(e));
     return normal.find(e=>e.status==='Активная')
       || arr.find(e=>e.status==='Активная')
       || normal.find(e=>!isArchivedEstimate(e))
@@ -2727,9 +2728,13 @@ function App() {
   };
   const estimateDisplayVersion = (est, groupItems=[]) => {
     const raw = String(est?.version || '').trim();
-    if (raw) return raw.startsWith('v') ? raw : 'v'+raw;
     const sortedAsc = [...(groupItems||[])].sort((a,b)=>(estimateUpdatedTs(a)||Number(a.id||0))-(estimateUpdatedTs(b)||Number(b.id||0)));
     const idx = sortedAsc.findIndex(e=>String(e.id)===String(est?.id));
+    if (raw) {
+      const sameRaw = sortedAsc.filter(e=>String(e.version||'').trim()===raw);
+      const base = raw.startsWith('v') ? raw : 'v'+raw;
+      return sameRaw.length>1 && idx>=0 ? base+' · ред.'+(idx+1) : base;
+    }
     return 'v'+(idx>=0?idx+1:1);
   };
   const nextEstimateVersionFor = (draft, sourceEstimates=estimatesList) => {
@@ -2739,7 +2744,7 @@ function App() {
       smetaType:draft?.smetaType || 'Заказчик',
       workPackage:draft?.workPackage || 'Основная'
     };
-    const group = (sourceEstimates||[]).filter(e=>!e.isTemplate && sameEstimateGroup(e,fake));
+    const group = (sourceEstimates||[]).filter(e=>!isGlobalEstimateTemplate(e) && sameEstimateGroup(e,fake));
     if (!group.length) return '1.0';
     const maxVersion = Math.max(...group.map(estimateVersionNumber), group.length);
     return (Math.floor(maxVersion)+1)+'.0';
@@ -2826,7 +2831,7 @@ function App() {
   };
   const estimateDiffBaseFor = (est) => {
     const group = (estimatesList||[])
-      .filter(e=>!e.isTemplate && est?.id!==e.id && sameEstimateGroup(e,est))
+      .filter(e=>!isGlobalEstimateTemplate(e) && est?.id!==e.id && sameEstimateGroup(e,est))
       .sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
     return group.find(e=>e.status==='Активная') || group[0] || null;
   };
@@ -3276,13 +3281,13 @@ function App() {
   const setEstimateStatusRemote = async (est, status) => {
     if(!est?.id) return;
     const diffBase = status==='Активная'
-      ? activeEstimateFromList((estimatesList||[]).filter(e=>!e.isTemplate && e.id!==est.id && sameEstimateGroup(e,est) && e.status==='Активная'))
+      ? activeEstimateFromList((estimatesList||[]).filter(e=>!isGlobalEstimateTemplate(e) && e.id!==est.id && sameEstimateGroup(e,est) && e.status==='Активная'))
       : null;
     const res = await fetch(API+'/estimates/'+est.id+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
     if(!res.ok){const data=await res.json().catch(()=>({}));alert(data.detail||'Не удалось изменить статус сметы');return;}
     const updated = {...est,status};
     const nextEstimates = (estimatesList||[]).map(e=>{
-      if(status==='Активная' && e.id!==est.id && !e.isTemplate && sameEstimateGroup(e, est)) return {...e,status:'Архив'};
+      if(status==='Активная' && e.id!==est.id && !isGlobalEstimateTemplate(e) && sameEstimateGroup(e, est)) return {...e,status:'Архив'};
       if(e.id===est.id) return updated;
       return e;
     });
@@ -4343,7 +4348,7 @@ function App() {
     if (!est?.id) return estimatesList||[];
     let found = false;
     const mapped = (estimatesList||[]).map(e=>{
-      if (est.status==='Активная' && e.id!==est.id && !e.isTemplate && sameEstimateGroup(e, est)) return {...e,status:'Архив'};
+      if (est.status==='Активная' && e.id!==est.id && !isGlobalEstimateTemplate(e) && sameEstimateGroup(e, est)) return {...e,status:'Архив'};
       if (Number(e.id)===Number(est.id)) { found = true; return est; }
       return e;
     });
@@ -4381,7 +4386,7 @@ function App() {
   };
   const queueEstimateDiffReviewTask = async (baseEst, nextEst, reason='Новая смета') => {
     if (!baseEst?.id || !nextEst?.id || Number(baseEst.id)===Number(nextEst.id)) return;
-    if (!sameEstimateGroup(baseEst,nextEst) || nextEst.isTemplate || (nextEst.status||'Черновик')!=='Активная') return;
+    if (!sameEstimateGroup(baseEst,nextEst) || isGlobalEstimateTemplate(nextEst) || (nextEst.status||'Черновик')!=='Активная') return;
     const diff = buildEstimateDiff(baseEst,nextEst);
     const changeCount = diff.changed.length + diff.added.length + diff.removed.length;
     const marker = estimateDiffReviewMarker(baseEst.id,nextEst.id);
@@ -4560,7 +4565,7 @@ function App() {
   };
   const autoReconcileEstimateChanges = async (baseEst, nextEst, reason='Новая смета') => {
     if (!baseEst?.id || !nextEst?.id || Number(baseEst.id)===Number(nextEst.id)) return;
-    if (!sameEstimateGroup(baseEst,nextEst) || nextEst.isTemplate || estimateKind(nextEst)!=='Заказчик' || (nextEst.status||'Черновик')!=='Активная') return;
+    if (!sameEstimateGroup(baseEst,nextEst) || isGlobalEstimateTemplate(nextEst) || estimateKind(nextEst)!=='Заказчик' || (nextEst.status||'Черновик')!=='Активная') return;
     const marker = estimateChangeReconcileMarker(nextEst.id);
     const candidates = includableEstimateChanges(nextEst.projectName || baseEst.projectName || '');
     const existingTask = aiTaskByMarker(marker);
@@ -5872,7 +5877,7 @@ function App() {
     activeDirectorProjects().forEach(p=>{
       if(activeEstimatesForProject(p,'Заказчик').length===0) issues.push({severity:'Критично',project:p.name,estimate:'-',where:'Смета заказчика',problem:'Нет активной сметы заказчика',action:'Назначить или создать активную смету'});
     });
-    (sourceEstimates||[]).filter(e=>!e.isTemplate&&!isArchivedEstimate(e)).forEach(est=>{
+    (sourceEstimates||[]).filter(e=>!isGlobalEstimateTemplate(e)&&!isArchivedEstimate(e)).forEach(est=>{
       const sections = _sectionsOfEst(est);
       const projectName = est.projectName || projects.find(p=>Number(p.id)===Number(est.projectId))?.name || '';
       if(!sections.length) issues.push({severity:'Критично',project:projectName,estimate:est.name,where:'Состав сметы',problem:'В смете нет разделов и позиций',action:'Заполнить позиции до запуска работ'});
@@ -5901,7 +5906,7 @@ function App() {
     return issues.sort((a,b)=>(a.severity==='Критично'?-1:1)-(b.severity==='Критично'?-1:1));
   };
   const buildEstimateControlReportContent = (sourceEstimates = estimatesList) => {
-    const estimates = (sourceEstimates||[]).filter(e=>!e.isTemplate);
+    const estimates = (sourceEstimates||[]).filter(e=>!isGlobalEstimateTemplate(e));
     const activeEstimates = estimates.filter(e=>e.status==='Активная');
     const issues = estimateControlIssues(sourceEstimates);
     const topItems = activeEstimates.flatMap(est=>_sectionsOfEst(est).flatMap(s=>(s.items||[]).map(it=>({
@@ -14086,9 +14091,9 @@ function App() {
                     <option value="Активная">Активная</option>
                     <option value="Черновик">Черновик</option>
                   </select>
-                  {estimatesList.filter(e=>e.isTemplate).length>0&&(<select value={newEstimate.templateId||''} onChange={e=>setNewEstimate({...newEstimate,templateId:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
+                  {estimatesList.filter(isGlobalEstimateTemplate).length>0&&(<select value={newEstimate.templateId||''} onChange={e=>setNewEstimate({...newEstimate,templateId:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
                     <option value=''>📄 Пустая смета</option>
-                    {estimatesList.filter(e=>e.isTemplate).map(t=>(<option key={t.id} value={t.id}>⭐ Из шаблона: {t.name}</option>))}
+                    {estimatesList.filter(isGlobalEstimateTemplate).map(t=>(<option key={t.id} value={t.id}>⭐ Из шаблона: {t.name}</option>))}
                   </select>)}
                 </div>
                 <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{
@@ -14101,8 +14106,8 @@ function App() {
                   const res=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections})});
                   const est=await res.json();
                   const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};
-                  const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>newEst.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,newEst)&&e.status==='Активная'));
-                  const nextEstimates=[...(estimatesList||[]).map(e=>(newEst.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,newEst))?{...e,status:'Архив'}:e),newEst];
+                  const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>newEst.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,newEst)&&e.status==='Активная'));
+                  const nextEstimates=[...(estimatesList||[]).map(e=>(newEst.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,newEst))?{...e,status:'Архив'}:e),newEst];
                   setEstimatesList(nextEstimates);
                   setSelectedEstimate(newEst);
                   setShowForm(false);
@@ -14363,7 +14368,7 @@ function App() {
                   </div>
                 </div>
               </div>):(<div>
-                {(()=>{const normal=(estimatesList||[]).filter(e=>!e.isTemplate||e.projectName||e.status==='Активная');const templates=(estimatesList||[]).filter(e=>e.isTemplate&&!e.projectName&&e.status!=='Активная');const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});return(<>
+                {(()=>{const normal=(estimatesList||[]).filter(e=>!isGlobalEstimateTemplate(e)||e.status==='Активная');const templates=(estimatesList||[]).filter(e=>isGlobalEstimateTemplate(e)&&e.status!=='Активная');const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});return(<>
                   <div style={{...card,padding:'12px 14px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',backgroundColor:C.bg}}>
                     <div style={{display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center'}}>
                       <span style={badge(C.success,C.successLight,C.successBorder)}>{'Активные: '+normal.filter(e=>e.status==='Активная').length}</span>
@@ -14437,8 +14442,8 @@ function App() {
                       const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});
                       const saved=await saveRes.json();
                       const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};
-                      const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>estWithId.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,estWithId)&&e.status==='Активная'));
-                      const nextEstimates=[...(estimatesList||[]).map(e=>(estWithId.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId];
+                      const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId)&&e.status==='Активная'));
+                      const nextEstimates=[...(estimatesList||[]).map(e=>(estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId];
                       setEstimatesList(nextEstimates);
                       setSelectedEstimate(estWithId);
                       setEstimatesTab('list');
@@ -15421,8 +15426,8 @@ function App() {
               const data=await res.json();
               if(!res.ok||!data.ok){alert('ИИ не справился: '+(data.detail||'попробуйте ещё раз с более детальным описанием'));setGenerating(false);return;}
               const est={id:data.id,name:data.name,projectId:data.projectId||'',projectName:data.projectName||'',version:data.version||genVersion,smetaType:data.smetaType||generateForm.smetaType||'Заказчик',workPackage:data.workPackage||generateForm.workPackage||'Основная',status:data.status||generateForm.status||'Активная',sections:enrichEstimateMeasurementBasis(data.sections||[])};
-              const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>est.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,est)&&e.status==='Активная'));
-              const nextEstimates=[...(estimatesList||[]).map(e=>(est.status==='Активная'&&!e.isTemplate&&sameEstimateGroup(e,est))?{...e,status:'Архив'}:e),est];
+              const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>est.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,est)&&e.status==='Активная'));
+              const nextEstimates=[...(estimatesList||[]).map(e=>(est.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,est))?{...e,status:'Архив'}:e),est];
               setEstimatesList(nextEstimates);
               setSelectedEstimate(est);
               if(diffBase) {

@@ -6921,11 +6921,17 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
         else:
             cur.execute(f"SELECT {base_cols} FROM estimates e WHERE e.project_name = ANY(%s) AND e.status='Активная' ORDER BY e.id DESC", (allowed_projects,))
     elif allowed_projects is not None and not allowed_projects:
-        cur.execute(f"SELECT {base_cols} FROM estimates e WHERE COALESCE(e.is_template,FALSE)=TRUE ORDER BY e.id DESC")
+        cur.execute(f"""SELECT {base_cols} FROM estimates e
+                        WHERE COALESCE(e.is_template,FALSE)=TRUE
+                          AND COALESCE(e.project_name,'')=''
+                        ORDER BY e.id DESC""")
     elif allowed_projects is None:
         cur.execute(f"SELECT {base_cols} FROM estimates e ORDER BY e.id DESC")
     else:
-        cur.execute(f"SELECT {base_cols} FROM estimates e WHERE e.project_name = ANY(%s) OR COALESCE(e.is_template,FALSE)=TRUE ORDER BY e.id DESC", (allowed_projects,))
+        cur.execute(f"""SELECT {base_cols} FROM estimates e
+                        WHERE e.project_name = ANY(%s)
+                           OR (COALESCE(e.is_template,FALSE)=TRUE AND COALESCE(e.project_name,'')='')
+                        ORDER BY e.id DESC""", (allowed_projects,))
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
