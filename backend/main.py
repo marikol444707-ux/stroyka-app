@@ -9370,9 +9370,11 @@ def _norm_rule_specific_enough(rule: dict, work_text: str) -> bool:
     )
     rule_key = _norm_key_text(rule.get("rule_key") or "")
     material_text = _norm_key_text(" ".join(_norm_list(rule.get("material_keywords"))))
+    material_words = material_text.split()
     is_cable_rule = (
         "cable" in rule_key or
-        any(w in material_text for w in ("кабел", "провод", "utp", "ftp", "гофр", "кабель канал"))
+        any(w in material_text for w in ("кабел", "utp", "ftp", "гофр", "кабель канал")) or
+        any(w.startswith("провод") and not w.startswith("трубопровод") for w in material_words)
     )
     if is_cable_rule and "проклад" in text and not has_cable_word:
         return False

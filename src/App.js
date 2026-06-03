@@ -3607,7 +3607,9 @@ function App() {
     const hasCableWord = words.some(w=>w.startsWith('кабел')||w.startsWith('гофр')||(w.startsWith('провод')&&!w.startsWith('трубопровод')));
     const ruleKey = materialNameKey(rule.ruleKey || rule.id || '');
     const mat = materialNameKey([ruleKey, rule.name, ...(rule.material||[])].join(' '));
-    const isCableRule = ['cable','кабел','провод','utp','ftp','гофр','кабель канал'].some(w=>mat.includes(w));
+    const matWords = mat.split(' ');
+    const isCableRule = ['cable','кабел','utp','ftp','гофр','кабель канал'].some(w=>mat.includes(w)) ||
+      matWords.some(w=>w.startsWith('провод') && !w.startsWith('трубопровод'));
     if (isCableRule && t.includes('проклад') && !hasCableWord) return false;
     if (ruleKey.includes('cable_line') && normHasAny(t, ['труба гофр','гофрирован','кабель-канал','кабель канал','короб','лоток','металлорукав']) && !normHasAny(t, ['затягивание','прокладка кабел','прокладка провод','провод в короб','кабель в короб'])) return false;
     if (ruleKey.includes('pipe_insulation') && !normHasAny(t, ['изоляц','теплоизоляц','утепл','энергофлекс'])) return false;
