@@ -9352,8 +9352,9 @@ def _norm_material_family_compatible(rule: dict, material_name: str = "") -> boo
     fastener_words = ("дюбел", "дюбель", "саморез", "шуруп", "анкер", "гвозд", "болт")
     cable_words = ("кабель", "провод", "utp", "ftp", "sftp", "f-utp", "u-utp", "кпс", "ксвв", "кспв", "квп", "ввг", "nym", "frls", "frhf")
     cable_protection_words = ("кабель канал", "короб", "гофр", "гофра", "гофрирован", "труба пнд", "труба пвх", "трубы гибкие", "лоток", "металлорукав")
+    cable_fastener_words = ("скоб", "хомут", "крепеж", "креплен", "клипс", "держатель", "дюбел", "дюбель", "саморез", "анкер", "болт", "шуруп")
     if "cable_line" in rule_key:
-        return has(cable_words) and not has(cable_protection_words)
+        return has(cable_words) and not has(cable_protection_words) and not has(cable_fastener_words)
     if "cable_protection" in rule_key:
         return has(cable_protection_words)
     if "cable_channel_box" in rule_key:

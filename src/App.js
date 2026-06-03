@@ -3565,7 +3565,8 @@ function App() {
     const fastenerWords = ['дюбел','дюбель','саморез','шуруп','анкер','гвозд','болт'];
     const cableWords = ['кабель','провод','utp','ftp','sftp','f-utp','u-utp','кпс','ксвв','кспв','квп','ввг','nym','frls','frhf'];
     const cableProtectionWords = ['кабель-канал','кабель канал','короб','гофр','гофра','гофрирован','труба пнд','труба пвх','трубы гибкие','лоток','металлорукав'];
-    if (ruleKey.includes('cable_line')) return has(cableWords) && !has(cableProtectionWords);
+    const cableFastenerWords = ['скоб','хомут','крепеж','креплен','клипс','держатель','дюбел','дюбель','саморез','анкер','болт','шуруп'];
+    if (ruleKey.includes('cable_line')) return has(cableWords) && !has(cableProtectionWords) && !has(cableFastenerWords);
     if (ruleKey.includes('cable_protection')) return has(cableProtectionWords);
     if (ruleKey.includes('cable_channel_box')) return has(['кабель-канал','кабель канал','короб']);
     if (ruleKey.includes('pipe_pp')) return has(pipeWords) && !has(fittingWords) && !has(pipeClampWords) && !has(fastenerWords);
