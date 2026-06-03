@@ -3535,6 +3535,68 @@ function App() {
     if (['сверло','бур','диск отрез','круг отрез','коронка алмаз','оснастк','инструмент'].some(w=>t.includes(w))) return 'Расходный инструмент/оснастка — не участвует в подборе нормы строительного материала';
     return '';
   };
+  const normSpecText = (value='') => String(value||'').toLowerCase()
+    .replace(/ё/g,'е')
+    .replace(/,/g,'.')
+    .replace(/[×x]/g,'х')
+    .replace(/[Øø]/g,' диаметр ')
+    .replace(/[–—]/g,'-')
+    .replace(/\s+/g,' ')
+    .trim();
+  const normSpecNum = (value) => {
+    const n = Number(String(value||'').replace(',', '.'));
+    return Number.isFinite(n) ? Math.round(n*1000)/1000 : null;
+  };
+  const normUniqueNums = (items=[]) => [...new Set(items.filter(n=>n!==null&&n!==undefined).map(n=>String(n)))].map(Number).sort((a,b)=>a-b);
+  const normExtractDiameters = (value='') => {
+    const text = normSpecText(value);
+    const out = [];
+    const re = /(?:диаметр(?:ом)?|диам\.?|ф)\D{0,45}(\d{1,3}(?:\.\d+)?)(?:\s*х\s*(\d{1,3}(?:\.\d+)?))?/g;
+    let m;
+    while ((m = re.exec(text))) {
+      [m[1], m[2]].forEach(v=>{
+        const n = normSpecNum(v);
+        if (n>=6 && n<=250) out.push(n);
+      });
+    }
+    return normUniqueNums(out);
+  };
+  const normExtractRectSizes = (value='') => {
+    const text = normSpecText(value);
+    const out = [];
+    const re = /(\d{1,4})\s*х\s*(\d{1,4})(?:\s*х\s*(\d{1,4}))?\s*мм/g;
+    let m;
+    while ((m = re.exec(text))) {
+      const nums = [m[1], m[2], m[3]].filter(Boolean).map(Number);
+      if (nums.length>=2 && nums.every(n=>n>0 && n<=2000)) out.push(nums.join('х'));
+    }
+    return [...new Set(out)];
+  };
+  const normExtractCableSections = (value='') => {
+    const text = normSpecText(value);
+    const out = [];
+    const re = /(\d{1,2})\s*х\s*(\d{1,2}(?:\.\d+)?)(?:\s*х\s*(\d{1,2}(?:\.\d+)?))?(?=\s*(?:мм2|мм²|кв\.?\s*мм|ок|нг|fr|ls|hf|$))/g;
+    let m;
+    while ((m = re.exec(text))) {
+      const parts = [m[1], m[2], m[3]].filter(Boolean).map(v=>{
+        const n = normSpecNum(v);
+        return n===null ? '' : String(n).replace('.', ',');
+      }).filter(Boolean);
+      if (parts.length>=2) out.push(parts.join('х'));
+    }
+    return [...new Set(out)];
+  };
+  const normSpecsOverlap = (left=[], right=[]) => !left.length || !right.length || left.some(v=>right.includes(v));
+  const materialNormSpecCompatible = (rule, workText='', materialName='') => {
+    const ruleKey = materialNameKey(rule?.ruleKey || rule?.id || '');
+    const workDiameters = normExtractDiameters(workText);
+    const materialDiameters = normExtractDiameters(materialName);
+    const diameterRules = ['pipe_pp','pipe_fittings','pipe_clamps','pipe_insulation','cable_protection'];
+    if (diameterRules.some(k=>ruleKey.includes(k)) && !normSpecsOverlap(workDiameters, materialDiameters)) return false;
+    if (ruleKey.includes('cable_line') && !normSpecsOverlap(normExtractCableSections(workText), normExtractCableSections(materialName))) return false;
+    if ((ruleKey.includes('cable_channel_box') || ruleKey.includes('cable_protection')) && !normSpecsOverlap(normExtractRectSizes(workText), normExtractRectSizes(materialName))) return false;
+    return true;
+  };
   const normRuleSpecificEnough = (rule, workText='') => {
     const t = materialNameKey(workText);
     const words = t.split(' ');
@@ -3579,10 +3641,11 @@ function App() {
     if (ruleText.includes('трубопровод') && has(fastenerWords) && !has(pipeClampWords)) return false;
     return true;
   };
-  const materialNormMatchesMaterial = (rule, materialName='', materialUnit='') =>
+  const materialNormMatchesMaterial = (rule, materialName='', materialUnit='', workText='') =>
     normTextIncludes(materialName, rule?.material||[]) &&
     materialNormUnitCompatible(rule, materialName, materialUnit) &&
-    materialNormFamilyCompatible(rule, materialName);
+    materialNormFamilyCompatible(rule, materialName) &&
+    materialNormSpecCompatible(rule, workText, materialName);
   const normListFromText = (value) => String(value||'').split(/[,;\n]/).map(v=>v.trim()).filter(Boolean);
   const normListToText = (value) => Array.isArray(value) ? value.join(', ') : String(value||'');
   const materialNormRuleForCalc = (rule) => ({
@@ -3641,7 +3704,7 @@ function App() {
     const normalizedWork = normalizeMeasure(workQty, workUnit);
     const rules = workNormRulesFor(workName, sectionName, projectName, params.estimateId).filter(rule=>
       _normalizeUnit(normalizedWork.unit)===_normalizeUnit(rule.workUnit) &&
-      materialNormMatchesMaterial(rule, material.name, material.unit)
+      materialNormMatchesMaterial(rule, material.name, material.unit, workName+' '+sectionName)
     );
     if (!rules.length) return null;
     const rule = rules[0];
@@ -3776,7 +3839,7 @@ function App() {
             rows.push({key:[est.id,section.name,itemIdx,rule.ruleKey||rule.id,'skip'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionIdx,itemIdx,itemId:it.id,sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:'Норма не нужна',severity:'info',message:it.materialNormSkipReason||'Помечено в смете: материал по этой норме не требуется',rule,materialName:materialTitleForNormRule(rule),materialQty:0,materialUnit:rule.materialUnit||'',requiredQty:0,requiredUnit:rule.materialUnit||'',qtyPerUnit:rule.qtyPerUnit});
             return;
           }
-          const matchingMaterials = materialsInSection.filter(m=>materialNormMatchesMaterial(rule, m.name, m.unit));
+          const matchingMaterials = materialsInSection.filter(m=>materialNormMatchesMaterial(rule, m.name, m.unit, it.name+' '+section.name));
           matchingMaterials.forEach(m=>coveredMaterialKeys.add(materialNameKey(m.name)));
           const material = matchingMaterials[0];
           rows.push({

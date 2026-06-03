@@ -9301,6 +9301,62 @@ def _material_no_norm_reason(material_name: str = "") -> str:
         return "Расходный инструмент/оснастка — не участвует в подборе нормы строительного материала."
     return ""
 
+def _norm_spec_text(value: str = "") -> str:
+    import re
+    text = str(value or "").lower().replace("ё", "е").replace(",", ".")
+    text = text.replace("×", "х").replace("x", "х").replace("Ø", " диаметр ").replace("ø", " диаметр ")
+    text = text.replace("–", "-").replace("—", "-")
+    return re.sub(r"\s+", " ", text).strip()
+
+def _norm_spec_num(value):
+    try:
+        return round(float(str(value or "").replace(",", ".")), 3)
+    except Exception:
+        return None
+
+def _norm_unique_nums(items):
+    return sorted({float(x) for x in items if x is not None})
+
+def _norm_extract_diameters(value: str = "") -> list[float]:
+    import re
+    text = _norm_spec_text(value)
+    out = []
+    for m in re.finditer(r"(?:диаметр(?:ом)?|диам\.?|ф)\D{0,45}(\d{1,3}(?:\.\d+)?)(?:\s*х\s*(\d{1,3}(?:\.\d+)?))?", text):
+        for raw in (m.group(1), m.group(2)):
+            n = _norm_spec_num(raw)
+            if n is not None and 6 <= n <= 250:
+                out.append(n)
+    return _norm_unique_nums(out)
+
+def _norm_extract_rect_sizes(value: str = "") -> list[str]:
+    import re
+    text = _norm_spec_text(value)
+    out = []
+    for m in re.finditer(r"(\d{1,4})\s*х\s*(\d{1,4})(?:\s*х\s*(\d{1,4}))?\s*мм", text):
+        nums = [int(x) for x in m.groups() if x]
+        if len(nums) >= 2 and all(0 < n <= 2000 for n in nums):
+            out.append("х".join(str(n) for n in nums))
+    return sorted(set(out))
+
+def _norm_extract_cable_sections(value: str = "") -> list[str]:
+    import re
+    text = _norm_spec_text(value)
+    out = []
+    for m in re.finditer(r"(\d{1,2})\s*х\s*(\d{1,2}(?:\.\d+)?)(?:\s*х\s*(\d{1,2}(?:\.\d+)?))?(?=\s*(?:мм2|мм²|кв\.?\s*мм|ок|нг|fr|ls|hf|$))", text):
+        parts = []
+        for raw in (m.group(1), m.group(2), m.group(3)):
+            if not raw:
+                continue
+            n = _norm_spec_num(raw)
+            if n is not None:
+                parts.append(str(n).rstrip("0").rstrip(".").replace(".", ","))
+        if len(parts) >= 2:
+            out.append("х".join(parts))
+    return sorted(set(out))
+
+def _norm_specs_overlap(left: list, right: list) -> bool:
+    return not left or not right or any(v in right for v in left)
+
 def _norm_rule_specific_enough(rule: dict, work_text: str) -> bool:
     text = _norm_key_text(work_text or "")
     words = text.split()
@@ -9377,6 +9433,19 @@ def _norm_material_family_compatible(rule: dict, material_name: str = "") -> boo
         return False
     return True
 
+def _norm_material_spec_compatible(rule: dict, work_text: str = "", material_name: str = "") -> bool:
+    rule_key = _norm_key_text(rule.get("rule_key") or "")
+    work_diameters = _norm_extract_diameters(work_text)
+    material_diameters = _norm_extract_diameters(material_name)
+    diameter_rules = ("pipe_pp", "pipe_fittings", "pipe_clamps", "pipe_insulation", "cable_protection")
+    if any(k in rule_key for k in diameter_rules) and not _norm_specs_overlap(work_diameters, material_diameters):
+        return False
+    if "cable_line" in rule_key and not _norm_specs_overlap(_norm_extract_cable_sections(work_text), _norm_extract_cable_sections(material_name)):
+        return False
+    if ("cable_channel_box" in rule_key or "cable_protection" in rule_key) and not _norm_specs_overlap(_norm_extract_rect_sizes(work_text), _norm_extract_rect_sizes(material_name)):
+        return False
+    return True
+
 def _norm_rule_matches(rule: dict, work_name: str, section_name: str, material_name: str, work_unit: str = "", material_unit: str = "") -> bool:
     work_text = _norm_key_text((work_name or "") + " " + (section_name or ""))
     mat_text = _norm_key_text(material_name or "")
@@ -9392,6 +9461,8 @@ def _norm_rule_matches(rule: dict, work_name: str, section_name: str, material_n
     if not _norm_material_unit_compatible(rule, material_name, material_unit):
         return False
     if not _norm_material_family_compatible(rule, material_name):
+        return False
+    if not _norm_material_spec_compatible(rule, (work_name or "") + " " + (section_name or ""), material_name):
         return False
     return (
         any(_norm_key_text(w) and _norm_key_text(w) in work_text for w in work_words) and
