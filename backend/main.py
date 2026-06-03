@@ -1534,6 +1534,40 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW(),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS material_norm_suggestions (
+            id SERIAL PRIMARY KEY,
+            project_name VARCHAR(255),
+            suggestion_type VARCHAR(100) DEFAULT 'without_norm',
+            status VARCHAR(50) DEFAULT 'Новая',
+            severity VARCHAR(50) DEFAULT 'Проверить',
+            work_name TEXT,
+            section_name TEXT,
+            work_unit VARCHAR(50),
+            material_name TEXT,
+            material_unit VARCHAR(50),
+            current_norm_id INT,
+            current_qty_per_unit NUMERIC(14,4),
+            suggested_qty_per_unit NUMERIC(14,4),
+            sample_count INT DEFAULT 0,
+            actual_qty NUMERIC(14,4) DEFAULT 0,
+            norm_qty NUMERIC(14,4) DEFAULT 0,
+            confidence NUMERIC(5,2) DEFAULT 0,
+            reason TEXT,
+            ai_summary TEXT,
+            work_keywords TEXT,
+            material_keywords TEXT,
+            block_work_keywords TEXT,
+            label TEXT,
+            source VARCHAR(100) DEFAULT 'rules',
+            dedupe_key VARCHAR(255),
+            created_by VARCHAR(255),
+            applied_norm_id INT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_material_norm_suggestions_project ON material_norm_suggestions(project_name);
+        CREATE INDEX IF NOT EXISTS idx_material_norm_suggestions_status ON material_norm_suggestions(status);
+        CREATE INDEX IF NOT EXISTS idx_material_norm_suggestions_dedupe ON material_norm_suggestions(dedupe_key);
         ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor INT DEFAULT 1;
         ALTER TABLE rooms ADD COLUMN IF NOT EXISTS liter VARCHAR(100);
         ALTER TABLE rooms ADD COLUMN IF NOT EXISTS room_type VARCHAR(100) DEFAULT 'Комната';
@@ -1972,6 +2006,9 @@ class MaterialNormModel(BaseModel):
     defaultThicknessMm: Optional[float] = None
     label: str = ""
     active: bool = True
+
+class MaterialNormSuggestionUpdateModel(BaseModel):
+    status: str = ""
 
 class WorkJournalModel(BaseModel):
     masterId: int
@@ -8983,6 +9020,547 @@ def delete_material_norm(id: int, current_user: dict = Depends(require_roles(*LE
     if affected == 0:
         raise HTTPException(status_code=404, detail="Норма не найдена")
     return {"ok": True}
+
+def _safe_float(value, default=0.0):
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+def _norm_key_text(value: str) -> str:
+    import re
+    return re.sub(r"\s+", " ", re.sub(r"[.,;:()«»\"'`/\\]+", " ", str(value or "").lower())).strip()
+
+def _norm_keywords_from_text(value: str, limit: int = 5) -> list[str]:
+    stop = {"работ", "работа", "монтаж", "установка", "устройство", "демонтаж", "разбор", "прочее", "раздел", "материал", "для", "при", "под"}
+    words = []
+    for token in _norm_key_text(value).split():
+        if len(token) < 4 or token in stop:
+            continue
+        if token not in words:
+            words.append(token)
+    return words[:limit]
+
+def _estimate_item_type_backend(item: dict, section_name: str = "") -> str:
+    raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").lower()
+    text = _norm_key_text((item.get("name") or "") + " " + section_name)
+    if raw in ("material", "материал", "materials", "материалы") or "материал" in raw:
+        return "material"
+    if raw in ("equipment", "оборудование", "delivery", "доставка", "other", "прочее"):
+        return "other"
+    material_markers = ("смесь", "штукатурка", "шпатлевка", "шпаклевка", "клей", "краска", "грунтовка", "кабель", "провод", "гофра", "лист гкл", "профиль", "саморез", "кирпич", "бетон")
+    work_markers = ("монтаж", "установка", "устройство", "демонтаж", "разбор", "кладка", "окраска", "штукатур", "стяжка", "облицовка", "прокладка")
+    if any(m in text for m in material_markers) and not any(w in text for w in work_markers):
+        return "material"
+    return "work"
+
+def _norm_rule_matches(rule: dict, work_name: str, section_name: str, material_name: str, work_unit: str = "") -> bool:
+    work_text = _norm_key_text((work_name or "") + " " + (section_name or ""))
+    mat_text = _norm_key_text(material_name or "")
+    work_words = _norm_list(rule.get("work_keywords"))
+    block_words = _norm_list(rule.get("block_work_keywords"))
+    material_words = _norm_list(rule.get("material_keywords"))
+    if work_unit and rule.get("work_unit") and _norm_key_text(work_unit) != _norm_key_text(rule.get("work_unit")):
+        return False
+    return (
+        any(_norm_key_text(w) and _norm_key_text(w) in work_text for w in work_words) and
+        not any(_norm_key_text(w) and _norm_key_text(w) in work_text for w in block_words) and
+        any(_norm_key_text(w) and _norm_key_text(w) in mat_text for w in material_words)
+    )
+
+def _material_norm_suggestion_row(row):
+    return {
+        "id": row["id"],
+        "projectName": row["project_name"] or "",
+        "suggestionType": row["suggestion_type"] or "",
+        "status": row["status"] or "Новая",
+        "severity": row["severity"] or "Проверить",
+        "workName": row["work_name"] or "",
+        "sectionName": row["section_name"] or "",
+        "workUnit": row["work_unit"] or "",
+        "materialName": row["material_name"] or "",
+        "materialUnit": row["material_unit"] or "",
+        "currentNormId": row["current_norm_id"],
+        "currentQtyPerUnit": _safe_float(row["current_qty_per_unit"]),
+        "suggestedQtyPerUnit": _safe_float(row["suggested_qty_per_unit"]),
+        "sampleCount": int(row["sample_count"] or 0),
+        "actualQty": _safe_float(row["actual_qty"]),
+        "normQty": _safe_float(row["norm_qty"]),
+        "confidence": _safe_float(row["confidence"]),
+        "reason": row["reason"] or "",
+        "aiSummary": row["ai_summary"] or "",
+        "work": _norm_list(row["work_keywords"]),
+        "material": _norm_list(row["material_keywords"]),
+        "blockWork": _norm_list(row["block_work_keywords"]),
+        "label": row["label"] or "",
+        "source": row["source"] or "rules",
+        "dedupeKey": row["dedupe_key"] or "",
+        "createdBy": row["created_by"] or "",
+        "appliedNormId": row["applied_norm_id"],
+        "createdAt": str(row["created_at"]) if row["created_at"] else "",
+        "updatedAt": str(row["updated_at"]) if row["updated_at"] else "",
+    }
+
+def _load_active_norm_rules(cur):
+    cur.execute("""SELECT id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
+                          work_unit, material_unit, qty_per_unit, thickness_base_mm,
+                          default_thickness_mm, label
+                   FROM material_norms WHERE active=TRUE ORDER BY id""")
+    return [dict(r) for r in cur.fetchall()]
+
+def _upsert_material_norm_suggestion(cur, suggestion: dict, current_user: dict):
+    project_name = suggestion.get("projectName") or ""
+    if project_name:
+        require_project_access(current_user, project_name)
+    dedupe_key = suggestion.get("dedupeKey") or ""
+    fields = (
+        project_name,
+        suggestion.get("suggestionType") or "without_norm",
+        suggestion.get("severity") or "Проверить",
+        suggestion.get("workName") or "",
+        suggestion.get("sectionName") or "",
+        suggestion.get("workUnit") or "",
+        suggestion.get("materialName") or "",
+        suggestion.get("materialUnit") or "",
+        suggestion.get("currentNormId"),
+        suggestion.get("currentQtyPerUnit") or 0,
+        suggestion.get("suggestedQtyPerUnit") or 0,
+        int(suggestion.get("sampleCount") or 0),
+        suggestion.get("actualQty") or 0,
+        suggestion.get("normQty") or 0,
+        suggestion.get("confidence") or 0,
+        suggestion.get("reason") or "",
+        suggestion.get("aiSummary") or "",
+        json.dumps(_norm_list(suggestion.get("work")), ensure_ascii=False),
+        json.dumps(_norm_list(suggestion.get("material")), ensure_ascii=False),
+        json.dumps(_norm_list(suggestion.get("blockWork")), ensure_ascii=False),
+        suggestion.get("label") or "",
+        suggestion.get("source") or "rules",
+        dedupe_key,
+        current_user.get("name") or "",
+    )
+    if dedupe_key:
+        cur.execute("""SELECT id FROM material_norm_suggestions
+                       WHERE dedupe_key=%s AND status NOT IN ('Принята','Отклонена')
+                       LIMIT 1""", (dedupe_key,))
+        row = cur.fetchone()
+        if row:
+            sid = row["id"] if isinstance(row, dict) else row[0]
+            cur.execute("""
+                UPDATE material_norm_suggestions
+                SET project_name=%s, suggestion_type=%s, severity=%s, work_name=%s,
+                    section_name=%s, work_unit=%s, material_name=%s, material_unit=%s,
+                    current_norm_id=%s, current_qty_per_unit=%s, suggested_qty_per_unit=%s,
+                    sample_count=%s, actual_qty=%s, norm_qty=%s, confidence=%s,
+                    reason=%s, ai_summary=%s, work_keywords=%s, material_keywords=%s,
+                    block_work_keywords=%s, label=%s, source=%s, dedupe_key=%s,
+                    created_by=%s, updated_at=NOW()
+                WHERE id=%s
+            """, fields + (sid,))
+            return sid, False
+    cur.execute("""
+        INSERT INTO material_norm_suggestions (
+            project_name, suggestion_type, severity, work_name, section_name, work_unit,
+            material_name, material_unit, current_norm_id, current_qty_per_unit,
+            suggested_qty_per_unit, sample_count, actual_qty, norm_qty, confidence,
+            reason, ai_summary, work_keywords, material_keywords, block_work_keywords,
+            label, source, dedupe_key, created_by, created_at, updated_at
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+        RETURNING id
+    """, fields)
+    row = cur.fetchone()
+    return (row["id"] if isinstance(row, dict) else row[0]), True
+
+def _enhance_norm_suggestions_with_ai(suggestions: list[dict]) -> list[dict]:
+    if not suggestions or not (YANDEX_API_KEY and YANDEX_FOLDER_ID):
+        return suggestions
+    try:
+        import openai as oa
+        import re as _re
+        compact = [{
+            "dedupeKey": s.get("dedupeKey"),
+            "type": s.get("suggestionType"),
+            "work": s.get("workName"),
+            "section": s.get("sectionName"),
+            "material": s.get("materialName"),
+            "unit": s.get("materialUnit"),
+            "suggestedQtyPerUnit": s.get("suggestedQtyPerUnit"),
+            "reason": s.get("reason"),
+        } for s in suggestions[:12]]
+        instructions = "Ты отвечаешь строго валидным JSON без markdown. Не выдумывай объёмы, только уточняй ключевые слова, краткое объяснение и уверенность."
+        prompt = (
+            "Нужно улучшить предложения норм расхода материалов в строительной CRM.\n"
+            "Верни JSON: {\"suggestions\":[{\"dedupeKey\":\"...\",\"workKeywords\":[\"...\"],\"materialKeywords\":[\"...\"],\"blockWorkKeywords\":[\"демонтаж\",\"разбор\"],\"label\":\"краткая норма\",\"reason\":\"почему предложено\",\"confidence\":0.0-0.95}]}\n\n"
+            "ДАННЫЕ:\n" + json.dumps(compact, ensure_ascii=False)
+        )
+        client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
+        raw = ""
+        for model_id in ("qwen3.6-35b-a3b/latest", "yandexgpt-5.1/latest"):
+            try:
+                r = client.responses.create(
+                    model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
+                    temperature=0.1,
+                    instructions=instructions,
+                    input=prompt,
+                    max_output_tokens=3000,
+                )
+                raw = (r.output_text or "").strip()
+                if raw:
+                    break
+            except Exception as e:
+                print("MATERIAL NORM SUGGEST AI ERROR:", str(e))
+        if not raw:
+            return suggestions
+        clean = _re.sub(r"^```(?:json)?\s*", "", raw).strip()
+        clean = _re.sub(r"\s*```\s*$", "", clean).strip()
+        s_idx = clean.find("{"); e_idx = clean.rfind("}")
+        parsed = json.loads(clean[s_idx:e_idx+1]) if s_idx >= 0 and e_idx > s_idx else {}
+        ai_by_key = {str(x.get("dedupeKey") or ""): x for x in (parsed.get("suggestions") or []) if isinstance(x, dict)}
+        out = []
+        for s in suggestions:
+            ai = ai_by_key.get(str(s.get("dedupeKey") or ""))
+            if ai:
+                s = dict(s)
+                s["work"] = _norm_list(ai.get("workKeywords")) or s.get("work") or []
+                s["material"] = _norm_list(ai.get("materialKeywords")) or s.get("material") or []
+                s["blockWork"] = _norm_list(ai.get("blockWorkKeywords")) or s.get("blockWork") or []
+                s["label"] = str(ai.get("label") or s.get("label") or "")
+                s["aiSummary"] = str(ai.get("reason") or s.get("aiSummary") or "")
+                s["confidence"] = max(_safe_float(s.get("confidence")), min(0.95, _safe_float(ai.get("confidence"))))
+                s["source"] = "rules+yandexgpt"
+            out.append(s)
+        return out
+    except Exception as e:
+        print("MATERIAL NORM SUGGEST AI PARSE ERROR:", str(e))
+        return suggestions
+
+def _generate_material_norm_suggestions(cur, current_user: dict, project_name: str = "") -> list[dict]:
+    allowed_projects = visible_project_names(current_user)
+    norm_rules = _load_active_norm_rules(cur)
+    suggestions = {}
+    where = "WHERE COALESCE(status,'') <> 'Отклонено'"
+    params = []
+    if project_name:
+        where += " AND project=%s"
+        params.append(project_name)
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            return []
+        where += " AND project = ANY(%s)"
+        params.append(allowed_projects)
+    cur.execute(f"""SELECT id, project, description, section_name, unit, quantity, materials_used, date
+                    FROM work_journal {where}
+                    ORDER BY id DESC LIMIT 800""", tuple(params))
+    for row in cur.fetchall():
+        work = dict(row)
+        try:
+            used = json.loads(work.get("materials_used") or "[]")
+        except Exception:
+            used = []
+        if not isinstance(used, list):
+            used = []
+        work_qty = _safe_float(work.get("quantity"))
+        if work_qty <= 0:
+            continue
+        for mat in used:
+            material_name = str((mat or {}).get("name") or "").strip()
+            mat_qty = _safe_float((mat or {}).get("quantity"))
+            if not material_name or mat_qty <= 0:
+                continue
+            mat_unit = str((mat or {}).get("unit") or "шт")
+            norm_qty = _safe_float((mat or {}).get("normQuantity"))
+            matching_rule = next((r for r in norm_rules if _norm_rule_matches(r, work.get("description"), work.get("section_name"), material_name, work.get("unit"))), None)
+            if norm_qty > 0 and mat_qty <= norm_qty * 1.15:
+                continue
+            suggestion_type = "over_norm" if norm_qty > 0 else "without_norm"
+            dedupe = "|".join([
+                suggestion_type,
+                _norm_key_text(work.get("project")),
+                _norm_key_text(work.get("description"))[:70],
+                _norm_key_text(material_name)[:70],
+                _norm_key_text(mat_unit),
+            ])
+            item = suggestions.setdefault(dedupe, {
+                "projectName": work.get("project") or "",
+                "suggestionType": suggestion_type,
+                "severity": "Критично" if suggestion_type == "without_norm" else "Проверить",
+                "workName": work.get("description") or "",
+                "sectionName": work.get("section_name") or "",
+                "workUnit": work.get("unit") or "",
+                "materialName": material_name,
+                "materialUnit": mat_unit,
+                "currentNormId": matching_rule.get("id") if matching_rule else None,
+                "currentQtyPerUnit": _safe_float(matching_rule.get("qty_per_unit")) if matching_rule else 0,
+                "_workQty": 0.0,
+                "actualQty": 0.0,
+                "normQty": 0.0,
+                "sampleCount": 0,
+                "reason": "",
+                "work": _norm_keywords_from_text((work.get("description") or "") + " " + (work.get("section_name") or "")),
+                "material": _norm_keywords_from_text(material_name),
+                "blockWork": ["демонтаж", "разбор"],
+                "dedupeKey": dedupe,
+            })
+            item["_workQty"] += work_qty
+            item["actualQty"] += mat_qty
+            item["normQty"] += norm_qty
+            item["sampleCount"] += 1
+    for s in suggestions.values():
+        work_qty = _safe_float(s.pop("_workQty", 0))
+        s["suggestedQtyPerUnit"] = round(s["actualQty"] / work_qty, 4) if work_qty > 0 else 0
+        if s["suggestionType"] == "without_norm":
+            s["reason"] = "Материал списывали в ЖПР без привязанной нормы. Нужно завести норму или уточнить материал."
+            s["confidence"] = min(0.9, 0.55 + s["sampleCount"] * 0.08)
+        else:
+            over = max(0, s["actualQty"] - s["normQty"])
+            pct = round(over / s["normQty"] * 100) if s["normQty"] > 0 else 0
+            s["reason"] = f"Фактическое списание выше нормы на {pct}%. Нужно проверить: ошибка списания, слой/условия работы или устаревшая норма."
+            s["confidence"] = min(0.85, 0.5 + s["sampleCount"] * 0.06)
+        s["label"] = f"{s['materialName']} {s['suggestedQtyPerUnit']} {s['materialUnit']} / {s['workUnit'] or 'ед.'}"
+
+    estimate_where = "WHERE COALESCE(e.is_template,FALSE)=FALSE AND e.status='Активная' AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'"
+    estimate_params = []
+    if project_name:
+        estimate_where += " AND e.project_name=%s"
+        estimate_params.append(project_name)
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            return list(suggestions.values())
+        estimate_where += " AND e.project_name = ANY(%s)"
+        estimate_params.append(allowed_projects)
+    cur.execute(f"""SELECT e.id, e.project_name, e.sections_json FROM estimates e {estimate_where} ORDER BY e.id DESC LIMIT 120""", tuple(estimate_params))
+    for est in cur.fetchall():
+        try:
+            sections = json.loads(est["sections_json"] or "[]")
+        except Exception:
+            sections = []
+        for section in sections:
+            section_name = section.get("name") or ""
+            items = section.get("items") or []
+            works = [it for it in items if _estimate_item_type_backend(it, section_name) == "work"]
+            mats = [it for it in items if _estimate_item_type_backend(it, section_name) == "material"]
+            for mat in mats:
+                material_name = str(mat.get("name") or "").strip()
+                if not material_name:
+                    continue
+                if any(_norm_rule_matches(r, w.get("name"), section_name, material_name, w.get("unit")) for r in norm_rules for w in works):
+                    continue
+                work = works[0] if works else {}
+                work_qty = sum(_safe_float(w.get("quantity")) for w in works) if works else 0
+                mat_qty = _safe_float(mat.get("quantity"))
+                suggested = round(mat_qty / work_qty, 4) if work_qty > 0 and mat_qty > 0 else 0
+                dedupe = "|".join([
+                    "estimate_material_without_norm",
+                    _norm_key_text(est["project_name"]),
+                    _norm_key_text(section_name)[:70],
+                    _norm_key_text(material_name)[:70],
+                ])
+                suggestions.setdefault(dedupe, {
+                    "projectName": est["project_name"] or "",
+                    "suggestionType": "estimate_material_without_norm",
+                    "severity": "Проверить",
+                    "workName": work.get("name") or ("Раздел: " + section_name),
+                    "sectionName": section_name,
+                    "workUnit": work.get("unit") or "",
+                    "materialName": material_name,
+                    "materialUnit": mat.get("unit") or "",
+                    "currentNormId": None,
+                    "currentQtyPerUnit": 0,
+                    "suggestedQtyPerUnit": suggested,
+                    "sampleCount": 1,
+                    "actualQty": mat_qty,
+                    "normQty": 0,
+                    "confidence": 0.45 if suggested else 0.35,
+                    "reason": "В активной смете есть материал, но справочник норм не связывает его с работами этого раздела.",
+                    "work": _norm_keywords_from_text((work.get("name") or "") + " " + section_name),
+                    "material": _norm_keywords_from_text(material_name),
+                    "blockWork": ["демонтаж", "разбор"],
+                    "label": f"{material_name}" + (f" {suggested} {mat.get('unit') or ''} / {work.get('unit') or 'ед.'}" if suggested else ""),
+                    "dedupeKey": dedupe,
+                })
+    return _enhance_norm_suggestions_with_ai(list(suggestions.values()))
+
+@app.get("/material-norm-suggestions")
+def list_material_norm_suggestions(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    if project_name:
+        require_project_access(current_user, project_name)
+        cur.execute("""SELECT * FROM material_norm_suggestions WHERE project_name=%s ORDER BY updated_at DESC, id DESC""", (project_name,))
+    else:
+        allowed_projects = visible_project_names(current_user)
+        if allowed_projects is not None:
+            if not allowed_projects:
+                cur.close(); conn.close()
+                return []
+            cur.execute("""SELECT * FROM material_norm_suggestions WHERE project_name = ANY(%s) ORDER BY updated_at DESC, id DESC""", (allowed_projects,))
+        else:
+            cur.execute("""SELECT * FROM material_norm_suggestions ORDER BY updated_at DESC, id DESC""")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [_material_norm_suggestion_row(dict(r)) for r in rows]
+
+@app.post("/material-norm-suggestions/generate")
+def generate_material_norm_suggestions(data: dict = None, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    data = data or {}
+    project_name = data.get("projectName") or data.get("project_name") or ""
+    if project_name:
+        require_project_access(current_user, project_name)
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    suggestions = _generate_material_norm_suggestions(cur, current_user, project_name)
+    created = updated = findings = 0
+    for suggestion in suggestions:
+        sid, is_created = _upsert_material_norm_suggestion(cur, suggestion, current_user)
+        suggestion["id"] = sid
+        if is_created:
+            created += 1
+        else:
+            updated += 1
+        if suggestion.get("projectName") and suggestion.get("suggestionType") in ("without_norm", "over_norm", "estimate_material_without_norm"):
+            _, f_created = _upsert_ai_finding(cur, {
+                "projectName": suggestion.get("projectName"),
+                "findingType": "ai",
+                "category": "Материалы",
+                "severity": suggestion.get("severity") or "Проверить",
+                "title": "Нужно уточнить норму: " + (suggestion.get("materialName") or ""),
+                "description": (suggestion.get("aiSummary") or suggestion.get("reason") or "") + "\nРабота: " + (suggestion.get("workName") or ""),
+                "source": suggestion.get("source") or "rules+yandexgpt",
+                "linkedEntityType": "material_norm_suggestion",
+                "linkedEntityId": str(sid),
+                "suggestedAction": "Проверить предложение в Сметы → Нормы материалов и принять норму или отклонить.",
+                "assignedRole": "сметчик",
+                "dedupeKey": "material_norm_suggestion:" + (suggestion.get("dedupeKey") or str(sid)),
+            }, current_user)
+            if f_created:
+                findings += 1
+    cur.close(); conn.close()
+    return {"ok": True, "created": created, "updated": updated, "findings": findings, "total": len(suggestions), "aiUsed": bool(YANDEX_API_KEY and YANDEX_FOLDER_ID)}
+
+@app.put("/material-norm-suggestions/{id}")
+def update_material_norm_suggestion(id: int, data: MaterialNormSuggestionUpdateModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM material_norm_suggestions WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Предложение не найдено")
+    require_project_access(current_user, row["project_name"] or "")
+    status = data.status or "Отклонена"
+    cur.execute("UPDATE material_norm_suggestions SET status=%s, updated_at=NOW() WHERE id=%s RETURNING *", (status, id))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return _material_norm_suggestion_row(dict(row))
+
+@app.post("/material-norm-suggestions/{id}/task")
+def create_task_from_material_norm_suggestion(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM material_norm_suggestions WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Предложение не найдено")
+    suggestion = _material_norm_suggestion_row(dict(row))
+    require_project_access(current_user, suggestion["projectName"])
+    finding_id, _ = _upsert_ai_finding(cur, {
+        "projectName": suggestion["projectName"],
+        "findingType": "ai",
+        "category": "Материалы",
+        "severity": suggestion["severity"],
+        "title": "Уточнить норму: " + suggestion["materialName"],
+        "description": (suggestion["aiSummary"] or suggestion["reason"]) + "\nРабота: " + suggestion["workName"],
+        "source": suggestion["source"],
+        "linkedEntityType": "material_norm_suggestion",
+        "linkedEntityId": str(id),
+        "suggestedAction": "Проверить предложенную норму и принять её в справочник или отклонить.",
+        "assignedRole": "сметчик",
+        "dedupeKey": "material_norm_suggestion:" + (suggestion["dedupeKey"] or str(id)),
+    }, current_user)
+    cur.close(); conn.close()
+    return {"ok": True, "findingId": finding_id}
+
+@app.post("/material-norm-suggestions/{id}/accept")
+def accept_material_norm_suggestion(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM material_norm_suggestions WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Предложение не найдено")
+    suggestion = _material_norm_suggestion_row(dict(row))
+    require_project_access(current_user, suggestion["projectName"])
+    qty = suggestion["suggestedQtyPerUnit"]
+    if qty <= 0:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="В предложении нет расчётной нормы. Уточните вручную.")
+    work_keywords = suggestion["work"] or _norm_keywords_from_text(suggestion["workName"] + " " + suggestion["sectionName"])
+    material_keywords = suggestion["material"] or _norm_keywords_from_text(suggestion["materialName"])
+    block_keywords = suggestion["blockWork"] or ["демонтаж", "разбор"]
+    label = suggestion["label"] or (suggestion["materialName"] + " " + str(qty) + " " + suggestion["materialUnit"] + " / " + (suggestion["workUnit"] or "ед."))
+    if suggestion["currentNormId"]:
+        cur.execute("""
+            UPDATE material_norms
+            SET name=%s, work_keywords=%s, block_work_keywords=%s, material_keywords=%s,
+                work_unit=%s, material_unit=%s, qty_per_unit=%s, label=%s,
+                updated_by=%s, updated_at=NOW()
+            WHERE id=%s
+            RETURNING id
+        """, (
+            suggestion["materialName"],
+            json.dumps(work_keywords, ensure_ascii=False),
+            json.dumps(block_keywords, ensure_ascii=False),
+            json.dumps(material_keywords, ensure_ascii=False),
+            suggestion["workUnit"] or "м2",
+            suggestion["materialUnit"] or "шт",
+            qty,
+            label,
+            current_user.get("name") or "",
+            suggestion["currentNormId"],
+        ))
+        norm_row = cur.fetchone()
+        norm_id = norm_row["id"] if norm_row else suggestion["currentNormId"]
+    else:
+        base_key = "ai_" + _norm_key_text(suggestion["materialName"] + "_" + suggestion["workName"]).replace(" ", "_")[:70]
+        rule_key = base_key or ("ai_" + uuid.uuid4().hex[:8])
+        norm_row = None
+        for attempt in range(6):
+            cur.execute("""
+                INSERT INTO material_norms (
+                    rule_key, name, work_keywords, block_work_keywords, material_keywords,
+                    work_unit, material_unit, qty_per_unit, label, active, updated_by, updated_at
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,%s,NOW())
+                ON CONFLICT (rule_key) DO NOTHING
+                RETURNING id
+            """, (
+                rule_key,
+                suggestion["materialName"],
+                json.dumps(work_keywords, ensure_ascii=False),
+                json.dumps(block_keywords, ensure_ascii=False),
+                json.dumps(material_keywords, ensure_ascii=False),
+                suggestion["workUnit"] or "м2",
+                suggestion["materialUnit"] or "шт",
+                qty,
+                label,
+                current_user.get("name") or "",
+            ))
+            norm_row = cur.fetchone()
+            if norm_row:
+                break
+            rule_key = base_key + "_" + uuid.uuid4().hex[:4] if attempt < 5 else "ai_" + uuid.uuid4().hex[:10]
+        norm_id = norm_row["id"] if norm_row else None
+    cur.execute("UPDATE material_norm_suggestions SET status='Принята', applied_norm_id=%s, updated_at=NOW() WHERE id=%s RETURNING *", (norm_id, id))
+    row = cur.fetchone()
+    cur.execute("""UPDATE ai_findings
+                   SET status='Закрыто', updated_at=NOW()
+                   WHERE linked_entity_type='material_norm_suggestion' AND linked_entity_id=%s""", (str(id),))
+    cur.close(); conn.close()
+    return _material_norm_suggestion_row(dict(row))
 
 @app.get("/material-inspection")
 def list_material_inspections(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw } from 'lucide-react';
 
 const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
 const loadStoredUser = () => {
@@ -844,6 +844,8 @@ function App() {
   const [toolsTab, setToolsTab] = useState('list');
   const [estimatesTab, setEstimatesTab] = useState('list');
   const [materialNorms, setMaterialNorms] = useState([]);
+  const [materialNormSuggestions, setMaterialNormSuggestions] = useState([]);
+  const [materialNormSuggestionLoading, setMaterialNormSuggestionLoading] = useState(false);
   const [newMaterialNorm, setNewMaterialNorm] = useState(EMPTY_MATERIAL_NORM_FORM);
   const [editingMaterialNormId, setEditingMaterialNormId] = useState(null);
   const [estimateSearch, setEstimateSearch] = useState('');
@@ -1158,7 +1160,7 @@ function App() {
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,mns] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get('/materials'),
@@ -1213,6 +1215,7 @@ function App() {
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
         canSeeProjectDocs ? get('/ai-tasks') : skip([]),
         canSeeProjectDocs ? get('/material-norms') : skip([]),
+        canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -1222,7 +1225,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -3712,6 +3715,52 @@ function App() {
       return;
     }
     await loadAll();
+  };
+  const activeMaterialNormSuggestions = () => (materialNormSuggestions||[]).filter(s=>!['Принята','Отклонена'].includes(s.status||''));
+  const generateMaterialNormSuggestions = async () => {
+    if (!canEditMaterialNorms()) return;
+    setMaterialNormSuggestionLoading(true);
+    try {
+      const res = await fetch(API+'/material-norm-suggestions/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) throw new Error(data.detail || 'Не удалось проверить нормы');
+      await loadAll();
+      alert('ИИ-проверка норм: найдено '+(data.total||0)+', новых '+(data.created||0)+', обновлено '+(data.updated||0)+(data.aiUsed?' · YandexGPT подключён':' · без внешнего ИИ'));
+    } catch(e) {
+      alert(e.message || 'Не удалось проверить нормы');
+    }
+    setMaterialNormSuggestionLoading(false);
+  };
+  const acceptMaterialNormSuggestion = async (id) => {
+    if (!canEditMaterialNorms() || !id) return;
+    if (!window.confirm('Принять предложение и записать норму в справочник?')) return;
+    const res = await fetch(API+'/material-norm-suggestions/'+id+'/accept',{method:'POST'});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) {
+      alert(data.detail || 'Не удалось принять предложение');
+      return;
+    }
+    await loadAll();
+  };
+  const rejectMaterialNormSuggestion = async (id) => {
+    if (!canEditMaterialNorms() || !id) return;
+    const res = await fetch(API+'/material-norm-suggestions/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонена'})});
+    if (!res.ok) {
+      alert('Не удалось отклонить предложение');
+      return;
+    }
+    await loadAll();
+  };
+  const createTaskFromMaterialNormSuggestion = async (id) => {
+    if (!canEditMaterialNorms() || !id) return;
+    const res = await fetch(API+'/material-norm-suggestions/'+id+'/task',{method:'POST'});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) {
+      alert(data.detail || 'Не удалось создать поручение');
+      return;
+    }
+    await loadAll();
+    alert('Поручение создано в ИИ-контроле объекта');
   };
   const materialNormStatus = (m) => {
     const norm = toNum(m?.normQuantity);
@@ -13012,8 +13061,56 @@ function App() {
                   <h3 style={{color:C.text,margin:'0 0 4px',fontSize:'15px',fontWeight:'700'}}>Справочник норм расхода материалов</h3>
                   <p style={{color:C.textSec,margin:0,fontSize:'12px'}}>Используется в списании материалов мастером и в блоке нормативной потребности по работам.</p>
                 </div>
-                <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Норм: '+((materialNorms||[]).length || WORK_MATERIAL_NORM_RULES.length)}</span>
+                <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                  <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Норм: '+((materialNorms||[]).length || WORK_MATERIAL_NORM_RULES.length)}</span>
+                  {activeMaterialNormSuggestions().length>0&&<span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'AI-предложений: '+activeMaterialNormSuggestions().length}</span>}
+                  {canEditMaterialNorms()&&<button disabled={materialNormSuggestionLoading} onClick={generateMaterialNormSuggestions} style={{...btnB,backgroundColor:'#0ea5e9',opacity:materialNormSuggestionLoading?0.65:1}}><Bot size={14}/>{materialNormSuggestionLoading?'Проверяю...':'ИИ проверить нормы'}</button>}
+                </div>
               </div>
+              {activeMaterialNormSuggestions().length>0&&(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
+                  <div>
+                    <b style={{color:C.warning,fontSize:'13px',display:'block'}}>🤖 AI-подсказки к нормам</b>
+                    <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>Система нашла списания без нормы, перерасходы и материалы из сметы, которые не связаны со справочником норм.</p>
+                  </div>
+                  <button onClick={generateMaterialNormSuggestions} disabled={materialNormSuggestionLoading} style={{...btnG,opacity:materialNormSuggestionLoading?0.65:1}}><RefreshCw size={14}/>Обновить</button>
+                </div>
+                <div style={{display:'grid',gap:'8px'}}>
+                  {activeMaterialNormSuggestions().slice(0,12).map(s=>{
+                    const sevColor=s.severity==='Критично'?C.danger:s.severity==='Не хватает данных'?C.warning:C.info;
+                    const typeLabel={
+                      without_norm:'Списано без нормы',
+                      over_norm:'Перерасход нормы',
+                      estimate_material_without_norm:'Материал сметы без нормы'
+                    }[s.suggestionType] || 'Проверить норму';
+                    return(<div key={s.id} style={{...card,padding:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+                      <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(220px,1.4fr) minmax(240px,1.4fr) 180px auto',gap:'10px',alignItems:'center'}}>
+                        <div style={{minWidth:0}}>
+                          <span style={badge(sevColor,C.bgGray,C.border)}>{typeLabel}</span>
+                          <b style={{display:'block',color:C.text,fontSize:'13px',marginTop:'6px'}}>{s.materialName||'Материал'}</b>
+                          <p style={{color:C.textMuted,margin:'3px 0 0',fontSize:'11px'}}>{s.projectName||'—'}{s.sectionName?' · '+s.sectionName:''}</p>
+                        </div>
+                        <div style={{minWidth:0}}>
+                          <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Работа</span>
+                          <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{s.workName||'—'}</p>
+                          {(s.aiSummary||s.reason)&&<p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'11px'}}>{s.aiSummary||s.reason}</p>}
+                        </div>
+                        <div>
+                          <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Предложение</span>
+                          <p style={{color:C.success,margin:'2px 0 0',fontSize:'13px',fontWeight:'800'}}>{s.suggestedQtyPerUnit?Number(s.suggestedQtyPerUnit).toLocaleString('ru-RU'):'—'} {s.materialUnit||''} / {s.workUnit||'ед.'}</p>
+                          <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>Уверенность: {Math.round(Number(s.confidence||0)*100)}% · примеров: {s.sampleCount||0}</p>
+                        </div>
+                        <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end',flexWrap:'wrap'}}>
+                          <button onClick={()=>acceptMaterialNormSuggestion(s.id)} disabled={!s.suggestedQtyPerUnit} style={{...btnGr,padding:'6px 9px',fontSize:'11px',opacity:s.suggestedQtyPerUnit?1:0.5}}><Check size={12}/>Принять</button>
+                          <button onClick={()=>createTaskFromMaterialNormSuggestion(s.id)} style={{...btnB,padding:'6px 9px',fontSize:'11px'}}><Bot size={12}/>Поручение</button>
+                          <button onClick={()=>rejectMaterialNormSuggestion(s.id)} style={{...btnR,padding:'6px 9px',fontSize:'11px'}}><X size={12}/></button>
+                        </div>
+                      </div>
+                    </div>);
+                  })}
+                  {activeMaterialNormSuggestions().length>12&&<p style={{color:C.textMuted,fontSize:'11px',margin:'4px 0 0'}}>Показано 12 из {activeMaterialNormSuggestions().length}. Остальные останутся в списке после обработки верхних.</p>}
+                </div>
+              </div>)}
               {canEditMaterialNorms()&&(<div style={{...card,padding:'16px',marginBottom:'16px'}}>
                 <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>{editingMaterialNormId?'Редактировать норму':'Новая норма'}</b>
                 <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr',gap:'10px'}}>
