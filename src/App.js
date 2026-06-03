@@ -3710,7 +3710,7 @@ function App() {
     const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
     const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
     const rows = [];
-    activeEstimates.forEach(est=>_sectionsOfEst(est).forEach(section=>{
+    activeEstimates.forEach(est=>_sectionsOfEst(est).forEach((section,sectionIdx)=>{
       const items = section.items || [];
       const materialsInSection = items.filter(it=>isEstimateMaterialItem(it, section.name) && !materialNoNormCoverageReason(it.name));
       const coveredMaterialKeys = new Set();
@@ -3722,11 +3722,17 @@ function App() {
           .filter(rule=>_normalizeUnit(normalizeMeasure(workQty,workUnit).unit)===_normalizeUnit(rule.workUnit));
         if (!rules.length) {
           const noMaterialReason = workNoMaterialNormReason(it.name, section.name);
-          rows.push({key:[est.id,section.name,itemIdx,'no'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:noMaterialReason?'Норма не нужна':'Нет нормы',severity:noMaterialReason?'info':'warning',message:noMaterialReason||'Для работы не найдено правило расхода материала',rule:null,materialName:'',materialQty:0,materialUnit:''});
+          rows.push({key:[est.id,section.name,itemIdx,'no'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionIdx,itemIdx,itemId:it.id,sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:noMaterialReason?'Норма не нужна':'Нет нормы',severity:noMaterialReason?'info':'warning',message:noMaterialReason||'Для работы не найдено правило расхода материала',rule:null,materialName:'',materialQty:0,materialUnit:''});
           return;
         }
         rules.forEach(rule=>{
+          const ruleKey = String(rule.ruleKey||rule.id||'');
+          const skippedRules = new Set((Array.isArray(it.materialNormSkipRules)?it.materialNormSkipRules:[]).map(String));
           const req = normRequirementsForWork(it.name, section.name, workQty, workUnit, {projectName, estimateId:est.id}).find(r=>String(r.ruleId)===String(rule.ruleKey||rule.id));
+          if (it.materialNormNoMaterial===true || skippedRules.has(ruleKey)) {
+            rows.push({key:[est.id,section.name,itemIdx,rule.ruleKey||rule.id,'skip'].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionIdx,itemIdx,itemId:it.id,sectionName:section.name||'',workName:it.name||'',workQty,workUnit,status:'Норма не нужна',severity:'info',message:it.materialNormSkipReason||'Помечено в смете: материал по этой норме не требуется',rule,materialName:materialTitleForNormRule(rule),materialQty:0,materialUnit:rule.materialUnit||'',requiredQty:0,requiredUnit:rule.materialUnit||'',qtyPerUnit:rule.qtyPerUnit});
+            return;
+          }
           const matchingMaterials = materialsInSection.filter(m=>normTextIncludes(m.name, rule.material));
           matchingMaterials.forEach(m=>coveredMaterialKeys.add(materialNameKey(m.name)));
           const material = matchingMaterials[0];
@@ -3736,6 +3742,9 @@ function App() {
             estimateId:est.id,
             estimateName:est.name,
             packageName:estimatePackage(est),
+            sectionIdx,
+            itemIdx,
+            itemId:it.id,
             sectionName:section.name||'',
             workName:it.name||'',
             workQty,
@@ -3756,7 +3765,7 @@ function App() {
       materialsInSection.forEach((m,idx)=>{
         const key = materialNameKey(m.name);
         if (!key || coveredMaterialKeys.has(key)) return;
-        rows.push({key:[est.id,section.name,'mat',idx].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionName:section.name||'',workName:'—',workQty:0,workUnit:'',status:'Материал без работы',severity:'warning',message:'Материал есть в смете, но система не связала его с работой раздела',rule:null,materialName:m.name||'',materialQty:toNum(m.quantity),materialUnit:m.unit||''});
+        rows.push({key:[est.id,section.name,'mat',idx].join('|'),projectName,estimateId:est.id,estimateName:est.name,packageName:estimatePackage(est),sectionIdx,itemIdx:idx,itemId:m.id,sectionName:section.name||'',workName:'—',workQty:0,workUnit:'',status:'Материал без работы',severity:'warning',message:'Материал есть в смете, но система не связала его с работой раздела',rule:null,materialName:m.name||'',materialQty:toNum(m.quantity),materialUnit:m.unit||''});
       });
     }));
     return rows;
@@ -3797,6 +3806,88 @@ function App() {
     if (!res.ok) { alert(data.detail || 'Не удалось сохранить поправку'); return; }
     setMaterialNormNotice({tone:'success',title:'Поправка нормы сохранена',text:'Поправка применится к объекту '+row.projectName+' и этой смете. Базовый справочник не изменён.'});
     await loadAll();
+  };
+  const updateEstimateFromNormCoverage = async (row, updater, successTitle, successText) => {
+    if (!canEditMaterialNorms() || !row?.estimateId) return;
+    const est = (estimatesList||[]).find(e=>Number(e.id)===Number(row.estimateId));
+    if (!est) { alert('Смета не найдена в текущем списке'); return; }
+    const sections = _sectionsOfEst(est).map((s,si)=>si===Number(row.sectionIdx)?updater(s,si):s);
+    const updated = {...est, sections, updatedBy:user?.name||''};
+    setEstimatesList(prev=>prev.map(e=>Number(e.id)===Number(updated.id)?updated:e));
+    if (selectedEstimate && Number(selectedEstimate.id)===Number(updated.id)) setSelectedEstimate(updated);
+    await persistEstimate(updated);
+    setMaterialNormNotice({tone:'success',title:successTitle,text:successText});
+  };
+  const addEstimateMaterialFromCoverage = async (row) => {
+    if (!row?.rule || row.status!=='Нет материала в смете') return;
+    const defaultName = row.materialName || materialTitleForNormRule(row.rule);
+    const name = window.prompt('Название материала для добавления в раздел сметы:', defaultName);
+    if (name === null) return;
+    const cleanName = name.trim();
+    if (!cleanName) { alert('Название материала не может быть пустым'); return; }
+    const qtyRaw = window.prompt('Количество материала:', String(row.requiredQty || ''));
+    if (qtyRaw === null) return;
+    const qty = toNum(qtyRaw);
+    if (qty <= 0) { alert('Количество должно быть больше 0'); return; }
+    const unit = row.requiredUnit || row.rule.materialUnit || row.materialUnit || 'шт';
+    await updateEstimateFromNormCoverage(row, (section)=>{
+      const items = section.items || [];
+      const insertAfter = Math.max(0, Number(row.itemIdx));
+      const materialItem = {
+        id: Date.now()+Math.random(),
+        itemType: 'material',
+        type: 'Материал',
+        name: cleanName,
+        unit,
+        quantity: qty,
+        priceWork: 0,
+        priceMaterial: 0,
+        isImported: false,
+        measurementBasis: 'manual',
+        sourceNormRule: row.rule.ruleKey || row.rule.id || '',
+        sourceWorkName: row.workName || '',
+        sourceEstimateAction: 'added_from_norm_coverage',
+      };
+      return {...section, items:[...items.slice(0,insertAfter+1), materialItem, ...items.slice(insertAfter+1)]};
+    }, 'Материал добавлен в смету', cleanName+' добавлен в раздел '+(row.sectionName||'')+'. Цена 0 — сметчик может заполнить её отдельно.');
+  };
+  const markEstimateWorkNoMaterialFromCoverage = async (row) => {
+    if (!row?.rule || row.status!=='Нет материала в смете') return;
+    const ruleKey = String(row.rule.ruleKey || row.rule.id || '');
+    if (!ruleKey) return;
+    if (!window.confirm('Пометить эту работу как не требующую материала по норме «'+(row.materialName||materialTitleForNormRule(row.rule))+'»?')) return;
+    await updateEstimateFromNormCoverage(row, (section)=>{
+      const items = (section.items||[]).map((it,idx)=>{
+        if (idx!==Number(row.itemIdx)) return it;
+        const skip = new Set((Array.isArray(it.materialNormSkipRules)?it.materialNormSkipRules:[]).map(String));
+        skip.add(ruleKey);
+        return {
+          ...it,
+          materialNormSkipRules: Array.from(skip),
+          materialNormSkipReason: 'Материал по норме не требуется / входит в цену работы',
+          materialNormSkipUpdatedAt: new Date().toISOString(),
+          materialNormSkipUpdatedBy: user?.name || '',
+        };
+      });
+      return {...section, items};
+    }, 'Работа помечена без материала', 'Строка останется в смете, но больше не будет считаться ошибкой покрытия норм.');
+  };
+  const createMaterialNormCoverageTask = async (row) => {
+    if (!row?.projectName || row.status!=='Нет материала в смете') return;
+    const payload = {
+      projectName: row.projectName,
+      title: 'Уточнить материал в смете: '+(row.materialName||materialTitleForNormRule(row.rule)||'материал'),
+      description: 'В активной смете есть работа, для которой найдена норма, но нет строки материала. Объект: '+row.projectName+'. Смета: '+(row.estimateName||'')+'. Раздел: '+(row.sectionName||'')+'. Работа: '+(row.workName||'')+'. Норма: '+(row.materialName||materialTitleForNormRule(row.rule)||'')+'. Расчетная потребность: '+(row.requiredQty?fmtMeasure(row.requiredQty,row.requiredUnit):'не рассчитана')+'. Нужно добавить материал в смету или пометить работу как не требующую материала.',
+      assignedRole: 'сметчик',
+      status: 'Новое',
+      actionLabel: 'Проверить смету',
+      actionPayload: JSON.stringify({type:'material_norm_coverage',estimateId:row.estimateId,sectionName:row.sectionName,workName:row.workName,ruleKey:row.rule?.ruleKey||row.rule?.id||''}),
+    };
+    const res = await fetch(API+'/ai-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) { alert(data.detail || 'Не удалось создать поручение'); return; }
+    setAiTasks(prev=>[data,...(prev||[])]);
+    setMaterialNormNotice({tone:'success',title:'Поручение создано',text:'Сметчику поставлена задача уточнить материал или подтвердить, что он не нужен.'});
   };
   const autoFillNormMaterialsForWork = (projectName, workName, sectionName, workQty, workUnit, currentMaterials=[], params={}) => {
     if (!projectName || toNum(workQty)<=0) return currentMaterials || [];
@@ -13343,6 +13434,9 @@ function App() {
                       <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>{r.message}</p>
                     </div>
                     <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end',flexWrap:'wrap'}}>
+                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>addEstimateMaterialFromCoverage(r)} style={{...btnGr,padding:'5px 8px',fontSize:'11px'}}><Plus size={11}/>Материал</button>}
+                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>markEstimateWorkNoMaterialFromCoverage(r)} style={{...btnG,padding:'5px 8px',fontSize:'11px'}}><Check size={11}/>Без материала</button>}
+                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>createMaterialNormCoverageTask(r)} style={{...btnB,padding:'5px 8px',fontSize:'11px'}}><Bot size={11}/>Поручение</button>}
                       {r.rule&&canEditMaterialNorms()&&<button onClick={()=>saveMaterialNormOverrideFromCoverage(r)} style={{...btnB,padding:'5px 8px',fontSize:'11px'}}>Поправка</button>}
                     </div>
                   </div>);})}
