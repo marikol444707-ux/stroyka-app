@@ -5777,11 +5777,15 @@ def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     action_payload = payload.get("actionPayload") or ""
     marker = ""
-    if "ESTIMATE_NORM_REVIEW:" in action_payload:
+    marker_prefixes = ("ESTIMATE_NORM_REVIEW:", "ESTIMATE_DIFF_REVIEW:")
+    if any(prefix in action_payload for prefix in marker_prefixes):
         try:
             marker = json.loads(action_payload).get("marker") or ""
         except Exception:
-            marker = action_payload[action_payload.find("ESTIMATE_NORM_REVIEW:"):].split('"')[0].split("'")[0].split()[0]
+            for prefix in marker_prefixes:
+                if prefix in action_payload:
+                    marker = action_payload[action_payload.find(prefix):].split('"')[0].split("'")[0].split()[0]
+                    break
     if marker:
         cur.execute(
             AI_TASK_SELECT + " WHERE project_name=%s AND action_payload LIKE %s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
