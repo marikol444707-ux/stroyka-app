@@ -3776,6 +3776,22 @@ function App() {
     if (status==='Нет нормы' || status==='Материал без работы') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
     return {color:C.info,bg:C.infoLight,border:C.infoBorder};
   };
+  const materialNormCoveragePriority = (status) => ({
+    'Нет материала в смете': 0,
+    'Нет нормы': 1,
+    'Материал без работы': 2,
+    'Поправка объекта': 3,
+    'Поправка сметы': 3,
+    'Норма применена': 4,
+    'Норма не нужна': 5,
+  }[status] ?? 9);
+  const materialNormCoverageDisplayRows = (rows=[]) => [...rows].sort((a,b)=>{
+    const pa = materialNormCoveragePriority(a.status);
+    const pb = materialNormCoveragePriority(b.status);
+    if (pa !== pb) return pa - pb;
+    return String(a.sectionName||'').localeCompare(String(b.sectionName||''), 'ru')
+      || String(a.workName||'').localeCompare(String(b.workName||''), 'ru');
+  });
   const materialNormCoverageExportRows = (rows=[]) => rows.map(r=>({
     Статус: r.status || '',
     Смета: r.estimateName || '',
@@ -13488,7 +13504,7 @@ function App() {
                 </div>
                 <button onClick={()=>setMaterialNormNotice(null)} style={{...btnG,padding:'4px 8px',fontSize:'11px',flex:'0 0 auto'}}><X size={12}/></button>
               </div>;})()}
-              {(()=>{const projectOptions=visibleProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+              {(()=>{const projectOptions=visibleProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
                   <div>
                     <b style={{color:C.text,fontSize:'13px',display:'block'}}>📐 Вся смета по нормам</b>
@@ -13512,7 +13528,7 @@ function App() {
                   <span style={badge(C.textSec,C.bgGray,C.border)}>{'Всего строк: '+rows.length}</span>
                 </div>
                 {rows.length>0?<div style={{display:'grid',gap:'7px',maxHeight:'420px',overflowY:'auto',paddingRight:'2px'}}>
-                  {rows.slice(0,80).map(r=>{const meta=materialNormCoverageMeta(r.status);return(<div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1.6fr) minmax(220px,1fr) 170px auto',gap:'10px',alignItems:'center',padding:'10px 11px',borderRadius:'9px',border:'1px solid '+C.border,backgroundColor:C.bg}}>
+                  {displayRows.slice(0,80).map(r=>{const meta=materialNormCoverageMeta(r.status);return(<div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1.6fr) minmax(220px,1fr) 170px auto',gap:'10px',alignItems:'center',padding:'10px 11px',borderRadius:'9px',border:'1px solid '+C.border,backgroundColor:C.bg}}>
                     <div style={{minWidth:0}}>
                       <span style={badge(meta.color,meta.bg,meta.border)}>{r.status}</span>
                       <b style={{display:'block',color:C.text,fontSize:'12px',marginTop:'5px',overflow:'hidden',textOverflow:'ellipsis'}}>{r.workName}</b>
