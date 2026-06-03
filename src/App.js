@@ -3357,6 +3357,65 @@ function App() {
       return [];
     }
   };
+  const materialNormDeviationRows = (projectName) => {
+    const rows = {};
+    (workJournal||[])
+      .filter(w=>w.project===projectName && w.status!=='Отклонено')
+      .forEach(w=>parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
+        const name = m.name || '';
+        const key = materialNameKey(name)+'|'+_normalizeUnit(m.unit||'шт');
+        if (!materialNameKey(name)) return;
+        const qty = toNum(m.quantity);
+        const norm = toNum(m.normQuantity);
+        const unit = m.unit || 'шт';
+        const tolerance = norm>0 ? Math.max(0.001, norm*0.1) : 0;
+        const diff = norm>0 ? qty - norm : 0;
+        if (!rows[key]) rows[key] = {key,name,unit,qty:0,normQty:0,overQty:0,savedQty:0,withoutNormQty:0,records:0,overRecords:0,withoutNormRecords:0,works:[],normSources:[]};
+        const row = rows[key];
+        row.qty += qty;
+        row.records += 1;
+        if (norm>0) {
+          row.normQty += norm;
+          if (diff>tolerance) {
+            row.overQty += diff;
+            row.overRecords += 1;
+          } else if (diff < -tolerance) {
+            row.savedQty += Math.abs(diff);
+          }
+        } else if (qty>0) {
+          row.withoutNormQty += qty;
+          row.withoutNormRecords += 1;
+        }
+        if (m.normSource && !row.normSources.includes(m.normSource)) row.normSources.push(m.normSource);
+        row.works.push({
+          workName:w.description||'',
+          master:w.masterName||w.master_name||'',
+          date:w.date||'',
+          qty,
+          norm,
+          diff,
+          unit,
+          normSource:m.normSource||'',
+        });
+      }));
+    return Object.values(rows).map(r=>({...r,overPct:r.normQty>0?Math.round(r.overQty/r.normQty*100):0})).sort((a,b)=>(b.overQty-a.overQty)||(b.withoutNormQty-a.withoutNormQty)||a.name.localeCompare(b.name,'ru'));
+  };
+  const materialNormControlSummaryForProject = (projectName) => {
+    const rows = materialNormDeviationRows(projectName);
+    const overRows = rows.filter(r=>r.overQty>0);
+    const withoutNormRows = rows.filter(r=>r.withoutNormQty>0);
+    const savedRows = rows.filter(r=>r.savedQty>0 && r.overQty===0);
+    return {
+      rows,
+      overRows,
+      withoutNormRows,
+      savedRows,
+      totalOverRows: overRows.length,
+      totalWithoutNormRows: withoutNormRows.length,
+      totalOverRecords: rows.reduce((s,r)=>s+r.overRecords,0),
+      totalWithoutNormRecords: rows.reduce((s,r)=>s+r.withoutNormRecords,0),
+    };
+  };
   const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id) => {
     const byName = {};
     (materialTransfers||[])
@@ -4075,6 +4134,7 @@ function App() {
     const activeEsts = activeEstimatesForProject(project, 'Заказчик');
     const rows=materialReconciliationRows(projectName);
     const normRows=estimateWorkNormRequirementRows(projectName);
+    const normCtrl=materialNormControlSummaryForProject(projectName);
     let html='<style>.mr-tbl{border-collapse:collapse;width:100%;font-size:10.5px;margin:8px 0}.mr-tbl th,.mr-tbl td{border:1px solid #333;padding:5px 6px}.mr-tbl th{background:#f3f4f6}.mr-need{background:#fef3c7;font-weight:700}.mr-over{background:#dbeafe}.mr-out{background:#fee2e2}.mr-ok{background:#dcfce7}</style>';
     html+='<h2 style="text-align:center;margin:6px 0">ВЕДОМОСТЬ ПОТРЕБНОСТИ МАТЕРИАЛОВ</h2>';
     html+='<p style="text-align:center;font-size:11px;color:#444">по смете объекта (план / заявки / в пути / поставлено / выдано / списано / остаток)</p>';
@@ -4093,6 +4153,18 @@ function App() {
 	      html+='<p style="font-size:10px;color:#666;margin:0 0 6px">Это подсказка для сметчика/снабжения: материалы рассчитаны из строк типа «Работа» по типовым нормам. Они не списываются и не попадают в закупку автоматически, пока не заведены строками типа «Материал».</p>';
 	      html+='<table class="mr-tbl"><tr><th>№</th><th>Материал по норме</th><th>Ед.</th><th>Потребность</th><th>Работы-источники</th><th>Норма</th></tr>';
 	      normRows.forEach((r,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+r.name+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+r.works.slice(0,4).map(w=>w.name).join('; ')+(r.works.length>4?' …':'')+'</td><td>'+r.normSources.join('; ')+'</td></tr>';});
+	      html+='</table>';
+	    }
+	    if (normCtrl.overRows.length>0 || normCtrl.withoutNormRows.length>0) {
+	      html+='<h3 style="font-size:13px;margin:18px 0 6px">Контроль списания по нормам</h3>';
+	      html+='<p style="font-size:10px;color:#666;margin:0 0 6px">Перерасход требует проверки прорабом/сметчиком. Строки без нормы означают, что материал списали, но система не нашла правило расхода.</p>';
+	      html+='<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Ед.</th><th>Факт списания</th><th>Норма</th><th>Отклонение</th><th>Работы</th><th>Статус</th></tr>';
+	      [...normCtrl.overRows,...normCtrl.withoutNormRows.filter(r=>!normCtrl.overRows.some(o=>o.key===r.key))].forEach((r,i)=>{
+	        const over=r.overQty>0;
+	        const cls=over?'mr-out':'mr-need';
+	        const deviation=over?('+'+r.overQty.toLocaleString('ru-RU')):('без нормы '+r.withoutNormQty.toLocaleString('ru-RU'));
+	        html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+'</td><td>'+r.unit+'</td><td>'+r.qty.toLocaleString('ru-RU')+'</td><td>'+(r.normQty>0?r.normQty.toLocaleString('ru-RU'):'—')+'</td><td>'+deviation+'</td><td>'+r.works.slice(0,4).map(w=>w.workName).join('; ')+(r.works.length>4?' …':'')+'</td><td>'+(over?'проверить перерасход':'завести/уточнить норму')+'</td></tr>';
+	      });
 	      html+='</table>';
 	    }
     html+='<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
@@ -4490,6 +4562,9 @@ function App() {
     (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).forEach(i=>issues.push({severity:'Критично',project:i.projectName||i.project||'',where:i.supplierName||'Поставщик',problem:'Счёт ждёт утверждения: '+fmtDocMoney(i.amount||i.totalAmount),action:'Утвердить или отклонить'}));
     activeDirectorProjects().slice(0,12).forEach(p=>{
       materialReconciliationRows(p.name).filter(r=>r.toBuy>0).slice(0,3).forEach(r=>issues.push({severity:'Внимание',project:p.name,where:r.name,problem:'К закупке по плану: '+fmtMeasure(r.toBuy,r.unit),action:'Проверить заявку/поставку'}));
+      const normCtrl=materialNormControlSummaryForProject(p.name);
+      normCtrl.overRows.slice(0,2).forEach(r=>issues.push({severity:'Критично',project:p.name,where:r.name,problem:'Перерасход по норме: +'+fmtMeasure(r.overQty,r.unit),action:'Проверить списание мастера и норму'}));
+      normCtrl.withoutNormRows.slice(0,2).forEach(r=>issues.push({severity:'Внимание',project:p.name,where:r.name,problem:'Материал списан без нормы: '+fmtMeasure(r.withoutNormQty,r.unit),action:'Добавить норму или уточнить списание'}));
     });
     return issues.sort((a,b)=>(a.severity==='Критично'?-1:1)-(b.severity==='Критично'?-1:1));
   };
@@ -9587,7 +9662,7 @@ function App() {
                           }} style={btnO}><Plus size={14}/>Передать материал</button>)}
                         </div>
                       </div>
-	                      {(()=>{const rows=materialReconciliationRows(p.name);const normRows=estimateWorkNormRequirementRows(p.name);const planRows=rows.filter(r=>r.planQty>0);const toBuyRows=rows.filter(r=>r.toBuy>0);const pipelineRows=rows.filter(r=>r.requested>0||r.inTransit>0);const outsideRows=rows.filter(r=>r.isOutsideEstimate);const suppliedRows=rows.filter(r=>r.supplied>0);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
+	                      {(()=>{const rows=materialReconciliationRows(p.name);const normRows=estimateWorkNormRequirementRows(p.name);const normCtrl=materialNormControlSummaryForProject(p.name);const planRows=rows.filter(r=>r.planQty>0);const toBuyRows=rows.filter(r=>r.toBuy>0);const pipelineRows=rows.filter(r=>r.requested>0||r.inTransit>0);const outsideRows=rows.filter(r=>r.isOutsideEstimate);const suppliedRows=rows.filter(r=>r.supplied>0);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'12px'}}>
                           <div>
                             <b style={{color:C.text,fontSize:'14px'}}>📊 Материалы: смета ↔ поставки ↔ склад</b>
@@ -9602,6 +9677,8 @@ function App() {
 	                          <div style={{padding:'10px',backgroundColor:toBuyRows.length?C.warningLight:C.successLight,borderRadius:'8px',border:'1px solid '+(toBuyRows.length?C.warningBorder:C.successBorder)}}><p style={{color:toBuyRows.length?C.warning:C.success,fontSize:'10px',margin:'0 0 3px'}}>Докупить</p><b style={{color:toBuyRows.length?C.warning:C.success,fontSize:'15px'}}>{toBuyRows.length}</b></div>
 	                          <div style={{padding:'10px',backgroundColor:outsideRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(outsideRows.length?C.dangerBorder:C.border)}}><p style={{color:outsideRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Вне сметы</p><b style={{color:outsideRows.length?C.danger:C.text,fontSize:'15px'}}>{outsideRows.length}</b></div>
 	                          <div style={{padding:'10px',backgroundColor:normRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(normRows.length?C.infoBorder:C.border)}}><p style={{color:normRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>По нормам работ</p><b style={{color:normRows.length?C.info:C.text,fontSize:'15px'}}>{normRows.length}</b></div>
+	                          <div style={{padding:'10px',backgroundColor:normCtrl.overRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(normCtrl.overRows.length?C.dangerBorder:C.border)}}><p style={{color:normCtrl.overRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Перерасход норм</p><b style={{color:normCtrl.overRows.length?C.danger:C.text,fontSize:'15px'}}>{normCtrl.overRows.length}</b></div>
+	                          <div style={{padding:'10px',backgroundColor:normCtrl.withoutNormRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(normCtrl.withoutNormRows.length?C.warningBorder:C.border)}}><p style={{color:normCtrl.withoutNormRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Списано без нормы</p><b style={{color:normCtrl.withoutNormRows.length?C.warning:C.text,fontSize:'15px'}}>{normCtrl.withoutNormRows.length}</b></div>
 	                        </div>
                         {rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
                           <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Поставлено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>Остаток</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
@@ -9629,6 +9706,17 @@ function App() {
 	                              {normRows.slice(0,12).map(r=>(<tr key={r.key}><td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}</td><td style={{...tblC,fontWeight:'700',color:C.info}}>{fmtMeasure(r.planQty,r.unit)}</td><td style={tblC}>{r.works.slice(0,3).map(w=>w.name).join('; ')}{r.works.length>3?' …':''}</td><td style={{...tblC,color:C.textSec,fontSize:'10px'}}>{r.normSources.slice(0,2).join('; ')}</td></tr>))}
 	                            </tbody></table>
 	                            {normRows.length>12&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые 12 строк. Полный список — в печатной ведомости.</p>}
+	                          </div>
+	                        </div>)}
+	                        {(normCtrl.overRows.length>0||normCtrl.withoutNormRows.length>0)&&(<div style={{marginTop:'14px',paddingTop:'12px',borderTop:'1.5px solid '+C.border}}>
+	                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'8px'}}>
+	                            <div><b style={{color:normCtrl.overRows.length?C.danger:C.warning,fontSize:'13px'}}>🚦 Контроль списания по нормам</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Показывает, где факт списания материалов отличается от нормы, которую подставила система при закрытии работы.</p></div>
+	                          </div>
+	                          <div style={{overflowX:'auto'}}>
+	                            <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>Факт</th><th style={tblH}>Норма</th><th style={tblH}>Отклонение</th><th style={tblH}>Работы</th><th style={tblH}>Статус</th></tr></thead><tbody>
+	                              {[...normCtrl.overRows,...normCtrl.withoutNormRows.filter(r=>!normCtrl.overRows.some(o=>o.key===r.key))].slice(0,12).map(r=>{const over=r.overQty>0;return(<tr key={r.key}><td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.normSources.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.normSources.slice(0,2).join('; ')}</p>}</td><td style={tblC}>{fmtMeasure(r.qty,r.unit)}</td><td style={tblC}>{r.normQty>0?fmtMeasure(r.normQty,r.unit):'—'}</td><td style={{...tblC,fontWeight:'700',color:over?C.danger:C.warning}}>{over?('+'+fmtMeasure(r.overQty,r.unit)):'без нормы '+fmtMeasure(r.withoutNormQty,r.unit)}</td><td style={tblC}>{r.works.slice(0,3).map(w=>w.workName+(w.master?' · '+w.master:'')).join('; ')}{r.works.length>3?' …':''}</td><td style={tblC}><span style={badge(over?C.danger:C.warning,over?C.dangerLight:C.warningLight,over?C.dangerBorder:C.warningBorder)}>{over?'Проверить перерасход':'Нужна норма'}</span></td></tr>);})}
+	                            </tbody></table>
+	                            {(normCtrl.overRows.length+normCtrl.withoutNormRows.length)>12&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые 12 строк. Полный список — в печатной ведомости.</p>}
 	                          </div>
 	                        </div>)}
 	                      </div>);})()}
