@@ -4472,7 +4472,7 @@ function App() {
     });
     html += '</table>';
     html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px"><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Сметчик:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Прораб / главный инженер:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div></div>';
-    html += '<p style="margin-top:16px;font-size:10px;color:#666;text-align:center">Строки `Нет материала в смете` нужно закрыть: добавить материал, пометить работу как не требующую материала или поставить поручение сметчику.</p>';
+    html += '<p style="margin-top:16px;font-size:10px;color:#666;text-align:center">Строки `Нет материала в смете` и `Материал без количества` нужно закрыть: добавить/уточнить материал, создать заявку снабжения, пометить работу как не требующую материала или поставить поручение сметчику.</p>';
     return html;
   };
   const saveMaterialNormOverrideFromCoverage = async (row) => {
@@ -5069,7 +5069,12 @@ function App() {
     const marker = materialNormSupplyMarker(row);
     return (supplyRequests||[]).some(req=>req.project===row?.projectName && isActiveSupplyRequestStatus(req.status) && String(req.notes||'').includes(marker));
   };
-  const materialNormSupplyNotes = (rows, summaryTitle='Создано из ведомости «Вся смета по нормам»: материал нужен по норме, но отсутствует строкой в смете.') => {
+  const materialNormCanCreateSupply = (row) => (
+    ['Нет материала в смете','Материал без количества'].includes(row?.status)
+    && row?.rule
+    && toNum(row?.requiredQty)>0
+  );
+  const materialNormSupplyNotes = (rows, summaryTitle='Создано из ведомости «Вся смета по нормам»: материал нужен по норме, но отсутствует в смете или указан без количества.') => {
     const lines = [summaryTitle];
     rows.forEach((row,idx)=>{
       const materialName = row.materialName || materialTitleForNormRule(row.rule) || 'материал';
@@ -5088,7 +5093,7 @@ function App() {
     return lines.filter(Boolean).join('\n');
   };
   const createSupplyRequestFromNormCoverage = async (row) => {
-    if (!row?.rule || row.status!=='Нет материала в смете') return;
+    if (!materialNormCanCreateSupply(row)) return;
     if (!canCreateSupplyRequestFromNorm()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
     if (materialNormSupplyRequestExists(row) && !window.confirm('По этой строке нормы уже есть активная заявка. Создать ещё одну?')) return;
     const defaultName = row.materialName || materialTitleForNormRule(row.rule);
@@ -5131,7 +5136,7 @@ function App() {
   };
   const createBatchSupplyRequestFromNormCoverage = async (rows=[]) => {
     if (!canCreateSupplyRequestFromNorm()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
-    const candidates = (rows||[]).filter(r=>r.status==='Нет материала в смете' && r.rule && toNum(r.requiredQty)>0);
+    const candidates = (rows||[]).filter(materialNormCanCreateSupply);
     const fresh = candidates.filter(r=>!materialNormSupplyRequestExists(r));
     if (!fresh.length) {
       alert(candidates.length ? 'По всем недостающим материалам уже есть активные заявки' : 'Нет строк для заявки');
@@ -5159,7 +5164,7 @@ function App() {
         project: fresh[0].projectName,
         createdBy: user?.name || '',
         date: new Date().toISOString().split('T')[0],
-        notes: materialNormSupplyNotes(fresh, 'Пакетная заявка из ведомости «Вся смета по нормам»: материалы нужны по нормам, но отсутствуют строками в смете.'),
+        notes: materialNormSupplyNotes(fresh, 'Пакетная заявка из ведомости «Вся смета по нормам»: материалы нужны по нормам, но отсутствуют в смете или указаны без количества.'),
         category: 'Нормы материалов',
         urgency: 'обычная',
         requestedByRole: user?.role || '',
@@ -14770,7 +14775,7 @@ function App() {
                     </select>
                     <button disabled={!rows.length} onClick={()=>showPreview(buildMaterialNormCoverageContent(selectedProject),'Смета по нормам — '+selectedProject)} style={btnState(btnB,!rows.length,{padding:'7px 10px',fontSize:'12px'})}><Printer size={13}/>Печать</button>
                     <button disabled={!rows.length} onClick={()=>exportToExcel(materialNormCoverageExportRows(rows),'Смета_по_нормам_'+selectedProject)} style={btnState(btnG,!rows.length,{padding:'7px 10px',fontSize:'12px'})}><Download size={13}/>Excel</button>
-                    {canCreateSupplyRequestFromNorm()&&<button disabled={!rows.some(r=>r.status==='Нет материала в смете'&&!materialNormSupplyRequestExists(r))} onClick={()=>createBatchSupplyRequestFromNormCoverage(rows)} style={btnState(btnO,!rows.some(r=>r.status==='Нет материала в смете'&&!materialNormSupplyRequestExists(r)),{padding:'7px 10px',fontSize:'12px'})}><ShoppingCart size={13}/>Заявка по всем</button>}
+                    {canCreateSupplyRequestFromNorm()&&<button disabled={!rows.some(r=>materialNormCanCreateSupply(r)&&!materialNormSupplyRequestExists(r))} onClick={()=>createBatchSupplyRequestFromNormCoverage(rows)} style={btnState(btnO,!rows.some(r=>materialNormCanCreateSupply(r)&&!materialNormSupplyRequestExists(r)),{padding:'7px 10px',fontSize:'12px'})}><ShoppingCart size={13}/>Заявка по всем</button>}
                   </div>
                 </div>
                 <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
@@ -14801,7 +14806,7 @@ function App() {
                     </div>
                     <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end',flexWrap:'wrap'}}>
                       {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>addEstimateMaterialFromCoverage(r)} style={btnState(btnGr,false,{padding:'5px 8px',fontSize:'11px'})}><Plus size={11}/>Материал</button>}
-                      {r.status==='Нет материала в смете'&&canCreateSupplyRequestFromNorm()&&(materialNormSupplyRequestExists(r)?<span style={badge(C.success,C.successLight,C.successBorder)}>Заявка уже есть</span>:<button onClick={()=>createSupplyRequestFromNormCoverage(r)} style={btnState(btnO,false,{padding:'5px 8px',fontSize:'11px'})}><ShoppingCart size={11}/>Заявка</button>)}
+                      {materialNormCanCreateSupply(r)&&canCreateSupplyRequestFromNorm()&&(materialNormSupplyRequestExists(r)?<span style={badge(C.success,C.successLight,C.successBorder)}>Заявка уже есть</span>:<button onClick={()=>createSupplyRequestFromNormCoverage(r)} style={btnState(btnO,false,{padding:'5px 8px',fontSize:'11px'})}><ShoppingCart size={11}/>Заявка</button>)}
                       {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>markEstimateWorkNoMaterialFromCoverage(r)} style={btnState(btnG,false,{padding:'5px 8px',fontSize:'11px'})}><Check size={11}/>Без материала</button>}
                       {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>createMaterialNormCoverageTask(r)} style={btnState(btnB,false,{padding:'5px 8px',fontSize:'11px'})}><Bot size={11}/>Поручение</button>}
                       {r.rule&&canEditMaterialNorms()&&<button onClick={()=>saveMaterialNormOverrideFromCoverage(r)} style={btnState(btnB,false,{padding:'5px 8px',fontSize:'11px'})}>Поправка</button>}
