@@ -246,17 +246,17 @@ def enrich_worker_project_links(cur, user: dict) -> dict:
             SELECT DISTINCT project_name AS project_name
             FROM brigade_contracts
             WHERE COALESCE(project_name,'') <> ''
-              AND (contractor_id=%s OR brigade_name=%s)
+              AND (contractor_id=%s OR LOWER(COALESCE(brigade_name,''))=LOWER(%s))
             UNION
             SELECT DISTINCT project AS project_name
             FROM work_journal
             WHERE COALESCE(project,'') <> ''
-              AND (master_id=%s OR master_name=%s)
+              AND (master_id=%s OR LOWER(COALESCE(master_name,''))=LOWER(%s))
             UNION
             SELECT DISTINCT project_name AS project_name
             FROM material_transfers
             WHERE COALESCE(project_name,'') <> ''
-              AND to_person=%s
+              AND LOWER(COALESCE(to_person,''))=LOWER(%s)
         """, (user_id, user_name, user_id, user_name, user_name))
         for row in cur.fetchall() or []:
             project_name = row.get("project_name") if isinstance(row, dict) else row[0]
