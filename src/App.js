@@ -790,6 +790,7 @@ function App() {
   const [aiFindings, setAiFindings] = useState([]);
   const [aiTasks, setAiTasks] = useState([]);
   const estimateNormReviewQueuedRef = useRef(new Set());
+  const estimateNormReviewAutoCheckedRef = useRef(new Set());
   const estimateDiffReviewQueuedRef = useRef(new Set());
   const estimateChangeReconcileQueuedRef = useRef(new Set());
   const [archivedProjects, setArchivedProjects] = useState([]);
@@ -5060,6 +5061,20 @@ function App() {
       estimateNormReviewQueuedRef.current.delete(marker);
     }
   };
+  useEffect(() => {
+    if (!user || !['директор','зам_директора','сметчик','главный_инженер'].includes(user.role)) return;
+    if (!Array.isArray(estimatesList) || estimatesList.length===0) return;
+    const activeCustomerEstimates = (estimatesList||[])
+      .filter(est=>est?.id && estimateKind(est)==='Заказчик' && !isArchivedEstimate(est) && (est.status||'Черновик')==='Активная')
+      .slice(0, 25);
+    activeCustomerEstimates.forEach(est=>{
+      const marker = estimateNormReviewMarker(est.id);
+      if (estimateNormReviewAutoCheckedRef.current.has(marker)) return;
+      estimateNormReviewAutoCheckedRef.current.add(marker);
+      queueEstimateNormReviewTask(est, 'Фоновая проверка активной сметы', estimatesList);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.role, estimatesList, materialNorms, materialNormOverrides]);
   const materialNormSupplyMarker = (row) => {
     const ruleKey = row?.rule?.ruleKey || row?.rule?.id || '';
     return 'NORM_COVERAGE_REQUEST:'+[row?.estimateId||'',row?.sectionIdx??'',row?.itemIdx??'',ruleKey].join('|');
