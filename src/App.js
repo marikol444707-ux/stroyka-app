@@ -795,6 +795,8 @@ function App() {
   const estimateQualityReviewAutoCheckedRef = useRef(new Set());
   const estimateDiffReviewQueuedRef = useRef(new Set());
   const estimateChangeReconcileQueuedRef = useRef(new Set());
+  const materialControlTaskQueuedRef = useRef(new Set());
+  const materialControlTaskAutoCheckedRef = useRef(new Map());
   const [archivedProjects, setArchivedProjects] = useState([]);
   const [tbJournal, setTbJournal] = useState([]);
   const [geoCheckins, setGeoCheckins] = useState([]);
@@ -2722,6 +2724,29 @@ function App() {
         setExpandedProject(project.id);
         setActiveProjectTab('Изменения к смете');
         setActiveTabGroup('work');
+      }
+      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
+        await patchAiTaskSilent(task.id,{status:'В работе'});
+      }
+      return;
+    }
+    if ([
+      'material_purchase_review',
+      'material_outside_estimate_review',
+      'material_writeoff_review',
+      'material_norm_over_review',
+      'material_without_norm_review'
+    ].includes(payload.type)) {
+      const projectName = payload.projectName || task.projectName || '';
+      const project = (projects||[]).find(p=>p.name===projectName);
+      if (project) {
+        navigateTo('projects');
+        setExpandedProject(project.id);
+        setActiveProjectTab('Материалы');
+        setActiveTabGroup('object');
+      } else {
+        navigateTo('warehouse');
+        setWarehouseTab('control');
       }
       if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
         await patchAiTaskSilent(task.id,{status:'В работе'});
@@ -5253,6 +5278,211 @@ function App() {
       estimateNormReviewQueuedRef.current.delete(marker);
     }
   };
+  const materialControlMarker = (type, projectName, materialName, unit='') => (
+    'MATERIAL_CONTROL:'+String(type||'')+':'+materialNameKey(projectName)+':'+materialNameKey(materialName)+'|'+_normalizeUnit(unit||'')
+  );
+  const materialControlDescription = (kind, projectName, row, reason='Фоновая проверка материалов') => {
+    const lines = [
+      'Автоконтроль материалов после события: '+reason+'.',
+      'Объект: '+projectName+'.',
+      'Материал: '+(row.name||'без названия')+' ('+(row.unit||'шт')+').',
+      ''
+    ];
+    if (kind === 'purchase') {
+      lines.push(
+        'План по смете: '+fmtMeasure(row.planQty,row.unit)+'.',
+        'Получено/перемещено на объект: '+fmtMeasure(row.supplied,row.unit)+'.',
+        'В заявках и пути: '+fmtMeasure(toNum(row.requested) + toNum(row.inTransit),row.unit)+'.',
+        'К докупке: '+fmtMeasure(row.toBuy,row.unit)+'.',
+        '',
+        'Что сделать: проверить заявки, КП и поставки. Если материала действительно не хватает — оформить или уточнить заявку снабжения.'
+      );
+    } else if (kind === 'outside') {
+      lines.push(
+        'Материал есть в поставках, перемещениях или списании, но в активной смете нет плановой строки.',
+        'Поступило/перемещено: '+fmtMeasure(row.supplied,row.unit)+'. Списано: '+fmtMeasure(row.used,row.unit)+'.',
+        '',
+        'Что сделать: проверить, это материал вне сметы, ошибка импорта сметы или неверное наименование. При необходимости добавить позицию в смету или оформить изменение к смете.'
+      );
+    } else if (kind === 'writeoff') {
+      lines.push(
+        'Мастер/бригада списали больше, чем им подписано передано.',
+        'Выдано по актам передачи: '+fmtMeasure(row.issued,row.unit)+'.',
+        'Списано в журнале работ: '+fmtMeasure(row.used,row.unit)+'.',
+        'Сверх выдачи: '+fmtMeasure(row.usedWithoutIssue,row.unit)+'.',
+        '',
+        'Что сделать: проверить передачу материала мастеру и записи ЖПР. Либо оформить недостающую передачу, либо исправить списание.'
+      );
+    } else if (kind === 'norm_over') {
+      lines.push(
+        'По журналу работ списано больше нормативной потребности.',
+        'Списано: '+fmtMeasure(row.qty,row.unit)+'. Норма: '+fmtMeasure(row.normQty,row.unit)+'.',
+        'Перерасход: '+fmtMeasure(row.overQty,row.unit)+' ('+(row.overPct||0)+'%).',
+        '',
+        'Что сделать: проверить толщину/параметры работ, норму расхода и фактическое списание мастера.'
+      );
+    } else if (kind === 'without_norm') {
+      lines.push(
+        'Материал списан в журнале работ, но система не нашла норму расхода.',
+        'Списано без нормы: '+fmtMeasure(row.withoutNormQty,row.unit)+'.',
+        '',
+        'Что сделать: добавить норму расхода для работы или подтвердить, что списание ручное и норму применять не нужно.'
+      );
+    }
+    return lines.join('\n');
+  };
+  const materialControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка материалов') => {
+    if (!projectName) return [];
+    const summary = materialControlSummaryForProject(projectName);
+    const normSummary = materialNormControlSummaryForProject(projectName);
+    const mk = (kind, row, title, assignedRole, actionType) => {
+      const marker = materialControlMarker(kind, projectName, row.name, row.unit);
+      return {
+        marker,
+        projectName,
+        title,
+        description: materialControlDescription(kind, projectName, row, reason),
+        assignedRole,
+        actionLabel: 'Открыть материалы',
+        actionPayload: {
+          type: actionType,
+          marker,
+          projectName,
+          materialName: row.name || '',
+          unit: row.unit || '',
+          reason
+        }
+      };
+    };
+    const descriptors = [];
+    summary.toBuyRows
+      .filter(r=>r.toBuy>0 && materialNameKey(r.name))
+      .sort((a,b)=>b.toBuy-a.toBuy)
+      .slice(0,5)
+      .forEach(r=>descriptors.push(mk(
+        'purchase',
+        r,
+        'Докупить материал: '+projectName+' — '+(r.name||'материал'),
+        'снабженец',
+        'material_purchase_review'
+      )));
+    summary.outsideRows
+      .filter(r=>materialNameKey(r.name))
+      .sort((a,b)=>(b.supplied+b.used)-(a.supplied+a.used))
+      .slice(0,3)
+      .forEach(r=>descriptors.push(mk(
+        'outside',
+        r,
+        'Материал вне сметы: '+projectName+' — '+(r.name||'материал'),
+        hasActiveEstimator() ? 'сметчик' : 'директор',
+        'material_outside_estimate_review'
+      )));
+    summary.usedWithoutIssueRows
+      .filter(r=>r.usedWithoutIssue>0 && materialNameKey(r.name))
+      .sort((a,b)=>b.usedWithoutIssue-a.usedWithoutIssue)
+      .slice(0,3)
+      .forEach(r=>descriptors.push(mk(
+        'writeoff',
+        r,
+        'Проверить списание сверх выдачи: '+projectName+' — '+(r.name||'материал'),
+        'прораб',
+        'material_writeoff_review'
+      )));
+    normSummary.overRows
+      .filter(r=>r.overQty>0 && materialNameKey(r.name))
+      .sort((a,b)=>b.overQty-a.overQty)
+      .slice(0,3)
+      .forEach(r=>descriptors.push(mk(
+        'norm_over',
+        r,
+        'Проверить перерасход по норме: '+projectName+' — '+(r.name||'материал'),
+        'прораб',
+        'material_norm_over_review'
+      )));
+    normSummary.withoutNormRows
+      .filter(r=>r.withoutNormQty>0 && materialNameKey(r.name))
+      .sort((a,b)=>b.withoutNormQty-a.withoutNormQty)
+      .slice(0,3)
+      .forEach(r=>descriptors.push(mk(
+        'without_norm',
+        r,
+        'Добавить норму или проверить списание: '+projectName+' — '+(r.name||'материал'),
+        hasActiveEstimator() ? 'сметчик' : 'директор',
+        'material_without_norm_review'
+      )));
+    return descriptors.slice(0,15);
+  };
+  const materialControlSignatureForProject = (projectName) => {
+    const s = materialControlSummaryForProject(projectName);
+    const n = materialNormControlSummaryForProject(projectName);
+    const qtySum = (rows, field) => Math.round(rows.reduce((sum,row)=>sum+toNum(row[field]),0)*1000)/1000;
+    return [
+      s.toBuyRows.length,
+      qtySum(s.toBuyRows,'toBuy'),
+      s.outsideRows.length,
+      s.usedWithoutIssueRows.length,
+      qtySum(s.usedWithoutIssueRows,'usedWithoutIssue'),
+      n.totalOverRows,
+      n.totalOverRecords,
+      n.totalWithoutNormRows,
+      n.totalWithoutNormRecords
+    ].join('|');
+  };
+  const queueMaterialControlTask = async (descriptor) => {
+    if (!descriptor?.marker || !descriptor.projectName) return;
+    const existingTask = aiTaskByMarker(descriptor.marker);
+    const patch = {
+      title: descriptor.title,
+      description: descriptor.description,
+      assignedRole: descriptor.assignedRole,
+      actionLabel: descriptor.actionLabel,
+      actionPayload: JSON.stringify(descriptor.actionPayload),
+    };
+    if (existingTask) {
+      await patchAiTaskSilent(existingTask.id, patch);
+      return;
+    }
+    if (materialControlTaskQueuedRef.current.has(descriptor.marker)) return;
+    materialControlTaskQueuedRef.current.add(descriptor.marker);
+    try {
+      const res = await fetch(API+'/ai-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        projectName: descriptor.projectName,
+        ...patch,
+        status:'Новое',
+      })});
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) {
+        materialControlTaskQueuedRef.current.delete(descriptor.marker);
+        return;
+      }
+      setAiTasks(prev=>{
+        const list = prev||[];
+        if (data?.id && list.some(t=>Number(t.id)===Number(data.id))) {
+          return list.map(t=>Number(t.id)===Number(data.id)?data:t);
+        }
+        return [data,...list];
+      });
+    } catch(e) {
+      materialControlTaskQueuedRef.current.delete(descriptor.marker);
+    }
+  };
+  const queueMaterialControlTasksForProject = async (projectName, reason='Фоновая проверка материалов') => {
+    const descriptors = materialControlTaskDescriptorsForProject(projectName, reason);
+    const activeMarkers = new Set(descriptors.map(d=>d.marker));
+    const openMaterialTasks = (aiTasks||[]).filter(t=>{
+      if (!isOpenAiStatus(t.status)) return false;
+      const payload = parseAiTaskPayload(t);
+      return String(payload.marker||'').startsWith('MATERIAL_CONTROL:')
+        && (payload.projectName || t.projectName || '') === projectName;
+    });
+    openMaterialTasks.forEach(t=>{
+      const payload = parseAiTaskPayload(t);
+      if (payload.marker && !activeMarkers.has(payload.marker)) patchAiTaskSilent(t.id,{status:'Закрыто'});
+    });
+    for (const descriptor of descriptors) {
+      await queueMaterialControlTask(descriptor);
+    }
+  };
   useEffect(() => {
     if (!user || !['директор','зам_директора','сметчик','главный_инженер'].includes(user.role)) return;
     if (!Array.isArray(estimatesList) || estimatesList.length===0) return;
@@ -5272,6 +5502,19 @@ function App() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role, estimatesList, materialNorms, materialNormOverrides]);
+  useEffect(() => {
+    if (!user || !['директор','зам_директора','снабженец','прораб','главный_инженер','сметчик'].includes(user.role)) return;
+    if (!Array.isArray(projects) || projects.length===0) return;
+    const visible = visibleProjects(projects).filter(p=>!p.archived && p.status!=='Завершён').slice(0,20);
+    visible.forEach(p=>{
+      const signature = materialControlSignatureForProject(p.name);
+      const prev = materialControlTaskAutoCheckedRef.current.get(p.name);
+      if (prev === signature) return;
+      materialControlTaskAutoCheckedRef.current.set(p.name, signature);
+      queueMaterialControlTasksForProject(p.name, 'Фоновая проверка материалов');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.role, projects, estimatesList, materials, supplyRequests, supplyDeliveries, supplyHistory, supplierInvoices, invoices, materialTransfers, workJournal, materialNorms, materialNormOverrides]);
   const materialNormSupplyMarker = (row) => {
     const ruleKey = row?.rule?.ruleKey || row?.rule?.id || '';
     return 'NORM_COVERAGE_REQUEST:'+[row?.estimateId||'',row?.sectionIdx??'',row?.itemIdx??'',ruleKey].join('|');
@@ -10852,6 +11095,7 @@ function App() {
                           {standaloneTasks.map(task=>{
                             const payload=parseAiTaskPayload(task);
                             const isEstimateTask=['estimate_quality_review','estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
+                            const isMaterialTask=['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(payload.type);
                             return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
                               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                                 <div style={{flex:1,minWidth:'220px'}}>
@@ -10865,7 +11109,7 @@ function App() {
                                     : task.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45,whiteSpace:'pre-wrap'}}>{task.description}</p>}
                                 </div>
                                 <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                                  {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
+                                  {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:isMaterialTask?<Package size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
                                   {task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
                                   {['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
                                   <button onClick={()=>updateAiTask(task.id,{status:'Закрыто'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Закрыть</button>
