@@ -139,15 +139,14 @@ const enrichEstimateMeasurementBasis = (sections=[]) => (sections||[]).map(secti
     };
   })
 }));
-const estimateItemWorkSum = (it) => toNum(it?.quantity) * toNum(it?.priceWork);
+const estimateItemWorkSum = (it) => (it?.isImported ? toNum(it?.priceWork) : toNum(it?.quantity) * toNum(it?.priceWork));
 const estimateItemMaterialSum = (it) => (it?.isImported ? toNum(it?.priceMaterial) : toNum(it?.quantity) * toNum(it?.priceMaterial));
 const estimateItemTotal = (it) => estimateItemWorkSum(it) + estimateItemMaterialSum(it);
 const estimateItemDoneTotal = (it) => {
   const q = toNum(it?.quantity);
   const d = toNum(it?.doneQuantity);
-  const work = d * toNum(it?.priceWork);
-  const material = it?.isImported ? (q > 0 ? (d / q) * toNum(it?.priceMaterial) : 0) : d * toNum(it?.priceMaterial);
-  return work + material;
+  if (it?.isImported) return q > 0 ? (d / q) * estimateItemTotal(it) : 0;
+  return d * (toNum(it?.priceWork) + toNum(it?.priceMaterial));
 };
 // Нормализация ГЭСН-единиц: «100 м²» × 0.23 → «м²» × 23, «1000 шт» × 0.5 → «шт» × 500.
 // Это для УДОБНОГО показа мастеру/прорабу/заказчику. В БД хранится исходник.

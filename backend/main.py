@@ -7027,6 +7027,22 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     project_name = (prev[2] or "") if prev else ""
     require_project_access(_current_user, project_name)
 
+    def _num(v):
+        try:
+            return float(v or 0)
+        except Exception:
+            return 0
+
+    def _estimate_item_total(it):
+        qty = _num(it.get("quantity"))
+        if it.get("isImported"):
+            return _num(it.get("priceWork")) + _num(it.get("priceMaterial"))
+        return qty * (_num(it.get("priceWork")) + _num(it.get("priceMaterial")))
+
+    def _estimate_item_unit_price(it):
+        qty = _num(it.get("quantity"))
+        return (_estimate_item_total(it) / qty) if qty > 0 else (_num(it.get("priceWork")) + _num(it.get("priceMaterial")))
+
     old_sections = []
     if prev and prev[0]:
         try:
@@ -7034,10 +7050,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
             total = 0
             for s in old_sections:
                 for it in (s.get("items") or []):
-                    if it.get("isImported"):
-                        total += float(it.get("priceWork") or 0)
-                    else:
-                        total += float(it.get("quantity") or 0) * (float(it.get("priceWork") or 0) + float(it.get("priceMaterial") or 0))
+                    total += _estimate_item_total(it)
             cur.execute("INSERT INTO estimate_versions (estimate_id, version_label, sections_json, total, comment, created_by) VALUES (%s,%s,%s,%s,%s,%s)",
                 (id, prev[1] or "", prev[0], total, data.get("versionComment",""), data.get("updatedBy","")))
         except Exception:
@@ -7114,7 +7127,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 continue
             brigade = (it.get("brigadeName") or "").strip()
             unit = it.get("unit") or "шт"
-            price = float(it.get("priceWork") or 0) + float(it.get("priceMaterial") or 0)
+            price = _estimate_item_unit_price(it)
             used_materials = _materials_for_delta(section_idx, item_idx, s.get("name",""), it.get("name",""))
             try:
                 for m in used_materials:
@@ -7286,7 +7299,7 @@ def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(r
 
     def _item_total(it):
         qty = _num(it.get("quantity"))
-        work = qty * _num(it.get("priceWork"))
+        work = _num(it.get("priceWork")) if it.get("isImported") else qty * _num(it.get("priceWork"))
         mat = _num(it.get("priceMaterial")) if it.get("isImported") else qty * _num(it.get("priceMaterial"))
         return work + mat
 
