@@ -578,13 +578,17 @@ const tblH = {padding:'8px 12px',backgroundColor:C.bg,color:C.textSec,fontWeight
 const tblC = {padding:'8px 12px',borderBottom:'1px solid '+C.border,color:C.text,fontSize:'13px'};
 function App() {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
+  const [isCompactHeader, setIsCompactHeader] = useState(typeof window !== 'undefined' && window.innerWidth < 1180);
   const [darkMode, setDarkMode] = useState(typeof window !== 'undefined' && localStorage.getItem('darkMode')==='1');
   useEffect(() => {
     if (typeof document !== 'undefined') document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
     try { localStorage.setItem('darkMode', darkMode ? '1' : '0'); } catch(e) {}
   }, [darkMode]);
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 768);
+    const onResize = () => {
+      setIsMobile(window.innerWidth < 768);
+      setIsCompactHeader(window.innerWidth < 1180);
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -2605,6 +2609,26 @@ function App() {
     }
     return list||[];
   };
+  const selectableActiveProjects = (list=projects) => visibleProjects(list||[]).filter(p=>!p.archived&&p.status!=='Завершён');
+  useEffect(() => {
+    if(!user||!['мастер','субподрядчик'].includes(user.role)) return;
+    const options = selectableActiveProjects(projects);
+    const currentOk = masterProjectId&&options.some(p=>String(p.id)===String(masterProjectId));
+    if(currentOk) return;
+    if(masterProjectId&&!currentOk){
+      setMasterProjectId('');
+      setSelectedWorks({});
+      setPricelistItems([]);
+    }
+    if(options.length===1){
+      const project = options[0];
+      setMasterProjectId(String(project.id));
+      setSelectedWorks({});
+      if(project.pricelistId) loadPricelistItems(project.pricelistId);
+      else setPricelistItems([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role, user?.assignedProjects, user?.assigned_projects, projects, masterProjectId]);
   const isOpenAiStatus = (status) => !['Закрыто','Отклонено'].includes(status||'');
   const aiFindingsForProject = (projectName) => (aiFindings||[]).filter(f=>f.projectName===projectName&&isOpenAiStatus(f.status));
   const aiTasksForProject = (projectName) => (aiTasks||[]).filter(t=>t.projectName===projectName&&isOpenAiStatus(t.status));
@@ -7502,7 +7526,9 @@ function App() {
     const myProjects = [...new Set(myWorks.map(w=>w.project))];
     const myContract = contracts.find(c=>c.masterId===user.id);
     const myActs = interimActs.filter(a=>a.masterId===user.id);
-    const projectRooms = masterProjectId ? rooms.filter(r=>r.project===(projects.find(p=>p.id===Number(masterProjectId))?.name||'')) : [];
+    const masterProjectOptions = selectableActiveProjects(projects);
+    const selectedMasterProject = masterProjectOptions.find(p=>p.id===Number(masterProjectId)) || projects.find(p=>p.id===Number(masterProjectId));
+    const projectRooms = masterProjectId ? rooms.filter(r=>r.project===(selectedMasterProject?.name||'')) : [];
     const myTools = tools.filter(t=>t.masterName===(masterProfile?.fullName||user.name)&&t.status.includes('У мастера'));
 
     return (
@@ -7513,7 +7539,7 @@ function App() {
         {showOwnExpenseForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
           <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
             <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
-            <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{projects.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
+            <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{masterProjectOptions.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
             <select value={newOwnExpense.category||'other'} onChange={e=>setNewOwnExpense({...newOwnExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат *</option>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
             <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
             <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>
@@ -7656,7 +7682,8 @@ function App() {
             })()}
             <div style={{...card,padding:'20px',marginBottom:'15px'}}>
               <h4 style={{marginBottom:'15px',color:C.text,fontSize:'14px',fontWeight:'600'}}>Добавить работы</h4>
-              <select value={masterProjectId} onChange={async e=>{const pid=e.target.value;setMasterProjectId(pid);setSelectedWorks({});const proj=projects.find(p=>p.id===Number(pid));if(proj&&proj.pricelistId) await loadPricelistItems(proj.pricelistId);else setPricelistItems([]);}} style={inp}><option value="">Выберите объект</option>{projects.filter(p=>p.status==='В работе').map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              {masterProjectOptions.length===0&&<div style={{padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'10px',color:C.text,fontSize:'12px',marginBottom:'10px'}}>Нет доступных объектов. Назначьте мастера на объект или привяжите его к договору бригады.</div>}
+              <select value={masterProjectId} onChange={async e=>{const pid=e.target.value;setMasterProjectId(pid);setSelectedWorks({});const proj=masterProjectOptions.find(p=>p.id===Number(pid))||projects.find(p=>p.id===Number(pid));if(proj&&proj.pricelistId) await loadPricelistItems(proj.pricelistId);else setPricelistItems([]);}} style={inp} disabled={masterProjectOptions.length===0}><option value="">{masterProjectOptions.length?'Выберите объект':'Нет доступных объектов'}</option>{masterProjectOptions.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
               {masterProjectId&&(()=>{
                 const projName=projects.find(p=>p.id===Number(masterProjectId))?.name||'';
                 const projEstimates=estimatesList.filter(e=>e.projectName===projName);
@@ -8165,7 +8192,7 @@ function App() {
                 <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:[...(newSupplyReq.items||[]),{materialName:'',quantity:'',unit:'шт'}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
                 <select value={newSupplyReq.project} onChange={e=>setNewSupplyReq({...newSupplyReq,project:e.target.value})} style={inp}>
                   <option value="">Выберите объект *</option>
-                  {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+                  {masterProjectOptions.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
                 </select>
                 <select value={newSupplyReq.urgency} onChange={e=>setNewSupplyReq({...newSupplyReq,urgency:e.target.value})} style={inp}>
                   <option value="низкая">🟢 Низкая срочность</option>
@@ -9999,8 +10026,8 @@ function App() {
       {showPayActModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'420px'}}><h3 style={{color:C.text,marginBottom:'5px',fontWeight:'700'}}>Добавить оплату</h3><p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{'Акт №'+showPayActModal.id+' · '+showPayActModal.masterName}</p><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Сумма *" type="number" step="any" inputMode="decimal" value={newPayment.amount} onChange={e=>setNewPayment({...newPayment,amount:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPayment.paymentType} onChange={e=>setNewPayment({...newPayment,paymentType:e.target.value})} style={{...inp,marginBottom:0}}>{PAYMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select><select value={newPayment.paidBy} onChange={e=>setNewPayment({...newPayment,paidBy:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Кто выплатил</option>{financeUsers.map(u=><option key={u.id} value={u.name}>{u.name+' ('+ROLE_LABELS[u.role]+')'}</option>)}<option value="__manual__">Ввести вручную</option></select><input type="date" value={newPayment.date} onChange={e=>setNewPayment({...newPayment,date:e.target.value})} style={{...inp,marginBottom:0}}/></div>{newPayment.paidBy==='__manual__'&&<input placeholder="ФИО выплатившего" value={newPayment.paidByManual||''} onChange={e=>setNewPayment({...newPayment,paidByManual:e.target.value})} style={{...inp,marginTop:'10px'}}/>}<input placeholder="Примечание" value={newPayment.notes} onChange={e=>setNewPayment({...newPayment,notes:e.target.value})} style={{...inp,marginTop:'8px'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>saveActPayment(showPayActModal.id)} style={btnO}><Check size={14}/>Записать</button><button onClick={()=>setShowPayActModal(null)} style={btnG}>Отмена</button></div><div style={{marginTop:'15px',borderTop:'1.5px solid '+C.border,paddingTop:'12px'}}><b style={{color:C.text,fontSize:'13px'}}>История оплат:</b>{actPayments.filter(p=>p.actId===showPayActModal.id).map(p=>(<div key={p.id} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid '+C.border,fontSize:'12px'}}><span style={{color:C.textSec}}>{p.date+' · '+p.paymentType+' · '+p.paidBy}</span><b style={{color:C.success}}>{p.amount.toLocaleString()+' ₽'}</b></div>))}{actPayments.filter(p=>p.actId===showPayActModal.id).length===0&&<p style={{color:C.textMuted,fontSize:'12px',margin:'6px 0'}}>Оплат нет</p>}</div></div></div>)}
       {showAiAssistant&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'flex-end',zIndex:1500}}><div style={{width:'420px',backgroundColor:C.bgWhite,display:'flex',flexDirection:'column',boxShadow:'-4px 0 30px rgba(0,0,0,0.15)'}}><div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',backgroundColor:C.sidebar}}><div><b style={{color:'white',fontSize:'15px'}}>🤖 ИИ Помощник</b><p style={{color:'rgba(255,255,255,0.5)',margin:'2px 0',fontSize:'12px'}}>Знает нормы СНиП, расценки, материалы</p></div><button onClick={()=>setShowAiAssistant(false)} style={{backgroundColor:'transparent',border:'none',cursor:'pointer',color:'white'}}><X size={20}/></button></div><div style={{flex:1,overflowY:'auto',padding:'16px',display:'flex',flexDirection:'column',gap:'12px'}}>{aiChat.length===0&&(<div style={{textAlign:'center',padding:'30px',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>🏗️</div><b style={{color:C.text}}>Спросите меня!</b><div style={{display:'flex',flexDirection:'column',gap:'8px',marginTop:'16px'}}>{['Сколько цемента нужно для стяжки 50м2?','Нормы расхода штукатурки на 1м2?','Как рассчитать количество кирпича?','Какие СНиП для жилых домов?'].map(q=>(<button key={q} onClick={()=>setAiMessage(q)} style={{...btnG,fontSize:'12px',textAlign:'left',justifyContent:'flex-start'}}>{q}</button>))}</div></div>)}{aiChat.map((msg,i)=>(<div key={i} style={{display:'flex',justifyContent:msg.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'85%',backgroundColor:msg.role==='user'?C.accent:C.bg,color:msg.role==='user'?'white':C.text,padding:'10px 14px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',border:'1.5px solid '+(msg.role==='user'?C.accent:C.border),fontSize:'13px',lineHeight:'1.5'}}>{msg.content}<div style={{fontSize:'10px',color:msg.role==='user'?'rgba(255,255,255,0.6)':C.textMuted,marginTop:'4px',textAlign:'right'}}>{msg.time}</div></div></div>))}{aiLoading&&<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{backgroundColor:C.bg,padding:'10px 14px',borderRadius:'16px',border:'1.5px solid '+C.border,color:C.textSec,fontSize:'13px'}}>Думаю...</div></div>}<div ref={chatEndRef}/></div><div style={{padding:'12px',borderTop:'1.5px solid '+C.border}}><div style={{display:'flex',gap:'8px'}}><input placeholder="Задайте вопрос..." value={aiMessage} onChange={e=>setAiMessage(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!aiLoading&&sendAiMessage()} style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}} disabled={aiLoading}/><button onClick={sendAiMessage} disabled={aiLoading} style={btnO}>➤</button></div></div></div></div>)}
 
-      <div style={{position:'fixed',top:0,left:0,width:'16px',height:'100vh',zIndex:200}} onMouseEnter={()=>setSidebarVisible(true)}/>
-      <div ref={sidebarRef} onMouseLeave={()=>setSidebarVisible(false)} style={{position:'fixed',top:0,left:0,height:'100vh',width:'240px',backgroundColor:C.sidebar,color:'white',zIndex:300,transform:sidebarVisible?'translateX(0)':'translateX(-100%)',transition:'transform 0.25s cubic-bezier(0.4,0,0.2,1)',display:'flex',flexDirection:'column',boxShadow:sidebarVisible?'4px 0 30px rgba(0,0,0,0.15)':'none'}}>
+      <div style={{position:'fixed',top:0,left:0,width:'16px',height:'100vh',zIndex:200,display:isMobile?'none':'block'}} onMouseEnter={()=>setSidebarVisible(true)}/>
+      <div ref={sidebarRef} onMouseLeave={()=>setSidebarVisible(false)} style={{position:'fixed',top:0,left:0,height:'100vh',width:isMobile?'min(86vw,300px)':'240px',backgroundColor:C.sidebar,color:'white',zIndex:300,transform:sidebarVisible?'translateX(0)':'translateX(-100%)',transition:'transform 0.25s cubic-bezier(0.4,0,0.2,1)',display:'flex',flexDirection:'column',boxShadow:sidebarVisible?'4px 0 30px rgba(0,0,0,0.15)':'none'}}>
         <div style={{padding:'22px 20px',borderBottom:'1px solid rgba(255,255,255,0.08)'}}><div style={{display:'flex',alignItems:'center',gap:'12px'}}><div style={{width:'40px',height:'40px',borderRadius:'12px',background:'linear-gradient(135deg,#f97316,#ea580c)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0}}>🏗️</div><div><h3 style={{margin:0,color:'white',fontSize:'18px',fontWeight:'800'}}>СтройКа</h3><p style={{margin:0,color:'rgba(255,255,255,0.4)',fontSize:'11px'}}>ERP система</p></div></div></div>
         <div style={{padding:'14px',borderBottom:'1px solid rgba(255,255,255,0.08)'}}><div style={{backgroundColor:'rgba(255,255,255,0.06)',borderRadius:'10px',padding:'12px',display:'flex',alignItems:'center',gap:'10px'}}><div style={{width:'36px',height:'36px',borderRadius:'10px',backgroundColor:roleColor(user.role),display:'flex',alignItems:'center',justifyContent:'center',fontSize:'14px',color:'white',fontWeight:'800',flexShrink:0}}>{user.name.charAt(0)}</div><div style={{overflow:'hidden'}}><div style={{fontSize:'13px',fontWeight:'600',color:'white',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{user.name}</div><div style={{fontSize:'11px',color:'rgba(255,255,255,0.4)',marginTop:'1px'}}>{ROLE_LABELS[user.role]||user.role}</div></div></div></div>
         <div style={{padding:'10px',flex:1,overflowY:'auto'}}>
@@ -10020,25 +10047,25 @@ function App() {
       </div>
 
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%'}}>
-        <div style={{backgroundColor:C.bgWhite,padding:'12px 24px',borderBottom:'1.5px solid '+C.border,display:activePage==='dashboard'?'none':'flex',alignItems:'center',gap:'15px',flexShrink:0,boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
+        <div style={{backgroundColor:C.bgWhite,padding:isCompactHeader?'10px 12px':'12px 24px',borderBottom:'1.5px solid '+C.border,display:activePage==='dashboard'?'none':'flex',alignItems:isCompactHeader?'stretch':'center',gap:isCompactHeader?'8px':'15px',flexWrap:'wrap',flexShrink:0,boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}>
           <button onClick={()=>setSidebarVisible(true)} title="Открыть меню" style={{padding:'8px 10px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.textSec,flexShrink:0}}><Menu size={18}/></button>
-          <div style={{width:'8px',height:'32px',borderRadius:'4px',background:'linear-gradient(135deg,#f97316,#ea580c)',flexShrink:0}}/>
-          <h2 style={{margin:0,color:C.text,fontSize:'18px',fontWeight:'700',flex:1}}>{allMenuItems.find(m=>m.id===activePage)?.label||'СтройКа'}</h2>
-          <div style={{flex:1,maxWidth:'320px',position:'relative'}}>
+          <div style={{width:'8px',height:'32px',borderRadius:'4px',background:'linear-gradient(135deg,#f97316,#ea580c)',flexShrink:0,display:isMobile?'none':'block'}}/>
+          <h2 style={{margin:0,color:C.text,fontSize:isMobile?'16px':'18px',fontWeight:'700',flex:isCompactHeader?'1 1 150px':'1 1 auto',minWidth:0,alignSelf:'center',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{allMenuItems.find(m=>m.id===activePage)?.label||'СтройКа'}</h2>
+          <div style={{flex:isCompactHeader?'1 1 100%':'0 1 320px',maxWidth:isCompactHeader?'none':'320px',position:'relative',order:isCompactHeader?3:0,display:isMobile?'none':'block'}}>
             <Search size={15} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
             <input placeholder="Поиск..." value={globalSearch} onChange={e=>{setGlobalSearch(e.target.value);setShowSearch(e.target.value.length>=2);}} onBlur={()=>setTimeout(()=>setShowSearch(false),200)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'13px'}}/>
             {showSearch&&searchResults.length>0&&(<div style={{position:'absolute',top:'100%',left:0,right:0,backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'10px',boxShadow:'0 8px 25px rgba(0,0,0,0.1)',zIndex:1000,maxHeight:'280px',overflowY:'auto',marginTop:'4px'}}>{searchResults.map((r,i)=>(<div key={i} onClick={()=>{navigateTo(r.page);setGlobalSearch('');setShowSearch(false);}} style={{padding:'10px 15px',cursor:'pointer',borderBottom:'1px solid '+C.border,display:'flex',gap:'10px',alignItems:'center'}}><span style={{fontSize:'16px'}}>{r.icon}</span><div><b style={{fontSize:'13px',color:C.text}}>{r.title}</b><p style={{color:C.textSec,margin:0,fontSize:'11px'}}>{r.subtitle}</p></div></div>))}</div>)}
           </div>
-          <div style={{position:'relative',display:'flex',gap:'8px',alignItems:'center'}}>
-            <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{padding:'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',fontSize:'16px',display:'flex',alignItems:'center'}}>{darkMode?'☀️':'🌙'}</button>
-            <button onClick={()=>setShowQuickActions(true)} title='Быстрые действия' style={{padding:'8px 12px',background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'10px',cursor:'pointer',color:'white',fontWeight:'700',fontSize:'13px',display:'flex',alignItems:'center',gap:'4px'}}>⚡ Быстро</button>
-            <button onClick={()=>setShowChatPanel(s=>!s)} title='Чат' style={{position:'relative',padding:'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><MessageSquare size={18} color={C.textSec}/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
+          <div style={{position:'relative',display:'flex',gap:'8px',alignItems:'center',justifyContent:'flex-end',flexWrap:'wrap',marginLeft:'auto',maxWidth:isMobile?'100%':'none'}}>
+            <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{padding:isMobile?'8px 10px':'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',fontSize:'16px',display:'flex',alignItems:'center'}}>{darkMode?'☀️':'🌙'}</button>
+            <button onClick={()=>setShowQuickActions(true)} title='Быстрые действия' style={{padding:isMobile?'8px 10px':'8px 12px',background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'10px',cursor:'pointer',color:'white',fontWeight:'700',fontSize:isMobile?'0':'13px',display:'flex',alignItems:'center',gap:'4px'}}>⚡ <span style={{fontSize:'13px',display:isMobile?'none':'inline'}}>Быстро</span></button>
+            <button onClick={()=>setShowChatPanel(s=>!s)} title='Чат' style={{position:'relative',padding:isMobile?'8px 10px':'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><MessageSquare size={18} color={C.textSec}/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
             <div data-notification-root="1" style={{position:'relative',display:'flex',alignItems:'center'}}>
             <button onClick={toggleNotifications} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               <Bell size={18} color={C.textSec}/>
               {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:C.danger,color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
             </button>
-            {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:0,width:'360px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.12)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}><div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}><b style={{color:C.text,fontSize:'14px'}}>Уведомления</b><div style={{display:'flex',gap:'6px',alignItems:'center'}}><button onClick={markMyNotificationsRead} style={{...btnG,fontSize:'11px',padding:'3px 10px'}}>Прочитать все</button><button onClick={closeNotifications} title="Свернуть" style={{...btnG,fontSize:'11px',padding:'3px 8px'}}><X size={13}/></button></div></div>{myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted}}>Нет уведомлений</p>}
+            {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:isMobile?'-8px':0,width:isMobile?'calc(100vw - 24px)':'360px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.12)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}><div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}><b style={{color:C.text,fontSize:'14px'}}>Уведомления</b><div style={{display:'flex',gap:'6px',alignItems:'center'}}><button onClick={markMyNotificationsRead} style={{...btnG,fontSize:'11px',padding:'3px 10px'}}>Прочитать все</button><button onClick={closeNotifications} title="Свернуть" style={{...btnG,fontSize:'11px',padding:'3px 8px'}}><X size={13}/></button></div></div>{myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted}}>Нет уведомлений</p>}
                   <div style={{padding:'12px 18px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg}}>
                     <p style={{fontSize:'11px',color:C.textSec,margin:'0 0 8px'}}>📱 Уведомления в ВКонтакте:</p>
                     {user.vkId ? <span style={{fontSize:'12px',color:C.success}}>✅ ВК подключён (ID: {user.vkId})</span> :

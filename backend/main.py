@@ -185,6 +185,8 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> dic
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM users WHERE id=%s", (payload.get("id"),))
     user = cur.fetchone()
+    if user:
+        user = enrich_worker_project_links(cur, user)
     cur.close(); conn.close()
     if not user:
         raise HTTPException(status_code=401, detail="Пользователь не найден")
@@ -229,6 +231,45 @@ def user_project_names(user: dict) -> list[str]:
         names.extend([str(x) for x in ap if x])
     return sorted(set([x for x in names if x]))
 
+def enrich_worker_project_links(cur, user: dict) -> dict:
+    """Мастер может быть привязан к объекту через договор, журнал или передачу материалов."""
+    if not user:
+        return user
+    role = user.get("role")
+    if role not in ("мастер", "субподрядчик"):
+        return user
+    names = set(user_project_names(user))
+    user_id = user.get("id")
+    user_name = user.get("name") or ""
+    try:
+        cur.execute("""
+            SELECT DISTINCT project_name AS project_name
+            FROM brigade_contracts
+            WHERE COALESCE(project_name,'') <> ''
+              AND (contractor_id=%s OR brigade_name=%s)
+            UNION
+            SELECT DISTINCT project AS project_name
+            FROM work_journal
+            WHERE COALESCE(project,'') <> ''
+              AND (master_id=%s OR master_name=%s)
+            UNION
+            SELECT DISTINCT project_name AS project_name
+            FROM material_transfers
+            WHERE COALESCE(project_name,'') <> ''
+              AND to_person=%s
+        """, (user_id, user_name, user_id, user_name, user_name))
+        for row in cur.fetchall() or []:
+            project_name = row.get("project_name") if isinstance(row, dict) else row[0]
+            if project_name:
+                names.add(str(project_name))
+    except Exception:
+        return user
+    if names:
+        merged = sorted(names)
+        user["assignedProjects"] = merged
+        user["assigned_projects"] = merged
+    return user
+
 def current_supplier_id(cur, user: dict):
     cur.execute("SELECT id FROM suppliers WHERE user_id=%s OR LOWER(email)=LOWER(%s) OR name=%s LIMIT 1",
                 (user.get("id"), user.get("email") or "", user.get("name") or ""))
@@ -246,7 +287,10 @@ def can_see_all_company_data(user: dict) -> bool:
 def visible_project_names(user: dict) -> Optional[List[str]]:
     if can_see_all_company_data(user):
         return None
-    return user_project_names(user)
+    names = user_project_names(user)
+    if user.get("role") == "прораб" and not names:
+        return None
+    return names
 
 def has_project_access(user: dict, project_name: str) -> bool:
     allowed = visible_project_names(user)
@@ -2291,6 +2335,7 @@ def login(data: LoginModel):
         user["password"] = new_hash
     cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user['id'],))
     conn.commit()
+    user = enrich_worker_project_links(cur, user)
     conn.close()
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="login", entity_type="user", entity_id=user['id'],
