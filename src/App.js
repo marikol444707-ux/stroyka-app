@@ -3277,6 +3277,233 @@ function App() {
       </div>}
     </div>);
   };
+  const workJournalReconcileTokens = (value) => {
+    const stop = new Set(['работа','работы','работ','устройство','установка','монтаж','демонтаж','разборка','снятие','для','при','под','над','без','или','его','ее','это','прочие','прочая']);
+    return estimateDiffTextKey(value).split(' ').filter(w=>w.length>=3 && !stop.has(w));
+  };
+  const workJournalReconcileNameScore = (left, right) => {
+    const a = estimateDiffTextKey(left);
+    const b = estimateDiffTextKey(right);
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    if (a.includes(b) || b.includes(a)) return 0.88;
+    const at = workJournalReconcileTokens(a);
+    const bt = workJournalReconcileTokens(b);
+    if (!at.length || !bt.length) return 0;
+    const bset = new Set(bt);
+    const aset = new Set(at);
+    const common = at.filter(t=>bset.has(t)).length;
+    const reverse = bt.filter(t=>aset.has(t)).length;
+    return Math.max(common / Math.max(at.length,1), reverse / Math.max(bt.length,1)) * Math.min(1, common / Math.max(Math.min(at.length, bt.length), 1) + 0.15);
+  };
+  const workJournalEstimateStatusMeta = (status) => {
+    if (status==='Из сметы' || status==='Найдено') return {color:C.success,bg:C.successLight,border:C.successBorder};
+    if (status==='Превышение объёма' || status==='Вне сметы') return {color:C.danger,bg:C.dangerLight,border:C.dangerBorder};
+    if (status==='На проверку' || status==='Нет активной сметы') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
+    return {color:C.info,bg:C.infoLight,border:C.infoBorder};
+  };
+  const workJournalEstimateRows = (project) => {
+    if (!project) return [];
+    const estimateRows = [];
+    activeEstimatesForProject(project,'Заказчик').forEach(est=>_sectionsOfEst(est).forEach((section,sectionIdx)=>(section.items||[]).forEach((item,itemIdx)=>{
+      if (!isEstimateWorkItem(item, section.name)) return;
+      const plan = normalizeMeasure(item.quantity, item.unit);
+      const done = normalizeMeasure(item.doneQuantity, item.unit);
+      const planQty = toNum(plan.qty);
+      const unit = plan.unit || item.unit || '';
+      const unitKey = _normalizeUnit(unit);
+      const total = estimateItemTotal(item);
+      estimateRows.push({
+        key:[est.id,sectionIdx,itemIdx].join(':'),
+        estimateId:est.id,
+        estimateName:est.name||'Смета',
+        packageName:estimatePackage(est),
+        sectionName:section.name||'Без раздела',
+        itemName:item.name||'',
+        planQty,
+        doneQty:toNum(done.qty),
+        unit,
+        unitKey,
+        total,
+        unitPrice:planQty>0 ? total/planQty : 0
+      });
+    })));
+    const workRows = (workJournal||[])
+      .filter(w=>w.project===project.name && (w.status||'')!=='Отклонено')
+      .map((w,idx)=>{
+        const normalized = normalizeMeasure(w.quantity, w.unit);
+        const workQty = toNum(normalized.qty);
+        const workUnit = normalized.unit || w.unit || '';
+        const workUnitKey = _normalizeUnit(workUnit);
+        const linkedPool = w.estimateId ? estimateRows.filter(r=>Number(r.estimateId)===Number(w.estimateId)) : [];
+        const pool = linkedPool.length ? linkedPool : estimateRows;
+        let best = null;
+        pool.forEach(er=>{
+          const unitOk = !workUnitKey || !er.unitKey || workUnitKey===er.unitKey;
+          const nameScore = workJournalReconcileNameScore(w.description, er.itemName);
+          const sectionScore = w.sectionName && er.sectionName
+            ? (estimateDiffTextKey(w.sectionName)===estimateDiffTextKey(er.sectionName) ? 0.12 : workJournalReconcileNameScore(w.sectionName, er.sectionName)*0.08)
+            : 0;
+          const linkedBonus = w.estimateId && Number(w.estimateId)===Number(er.estimateId) ? 0.18 : 0;
+          const unitBonus = unitOk ? 0.08 : -0.12;
+          const score = Math.max(0, Math.min(1, nameScore + sectionScore + linkedBonus + unitBonus));
+          if (!best || score>best.score) best = {row:er, score, unitOk};
+        });
+        let status = 'Вне сметы';
+        if (!estimateRows.length) status = 'Нет активной сметы';
+        else if (best && best.unitOk && w.estimateId && Number(w.estimateId)===Number(best.row.estimateId) && best.score>=0.45) status = 'Из сметы';
+        else if (best && best.unitOk && best.score>=0.68) status = 'Найдено';
+        else if (best && best.score>=0.44) status = 'На проверку';
+        const estimateValue = (['Из сметы','Найдено'].includes(status) && best?.row?.unitPrice) ? workQty * best.row.unitPrice : 0;
+        return {
+          key:'wj-'+(w.id||idx),
+          work:w,
+          workQty,
+          workUnit,
+          workUnitKey,
+          match:best?.row||null,
+          score:best?.score||0,
+          unitOk:!!best?.unitOk,
+          status,
+          overQty:0,
+          estimateValue
+        };
+      });
+    const grouped = {};
+    workRows.forEach(r=>{
+      if (!['Из сметы','Найдено'].includes(r.status) || !r.match || !r.unitOk) return;
+      if (!grouped[r.match.key]) grouped[r.match.key] = {estimate:r.match, rows:[], qty:0};
+      grouped[r.match.key].rows.push(r);
+      grouped[r.match.key].qty += r.workQty;
+    });
+    Object.values(grouped).forEach(g=>{
+      const tolerance = Math.max(0.001, Math.abs(g.estimate.planQty)*0.01);
+      const overQty = g.qty - g.estimate.planQty;
+      if (overQty<=tolerance) return;
+      g.rows.forEach(r=>{
+        r.status = 'Превышение объёма';
+        r.overQty = overQty;
+        r.estimateValue = r.workQty * (r.match?.unitPrice||0);
+      });
+    });
+    const rank = {'Превышение объёма':0,'Вне сметы':1,'На проверку':2,'Нет активной сметы':3,'Найдено':4,'Из сметы':5};
+    return workRows.sort((a,b)=>(rank[a.status]??9)-(rank[b.status]??9) || Number(b.work.id||0)-Number(a.work.id||0));
+  };
+  const workJournalEstimateSummary = (project) => {
+    const rows = workJournalEstimateRows(project);
+    const pd = projectPlanDone(project||{});
+    return {
+      rows,
+      estimatePlan:pd.plan,
+      estimateDone:pd.done,
+      journalTotal:rows.reduce((s,r)=>s+toNum(r.work.total),0),
+      estimateValue:rows.reduce((s,r)=>s+toNum(r.estimateValue),0),
+      linkedRows:rows.filter(r=>['Из сметы','Найдено'].includes(r.status)),
+      reviewRows:rows.filter(r=>r.status==='На проверку'),
+      outsideRows:rows.filter(r=>r.status==='Вне сметы'||r.status==='Нет активной сметы'),
+      overRows:rows.filter(r=>r.status==='Превышение объёма'),
+      outsideTotal:rows.filter(r=>r.status==='Вне сметы'||r.status==='Нет активной сметы').reduce((s,r)=>s+toNum(r.work.total),0),
+      reviewTotal:rows.filter(r=>r.status==='На проверку').reduce((s,r)=>s+toNum(r.work.total),0),
+      overTotal:rows.filter(r=>r.status==='Превышение объёма').reduce((s,r)=>s+toNum(r.work.total),0),
+    };
+  };
+  const buildWorkJournalEstimateReconciliationContent = (project) => {
+    const s = workJournalEstimateSummary(project);
+    const money = (n) => Math.round(toNum(n)).toLocaleString('ru-RU')+' ₽';
+    const pct = s.estimatePlan>0 ? Math.round(s.estimateDone/s.estimatePlan*1000)/10 : 0;
+    let html = '<style>'
+      + '.wjr-title{text-align:center;font-size:18px;font-weight:800;margin:0 0 4px}'
+      + '.wjr-sub{text-align:center;color:#64748b;font-size:11px;margin:0 0 14px}'
+      + '.wjr-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}'
+      + '.wjr-card{border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#f8fafc}'
+      + '.wjr-card span{display:block;color:#64748b;font-size:10px}.wjr-card b{font-size:14px}'
+      + '.wjr-table{font-size:10px;table-layout:fixed}.wjr-table th{font-size:9px}.wjr-table td,.wjr-table th{vertical-align:top;word-break:break-word}'
+      + '.wjr-num{text-align:right;white-space:nowrap}'
+      + '@media print{.wjr-grid{grid-template-columns:repeat(4,1fr)}.wjr-table{font-size:9px}}'
+      + '</style>';
+    html += '<div class="wjr-title">СВЕРКА ЖПР ↔ АКТИВНАЯ СМЕТА</div>';
+    html += '<div class="wjr-sub">Объект: '+docEsc(project?.name||'')+' · '+new Date().toLocaleDateString('ru-RU')+' · сформировал: '+docEsc(user?.name||'')+'</div>';
+    html += '<div class="wjr-grid">'
+      + '<div class="wjr-card"><span>Строк ЖПР</span><b>'+s.rows.length+'</b></div>'
+      + '<div class="wjr-card"><span>Найдено в смете</span><b style="color:#047857">'+s.linkedRows.length+'</b></div>'
+      + '<div class="wjr-card"><span>Вне сметы / проверка</span><b style="color:#b45309">'+(s.outsideRows.length+s.reviewRows.length)+'</b></div>'
+      + '<div class="wjr-card"><span>Превышение объёма</span><b style="color:#dc2626">'+s.overRows.length+'</b></div>'
+      + '</div>';
+    html += '<div class="wjr-grid">'
+      + '<div class="wjr-card"><span>Активная смета</span><b>'+money(s.estimatePlan)+'</b></div>'
+      + '<div class="wjr-card"><span>Закрыто в смете</span><b>'+money(s.estimateDone)+' · '+pct+'%</b></div>'
+      + '<div class="wjr-card"><span>Сумма ЖПР</span><b>'+money(s.journalTotal)+'</b></div>'
+      + '<div class="wjr-card"><span>ЖПР вне сметы</span><b style="color:#dc2626">'+money(s.outsideTotal)+'</b></div>'
+      + '</div>';
+    html += '<table class="wjr-table"><tr><th>Статус</th><th>Дата</th><th>ЖПР / исполнитель</th><th>Объём ЖПР</th><th>Сумма ЖПР</th><th>Строка сметы</th><th>План сметы</th><th>Сделано в смете</th><th>Оценка по смете</th><th>Увер.</th></tr>';
+    html += s.rows.map(r=>{
+      const meta = workJournalEstimateStatusMeta(r.status);
+      const m = r.match;
+      return '<tr>'
+        + '<td style="color:'+meta.color+';font-weight:700">'+docEsc(r.status)+'</td>'
+        + '<td>'+docEsc(r.work.date||'')+'</td>'
+        + '<td><b>'+docEsc(r.work.description||'')+'</b><div style="color:#64748b">'+docEsc(r.work.masterName||'')+'</div></td>'
+        + '<td class="wjr-num">'+docEsc(fmtMeasure(r.workQty,r.workUnit))+'</td>'
+        + '<td class="wjr-num">'+money(r.work.total)+'</td>'
+        + '<td>'+docEsc(m ? ((m.packageName&&m.packageName!=='Основная'?m.packageName+' / ':'')+m.sectionName+' / '+m.itemName) : '—')+'</td>'
+        + '<td class="wjr-num">'+docEsc(m ? fmtMeasure(m.planQty,m.unit) : '—')+'</td>'
+        + '<td class="wjr-num">'+docEsc(m ? fmtMeasure(m.doneQty,m.unit) : '—')+'</td>'
+        + '<td class="wjr-num">'+(r.estimateValue?money(r.estimateValue):'—')+'</td>'
+        + '<td class="wjr-num">'+(r.score?Math.round(r.score*100)+'%':'—')+'</td>'
+        + '</tr>';
+    }).join('');
+    if(!s.rows.length) html += '<tr><td colspan="10" style="text-align:center;color:#64748b">Записей ЖПР для сверки нет</td></tr>';
+    html += '</table><p style="font-size:10px;color:#64748b;margin-top:12px">Сумма ЖПР — внутренняя сумма по исполнителю. Оценка по смете считается по активной смете заказчика и нужна только для контроля соответствия факта строкам сметы.</p>';
+    return html;
+  };
+  const renderWorkJournalEstimateReconciliationPanel = (project) => {
+    const s = workJournalEstimateSummary(project);
+    const rows = s.rows.slice(0,80);
+    const pct = s.estimatePlan>0 ? Math.round(s.estimateDone/s.estimatePlan*1000)/10 : 0;
+    const cardMini = (label,value,color=C.text,bg=C.bg,border=C.border) => (<div style={{padding:'10px',backgroundColor:bg,borderRadius:'8px',border:'1px solid '+border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>{label}</p><b style={{color,fontSize:'15px'}}>{value}</b></div>);
+    return (<div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'14px'}}>
+        <div>
+          <b style={{color:C.text,fontSize:'15px'}}>🔎 Сверка ЖПР ↔ смета</b>
+          <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0 0'}}>Показывает, какие фактические работы найдены в активной смете заказчика, а какие надо проверить или оформить как изменение.</p>
+        </div>
+        <button onClick={()=>showPreview(buildWorkJournalEstimateReconciliationContent(project),'Сверка ЖПР ↔ смета — '+project.name)} style={btnB}><Printer size={14}/>Печать</button>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(145px,1fr))',gap:'8px',marginBottom:'12px'}}>
+        {cardMini('Строк ЖПР',s.rows.length)}
+        {cardMini('Найдено в смете',s.linkedRows.length,C.success,C.successLight,C.successBorder)}
+        {cardMini('На проверку',s.reviewRows.length,C.warning,C.warningLight,C.warningBorder)}
+        {cardMini('Вне сметы',s.outsideRows.length,C.danger,C.dangerLight,C.dangerBorder)}
+        {cardMini('Превышение',s.overRows.length,C.danger,C.dangerLight,C.dangerBorder)}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:'8px',marginBottom:'14px'}}>
+        {cardMini('Активная смета',Math.round(s.estimatePlan).toLocaleString('ru-RU')+' ₽',C.text,C.bgWhite,C.border)}
+        {cardMini('Закрыто в смете',Math.round(s.estimateDone).toLocaleString('ru-RU')+' ₽ · '+pct+'%',C.success,C.successLight,C.successBorder)}
+        {cardMini('Сумма ЖПР',Math.round(s.journalTotal).toLocaleString('ru-RU')+' ₽',C.accent,C.accentLight,C.accentBorder)}
+        {cardMini('ЖПР вне сметы',Math.round(s.outsideTotal).toLocaleString('ru-RU')+' ₽',C.danger,C.dangerLight,C.dangerBorder)}
+      </div>
+      <div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1px solid '+C.infoBorder,borderRadius:'10px',color:C.info,fontSize:'12px',marginBottom:'12px'}}>
+        Сверка не переносит работы автоматически. Она даёт сметчику список: что уже похоже сидит в смете, что спорно, и что нужно внести в следующую редакцию или оформить изменением.
+      </div>
+      {s.rows.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Записей ЖПР для сверки нет</div>:<div style={{overflowX:'auto'}}>
+        <table style={{...tbl,fontSize:'11px',minWidth:'1220px'}}><thead><tr><th style={tblH}>Статус</th><th style={tblH}>Дата</th><th style={tblH}>ЖПР</th><th style={tblH}>Объём</th><th style={tblH}>Сумма ЖПР</th><th style={tblH}>Совпадение в смете</th><th style={tblH}>План</th><th style={tblH}>Сделано</th><th style={tblH}>Оценка по смете</th><th style={tblH}>Увер.</th></tr></thead><tbody>
+          {rows.map(r=>{const st=workJournalEstimateStatusMeta(r.status);const m=r.match;return(<tr key={r.key}>
+            <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{r.status}</span>{r.overQty>0&&<p style={{margin:'4px 0 0',fontSize:'10px',color:C.danger}}>сверх: {fmtMeasure(r.overQty,m?.unit||r.workUnit)}</p>}</td>
+            <td style={tblC}>{r.work.date||'—'}</td>
+            <td style={tblC}><b style={{fontSize:'12px'}}>{r.work.description}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.work.masterName||'—'}{r.work.status?' · '+r.work.status:''}</p></td>
+            <td style={tblC}>{fmtMeasure(r.workQty,r.workUnit)}</td>
+            <td style={{...tblC,fontWeight:'700',color:C.accent}}>{Math.round(toNum(r.work.total)).toLocaleString('ru-RU')+' ₽'}</td>
+            <td style={tblC}>{m?<><b style={{fontSize:'12px'}}>{m.itemName}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{(m.packageName&&m.packageName!=='Основная'?m.packageName+' / ':'')+m.sectionName}</p></>:<span style={{color:C.textMuted}}>—</span>}</td>
+            <td style={tblC}>{m?fmtMeasure(m.planQty,m.unit):'—'}</td>
+            <td style={tblC}>{m?fmtMeasure(m.doneQty,m.unit):'—'}</td>
+            <td style={{...tblC,fontWeight:'700',color:r.estimateValue?C.success:C.textMuted}}>{r.estimateValue?Math.round(r.estimateValue).toLocaleString('ru-RU')+' ₽':'—'}</td>
+            <td style={tblC}>{r.score?Math.round(r.score*100)+'%':'—'}{!r.unitOk&&m&&<p style={{fontSize:'10px',color:C.warning,margin:'2px 0 0'}}>ед. изм. не совпала</p>}</td>
+          </tr>);})}
+        </tbody></table>
+        {s.rows.length>rows.length&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые {rows.length} строк. Полный список — в печатном отчёте.</p>}
+      </div>}
+    </div>);
+  };
   const setEstimateStatusRemote = async (est, status) => {
     if(!est?.id) return;
     const diffBase = status==='Активная'
@@ -10119,16 +10346,17 @@ function App() {
                 </div>
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
                   <div style={{borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'18px 16px 10px'}}>
-                    {(()=>{
-                      const _isForeman=user.role==='прораб';
-                      const tabGroups=_isForeman?[
-                        {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете','Чек-листы','Смета']},
-                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения','График','Этапы','Материалы']},
-                        {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
-                        {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','Акты технадзора','Замечания ГСН','Гарантия']},
-                      ]:[
-                        {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете','Чек-листы']},
-                        {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
+	                    {(()=>{
+	                      const _isForeman=user.role==='прораб';
+	                      const canSeeJournalReconcile=['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик'].includes(user.role);
+	                      const tabGroups=_isForeman?[
+	                        {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете',...(canSeeJournalReconcile?['Сверка ЖПР']:[]),'Чек-листы','Смета']},
+	                        {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения','График','Этапы','Материалы']},
+	                        {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
+	                        {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','Акты технадзора','Замечания ГСН','Гарантия']},
+	                      ]:[
+	                        {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете',...(canSeeJournalReconcile?['Сверка ЖПР']:[]),'Чек-листы']},
+	                        {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
                         {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения','График','Этапы']},
                         {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
                         {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','КС-2','КС-3','Паспорт','Акты технадзора','Замечания ГСН','Гарантия']},
@@ -10715,8 +10943,8 @@ function App() {
                       })()}
                   </div>)}
 
-                    {activeProjectTab==='Смета'&&(<div>
-                      <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Смета проекта</b>
+	                    {activeProjectTab==='Смета'&&(<div>
+	                      <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Смета проекта</b>
                       <div style={{marginBottom:'14px',position:'relative'}}>
                         <Search size={15} style={{position:'absolute',left:'12px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
                         <input placeholder='🔍 Поиск по позициям сметы (например: «демонтаж»)' value={estimateSearch||''} onChange={e=>setEstimateSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'34px'}}/>
@@ -10748,12 +10976,14 @@ function App() {
                             </div>
                           </div>
                         </div>));
-                      })()}
-                  </div>)}
+	                      })()}
+	                  </div>)}
 
-                    {activeProjectTab==='Производство работ'&&(<div>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
-                        <b style={{color:C.text}}>Журнал производства работ</b>
+	                    {activeProjectTab==='Сверка ЖПР'&&renderWorkJournalEstimateReconciliationPanel(p)}
+
+	                    {activeProjectTab==='Производство работ'&&(<div>
+	                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
+	                        <b style={{color:C.text}}>Журнал производства работ</b>
                         <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
                           <button onClick={()=>setShowJournalTableModal(p.name)} style={btnB}><FileText size={14}/>📋 Таблица КС-6а</button>
                           <button onClick={()=>showPreview(buildJPRContent(p.name),'ЖПР — '+p.name)} style={btnG}><ScrollText size={14}/>ЖПР</button>
