@@ -11068,6 +11068,20 @@ function App() {
                       const byCategory = projectFindings.reduce((acc,f)=>{const k=f.category||'Общее';if(!acc[k])acc[k]=[];acc[k].push(f);return acc;},{});
                       const importantCount = projectFindings.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных').length;
                       const canRunAiControl = user&&['директор','зам_директора','прораб','главный_инженер','сметчик','технадзор','стройконтроль'].includes(user.role);
+                      const taskTypeMeta = (task) => {
+                        const type = parseAiTaskPayload(task).type;
+                        if (['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(type)) return {key:'materials',label:'Материалы',icon:<Package size={13}/>,color:C.info,bg:C.infoLight,border:C.infoBorder};
+                        if (['estimate_quality_review','estimate_norm_review','material_norm_coverage'].includes(type)) return {key:'estimate',label:'Смета и нормы',icon:<Calculator size={13}/>,color:C.accent,bg:C.accentLight,border:C.accentBorder};
+                        if (['estimate_diff_review','estimate_change_reconcile'].includes(type)) return {key:'changes',label:'Изменения к смете',icon:<GitBranch size={13}/>,color:C.warning,bg:C.warningLight,border:C.warningBorder};
+                        return {key:'other',label:'Прочее',icon:<Eye size={13}/>,color:C.textSec,bg:C.bgGray,border:C.border};
+                      };
+                      const groupedStandaloneTasks = standaloneTasks.reduce((acc,task)=>{
+                        const meta = taskTypeMeta(task);
+                        if (!acc[meta.key]) acc[meta.key] = {meta,tasks:[]};
+                        acc[meta.key].tasks.push(task);
+                        return acc;
+                      },{});
+                      const standaloneTaskGroups = ['materials','estimate','changes','other'].map(k=>groupedStandaloneTasks[k]).filter(Boolean);
                       return (<div>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
                           <div>
@@ -11092,32 +11106,41 @@ function App() {
                             <b style={{color:C.text,fontSize:'13px'}}>Поручения</b>
                             <span style={badge(C.accent,C.accentLight,C.accentBorder)}>{standaloneTasks.length}</span>
                           </div>
-                          {standaloneTasks.map(task=>{
-                            const payload=parseAiTaskPayload(task);
-                            const isEstimateTask=['estimate_quality_review','estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
-                            const isMaterialTask=['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(payload.type);
-                            return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
-                              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                                <div style={{flex:1,minWidth:'220px'}}>
-                                  <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'5px'}}>
-                                    <span style={badge(C.info,C.infoLight,C.infoBorder)}>{task.status||'Новое'}</span>
-                                    <span style={{fontSize:'11px',color:C.textSec}}>{task.assignedRole?'кому: '+task.assignedRole:'без роли'}</span>
-                                  </div>
-                                  <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.35}}>{task.title}</b>
-                                  {payload.type==='estimate_change_reconcile'
-                                    ? renderEstimateChangeReconcileTask(task)
-                                    : task.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45,whiteSpace:'pre-wrap'}}>{task.description}</p>}
-                                </div>
-                                <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                                  {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:isMaterialTask?<Package size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
-                                  {task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
-                                  {['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
-                                  <button onClick={()=>updateAiTask(task.id,{status:'Закрыто'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Закрыть</button>
-                                  <button onClick={()=>updateAiTask(task.id,{status:'Отклонено'})} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}>Отклонить</button>
-                                </div>
+                          {standaloneTaskGroups.map(group=>(
+                            <div key={group.meta.key} style={{marginBottom:'12px'}}>
+                              <div style={{display:'flex',alignItems:'center',gap:'8px',margin:'0 0 8px',padding:'7px 9px',borderRadius:'10px',backgroundColor:group.meta.bg,border:'1.5px solid '+group.meta.border}}>
+                                <span style={{color:group.meta.color,display:'inline-flex'}}>{group.meta.icon}</span>
+                                <b style={{color:group.meta.color,fontSize:'12px'}}>{group.meta.label}</b>
+                                <span style={badge(group.meta.color,group.meta.bg,group.meta.border)}>{group.tasks.length}</span>
                               </div>
-                            </div>);
-                          })}
+                              {group.tasks.map(task=>{
+                                const payload=parseAiTaskPayload(task);
+                                const isEstimateTask=['estimate_quality_review','estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
+                                const isMaterialTask=['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(payload.type);
+                                return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
+                                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                                    <div style={{flex:1,minWidth:'220px'}}>
+                                      <div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap',marginBottom:'5px'}}>
+                                        <span style={badge(C.info,C.infoLight,C.infoBorder)}>{task.status||'Новое'}</span>
+                                        <span style={{fontSize:'11px',color:C.textSec}}>{task.assignedRole?'кому: '+task.assignedRole:'без роли'}</span>
+                                      </div>
+                                      <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.35}}>{task.title}</b>
+                                      {payload.type==='estimate_change_reconcile'
+                                        ? renderEstimateChangeReconcileTask(task)
+                                        : task.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45,whiteSpace:'pre-wrap'}}>{task.description}</p>}
+                                    </div>
+                                    <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                                      {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:isMaterialTask?<Package size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
+                                      {task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
+                                      {['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
+                                      <button onClick={()=>updateAiTask(task.id,{status:'Закрыто'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Закрыть</button>
+                                      <button onClick={()=>updateAiTask(task.id,{status:'Отклонено'})} style={{...btnR,padding:'5px 9px',fontSize:'11px'}}>Отклонить</button>
+                                    </div>
+                                  </div>
+                                </div>);
+                              })}
+                            </div>
+                          ))}
                         </div>)}
                         {Object.entries(byCategory).map(([category,list])=>(
                           <div key={category} style={{...card,padding:'14px',marginBottom:'12px'}}>
