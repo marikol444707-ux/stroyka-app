@@ -4744,7 +4744,12 @@ def get_work_journal(current_user: dict = Depends(get_current_user)):
         return []
     rows = cur.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    if role in ("заказчик", "технадзор", "стройконтроль"):
+        for row in out:
+            row["pricePerUnit"] = 0
+            row["total"] = 0
+    return out
 
 def _parse_materials_used(raw):
     import json as _json
