@@ -427,7 +427,7 @@ def require_worker_brigade_contract_access(cur, contract_id: int, user: dict):
     brigade_name = row[1] if not isinstance(row, dict) else row.get("brigade_name")
     user_id = user.get("id")
     user_name = user.get("name") or ""
-    if str(contractor_id or "") != str(user_id or "") and (brigade_name or "") != user_name:
+    if str(contractor_id or "") != str(user_id or "") and (brigade_name or "").strip().lower() != user_name.strip().lower():
         raise HTTPException(status_code=403, detail="Нет доступа к наряду")
 
 def recalc_brigade_contract_total(cur, contract_id: int):
@@ -7585,7 +7585,7 @@ def get_brigade_contracts(project_name: str = None, _current_user: dict = Depend
         where.append("bc.project_name = ANY(%s)")
         params.append(allowed_projects)
     if _current_user.get("role") in ("мастер", "субподрядчик"):
-        where.append("(bc.contractor_id=%s OR bc.brigade_name=%s)")
+        where.append("(bc.contractor_id=%s OR LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s))")
         params.extend([_current_user.get("id"), _current_user.get("name") or ""])
     q = base
     if where:
@@ -8389,7 +8389,7 @@ def list_all_brigade_contract_items(project_name: str = None, _current_user: dic
         where.append("bc.project_name = ANY(%s)")
         params.append(allowed_projects)
     if _current_user.get("role") in ("мастер", "субподрядчик"):
-        where.append("(bc.contractor_id=%s OR bc.brigade_name=%s)")
+        where.append("(bc.contractor_id=%s OR LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s))")
         params.extend([_current_user.get("id"), _current_user.get("name") or ""])
     q = """SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
                   bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
