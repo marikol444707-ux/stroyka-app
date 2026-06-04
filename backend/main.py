@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -540,7 +540,24 @@ def _safe_upload_ext(filename: str) -> str:
 def _upload_content_type(filename: str, provided: str = "") -> str:
     return provided or mimetypes.guess_type(filename or "")[0] or "application/octet-stream"
 
-def save_upload_file(file: UploadFile) -> dict:
+def _safe_storage_segment(value: str, fallback: str) -> str:
+    raw = str(value or "").strip().replace("\\", " ").replace("/", " ")
+    if not raw:
+        return fallback
+    out = []
+    prev_dash = False
+    for ch in raw:
+        if ch.isalnum() or ch in ("-", "_", "."):
+            out.append(ch)
+            prev_dash = False
+        else:
+            if not prev_dash:
+                out.append("-")
+                prev_dash = True
+    segment = "".join(out).strip("-.")[:80]
+    return segment or fallback
+
+def save_upload_file(file: UploadFile, project_name: str = "", context: str = "") -> dict:
     original_name = file.filename or "file"
     content = file.file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
@@ -548,18 +565,29 @@ def save_upload_file(file: UploadFile) -> dict:
     ext = _safe_upload_ext(original_name)
     filename = str(uuid.uuid4()) + ext
     content_type = _upload_content_type(original_name, file.content_type or "")
+    project_segment = _safe_storage_segment(project_name, "_common")
+    context_segment = _safe_storage_segment(context, "general")
+    today = dt.datetime.utcnow().strftime("%Y/%m/%d")
     if _s3_enabled():
-        today = dt.datetime.utcnow().strftime("%Y/%m/%d")
-        key = "/".join(x for x in [S3_PREFIX, today, filename] if x)
+        key = "/".join(x for x in [S3_PREFIX, project_segment, context_segment, today, filename] if x)
         try:
             url = _s3_put_object(key, content, content_type)
         except Exception as e:
             raise HTTPException(status_code=502, detail="Не удалось загрузить файл в S3: " + str(e))
-        return {"url": url, "storage": "s3", "key": key, "filename": original_name}
-    filepath = os.path.join(UPLOAD_DIR, filename)
+        return {"url": url, "storage": "s3", "key": key, "project": project_segment, "context": context_segment, "filename": original_name}
+    rel_parts = [project_segment, context_segment, *today.split("/"), filename]
+    rel_path = os.path.join(*rel_parts)
+    filepath = os.path.join(UPLOAD_DIR, rel_path)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, "wb") as f:
         f.write(content)
-    return {"url": "/uploads/" + filename, "storage": "local", "filename": original_name}
+    return {
+        "url": "/uploads/" + urllib.parse.quote("/".join(rel_parts), safe="/"),
+        "storage": "local",
+        "project": project_segment,
+        "context": context_segment,
+        "filename": original_name,
+    }
 
 def init_db():
     conn = get_db()
@@ -6396,8 +6424,14 @@ def delete_pd_consent(user_id: int, _current_user: dict = Depends(require_roles(
     return {"ok": True}
 
 @app.post("/upload-photo")
-async def upload_photo(file: UploadFile = File(...), _current_user: dict = Depends(get_current_user)):
-    return save_upload_file(file)
+async def upload_photo(
+    file: UploadFile = File(...),
+    projectName: str = Form(default=""),
+    project_name: str = Form(default=""),
+    context: str = Form(default="general"),
+    _current_user: dict = Depends(get_current_user),
+):
+    return save_upload_file(file, projectName or project_name, context)
 
 @app.get("/room-windows")
 def get_room_windows(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
