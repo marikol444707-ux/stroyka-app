@@ -19,7 +19,7 @@
 
 **Домен:** https://stroyka26.pro
 **Репозиторий:** https://github.com/marikol444707-ux/stroyka-app (публичный — рекомендовали приватный)
-**Воркфлоу:** работаем в worktree `claude/cool-bohr-af2b82`, fast-forward merge в main, push в origin. Деплой делает пользователь сам.
+**Воркфлоу:** работаем в feature-ветках `claude/...` (текущая — `claude/update-changelog-PnnTl`), push в origin, деплой делает пользователь сам по SSH. PR создаём только по явной просьбе.
 
 ## Стек
 
@@ -194,6 +194,20 @@
 - `login`, `register`, `password-reset-request`, `password-reset`, `demo-request`, `online`, `vk-connect`, `vk-notify`
 
 **Как чинить (паттерн уже есть в коде):** добавить `_current_user: dict = Depends(require_roles(*РОЛИ))` в сигнатуру — как сделано в `/project-documents` (см. `require_roles`, `require_project_access` около строки 150–233). Для финансов — финансовые роли, для снабжения — складские/снабжение, для CRM — руководство/менеджер. ⚠️ Менять авторизацию надо с деплоем и прогоном каждой роли — на статике не проверить, что ничего не отвалилось.
+
+### 🚀 Деплой фикса прав 2026-06-04 — что сделано и как выкатить
+
+- **Где лежит:** все правки прав (коммит `8a34380` и аудит `8bdfd8e`) — на ветке `claude/update-changelog-PnnTl`, в `main` ещё НЕ влиты. PR не создавали.
+- **Деплой ветки (пользователь делает сам по SSH, отдельной веб-консоли деплоя в проекте нет — только `deploy.sh`):**
+  ```bash
+  cd /var/www/stroyka-app
+  git fetch origin claude/update-changelog-PnnTl
+  git checkout claude/update-changelog-PnnTl
+  bash deploy.sh          # git pull + npm build + systemctl restart stroyka
+  ```
+  Вернуться на основную ветку позже: `git checkout main && bash deploy.sh`. ⚠️ `deploy.sh` делает `git pull` текущей ветки — поэтому сперва `checkout`, иначе подтянется не та ветка.
+- **Проверка после выката:** `POST /invite-codes`, `/accountable-payments`, `/expenses` без токена должны вернуть 401/403, а не данные. Затем прогон ролей в UI (бухгалтер, прораб) — убедиться, что подотчёт/расходы/акты работают и нужная роль не словила «Недостаточно прав».
+- ⚠️ **Известный баг порядка `init_db` (только для ЧИСТОЙ БД):** `backend/main.py:360` делает `ALTER TABLE own_expenses ...` ДО `CREATE TABLE own_expenses` на строке `932` → на свежей БД упадёт. На текущем проде таблица уже есть, поэтому не мешает. Чинить — перенести ALTER ниже CREATE (или объединить) при разворачивании нового инстанса.
 
 ## Nginx whitelist
 
