@@ -791,6 +791,8 @@ function App() {
   const [aiTasks, setAiTasks] = useState([]);
   const estimateNormReviewQueuedRef = useRef(new Set());
   const estimateNormReviewAutoCheckedRef = useRef(new Set());
+  const estimateQualityReviewQueuedRef = useRef(new Set());
+  const estimateQualityReviewAutoCheckedRef = useRef(new Set());
   const estimateDiffReviewQueuedRef = useRef(new Set());
   const estimateChangeReconcileQueuedRef = useRef(new Set());
   const [archivedProjects, setArchivedProjects] = useState([]);
@@ -1037,7 +1039,11 @@ function App() {
     if (!est || !est.id) return;
     try {
       const res = await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});
-      if (res.ok) await queueEstimateNormReviewTask(est, 'Смета сохранена', estimateListWithUpdatedEstimate(est));
+      if (res.ok) {
+        const nextEstimates = estimateListWithUpdatedEstimate(est);
+        await queueEstimateQualityReviewTask(est, 'Смета сохранена');
+        await queueEstimateNormReviewTask(est, 'Смета сохранена', nextEstimates);
+      }
     } catch(e) {}
   };
 
@@ -2680,6 +2686,19 @@ function App() {
       }
       return;
     }
+    if (payload.type === 'estimate_quality_review') {
+      const estimateId = payload.estimateId;
+      if (estimateId) {
+        const est = (estimatesList||[]).find(e=>Number(e.id)===Number(estimateId));
+        if (est) setSelectedEstimate(est);
+      }
+      setEstimatesTab('list');
+      navigateTo('estimates');
+      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
+        await patchAiTaskSilent(task.id,{status:'В работе'});
+      }
+      return;
+    }
     if (['estimate_norm_review','material_norm_coverage'].includes(payload.type)) {
       const projectName = payload.projectName || task.projectName || '';
       const estimateId = payload.estimateId;
@@ -3549,6 +3568,7 @@ function App() {
         await queueEstimateDiffReviewTask(diffBase, updated, 'Смета активирована');
         await autoReconcileEstimateChanges(diffBase, updated, 'Смета активирована');
       }
+      await queueEstimateQualityReviewTask(updated, 'Смета активирована');
       await queueEstimateNormReviewTask(updated, 'Смета активирована', nextEstimates);
     }
   };
@@ -4596,10 +4616,164 @@ function App() {
   };
   const estimateNormReviewIssueStatuses = ['Некорректное количество','Нет материала в смете','Материал без количества','Материал без работы','Нет нормы'];
   const estimateNormReviewMarker = (estimateId) => 'ESTIMATE_NORM_REVIEW:'+String(estimateId||'');
+  const estimateQualityReviewMarker = (estimateId) => 'ESTIMATE_QUALITY_REVIEW:'+String(estimateId||'');
   const estimateDiffReviewMarker = (baseEstimateId, nextEstimateId) => 'ESTIMATE_DIFF_REVIEW:'+String(baseEstimateId||'')+':'+String(nextEstimateId||'');
   const aiTaskByMarker = (marker) => (aiTasks||[]).find(t=>
     isOpenAiStatus(t.status) && String(t.actionPayload||'').includes(marker)
   );
+  const estimatePieceUnitKeys = new Set(['шт','компл','комплект','пара','набор','секция','труба','лист','рулон','упак','упаковка','пачка','ящик','бухта','мешок']);
+  const estimateQualityRows = (est) => {
+    if (!est?.id) return [];
+    const rows = [];
+    const push = (status, section, item, sectionIdx, itemIdx, message, severity='warning') => {
+      rows.push({
+        key:[est.id,sectionIdx,itemIdx,status].join('|'),
+        status,
+        severity,
+        projectName:est.projectName||'',
+        estimateId:est.id,
+        estimateName:est.name||'',
+        packageName:estimatePackage(est),
+        sectionName:section?.name||'Без раздела',
+        itemName:item?.name||'Без названия',
+        itemType:normalizeEstimateItemType(item, section?.name||''),
+        unit:item?.unit||'',
+        quantity:item?.quantity,
+        normalizedQuantity:normalizeMeasure(toNum(item?.quantity), item?.unit).qty,
+        normalizedUnit:normalizeMeasure(toNum(item?.quantity), item?.unit).unit || item?.unit || '',
+        priceWork:item?.priceWork,
+        priceMaterial:item?.priceMaterial,
+        total:estimateItemTotal(item),
+        message
+      });
+    };
+    _sectionsOfEst(est).forEach((section, sectionIdx)=>(section.items||[]).forEach((item, itemIdx)=>{
+      const name = String(item?.name||'').trim();
+      const rawQtyText = String(item?.quantity ?? '').trim();
+      const qty = toNum(item?.quantity);
+      const unit = String(item?.unit||'').trim();
+      const normalized = normalizeMeasure(qty, unit);
+      const normUnitKey = _normalizeUnit(normalized.unit || unit);
+      const itemType = normalizeEstimateItemType(item, section?.name||'');
+      const priceWork = toNum(item?.priceWork);
+      const priceMaterial = toNum(item?.priceMaterial);
+      if (!name) push('Нет наименования', section, item, sectionIdx, itemIdx, 'У позиции нет названия — её нельзя надёжно сопоставить с работой, материалом или новой сметой.', 'critical');
+      if (!unit) push('Нет единицы', section, item, sectionIdx, itemIdx, 'Не указана единица измерения. Без неё нельзя корректно закрывать объёмы, нормы и КС.', 'critical');
+      if (!rawQtyText) {
+        push('Нет количества', section, item, sectionIdx, itemIdx, 'Количество пустое. Нужно указать плановый объём по смете.', 'critical');
+      } else if (qty < 0) {
+        push('Отрицательное количество', section, item, sectionIdx, itemIdx, 'Количество меньше нуля. Такая строка ломает сумму сметы, остатки и сопоставление с новой редакцией.', 'critical');
+      } else if (qty === 0) {
+        push('Нулевое количество', section, item, sectionIdx, itemIdx, 'Количество равно 0. Если строка нужна, укажите объём; если не нужна — перенесите в исключение/архив.', 'warning');
+      }
+      if (qty > 0 && estimatePieceUnitKeys.has(normUnitKey) && Math.abs(normalized.qty - Math.round(normalized.qty)) > 0.001) {
+        push('Дробное количество шт', section, item, sectionIdx, itemIdx, 'Штучная единица после нормализации получилась дробной: '+fmtMeasure(qty, unit)+'. Проверьте, не должна ли единица быть «100 шт»/«компл.» или другое основание.', 'warning');
+      }
+      if (priceWork < 0 || priceMaterial < 0) {
+        push('Отрицательная цена', section, item, sectionIdx, itemIdx, 'Цена работ или материалов меньше нуля. Для уменьшения объёма лучше использовать изменение к смете/исключение, а не минусовую цену.', 'critical');
+      }
+      if (itemType !== 'note' && qty > 0 && Math.abs(estimateItemTotal(item)) < 0.01) {
+        push('Нулевая сумма', section, item, sectionIdx, itemIdx, 'У строки есть объём, но сумма равна 0. Заполните цену или проверьте тип позиции.', 'warning');
+      }
+    }));
+    const rank = {'critical':0,'warning':1,'info':2};
+    return rows.sort((a,b)=>(rank[a.severity]??9)-(rank[b.severity]??9)
+      || String(a.sectionName).localeCompare(String(b.sectionName),'ru')
+      || String(a.itemName).localeCompare(String(b.itemName),'ru'));
+  };
+  const estimateQualityDescription = (est, rows, reason) => {
+    const counts = [...new Set(rows.map(r=>r.status))]
+      .map(status=>({status,count:rows.filter(r=>r.status===status).length}))
+      .sort((a,b)=>b.count-a.count);
+    const lines = [
+      'Автопроверка качества сметы после события: '+(reason||'сохранение сметы')+'.',
+      'Объект: '+(est.projectName||'')+'. Смета: '+(est.name||'')+'. Пакет: '+estimatePackage(est)+'.',
+      '',
+      'Найдено ошибок данных: '+rows.length+'.',
+      ...counts.map(x=>'• '+x.status+': '+x.count),
+      '',
+      'Первые строки для исправления:'
+    ];
+    rows.slice(0,12).forEach((row,idx)=>{
+      lines.push((idx+1)+'. '+row.status+' — '+row.sectionName+' / '+row.itemName+'; '+String(row.quantity ?? 'пусто')+' '+(row.unit||'без ед.')+'; сумма '+Math.round(row.total||0).toLocaleString('ru-RU')+' ₽. '+row.message);
+    });
+    if (rows.length > 12) lines.push('...и ещё '+(rows.length-12)+' строк.');
+    lines.push(
+      '',
+      'Порядок исправления:',
+      '1. Сначала исправить отрицательные/пустые количества, единицы и цены в самой смете.',
+      '2. После сохранения система заново проверит нормы материалов и сопоставление с новой сметой.',
+      '3. До исправления такие строки нельзя использовать как основание для КС, заявок снабжения и списания материалов.'
+    );
+    return lines.join('\n');
+  };
+  const queueEstimateQualityReviewTask = async (est, reason='Автопроверка сметы') => {
+    if (!est?.id || !est.projectName) return;
+    if (estimateKind(est)!=='Заказчик' || isArchivedEstimate(est) || (est.status||'Черновик')!=='Активная') return;
+    const marker = estimateQualityReviewMarker(est.id);
+    const existingTask = aiTaskByMarker(marker);
+    const rows = estimateQualityRows(est);
+    const counts = rows.reduce((acc,row)=>{acc[row.status]=(acc[row.status]||0)+1;return acc;},{});
+    if (existingTask) {
+      if (!rows.length) {
+        await patchAiTaskSilent(existingTask.id,{status:'Закрыто'});
+        return;
+      }
+      await patchAiTaskSilent(existingTask.id,{
+        title:'Исправить данные сметы: '+est.projectName+' — '+rows.length+' ош.',
+        description:estimateQualityDescription(est, rows, reason),
+        assignedRole:hasActiveEstimator() ? 'сметчик' : 'директор',
+        actionPayload:JSON.stringify({
+          type:'estimate_quality_review',
+          marker,
+          estimateId:est.id,
+          estimateName:est.name||'',
+          projectName:est.projectName||'',
+          workPackage:estimatePackage(est),
+          reason,
+          counts
+        }),
+      });
+      return;
+    }
+    if (!rows.length || estimateQualityReviewQueuedRef.current.has(marker)) return;
+    estimateQualityReviewQueuedRef.current.add(marker);
+    const payload = {
+      projectName: est.projectName,
+      title:'Исправить данные сметы: '+est.projectName+' — '+rows.length+' ош.',
+      description:estimateQualityDescription(est, rows, reason),
+      assignedRole:hasActiveEstimator() ? 'сметчик' : 'директор',
+      status:'Новое',
+      actionLabel:'Открыть смету',
+      actionPayload:JSON.stringify({
+        type:'estimate_quality_review',
+        marker,
+        estimateId:est.id,
+        estimateName:est.name||'',
+        projectName:est.projectName||'',
+        workPackage:estimatePackage(est),
+        reason,
+        counts
+      }),
+    };
+    try {
+      const res = await fetch(API+'/ai-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) {
+        estimateQualityReviewQueuedRef.current.delete(marker);
+        return;
+      }
+      setAiTasks(prev=>{
+        const list = prev||[];
+        if (data?.id && list.some(t=>Number(t.id)===Number(data.id))) {
+          return list.map(t=>Number(t.id)===Number(data.id)?data:t);
+        }
+        return [data,...list];
+      });
+    } catch(e) {
+      estimateQualityReviewQueuedRef.current.delete(marker);
+    }
+  };
   const estimateListWithUpdatedEstimate = (est) => {
     if (!est?.id) return estimatesList||[];
     let found = false;
@@ -4991,7 +5165,14 @@ function App() {
       lines.push((idx+1)+'. '+row.status+' — '+(row.sectionName||'Без раздела')+' / '+(row.workName||row.materialName||'позиция')+'; материал: '+(row.materialName||materialTitleForNormRule(row.rule)||'—')+need+inEstimate+'.');
     });
     if (rows.length > 12) lines.push('...и ещё '+(rows.length-12)+' строк.');
-    lines.push('', 'Что сделать: открыть смету или ведомость норм, добавить недостающие материалы/количество, создать поправку нормы или пометить работу как не требующую материала.');
+    lines.push(
+      '',
+      'Порядок исправления:',
+      '1. `Некорректное количество` и `Материал без количества` — сначала исправить количество в смете.',
+      '2. `Нет материала в смете` — добавить строку материала, создать заявку снабжения или подтвердить, что материал не нужен.',
+      '3. `Нет нормы` и `Материал без работы` — уточнить правило нормы или привязку материала к работе.',
+      '4. После правки сохранить смету: задача обновится или закроется автоматически.'
+    );
     return lines.join('\n');
   };
   const queueEstimateNormReviewTask = async (est, reason='Автопроверка сметы', sourceEstimates=null) => {
@@ -5073,9 +5254,14 @@ function App() {
       .filter(est=>est?.id && estimateKind(est)==='Заказчик' && !isArchivedEstimate(est) && (est.status||'Черновик')==='Активная')
       .slice(0, 25);
     activeCustomerEstimates.forEach(est=>{
-      const marker = estimateNormReviewMarker(est.id);
-      if (estimateNormReviewAutoCheckedRef.current.has(marker)) return;
-      estimateNormReviewAutoCheckedRef.current.add(marker);
+      const qualityMarker = estimateQualityReviewMarker(est.id);
+      if (!estimateQualityReviewAutoCheckedRef.current.has(qualityMarker)) {
+        estimateQualityReviewAutoCheckedRef.current.add(qualityMarker);
+        queueEstimateQualityReviewTask(est, 'Фоновая проверка активной сметы');
+      }
+      const normMarker = estimateNormReviewMarker(est.id);
+      if (estimateNormReviewAutoCheckedRef.current.has(normMarker)) return;
+      estimateNormReviewAutoCheckedRef.current.add(normMarker);
       queueEstimateNormReviewTask(est, 'Фоновая проверка активной сметы', estimatesList);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -10655,7 +10841,7 @@ function App() {
                           </div>
                           {standaloneTasks.map(task=>{
                             const payload=parseAiTaskPayload(task);
-                            const isEstimateTask=['estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
+                            const isEstimateTask=['estimate_quality_review','estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
                             return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
                               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                                 <div style={{flex:1,minWidth:'220px'}}>
@@ -14397,6 +14583,7 @@ function App() {
                     await queueEstimateDiffReviewTask(diffBase,newEst,'Смета создана');
                     await autoReconcileEstimateChanges(diffBase,newEst,'Смета создана');
                   }
+                  await queueEstimateQualityReviewTask(newEst, 'Смета создана');
                   await queueEstimateNormReviewTask(newEst, 'Смета создана', nextEstimates);
                 }} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
@@ -14732,9 +14919,16 @@ function App() {
                         await queueEstimateDiffReviewTask(diffBase,estWithId,'Импорт сметы');
                         await autoReconcileEstimateChanges(diffBase,estWithId,'Импорт сметы');
                       }
+                      await queueEstimateQualityReviewTask(estWithId, 'Импорт сметы');
                       await queueEstimateNormReviewTask(estWithId, 'Импорт сметы', nextEstimates);
+                      const qualityWarnings = estimateQualityRows(estWithId).map(row=>({
+                        type:'качество',
+                        where:(row.sectionName||'')+' / '+(row.itemName||''),
+                        message:row.status+': '+row.message,
+                        severity:row.severity==='critical'?'критично':'внимание'
+                      }));
                       setImportValidating(true);
-                      setImportValidationWarnings([]);
+                      setImportValidationWarnings(qualityWarnings);
                       try{
                         const items=Object.values(sections).flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:Number(i.quantity||0)})));
                         const valPrompt='Проверь смету "'+est.name+'" на типовые проблемы при импорте из Гранд Сметы. Позиции:\n'+JSON.stringify(items,null,1)+'\n\nИЩИ:\n- Забытые сопутствующие работы (например штукатурка без грунтовки)\n- Возможные дубликаты позиций\n- Подозрительно большие или маленькие объёмы\n- Странные единицы измерения\n\nОТВЕТЬ СТРОГО JSON:\n{"warnings":[{"type":"забыто|дубль|объём|единица|другое","where":"раздел или позиция","message":"что не так","severity":"критично|внимание|совет"}]}\nЕсли всё хорошо — пиши {"warnings":[]}. Только JSON.';
@@ -14743,7 +14937,7 @@ function App() {
                         const raw=(d.response||'').trim();
                         const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
                         const s=clean.indexOf('{'),en=clean.lastIndexOf('}');
-                        if(s>=0&&en>s){const p=JSON.parse(clean.slice(s,en+1));if(Array.isArray(p.warnings))setImportValidationWarnings(p.warnings);}
+                        if(s>=0&&en>s){const p=JSON.parse(clean.slice(s,en+1));if(Array.isArray(p.warnings))setImportValidationWarnings([...qualityWarnings,...p.warnings]);}
                       }catch(err){}
                       setImportValidating(false);
                       alert('Импортировано '+data.count+' позиций! ИИ проверяет смету в фоне — результат появится сверху.');
@@ -15716,6 +15910,7 @@ function App() {
                 await queueEstimateDiffReviewTask(diffBase,est,'ИИ-смета создана');
                 await autoReconcileEstimateChanges(diffBase,est,'ИИ-смета создана');
               }
+              await queueEstimateQualityReviewTask(est, 'ИИ-смета создана');
               await queueEstimateNormReviewTask(est, 'ИИ-смета создана', nextEstimates);
               setShowGenerateEstimate(false);
               setGenerating(false);
