@@ -7,13 +7,16 @@ import psycopg2
 import psycopg2.extras
 import os
 import uuid
-import shutil
 import hashlib
 import hmac
 import secrets
 import base64
 import json
 import time
+import datetime as dt
+import mimetypes
+import urllib.parse
+import urllib.request
 
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 if os.path.exists(_env_path):
@@ -447,6 +450,116 @@ def get_db():
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local").strip().lower()
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+S3_ENDPOINT_URL = (os.getenv("S3_ENDPOINT_URL") or os.getenv("S3_ENDPOINT") or "").rstrip("/")
+S3_BUCKET = os.getenv("S3_BUCKET", "").strip()
+S3_REGION = os.getenv("S3_REGION", "ru-central1").strip() or "ru-central1"
+S3_ACCESS_KEY_ID = (os.getenv("S3_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
+S3_SECRET_ACCESS_KEY = (os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip()
+S3_PUBLIC_URL = os.getenv("S3_PUBLIC_URL", "").rstrip("/")
+S3_PREFIX = os.getenv("S3_PREFIX", "uploads").strip("/")
+S3_ACL = os.getenv("S3_ACL", "public-read").strip()
+
+def _s3_enabled() -> bool:
+    return (
+        STORAGE_BACKEND == "s3"
+        and bool(S3_ENDPOINT_URL)
+        and bool(S3_BUCKET)
+        and bool(S3_ACCESS_KEY_ID)
+        and bool(S3_SECRET_ACCESS_KEY)
+    )
+
+def _s3_signing_key(secret: str, date_stamp: str, region: str) -> bytes:
+    k_date = hmac.new(("AWS4" + secret).encode("utf-8"), date_stamp.encode("utf-8"), hashlib.sha256).digest()
+    k_region = hmac.new(k_date, region.encode("utf-8"), hashlib.sha256).digest()
+    k_service = hmac.new(k_region, b"s3", hashlib.sha256).digest()
+    return hmac.new(k_service, b"aws4_request", hashlib.sha256).digest()
+
+def _s3_object_url(key: str) -> str:
+    quoted_key = urllib.parse.quote(key, safe="/")
+    if S3_PUBLIC_URL:
+        return S3_PUBLIC_URL + "/" + quoted_key
+    return S3_ENDPOINT_URL + "/" + urllib.parse.quote(S3_BUCKET, safe="") + "/" + quoted_key
+
+def _s3_put_object(key: str, content: bytes, content_type: str) -> str:
+    quoted_bucket = urllib.parse.quote(S3_BUCKET, safe="")
+    quoted_key = urllib.parse.quote(key, safe="/")
+    url = S3_ENDPOINT_URL + "/" + quoted_bucket + "/" + quoted_key
+    parsed = urllib.parse.urlparse(url)
+    payload_hash = hashlib.sha256(content).hexdigest()
+    now = dt.datetime.utcnow()
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+    headers = {
+        "host": parsed.netloc,
+        "content-type": content_type,
+        "x-amz-content-sha256": payload_hash,
+        "x-amz-date": amz_date,
+    }
+    if S3_ACL:
+        headers["x-amz-acl"] = S3_ACL
+    signed_header_names = sorted(headers.keys())
+    canonical_headers = "".join(f"{name}:{headers[name]}\n" for name in signed_header_names)
+    signed_headers = ";".join(signed_header_names)
+    canonical_request = "\n".join([
+        "PUT",
+        parsed.path or "/",
+        "",
+        canonical_headers,
+        signed_headers,
+        payload_hash,
+    ])
+    credential_scope = f"{date_stamp}/{S3_REGION}/s3/aws4_request"
+    string_to_sign = "\n".join([
+        "AWS4-HMAC-SHA256",
+        amz_date,
+        credential_scope,
+        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+    ])
+    signature = hmac.new(_s3_signing_key(S3_SECRET_ACCESS_KEY, date_stamp, S3_REGION), string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+    headers["Authorization"] = (
+        "AWS4-HMAC-SHA256 "
+        f"Credential={S3_ACCESS_KEY_ID}/{credential_scope}, "
+        f"SignedHeaders={signed_headers}, "
+        f"Signature={signature}"
+    )
+    req = urllib.request.Request(url, data=content, headers=headers, method="PUT")
+    with urllib.request.urlopen(req, timeout=30):
+        pass
+    return _s3_object_url(key)
+
+def _safe_upload_ext(filename: str) -> str:
+    ext = os.path.splitext(filename or "")[1].lower()
+    if not ext or len(ext) > 16:
+        return ""
+    safe = "".join(ch for ch in ext if ch.isalnum() or ch == ".")
+    return safe if safe.startswith(".") else ""
+
+def _upload_content_type(filename: str, provided: str = "") -> str:
+    return provided or mimetypes.guess_type(filename or "")[0] or "application/octet-stream"
+
+def save_upload_file(file: UploadFile) -> dict:
+    original_name = file.filename or "file"
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Файл слишком большой")
+    ext = _safe_upload_ext(original_name)
+    filename = str(uuid.uuid4()) + ext
+    content_type = _upload_content_type(original_name, file.content_type or "")
+    if _s3_enabled():
+        today = dt.datetime.utcnow().strftime("%Y/%m/%d")
+        key = "/".join(x for x in [S3_PREFIX, today, filename] if x)
+        try:
+            url = _s3_put_object(key, content, content_type)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail="Не удалось загрузить файл в S3: " + str(e))
+        return {"url": url, "storage": "s3", "key": key, "filename": original_name}
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    with open(filepath, "wb") as f:
+        f.write(content)
+    return {"url": "/uploads/" + filename, "storage": "local", "filename": original_name}
 
 def init_db():
     conn = get_db()
@@ -6284,12 +6397,7 @@ def delete_pd_consent(user_id: int, _current_user: dict = Depends(require_roles(
 
 @app.post("/upload-photo")
 async def upload_photo(file: UploadFile = File(...), _current_user: dict = Depends(get_current_user)):
-    ext = os.path.splitext(file.filename)[1]
-    filename = str(uuid.uuid4()) + ext
-    filepath = os.path.join(UPLOAD_DIR, filename)
-    with open(filepath, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    return {"url": "/uploads/" + filename}
+    return save_upload_file(file)
 
 @app.get("/room-windows")
 def get_room_windows(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
