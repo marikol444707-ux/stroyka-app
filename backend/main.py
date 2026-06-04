@@ -168,6 +168,10 @@ STAFF_MANAGE_ROLES = ("директор", "зам_директора", "бухг
 PRICELIST_MANAGE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 OWN_EXPENSE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "кладовщик", "снабженец")
 SUPPLIER_INVOICE_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "кладовщик", "снабженец", "поставщик")
+# Расход по объекту: финансы + прораб (см. ONBOARDING «Роли и доступ»)
+EXPENSE_WRITE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб")
+# Формирование/правка актов бригад (расчёт с бригадой)
+BRIGADE_ACT_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер")
 
 def user_project_names(user: dict) -> list[str]:
     names = []
@@ -2590,7 +2594,7 @@ def get_invite_codes():
     return [dict(r) for r in rows]
 
 @app.post("/invite-codes")
-def create_invite_code(data: dict):
+def create_invite_code(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     from datetime import datetime, timedelta
     role = data.get('role') or ''
     if not role:
@@ -2610,7 +2614,7 @@ def create_invite_code(data: dict):
     return dict(row)
 
 @app.delete("/invite-codes/{id}")
-def delete_invite_code(id: int):
+def delete_invite_code(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM invite_codes WHERE id=%s", (id,))
@@ -6053,7 +6057,7 @@ def get_brigade_acts(contract_id: int = None):
     return [{"id":r[0],"contractId":r[1],"projectName":r[2],"brigadeName":r[3],"periodFrom":str(r[4]) if r[4] else "","periodTo":str(r[5]) if r[5] else "","totalAmount":float(r[6] or 0),"status":r[7],"createdAt":str(r[8])} for r in rows]
 
 @app.post("/brigade-acts")
-def create_brigade_act(data: dict):
+def create_brigade_act(data: dict, _current_user: dict = Depends(require_roles(*BRIGADE_ACT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO brigade_acts (contract_id,project_name,brigade_name,period_from,period_to,total_amount,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -6968,7 +6972,7 @@ def list_expense_reports(employee_id: int = None, project_name: str = None):
     return out
 
 @app.post("/expense-reports")
-def create_expense_report(data: dict):
+def create_expense_report(data: dict, _current_user: dict = Depends(require_roles(*OWN_EXPENSE_ROLES))):
     import json as j
     conn = get_db()
     cur = conn.cursor()
@@ -6990,7 +6994,7 @@ def create_expense_report(data: dict):
     return {"id": row[0], "ok": True}
 
 @app.put("/expense-reports/{id}")
-def update_expense_report(id: int, data: dict):
+def update_expense_report(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
@@ -7011,7 +7015,7 @@ def update_expense_report(id: int, data: dict):
     return {"ok": True}
 
 @app.delete("/expense-reports/{id}")
-def delete_expense_report(id: int):
+def delete_expense_report(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM expense_reports WHERE id=%s", (id,))
@@ -7343,7 +7347,7 @@ def get_document_version(vid: int):
             "createdAt":str(r[7])}
 
 @app.post("/audit-log")
-def create_audit_entry(data: dict):
+def create_audit_entry(data: dict, _current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""INSERT INTO audit_log
@@ -7485,7 +7489,7 @@ def get_accountable_payments(project_name: str = ""):
     return [{"id":r[0],"projectName":r[1],"givenTo":r[2],"amount":float(r[3] or 0),"paymentMethod":r[4] or "Наличные","purpose":r[5] or "","date":str(r[6]) if r[6] else "","addedBy":r[7] or "","status":r[8] or "Открыт","spentAmount":float(r[9] or 0)} for r in rows]
 
 @app.post("/accountable-payments")
-def create_accountable_payment(data: dict):
+def create_accountable_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO accountable_payments (project_name,given_to,given_to_id,amount,payment_method,purpose,date,added_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -7508,7 +7512,7 @@ def get_accountable_expenses(payment_id: int = 0):
     return [{"id":r[0],"paymentId":r[1],"projectName":r[2],"description":r[3],"amount":float(r[4] or 0),"photoUrl":r[5] or "","date":str(r[6]) if r[6] else "","addedBy":r[7] or ""} for r in rows]
 
 @app.post("/accountable-expenses")
-def create_accountable_expense(data: dict):
+def create_accountable_expense(data: dict, _current_user: dict = Depends(require_roles(*OWN_EXPENSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO accountable_expenses (payment_id,project_name,description,amount,photo_url,date,added_by) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -7608,7 +7612,7 @@ def get_expenses(project: str = ""):
     return [{"id":r[0],"project":r[1],"category":r[2],"amount":float(r[3] or 0),"note":r[4] or "","date":str(r[5]) if r[5] else "","addedBy":r[6] or ""} for r in rows]
 
 @app.post("/expenses")
-def create_expense(data: dict):
+def create_expense(data: dict, _current_user: dict = Depends(require_roles(*EXPENSE_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO expenses (project,category,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s,%s)",

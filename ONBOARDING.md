@@ -165,18 +165,20 @@
 
 ## 🔓 Аудит прав доступа по коду — 2026-06-04 (статическая проверка, без деплоя)
 
-Проверил `backend/main.py` скриптом + вручную открыл выборку тел функций. **Факт:** из 286 endpoint'ов только **127 (~44%)** имеют `Depends(require_*)`. Из 193 write-endpoint'ов (POST/PUT/DELETE) **87 не имеют никакой серверной проверки** — ни токена, ни роли, ни доступа к объекту. Часть из них публична по дизайну, но многие — чувствительный CRUD, открытый любому, кто знает URL. UI прячет кнопки, но API голый.
+Проверил `backend/main.py` скриптом + вручную открыл выборку тел функций. **Факт на момент аудита:** из 193 write-endpoint'ов (POST/PUT/DELETE) **87 не имели никакой серверной проверки** — ни токена, ни роли, ни доступа к объекту. Часть из них публична по дизайну, но многие — чувствительный CRUD, открытый любому, кто знает URL. UI прячет кнопки, но API голый. **После фикса 🔴 от 2026-06-04: write без проверки = 77, всего с проверкой 157/286 (~55%).**
 
 > ⚠️ Это уточняет прежнюю формулировку «первый слой, часть чтения открыта»: на запись тоже большая дыра. Раздел «Подотчёт: только финансовые роли» (итог 25.05) верен **только для UI** — endpoint'ы подотчёта на API открыты.
 
-**🔴 Финансы — чинить первыми (любой может писать деньги):**
-- `POST /accountable-payments`, `POST /accountable-expenses` — подотчётные деньги
-- `POST /expenses`, `POST|PUT|DELETE /expense-reports` — расходы и авансовые отчёты
-- `POST /brigade-acts` — акты бригад
+**✅ 🔴 Критичное — ЗАКРЫТО 2026-06-04 (ждёт деплоя + прогона ролей):**
+- `POST /accountable-payments` → `FINANCE_ROLES`; `POST /accountable-expenses` → `OWN_EXPENSE_ROLES`
+- `POST /expenses` → `EXPENSE_WRITE_ROLES` (новая константа: финансы + прораб)
+- `POST /expense-reports` → `OWN_EXPENSE_ROLES`; `PUT|DELETE /expense-reports/{id}` → `FINANCE_ROLES`
+- `POST /brigade-acts` → `BRIGADE_ACT_ROLES` (новая константа: финансы + прораб + гл.инженер)
+- `POST|DELETE /invite-codes` → `LEADERSHIP_ROLES` (закрыта самовыдача роли директора)
+- `POST /audit-log` → `Depends(get_current_user)` (любой залогиненный пишет свои действия, аноним — нет)
+- Самопроверка без деплоя: `python3 -m py_compile` OK, все 10 сигнатур получили `Depends`, фронт шлёт токен через monkey-patch `window.fetch` (App.js:8-16). ⚠️ **Прогнать роли после деплоя** — статикой не проверить, что нужная роль не отвалилась. Спорные места: если снабженцу нужно выдавать инвайты поставщикам — сейчас `/invite-codes` только руководству (мнётся product-решение).
 
-**🟠 Опасный CRUD без ролей (создание/правка/удаление кем угодно):**
-- `POST /invite-codes` — **выдаёт инвайт с ЛЮБОЙ ролью** (можно выписать себе доступ директора!), `DELETE /invite-codes/{id}`
-- `POST /audit-log` — любой может писать/подделывать аудит-лог
+**🟠 Опасный CRUD без ролей — ещё открыто (создание/правка/удаление кем угодно):**
 - `suppliers` (POST/PUT/DELETE), `/suppliers/{id}/requisites`, `supplier-catalog` (POST/PUT/DELETE), `supplier-documents` (POST/DELETE)
 - `warehouses` (POST/PUT/DELETE), `supply-history` (POST/PUT)
 - `crm-leads` (POST/PUT/DELETE), `PUT /demo-requests/{id}`
