@@ -1580,12 +1580,38 @@ def init_db():
             closed_at TIMESTAMP,
             action_label VARCHAR(255),
             action_payload TEXT,
+            dedupe_key VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE ai_tasks ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(255);
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_project ON ai_tasks(project_name);
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status);
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_finding ON ai_tasks(finding_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_tasks_dedupe ON ai_tasks(project_name, dedupe_key);
+        UPDATE ai_tasks t
+        SET dedupe_key=f.dedupe_key
+        FROM ai_findings f
+        WHERE t.finding_id=f.id
+          AND COALESCE(t.dedupe_key,'')=''
+          AND COALESCE(f.dedupe_key,'')<>'';
+        WITH ranked AS (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY project_name, dedupe_key
+                       ORDER BY updated_at DESC NULLS LAST, id DESC
+                   ) AS rn
+            FROM ai_tasks
+            WHERE COALESCE(dedupe_key,'')<>''
+              AND status NOT IN ('Закрыто','Отклонено')
+        )
+        UPDATE ai_tasks t
+        SET status='Закрыто',
+            closed_by=COALESCE(NULLIF(t.closed_by,''),'system'),
+            closed_at=COALESCE(t.closed_at,NOW()),
+            updated_at=NOW()
+        FROM ranked r
+        WHERE t.id=r.id AND r.rn>1;
         CREATE TABLE IF NOT EXISTS material_norms (
             id SERIAL PRIMARY KEY,
             rule_key VARCHAR(100) UNIQUE,
@@ -2245,6 +2271,7 @@ class AiTaskModel(BaseModel):
     dueDate: str = ""
     actionLabel: str = ""
     actionPayload: str = ""
+    dedupeKey: str = ""
 
 class ToolModel(BaseModel):
     name: str
@@ -5500,19 +5527,75 @@ SELECT id,
        closed_at as "closedAt",
        action_label as "actionLabel",
        action_payload as "actionPayload",
+       dedupe_key as "dedupeKey",
        created_at as "createdAt",
        updated_at as "updatedAt"
 FROM ai_tasks
 """
 
+AI_TASK_CLOSED_STATUSES = ("Закрыто", "Отклонено")
+
+def _ai_task_dedupe_from_payload(action_payload: str) -> str:
+    raw = action_payload or ""
+    if not raw:
+        return ""
+    marker_prefixes = ("ESTIMATE_NORM_REVIEW:", "ESTIMATE_DIFF_REVIEW:", "ESTIMATE_CHANGE_RECONCILE:")
+    try:
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            key = payload.get("dedupeKey") or payload.get("marker") or ""
+            if not key and payload.get("type") == "material_norm_coverage":
+                parts = [
+                    payload.get("estimateId") or "",
+                    payload.get("sectionName") or "",
+                    payload.get("workName") or "",
+                    payload.get("ruleKey") or "",
+                ]
+                key = "material_norm_coverage:" + hashlib.sha1("|".join(map(str, parts)).encode("utf-8")).hexdigest()
+            if key:
+                return str(key)[:255]
+    except Exception:
+        pass
+    for prefix in marker_prefixes:
+        if prefix in raw:
+            marker = raw[raw.find(prefix):].split('"')[0].split("'")[0].split()[0]
+            return marker[:255]
+    return ""
+
+def _ai_task_dedupe_key(data: dict) -> str:
+    explicit = data.get("dedupeKey") or data.get("dedupe_key") or ""
+    if explicit:
+        return str(explicit)[:255]
+    return _ai_task_dedupe_from_payload(data.get("actionPayload") or data.get("action_payload") or "")
+
+def _close_duplicate_ai_tasks(cur, project_name: str, dedupe_key: str, keep_id: int = None, actor: str = "system"):
+    if not project_name or not dedupe_key:
+        return
+    params = [actor or "system", project_name, dedupe_key]
+    sql = """
+        UPDATE ai_tasks
+        SET status='Закрыто',
+            closed_by=COALESCE(NULLIF(closed_by,''),%s),
+            closed_at=COALESCE(closed_at,NOW()),
+            updated_at=NOW()
+        WHERE project_name=%s
+          AND dedupe_key=%s
+          AND status NOT IN ('Закрыто','Отклонено')
+    """
+    if keep_id:
+        sql += " AND id<>%s"
+        params.append(keep_id)
+    cur.execute(sql, params)
+
 def _insert_ai_task(cur, data: dict, current_user: dict):
     project_name = data.get("projectName") or data.get("project_name") or ""
     require_project_access(current_user, project_name)
+    dedupe_key = _ai_task_dedupe_key(data)
     cur.execute("""
         INSERT INTO ai_tasks (
             finding_id, project_name, title, description, assigned_role, assigned_to,
-            status, due_date, action_label, action_payload, created_at, updated_at
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,NULLIF(%s,'')::date,%s,%s,NOW(),NOW())
+            status, due_date, action_label, action_payload, dedupe_key, created_at, updated_at
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,NULLIF(%s,'')::date,%s,%s,%s,NOW(),NOW())
         RETURNING id
     """, (
         data.get("findingId") or data.get("finding_id"),
@@ -5525,11 +5608,45 @@ def _insert_ai_task(cur, data: dict, current_user: dict):
         data.get("dueDate") or data.get("due_date") or "",
         data.get("actionLabel") or data.get("action_label") or "Принять к исполнению",
         data.get("actionPayload") or data.get("action_payload") or "",
+        dedupe_key,
     ))
     row = cur.fetchone()
     return row["id"] if isinstance(row, dict) else row[0]
 
 def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_user: dict):
+    dedupe_key = finding.get("dedupeKey") or ""
+    action_payload = json.dumps({
+        "linkedEntityType": finding.get("linkedEntityType") or "",
+        "linkedEntityId": finding.get("linkedEntityId") or "",
+        "dedupeKey": dedupe_key,
+    }, ensure_ascii=False)
+    if dedupe_key:
+        cur.execute(
+            AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
+            (finding.get("projectName"), dedupe_key)
+        )
+        existing = cur.fetchone()
+        if existing:
+            task_id = existing["id"] if isinstance(existing, dict) else existing[0]
+            cur.execute("""
+                UPDATE ai_tasks
+                SET finding_id=%s, title=%s, description=%s, assigned_role=%s,
+                    assigned_to=%s, action_label=%s, action_payload=%s, dedupe_key=%s,
+                    updated_at=NOW()
+                WHERE id=%s
+            """, (
+                finding_id,
+                finding.get("title") or "",
+                finding.get("suggestedAction") or finding.get("description") or "",
+                finding.get("assignedRole") or "прораб",
+                finding.get("assignedTo") or "",
+                "Принять к исполнению",
+                action_payload,
+                dedupe_key,
+                task_id,
+            ))
+            _close_duplicate_ai_tasks(cur, finding.get("projectName") or "", dedupe_key, task_id, current_user.get("name") or "system")
+            return None
     cur.execute("SELECT id FROM ai_tasks WHERE finding_id=%s AND status NOT IN ('Закрыто','Отклонено') LIMIT 1", (finding_id,))
     if cur.fetchone():
         return None
@@ -5542,11 +5659,8 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
         "assignedTo": finding.get("assignedTo") or "",
         "status": "Новое",
         "actionLabel": "Принять к исполнению",
-        "actionPayload": json.dumps({
-            "linkedEntityType": finding.get("linkedEntityType") or "",
-            "linkedEntityId": finding.get("linkedEntityId") or "",
-            "dedupeKey": finding.get("dedupeKey") or "",
-        }, ensure_ascii=False),
+        "actionPayload": action_payload,
+        "dedupeKey": dedupe_key,
     }, current_user)
 
 def _upsert_ai_finding(cur, finding: dict, current_user: dict):
@@ -5677,8 +5791,22 @@ def update_ai_finding(id: int, data: dict, current_user: dict = Depends(require_
         vals.append(id)
         cur.execute("UPDATE ai_findings SET " + ", ".join(sets) + ", updated_at=NOW() WHERE id=%s", vals)
         if data.get("status") in ("Закрыто", "Отклонено"):
-            cur.execute("UPDATE ai_tasks SET status=%s, closed_by=%s, closed_at=NOW(), updated_at=NOW() WHERE finding_id=%s AND status NOT IN ('Закрыто','Отклонено')",
-                        (data.get("status"), current_user.get("name") or "", id))
+            cur.execute("SELECT project_name, dedupe_key FROM ai_findings WHERE id=%s", (id,))
+            finding_row = cur.fetchone()
+            project_name = finding_row["project_name"] if finding_row else ""
+            dedupe_key = finding_row["dedupe_key"] if finding_row else ""
+            params = [data.get("status"), current_user.get("name") or "", id]
+            sql = """
+                UPDATE ai_tasks
+                SET status=%s, closed_by=%s, closed_at=NOW(), updated_at=NOW()
+                WHERE status NOT IN ('Закрыто','Отклонено')
+                  AND (finding_id=%s
+            """
+            if project_name and dedupe_key:
+                sql += " OR (project_name=%s AND dedupe_key=%s)"
+                params.extend([project_name, dedupe_key])
+            sql += ")"
+            cur.execute(sql, params)
     cur.execute(AI_FINDING_SELECT + " WHERE id=%s", (id,))
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -5867,6 +5995,18 @@ def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     action_payload = payload.get("actionPayload") or ""
+    dedupe_key = _ai_task_dedupe_key(payload)
+    if dedupe_key:
+        payload["dedupeKey"] = dedupe_key
+        cur.execute(
+            AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
+            (project_name, dedupe_key)
+        )
+        existing = cur.fetchone()
+        if existing:
+            _close_duplicate_ai_tasks(cur, project_name, dedupe_key, existing["id"], current_user.get("name") or "system")
+            cur.close(); conn.close()
+            return dict(existing)
     marker = ""
     marker_prefixes = ("ESTIMATE_NORM_REVIEW:", "ESTIMATE_DIFF_REVIEW:", "ESTIMATE_CHANGE_RECONCILE:")
     if any(prefix in action_payload for prefix in marker_prefixes):
