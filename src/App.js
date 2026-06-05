@@ -17082,6 +17082,34 @@ function App() {
               <b style={{color:C.text,fontSize:'13px'}}>Хранилище</b>
               <p style={{margin:'6px 0 0',color:C.textSec,fontSize:'12px'}}>{'backend: '+(systemStatus.storage?.backend||'—')+' · prefix: '+(systemStatus.storage?.prefix||'—')+' · лимит: '+(systemStatus.storage?.maxUploadMb||0)+' МБ'}</p>
             </div>
+            <div style={{borderRadius:'10px',border:'1.5px solid '+C.border,overflow:'hidden',marginBottom:'14px'}}>
+              <div style={{padding:'10px 12px',backgroundColor:C.bg,borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'center'}}>
+                <b style={{color:C.text,fontSize:'13px'}}>API ошибки</b>
+                <span style={badge((systemStatus.apiErrors||[]).length?C.danger:C.success,(systemStatus.apiErrors||[]).length?C.dangerLight:C.successLight,(systemStatus.apiErrors||[]).length?C.dangerBorder:C.successBorder)}>{(systemStatus.apiErrors||[]).length?'Последние '+(systemStatus.apiErrors||[]).length:'Нет 500'}</span>
+              </div>
+              {(systemStatus.apiErrors||[]).length===0?<p style={{padding:'12px',margin:0,color:C.textMuted,fontSize:'12px'}}>Свежих серверных 500-ошибок нет.</p>:(
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',minWidth:'820px',fontSize:'11px'}}>
+                    <thead><tr>
+                      <th style={{padding:'8px 10px',textAlign:'left',color:C.textSec,borderBottom:'1px solid '+C.border}}>Время</th>
+                      <th style={{padding:'8px 10px',textAlign:'left',color:C.textSec,borderBottom:'1px solid '+C.border}}>Код</th>
+                      <th style={{padding:'8px 10px',textAlign:'left',color:C.textSec,borderBottom:'1px solid '+C.border}}>Метод</th>
+                      <th style={{padding:'8px 10px',textAlign:'left',color:C.textSec,borderBottom:'1px solid '+C.border}}>Путь</th>
+                      <th style={{padding:'8px 10px',textAlign:'left',color:C.textSec,borderBottom:'1px solid '+C.border}}>Пользователь</th>
+                      <th style={{padding:'8px 10px',textAlign:'left',color:C.textSec,borderBottom:'1px solid '+C.border}}>Ошибка</th>
+                    </tr></thead>
+                    <tbody>{(systemStatus.apiErrors||[]).map((e,i)=><tr key={e.id||i}>
+                      <td style={{padding:'8px 10px',borderBottom:i<(systemStatus.apiErrors||[]).length-1?'1px solid '+C.border:'none',color:C.textSec,whiteSpace:'nowrap'}}>{e.createdAt||'—'}</td>
+                      <td style={{padding:'8px 10px',borderBottom:i<(systemStatus.apiErrors||[]).length-1?'1px solid '+C.border:'none',color:C.danger,fontWeight:'800'}}>{e.statusCode||500}</td>
+                      <td style={{padding:'8px 10px',borderBottom:i<(systemStatus.apiErrors||[]).length-1?'1px solid '+C.border:'none',color:C.text,fontWeight:'700'}}>{e.method||'—'}</td>
+                      <td style={{padding:'8px 10px',borderBottom:i<(systemStatus.apiErrors||[]).length-1?'1px solid '+C.border:'none',color:C.text,wordBreak:'break-word'}}>{e.path||'—'}</td>
+                      <td style={{padding:'8px 10px',borderBottom:i<(systemStatus.apiErrors||[]).length-1?'1px solid '+C.border:'none',color:C.textSec}}>{(e.user||'—')+(e.role?' · '+e.role:'')}</td>
+                      <td title={e.message||''} style={{padding:'8px 10px',borderBottom:i<(systemStatus.apiErrors||[]).length-1?'1px solid '+C.border:'none',color:C.textSec,wordBreak:'break-word'}}><b style={{color:C.text}}>{e.errorType||'—'}</b>{e.message?' · '+e.message:''}</td>
+                    </tr>)}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
             <div style={{borderRadius:'10px',border:'1.5px solid '+C.border,overflow:'hidden'}}>
               <div style={{padding:'10px 12px',backgroundColor:C.bg,borderBottom:'1px solid '+C.border}}><b style={{color:C.text,fontSize:'13px'}}>Последние события</b></div>
               {(systemStatus.recentAudit||[]).length===0?<p style={{padding:'12px',margin:0,color:C.textMuted,fontSize:'12px'}}>Событий нет</p>:(systemStatus.recentAudit||[]).map((a,i)=><div key={i} style={{padding:'10px 12px',borderBottom:i<(systemStatus.recentAudit||[]).length-1?'1px solid '+C.border:'none'}}><b style={{color:C.text,fontSize:'12px'}}>{a.action||'—'}</b><p style={{margin:'3px 0 0',color:C.textSec,fontSize:'11px'}}>{(a.user||'—')+' · '+(a.entityType||'—')+' · '+(a.createdAt||'')}</p>{a.description&&<p style={{margin:'3px 0 0',color:C.textMuted,fontSize:'11px'}}>{a.description}</p>}</div>)}

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -471,6 +471,73 @@ def get_db():
     conn.autocommit = True
     return conn
 
+def _clip_api_error_text(value: str, limit: int = 700) -> str:
+    text = str(value or "").replace("\x00", "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit - 1] + "…"
+
+def _request_user_snapshot(request: Request) -> dict:
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        return {}
+    try:
+        payload = verify_auth_token(auth.split(" ", 1)[1].strip())
+        return {
+            "user_id": payload.get("id"),
+            "user_name": payload.get("name") or "",
+            "user_role": payload.get("role") or "",
+        }
+    except Exception:
+        return {}
+
+def _log_api_error(request: Request, exc: Optional[Exception] = None, status_code: int = 500):
+    """Логирует только технический минимум: без тела запроса, паролей и токенов."""
+    conn = None
+    cur = None
+    try:
+        user = _request_user_snapshot(request)
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""INSERT INTO api_errors
+                       (method, path, status_code, error_type, error_message, user_id, user_name, user_role)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (
+                        request.method,
+                        request.url.path,
+                        status_code,
+                        exc.__class__.__name__ if exc else "HTTP_" + str(status_code),
+                        _clip_api_error_text(str(exc or "")),
+                        user.get("user_id"),
+                        user.get("user_name") or "",
+                        user.get("user_role") or "",
+                    ))
+        conn.commit()
+    except Exception as log_exc:
+        print("API ERROR LOG ERROR:", str(log_exc))
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
+@app.middleware("http")
+async def api_error_logging_middleware(request: Request, call_next):
+    try:
+        response = await call_next(request)
+        if response.status_code >= 500:
+            _log_api_error(request, None, response.status_code)
+        return response
+    except Exception as exc:
+        _log_api_error(request, exc, 500)
+        raise
+
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
@@ -527,7 +594,7 @@ def _utc_now_iso() -> str:
 def _count_table(cur, table: str, where: str = "", params: tuple = ()) -> Optional[int]:
     allowed = {
         "projects", "users", "estimates", "work_journal", "materials",
-        "warehouse_main", "supply_requests", "ai_tasks", "audit_log"
+        "warehouse_main", "supply_requests", "ai_tasks", "audit_log", "api_errors"
     }
     if table not in allowed:
         return None
@@ -578,6 +645,7 @@ def system_status(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES,
         },
         "counts": {},
         "recentAudit": [],
+        "apiErrors": [],
     }
     try:
         conn = get_db()
@@ -593,6 +661,26 @@ def system_status(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES,
         status["counts"]["warehouseMain"] = _count_table(cur, "warehouse_main")
         status["counts"]["supplyRequests"] = _count_table(cur, "supply_requests")
         status["counts"]["openAiTasks"] = _count_table(cur, "ai_tasks", "COALESCE(status,'') NOT IN ('Закрыто','Готово','Отменено')")
+        api_errors_count = _count_table(cur, "api_errors")
+        if api_errors_count is not None:
+            status["counts"]["apiErrors"] = api_errors_count
+            cur.execute("""SELECT id, method, path, status_code, error_type, error_message,
+                                  user_name, user_role, created_at
+                           FROM api_errors ORDER BY id DESC LIMIT 20""")
+            status["apiErrors"] = [
+                {
+                    "id": r[0],
+                    "method": r[1] or "",
+                    "path": r[2] or "",
+                    "statusCode": r[3] or 500,
+                    "errorType": r[4] or "",
+                    "message": r[5] or "",
+                    "user": r[6] or "",
+                    "role": r[7] or "",
+                    "createdAt": str(r[8]) if r[8] else "",
+                }
+                for r in cur.fetchall()
+            ]
         if _count_table(cur, "audit_log") is not None:
             cur.execute("""SELECT user_name, user_role, action, entity_type, description, created_at
                            FROM audit_log ORDER BY id DESC LIMIT 8""")
@@ -959,6 +1047,19 @@ def init_db():
             ip VARCHAR(50),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS api_errors (
+            id SERIAL PRIMARY KEY,
+            method VARCHAR(20),
+            path TEXT,
+            status_code INT DEFAULT 500,
+            error_type VARCHAR(255),
+            error_message TEXT,
+            user_id INT,
+            user_name VARCHAR(255),
+            user_role VARCHAR(100),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_errors_created_at ON api_errors(created_at DESC);
         CREATE TABLE IF NOT EXISTS pricelists (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
