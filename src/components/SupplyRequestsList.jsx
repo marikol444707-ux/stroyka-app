@@ -1,0 +1,363 @@
+import React from 'react';
+import { Bot, Check, X } from 'lucide-react';
+
+function SupplyRequestsList({
+  C,
+  card,
+  inp,
+  btnO,
+  btnG,
+  btnB,
+  btnGr,
+  btnR,
+  badge,
+  list,
+  user,
+  statusColors,
+  supplyCollapsedProjects,
+  setSupplyCollapsedProjects,
+  parseSupplyItems,
+  renderSupplyRequestOrigin,
+  supplyRequestOrigin,
+  supplyExpandedId,
+  setSupplyExpandedId,
+  canConfirmProrab,
+  canApprove,
+  confirmSupplyAsProrab,
+  approveSupplyAsDirector,
+  openRequestKpModal,
+  loadSupplyStockCheck,
+  setSupplyRejectId,
+  supplyRejectId,
+  supplyRejectReason,
+  setSupplyRejectReason,
+  rejectSupply,
+  cancelSupply,
+  supplyStockCheck,
+  askSupplyAi,
+  supplyAiLoading,
+  supplyAiText,
+  supplierOffers,
+  compareResultByReq,
+  compareLoadingReqId,
+  runCompareKp,
+  suppliers,
+  fileSrc,
+  parseOfferItems,
+  selectSupplierOffer,
+  rejectSupplierOffer,
+}) {
+  if ((list || []).length === 0) {
+    return <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Заявок нет</div>;
+  }
+
+  const byProject = new Map();
+  (list || []).forEach(r=>{
+    const key = r.project || '— Без объекта —';
+    if (!byProject.has(key)) byProject.set(key, []);
+    byProject.get(key).push(r);
+  });
+
+  const renderStockCheck = (req) => (
+    <div style={{borderTop:'1.5px solid '+C.border,paddingTop:'14px',marginTop:'12px'}}>
+      {!supplyStockCheck && <p style={{color:C.textMuted,fontSize:'12px'}}>⏳ Проверяю склад...</p>}
+      {supplyStockCheck && supplyStockCheck.error && <p style={{color:C.danger,fontSize:'12px'}}>Ошибка: {supplyStockCheck.error}</p>}
+      {supplyStockCheck && !supplyStockCheck.error && (<div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'8px',marginBottom:'10px'}}>
+          <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}>
+            <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Нужно</p>
+            <b style={{color:C.text,fontSize:'14px'}}>{supplyStockCheck.needed+' '+supplyStockCheck.unit}</b>
+          </div>
+          <div style={{padding:'10px',backgroundColor:supplyStockCheck.totalAvailable>0?C.successLight:C.warningLight,borderRadius:'8px',border:'1.5px solid '+(supplyStockCheck.totalAvailable>0?C.successBorder:C.warningBorder)}}>
+            <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>На складе</p>
+            <b style={{color:supplyStockCheck.totalAvailable>0?C.success:C.warning,fontSize:'14px'}}>{Math.round(supplyStockCheck.totalAvailable*100)/100+' '+supplyStockCheck.unit}</b>
+          </div>
+          <div style={{padding:'10px',backgroundColor:supplyStockCheck.shortage>0?C.dangerLight:C.successLight,borderRadius:'8px',border:'1.5px solid '+(supplyStockCheck.shortage>0?C.dangerBorder:C.successBorder)}}>
+            <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Закупить</p>
+            <b style={{color:supplyStockCheck.shortage>0?C.danger:C.success,fontSize:'14px'}}>{Math.round(supplyStockCheck.shortage*100)/100+' '+supplyStockCheck.unit}</b>
+          </div>
+          {supplyStockCheck.projectBudget>0 && (
+            <div style={{padding:'10px',backgroundColor:(supplyStockCheck.budgetRiskPercent>80)?C.dangerLight:C.bg,borderRadius:'8px',border:'1.5px solid '+((supplyStockCheck.budgetRiskPercent>80)?C.dangerBorder:C.border)}}>
+              <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Бюджет занят</p>
+              <b style={{color:(supplyStockCheck.budgetRiskPercent>80)?C.danger:C.text,fontSize:'14px'}}>{Math.round(supplyStockCheck.budgetRiskPercent||0)+'%'}</b>
+            </div>
+          )}
+        </div>
+
+        {supplyStockCheck.stockMatches && supplyStockCheck.stockMatches.length>0 && (
+          <div style={{marginBottom:'10px'}}>
+            <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>📦 Похожие позиции на складе:</b>
+            {supplyStockCheck.stockMatches.map((m,i)=>(
+              <div key={i} style={{padding:'6px 10px',backgroundColor:C.bg,borderRadius:'6px',marginBottom:'4px',fontSize:'12px',color:C.text,border:'1px solid '+C.border}}>
+                {m.name+' — '+m.quantity+' '+m.unit+(m.price?' · '+Math.round(m.price).toLocaleString()+' ₽/ед':'')}
+              </div>
+            ))}
+          </div>
+        )}
+        {supplyStockCheck.stockMatches && supplyStockCheck.stockMatches.length===0 && <p style={{color:C.warning,fontSize:'12px',marginBottom:'8px'}}>⚠️ Похожих позиций на складе не найдено — нужна закупка</p>}
+        {supplyStockCheck.budgetRiskPercent>80 && (
+          <div style={{padding:'10px 12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.danger}}>
+            ⚠️ Внимание: бюджет проекта почти исчерпан ({Math.round(supplyStockCheck.budgetRiskPercent)}%). Подумайте перед утверждением.
+          </div>
+        )}
+        <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'6px'}}>
+          <button onClick={()=>askSupplyAi(req,supplyStockCheck)} disabled={supplyAiLoading} style={{...btnGr,fontSize:'12px',padding:'6px 12px',opacity:supplyAiLoading?0.6:1}}>
+            <Bot size={12}/>{supplyAiLoading?'AI думает...':'🤖 Совет AI'}
+          </button>
+        </div>
+        {supplyAiText && (
+          <div style={{padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',fontSize:'12px',color:C.text}}>
+            <b style={{color:C.success,fontSize:'11px',display:'block',marginBottom:'6px'}}>🤖 Рекомендация AI:</b>
+            {supplyAiText}
+          </div>
+        )}
+      </div>)}
+    </div>
+  );
+
+  const renderOfferItems = (offer) => {
+    const items = parseOfferItems(offer);
+    if (items.length < 2) return null;
+    return (
+      <details style={{marginTop:'6px'}}>
+        <summary style={{cursor:'pointer',fontSize:'11px',color:C.accent,fontWeight:'600'}}>📋 Разбивка по позициям ({items.length})</summary>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px',marginTop:'6px'}}>
+          <thead><tr style={{backgroundColor:C.bg}}>
+            <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600'}}>Материал</th>
+            <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600'}}>Кол-во</th>
+            <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600'}}>Цена/ед</th>
+            <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600'}}>Сумма</th>
+          </tr></thead>
+          <tbody>
+            {items.map((it,i)=>(
+              <tr key={i}>
+                <td style={{padding:'3px 6px',color:C.text}}>{it.materialName}</td>
+                <td style={{padding:'3px 6px',color:C.text,textAlign:'center'}}>{it.quantity} {it.unit}</td>
+                <td style={{padding:'3px 6px',color:C.text,textAlign:'right'}}>{Number(it.pricePerUnit||0).toLocaleString('ru-RU')} ₽</td>
+                <td style={{padding:'3px 6px',color:C.text,textAlign:'right',fontWeight:'600'}}>{Math.round(Number(it.totalPrice||it.pricePerUnit*it.quantity||0)).toLocaleString('ru-RU')} ₽</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    );
+  };
+
+  const renderCompareResult = (compareResult) => (
+    <>
+      {compareResult && !compareResult.error && (
+        <div style={{padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'10px'}}>
+          <b style={{color:C.success,fontSize:'11px',display:'block',marginBottom:'6px'}}>🤖 AI рекомендует: {compareResult.bestSupplier}</b>
+          {compareResult.aiText && <p style={{color:C.text,fontSize:'12px',margin:'0 0 8px',lineHeight:'1.5'}}>{compareResult.aiText}</p>}
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
+            <thead>
+              <tr style={{backgroundColor:C.bg}}>
+                <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>#</th>
+                <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Поставщик</th>
+                <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Цена</th>
+                <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Срок</th>
+                <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Оплата</th>
+                <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Балл</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(compareResult.ranking||[]).map((r,i)=>(
+                <tr key={r.offerId} style={{backgroundColor:i===0?'rgba(34,197,94,0.08)':'transparent'}}>
+                  <td style={{padding:'4px 6px',color:i===0?C.success:C.textSec,fontWeight:'600'}}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.'}</td>
+                  <td style={{padding:'4px 6px',color:C.text}}>{r.supplier}{r.rating>0?' ⭐'+r.rating:''}</td>
+                  <td style={{padding:'4px 6px',textAlign:'right',color:C.text}}>{Number(r.pricePerUnit).toLocaleString('ru-RU')} ₽</td>
+                  <td style={{padding:'4px 6px',textAlign:'center',color:C.text}}>{r.deliveryDays} дн.</td>
+                  <td style={{padding:'4px 6px',color:C.text,fontSize:'10px'}}>{r.paymentTerms}{r.vatIncluded===false?' · б/НДС':''}</td>
+                  <td style={{padding:'4px 6px',textAlign:'center',color:i===0?C.success:C.text,fontWeight:i===0?'700':'400'}}>{r.score}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{color:C.textMuted,fontSize:'10px',margin:'6px 0 0',fontStyle:'italic'}}>Балл: цена 40% · срок 20% · условия 20% · рейтинг 20%. Финальное решение за вами.</p>
+        </div>
+      )}
+      {compareResult && compareResult.error && (
+        <div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
+          ℹ️ {compareResult.error}
+        </div>
+      )}
+    </>
+  );
+
+  const renderOffers = (req) => {
+    const offers = (supplierOffers||[]).filter(o=>o.requestId===req.id);
+    if (offers.length===0) return null;
+    const winner = offers.find(o=>o.status==='Утверждено');
+    const receivedOffers = offers.filter(o=>o.status==='Получено'||o.status==='Утверждено');
+    const compareResult = compareResultByReq[req.id];
+    const compareLoading = compareLoadingReqId===req.id;
+
+    return (
+      <div style={{borderTop:'1.5px dashed '+C.border,paddingTop:'10px',marginTop:'10px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',gap:'8px',flexWrap:'wrap'}}>
+          <b style={{color:C.text,fontSize:'12px'}}>📊 КП от поставщиков ({offers.length}){winner?' · ✅ выбрано':''}</b>
+          {receivedOffers.length>=2 && canApprove && !winner && (
+            <button onClick={()=>runCompareKp(req.id)} disabled={compareLoading} style={{...btnGr,padding:'4px 10px',fontSize:'11px',opacity:compareLoading?0.6:1}}>
+              <Bot size={11}/>{compareLoading?'AI сравнивает...':'🤖 Сравнить через AI'}
+            </button>
+          )}
+        </div>
+        {renderCompareResult(compareResult)}
+        {offers.map(o=>{
+          const sup = suppliers.find(s=>s.id===o.supplierId);
+          const isWin = o.status==='Утверждено';
+          const isWait = o.status==='Ожидает ответа';
+          const isRej = o.status==='Отклонено';
+          const stC = isWin?C.success:isRej?C.danger:isWait?C.warning:C.info;
+          const stBg = isWin?C.successLight:isRej?C.dangerLight:isWait?C.warningLight:C.infoLight;
+          const stBd = isWin?C.successBorder:isRej?C.dangerBorder:isWait?C.warningBorder:C.infoBorder;
+          return (
+            <div key={o.id} style={{padding:'10px',backgroundColor:stBg,borderRadius:'6px',marginBottom:'6px',border:'1.5px solid '+stBd}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
+                <div style={{flex:1,minWidth:'200px'}}>
+                  <b style={{fontSize:'13px',color:C.text}}>{sup?sup.name:'Поставщик #'+o.supplierId}{o.aiRecommended&&<span style={{marginLeft:'6px',fontSize:'10px',color:C.accent}}>🤖 AI рек.</span>}</b>
+                  {o.pricePerUnit ? (
+                    <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>
+                      {Number(o.pricePerUnit).toLocaleString('ru-RU')+' ₽/ед'}
+                      {o.totalPrice?' · итого '+Number(o.totalPrice).toLocaleString('ru-RU')+' ₽':''}
+                      {o.deliveryDays?' · '+o.deliveryDays+' дн.':''}
+                    </p>
+                  ) : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'12px',fontStyle:'italic'}}>Поставщик ещё не ответил...</p>}
+                  {o.paymentTerms && <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>💳 {o.paymentTerms}{o.vatIncluded===false?' · без НДС':' · с НДС'}{o.validUntil?' · до '+o.validUntil:''}</p>}
+                  {o.supplierMessage && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>💬 «{o.supplierMessage}»</p>}
+                  {o.pdfUrl && <a href={fileSrc(o.pdfUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent,display:'inline-block',marginTop:'4px'}}>📄 PDF</a>}
+                  {renderOfferItems(o)}
+                </div>
+                <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={badge(stC,stBg,stBd)}>{o.status}</span>
+                  {o.status==='Получено' && canApprove && (
+                    <>
+                      <button onClick={()=>selectSupplierOffer(o.id)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/>Выбрать</button>
+                      <button onClick={()=>rejectSupplierOffer(o.id)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderRequest = (req) => {
+    const [stC,stBg,stBd] = statusColors(req.status);
+    const isMine = req.createdBy===user.name || req.requestedById===user.id;
+    const expanded = supplyExpandedId===req.id;
+    const urgC = req.urgency==='срочная'?C.danger:req.urgency==='низкая'?C.textMuted:C.warning;
+    const urgBg = req.urgency==='срочная'?C.dangerLight:req.urgency==='низкая'?C.bg:C.warningLight;
+    const urgBd = req.urgency==='срочная'?C.dangerBorder:req.urgency==='низкая'?C.border:C.warningBorder;
+    const items = parseSupplyItems(req);
+
+    return (
+      <div key={req.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+          <div style={{flex:'1 1 280px'}}>
+            {items.length<=1 ? (() => {
+              const it = items[0] || {materialName:req.materialName,quantity:req.quantity,unit:req.unit};
+              return (
+                <>
+                  <b style={{color:C.text,fontSize:'14px'}}>{it.materialName}</b>
+                  <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{it.quantity+' '+it.unit+' · 🏗 '+(req.project||'—')}</p>
+                </>
+              );
+            })() : (
+              <>
+                <b style={{color:C.text,fontSize:'14px'}}>📋 Заявка из {items.length} позиций <span style={{color:C.textSec,fontSize:'12px',fontWeight:'400'}}>· 🏗 {req.project||'—'}</span></b>
+                <ol style={{margin:'4px 0 6px',paddingLeft:'20px',color:C.text,fontSize:'12px'}}>
+                  {items.map((it,i)=><li key={i} style={{marginBottom:'2px'}}>{it.materialName} <span style={{color:C.textSec}}>— {it.quantity} {it.unit}</span></li>)}
+                </ol>
+              </>
+            )}
+            <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{(req.date||'')+' · '+(req.createdBy||'')+(req.requestedByRole?' ('+req.requestedByRole+')':'')}</p>
+            {renderSupplyRequestOrigin(req)}
+            {req.notes && !supplyRequestOrigin(req) && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
+            {req.status==='Отклонена' && req.rejectReason && <p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>❌ Причина: {req.rejectReason}</p>}
+            {req.prorabName && <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>👷 Прораб: {req.prorabName}</p>}
+            {req.directorName && <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>👑 Директор: {req.directorName}</p>}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end'}}>
+            <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+              {req.urgency && req.urgency!=='обычная' && <span style={badge(urgC,urgBg,urgBd)}>{req.urgency==='срочная'?'🔴 Срочно':'🟢 Не срочно'}</span>}
+              <span style={badge(stC,stBg,stBd)}>{req.status}</span>
+            </div>
+            <div style={{display:'flex',gap:'4px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+              {req.status==='Новая' && canConfirmProrab && (
+                <button onClick={()=>confirmSupplyAsProrab(req.id)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Подтвердить</button>
+              )}
+              {req.status==='Подтверждена прорабом' && canApprove && (
+                <button onClick={()=>approveSupplyAsDirector(req.id)} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Утвердить</button>
+              )}
+              {(req.status==='Утверждена'||req.status==='КП запрошены') && canApprove && (
+                <button onClick={()=>openRequestKpModal(req.id)} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}>📨 Запросить КП</button>
+              )}
+              {(req.status==='Новая'||req.status==='Подтверждена прорабом') && (canConfirmProrab||canApprove) && (
+                <button onClick={async()=>{
+                  if (expanded) { setSupplyExpandedId(null); return; }
+                  setSupplyExpandedId(req.id);
+                  await loadSupplyStockCheck(req.id);
+                }} style={{...btnB,padding:'4px 10px',fontSize:'11px'}}><Bot size={11}/>Склад / AI</button>
+              )}
+              {(req.status==='Новая'||req.status==='Подтверждена прорабом') && (canConfirmProrab||canApprove) && (
+                <button onClick={()=>setSupplyRejectId(req.id)} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}><X size={11}/>Отклонить</button>
+              )}
+              {isMine && (req.status==='Новая'||req.status==='Подтверждена прорабом') && (
+                <button onClick={()=>cancelSupply(req.id)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>Отменить</button>
+              )}
+            </div>
+          </div>
+        </div>
+        {supplyRejectId===req.id && (
+          <div style={{borderTop:'1.5px solid '+C.dangerBorder,paddingTop:'12px',marginTop:'10px'}}>
+            <b style={{color:C.danger,fontSize:'12px',display:'block',marginBottom:'6px'}}>Причина отказа:</b>
+            <textarea value={supplyRejectReason} onChange={e=>setSupplyRejectReason(e.target.value)} placeholder="Например: уже есть на складе" style={{...inp,height:'50px',resize:'vertical'}}/>
+            <div style={{display:'flex',gap:'6px'}}>
+              <button onClick={()=>rejectSupply(req.id)} style={{...btnR,fontSize:'12px',padding:'5px 12px'}}><X size={12}/>Отклонить заявку</button>
+              <button onClick={()=>{setSupplyRejectId(null);setSupplyRejectReason('');}} style={{...btnG,fontSize:'12px',padding:'5px 12px'}}>Отмена</button>
+            </div>
+          </div>
+        )}
+        {expanded && renderStockCheck(req)}
+        {renderOffers(req)}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {Array.from(byProject.entries()).map(([proj, reqs])=>{
+        const collapsed = supplyCollapsedProjects[proj];
+        const pendingCount = reqs.filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').length;
+        const urgentCount = reqs.filter(r=>r.urgency==='срочная').length;
+        return (
+          <div key={proj} style={{marginBottom:'12px'}}>
+            <div
+              onClick={()=>setSupplyCollapsedProjects({...supplyCollapsedProjects, [proj]: !collapsed})}
+              style={{...card,padding:'12px 16px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px',backgroundColor:pendingCount>0?C.warningLight:C.bg,border:'1.5px solid '+(pendingCount>0?C.warningBorder:C.border)}}
+            >
+              <div style={{display:'flex',alignItems:'center',gap:'10px',flex:1}}>
+                <span style={{fontSize:'14px'}}>{collapsed?'▶':'▼'}</span>
+                <b style={{color:C.text,fontSize:'14px'}}>🏗 {proj}</b>
+                <span style={{fontSize:'12px',color:C.textSec}}>{reqs.length+' заявок'}</span>
+                {pendingCount>0 && <span style={badge(C.warning,C.warningLight,C.warningBorder)}>⏳ {pendingCount}</span>}
+                {urgentCount>0 && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>🔴 {urgentCount}</span>}
+              </div>
+            </div>
+            {!collapsed && (
+              <div style={{paddingLeft:'12px',borderLeft:'2px solid '+C.border,marginLeft:'8px'}}>
+                {reqs.map(renderRequest)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+export default SupplyRequestsList;
