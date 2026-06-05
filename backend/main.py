@@ -6210,6 +6210,32 @@ def _ai_work_has_norm(norms: list[dict], work_name: str, section_name: str, unit
             return True
     return False
 
+def _ai_work_needs_room_binding(description: str, section_name: str = "", unit: str = "") -> bool:
+    text = _norm_key_text((description or "") + " " + (section_name or ""))
+    if not text:
+        return False
+    skip_words = (
+        "мешк", "мусор", "уборк", "вывоз", "погруз", "разгруз",
+        "доставка", "перевоз", "контейнер", "тара", "упаков"
+    )
+    if any(w in text for w in skip_words):
+        return False
+    room_words = (
+        "стен", "потол", "пол", "окн", "двер", "откос", "штукатур",
+        "шпаклев", "шпатлев", "окрас", "облицов", "плит", "стяж",
+        "линолеум", "плинтус", "кабел", "провод", "розет", "выключ",
+        "светильник", "лаг", "фанер", "каркас", "гкл", "гипсокарт"
+    )
+    base_unit = _norm_base_unit(unit or "")
+    if base_unit in ("м2", "м3"):
+        return True
+    if base_unit == "м":
+        return any(w in text for w in room_words)
+    if base_unit == "шт":
+        point_words = ("окн", "двер", "розет", "выключ", "светильник", "щит", "шкаф", "короб")
+        return any(w in text for w in point_words)
+    return any(w in text for w in room_words)
+
 def _add_ai_task_candidate(tasks: list[dict], project_name: str, title: str, description: str, group: str, dedupe_key: str, payload: dict, assignment: dict, severity: str = "Проверить"):
     payload = dict(payload or {})
     payload.setdefault("projectName", project_name)
@@ -6323,7 +6349,7 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
                     "dedupeKey": f"ROOM_CONTROL:door:{d.get('id')}:reveal",
                 })
 
-    cur.execute("""SELECT id, description, unit, quantity, date, master_name
+    cur.execute("""SELECT id, description, section_name, unit, quantity, date, master_name
                    FROM work_journal
                    WHERE project=%s AND COALESCE(status,'') <> 'Отклонено'
                    ORDER BY id DESC LIMIT 150""", (project_name,))
@@ -6336,6 +6362,8 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
             continue
         desc = (wj.get("description") or "").strip()
         if not desc or (desc.lower(), str(wj.get("date") or "")) in bound_keys:
+            continue
+        if not _ai_work_needs_room_binding(desc, wj.get("section_name") or "", unit):
             continue
         assignment = _ai_assignment(cur, project_name, "work_room", wj.get("master_name") or "")
         findings.append({
