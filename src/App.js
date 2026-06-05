@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage';
 import { API, installAuthFetch } from './api';
 import SystemStatusModal from './components/SystemStatusModal';
 import UsersPage from './components/UsersPage';
+import SupplyHeaderTabs from './components/SupplyHeaderTabs';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
 installAuthFetch();
@@ -13739,23 +13740,20 @@ function App() {
               return [C.warning,C.warningLight,C.warningBorder];
             };
             return (<div>
-              {/* Шапка */}
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
-                <div>
-                  <b style={{color:C.text,fontSize:'18px',display:'block'}}>🛒 Снабжение — Заявки на материалы</b>
-                  <p style={{color:C.textSec,fontSize:'12px',margin:'2px 0 0'}}>{
-                    role==='мастер'||role==='субподрядчик'?'Создавайте заявки когда нужен материал на стройку':
-                    role==='прораб'?'Подтверждайте заявки мастеров и создавайте свои':
-                    isLeadership()?'Утверждайте заявки. Проверяйте склад через AI':
-                    'Утверждённые заявки на закупку'
-                  }</p>
-                </div>
-                {canCreate && curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>Новая заявка</button>}
-              </div>
-              {/* Вкладки */}
-              <div style={{display:'flex',gap:'8px',marginBottom:'16px',flexWrap:'wrap'}}>
-                {tabs.map(t=>(<button key={t.id} onClick={()=>{setSupplyTab(t.id);setShowSupplyForm(false);if(t.id!=='suppliers') setShowForm(false);}} style={{...curTab===t.id?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{t.label}</button>))}
-              </div>
+              <SupplyHeaderTabs
+                C={C}
+                btnO={btnO}
+                btnG={btnG}
+                role={role}
+                isLeadership={isLeadership()}
+                canCreate={canCreate}
+                curTab={curTab}
+                tabs={tabs}
+                showSupplyForm={showSupplyForm}
+                setShowSupplyForm={setShowSupplyForm}
+                setSupplyTab={setSupplyTab}
+                setShowForm={setShowForm}
+              />
               {/* Вкладка «Счета» — входящие счета от поставщиков (Ф5a.2: переехали из Бухгалтерии) */}
               {curTab==='invoices' && renderSupplierInvoices()}
               {/* Вкладка «Поставщики» — справочник поставщиков внутри снабжения */}
