@@ -6275,6 +6275,8 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
             doors_by_room.setdefault(d["room_id"], []).append(dict(d))
 
     findings = []
+    tasks = []
+    active_task_keys = set()
     room_assignment = _ai_assignment(cur, project_name, "rooms")
     for room in rooms_rows:
         room_title = room.get("name") or f"Помещение {room.get('id')}"
@@ -6356,6 +6358,7 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
     journal_rows = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT description, date FROM room_works WHERE project=%s", (project_name,))
     bound_keys = set((str(r.get("description") or "").strip().lower(), str(r.get("date") or "")) for r in cur.fetchall())
+    unlinked_journal_rows = []
     for wj in journal_rows:
         unit = (wj.get("unit") or "").lower()
         if unit not in ("м2", "м", "шт", "м3"):
@@ -6365,22 +6368,40 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
             continue
         if not _ai_work_needs_room_binding(desc, wj.get("section_name") or "", unit):
             continue
-        assignment = _ai_assignment(cur, project_name, "work_room", wj.get("master_name") or "")
-        findings.append({
-            "projectName": project_name,
-            "findingType": "rule",
-            "category": "ЖПР",
-            "severity": "Проверить",
-            "title": f"Работа без помещения: {desc[:90]}",
-            "description": f"Причина: запись ЖПР не привязана к помещению. Риск: {wj.get('quantity') or 0:g} {wj.get('unit') or ''} нельзя корректно сверить с обмерами, сметой и материалами.",
-            "source": "system_rules",
-            "linkedEntityType": "work_journal",
-            "linkedEntityId": str(wj.get("id")),
-            "suggestedAction": "Уточнить помещение и поверхность для этой работы.",
-            "assignedRole": assignment["assignedRole"],
-            "assignedTo": assignment["assignedTo"],
-            "dedupeKey": f"WORK_ROOM_LINK:work_journal:{wj.get('id')}:room_binding",
-        })
+        unlinked_journal_rows.append(wj)
+    if unlinked_journal_rows:
+        dedupe = "WORK_ROOM_LINK:summary:" + hashlib.sha1(project_name.encode("utf-8")).hexdigest()
+        active_task_keys.add(dedupe)
+        assignment = _ai_assignment(cur, project_name, "work_room")
+        lines = [
+            f"Причина: {len(unlinked_journal_rows)} записей ЖПР не привязаны к помещению.",
+            "Риск: факт работ нельзя корректно сверить с обмерами, сметой и списанием материалов.",
+            "",
+            "Записи:"
+        ]
+        for idx, row in enumerate(unlinked_journal_rows[:12], 1):
+            lines.append(
+                f"{idx}. {row.get('date') or ''} — {row.get('description') or 'Работа'}; "
+                f"{row.get('quantity') or 0:g} {row.get('unit') or ''}; "
+                f"{row.get('master_name') or 'исполнитель не указан'}"
+            )
+        if len(unlinked_journal_rows) > 12:
+            lines.append(f"...и ещё {len(unlinked_journal_rows) - 12} записей.")
+        lines.append("")
+        lines.append("Что сделать: открыть ЖПР/помещения и привязать фактические работы к комнате и поверхности.")
+        _add_ai_task_candidate(
+            tasks, project_name,
+            f"Привязать ЖПР к помещениям: {len(unlinked_journal_rows)} зап.",
+            "\n".join(lines),
+            "work_room", dedupe,
+            {
+                "type": "work_room_link_review",
+                "projectName": project_name,
+                "count": len(unlinked_journal_rows),
+                "dedupeKey": dedupe,
+            },
+            assignment,
+        )
 
     active_finding_keys = {f.get("dedupeKey") for f in findings if f.get("dedupeKey")}
     for finding in findings:
@@ -6391,8 +6412,6 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
             updated += 1
     closed += _close_stale_ai_findings(cur, project_name, ["Помещения", "ЖПР"], active_finding_keys, current_user.get("name") or "ИИ-контроль")
 
-    tasks = []
-    active_task_keys = set()
     cur.execute("""SELECT id, sections_json, name, version
                    FROM estimates
                    WHERE project_name=%s
