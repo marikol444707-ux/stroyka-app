@@ -3,21 +3,30 @@ set -euo pipefail
 
 BASE_URL="${BASE_URL:-https://stroyka26.pro}"
 BASE_URL="${BASE_URL%/}"
+SMOKE_RETRIES="${SMOKE_RETRIES:-20}"
+SMOKE_DELAY="${SMOKE_DELAY:-1}"
 
 failures=()
+health_body=""
 
 check_code() {
   local name="$1"
   local url="$2"
   local expected="${3:-200}"
   local code
-  code="$(curl -skS -o /dev/null -w '%{http_code}' "$url" || true)"
-  if [[ "$code" == "$expected" ]]; then
-    echo "OK   $name $code"
-  else
-    echo "FAIL $name got=$code expected=$expected"
-    failures+=("$name got=$code expected=$expected")
-  fi
+  local attempt
+  for attempt in $(seq 1 "$SMOKE_RETRIES"); do
+    code="$(curl -skS -o /dev/null -w '%{http_code}' "$url" || true)"
+    if [[ "$code" == "$expected" ]]; then
+      echo "OK   $name $code"
+      return 0
+    fi
+    if [[ "$attempt" != "$SMOKE_RETRIES" ]]; then
+      sleep "$SMOKE_DELAY"
+    fi
+  done
+  echo "FAIL $name got=$code expected=$expected"
+  failures+=("$name got=$code expected=$expected")
 }
 
 json_field() {
@@ -25,23 +34,28 @@ json_field() {
   python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get(sys.argv[1], ""))' "$field"
 }
 
-check_json_ok() {
-  local name="$1"
-  local body="$2"
-  if printf '%s' "$body" | python3 -c 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if data.get("ok") is True else 1)' >/dev/null 2>&1; then
-    echo "OK   $name"
-  else
-    echo "FAIL $name"
-    failures+=("$name")
-  fi
+check_health() {
+  local url="$1"
+  local attempt
+  for attempt in $(seq 1 "$SMOKE_RETRIES"); do
+    health_body="$(curl -skS "$url" || true)"
+    if printf '%s' "$health_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if data.get("ok") is True else 1)' >/dev/null 2>&1; then
+      echo "OK   health"
+      return 0
+    fi
+    if [[ "$attempt" != "$SMOKE_RETRIES" ]]; then
+      sleep "$SMOKE_DELAY"
+    fi
+  done
+  echo "FAIL health"
+  failures+=("health")
 }
 
 echo "Smoke-check: $BASE_URL"
 
 check_code "frontend /" "$BASE_URL/"
 
-health_body="$(curl -skS "$BASE_URL/health" || true)"
-check_json_ok "health" "$health_body"
+check_health "$BASE_URL/health"
 health_version="$(printf '%s' "$health_body" | json_field version 2>/dev/null || true)"
 if [[ -n "$health_version" ]]; then
   echo "INFO version=$health_version"
