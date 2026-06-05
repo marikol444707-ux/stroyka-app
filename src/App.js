@@ -5,6 +5,7 @@ import { API, installAuthFetch } from './api';
 import SystemStatusModal from './components/SystemStatusModal';
 import UsersPage from './components/UsersPage';
 import SupplyHeaderTabs from './components/SupplyHeaderTabs';
+import SupplyRequestForm from './components/SupplyRequestForm';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
 installAuthFetch();
@@ -13884,65 +13885,31 @@ function App() {
                   </div>);
                 })}
               </div>)}
-              {/* Форма создания — мультистрочная */}
-              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && showSupplyForm && (<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка на материал</b>
-                {/* Сн.5: шаблоны заявок */}
-                {(supplyTemplates||[]).length>0 && (<div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
-                  <span style={{fontSize:'12px',color:C.textSec}}>📋 Шаблон:</span>
-                  <select defaultValue="" onChange={e=>{if(e.target.value){applySupplyTemplate(e.target.value);e.target.value='';}}} style={{...inp,marginBottom:0,fontSize:'13px',width:'auto',minWidth:'220px'}}>
-                    <option value="">— выбрать готовый набор —</option>
-                    {supplyTemplates.map(t=><option key={t.id} value={t.id}>{t.name+' ('+(t.items||[]).length+' поз.)'}</option>)}
-                  </select>
-                  {isLeadership() && supplyTemplates.length>0 && <select defaultValue="" onChange={e=>{if(e.target.value){deleteSupplyTemplate(e.target.value);e.target.value='';}}} style={{...inp,marginBottom:0,fontSize:'12px',width:'auto',color:C.danger}}>
-                    <option value="">🗑 удалить шаблон…</option>
-                    {supplyTemplates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>}
-                </div>)}
-                {(newSupplyReq.items||[]).map((it,idx)=>{
-                  const hint = priceHints[(it.materialName||'').trim()];
-                  return (<React.Fragment key={idx}>
-                  <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr auto',gap:'6px',marginBottom:'4px',alignItems:'center'}}>
-                  <input placeholder="Материал *" value={it.materialName} onBlur={e=>fetchPriceHint(e.target.value)} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],materialName:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
-                  <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={it.quantity} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],quantity:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
-                  <select value={it.unit} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],unit:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                  {(newSupplyReq.items||[]).length>1
-                    ? <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:newSupplyReq.items.filter((_,i)=>i!==idx)})} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
-                    : <span style={{width:'30px'}}/>}
-                  </div>
-                  {hint && hint.stats && <div style={{fontSize:'11px',color:C.textSec,margin:'0 0 8px 2px'}}>
-                    💰 Раньше брали: от <b style={{color:C.success}}>{hint.stats.min.toLocaleString('ru-RU')} ₽</b> до {hint.stats.max.toLocaleString('ru-RU')} ₽, в среднем {hint.stats.avg.toLocaleString('ru-RU')} ₽
-                    {hint.catalog && hint.catalog[0] && <span> · мин. в каталоге: {hint.catalog[0].price.toLocaleString('ru-RU')} ₽ ({hint.catalog[0].supplierName})</span>}
-                  </div>}
-                  {hint && hint.stats===null && <div style={{fontSize:'11px',color:C.textMuted,margin:'0 0 8px 2px'}}>💡 По этому материалу истории цен пока нет</div>}
-                  {renderSupplyPlanningHint(it,idx)}
-                  </React.Fragment>);
-                })}
-                <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:[...(newSupplyReq.items||[]),{materialName:'',quantity:'',unit:'шт'}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
-                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                  <select value={newSupplyReq.project} onChange={e=>setNewSupplyReq({...newSupplyReq,project:e.target.value})} style={{...inp,marginBottom:0}}>
-                    <option value="">Объект *</option>
-                    {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-                  </select>
-                  <select value={newSupplyReq.urgency} onChange={e=>setNewSupplyReq({...newSupplyReq,urgency:e.target.value})} style={{...inp,marginBottom:0}}>
-                    <option value="низкая">🟢 Низкая</option>
-                    <option value="обычная">🟡 Обычная</option>
-                    <option value="срочная">🔴 Срочная</option>
-                  </select>
-                </div>
-                <textarea placeholder="Комментарий (для чего, особенности)" value={newSupplyReq.notes} onChange={e=>setNewSupplyReq({...newSupplyReq,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical'}}/>
-                {/* Подсказка по статусу что будет после создания */}
-                <div style={{padding:'10px 12px',backgroundColor:C.infoLight||C.warningLight,border:'1.5px solid '+(C.infoBorder||C.warningBorder),borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
-                  {role==='мастер'||role==='субподрядчик'?'ℹ️ После создания заявка попадёт прорабу на подтверждение':
-                   role==='прораб'?'ℹ️ Заявка сразу пойдёт директору на утверждение':
-                   '✅ Заявка будет утверждена автоматически'}
-                </div>
-                <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                  <button onClick={createSupplyReq} style={btnO}><Check size={14}/>Создать заявку</button>
-                  <button onClick={saveSupplyTemplate} style={btnG}><Plus size={14}/>Сохранить как шаблон</button>
-                  <button onClick={()=>setShowSupplyForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                </div>
-              </div>)}
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && showSupplyForm && (
+                <SupplyRequestForm
+                  C={C}
+                  card={card}
+                  inp={inp}
+                  btnO={btnO}
+                  btnG={btnG}
+                  btnR={btnR}
+                  role={role}
+                  isLeadership={isLeadership()}
+                  supplyTemplates={supplyTemplates}
+                  applySupplyTemplate={applySupplyTemplate}
+                  deleteSupplyTemplate={deleteSupplyTemplate}
+                  newSupplyReq={newSupplyReq}
+                  setNewSupplyReq={setNewSupplyReq}
+                  priceHints={priceHints}
+                  fetchPriceHint={fetchPriceHint}
+                  UNITS={UNITS}
+                  projects={projects}
+                  renderSupplyPlanningHint={renderSupplyPlanningHint}
+                  createSupplyReq={createSupplyReq}
+                  saveSupplyTemplate={saveSupplyTemplate}
+                  setShowSupplyForm={setShowSupplyForm}
+                />
+              )}
               {/* Поиск */}
               {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && <div style={{position:'relative',marginBottom:'12px'}}>
                 <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
