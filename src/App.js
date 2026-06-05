@@ -2498,6 +2498,7 @@ function App() {
     html += '<table><tr><th>Дата</th><td>'+inv.date+'</td><th>Поставщик</th><td>'+inv.supplierName+'</td></tr>';
     html += '<tr><th>Принял</th><td>'+inv.acceptedBy+'</td><th>Место</th><td>'+(inv.location==='Основной склад'?'Основной склад':inv.project||'')+'</td></tr>';
     html += '<tr><th>НДС</th><td colspan="3">'+inv.vat+'</td></tr></table>';
+    if (isSupplyDeliveryInvoice(inv)) html += '<p style="font-size:11px;color:#0f766e;margin:6px 0">Источник: поставка снабжения #'+(inv.supplyDeliveryId||inv.sourceId||'')+(inv.supplyRequestId?' по заявке #'+inv.supplyRequestId:'')+'. В материальном контроле это поступление учитывается в колонке «Поставки».</p>';
     if(invoiceRows.reconstructed) html += '<p style="font-size:11px;color:#666;margin:6px 0">Строки восстановлены из '+invoiceRows.source+', потому что в старой накладной был сохранён только итог.</p>';
     html += '<table><tr><th>N</th><th>Наименование товара</th><th>Категория</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th></tr>';
     (invoiceRows.items||[]).forEach((item,i) => { const rowSum=Number(item.total||0)||Number(item.quantity||0)*Number(item.price||0); html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+rowSum.toLocaleString()+'</td></tr>'; });
@@ -3788,6 +3789,7 @@ function App() {
     const rowsFromHistory = Object.values(byName).filter(it=>it.name&&it.quantity>0);
     return {items:rowsFromHistory,reconstructed:rowsFromHistory.length>0,source:'истории склада'};
   };
+  const isSupplyDeliveryInvoice = (inv) => !!(inv?.supplyDeliveryId || inv?.sourceType==='supply_delivery');
   const materialNameLookupKey = (name) => String(name||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
   const materialAliasFor = (projectName, aliasName) => {
     const key = materialNameLookupKey(aliasName);
@@ -3944,7 +3946,7 @@ function App() {
         if (sectionLabel && !r.sections.includes(sectionLabel)) r.sections.push(sectionLabel);
       }
     })));
-    (invoices||[]).filter(inv=>(inv.project||inv.location)===projectName || inv.location===projectName).forEach(inv=>{
+    (invoices||[]).filter(inv=>!isSupplyDeliveryInvoice(inv) && ((inv.project||inv.location)===projectName || inv.location===projectName)).forEach(inv=>{
       warehouseInvoiceItems(inv).items.forEach(it=>{
         const r = ensure(it.name, it.unit);
         if (!r) return;
@@ -8182,7 +8184,7 @@ function App() {
     });
     const data = await r.json();
     if (data.detail || data.error) { alert('Ошибка: '+(data.detail||data.error)); return; }
-    notify(data.claimId?'Приёмка с претензией':'Поставка принята','delivery');
+    notify((data.claimId?'Приёмка с претензией':'Поставка принята')+(data.invoiceId?' · создана накладная #'+data.invoiceId:''),'delivery');
     setReceivingDeliveryId(null);
     setReceiveForm({receivedQuantity:'',qualityStatus:'Принято',qualityNotes:'',photoUrl:'',claimDescription:''});
     await loadAll();
@@ -13568,6 +13570,7 @@ function App() {
                     <b style={{color:C.text,fontSize:'14px'}}>{'Накладная № '+inv.number}</b>
                     <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{inv.date+' · '+inv.supplierName+' · '+(inv.location==='Основной склад'?'Основной склад':inv.project||'')}</p>
                     <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat+' · позиций: '+items.length}</p>
+                    {isSupplyDeliveryInvoice(inv)&&<p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Из поставки снабжения #{inv.supplyDeliveryId||inv.sourceId}{inv.supplyRequestId?' · заявка #'+inv.supplyRequestId:''}</p>}
                     {invoiceRows.reconstructed&&<p style={{color:C.warning,margin:'2px 0 0',fontSize:'11px'}}>Строки восстановлены из {invoiceRows.source}</p>}
                   </div>
                   <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
@@ -13781,6 +13784,7 @@ function App() {
                   const isReceiving = receivingDeliveryId===d.id;
                   const canReceive = ['прораб','кладовщик','снабженец','директор','зам_директора'].includes(role) && !done;
                   const claim = supplyClaims.find(c=>c.id===d.claimId || c.deliveryId===d.id);
+                  const linkedInvoice = (invoices||[]).find(inv=>String(inv.supplyDeliveryId||'')===String(d.id));
                   return (<div key={d.id} style={{padding:'12px',border:'1.5px solid '+stBd,backgroundColor:stBg,borderRadius:'8px',marginBottom:'8px'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                       <div style={{flex:'1 1 260px'}}>
@@ -13789,6 +13793,7 @@ function App() {
                         <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>ТТН/накладная: {d.waybillNumber || '—'}{d.vehicleNumber?' · авто '+d.vehicleNumber:''}{d.driverName?' · '+d.driverName:''}</p>
                         {d.aiCheckResult && <p style={{color:C.accent,margin:'5px 0 0',fontSize:'11px'}}>🤖 {d.aiCheckResult}</p>}
                         {claim && <p style={{color:C.danger,margin:'5px 0 0',fontSize:'11px'}}>⚠️ Претензия: {claim.claimType} · {claim.status}</p>}
+                        {linkedInvoice && <p style={{color:C.success,margin:'5px 0 0',fontSize:'11px'}}>📄 Накладная № {linkedInvoice.number} · запись #{linkedInvoice.id}</p>}
                       </div>
                       <div style={{display:'flex',gap:'5px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                         <span style={badge(stC,stBg,stBd)}>{d.status}</span>
@@ -13813,6 +13818,7 @@ function App() {
                           }}/>
                         </label>
                         {canReceive && <button onClick={()=>{setReceivingDeliveryId(isReceiving?null:d.id);setReceiveForm({receivedQuantity:String(d.shippedQuantity||d.plannedQuantity||''),qualityStatus:'Принято',qualityNotes:'',photoUrl:'',claimDescription:''});}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Принять</button>}
+                        {linkedInvoice && <button onClick={()=>showPreview(buildInvoiceContent(linkedInvoice),'Накладная № '+linkedInvoice.number)} style={{...btnB,padding:'5px 10px',fontSize:'11px'}}>Печать накл.</button>}
                       </div>
                     </div>
                     {deliveryAiLoadingId===d.id && <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>AI сверяет накладную...</p>}

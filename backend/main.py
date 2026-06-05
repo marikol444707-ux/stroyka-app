@@ -1477,6 +1477,10 @@ def init_db():
             photo_url TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100);
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT;
         CREATE TABLE IF NOT EXISTS warehouses (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -4495,6 +4499,68 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
         except Exception as legacy_error:
             print("SUPPLY HISTORY LEGACY INSERT ERROR:", str(legacy_error))
 
+def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_at=None, accepted_by=None):
+    import json as _json
+    from datetime import date as _date
+    delivery_id = delivery.get('id')
+    if not delivery_id:
+        return None
+    try:
+        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
+        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT")
+        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
+        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
+    except Exception as e:
+        print("SUPPLY INVOICE MIGRATION ERROR:", str(e))
+    try:
+        cur.execute("SELECT id FROM warehouse_invoices WHERE supply_delivery_id=%s LIMIT 1", (delivery_id,))
+        existing = cur.fetchone()
+        if existing:
+            return existing['id'] if isinstance(existing, dict) else existing[0]
+    except Exception as e:
+        print("SUPPLY INVOICE CHECK ERROR:", str(e))
+    received_qty = _float_or_zero(received_qty if received_qty is not None else delivery.get('received_quantity'))
+    if received_qty <= 0:
+        return None
+    price = _float_or_zero(delivery.get('price_per_unit'))
+    total = round(received_qty * price, 2)
+    received_at = received_at or delivery.get('received_at') or _date.today()
+    if hasattr(received_at, "date"):
+        date_value = received_at.date().isoformat()
+    else:
+        date_value = str(received_at)[:10] if received_at else _date.today().isoformat()
+    item = {
+        "name": delivery.get('material_name') or "",
+        "quantity": received_qty,
+        "unit": delivery.get('unit') or "шт",
+        "price": price,
+        "category": "Закупка",
+        "total": total,
+        "source": "supply_delivery",
+        "deliveryId": delivery_id,
+        "requestId": delivery.get('request_id'),
+    }
+    number = delivery.get('waybill_number') or ("Поставка-" + str(delivery_id))
+    project = delivery.get('project') or ""
+    try:
+        cur.execute("""INSERT INTO warehouse_invoices
+                       (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,
+                        items,total_base,total_vat,total_with_vat,status,added_by,photo_url,
+                        source_type,source_id,supply_delivery_id,supply_request_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING id""",
+                    (number, date_value, delivery.get('supplier_id'), delivery.get('supplier_name') or "",
+                     accepted_by or delivery.get('received_by') or "", project, project, "Без НДС",
+                     _json.dumps([item], ensure_ascii=False), total, 0, total,
+                     "Принята", accepted_by or delivery.get('received_by') or "Снабжение",
+                     delivery.get('photo_url') or "", "supply_delivery", delivery_id,
+                     delivery_id, delivery.get('request_id')))
+        new_id = cur.fetchone()
+        return new_id['id'] if isinstance(new_id, dict) else new_id[0]
+    except Exception as e:
+        print("SUPPLY INVOICE INSERT ERROR:", str(e))
+        return None
+
 def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", received_at=None, delivery_id=None, invoice_id=None):
     cable_info = _detect_cable_info(cable_brand)
     if not cable_info["isCable"]:
@@ -4748,6 +4814,16 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
         except Exception as e:
             print("DELIVERY HISTORY RECOVERY ERROR:", str(e))
         try:
+            invoice_id = _ensure_supply_delivery_invoice(
+                cur, delivery,
+                delivery.get('received_quantity'),
+                delivery.get('received_at'),
+                delivery.get('received_by') or ''
+            )
+        except Exception as e:
+            print("DELIVERY INVOICE RECOVERY ERROR:", str(e))
+            invoice_id = None
+        try:
             cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
             row = cur.fetchone()
         except Exception as e:
@@ -4758,6 +4834,7 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
             "ok": True,
             "delivery": dict(row) if row else {"id": id},
             "claimId": delivery.get('claim_id'),
+            "invoiceId": invoice_id,
             "alreadyReceived": True
         }
     received_qty = _float_or_zero(data.get('receivedQuantity'))
@@ -4804,10 +4881,11 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
     cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s",
                 ('Поставлено' if status == 'Принято' else 'Проблема поставки', delivery['request_id']))
     _create_supply_delivery_history(cur, updated, status, received_qty, data.get('receivedBy') or '')
+    invoice_id = _ensure_supply_delivery_invoice(cur, updated, received_qty, received_at, data.get('receivedBy') or '')
     cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
     row = cur.fetchone()
     cur.close(); conn.close()
-    return {"ok": True, "delivery": dict(row), "claimId": claim_id}
+    return {"ok": True, "delivery": dict(row), "claimId": claim_id, "invoiceId": invoice_id}
 
 @app.post("/supply-deliveries/{id}/ai-check")
 def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
@@ -9368,9 +9446,9 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
     else:
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url FROM warehouse_invoices ORDER BY id DESC")
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id FROM warehouse_invoices ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
@@ -9378,7 +9456,7 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
     for r in rows:
         try: items = j.loads(r[9]) if r[9] else []
         except: items = []
-        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":float(r[10] or 0),"totalVat":float(r[11] or 0),"totalWithVat":float(r[12] or 0),"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or ""})
+        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":float(r[10] or 0),"totalVat":float(r[11] or 0),"totalWithVat":float(r[12] or 0),"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19]})
     return result
 
 @app.post("/warehouse-invoices")
@@ -9389,8 +9467,13 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
         require_project_access(_current_user, target_project)
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO warehouse_invoices (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),data.get("location",""),data.get("project",""),data.get("vat","Без НДС"),j.dumps(data.get("items",[]),ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl","")))
+    cur.execute("""INSERT INTO warehouse_invoices
+                   (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
+                    total_base,total_vat,total_with_vat,status,added_by,photo_url,
+                    source_type,source_id,supply_delivery_id,supply_request_id)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   RETURNING id""",
+        (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),data.get("location",""),data.get("project",""),data.get("vat","Без НДС"),j.dumps(data.get("items",[]),ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl",""),data.get("sourceType",""),data.get("sourceId") or None,data.get("supplyDeliveryId") or None,data.get("supplyRequestId") or None))
     invoice_id = cur.fetchone()[0]
     # Авто-создание записей в журнале входного контроля материалов (по СП 48.13330)
     items_list = data.get("items", []) or []
