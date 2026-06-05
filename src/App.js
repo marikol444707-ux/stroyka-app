@@ -3892,12 +3892,19 @@ function App() {
       const toBuy = r.planQty>0 ? Math.max(0, (r.planQty||0) - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
       const coveredWithPipeline = supplied + (r.requested||0) + (r.inTransit||0);
       const hasMaterialActivity = coveredWithPipeline>0 || (r.stock||0)>0 || (r.issued||0)>0 || (r.used||0)>0;
+      const masterBalance = Math.max(0, (r.issued||0) - (r.used||0));
+      const usedWithoutIssue = Math.max(0, (r.used||0) - (r.issued||0));
+      const expectedStock = supplied - (r.issued||0) - usedWithoutIssue;
+      const stockDiff = (r.stock||0) - expectedStock;
       return {
         ...r,
         movedNet,
         supplied,
-        masterBalance: Math.max(0, (r.issued||0) - (r.used||0)),
-        usedWithoutIssue: Math.max(0, (r.used||0) - (r.issued||0)),
+        masterBalance,
+        usedWithoutIssue,
+        expectedStock,
+        stockDiff,
+        stockMismatch: Math.abs(stockDiff)>0.0001,
         shortage: Math.max(0, (r.planQty||0) - supplied),
         toBuy,
         coveredWithPipeline,
@@ -3918,13 +3925,15 @@ function App() {
     const outsideRows = rows.filter(r=>r.isOutsideEstimate);
     const overRows = rows.filter(r=>r.over>0);
     const mismatchRows = rows.filter(r=>r.unitMismatch);
+    const stockMismatchRows = rows.filter(r=>r.stockMismatch);
     const masterBalanceRows = rows.filter(r=>r.masterBalance>0);
     const usedWithoutIssueRows = rows.filter(r=>r.issued>0 && r.usedWithoutIssue>0);
     const planSum = rows.reduce((s,r)=>s+Number(r.planSum||0),0);
     const suppliedSum = rows.reduce((s,r)=>s+Number(r.receivedSum||0),0);
-    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, masterBalanceRows, usedWithoutIssueRows, planSum, suppliedSum};
+    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, planSum, suppliedSum};
   };
   const materialControlStatus = (r) => {
+    if (r.stockMismatch) return {label:'Расхождение склада', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.issued>0 && r.usedWithoutIssue>0) return {label:'Списано сверх выдачи', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.isOutsideEstimate) return {label:'Вне сметы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.toBuy>0) return {label:'Докупить', color:C.warning, bg:C.warningLight, border:C.warningBorder};
@@ -5931,10 +5940,11 @@ function App() {
         <div style={{padding:'10px',backgroundColor:s.toBuyRows.length?C.warningLight:C.successLight,borderRadius:'8px',border:'1px solid '+(s.toBuyRows.length?C.warningBorder:C.successBorder)}}><p style={{color:s.toBuyRows.length?C.warning:C.success,fontSize:'10px',margin:'0 0 3px'}}>Докупить</p><b style={{color:s.toBuyRows.length?C.warning:C.success,fontSize:'15px'}}>{s.toBuyRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:s.outsideRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.outsideRows.length?C.dangerBorder:C.border)}}><p style={{color:s.outsideRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Вне сметы</p><b style={{color:s.outsideRows.length?C.danger:C.text,fontSize:'15px'}}>{s.outsideRows.length}</b></div>
         <div style={{padding:'10px',backgroundColor:s.mismatchRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.mismatchRows.length?C.warningBorder:C.border)}}><p style={{color:s.mismatchRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Ед. изм.</p><b style={{color:s.mismatchRows.length?C.warning:C.text,fontSize:'15px'}}>{s.mismatchRows.length}</b></div>
+        <div style={{padding:'10px',backgroundColor:s.stockMismatchRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(s.stockMismatchRows.length?C.dangerBorder:C.border)}}><p style={{color:s.stockMismatchRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Расхождения</p><b style={{color:s.stockMismatchRows.length?C.danger:C.text,fontSize:'15px'}}>{s.stockMismatchRows.length}</b></div>
         {showMoney&&<div style={{padding:'10px',backgroundColor:C.infoLight,borderRadius:'8px',border:'1px solid '+C.infoBorder}}><p style={{color:C.info,fontSize:'10px',margin:'0 0 3px'}}>План ₽</p><b style={{color:C.info,fontSize:'15px'}}>{Math.round(s.planSum).toLocaleString('ru-RU')}</b></div>}
       </div>
       {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
-        <table style={{...tbl,fontSize:'11px',minWidth:'1240px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
+        <table style={{...tbl,fontSize:'11px',minWidth:'1420px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Расчёт</th><th style={tblH}>Расх.</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
           {s.rows.slice(0,limit).map(r=>{const st=materialControlStatus(r);return(<tr key={r.key}>
             <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}</td>
             <td style={tblC}>{r.planQty>0?fmtMeasure(r.planQty,r.unit):'—'}</td>
@@ -5948,8 +5958,10 @@ function App() {
             <td style={tblC}>{fmtMeasure(r.used,r.unit)}</td>
             <td style={{...tblC,color:r.masterBalance>0?C.info:C.textMuted}}>{fmtMeasure(r.masterBalance,r.unit)}</td>
             <td style={{...tblC,fontWeight:'600',color:r.stock>0?C.success:C.textMuted}}>{fmtMeasure(r.stock,r.unit)}</td>
+            <td style={{...tblC,color:r.expectedStock>0?C.text:C.textMuted}}>{fmtMeasure(r.expectedStock,r.unit)}</td>
+            <td style={{...tblC,fontWeight:'700',color:r.stockMismatch?C.danger:C.success}}>{r.stockMismatch?fmtMeasure(r.stockDiff,r.unit):'0'}</td>
             <td style={{...tblC,fontWeight:'700',color:r.toBuy>0?C.warning:C.success}}>{fmtMeasure(r.toBuy,r.unit)}</td>
-            <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{st.label}{r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span></td>
+            <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{st.label}{r.stockMismatch?' · '+fmtMeasure(r.stockDiff,r.unit):r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span></td>
           </tr>);})}
         </tbody></table>
         {s.rows.length>limit&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые {limit} строк. Полный список — в печатной ведомости.</p>}
@@ -6279,10 +6291,10 @@ function App() {
     if (activeEsts.length===0) html+='<p style="color:#dc2626;font-size:12px;text-align:center;padding:14px">⚠️ Смета не загружена — план посчитать невозможно</p>';
     if (rows.length===0) html+='<p style="text-align:center;color:#888;font-size:11px;padding:14px">Материалов в смете нет</p>';
 	    else {
-	      html+='<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Раздел</th><th>Ед.</th><th>План</th><th>В заявках</th><th>В пути</th><th>Накладные</th><th>Поставки</th><th>Перемещено</th><th>Всего получено</th><th>Выдано</th><th>Списано</th><th>У мастеров</th><th>Остаток склада</th><th>Докупить</th><th>Статус</th></tr>';
-      rows.forEach((r,i)=>{const cls=r.issued>0&&r.usedWithoutIssue>0?'mr-out':r.isOutsideEstimate?'mr-out':r.toBuy>0?'mr-need':r.over>0?'mr-over':'mr-ok';const status=r.issued>0&&r.usedWithoutIssue>0?'списано сверх выдачи '+r.usedWithoutIssue.toLocaleString('ru-RU'):r.isOutsideEstimate?'вне сметы '+r.coveredWithPipeline.toLocaleString('ru-RU'):r.toBuy>0?'докупить '+r.toBuy.toLocaleString('ru-RU'):r.shortage>0?'закрывается заявками/поставками':r.masterBalance>0?'у мастеров '+r.masterBalance.toLocaleString('ru-RU'):r.over>0?'сверх '+r.over.toLocaleString('ru-RU'):'закрыто';html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+(r.unitMismatch?' ⚠ ед.изм.':'')+'</td><td>'+(r.sections||[]).join(', ')+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+r.requested.toLocaleString('ru-RU')+'</td><td>'+r.inTransit.toLocaleString('ru-RU')+'</td><td>'+r.invoiceReceived.toLocaleString('ru-RU')+'</td><td>'+r.supplyReceived.toLocaleString('ru-RU')+'</td><td>'+r.movedNet.toLocaleString('ru-RU')+'</td><td>'+r.supplied.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+r.used.toLocaleString('ru-RU')+'</td><td>'+r.masterBalance.toLocaleString('ru-RU')+'</td><td>'+r.stock.toLocaleString('ru-RU')+'</td><td>'+r.toBuy.toLocaleString('ru-RU')+'</td><td>'+status+'</td></tr>';});
+		      html+='<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Раздел</th><th>Ед.</th><th>План</th><th>В заявках</th><th>В пути</th><th>Накладные</th><th>Поставки</th><th>Перемещено</th><th>Всего получено</th><th>Выдано</th><th>Списано</th><th>У мастеров</th><th>Остаток склада</th><th>Расчётный остаток</th><th>Расхождение</th><th>Докупить</th><th>Статус</th></tr>';
+	      rows.forEach((r,i)=>{const cls=r.stockMismatch?'mr-out':r.issued>0&&r.usedWithoutIssue>0?'mr-out':r.isOutsideEstimate?'mr-out':r.toBuy>0?'mr-need':r.over>0?'mr-over':'mr-ok';const status=r.stockMismatch?'расхождение склада '+r.stockDiff.toLocaleString('ru-RU'):r.issued>0&&r.usedWithoutIssue>0?'списано сверх выдачи '+r.usedWithoutIssue.toLocaleString('ru-RU'):r.isOutsideEstimate?'вне сметы '+r.coveredWithPipeline.toLocaleString('ru-RU'):r.toBuy>0?'докупить '+r.toBuy.toLocaleString('ru-RU'):r.shortage>0?'закрывается заявками/поставками':r.masterBalance>0?'у мастеров '+r.masterBalance.toLocaleString('ru-RU'):r.over>0?'сверх '+r.over.toLocaleString('ru-RU'):'закрыто';html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+(r.unitMismatch?' ⚠ ед.изм.':'')+'</td><td>'+(r.sections||[]).join(', ')+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+r.requested.toLocaleString('ru-RU')+'</td><td>'+r.inTransit.toLocaleString('ru-RU')+'</td><td>'+r.invoiceReceived.toLocaleString('ru-RU')+'</td><td>'+r.supplyReceived.toLocaleString('ru-RU')+'</td><td>'+r.movedNet.toLocaleString('ru-RU')+'</td><td>'+r.supplied.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+r.used.toLocaleString('ru-RU')+'</td><td>'+r.masterBalance.toLocaleString('ru-RU')+'</td><td>'+r.stock.toLocaleString('ru-RU')+'</td><td>'+r.expectedStock.toLocaleString('ru-RU')+'</td><td>'+r.stockDiff.toLocaleString('ru-RU')+'</td><td>'+r.toBuy.toLocaleString('ru-RU')+'</td><td>'+status+'</td></tr>';});
       const totalSum=rows.reduce((s,r)=>s+(r.planSum||0),0);
-      html+='<tr style="background:#f3f4f6"><td colspan="4"><b>ИТОГО плановая стоимость материалов:</b></td><td colspan="12"><b>'+Math.round(totalSum).toLocaleString('ru-RU')+' ₽</b></td></tr>';
+      html+='<tr style="background:#f3f4f6"><td colspan="4"><b>ИТОГО плановая стоимость материалов:</b></td><td colspan="15"><b>'+Math.round(totalSum).toLocaleString('ru-RU')+' ₽</b></td></tr>';
 	      html+='</table>';
 	    }
 	    if (normRows.length>0) {
@@ -6416,29 +6428,33 @@ function App() {
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
     const project = projects.find(p=>p.name===projectName)||{};
+    const inRange = (d) => !d ? false : (!periodFrom || String(d).slice(0,10)>=periodFrom) && (!periodTo || String(d).slice(0,10)<=periodTo);
     // План из сметы по строкам типа "Материал".
     const planByName = {};
     activeEstimatesForProject(project, 'Заказчик').forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
       if (isEstimateMaterialItem(it, s.name)) {
         const key = (it.name||'').trim().toLowerCase();
         if (!key) return;
-        if (!planByName[key]) planByName[key] = {name:it.name||'', unit:it.unit||'', plan:0, fact:0};
+        if (!planByName[key]) planByName[key] = {name:it.name||'', unit:it.unit||'', plan:0, issued:0, fact:0};
         planByName[key].plan += Number(it.quantity||0);
       }
     })));
-    // Факт из material_transfers и warehouse_history по проекту
-    (materialTransfers||[]).filter(t=>t.projectName===projectName).forEach(t=>{
+    // Выдано мастерам — отдельная колонка: это ещё не факт производственного списания.
+    (materialTransfers||[]).filter(t=>t.projectName===projectName&&inRange(t.transferDate||t.date)).forEach(t=>{
       const key = (t.materialName||'').trim().toLowerCase();
       if (!key) return;
-      if (!planByName[key]) planByName[key] = {name:t.materialName||'', unit:t.unit||'', plan:0, fact:0};
-      planByName[key].fact += Number(t.quantity||0);
+      if (!planByName[key]) planByName[key] = {name:t.materialName||'', unit:t.unit||'', plan:0, issued:0, fact:0};
+      planByName[key].issued += Number(t.quantity||0);
     });
-    (history||[]).filter(h=>h.project===projectName&&(h.type||'').includes('расход')).forEach(h=>{
-      const key = (h.material||'').trim().toLowerCase();
-      if (!key) return;
-      if (!planByName[key]) planByName[key] = {name:h.material||'', unit:'', plan:0, fact:0};
-      planByName[key].fact += Number(h.quantity||0);
-    });
+    // Факт списания — только материалы из ЖПР за выбранный период.
+    (workJournal||[]).filter(w=>w.project===projectName&&w.status!=='Отклонено'&&inRange(w.date)).forEach(w=>
+      parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
+        const key = (m.name||'').trim().toLowerCase();
+        if (!key) return;
+        if (!planByName[key]) planByName[key] = {name:m.name||'', unit:m.unit||'', plan:0, issued:0, fact:0};
+        planByName[key].fact += Number(m.quantity||0);
+      })
+    );
     const rows = Object.values(planByName).sort((a,b)=>(b.fact-b.plan)-(a.fact-a.plan));
     let html = '<style>.m29-tbl{border-collapse:collapse;width:100%;font-size:11px;margin-top:10px}.m29-tbl th,.m29-tbl td{border:1px solid #333;padding:4px 6px}.m29-tbl th{background:#f3f4f6}.m29-over{color:#dc2626;font-weight:700}.m29-ok{color:#059669}</style>';
     html += '<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-29</h3>';
@@ -6447,8 +6463,8 @@ function App() {
     html += '<p style="font-size:11px"><b>Объект:</b> '+projectName+' · <b>Подрядчик:</b> '+orgName+' · <b>Период:</b> '+(periodFrom||'__.__.____')+' — '+(periodTo||'__.__.____')+'</p>';
     if (rows.length===0) { html += '<p style="text-align:center;color:#888;padding:20px">Нет данных — не загружена смета или нет движений по материалам</p>'; }
     else {
-      html += '<table class="m29-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>План (смета)</th><th>Факт (списано)</th><th>Отклонение</th><th>Статус</th></tr>';
-      rows.forEach((r,i)=>{const delta=r.fact-r.plan;const over=r.plan>0&&delta>r.plan*0.05;html+='<tr><td>'+(i+1)+'</td><td>'+r.name+'</td><td>'+r.unit+'</td><td>'+r.plan.toLocaleString('ru-RU')+'</td><td>'+r.fact.toLocaleString('ru-RU')+'</td><td class="'+(over?'m29-over':'m29-ok')+'">'+(delta>0?'+':'')+delta.toLocaleString('ru-RU')+'</td><td>'+(over?'⚠️ перерасход >5%':delta<0?'✅ экономия':'≈ в норме')+'</td></tr>';});
+      html += '<table class="m29-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>План (смета)</th><th>Выдано мастерам</th><th>Факт (списано по ЖПР)</th><th>Отклонение</th><th>Статус</th></tr>';
+      rows.forEach((r,i)=>{const delta=r.fact-r.plan;const over=r.plan>0&&delta>r.plan*0.05;html+='<tr><td>'+(i+1)+'</td><td>'+r.name+'</td><td>'+r.unit+'</td><td>'+r.plan.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+r.fact.toLocaleString('ru-RU')+'</td><td class="'+(over?'m29-over':'m29-ok')+'">'+(delta>0?'+':'')+delta.toLocaleString('ru-RU')+'</td><td>'+(over?'⚠️ перерасход >5%':delta<0?'✅ экономия':'≈ в норме')+'</td></tr>';});
       html += '</table>';
     }
     html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:30px">';
@@ -11866,7 +11882,7 @@ function App() {
                           }} style={btnO}><Plus size={14}/>Передать материал</button>)}
                         </div>
                       </div>
-	                      {(()=>{const rows=materialReconciliationRows(p.name);const normRows=estimateWorkNormRequirementRows(p.name);const normCtrl=materialNormControlSummaryForProject(p.name);const planRows=rows.filter(r=>r.planQty>0);const toBuyRows=rows.filter(r=>r.toBuy>0);const pipelineRows=rows.filter(r=>r.requested>0||r.inTransit>0);const outsideRows=rows.filter(r=>r.isOutsideEstimate);const suppliedRows=rows.filter(r=>r.supplied>0);const invoiceRows=rows.filter(r=>r.invoiceReceived>0);const deliveryRows=rows.filter(r=>r.supplyReceived>0);const movedRows=rows.filter(r=>r.movedNet!==0);const masterBalanceRows=rows.filter(r=>r.masterBalance>0);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
+	                      {(()=>{const rows=materialReconciliationRows(p.name);const normRows=estimateWorkNormRequirementRows(p.name);const normCtrl=materialNormControlSummaryForProject(p.name);const planRows=rows.filter(r=>r.planQty>0);const toBuyRows=rows.filter(r=>r.toBuy>0);const pipelineRows=rows.filter(r=>r.requested>0||r.inTransit>0);const outsideRows=rows.filter(r=>r.isOutsideEstimate);const suppliedRows=rows.filter(r=>r.supplied>0);const invoiceRows=rows.filter(r=>r.invoiceReceived>0);const deliveryRows=rows.filter(r=>r.supplyReceived>0);const movedRows=rows.filter(r=>r.movedNet!==0);const masterBalanceRows=rows.filter(r=>r.masterBalance>0);const stockMismatchRows=rows.filter(r=>r.stockMismatch);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'12px'}}>
                           <div>
                             <b style={{color:C.text,fontSize:'14px'}}>📊 Материалы: смета ↔ поставки ↔ склад</b>
@@ -11884,13 +11900,14 @@ function App() {
 	                          <div style={{padding:'10px',backgroundColor:pipelineRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(pipelineRows.length?C.infoBorder:C.border)}}><p style={{color:pipelineRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>В заявках/пути</p><b style={{color:pipelineRows.length?C.info:C.text,fontSize:'15px'}}>{pipelineRows.length}</b></div>
 	                          <div style={{padding:'10px',backgroundColor:toBuyRows.length?C.warningLight:C.successLight,borderRadius:'8px',border:'1px solid '+(toBuyRows.length?C.warningBorder:C.successBorder)}}><p style={{color:toBuyRows.length?C.warning:C.success,fontSize:'10px',margin:'0 0 3px'}}>Докупить</p><b style={{color:toBuyRows.length?C.warning:C.success,fontSize:'15px'}}>{toBuyRows.length}</b></div>
 	                          <div style={{padding:'10px',backgroundColor:outsideRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(outsideRows.length?C.dangerBorder:C.border)}}><p style={{color:outsideRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Вне сметы</p><b style={{color:outsideRows.length?C.danger:C.text,fontSize:'15px'}}>{outsideRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:normRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(normRows.length?C.infoBorder:C.border)}}><p style={{color:normRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>По нормам работ</p><b style={{color:normRows.length?C.info:C.text,fontSize:'15px'}}>{normRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:normCtrl.overRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(normCtrl.overRows.length?C.dangerBorder:C.border)}}><p style={{color:normCtrl.overRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Перерасход норм</p><b style={{color:normCtrl.overRows.length?C.danger:C.text,fontSize:'15px'}}>{normCtrl.overRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:normCtrl.withoutNormRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(normCtrl.withoutNormRows.length?C.warningBorder:C.border)}}><p style={{color:normCtrl.withoutNormRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Списано без нормы</p><b style={{color:normCtrl.withoutNormRows.length?C.warning:C.text,fontSize:'15px'}}>{normCtrl.withoutNormRows.length}</b></div>
-	                        </div>
-                        {rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
-                          <table style={{...tbl,fontSize:'11px',minWidth:'1240px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
-                            {rows.slice(0,25).map(r=>{const status=r.issued>0&&r.usedWithoutIssue>0?'Списано сверх выдачи':r.isOutsideEstimate?'Вне сметы':r.toBuy>0?'Докупить':r.shortage>0?'В работе':r.masterBalance>0?'У мастеров':r.over>0?'Сверх сметы':'Закрыто';const col=r.issued>0&&r.usedWithoutIssue>0?C.danger:r.isOutsideEstimate?C.danger:r.toBuy>0?C.warning:r.shortage>0?C.info:r.masterBalance>0?C.info:r.over>0?C.info:C.success;const bg=r.issued>0&&r.usedWithoutIssue>0?C.dangerLight:r.isOutsideEstimate?C.dangerLight:r.toBuy>0?C.warningLight:r.shortage>0?C.infoLight:r.masterBalance>0?C.infoLight:r.over>0?C.infoLight:C.successLight;const bd=r.issued>0&&r.usedWithoutIssue>0?C.dangerBorder:r.isOutsideEstimate?C.dangerBorder:r.toBuy>0?C.warningBorder:r.shortage>0?C.infoBorder:r.masterBalance>0?C.infoBorder:r.over>0?C.infoBorder:C.successBorder;return(<tr key={r.key}>
+		                          <div style={{padding:'10px',backgroundColor:normRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(normRows.length?C.infoBorder:C.border)}}><p style={{color:normRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>По нормам работ</p><b style={{color:normRows.length?C.info:C.text,fontSize:'15px'}}>{normRows.length}</b></div>
+		                          <div style={{padding:'10px',backgroundColor:normCtrl.overRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(normCtrl.overRows.length?C.dangerBorder:C.border)}}><p style={{color:normCtrl.overRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Перерасход норм</p><b style={{color:normCtrl.overRows.length?C.danger:C.text,fontSize:'15px'}}>{normCtrl.overRows.length}</b></div>
+		                          <div style={{padding:'10px',backgroundColor:normCtrl.withoutNormRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(normCtrl.withoutNormRows.length?C.warningBorder:C.border)}}><p style={{color:normCtrl.withoutNormRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Списано без нормы</p><b style={{color:normCtrl.withoutNormRows.length?C.warning:C.text,fontSize:'15px'}}>{normCtrl.withoutNormRows.length}</b></div>
+		                          <div style={{padding:'10px',backgroundColor:stockMismatchRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(stockMismatchRows.length?C.dangerBorder:C.border)}}><p style={{color:stockMismatchRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Расхождения</p><b style={{color:stockMismatchRows.length?C.danger:C.text,fontSize:'15px'}}>{stockMismatchRows.length}</b></div>
+		                        </div>
+	                        {rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
+	                          <table style={{...tbl,fontSize:'11px',minWidth:'1420px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Расчёт</th><th style={tblH}>Расх.</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
+	                            {rows.slice(0,25).map(r=>{const st=materialControlStatus(r);return(<tr key={r.key}>
                               <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}</td>
                               <td style={tblC}>{r.planQty>0?fmtMeasure(r.planQty,r.unit):'—'}</td>
                               <td style={{...tblC,color:r.requested>0?C.info:C.textMuted}}>{fmtMeasure(r.requested,r.unit)}</td>
@@ -11900,11 +11917,13 @@ function App() {
                               <td style={{...tblC,color:r.movedNet!==0?C.info:C.textMuted}}>{fmtMeasure(r.movedNet,r.unit)}</td>
                               <td style={{...tblC,color:r.supplied>=r.planQty&&r.planQty>0?C.success:C.text}}>{fmtMeasure(r.supplied,r.unit)}</td>
                               <td style={tblC}>{fmtMeasure(r.issued,r.unit)}</td>
-                              <td style={tblC}>{fmtMeasure(r.used,r.unit)}</td>
-                              <td style={{...tblC,color:r.masterBalance>0?C.info:C.textMuted}}>{fmtMeasure(r.masterBalance,r.unit)}</td>
-                              <td style={{...tblC,fontWeight:'600',color:r.stock>0?C.success:C.textMuted}}>{fmtMeasure(r.stock,r.unit)}</td>
-                              <td style={{...tblC,fontWeight:'700',color:r.toBuy>0?C.warning:C.success}}>{fmtMeasure(r.toBuy,r.unit)}</td>
-                              <td style={tblC}><span style={badge(col,bg,bd)}>{status}{r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span></td>
+	                              <td style={tblC}>{fmtMeasure(r.used,r.unit)}</td>
+	                              <td style={{...tblC,color:r.masterBalance>0?C.info:C.textMuted}}>{fmtMeasure(r.masterBalance,r.unit)}</td>
+	                              <td style={{...tblC,fontWeight:'600',color:r.stock>0?C.success:C.textMuted}}>{fmtMeasure(r.stock,r.unit)}</td>
+	                              <td style={{...tblC,color:r.expectedStock>0?C.text:C.textMuted}}>{fmtMeasure(r.expectedStock,r.unit)}</td>
+	                              <td style={{...tblC,fontWeight:'700',color:r.stockMismatch?C.danger:C.success}}>{r.stockMismatch?fmtMeasure(r.stockDiff,r.unit):'0'}</td>
+	                              <td style={{...tblC,fontWeight:'700',color:r.toBuy>0?C.warning:C.success}}>{fmtMeasure(r.toBuy,r.unit)}</td>
+	                              <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{st.label}{r.stockMismatch?' · '+fmtMeasure(r.stockDiff,r.unit):r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span></td>
                             </tr>);})}
                           </tbody></table>
 	                          {rows.length>25&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые 25 строк. Полный список — в печатной ведомости.</p>}
@@ -12721,9 +12740,9 @@ function App() {
                   <h3 style={{color:C.text,margin:'0 0 4px',fontSize:'15px',fontWeight:'700'}}>Контроль материалов по сметам</h3>
                   <p style={{color:C.textSec,margin:0,fontSize:'12px'}}>Один экран: план из активных смет, заявки, поставки, перемещения, выдача мастерам и списание по работам.</p>
                 </div>
-                <button onClick={()=>exportToExcel(visibleProjects(projects).flatMap(p=>materialReconciliationRows(p.name).map(r=>({Объект:p.name,Материал:r.name,Ед:r.unit,План:r.planQty,Заявки:r.requested,'В пути':r.inTransit,Накладные:r.invoiceReceived,Поставки:r.supplyReceived,Перемещено:r.movedNet,'Всего получено':r.supplied,Выдано:r.issued,Списано:r.used,'У мастеров':r.masterBalance,Остаток:r.stock,Докупить:r.toBuy,Статус:r.issued>0&&r.usedWithoutIssue>0?'Списано сверх выдачи':r.isOutsideEstimate?'Вне сметы':r.toBuy>0?'Докупить':r.shortage>0?'Закрывается':r.masterBalance>0?'У мастеров':r.over>0?'Сверх сметы':'Закрыто'}))),'Контроль_материалов')} style={btnG}><Download size={14}/>Excel</button>
+                <button onClick={()=>exportToExcel(visibleProjects(projects).flatMap(p=>materialReconciliationRows(p.name).map(r=>({Объект:p.name,Материал:r.name,Ед:r.unit,План:r.planQty,Заявки:r.requested,'В пути':r.inTransit,Накладные:r.invoiceReceived,Поставки:r.supplyReceived,Перемещено:r.movedNet,'Всего получено':r.supplied,Выдано:r.issued,Списано:r.used,'У мастеров':r.masterBalance,Остаток:r.stock,'Расчётный остаток':r.expectedStock,'Расхождение склада':r.stockDiff,Докупить:r.toBuy,Статус:r.stockMismatch?'Расхождение склада':r.issued>0&&r.usedWithoutIssue>0?'Списано сверх выдачи':r.isOutsideEstimate?'Вне сметы':r.toBuy>0?'Докупить':r.shortage>0?'Закрывается':r.masterBalance>0?'У мастеров':r.over>0?'Сверх сметы':'Закрыто'}))),'Контроль_материалов')} style={btnG}><Download size={14}/>Excel</button>
               </div>
-              {visibleProjects(projects).map(p=>{const s=materialControlSummaryForProject(p.name);const hasIssue=s.toBuyRows.length||s.outsideRows.length||s.mismatchRows.length;return(<div key={p.id||p.name} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(s.toBuyRows.length?C.warning:s.outsideRows.length?C.danger:hasIssue?C.info:C.success)}}>
+              {visibleProjects(projects).map(p=>{const s=materialControlSummaryForProject(p.name);const hasIssue=s.toBuyRows.length||s.outsideRows.length||s.mismatchRows.length||s.stockMismatchRows.length;return(<div key={p.id||p.name} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(s.stockMismatchRows.length?C.danger:s.toBuyRows.length?C.warning:s.outsideRows.length?C.danger:hasIssue?C.info:C.success)}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
                   <div style={{flex:1,minWidth:'240px'}}>
                     <b style={{color:C.text,fontSize:'14px'}}>{p.name}</b>
@@ -12737,6 +12756,7 @@ function App() {
                       <span style={badge(s.toBuyRows.length?C.warning:C.success,s.toBuyRows.length?C.warningLight:C.successLight,s.toBuyRows.length?C.warningBorder:C.successBorder)}>{'Докупить: '+s.toBuyRows.length}</span>
                       {s.outsideRows.length>0&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Вне сметы: '+s.outsideRows.length}</span>}
                       {s.mismatchRows.length>0&&<span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Ед. изм.: '+s.mismatchRows.length}</span>}
+                      {s.stockMismatchRows.length>0&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Расхождения: '+s.stockMismatchRows.length}</span>}
                     </div>
                     {(isFinanceRole()||isLeadership())&&<p style={{color:C.textMuted,margin:'6px 0 0',fontSize:'11px'}}>План материалов: {Math.round(s.planSum).toLocaleString('ru-RU')+' ₽'} · Оприходовано: {Math.round(s.suppliedSum).toLocaleString('ru-RU')+' ₽'}</p>}
                   </div>
