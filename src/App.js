@@ -3928,16 +3928,6 @@ function App() {
       if (!row.unit && converted.unit) row.unit = converted.unit;
       row[field] += converted.qty;
     };
-    const requestItemsOf = (req) => {
-      if (!req) return [];
-      if (req.itemsJson) {
-        try {
-          const arr = typeof req.itemsJson === 'string' ? JSON.parse(req.itemsJson) : req.itemsJson;
-          if (Array.isArray(arr) && arr.length>0) return arr;
-        } catch(_) {}
-      }
-      return req.materialName ? [{materialName:req.materialName, quantity:req.quantity, unit:req.unit||'шт'}] : [];
-    };
     const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
     const fallbackEstimates = (estimatesList||[]).filter(e=>
       estimateKind(e)==='Заказчик' &&
@@ -4022,7 +4012,7 @@ function App() {
     const requestPipelineStatuses = new Set(['Новая','Подтверждена прорабом','Утверждена','КП запрошены']);
     (supplyRequests||[])
       .filter(req=>req.project===projectName && requestPipelineStatuses.has(req.status||'Новая'))
-      .forEach(req=>requestItemsOf(req).forEach(it=>{
+      .forEach(req=>parseSupplyItems(req).forEach(it=>{
         const r = ensure(it.materialName, it.unit);
         addQty(r, 'requested', it.quantity, it.unit);
       }));
@@ -4089,6 +4079,80 @@ function App() {
     return {label:'Закрыто', color:C.success, bg:C.successLight, border:C.successBorder};
   };
   const materialNameKey = materialNameLookupKey;
+  const materialControlSupplyMarker = (projectName, row) => 'MATERIAL_CONTROL_REQUEST:'+[materialNameKey(projectName), materialNameKey(row?.name), _normalizeUnit(row?.unit||'')].join('|');
+  const materialControlRequestItems = (req) => parseSupplyItems(req).map(it=>({...it, materialName:it.materialName||it.name||'', quantity:toNum(it.quantity), unit:it.unit||req.unit||'шт'}));
+  const materialControlSupplyRequestExists = (projectName, row) => {
+    const marker = materialControlSupplyMarker(projectName, row);
+    const rowKey = materialNameKey(row?.name);
+    const unitKey = _normalizeUnit(row?.unit||'');
+    return (supplyRequests||[]).some(req=>{
+      if ((req.project||'')!==projectName || !isActiveSupplyRequestStatus(req.status)) return false;
+      if (String(req.notes||'').includes(marker)) return true;
+      return materialControlRequestItems(req).some(it=>materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name)===rowKey && (!unitKey || _normalizeUnit(it.unit||'')===unitKey));
+    });
+  };
+  const canCreateSupplyRequestFromControl = () => ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бухгалтер'].includes(user?.role);
+  const createSupplyRequestFromMaterialControl = async (projectName, row) => {
+    if (!projectName || !row?.name || toNum(row.toBuy)<=0) return;
+    if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
+    if (materialControlSupplyRequestExists(projectName, row) && !window.confirm('По этой позиции уже есть активная заявка. Создать ещё одну?')) return;
+    const qtyRaw = window.prompt('Количество к заявке:', String(Math.round(toNum(row.toBuy)*1000)/1000));
+    if (qtyRaw === null) return;
+    const qty = toNum(qtyRaw);
+    if (qty <= 0) { alert('Количество должно быть больше 0'); return; }
+    const unit = row.unit || 'шт';
+    const marker = materialControlSupplyMarker(projectName, row);
+    const notes = [
+      'Создано из контроля материалов: строка `Докупить`.',
+      marker,
+      'Объект: '+projectName,
+      'Материал: '+row.name,
+      'План по смете: '+fmtMeasure(row.planQty, unit),
+      'Поставлено/перемещено: '+fmtMeasure(row.supplied, unit),
+      'В заявках и пути: '+fmtMeasure(toNum(row.requested)+toNum(row.inTransit), unit),
+      'Расчётная нехватка: '+fmtMeasure(row.toBuy, unit),
+    ].join('\n');
+    const res = await fetch(API+'/supply-requests', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        materialName: row.name,
+        quantity: qty,
+        unit,
+        items:[{materialName:row.name,quantity:qty,unit}],
+        project: projectName,
+        createdBy: user.name,
+        date: new Date().toISOString().split('T')[0],
+        notes,
+        category: '',
+        urgency: row.toBuy > row.planQty * 0.25 ? 'срочная' : 'обычная',
+        requestedByRole: user.role,
+        requestedById: user.id,
+        selectedSuppliers: [],
+      })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(()=>({}));
+      alert(data.detail || 'Не удалось создать заявку снабжения');
+      return;
+    }
+    notify('Создана заявка снабжения: '+row.name+' — '+fmtMeasure(qty, unit), 'supply');
+    await loadAll();
+  };
+  const renderMaterialSupplyAction = (projectName, row) => {
+    if (!row || toNum(row.toBuy)<=0 || !canCreateSupplyRequestFromControl()) return null;
+    const exists = materialControlSupplyRequestExists(projectName, row);
+    return (
+      <button
+        onClick={e=>{e.stopPropagation(); if (!exists) createSupplyRequestFromMaterialControl(projectName,row);}}
+        disabled={exists}
+        style={{...(exists?btnG:btnO),padding:'3px 7px',fontSize:'10px',marginTop:'5px',opacity:exists?0.75:1}}
+        title={exists?'По этой позиции уже есть активная заявка':'Создать заявку снабжения на недостачу'}
+      >
+        {exists?'Заявка есть':'Заявка'}
+      </button>
+    );
+  };
   const isPersonalMaterialRole = () => ['мастер','субподрядчик'].includes(user?.role);
   const parseJournalMaterials = (value) => {
     if (!value) return [];
@@ -6311,7 +6375,7 @@ function App() {
             <td style={{...tblC,color:r.expectedStock>0?C.text:C.textMuted}}>{fmtMeasure(r.expectedStock,r.unit)}</td>
             <td style={{...tblC,fontWeight:'700',color:r.stockMismatch?C.danger:C.success}}>{r.stockMismatch?fmtMeasure(r.stockDiff,r.unit):'0'}</td>
             <td style={{...tblC,fontWeight:'700',color:r.toBuy>0?C.warning:C.success}}>{fmtMeasure(r.toBuy,r.unit)}</td>
-            <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{st.label}{r.stockMismatch?' · '+fmtMeasure(r.stockDiff,r.unit):r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span></td>
+            <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{st.label}{r.stockMismatch?' · '+fmtMeasure(r.stockDiff,r.unit):r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span>{renderMaterialSupplyAction(projectName,r)}</td>
           </tr>);})}
         </tbody></table>
         {s.rows.length>limit&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые {limit} строк. Полный список — в печатной ведомости.</p>}
@@ -11502,6 +11566,9 @@ function App() {
                                 const isMaterialTask=['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(payload.type);
                                 const isRoomTask=['room_measurement_review','work_room_link_review'].includes(payload.type);
                                 const aliasCandidate=payload.aliasCandidate||null;
+                                const purchaseRow=payload.type==='material_purchase_review'
+                                  ? materialReconciliationRows(payload.projectName||task.projectName||'').find(r=>materialNameKey(r.name)===materialNameKey(payload.materialName)&&(!payload.unit||_normalizeUnit(r.unit||'')===_normalizeUnit(payload.unit||'')))
+                                  : null;
                                 return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
                                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                                     <div style={{flex:1,minWidth:'220px'}}>
@@ -11516,6 +11583,7 @@ function App() {
                                     </div>
                                     <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                                       {aliasCandidate?.aliasName&&aliasCandidate?.canonicalName&&<button onClick={()=>acceptMaterialAliasTask(task)} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}><Check size={11}/>Привязать</button>}
+                                      {purchaseRow&&toNum(purchaseRow.toBuy)>0&&renderMaterialSupplyAction(payload.projectName||task.projectName||'', purchaseRow)}
                                       {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:isMaterialTask?<Package size={11}/>:isRoomTask?<MapPin size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
                                       {task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
                                       {['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
@@ -12278,7 +12346,7 @@ function App() {
 	                              <td style={{...tblC,color:r.expectedStock>0?C.text:C.textMuted}}>{fmtMeasure(r.expectedStock,r.unit)}</td>
 	                              <td style={{...tblC,fontWeight:'700',color:r.stockMismatch?C.danger:C.success}}>{r.stockMismatch?fmtMeasure(r.stockDiff,r.unit):'0'}</td>
 	                              <td style={{...tblC,fontWeight:'700',color:r.toBuy>0?C.warning:C.success}}>{fmtMeasure(r.toBuy,r.unit)}</td>
-	                              <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{st.label}{r.stockMismatch?' · '+fmtMeasure(r.stockDiff,r.unit):r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span></td>
+	                              <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{st.label}{r.stockMismatch?' · '+fmtMeasure(r.stockDiff,r.unit):r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span>{renderMaterialSupplyAction(p.name,r)}</td>
                             </tr>);})}
                           </tbody></table>
 	                          {rows.length>25&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые 25 строк. Полный список — в печатной ведомости.</p>}
