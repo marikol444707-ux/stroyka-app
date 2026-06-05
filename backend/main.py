@@ -4902,6 +4902,7 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
     cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
     row = cur.fetchone()
     cur.close(); conn.close()
+    _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive")
     return {"ok": True, "delivery": dict(row), "claimId": claim_id, "invoiceId": invoice_id}
 
 @app.post("/supply-deliveries/{id}/ai-check")
@@ -5184,6 +5185,7 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
                      w.hiddenWork,w.qualityStatus,w.normatives,w.projectDocs))
         row = cur.fetchone()
         conn.commit()
+        _run_project_ai_control_safely(w.project, "work_journal:create")
         return dict(row)
     except HTTPException:
         conn.rollback()
@@ -5200,6 +5202,9 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "work_journal", id, _current_user, "project")
+    cur.execute("SELECT project FROM work_journal WHERE id=%s", (id,))
+    project_row = cur.fetchone()
+    project_name = project_row[0] if project_row else ""
     # Динамически обновляем только переданные поля. Старая логика (status/confirmedBy/...) продолжает работать.
     fields_map = [
         ('status', 'status'),
@@ -5234,6 +5239,7 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
     conn.commit()
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "work_journal:update")
     return {"ok": True}
 
 @app.delete("/work-journal/{id}")
@@ -5680,6 +5686,7 @@ def create_room(r: RoomModel, _current_user: dict = Depends(require_roles(*PROJE
                 (r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.height,r.ceilingType,r.wallMaterial,r.floorMaterial,r.windows,r.doors,r.notes,r.floor,r.liter,r.roomType))
     row = cur.fetchone()
     conn.close()
+    _run_project_ai_control_safely(r.project, "room:create")
     return dict(row)
 
 @app.put("/rooms/{id}")
@@ -5694,6 +5701,7 @@ def update_room(id: int, r: RoomModel, _current_user: dict = Depends(require_rol
                    windows=%s,doors=%s,notes=%s WHERE id=%s""",
                 (r.floor,r.liter,r.roomType,r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.height,r.ceilingType,r.wallMaterial,r.floorMaterial,r.windows,r.doors,r.notes,id))
     conn.close()
+    _run_project_ai_control_safely(r.project, "room:update")
     return {"ok": True}
 
 @app.delete("/rooms/{id}")
@@ -5733,6 +5741,7 @@ def create_room_work(w: RoomWorkModel, _current_user: dict = Depends(require_rol
                 (w.roomId,w.project,w.roomName,w.masterId,w.masterName,w.description,w.surface,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,w.photoUrl))
     row = cur.fetchone()
     conn.close()
+    _run_project_ai_control_safely(w.project, "room_work:create")
     return dict(row)
 
 @app.put("/room-works/{id}")
@@ -5740,10 +5749,14 @@ def update_room_work(id: int, data: dict, _current_user: dict = Depends(require_
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "room_works", id, _current_user, "project")
+    cur.execute("SELECT project FROM room_works WHERE id=%s", (id,))
+    project_row = cur.fetchone()
+    project_name = project_row[0] if project_row else ""
     if 'status' in data:
         cur.execute("UPDATE room_works SET status=%s,confirmed_by=%s WHERE id=%s",
                     (data['status'],data.get('confirmedBy',''),id))
     conn.close()
+    _run_project_ai_control_safely(project_name, "room_work:update")
     return {"ok": True}
 
 AI_FINDING_SELECT = """
@@ -5873,7 +5886,13 @@ def _insert_ai_task(cur, data: dict, current_user: dict):
 
 def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_user: dict):
     dedupe_key = finding.get("dedupeKey") or ""
+    linked_type = finding.get("linkedEntityType") or ""
+    task_type = "work_room_link_review" if linked_type == "work_journal" else (
+        "room_measurement_review" if linked_type in ("room", "room_window", "room_door") else ""
+    )
     action_payload = json.dumps({
+        "type": task_type,
+        "projectName": finding.get("projectName") or "",
         "linkedEntityType": finding.get("linkedEntityType") or "",
         "linkedEntityId": finding.get("linkedEntityId") or "",
         "dedupeKey": dedupe_key,
@@ -5987,6 +6006,553 @@ def _upsert_ai_finding(cur, finding: dict, current_user: dict):
     _ensure_ai_task_for_finding(cur, finding_id, finding, current_user)
     return finding_id, True
 
+def _ai_system_user():
+    return {"id": None, "name": "ИИ-контроль", "role": "директор", "assignedProjects": []}
+
+def _safe_project_list(value):
+    if isinstance(value, list):
+        return [str(x) for x in value if str(x or "").strip()]
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, list):
+            return [str(x) for x in parsed if str(x or "").strip()]
+    except Exception:
+        pass
+    return []
+
+def _user_row_matches_project(row: dict, project_name: str) -> bool:
+    direct = (row.get("project_name") or "").strip()
+    assigned = _safe_project_list(row.get("assigned_projects"))
+    if not direct and not assigned:
+        return True
+    return bool(project_name and (direct == project_name or project_name in assigned))
+
+def _find_responsible(cur, project_name: str, roles: list[str], preferred_name: str = "", preferred_role: str = ""):
+    preferred_name = (preferred_name or "").strip()
+    if preferred_name:
+        params = [preferred_name.lower()]
+        role_sql = ""
+        if preferred_role:
+            role_sql = " AND role=%s"
+            params.append(preferred_role)
+        cur.execute(f"""SELECT id,name,role,project_name,assigned_projects
+                        FROM users
+                        WHERE LOWER(COALESCE(name,''))=%s{role_sql}
+                        ORDER BY id LIMIT 20""", params)
+        for row in cur.fetchall() or []:
+            if _user_row_matches_project(dict(row), project_name):
+                return (row.get("role") or preferred_role or "мастер", row.get("name") or preferred_name)
+        if preferred_role:
+            return (preferred_role, preferred_name)
+    for role in roles:
+        cur.execute("""SELECT id,name,role,project_name,assigned_projects
+                       FROM users
+                       WHERE role=%s
+                       ORDER BY id LIMIT 50""", (role,))
+        for row in cur.fetchall() or []:
+            if _user_row_matches_project(dict(row), project_name):
+                return (row.get("role") or role, row.get("name") or "")
+    if "директор" not in roles:
+        return _find_responsible(cur, project_name, ["директор", "зам_директора"])
+    return ("директор", "")
+
+def _ai_assignment(cur, project_name: str, group: str, preferred_name: str = ""):
+    groups = {
+        "materials": ["снабженец", "кладовщик", "зам_директора", "директор"],
+        "estimate": ["сметчик", "главный_инженер", "директор", "зам_директора"],
+        "rooms": ["прораб", "главный_инженер", "директор"],
+        "work_room": ["прораб", "главный_инженер", "директор"],
+        "documents": ["прораб", "главный_инженер", "директор"],
+    }
+    if group == "work_room" and preferred_name:
+        role, name = _find_responsible(cur, project_name, groups[group], preferred_name, "мастер")
+    else:
+        role, name = _find_responsible(cur, project_name, groups.get(group) or ["директор"])
+    return {"assignedRole": role, "assignedTo": name}
+
+def _ai_payload(payload: dict) -> str:
+    return json.dumps(payload or {}, ensure_ascii=False)
+
+def _upsert_ai_task(cur, data: dict, current_user: dict):
+    project_name = data.get("projectName") or data.get("project_name") or ""
+    require_project_access(current_user, project_name)
+    dedupe_key = _ai_task_dedupe_key(data)
+    if dedupe_key:
+        cur.execute(
+            AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
+            (project_name, dedupe_key)
+        )
+        existing = cur.fetchone()
+        if existing:
+            task_id = existing["id"]
+            cur.execute("""
+                UPDATE ai_tasks
+                SET title=%s, description=%s, assigned_role=%s, assigned_to=%s,
+                    action_label=%s, action_payload=%s, dedupe_key=%s, updated_at=NOW()
+                WHERE id=%s
+            """, (
+                data.get("title") or "",
+                data.get("description") or "",
+                data.get("assignedRole") or data.get("assigned_role") or "",
+                data.get("assignedTo") or data.get("assigned_to") or "",
+                data.get("actionLabel") or data.get("action_label") or "Открыть место",
+                data.get("actionPayload") or data.get("action_payload") or "",
+                dedupe_key,
+                task_id,
+            ))
+            _close_duplicate_ai_tasks(cur, project_name, dedupe_key, task_id, current_user.get("name") or "system")
+            return task_id, False
+    task_id = _insert_ai_task(cur, data, current_user)
+    return task_id, True
+
+def _close_stale_ai_findings(cur, project_name: str, categories: list[str], active_keys: set[str], actor: str = "ИИ-контроль") -> int:
+    if not project_name or not categories:
+        return 0
+    cur.execute("""
+        SELECT id, dedupe_key
+        FROM ai_findings
+        WHERE project_name=%s
+          AND category = ANY(%s)
+          AND source='system_rules'
+          AND status NOT IN ('Закрыто','Отклонено')
+    """, (project_name, categories))
+    stale_ids = []
+    for row in cur.fetchall() or []:
+        if (row.get("dedupe_key") or "") not in active_keys:
+            stale_ids.append(row.get("id"))
+    if not stale_ids:
+        return 0
+    cur.execute("""
+        UPDATE ai_findings
+        SET status='Закрыто', updated_at=NOW()
+        WHERE id = ANY(%s)
+    """, (stale_ids,))
+    cur.execute("""
+        UPDATE ai_tasks
+        SET status='Закрыто', closed_by=%s, closed_at=NOW(), updated_at=NOW()
+        WHERE finding_id = ANY(%s)
+          AND status NOT IN ('Закрыто','Отклонено')
+    """, (actor, stale_ids))
+    return len(stale_ids)
+
+def _close_stale_ai_tasks(cur, project_name: str, prefixes: list[str], active_keys: set[str], actor: str = "ИИ-контроль") -> int:
+    if not project_name or not prefixes:
+        return 0
+    where = " OR ".join(["dedupe_key LIKE %s" for _ in prefixes])
+    params = [project_name] + [p + "%" for p in prefixes]
+    cur.execute(f"""
+        SELECT id, dedupe_key
+        FROM ai_tasks
+        WHERE project_name=%s
+          AND status NOT IN ('Закрыто','Отклонено')
+          AND ({where})
+    """, params)
+    stale_ids = []
+    for row in cur.fetchall() or []:
+        if (row.get("dedupe_key") or "") not in active_keys:
+            stale_ids.append(row.get("id"))
+    if not stale_ids:
+        return 0
+    cur.execute("""
+        UPDATE ai_tasks
+        SET status='Закрыто', closed_by=%s, closed_at=NOW(), updated_at=NOW()
+        WHERE id = ANY(%s)
+    """, (actor, stale_ids))
+    return len(stale_ids)
+
+def _estimate_sections(value):
+    if isinstance(value, list):
+        return value
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+def _estimate_item_sum_backend(item: dict) -> float:
+    qty = _float_or_zero(item.get("quantity"))
+    if item.get("isImported"):
+        return _float_or_zero(item.get("priceWork")) + _float_or_zero(item.get("priceMaterial"))
+    return qty * (_float_or_zero(item.get("priceWork")) + _float_or_zero(item.get("priceMaterial")))
+
+def _estimate_material_sum_backend(item: dict) -> float:
+    qty = _float_or_zero(item.get("quantity"))
+    if item.get("isImported"):
+        return _float_or_zero(item.get("priceMaterial"))
+    return qty * _float_or_zero(item.get("priceMaterial"))
+
+def _material_control_key(name: str, unit: str = "") -> str:
+    return (_norm_key_text(name or ""), _norm_base_unit(unit or ""))
+
+def _ai_work_has_norm(norms: list[dict], work_name: str, section_name: str, unit: str = "") -> bool:
+    if _work_no_material_norm_reason(work_name, section_name):
+        return True
+    work_text = _norm_key_text((work_name or "") + " " + (section_name or ""))
+    for rule in norms:
+        if unit and rule.get("work_unit") and _norm_base_unit(unit) != _norm_base_unit(rule.get("work_unit")):
+            continue
+        words = _norm_list(rule.get("work_keywords"))
+        block = _norm_list(rule.get("block_work_keywords"))
+        if any(_norm_key_text(w) and _norm_key_text(w) in work_text for w in words) and not any(_norm_key_text(w) and _norm_key_text(w) in work_text for w in block):
+            return True
+    return False
+
+def _add_ai_task_candidate(tasks: list[dict], project_name: str, title: str, description: str, group: str, dedupe_key: str, payload: dict, assignment: dict, severity: str = "Проверить"):
+    payload = dict(payload or {})
+    payload.setdefault("projectName", project_name)
+    payload.setdefault("severity", severity)
+    tasks.append({
+        "projectName": project_name,
+        "title": title,
+        "description": description,
+        "assignedRole": assignment.get("assignedRole") or "",
+        "assignedTo": assignment.get("assignedTo") or "",
+        "status": "Новое",
+        "actionLabel": "Открыть место",
+        "actionPayload": _ai_payload(payload),
+        "dedupeKey": dedupe_key,
+        "_group": group,
+    })
+
+def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: str = "manual"):
+    if not project_name:
+        raise HTTPException(status_code=400, detail="projectName required")
+    require_project_access(current_user, project_name)
+    created = updated = tasks_created = tasks_updated = closed = 0
+
+    cur.execute("""SELECT id, project, name, floor_area, wall_area, ceiling_area, height, windows, doors, notes, floor, liter, room_type
+                   FROM rooms WHERE project=%s ORDER BY id""", (project_name,))
+    rooms_rows = [dict(r) for r in cur.fetchall()]
+    room_ids = [r["id"] for r in rooms_rows]
+    windows_by_room, doors_by_room = {}, {}
+    if room_ids:
+        cur.execute("""SELECT w.id,w.room_id,w.name,w.width,w.height,w.reveal_depth
+                       FROM room_windows w WHERE w.room_id = ANY(%s) ORDER BY w.id""", (room_ids,))
+        for w in cur.fetchall():
+            windows_by_room.setdefault(w["room_id"], []).append(dict(w))
+        cur.execute("""SELECT d.id,d.room_id,d.name,d.width,d.height,d.reveal_depth
+                       FROM room_doors d WHERE d.room_id = ANY(%s) ORDER BY d.id""", (room_ids,))
+        for d in cur.fetchall():
+            doors_by_room.setdefault(d["room_id"], []).append(dict(d))
+
+    findings = []
+    room_assignment = _ai_assignment(cur, project_name, "rooms")
+    for room in rooms_rows:
+        room_title = room.get("name") or f"Помещение {room.get('id')}"
+        for field, label, action in [
+            ("floor_area", "площади пола", "Заполнить площадь пола по проекту или фактическому обмеру."),
+            ("wall_area", "площади стен", "Заполнить площадь стен. Окна и двери вычитаются из чистой площади автоматически."),
+            ("ceiling_area", "площади потолка", "Заполнить площадь потолка по проекту или фактическому обмеру."),
+            ("height", "высоты помещения", "Заполнить высоту помещения для проверки стен, откосов и материалов."),
+        ]:
+            if _float_or_zero(room.get(field)) <= 0:
+                findings.append({
+                    "projectName": project_name,
+                    "findingType": "rule",
+                    "category": "Помещения",
+                    "severity": "Не хватает данных",
+                    "title": f"Нет {label}: {room_title}",
+                    "description": f"Причина: в помещении «{room_title}» не заполнена {label}. Риск: смета, факт работ и списание материалов могут считаться неверно.",
+                    "source": "system_rules",
+                    "linkedEntityType": "room",
+                    "linkedEntityId": str(room.get("id")),
+                    "suggestedAction": action,
+                    "assignedRole": room_assignment["assignedRole"],
+                    "assignedTo": room_assignment["assignedTo"],
+                    "dedupeKey": f"ROOM_CONTROL:room:{room.get('id')}:{field}",
+                })
+        for w in windows_by_room.get(room["id"], []):
+            win_title = w.get("name") or f"Окно {w.get('id')}"
+            if _float_or_zero(w.get("width")) <= 0 or _float_or_zero(w.get("height")) <= 0:
+                findings.append({
+                    "projectName": project_name, "findingType": "rule", "category": "Помещения",
+                    "severity": "Не хватает данных",
+                    "title": f"Нет размеров окна: {room_title} / {win_title}",
+                    "description": "Причина: без ширины и высоты окна нельзя вычесть проём из площади стен. Риск: завышение объёма стеновых работ и материалов.",
+                    "source": "system_rules", "linkedEntityType": "room_window", "linkedEntityId": str(w.get("id")),
+                    "suggestedAction": "Заполнить ширину и высоту окна.",
+                    "assignedRole": room_assignment["assignedRole"], "assignedTo": room_assignment["assignedTo"],
+                    "dedupeKey": f"ROOM_CONTROL:window:{w.get('id')}:size",
+                })
+            if _float_or_zero(w.get("reveal_depth")) <= 0:
+                findings.append({
+                    "projectName": project_name, "findingType": "rule", "category": "Помещения",
+                    "severity": "Проверить",
+                    "title": f"Нет глубины оконного откоса: {room_title} / {win_title}",
+                    "description": "Причина: откосы считаются отдельным объёмом. Риск: не посчитается штукатурка/отделка откосов.",
+                    "source": "system_rules", "linkedEntityType": "room_window", "linkedEntityId": str(w.get("id")),
+                    "suggestedAction": "Указать глубину оконного откоса.",
+                    "assignedRole": room_assignment["assignedRole"], "assignedTo": room_assignment["assignedTo"],
+                    "dedupeKey": f"ROOM_CONTROL:window:{w.get('id')}:reveal",
+                })
+        for d in doors_by_room.get(room["id"], []):
+            door_title = d.get("name") or f"Дверь {d.get('id')}"
+            if _float_or_zero(d.get("width")) <= 0 or _float_or_zero(d.get("height")) <= 0:
+                findings.append({
+                    "projectName": project_name, "findingType": "rule", "category": "Помещения",
+                    "severity": "Не хватает данных",
+                    "title": f"Нет размеров двери: {room_title} / {door_title}",
+                    "description": "Причина: без ширины и высоты двери нельзя вычесть проём из площади стен. Риск: завышение объёма стеновых работ и материалов.",
+                    "source": "system_rules", "linkedEntityType": "room_door", "linkedEntityId": str(d.get("id")),
+                    "suggestedAction": "Заполнить ширину и высоту двери.",
+                    "assignedRole": room_assignment["assignedRole"], "assignedTo": room_assignment["assignedTo"],
+                    "dedupeKey": f"ROOM_CONTROL:door:{d.get('id')}:size",
+                })
+            if _float_or_zero(d.get("reveal_depth")) <= 0:
+                findings.append({
+                    "projectName": project_name, "findingType": "rule", "category": "Помещения",
+                    "severity": "Проверить",
+                    "title": f"Нет глубины дверного откоса: {room_title} / {door_title}",
+                    "description": "Причина: дверные откосы считаются отдельно от стен. Риск: не посчитается объём откосов.",
+                    "source": "system_rules", "linkedEntityType": "room_door", "linkedEntityId": str(d.get("id")),
+                    "suggestedAction": "Указать глубину дверного откоса.",
+                    "assignedRole": room_assignment["assignedRole"], "assignedTo": room_assignment["assignedTo"],
+                    "dedupeKey": f"ROOM_CONTROL:door:{d.get('id')}:reveal",
+                })
+
+    cur.execute("""SELECT id, description, unit, quantity, date, master_name
+                   FROM work_journal
+                   WHERE project=%s AND COALESCE(status,'') <> 'Отклонено'
+                   ORDER BY id DESC LIMIT 150""", (project_name,))
+    journal_rows = [dict(r) for r in cur.fetchall()]
+    cur.execute("SELECT description, date FROM room_works WHERE project=%s", (project_name,))
+    bound_keys = set((str(r.get("description") or "").strip().lower(), str(r.get("date") or "")) for r in cur.fetchall())
+    for wj in journal_rows:
+        unit = (wj.get("unit") or "").lower()
+        if unit not in ("м2", "м", "шт", "м3"):
+            continue
+        desc = (wj.get("description") or "").strip()
+        if not desc or (desc.lower(), str(wj.get("date") or "")) in bound_keys:
+            continue
+        assignment = _ai_assignment(cur, project_name, "work_room", wj.get("master_name") or "")
+        findings.append({
+            "projectName": project_name,
+            "findingType": "rule",
+            "category": "ЖПР",
+            "severity": "Проверить",
+            "title": f"Работа без помещения: {desc[:90]}",
+            "description": f"Причина: запись ЖПР не привязана к помещению. Риск: {wj.get('quantity') or 0:g} {wj.get('unit') or ''} нельзя корректно сверить с обмерами, сметой и материалами.",
+            "source": "system_rules",
+            "linkedEntityType": "work_journal",
+            "linkedEntityId": str(wj.get("id")),
+            "suggestedAction": "Уточнить помещение и поверхность для этой работы.",
+            "assignedRole": assignment["assignedRole"],
+            "assignedTo": assignment["assignedTo"],
+            "dedupeKey": f"WORK_ROOM_LINK:work_journal:{wj.get('id')}:room_binding",
+        })
+
+    active_finding_keys = {f.get("dedupeKey") for f in findings if f.get("dedupeKey")}
+    for finding in findings:
+        _, is_created = _upsert_ai_finding(cur, finding, current_user)
+        if is_created:
+            created += 1
+        else:
+            updated += 1
+    closed += _close_stale_ai_findings(cur, project_name, ["Помещения", "ЖПР"], active_finding_keys, current_user.get("name") or "ИИ-контроль")
+
+    tasks = []
+    active_task_keys = set()
+    cur.execute("""SELECT id, sections_json, name, version
+                   FROM estimates
+                   WHERE project_name=%s
+                     AND status='Активная'
+                     AND COALESCE(smeta_type,'Заказчик')='Заказчик'
+                   ORDER BY id DESC""", (project_name,))
+    estimates = [dict(r) for r in cur.fetchall()]
+    cur.execute("""SELECT id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
+                          work_unit, material_unit, qty_per_unit
+                   FROM material_norms
+                   WHERE active=TRUE""")
+    norms = [dict(r) for r in cur.fetchall()]
+
+    planned_materials = {}
+    work_count = 0
+    material_count = 0
+    estimate_assignment = _ai_assignment(cur, project_name, "estimate")
+    for est in estimates:
+        sections = _estimate_sections(est.get("sections_json"))
+        for section in sections:
+            section_name = section.get("name") or ""
+            for item in section.get("items") or []:
+                kind = _estimate_item_type_backend(item, section_name)
+                name = (item.get("name") or "").strip()
+                if not name:
+                    continue
+                qty = _float_or_zero(item.get("quantity"))
+                unit = item.get("unit") or ""
+                if kind == "material":
+                    key = _material_control_key(name, unit)
+                    if not key[0] or qty <= 0:
+                        continue
+                    row = planned_materials.setdefault(key, {"name": name, "unit": unit, "qty": 0.0, "sum": 0.0})
+                    row["qty"] += qty
+                    row["sum"] += _estimate_material_sum_backend(item) or _estimate_item_sum_backend(item)
+                    material_count += 1
+                elif kind == "work":
+                    work_count += 1
+                    has_material_price = _float_or_zero(item.get("priceMaterial")) > 0
+                    has_norm = _ai_work_has_norm(norms, name, section_name, unit)
+                    if has_material_price and not has_norm:
+                        dedupe = f"ESTIMATE_RULE:norm_missing:{est.get('id')}:{hashlib.sha1((section_name+'|'+name).encode('utf-8')).hexdigest()}"
+                        active_task_keys.add(dedupe)
+                        _add_ai_task_candidate(
+                            tasks, project_name,
+                            f"Нет нормы расхода для работы: {name[:90]}",
+                            f"Причина: в позиции есть материальная часть, но правило расхода не найдено. Риск по смете: примерно {_estimate_material_sum_backend(item):,.2f} ₽. Ответственный должен проверить норму или разложить позицию на материалы.",
+                            "estimate", dedupe,
+                            {"type": "estimate_norm_review", "estimateId": est.get("id"), "sectionName": section_name, "workName": name, "dedupeKey": dedupe},
+                            estimate_assignment,
+                        )
+    if estimates and work_count > 0 and material_count == 0:
+        dedupe = "ESTIMATE_RULE:no_material_breakdown:" + hashlib.sha1(project_name.encode("utf-8")).hexdigest()
+        active_task_keys.add(dedupe)
+        _add_ai_task_candidate(
+            tasks, project_name,
+            "В активной смете нет отдельных материалов",
+            "Причина: работы есть, но материалы не разложены отдельными позициями. Риск: снабжение и списание материалов будут сверяться хуже, часть контроля останется ручной.",
+            "estimate", dedupe,
+            {"type": "estimate_quality_review", "projectName": project_name, "dedupeKey": dedupe},
+            estimate_assignment,
+        )
+
+    cur.execute("SELECT name, unit, quantity, price FROM materials WHERE project=%s", (project_name,))
+    stock = {}
+    for row in cur.fetchall() or []:
+        key = _material_control_key(row.get("name") or "", row.get("unit") or "")
+        if not key[0]:
+            continue
+        item = stock.setdefault(key, {"name": row.get("name") or "", "unit": row.get("unit") or "", "qty": 0.0, "sum": 0.0})
+        qty = _float_or_zero(row.get("quantity"))
+        item["qty"] += qty
+        item["sum"] += qty * _float_or_zero(row.get("price"))
+    cur.execute("""SELECT material, quantity
+                   FROM warehouse_history
+                   WHERE project=%s
+                     AND (LOWER(COALESCE(type,'')) LIKE %s OR LOWER(COALESCE(type,'')) LIKE %s)""",
+                (project_name, "%расход%", "%спис%"))
+    spent = {}
+    for row in cur.fetchall() or []:
+        key = (_norm_key_text(row.get("material") or ""), "")
+        if key[0]:
+            spent[key[0]] = spent.get(key[0], 0.0) + _float_or_zero(row.get("quantity"))
+
+    material_assignment = _ai_assignment(cur, project_name, "materials")
+    for key, need in planned_materials.items():
+        stock_row = stock.get(key) or {"qty": 0.0}
+        spent_qty = spent.get(key[0], 0.0)
+        delivered_or_available = _float_or_zero(stock_row.get("qty")) + spent_qty
+        need_qty = _float_or_zero(need.get("qty"))
+        tolerance = max(0.01, need_qty * 0.05)
+        if need_qty > 0 and delivered_or_available + tolerance < need_qty:
+            shortage = need_qty - delivered_or_available
+            dedupe = f"MATERIAL_RULE:purchase:{key[0]}:{key[1]}"
+            active_task_keys.add(dedupe)
+            _add_ai_task_candidate(
+                tasks, project_name,
+                f"Нужно докупить материал: {need.get('name')}",
+                f"Причина: по активной смете нужно {need_qty:g} {need.get('unit')}, подтверждено приходом/остатком/списанием {delivered_or_available:g}. Риск: не хватает {shortage:g} {need.get('unit')}.",
+                "materials", dedupe,
+                {"type": "material_purchase_review", "materialName": need.get("name"), "unit": need.get("unit"), "toBuy": shortage, "dedupeKey": dedupe},
+                material_assignment,
+                "Критично",
+            )
+        if need_qty > 0 and spent_qty > need_qty * 1.08:
+            over = spent_qty - need_qty
+            dedupe = f"MATERIAL_RULE:norm_over:{key[0]}:{key[1]}"
+            active_task_keys.add(dedupe)
+            _add_ai_task_candidate(
+                tasks, project_name,
+                f"Списание выше сметы: {need.get('name')}",
+                f"Причина: списано {spent_qty:g} {need.get('unit')} при сметной потребности {need_qty:g}. Риск перерасхода: {over:g} {need.get('unit')}.",
+                "materials", dedupe,
+                {"type": "material_norm_over_review", "materialName": need.get("name"), "unit": need.get("unit"), "overQuantity": over, "dedupeKey": dedupe},
+                estimate_assignment,
+                "Критично",
+            )
+    for key, have in stock.items():
+        if planned_materials and key not in planned_materials and _float_or_zero(have.get("qty")) > 0:
+            dedupe = f"MATERIAL_RULE:outside_estimate:{key[0]}:{key[1]}"
+            active_task_keys.add(dedupe)
+            _add_ai_task_candidate(
+                tasks, project_name,
+                f"Материал не найден в смете: {have.get('name')}",
+                f"Причина: на объекте числится {have.get('qty'):g} {have.get('unit')}, но в активной смете такого материала нет. Риск: закупка или списание вне сметы.",
+                "materials", dedupe,
+                {"type": "material_outside_estimate_review", "materialName": have.get("name"), "unit": have.get("unit"), "quantity": have.get("qty"), "dedupeKey": dedupe},
+                material_assignment,
+            )
+
+    cur.execute("""SELECT id, material_name, quantity, unit, transfer_date, to_person, to_person_role
+                   FROM material_transfers
+                   WHERE project_name=%s
+                     AND COALESCE(signed,FALSE)=FALSE
+                   ORDER BY id DESC LIMIT 50""", (project_name,))
+    for tr in cur.fetchall() or []:
+        dedupe = f"MATERIAL_RULE:transfer_unsigned:{tr.get('id')}"
+        active_task_keys.add(dedupe)
+        assignment = _ai_assignment(cur, project_name, "materials")
+        _add_ai_task_candidate(
+            tasks, project_name,
+            f"Передача материала не подписана: {tr.get('material_name')}",
+            f"Причина: материал передан {tr.get('to_person') or 'получателю'}, но подпись получения не стоит. Риск: {tr.get('quantity') or 0:g} {tr.get('unit') or ''} не подтверждены ответственным лицом.",
+            "materials", dedupe,
+            {"type": "material_transfer_sign_review", "transferId": tr.get("id"), "materialName": tr.get("material_name"), "dedupeKey": dedupe},
+            assignment,
+        )
+
+    for task in tasks:
+        task.pop("_group", None)
+        _, is_created = _upsert_ai_task(cur, task, current_user)
+        if is_created:
+            tasks_created += 1
+        else:
+            tasks_updated += 1
+    active_task_keys = set(active_task_keys) | set(active_finding_keys)
+    closed += _close_stale_ai_tasks(
+        cur,
+        project_name,
+        ["MATERIAL_RULE:", "ESTIMATE_RULE:", "MATERIAL_CONTROL:", "ROOM_CONTROL:", "WORK_ROOM_LINK:"],
+        active_task_keys,
+        current_user.get("name") or "ИИ-контроль"
+    )
+    return {
+        "ok": True,
+        "projectName": project_name,
+        "reason": reason,
+        "created": created,
+        "updated": updated,
+        "tasksCreated": tasks_created,
+        "tasksUpdated": tasks_updated,
+        "closed": closed,
+        "totalFindings": len(findings),
+        "totalTasks": len(tasks),
+    }
+
+def _run_project_ai_control_safely(project_name: str, reason: str = "event"):
+    if not project_name:
+        return {}
+    conn = None
+    cur = None
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        return _run_project_ai_control(cur, project_name, _ai_system_user(), reason=reason)
+    except Exception as e:
+        print("AI CONTROL AUTO-RUN ERROR:", project_name, reason, str(e))
+        return {}
+    finally:
+        try:
+            if cur:
+                cur.close()
+            if conn:
+                conn.close()
+        except Exception:
+            pass
+
 @app.get("/ai-findings")
 def list_ai_findings(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
@@ -6078,150 +6644,50 @@ def generate_ai_findings(data: dict, current_user: dict = Depends(require_roles(
     require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""SELECT id, project, name, floor_area, wall_area, ceiling_area, height, windows, doors, notes, floor, liter, room_type
-                   FROM rooms WHERE project=%s ORDER BY id""", (project_name,))
-    rooms_rows = [dict(r) for r in cur.fetchall()]
-    room_ids = [r["id"] for r in rooms_rows]
-    windows_by_room, doors_by_room = {}, {}
-    if room_ids:
-        cur.execute("""SELECT w.id,w.room_id,w.name,w.width,w.height,w.reveal_depth
-                       FROM room_windows w WHERE w.room_id = ANY(%s) ORDER BY w.id""", (room_ids,))
-        for w in cur.fetchall():
-            windows_by_room.setdefault(w["room_id"], []).append(dict(w))
-        cur.execute("""SELECT d.id,d.room_id,d.name,d.width,d.height,d.reveal_depth
-                       FROM room_doors d WHERE d.room_id = ANY(%s) ORDER BY d.id""", (room_ids,))
-        for d in cur.fetchall():
-            doors_by_room.setdefault(d["room_id"], []).append(dict(d))
-    findings = []
-    for room in rooms_rows:
-        room_title = (room.get("name") or f"Помещение {room.get('id')}")
-        room_prefix = f"{room_title}"
-        for field, label, action in [
-            ("floor_area", "площади пола", "Заполнить площадь пола по проекту или фактическому обмеру."),
-            ("wall_area", "площади стен", "Заполнить площадь стен. Окна и двери потом вычтутся из чистой площади."),
-            ("ceiling_area", "площади потолка", "Заполнить площадь потолка по проекту или фактическому обмеру."),
-            ("height", "высоты помещения", "Заполнить высоту помещения. Она нужна для проверки стен, откосов и расчёта материалов."),
-        ]:
-            if float(room.get(field) or 0) <= 0:
-                findings.append({
-                    "projectName": project_name,
-                    "findingType": "rule",
-                    "category": "Помещения",
-                    "severity": "Не хватает данных",
-                    "title": f"Нет {label}: {room_prefix}",
-                    "description": f"В помещении «{room_title}» не заполнена {label}. Из-за этого система не сможет корректно сверять смету, факт работ и списание материалов.",
-                    "source": "system_rules",
-                    "linkedEntityType": "room",
-                    "linkedEntityId": str(room.get("id")),
-                    "suggestedAction": action,
-                    "assignedRole": "прораб",
-                    "dedupeKey": f"room:{room.get('id')}:{field}",
-                })
-        for w in windows_by_room.get(room["id"], []):
-            win_title = w.get("name") or f"Окно {w.get('id')}"
-            if float(w.get("width") or 0) <= 0 or float(w.get("height") or 0) <= 0:
-                findings.append({
-                    "projectName": project_name,
-                    "findingType": "rule",
-                    "category": "Помещения",
-                    "severity": "Не хватает данных",
-                    "title": f"Нет размеров окна: {room_title} / {win_title}",
-                    "description": "Без ширины и высоты окна нельзя правильно вычесть проём из площади стен.",
-                    "source": "system_rules",
-                    "linkedEntityType": "room_window",
-                    "linkedEntityId": str(w.get("id")),
-                    "suggestedAction": "Заполнить ширину и высоту окна.",
-                    "assignedRole": "прораб",
-                    "dedupeKey": f"window:{w.get('id')}:size",
-                })
-            if float(w.get("reveal_depth") or 0) <= 0:
-                findings.append({
-                    "projectName": project_name,
-                    "findingType": "rule",
-                    "category": "Помещения",
-                    "severity": "Проверить",
-                    "title": f"Нет глубины оконного откоса: {room_title} / {win_title}",
-                    "description": "Откосы считаются отдельным объёмом. Без глубины нельзя посчитать штукатурку/отделку откосов.",
-                    "source": "system_rules",
-                    "linkedEntityType": "room_window",
-                    "linkedEntityId": str(w.get("id")),
-                    "suggestedAction": "Указать глубину оконного откоса.",
-                    "assignedRole": "прораб",
-                    "dedupeKey": f"window:{w.get('id')}:reveal",
-                })
-        for d in doors_by_room.get(room["id"], []):
-            door_title = d.get("name") or f"Дверь {d.get('id')}"
-            if float(d.get("width") or 0) <= 0 or float(d.get("height") or 0) <= 0:
-                findings.append({
-                    "projectName": project_name,
-                    "findingType": "rule",
-                    "category": "Помещения",
-                    "severity": "Не хватает данных",
-                    "title": f"Нет размеров двери: {room_title} / {door_title}",
-                    "description": "Без ширины и высоты двери нельзя правильно вычесть проём из площади стен.",
-                    "source": "system_rules",
-                    "linkedEntityType": "room_door",
-                    "linkedEntityId": str(d.get("id")),
-                    "suggestedAction": "Заполнить ширину и высоту двери.",
-                    "assignedRole": "прораб",
-                    "dedupeKey": f"door:{d.get('id')}:size",
-                })
-            if float(d.get("reveal_depth") or 0) <= 0:
-                findings.append({
-                    "projectName": project_name,
-                    "findingType": "rule",
-                    "category": "Помещения",
-                    "severity": "Проверить",
-                    "title": f"Нет глубины дверного откоса: {room_title} / {door_title}",
-                    "description": "Дверные откосы считаются отдельно от стен. Без глубины система не сможет проверить объём.",
-                    "source": "system_rules",
-                    "linkedEntityType": "room_door",
-                    "linkedEntityId": str(d.get("id")),
-                    "suggestedAction": "Указать глубину дверного откоса.",
-                    "assignedRole": "прораб",
-                    "dedupeKey": f"door:{d.get('id')}:reveal",
-                })
-    cur.execute("""SELECT id, description, unit, quantity, date, master_name
-                   FROM work_journal
-                   WHERE project=%s AND COALESCE(status,'') <> 'Отклонено'
-                   ORDER BY id DESC LIMIT 80""", (project_name,))
-    journal_rows = [dict(r) for r in cur.fetchall()]
-    cur.execute("SELECT description, date FROM room_works WHERE project=%s", (project_name,))
-    bound_keys = set((str(r.get("description") or "").strip().lower(), str(r.get("date") or "")) for r in cur.fetchall())
-    for wj in journal_rows:
-        unit = (wj.get("unit") or "").lower()
-        if unit not in ("м2", "м", "шт", "м3"):
-            continue
-        desc = (wj.get("description") or "").strip()
-        if not desc:
-            continue
-        key = (desc.lower(), str(wj.get("date") or ""))
-        if key in bound_keys:
-            continue
-        findings.append({
-            "projectName": project_name,
-            "findingType": "rule",
-            "category": "ЖПР",
-            "severity": "Проверить",
-            "title": f"Работа без помещения: {desc[:90]}",
-            "description": "Запись журнала работ не привязана к помещению. Из-за этого сложнее сверять факт с обмерами, сметой и материалами.",
-            "source": "system_rules",
-            "linkedEntityType": "work_journal",
-            "linkedEntityId": str(wj.get("id")),
-            "suggestedAction": "Уточнить помещение и поверхность для этой работы.",
-            "assignedRole": "прораб",
-            "dedupeKey": f"work_journal:{wj.get('id')}:room_binding",
-        })
-    created = 0
-    updated = 0
-    for finding in findings:
-        _, is_created = _upsert_ai_finding(cur, finding, current_user)
-        if is_created:
-            created += 1
-        else:
-            updated += 1
+    result = _run_project_ai_control(cur, project_name, current_user, data.get("reason") or "manual")
     cur.close(); conn.close()
-    return {"ok": True, "created": created, "updated": updated, "total": len(findings)}
+    return result
+
+@app.post("/ai-control/run")
+def run_ai_control(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец", "мастер", "субподрядчик"))):
+    project_name = data.get("projectName") or data.get("project_name") or data.get("project") or ""
+    if not project_name:
+        raise HTTPException(status_code=400, detail="projectName required")
+    require_project_access(current_user, project_name)
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    result = _run_project_ai_control(cur, project_name, current_user, data.get("reason") or "manual")
+    cur.close(); conn.close()
+    return result
+
+@app.post("/ai-control/run-all")
+def run_all_ai_control(data: dict = None, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "главный_инженер", "сметчик"))):
+    data = data or {}
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""SELECT name
+                   FROM projects
+                   WHERE COALESCE(archived,FALSE)=FALSE
+                     AND COALESCE(status,'') NOT IN ('Завершён','Завершен','Архив')
+                   ORDER BY id""")
+    projects = [r["name"] for r in cur.fetchall() if r.get("name")]
+    results = []
+    for project_name in projects:
+        try:
+            results.append(_run_project_ai_control(cur, project_name, current_user, data.get("reason") or "nightly"))
+        except Exception as e:
+            results.append({"ok": False, "projectName": project_name, "detail": str(e)})
+    cur.close(); conn.close()
+    return {
+        "ok": True,
+        "projects": len(projects),
+        "results": results,
+        "created": sum(int(r.get("created") or 0) for r in results if r.get("ok")),
+        "updated": sum(int(r.get("updated") or 0) for r in results if r.get("ok")),
+        "tasksCreated": sum(int(r.get("tasksCreated") or 0) for r in results if r.get("ok")),
+        "tasksUpdated": sum(int(r.get("tasksUpdated") or 0) for r in results if r.get("ok")),
+        "closed": sum(int(r.get("closed") or 0) for r in results if r.get("ok")),
+    }
 
 @app.get("/ai-tasks")
 def list_ai_tasks(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
@@ -6580,7 +7046,11 @@ def create_room_window(data: dict, _current_user: dict = Depends(require_roles(*
         (room_id,data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('windowType') or data.get('window_type','ПВХ'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0)))
     conn.commit()
     row = cur.fetchone()
+    cur.execute("SELECT project FROM rooms WHERE id=%s", (room_id,))
+    project_row = cur.fetchone()
+    project_name = project_row[0] if project_row else ""
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "room_window:create")
     return row
 
 @app.put("/room-windows/{id}")
@@ -6589,13 +7059,21 @@ def update_room_window(id: int, data: dict, _current_user: dict = Depends(requir
     cur = conn.cursor()
     require_room_child_access(cur, "room_windows", id, _current_user)
     room_id = data.get('roomId') or data.get('room_id')
+    if not room_id:
+        cur.execute("SELECT room_id FROM room_windows WHERE id=%s", (id,))
+        existing_room = cur.fetchone()
+        room_id = existing_room[0] if existing_room else None
     if room_id:
         require_room_access(cur, room_id, _current_user)
     cur.execute("""UPDATE room_windows
                    SET room_id=%s,name=%s,width=%s,height=%s,window_type=%s,reveal_depth=%s,reveal_material=%s,order_num=%s
                    WHERE id=%s""",
         (room_id,data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('windowType') or data.get('window_type','ПВХ'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0),id))
+    cur.execute("""SELECT r.project FROM room_windows w JOIN rooms r ON r.id=w.room_id WHERE w.id=%s""", (id,))
+    project_row = cur.fetchone()
+    project_name = project_row[0] if project_row else ""
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "room_window:update")
     return {"ok": True}
 
 @app.delete("/room-windows/{id}")
@@ -6637,7 +7115,11 @@ def create_room_door(data: dict, _current_user: dict = Depends(require_roles(*PR
         (room_id,data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('doorType') or data.get('door_type','Деревянная'),data.get('doorPurpose') or data.get('door_purpose','Межкомнатная'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0)))
     conn.commit()
     row = cur.fetchone()
+    cur.execute("SELECT project FROM rooms WHERE id=%s", (room_id,))
+    project_row = cur.fetchone()
+    project_name = project_row[0] if project_row else ""
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "room_door:create")
     return row
 
 @app.put("/room-doors/{id}")
@@ -6646,13 +7128,21 @@ def update_room_door(id: int, data: dict, _current_user: dict = Depends(require_
     cur = conn.cursor()
     require_room_child_access(cur, "room_doors", id, _current_user)
     room_id = data.get('roomId') or data.get('room_id')
+    if not room_id:
+        cur.execute("SELECT room_id FROM room_doors WHERE id=%s", (id,))
+        existing_room = cur.fetchone()
+        room_id = existing_room[0] if existing_room else None
     if room_id:
         require_room_access(cur, room_id, _current_user)
     cur.execute("""UPDATE room_doors
                    SET room_id=%s,name=%s,width=%s,height=%s,door_type=%s,door_purpose=%s,reveal_depth=%s,reveal_material=%s,order_num=%s
                    WHERE id=%s""",
         (room_id,data.get('name',''),float(data.get('width',0)),float(data.get('height',0)),data.get('doorType') or data.get('door_type','Деревянная'),data.get('doorPurpose') or data.get('door_purpose','Межкомнатная'),float(data.get('revealDepth') or data.get('reveal_depth') or 0),data.get('revealMaterial') or data.get('reveal_material','Штукатурка'),int(data.get('orderNum') or data.get('order_num') or 0),id))
+    cur.execute("""SELECT r.project FROM room_doors d JOIN rooms r ON r.id=d.room_id WHERE d.id=%s""", (id,))
+    project_row = cur.fetchone()
+    project_name = project_row[0] if project_row else ""
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "room_door:update")
     return {"ok": True}
 
 @app.delete("/room-doors/{id}")
@@ -7455,6 +7945,7 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FIN
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "estimate:create")
     return {"id":row[0],"ok":True}
 
 @app.put("/estimates/{id}")
@@ -7646,6 +8137,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
 
     conn.commit()
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "estimate:update")
     return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced}
 
 @app.put("/estimates/{id}/status")
@@ -7672,6 +8164,7 @@ def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(re
     cur.execute("UPDATE estimates SET status=%s WHERE id=%s", (status, id))
     conn.commit()
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "estimate:status")
     return {"ok": True, "status": status}
 
 @app.post("/estimates/{id}/include-changes")
@@ -9122,6 +9615,7 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
             (material_name, "расход", qty, data.get("transferDate") or None, from_location, data.get("createdBy",""), __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
         conn.commit()
+        _run_project_ai_control_safely(data.get("projectName",""), "material_transfer:create")
         return {"id": new_id, "ok": True}
     except HTTPException:
         conn.rollback()
@@ -9137,9 +9631,13 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
 def sign_material_transfer(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT project_name FROM material_transfers WHERE id=%s", (id,))
+    row = cur.fetchone()
+    project_name = row[0] if row else ""
     cur.execute("UPDATE material_transfers SET signed=TRUE,signed_at=NOW() WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "material_transfer:sign")
     return {"ok":True}
 
 @app.delete("/material-transfers/{id}")
@@ -9526,6 +10024,7 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
                 print("CABLE INSERT ERROR:", str(e))
     conn.commit()
     cur.close(); conn.close()
+    _run_project_ai_control_safely(proj or (data.get("location") if data.get("location") != "Основной склад" else ""), "warehouse_invoice:create")
     return {"id": invoice_id, "ok": True, "inspectionsAdded": inspections_added, "cablesAdded": cables_added}
 
 @app.delete("/warehouse-invoices/{id}")

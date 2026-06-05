@@ -2669,11 +2669,11 @@ function App() {
   };
   const generateAiFindingsForProject = async (projectName) => {
     if (!projectName) return;
-    const res = await fetch(API+'/ai-findings/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName})});
+    const res = await fetch(API+'/ai-control/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName,reason:'manual'})});
     const data = await res.json().catch(()=>({}));
     if (!res.ok) { alert(data.detail || 'Не удалось запустить ИИ-контроль'); return; }
     await loadAll();
-    alert('Проверка завершена: новых '+(data.created||0)+', обновлено '+(data.updated||0));
+    alert('ИИ-контроль обновлён: замечаний новых '+(data.created||0)+', задач новых '+(data.tasksCreated||0)+', обновлено '+((data.updated||0)+(data.tasksUpdated||0))+', закрыто '+(data.closed||0));
   };
   const updateAiFinding = async (id, patch) => {
     await fetch(API+'/ai-findings/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
@@ -2762,7 +2762,8 @@ function App() {
       'material_outside_estimate_review',
       'material_writeoff_review',
       'material_norm_over_review',
-      'material_without_norm_review'
+      'material_without_norm_review',
+      'material_transfer_sign_review'
     ].includes(payload.type)) {
       const projectName = payload.projectName || task.projectName || '';
       const project = (projects||[]).find(p=>p.name===projectName);
@@ -5909,7 +5910,9 @@ function App() {
       await queueRoomControlTask(descriptor);
     }
   };
+  const frontendAiAutoControlEnabled = false; // backend /ai-control/* теперь единый источник фоновых задач
   useEffect(() => {
+    if (!frontendAiAutoControlEnabled) return;
     if (!user || !['директор','зам_директора','сметчик','главный_инженер'].includes(user.role)) return;
     if (!Array.isArray(estimatesList) || estimatesList.length===0) return;
     const activeCustomerEstimates = (estimatesList||[])
@@ -5929,6 +5932,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role, estimatesList, materialNorms, materialNormOverrides]);
   useEffect(() => {
+    if (!frontendAiAutoControlEnabled) return;
     if (!user || !['директор','зам_директора','снабженец','прораб','главный_инженер','сметчик'].includes(user.role)) return;
     if (!Array.isArray(projects) || projects.length===0) return;
     const visible = visibleActiveProjects(projects).slice(0,20);
@@ -5942,6 +5946,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role, projects, estimatesList, materials, supplyRequests, supplyDeliveries, supplyHistory, supplierInvoices, invoices, materialTransfers, workJournal, materialNorms, materialNormOverrides, materialAliases]);
   useEffect(() => {
+    if (!frontendAiAutoControlEnabled) return;
     if (!user || !['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user.role)) return;
     if (!Array.isArray(projects) || projects.length===0) return;
     const visible = visibleActiveProjects(projects).slice(0,20);
@@ -11590,7 +11595,7 @@ function App() {
                       const canRunAiControl = user&&['директор','зам_директора','прораб','главный_инженер','сметчик','технадзор','стройконтроль'].includes(user.role);
                       const taskTypeMeta = (task) => {
                         const type = parseAiTaskPayload(task).type;
-                        if (['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(type)) return {key:'materials',label:'Материалы',icon:<Package size={13}/>,color:C.info,bg:C.infoLight,border:C.infoBorder};
+                        if (['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review','material_transfer_sign_review'].includes(type)) return {key:'materials',label:'Материалы',icon:<Package size={13}/>,color:C.info,bg:C.infoLight,border:C.infoBorder};
                         if (['room_measurement_review','work_room_link_review'].includes(type)) return {key:'rooms',label:'Помещения',icon:<MapPin size={13}/>,color:C.success,bg:C.successLight,border:C.successBorder};
                         if (['estimate_quality_review','estimate_norm_review','material_norm_coverage'].includes(type)) return {key:'estimate',label:'Смета и нормы',icon:<Calculator size={13}/>,color:C.accent,bg:C.accentLight,border:C.accentBorder};
                         if (['estimate_diff_review','estimate_change_reconcile'].includes(type)) return {key:'changes',label:'Изменения к смете',icon:<GitBranch size={13}/>,color:C.warning,bg:C.warningLight,border:C.warningBorder};
@@ -11607,9 +11612,9 @@ function App() {
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
                           <div>
                             <b style={{color:C.text,fontSize:'15px'}}>🤖 ИИ-контроль объекта</b>
-                            <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Автопроверка обмеров, помещений, ЖПР и поручений по объекту.</p>
+                            <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Фоновый контроль обмеров, ЖПР, смет, норм, материалов и поручений.</p>
                           </div>
-                          <button onClick={()=>generateAiFindingsForProject(p.name)} disabled={!canRunAiControl} style={{...btnO,opacity:canRunAiControl?1:.55}}><Bot size={14}/>Запустить проверку</button>
+                          <button onClick={()=>generateAiFindingsForProject(p.name)} disabled={!canRunAiControl} style={{...btnO,opacity:canRunAiControl?1:.55}}><Bot size={14}/>Обновить контроль</button>
                         </div>
                         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:'10px',marginBottom:'14px'}}>
                           <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Открыто</p><b style={{color:C.text,fontSize:'20px'}}>{projectFindings.length}</b></div>
@@ -11619,8 +11624,8 @@ function App() {
                         </div>
                         {projectFindings.length===0&&standaloneTasks.length===0&&(<div style={{...card,padding:'18px',textAlign:'center',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
                           <b style={{color:C.success,fontSize:'14px'}}>Замечаний пока нет</b>
-                          <p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 12px'}}>Запустите проверку, чтобы система нашла незаполненные обмеры, окна/двери без размеров и работы без привязки к помещению.</p>
-                          <button onClick={()=>generateAiFindingsForProject(p.name)} disabled={!canRunAiControl} style={{...btnGr,opacity:canRunAiControl?1:.55}}><Bot size={14}/>Проверить объект</button>
+                          <p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 12px'}}>Система обновляет контроль после ключевых событий, а эту кнопку можно использовать для ручного пересчёта.</p>
+                          <button onClick={()=>generateAiFindingsForProject(p.name)} disabled={!canRunAiControl} style={{...btnGr,opacity:canRunAiControl?1:.55}}><Bot size={14}/>Обновить контроль</button>
                         </div>)}
                         {standaloneTasks.length>0&&(<div style={{...card,padding:'14px',marginBottom:'12px'}}>
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',marginBottom:'10px'}}>
@@ -11637,7 +11642,7 @@ function App() {
                               {group.tasks.map(task=>{
                                 const payload=parseAiTaskPayload(task);
                                 const isEstimateTask=['estimate_quality_review','estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
-                                const isMaterialTask=['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(payload.type);
+                                const isMaterialTask=['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review','material_transfer_sign_review'].includes(payload.type);
                                 const isRoomTask=['room_measurement_review','work_room_link_review'].includes(payload.type);
                                 const aliasCandidate=payload.aliasCandidate||null;
                                 const purchaseRow=payload.type==='material_purchase_review'
