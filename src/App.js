@@ -748,6 +748,9 @@ function App() {
   const [showAiChat, setShowAiChat] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showQuickActions, setShowQuickActions] = useState(false);
+  const [systemStatus, setSystemStatus] = useState(null);
+  const [systemStatusLoading, setSystemStatusLoading] = useState(false);
+  const [showSystemStatus, setShowSystemStatus] = useState(false);
   const [showChatPanel, setShowChatPanelRaw] = useState(false);
   const [companyChatInput, setCompanyChatInput] = useState('');
   const [showScanInvoice, setShowScanInvoice] = useState(false);
@@ -757,6 +760,19 @@ function App() {
   const openReceiveInvoice = (preselectedLocation) => {
     setNewInvoice({number:'',date:new Date().toISOString().split('T')[0],supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:user?.name||'',location:preselectedLocation||'',project:preselectedLocation&&preselectedLocation!=='Основной склад'?preselectedLocation:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}],supplier:'',totalWithVat:0});
     setShowReceiveDialog(true);
+  };
+  const openSystemStatus = async () => {
+    setShowSystemStatus(true);
+    setSystemStatusLoading(true);
+    try {
+      const res = await fetch(API+'/system-status');
+      const data = await res.json().catch(()=>({ok:false,error:'bad_json'}));
+      setSystemStatus(res.ok ? data : {...data,ok:false,httpStatus:res.status});
+    } catch (e) {
+      setSystemStatus({ok:false,error:e.message});
+    } finally {
+      setSystemStatusLoading(false);
+    }
   };
   const [scanningInvoice, setScanningInvoice] = useState(false);
   const [projectPayments, setProjectPayments] = useState([]);
@@ -11071,6 +11087,7 @@ function App() {
           <div style={{position:'relative',display:'flex',gap:'8px',alignItems:'center',justifyContent:'flex-end',flexWrap:'wrap',marginLeft:'auto',maxWidth:isMobile?'100%':'none'}}>
             <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{padding:isMobile?'8px 10px':'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',fontSize:'16px',display:'flex',alignItems:'center'}}>{darkMode?'☀️':'🌙'}</button>
             <button onClick={()=>setShowQuickActions(true)} title='Быстрые действия' style={{padding:isMobile?'8px 10px':'8px 12px',background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'10px',cursor:'pointer',color:'white',fontWeight:'700',fontSize:isMobile?'0':'13px',display:'flex',alignItems:'center',gap:'4px'}}>⚡ <span style={{fontSize:'13px',display:isMobile?'none':'inline'}}>Быстро</span></button>
+            {['директор','зам_директора','system_owner'].includes(user.role)&&<button onClick={openSystemStatus} title='Статус системы' style={{padding:isMobile?'8px 10px':'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px',color:C.textSec,fontSize:isMobile?'0':'12px',fontWeight:'700'}}><Settings size={17}/><span style={{display:isMobile?'none':'inline'}}>Статус</span></button>}
             <button onClick={()=>setShowChatPanel(s=>!s)} title='Чат' style={{position:'relative',padding:isMobile?'8px 10px':'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><MessageSquare size={18} color={C.textSec}/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
             <div data-notification-root="1" style={{position:'relative',display:'flex',alignItems:'center'}}>
             <button onClick={toggleNotifications} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
@@ -17040,6 +17057,37 @@ function App() {
           <div style={{width:'48px',height:'48px',borderRadius:'14px',background:`rgba(${btn.color==='#f97316'?'249,115,22':btn.color==='#22c55e'?'34,197,94':btn.color==='#3b82f6'?'59,130,246':btn.color==='#f59e0b'?'245,158,11':btn.color==='#8b5cf6'?'139,92,246':btn.color==='#10b981'?'16,185,129':btn.color==='#06b6d4'?'6,182,212':'249,115,22'},.15)`,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:'8px',color:btn.color}}>{btn.icon}</div>
           <span style={{fontSize:'11px',color:C.text,fontWeight:'600',textAlign:'center',lineHeight:'1.3'}}>{btn.label}</span>
         </div>))}
+      </div>
+    </div>)}
+    {showSystemStatus&&(<div onMouseDown={e=>{if(e.target===e.currentTarget)setShowSystemStatus(false);}} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1710,display:'flex',alignItems:'center',justifyContent:'center',padding:'18px'}}>
+      <div style={{backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'18px',boxShadow:'0 14px 55px rgba(0,0,0,0.35)',width:'min(760px,96vw)',maxHeight:'88vh',overflowY:'auto'}}>
+        <div style={{padding:'18px 20px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px'}}>
+          <div><h3 style={{margin:0,color:C.text,fontSize:'18px'}}>Статус системы</h3><p style={{margin:'4px 0 0',color:C.textSec,fontSize:'12px'}}>{systemStatus?.time||'—'}</p></div>
+          <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+            <span style={badge(systemStatusLoading?C.warning:(systemStatus?.ok?C.success:C.danger),systemStatusLoading?C.warningLight:(systemStatus?.ok?C.successLight:C.dangerLight),systemStatusLoading?C.warningBorder:(systemStatus?.ok?C.successBorder:C.dangerBorder))}>{systemStatusLoading?'Проверяю':(systemStatus?.ok?'OK':'Ошибка')}</span>
+            <button onClick={openSystemStatus} disabled={systemStatusLoading} style={{...btnG,padding:'6px 10px',opacity:systemStatusLoading?0.6:1}}><RefreshCw size={13}/></button>
+            <button onClick={()=>setShowSystemStatus(false)} style={{...btnG,padding:'6px 10px'}}><X size={14}/></button>
+          </div>
+        </div>
+        <div style={{padding:'18px 20px'}}>
+          {systemStatusLoading&&!systemStatus&&<p style={{color:C.textSec,margin:0}}>Загружаю статус...</p>}
+          {systemStatus&&(<>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
+              {[['Backend',systemStatus.ok?'работает':'ошибка'],['БД',systemStatus.db?.ok?'OK':'ошибка'],['S3',systemStatus.storage?.s3Configured?'подключён':'не настроен'],['Версия',systemStatus.version||'—']].map(([k,v])=><div key={k} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}><p style={{margin:0,color:C.textSec,fontSize:'11px',fontWeight:'700',textTransform:'uppercase'}}>{k}</p><b style={{display:'block',marginTop:'5px',color:C.text,fontSize:'14px'}}>{v}</b></div>)}
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'8px',marginBottom:'14px'}}>
+              {Object.entries(systemStatus.counts||{}).map(([k,v])=><div key={k} style={{padding:'10px 12px',borderRadius:'10px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{margin:0,color:C.textSec,fontSize:'11px'}}>{k}</p><b style={{color:C.text,fontSize:'16px'}}>{v}</b></div>)}
+            </div>
+            <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'14px'}}>
+              <b style={{color:C.text,fontSize:'13px'}}>Хранилище</b>
+              <p style={{margin:'6px 0 0',color:C.textSec,fontSize:'12px'}}>{'backend: '+(systemStatus.storage?.backend||'—')+' · prefix: '+(systemStatus.storage?.prefix||'—')+' · лимит: '+(systemStatus.storage?.maxUploadMb||0)+' МБ'}</p>
+            </div>
+            <div style={{borderRadius:'10px',border:'1.5px solid '+C.border,overflow:'hidden'}}>
+              <div style={{padding:'10px 12px',backgroundColor:C.bg,borderBottom:'1px solid '+C.border}}><b style={{color:C.text,fontSize:'13px'}}>Последние события</b></div>
+              {(systemStatus.recentAudit||[]).length===0?<p style={{padding:'12px',margin:0,color:C.textMuted,fontSize:'12px'}}>Событий нет</p>:(systemStatus.recentAudit||[]).map((a,i)=><div key={i} style={{padding:'10px 12px',borderBottom:i<(systemStatus.recentAudit||[]).length-1?'1px solid '+C.border:'none'}}><b style={{color:C.text,fontSize:'12px'}}>{a.action||'—'}</b><p style={{margin:'3px 0 0',color:C.textSec,fontSize:'11px'}}>{(a.user||'—')+' · '+(a.entityType||'—')+' · '+(a.createdAt||'')}</p>{a.description&&<p style={{margin:'3px 0 0',color:C.textMuted,fontSize:'11px'}}>{a.description}</p>}</div>)}
+            </div>
+          </>)}
+        </div>
       </div>
     </div>)}
     {showMobileMenu&&(<div onMouseDown={e=>{e.preventDefault();setShowMobileMenu(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>)}
