@@ -1000,7 +1000,7 @@ function App() {
     setNewStaffDoc({docType:'другое',title:'',fileUrl:'',signedAt:'',expiresAt:'',notes:''});
     setShowStaffDocForm(false);
   };
-  const [newUser, setNewUser] = useState({name:'',email:'',password:'',role:'прораб'});
+  const [newUser, setNewUser] = useState({name:'',email:'',password:'',role:'прораб',projectId:'',projectName:'',active:true});
   const [newPricelist, setNewPricelist] = useState({name:'',description:'',forWho:'',coefficient:1.0});
   const [newPlItem, setNewPlItem] = useState({name:'',unit:'м2',price:'',category:''});
   const [newInviteRole, setNewInviteRole] = useState('мастер');
@@ -7468,9 +7468,14 @@ function App() {
 
   const saveUser = async () => {
     if (!newUser.name||!newUser.email) return;
-    if (editingItem) await fetch(API+'/users/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
+    if (!editingItem && !newUser.password) { alert('Укажите пароль'); return; }
+    if (editingItem) {
+      const res = await fetch(API+'/users/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
+      if(!res.ok){ const e=await res.json().catch(()=>({})); alert(e.detail||'Не удалось сохранить пользователя'); return; }
+    }
     else {
-      await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
+      const res = await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
+      if(!res.ok){ const e=await res.json().catch(()=>({})); alert(e.detail||'Не удалось создать пользователя'); return; }
       if(newUser.role==='поставщик'){
         const existing = suppliers.find(s=>s.name===newUser.name||s.email===newUser.email);
         if(!existing){
@@ -7478,12 +7483,23 @@ function App() {
         }
       }
     }
-    await loadAll(); setNewUser({name:'',email:'',password:'',role:'прораб',companyName:'',inn:'',projectId:'',projectName:''}); setEditingItem(null); setShowForm(false);
+    await loadAll(); setNewUser({name:'',email:'',password:'',role:'прораб',companyName:'',inn:'',projectId:'',projectName:'',active:true}); setEditingItem(null); setShowForm(false);
   };
 
-  const deleteUser = async (id) => {
-    if (id===user.id) { alert('Нельзя удалить себя!'); return; }
-    if (window.confirm('Удалить?')) { await fetch(API+'/users/'+id,{method:'DELETE'}); await loadAll(); }
+  const toggleUserActive = async (u, nextActive) => {
+    if (!nextActive && u.id===user.id) { alert('Нельзя отключить себя!'); return; }
+    const label = nextActive ? 'Включить доступ пользователю?' : 'Отключить доступ пользователю? История останется в системе.';
+    if (!window.confirm(label)) return;
+    if (nextActive) {
+      await fetch(API+'/users/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:u.name,email:u.email,password:'',role:u.role,projectId:u.projectId||'',projectName:u.projectName||'',active:true})});
+    } else {
+      await fetch(API+'/users/'+u.id,{method:'DELETE'});
+    }
+    await loadAll();
+  };
+
+  const deleteUser = async (u) => {
+    await toggleUserActive(u, false);
   };
 
   const createInvite = async () => { await fetch(API+'/invite-codes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:newInviteRole})}); await loadAll(); };
@@ -15267,7 +15283,7 @@ function App() {
           {activePage==='users'&&isLeadership()&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewUser({name:'',email:'',password:'',role:'прораб'});}} style={btnO}><Plus size={14}/>Новый пользователь</button>
+                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewUser({name:'',email:'',password:'',role:'прораб',projectId:'',projectName:'',active:true});}} style={btnO}><Plus size={14}/>Новый пользователь</button>
                 <button onClick={()=>setShowInvites(!showInvites)} style={btnG}><Plus size={14}/>Коды приглашений</button>
               </div>
               <input placeholder="Поиск..." value={searchUser} onChange={e=>setSearchUser(e.target.value)} style={{...inp,marginBottom:0,width:'220px'}}/>
@@ -15280,6 +15296,7 @@ function App() {
                 {!editingItem&&<input type="password" placeholder="Пароль *" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0}}/>}
                 <select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})} style={{...inp,marginBottom:0}}>{Object.keys(ROLES).map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
                 {['заказчик','технадзор'].includes(newUser.role)&&(<select value={newUser.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));setNewUser({...newUser,projectId:e.target.value,projectName:p?p.name:''});}} style={{...inp,marginBottom:0}}><option value=''>Привязать к проекту *</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)}
+                {editingItem&&(<select value={newUser.active===false?'off':'on'} onChange={e=>setNewUser({...newUser,active:e.target.value==='on'})} style={{...inp,marginBottom:0}}><option value='on'>Аккаунт активен</option><option value='off'>Аккаунт отключён</option></select>)}
               </div>
               <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveUser} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
             </div>)}
@@ -15307,14 +15324,14 @@ function App() {
                   {isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
                 </div>
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'10px 18px'}}>
-                  {groupUsers.map(u=>(<div key={u.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid '+C.border}}>
+                  {groupUsers.map(u=>(<div key={u.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid '+C.border,opacity:u.active===false?0.58:1}}>
                     <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
                       <div style={{width:'36px',height:'36px',borderRadius:'10px',backgroundColor:roleColor(u.role),display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:'700',fontSize:'14px'}}>{u.name.charAt(0)}</div>
-                      <div><b style={{fontSize:'13px',color:C.text}}>{u.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{u.email+' · '+(ROLE_LABELS[u.role]||u.role)}</p></div>
+                      <div><b style={{fontSize:'13px',color:C.text}}>{u.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{u.email+' · '+(ROLE_LABELS[u.role]||u.role)}{u.projectName?' · '+u.projectName:''}</p>{u.active===false&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),fontSize:'10px'}}>Доступ отключён</span>}</div>
                     </div>
                     <div style={{display:'flex',gap:'6px'}}>
-                      <button onClick={()=>{setEditingItem(u);setNewUser({name:u.name,email:u.email,password:'',role:u.role});setShowForm(true);}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>
-                      {u.id!==user.id&&<button onClick={()=>deleteUser(u.id)} style={{...btnR,padding:'5px 8px',fontSize:'11px'}}><Trash2 size={11}/></button>}
+                      <button onClick={()=>{setEditingItem(u);setNewUser({name:u.name,email:u.email,password:'',role:u.role,projectId:u.projectId||'',projectName:u.projectName||'',active:u.active!==false});setShowForm(true);}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>
+                      {u.active===false?<button onClick={()=>toggleUserActive(u,true)} style={{...btnGr,padding:'5px 8px',fontSize:'11px'}}><Check size={11}/></button>:u.id!==user.id&&<button onClick={()=>deleteUser(u)} style={{...btnR,padding:'5px 8px',fontSize:'11px'}}><X size={11}/></button>}
                     </div>
                   </div>))}
                 </div>)}

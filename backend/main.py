@@ -142,11 +142,13 @@ def is_legacy_password(stored: str) -> bool:
 
 def public_user(row: dict, include_token: bool = False) -> dict:
     assigned_projects = _safe_project_list(row.get("assignedProjects", row.get("assigned_projects", [])))
+    active_value = row.get("active")
     user = {
         "id": row.get("id"),
         "name": row.get("name") or "",
         "email": row.get("email") or "",
         "role": row.get("role") or "",
+        "active": active_value is not False,
         "projectId": row.get("projectId", row.get("project_id")),
         "project_id": row.get("project_id", row.get("projectId")),
         "projectName": row.get("projectName", row.get("project_name")) or "",
@@ -689,6 +691,8 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INT DEFAULT 0;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
+        UPDATE users SET active=TRUE WHERE active IS NULL;
         CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
             chat_type VARCHAR(50) DEFAULT 'company',
@@ -2221,6 +2225,7 @@ class UserModel(BaseModel):
     role: str = "прораб"
     projectId: str = ""
     projectName: str = ""
+    active: Optional[bool] = None
 
 class LoginModel(BaseModel):
     email: str
@@ -2527,6 +2532,9 @@ def login(data: LoginModel):
     # Логинимся: пароль проверяем в Python, чтобы поддержать хеши и старые plaintext-пароли.
     cur.execute("SELECT * FROM users WHERE LOWER(email)=LOWER(%s)", (data.email,))
     user = cur.fetchone()
+    if user and user.get("active") is False:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Аккаунт отключён. Обратитесь к администратору.")
     if not user or not verify_password(data.password, user.get("password") or ""):
         # Увеличиваем счётчик неудачных попыток
         if user_check:
@@ -3160,9 +3168,9 @@ def get_users(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if current_user.get("role") in LEADERSHIP_ROLES or current_user.get("role") == "бухгалтер":
-        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects FROM users")
+        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects,COALESCE(active,TRUE) as active FROM users")
     else:
-        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects FROM users WHERE id=%s", (current_user.get("id"),))
+        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects,COALESCE(active,TRUE) as active FROM users WHERE id=%s", (current_user.get("id"),))
     rows = cur.fetchall()
     conn.close()
     out = []
@@ -3177,6 +3185,7 @@ def get_users(current_user: dict = Depends(get_current_user)):
         d.pop('assigned_projects', None)
         d['projectId'] = d.pop('project_id', None)
         d['projectName'] = d.pop('project_name', '')
+        d['active'] = d.get('active') is not False
         out.append(d)
     return out
 
@@ -3197,11 +3206,15 @@ def update_assigned_projects(id: int, data: dict, _current_user: dict = Depends(
 
 @app.post("/users")
 def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    if not (u.password or "").strip():
+        raise HTTPException(status_code=400, detail="Пароль обязателен")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("INSERT INTO users (name,email,password,role,project_id,project_name) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,name,email,role,project_id,project_name",
-                    (u.name,u.email,hash_password(u.password),u.role,int(u.projectId) if u.projectId else None,u.projectName or ""))
+        cur.execute("""INSERT INTO users (name,email,password,role,project_id,project_name,active)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING id,name,email,role,project_id,project_name,active""",
+                    (u.name,u.email,hash_password(u.password),u.role,int(u.projectId) if u.projectId else None,u.projectName or "", u.active is not False))
         row = cur.fetchone()
         conn.close()
         return dict(row)
@@ -3213,20 +3226,27 @@ def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADE
 def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    active_sql = ""
+    params_tail = []
+    if u.active is not None:
+        active_sql = ", active=%s"
+        params_tail.append(u.active is not False)
     if u.password:
-        cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s WHERE id=%s",
-                    (u.name,u.email,hash_password(u.password),u.role,id))
+        cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s"+active_sql+" WHERE id=%s",
+                    (u.name,u.email,hash_password(u.password),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
     else:
-        cur.execute("UPDATE users SET name=%s,email=%s,role=%s WHERE id=%s",
-                    (u.name,u.email,u.role,id))
+        cur.execute("UPDATE users SET name=%s,email=%s,role=%s,project_id=%s,project_name=%s"+active_sql+" WHERE id=%s",
+                    (u.name,u.email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
     conn.close()
     return {"ok": True}
 
 @app.delete("/users/{id}")
 def delete_user(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    if int(id) == int(_current_user.get("id") or 0):
+        raise HTTPException(status_code=400, detail="Нельзя отключить свой аккаунт")
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM users WHERE id=%s", (id,))
+    cur.execute("UPDATE users SET active=FALSE, locked_until=NULL WHERE id=%s", (id,))
     conn.close()
     return {"ok": True}
 
