@@ -7466,6 +7466,14 @@ function App() {
     await loadAll(); setRejectingEntry(null); setRejectComment('');
   };
 
+  const generateTempPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    const bytes = new Uint32Array(14);
+    if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
+    else for (let i=0;i<bytes.length;i++) bytes[i] = Math.floor(Math.random()*chars.length);
+    return Array.from(bytes, n => chars[n % chars.length]).join('');
+  };
+
   const saveUser = async () => {
     if (!newUser.name||!newUser.email) return;
     if (!editingItem && !newUser.password) { alert('Укажите пароль'); return; }
@@ -15293,7 +15301,10 @@ function App() {
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                 <input placeholder="Имя *" value={newUser.name} onChange={e=>setNewUser({...newUser,name:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input type="email" placeholder="Email *" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} style={{...inp,marginBottom:0}}/>
-                {!editingItem&&<input type="password" placeholder="Пароль *" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0}}/>}
+                <div style={{display:'flex',gap:'6px'}}>
+                  <input type="text" placeholder={editingItem?'Новый пароль (если меняем)':'Пароль *'} value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/>
+                  <button onClick={()=>{const p=generateTempPassword();setNewUser({...newUser,password:p});navigator.clipboard?.writeText(p).catch(()=>{});}} title="Сгенерировать и скопировать пароль" style={{...btnG,padding:'6px 10px',margin:0}}><RefreshCw size={13}/></button>
+                </div>
                 <select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})} style={{...inp,marginBottom:0}}>{Object.keys(ROLES).map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
                 {['заказчик','технадзор'].includes(newUser.role)&&(<select value={newUser.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));setNewUser({...newUser,projectId:e.target.value,projectName:p?p.name:''});}} style={{...inp,marginBottom:0}}><option value=''>Привязать к проекту *</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)}
                 {editingItem&&(<select value={newUser.active===false?'off':'on'} onChange={e=>setNewUser({...newUser,active:e.target.value==='on'})} style={{...inp,marginBottom:0}}><option value='on'>Аккаунт активен</option><option value='off'>Аккаунт отключён</option></select>)}
