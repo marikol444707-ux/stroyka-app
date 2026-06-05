@@ -6441,6 +6441,7 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
             spent[key[0]] = spent.get(key[0], 0.0) + _float_or_zero(row.get("quantity"))
 
     material_assignment = _ai_assignment(cur, project_name, "materials")
+    purchase_shortages = []
     for key, need in planned_materials.items():
         stock_row = stock.get(key) or {"qty": 0.0}
         spent_qty = spent.get(key[0], 0.0)
@@ -6449,17 +6450,16 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
         tolerance = max(0.01, need_qty * 0.05)
         if need_qty > 0 and delivered_or_available + tolerance < need_qty:
             shortage = need_qty - delivered_or_available
-            dedupe = f"MATERIAL_RULE:purchase:{key[0]}:{key[1]}"
-            active_task_keys.add(dedupe)
-            _add_ai_task_candidate(
-                tasks, project_name,
-                f"Нужно докупить материал: {need.get('name')}",
-                f"Причина: по активной смете нужно {need_qty:g} {need.get('unit')}, подтверждено приходом/остатком/списанием {delivered_or_available:g}. Риск: не хватает {shortage:g} {need.get('unit')}.",
-                "materials", dedupe,
-                {"type": "material_purchase_review", "materialName": need.get("name"), "unit": need.get("unit"), "toBuy": shortage, "dedupeKey": dedupe},
-                material_assignment,
-                "Критично",
-            )
+            item_sum = _float_or_zero(need.get("sum"))
+            risk_sum = (item_sum * shortage / need_qty) if need_qty > 0 else 0
+            purchase_shortages.append({
+                "name": need.get("name") or "",
+                "unit": need.get("unit") or "",
+                "needQty": need_qty,
+                "haveQty": delivered_or_available,
+                "shortage": shortage,
+                "riskSum": risk_sum,
+            })
         if need_qty > 0 and spent_qty > need_qty * 1.08:
             over = spent_qty - need_qty
             dedupe = f"MATERIAL_RULE:norm_over:{key[0]}:{key[1]}"
@@ -6473,6 +6473,42 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
                 estimate_assignment,
                 "Критично",
             )
+    if purchase_shortages:
+        total_risk = sum(_float_or_zero(x.get("riskSum")) for x in purchase_shortages)
+        top_rows = sorted(purchase_shortages, key=lambda x: _float_or_zero(x.get("riskSum")), reverse=True)
+        lines = [
+            f"Причина: по активной смете не закрыта потребность по {len(purchase_shortages)} материалам.",
+            f"Риск: ориентировочно {total_risk:,.2f} ₽ и срыв работ из-за недопоставки.",
+            "",
+            "Крупные позиции:"
+        ]
+        for idx, row in enumerate(top_rows[:12], 1):
+            lines.append(
+                f"{idx}. {row.get('name')} — не хватает {row.get('shortage'):g} {row.get('unit')} "
+                f"(нужно {row.get('needQty'):g}, подтверждено {row.get('haveQty'):g})"
+            )
+        if len(top_rows) > 12:
+            lines.append(f"...и ещё {len(top_rows) - 12} позиций.")
+        lines.append("")
+        lines.append("Что сделать: открыть материалы объекта, проверить заявки/поставки и создать закупки по строкам `Докупить`.")
+        dedupe = "MATERIAL_RULE:purchase_summary:" + hashlib.sha1(project_name.encode("utf-8")).hexdigest()
+        active_task_keys.add(dedupe)
+        _add_ai_task_candidate(
+            tasks, project_name,
+            f"Нужно докупить материалы: {len(purchase_shortages)} поз.",
+            "\n".join(lines),
+            "materials", dedupe,
+            {
+                "type": "material_purchase_review",
+                "projectName": project_name,
+                "count": len(purchase_shortages),
+                "riskSum": total_risk,
+                "shortages": top_rows[:25],
+                "dedupeKey": dedupe,
+            },
+            material_assignment,
+            "Критично",
+        )
     for key, have in stock.items():
         if planned_materials and key not in planned_materials and _float_or_zero(have.get("qty")) > 0:
             dedupe = f"MATERIAL_RULE:outside_estimate:{key[0]}:{key[1]}"
