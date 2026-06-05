@@ -797,6 +797,8 @@ function App() {
   const estimateChangeReconcileQueuedRef = useRef(new Set());
   const materialControlTaskQueuedRef = useRef(new Set());
   const materialControlTaskAutoCheckedRef = useRef(new Map());
+  const roomControlTaskQueuedRef = useRef(new Set());
+  const roomControlTaskAutoCheckedRef = useRef(new Map());
   const [archivedProjects, setArchivedProjects] = useState([]);
   const [tbJournal, setTbJournal] = useState([]);
   const [geoCheckins, setGeoCheckins] = useState([]);
@@ -2762,6 +2764,25 @@ function App() {
       } else {
         navigateTo('warehouse');
         setWarehouseTab('control');
+      }
+      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
+        await patchAiTaskSilent(task.id,{status:'В работе'});
+      }
+      return;
+    }
+    if (['room_measurement_review','work_room_link_review'].includes(payload.type)) {
+      const projectName = payload.projectName || task.projectName || '';
+      const project = (projects||[]).find(p=>p.name===projectName);
+      if (project) {
+        navigateTo('projects');
+        setExpandedProject(project.id);
+        if (payload.type === 'work_room_link_review') {
+          setActiveProjectTab('Производство работ');
+          setActiveTabGroup('journals');
+        } else {
+          setActiveProjectTab('Помещения');
+          setActiveTabGroup('object');
+        }
       }
       if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
         await patchAiTaskSilent(task.id,{status:'В работе'});
@@ -5507,6 +5528,165 @@ function App() {
       await queueMaterialControlTask(descriptor);
     }
   };
+  const roomControlMarker = (type, projectName) => 'ROOM_CONTROL:'+String(type||'')+':'+materialNameKey(projectName);
+  const journalRoomLinkKey = (row) => [
+    materialNameKey(row?.description || row?.workName || ''),
+    String(row?.date || '').slice(0,10),
+    Math.round(toNum(row?.quantity)*1000)/1000,
+    _normalizeUnit(normalizeMeasure(toNum(row?.quantity), row?.unit).unit || row?.unit || ''),
+    materialNameKey(row?.masterName || '')
+  ].join('|');
+  const roomRelevantJournalRows = (projectName) => {
+    const roomWords = ['стен','потол','пол','окн','двер','откос','штукатур','шпатлев','шпаклев','окрас','облицов','плит','стяж','линолеум','плинтус','кабель','розет','выключ','светильник'];
+    return (workJournal||[])
+      .filter(w=>(w.project||'')===projectName && (w.status||'')!=='Отклонено')
+      .filter(w=>{
+        const unit = _normalizeUnit(normalizeMeasure(toNum(w.quantity), w.unit).unit || w.unit || '');
+        const text = materialNameKey([w.description,w.sectionName,w.comment].filter(Boolean).join(' '));
+        return ['м2','м','шт'].includes(unit) || roomWords.some(word=>text.includes(word));
+      });
+  };
+  const unlinkedRoomJournalRows = (projectName) => {
+    const linked = new Set((roomWorks||[])
+      .filter(w=>(w.project||'')===projectName)
+      .map(journalRoomLinkKey));
+    return roomRelevantJournalRows(projectName).filter(w=>!linked.has(journalRoomLinkKey(w)));
+  };
+  const roomControlDescription = (kind, projectName, rows, reason='Фоновая проверка помещений') => {
+    const lines = [
+      'Автоконтроль помещений после события: '+reason+'.',
+      'Объект: '+projectName+'.',
+      ''
+    ];
+    if (kind === 'measurements') {
+      lines.push('Найдены помещения или проёмы с неполным обмером: '+rows.length+'.');
+      rows.slice(0,8).forEach((r,idx)=>{
+        lines.push((idx+1)+'. '+(r.room?.name||'Помещение')+' — '+(r.check?.issues||[]).slice(0,4).join('; '));
+      });
+      if (rows.length>8) lines.push('...и ещё '+(rows.length-8)+' помещений.');
+      lines.push('', 'Что сделать: открыть вкладку `Помещения`, заполнить размеры пола/стен/потолка/высоты, размеры окон/дверей и глубину откосов. После исправления задача закроется автоматически.');
+    } else if (kind === 'work_links') {
+      lines.push('В журнале работ есть записи без привязки к помещению: '+rows.length+'.');
+      rows.slice(0,10).forEach((w,idx)=>{
+        lines.push((idx+1)+'. '+String(w.date||'')+' — '+(w.description||'Работа')+'; '+fmtMeasure(w.quantity,w.unit)+'; '+(w.masterName||'исполнитель не указан')+'.');
+      });
+      if (rows.length>10) lines.push('...и ещё '+(rows.length-10)+' записей.');
+      lines.push('', 'Что сделать: новые работы закрывать через выбор помещения/поверхности. По старым записям проверить, нужно ли перенести факт в `room_works` или оставить как общую работу без помещения.');
+    }
+    return lines.join('\n');
+  };
+  const roomControlTaskDescriptorsForProject = (projectName, reason='Фоновая проверка помещений') => {
+    if (!projectName) return [];
+    const projectRooms = (rooms||[]).filter(r=>r.project===projectName);
+    const descriptors = [];
+    const badRooms = projectRooms
+      .map(room=>({room,check:roomCompleteness(room)}))
+      .filter(x=>x.check.status!=='Обмер полный');
+    if (projectRooms.length===0) {
+      const marker = roomControlMarker('measurements', projectName);
+      descriptors.push({
+        marker,
+        projectName,
+        title:'Добавить помещения и обмеры: '+projectName,
+        description:'Автоконтроль помещений после события: '+reason+'.\nОбъект: '+projectName+'.\n\nВ объекте нет помещений. Без помещений система не сможет сверять фактические работы со стенами, полом, потолком, окнами, дверями и откосами.\n\nЧто сделать: открыть `Проект / Обмеры` или `Помещения`, загрузить проект/обмер или создать помещения вручную.',
+        assignedRole:'прораб',
+        actionLabel:'Открыть обмеры',
+        actionPayload:{type:'room_measurement_review',marker,projectName,reason}
+      });
+    } else if (badRooms.length>0) {
+      const marker = roomControlMarker('measurements', projectName);
+      descriptors.push({
+        marker,
+        projectName,
+        title:'Уточнить обмеры: '+projectName+' — '+badRooms.length+' помещ.',
+        description:roomControlDescription('measurements', projectName, badRooms, reason),
+        assignedRole:'прораб',
+        actionLabel:'Открыть помещения',
+        actionPayload:{type:'room_measurement_review',marker,projectName,reason,count:badRooms.length}
+      });
+    }
+    const unlinked = unlinkedRoomJournalRows(projectName);
+    if (projectRooms.length>0 && unlinked.length>0) {
+      const marker = roomControlMarker('work_links', projectName);
+      descriptors.push({
+        marker,
+        projectName,
+        title:'Привязать ЖПР к помещениям: '+projectName+' — '+unlinked.length+' зап.',
+        description:roomControlDescription('work_links', projectName, unlinked, reason),
+        assignedRole:'прораб',
+        actionLabel:'Открыть ЖПР',
+        actionPayload:{type:'work_room_link_review',marker,projectName,reason,count:unlinked.length}
+      });
+    }
+    return descriptors;
+  };
+  const roomControlSignatureForProject = (projectName) => {
+    const projectRooms = (rooms||[]).filter(r=>r.project===projectName);
+    const badRooms = projectRooms.map(room=>roomCompleteness(room)).filter(c=>c.status!=='Обмер полный');
+    const unlinked = unlinkedRoomJournalRows(projectName);
+    return [
+      projectRooms.length,
+      badRooms.length,
+      badRooms.map(c=>c.status+':'+c.issues.join(',')).join(';'),
+      unlinked.length,
+      unlinked.slice(0,40).map(w=>w.id||journalRoomLinkKey(w)).join(',')
+    ].join('|');
+  };
+  const queueRoomControlTask = async (descriptor) => {
+    if (!descriptor?.marker || !descriptor.projectName) return;
+    const existingTask = aiTaskByMarker(descriptor.marker);
+    const patch = {
+      title: descriptor.title,
+      description: descriptor.description,
+      assignedRole: descriptor.assignedRole,
+      actionLabel: descriptor.actionLabel,
+      actionPayload: JSON.stringify(descriptor.actionPayload),
+    };
+    if (existingTask) {
+      await patchAiTaskSilent(existingTask.id, patch);
+      return;
+    }
+    if (roomControlTaskQueuedRef.current.has(descriptor.marker)) return;
+    roomControlTaskQueuedRef.current.add(descriptor.marker);
+    try {
+      const res = await fetch(API+'/ai-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        projectName: descriptor.projectName,
+        ...patch,
+        status:'Новое',
+      })});
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) {
+        roomControlTaskQueuedRef.current.delete(descriptor.marker);
+        return;
+      }
+      setAiTasks(prev=>{
+        const list = prev||[];
+        if (data?.id && list.some(t=>Number(t.id)===Number(data.id))) {
+          return list.map(t=>Number(t.id)===Number(data.id)?data:t);
+        }
+        return [data,...list];
+      });
+    } catch(e) {
+      roomControlTaskQueuedRef.current.delete(descriptor.marker);
+    }
+  };
+  const queueRoomControlTasksForProject = async (projectName, reason='Фоновая проверка помещений') => {
+    const descriptors = roomControlTaskDescriptorsForProject(projectName, reason);
+    const activeMarkers = new Set(descriptors.map(d=>d.marker));
+    const openRoomTasks = (aiTasks||[]).filter(t=>{
+      if (!isOpenAiStatus(t.status)) return false;
+      const payload = parseAiTaskPayload(t);
+      return String(payload.marker||'').startsWith('ROOM_CONTROL:')
+        && (payload.projectName || t.projectName || '') === projectName;
+    });
+    openRoomTasks.forEach(t=>{
+      const payload = parseAiTaskPayload(t);
+      if (payload.marker && !activeMarkers.has(payload.marker)) patchAiTaskSilent(t.id,{status:'Закрыто'});
+    });
+    for (const descriptor of descriptors) {
+      await queueRoomControlTask(descriptor);
+    }
+  };
   useEffect(() => {
     if (!user || !['директор','зам_директора','сметчик','главный_инженер'].includes(user.role)) return;
     if (!Array.isArray(estimatesList) || estimatesList.length===0) return;
@@ -5539,6 +5719,19 @@ function App() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, user?.role, projects, estimatesList, materials, supplyRequests, supplyDeliveries, supplyHistory, supplierInvoices, invoices, materialTransfers, workJournal, materialNorms, materialNormOverrides]);
+  useEffect(() => {
+    if (!user || !['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user.role)) return;
+    if (!Array.isArray(projects) || projects.length===0) return;
+    const visible = visibleActiveProjects(projects).slice(0,20);
+    visible.forEach(p=>{
+      const signature = roomControlSignatureForProject(p.name);
+      const prev = roomControlTaskAutoCheckedRef.current.get(p.name);
+      if (prev === signature) return;
+      roomControlTaskAutoCheckedRef.current.set(p.name, signature);
+      queueRoomControlTasksForProject(p.name, 'Фоновая проверка помещений и ЖПР');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.role, projects, rooms, roomWindows, roomDoors, roomWorks, workJournal]);
   const materialNormSupplyMarker = (row) => {
     const ruleKey = row?.rule?.ruleKey || row?.rule?.id || '';
     return 'NORM_COVERAGE_REQUEST:'+[row?.estimateId||'',row?.sectionIdx??'',row?.itemIdx??'',ruleKey].join('|');
@@ -11103,6 +11296,7 @@ function App() {
                       const taskTypeMeta = (task) => {
                         const type = parseAiTaskPayload(task).type;
                         if (['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(type)) return {key:'materials',label:'Материалы',icon:<Package size={13}/>,color:C.info,bg:C.infoLight,border:C.infoBorder};
+                        if (['room_measurement_review','work_room_link_review'].includes(type)) return {key:'rooms',label:'Помещения',icon:<MapPin size={13}/>,color:C.success,bg:C.successLight,border:C.successBorder};
                         if (['estimate_quality_review','estimate_norm_review','material_norm_coverage'].includes(type)) return {key:'estimate',label:'Смета и нормы',icon:<Calculator size={13}/>,color:C.accent,bg:C.accentLight,border:C.accentBorder};
                         if (['estimate_diff_review','estimate_change_reconcile'].includes(type)) return {key:'changes',label:'Изменения к смете',icon:<GitBranch size={13}/>,color:C.warning,bg:C.warningLight,border:C.warningBorder};
                         return {key:'other',label:'Прочее',icon:<Eye size={13}/>,color:C.textSec,bg:C.bgGray,border:C.border};
@@ -11113,7 +11307,7 @@ function App() {
                         acc[meta.key].tasks.push(task);
                         return acc;
                       },{});
-                      const standaloneTaskGroups = ['materials','estimate','changes','other'].map(k=>groupedStandaloneTasks[k]).filter(Boolean);
+                      const standaloneTaskGroups = ['materials','rooms','estimate','changes','other'].map(k=>groupedStandaloneTasks[k]).filter(Boolean);
                       return (<div>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
                           <div>
@@ -11149,6 +11343,7 @@ function App() {
                                 const payload=parseAiTaskPayload(task);
                                 const isEstimateTask=['estimate_quality_review','estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
                                 const isMaterialTask=['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(payload.type);
+                                const isRoomTask=['room_measurement_review','work_room_link_review'].includes(payload.type);
                                 return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
                                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                                     <div style={{flex:1,minWidth:'220px'}}>
@@ -11162,7 +11357,7 @@ function App() {
                                         : task.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45,whiteSpace:'pre-wrap'}}>{task.description}</p>}
                                     </div>
                                     <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                                      {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:isMaterialTask?<Package size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
+                                      {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:isMaterialTask?<Package size={11}/>:isRoomTask?<MapPin size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
                                       {task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
                                       {['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
                                       <button onClick={()=>updateAiTask(task.id,{status:'Закрыто'})} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}>Закрыть</button>
