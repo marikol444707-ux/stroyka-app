@@ -887,6 +887,7 @@ function App() {
   const [toolsTab, setToolsTab] = useState('list');
   const [estimatesTab, setEstimatesTab] = useState('list');
   const [materialNorms, setMaterialNorms] = useState([]);
+  const [materialAliases, setMaterialAliases] = useState([]);
   const [materialNormOverrides, setMaterialNormOverrides] = useState([]);
   const [materialNormSuggestions, setMaterialNormSuggestions] = useState([]);
   const [materialNormPreviewSuggestions, setMaterialNormPreviewSuggestions] = useState([]);
@@ -1212,7 +1213,7 @@ function App() {
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,mno,mns] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,ma,mno,mns] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get('/materials'),
@@ -1267,6 +1268,7 @@ function App() {
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
         canSeeProjectDocs ? get('/ai-tasks') : skip([]),
         canSeeProjectDocs ? get('/material-norms') : skip([]),
+        canSeeProjectDocs ? get('/material-aliases') : skip([]),
         canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),
         canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
       ]);
@@ -1278,7 +1280,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -3786,9 +3788,104 @@ function App() {
     const rowsFromHistory = Object.values(byName).filter(it=>it.name&&it.quantity>0);
     return {items:rowsFromHistory,reconstructed:rowsFromHistory.length>0,source:'истории склада'};
   };
+  const materialNameLookupKey = (name) => String(name||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
+  const materialAliasFor = (projectName, aliasName) => {
+    const key = materialNameLookupKey(aliasName);
+    if (!key) return null;
+    const active = (materialAliases||[]).filter(a=>a&&a.active!==false&&materialNameLookupKey(a.aliasName)===key);
+    return active.find(a=>(a.projectName||'')===projectName) || active.find(a=>!(a.projectName||'')) || null;
+  };
+  const canonicalMaterialMeta = (projectName, name, unit='') => {
+    const alias = materialAliasFor(projectName, name);
+    return {
+      name: alias?.canonicalName || name || '',
+      unit: alias?.canonicalUnit || unit || '',
+      alias,
+    };
+  };
+  const estimateMaterialPlanRows = (projectName) => {
+    const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
+    const rows = {};
+    const ensure = (name, unit, sectionLabel='') => {
+      const key = materialNameLookupKey(name);
+      if (!key) return null;
+      if (!rows[key]) rows[key] = {key,name:name||'',unit:normalizeMeasure(1, unit).unit||unit||'',sections:[],planQty:0,planSum:0};
+      if (sectionLabel && !rows[key].sections.includes(sectionLabel)) rows[key].sections.push(sectionLabel);
+      return rows[key];
+    };
+    const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
+    const fallbackEstimates = (estimatesList||[]).filter(e=>
+      estimateKind(e)==='Заказчик' &&
+      !isArchivedEstimate(e) &&
+      ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
+    );
+    (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+      if (!isEstimateMaterialItem(it, s.name)) return;
+      const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
+      const r = ensure(it.name, it.unit, sectionLabel);
+      if (!r) return;
+      const norm = normalizeMeasure(it.quantity, it.unit);
+      r.planQty += norm.qty;
+      r.planSum += estimateItemMaterialSum(it);
+    })));
+    return Object.values(rows).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+  };
+  const materialAliasCandidates = (projectName, row) => {
+    const sourceText = materialNameLookupKey([row?.name, ...(row?.aliases||[])].join(' '));
+    const tokens = sourceText.split(' ').filter(t=>t.length>2);
+    return estimateMaterialPlanRows(projectName)
+      .filter(r=>materialNameLookupKey(r.name)!==materialNameLookupKey(row?.name))
+      .map(r=>{
+        const text = materialNameLookupKey(r.name+' '+(r.sections||[]).join(' '));
+        let score = 0;
+        tokens.forEach(t=>{ if (text.includes(t)) score += 8; });
+        if (row?.unit && r.unit && _normalizeUnit(row.unit)===_normalizeUnit(r.unit)) score += 5;
+        if (text.includes(sourceText) || sourceText.includes(text)) score += 20;
+        return {...r, score};
+      })
+      .filter(r=>r.score>0)
+      .sort((a,b)=>(b.score-a.score)||(b.planQty-a.planQty)||a.name.localeCompare(b.name,'ru'))
+      .slice(0,4);
+  };
+  const createMaterialAlias = async (projectName, aliasName, canonicalName, canonicalUnit='') => {
+    if (!aliasName || !canonicalName) return;
+    const res = await fetch(API+'/material-aliases', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({projectName, aliasName, canonicalName, canonicalUnit, source:'manual'})
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(()=>({}));
+      alert(data.detail || 'Не удалось сохранить сопоставление материала');
+      return;
+    }
+    const row = await res.json();
+    setMaterialAliases(prev=>[row, ...(prev||[]).filter(a=>!(a.active!==false&&(a.projectName||'')===(row.projectName||'')&&materialNameLookupKey(a.aliasName)===materialNameLookupKey(row.aliasName)))]);
+  };
+  const renderMaterialAliasControls = (projectName, row) => {
+    if (!row?.isOutsideEstimate || !(isLeadership()||['прораб','главный_инженер','сметчик','снабженец','кладовщик'].includes(user?.role))) return null;
+    const candidates = materialAliasCandidates(projectName, row);
+    if (!candidates.length) return null;
+    const aliasName = row.aliases?.[0] || row.name;
+    return (
+      <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginTop:'5px'}}>
+        <span style={{color:C.textMuted,fontSize:'10px'}}>Привязать к смете:</span>
+        {candidates.map(c=>(
+          <button
+            key={c.key}
+            onClick={async e=>{e.stopPropagation();await createMaterialAlias(projectName, aliasName, c.name, c.unit);}}
+            style={{...btnG,padding:'2px 6px',fontSize:'10px',borderRadius:'6px'}}
+            title={'Считать «'+aliasName+'» как «'+c.name+'»'}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+    );
+  };
   const materialReconciliationRows = (projectName) => {
     const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
-    const keyOf = (v) => String(v||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
+    const keyOf = materialNameLookupKey;
     const rows = {};
     const materialUnit = (unit) => normalizeMeasure(1, unit).unit || unit || '';
     const materialQty = (qty, unit) => {
@@ -3796,10 +3893,14 @@ function App() {
       return {qty: norm.qty, unit: norm.unit || unit || ''};
     };
     const ensure = (name, unit) => {
-      const key = keyOf(name);
+      const rawName = name || '';
+      const meta = canonicalMaterialMeta(projectName, rawName, unit);
+      const key = keyOf(meta.name);
       if (!key) return null;
-      const cleanUnit = materialUnit(unit);
-      if (!rows[key]) rows[key] = {key,name:name||'',unit:cleanUnit,sections:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      const cleanUnit = materialUnit(meta.unit || unit);
+      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],aliases:[],aliasIds:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      if (rawName && keyOf(rawName)!==key && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
+      if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
       if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
       if (!rows[key].unit && cleanUnit) rows[key].unit = cleanUnit;
       return rows[key];
@@ -3971,7 +4072,7 @@ function App() {
     if (r.over>0) return {label:'Сверх сметы', color:C.info, bg:C.infoLight, border:C.infoBorder};
     return {label:'Закрыто', color:C.success, bg:C.successLight, border:C.successBorder};
   };
-  const materialNameKey = (name) => String(name||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
+  const materialNameKey = materialNameLookupKey;
   const isPersonalMaterialRole = () => ['мастер','субподрядчик'].includes(user?.role);
   const parseJournalMaterials = (value) => {
     if (!value) return [];
@@ -4080,16 +4181,19 @@ function App() {
   const materialAvailabilityMapForWork = (projectName) => {
     const byName = {};
     materialRowsAvailableForWork(projectName).forEach(m=>{
-      const key = materialNameKey(m.name);
+      const meta = canonicalMaterialMeta(projectName, m.name, m.unit);
+      const key = materialNameKey(meta.name);
       if (!key) return;
-      if (!byName[key]) byName[key] = {name:m.name, unit:m.unit||'шт', quantity:0};
+      if (!byName[key]) byName[key] = {name:meta.name, unit:meta.unit||m.unit||'шт', quantity:0, aliases:[]};
       byName[key].quantity += toNum(m.quantity);
-      if (!byName[key].unit && m.unit) byName[key].unit = m.unit;
+      if (m.name && materialNameKey(m.name)!==key && !byName[key].aliases.includes(m.name)) byName[key].aliases.push(m.name);
+      if (!byName[key].unit && (meta.unit || m.unit)) byName[key].unit = meta.unit || m.unit;
     });
     return byName;
   };
   const materialHintForProject = (projectName, materialName) => {
-    const key = materialNameKey(materialName);
+    const meta = canonicalMaterialMeta(projectName, materialName);
+    const key = materialNameKey(meta.name);
     if (!key) return null;
     return materialReconciliationRows(projectName).find(r=>materialNameKey(r.name)===key) || null;
   };
@@ -6158,7 +6262,7 @@ function App() {
       {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
         <table style={{...tbl,fontSize:'11px',minWidth:'1420px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Расчёт</th><th style={tblH}>Расх.</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
           {s.rows.slice(0,limit).map(r=>{const st=materialControlStatus(r);return(<tr key={r.key}>
-            <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}</td>
+            <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.aliases?.length>0&&<p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Синонимы: {r.aliases.slice(0,2).join(', ')}{r.aliases.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}{renderMaterialAliasControls(projectName,r)}</td>
             <td style={tblC}>{r.planQty>0?fmtMeasure(r.planQty,r.unit):'—'}</td>
             <td style={{...tblC,color:r.requested>0?C.info:C.textMuted}}>{fmtMeasure(r.requested,r.unit)}</td>
             <td style={{...tblC,color:r.inTransit>0?C.warning:C.textMuted}}>{fmtMeasure(r.inTransit,r.unit)}</td>
@@ -7648,7 +7752,8 @@ function App() {
     const materialName = (it?.materialName||'').trim();
     if (!projectName || !materialName) return null;
     const rows = materialReconciliationRows(projectName);
-    const row = rows.find(r=>isSameSupplyMaterial(r.name, materialName));
+    const canonicalName = canonicalMaterialMeta(projectName, materialName).name;
+    const row = rows.find(r=>isSameSupplyMaterial(r.name, canonicalName) || isSameSupplyMaterial(r.name, materialName));
     const sameUnit = !row?.unit || !it?.unit || supplyUnitKey(row.unit)===supplyUnitKey(it.unit);
     const draftOther = (newSupplyReq.items||[])
       .filter((x,i)=>i!==idx && isSameSupplyMaterial(x.materialName, materialName))
@@ -12122,7 +12227,7 @@ function App() {
 	                        {rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
 	                          <table style={{...tbl,fontSize:'11px',minWidth:'1420px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Расчёт</th><th style={tblH}>Расх.</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
 	                            {rows.slice(0,25).map(r=>{const st=materialControlStatus(r);return(<tr key={r.key}>
-                              <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}</td>
+                              <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.aliases?.length>0&&<p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Синонимы: {r.aliases.slice(0,2).join(', ')}{r.aliases.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}{renderMaterialAliasControls(p.name,r)}</td>
                               <td style={tblC}>{r.planQty>0?fmtMeasure(r.planQty,r.unit):'—'}</td>
                               <td style={{...tblC,color:r.requested>0?C.info:C.textMuted}}>{fmtMeasure(r.requested,r.unit)}</td>
                               <td style={{...tblC,color:r.inTransit>0?C.warning:C.textMuted}}>{fmtMeasure(r.inTransit,r.unit)}</td>
