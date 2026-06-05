@@ -141,10 +141,21 @@ def is_legacy_password(stored: str) -> bool:
     return bool(stored) and not stored.startswith(PASSWORD_HASH_PREFIX + "$")
 
 def public_user(row: dict, include_token: bool = False) -> dict:
-    user = dict(row)
-    user.pop("password", None)
-    user.pop("reset_token", None)
-    user.pop("reset_token_expires", None)
+    assigned_projects = _safe_project_list(row.get("assignedProjects", row.get("assigned_projects", [])))
+    user = {
+        "id": row.get("id"),
+        "name": row.get("name") or "",
+        "email": row.get("email") or "",
+        "role": row.get("role") or "",
+        "projectId": row.get("projectId", row.get("project_id")),
+        "project_id": row.get("project_id", row.get("projectId")),
+        "projectName": row.get("projectName", row.get("project_name")) or "",
+        "project_name": row.get("project_name", row.get("projectName")) or "",
+        "assignedProjects": assigned_projects,
+        "assigned_projects": assigned_projects,
+    }
+    if row.get("vkId") or row.get("vk_id"):
+        user["vkId"] = row.get("vkId") or row.get("vk_id")
     if include_token:
         user["authToken"] = create_auth_token(dict(row))
     return user
