@@ -7828,6 +7828,77 @@ function App() {
     return [];
   };
 
+  const supplyNoteLines = (req) => String(req?.notes||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const supplyNoteValue = (lines, label) => {
+    const prefix = String(label||'').toLowerCase()+':';
+    const line = (lines||[]).find(l=>l.toLowerCase().startsWith(prefix));
+    return line ? line.slice(label.length+1).trim() : '';
+  };
+  const supplyRequestOrigin = (req) => {
+    const lines = supplyNoteLines(req);
+    if (!lines.length) return null;
+    const notes = lines.join('\n');
+    const materialControl = lines.some(l=>l.startsWith('MATERIAL_CONTROL_REQUEST:')) || notes.includes('Создано из контроля материалов');
+    const normCoverage = notes.includes('Создано из ведомости') || (notes.includes('Норма:') && notes.includes('Расчётная потребность'));
+    if (!materialControl && !normCoverage) return null;
+    const projectName = supplyNoteValue(lines,'Объект') || req.project || '';
+    const materialName = supplyNoteValue(lines,'Материал') || req.materialName || '';
+    const facts = materialControl ? [
+      ['План', supplyNoteValue(lines,'План по смете')],
+      ['Поставлено', supplyNoteValue(lines,'Поставлено/перемещено')],
+      ['Заявки/путь', supplyNoteValue(lines,'В заявках и пути')],
+      ['Нехватка', supplyNoteValue(lines,'Расчётная нехватка')],
+    ] : [
+      ['Смета', supplyNoteValue(lines,'Смета')],
+      ['Раздел', supplyNoteValue(lines,'Раздел')],
+      ['Работа', supplyNoteValue(lines,'Работа')],
+      ['Объём', supplyNoteValue(lines,'Объём работы')],
+      ['Норма', supplyNoteValue(lines,'Норма')],
+      ['Потребность', supplyNoteValue(lines,'Расчётная потребность')],
+    ];
+    return {
+      type: materialControl ? 'material-control' : 'norm-coverage',
+      label: materialControl ? 'Из контроля материалов' : 'Из норм материалов',
+      projectName,
+      materialName,
+      facts: facts.filter(([,v])=>v),
+    };
+  };
+  const openProjectMaterialControl = (projectName) => {
+    const project = (projects||[]).find(p=>p.name===projectName);
+    if (project) {
+      navigateTo('projects');
+      setExpandedProject(project.id);
+      setActiveProjectTab('Материалы');
+      setActiveTabGroup(user?.role==='прораб'?'object':'finance');
+    } else {
+      navigateTo('warehouse');
+      setWarehouseTab('control');
+    }
+  };
+  const renderSupplyRequestOrigin = (req, opts={}) => {
+    const origin = supplyRequestOrigin(req);
+    if (!origin) return null;
+    const color = origin.type==='material-control' ? C.warning : C.info;
+    const bg = origin.type==='material-control' ? C.warningLight : C.infoLight;
+    const borderColor = origin.type==='material-control' ? C.warningBorder : C.infoBorder;
+    const compact = !!opts.compact;
+    return (
+      <div style={{marginTop:compact?'6px':'8px',padding:compact?'7px 9px':'9px 11px',border:'1.5px solid '+borderColor,borderRadius:'8px',backgroundColor:bg}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+          <b style={{color,fontSize:compact?'11px':'12px'}}>{origin.label}</b>
+          {origin.projectName&&<button onClick={e=>{e.stopPropagation();openProjectMaterialControl(origin.projectName);}} style={{...btnG,padding:compact?'3px 7px':'4px 9px',fontSize:compact?'10px':'11px'}}>Открыть контроль</button>}
+        </div>
+        {!compact&&origin.facts.length>0&&(
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'5px 10px',marginTop:'7px'}}>
+            {origin.facts.slice(0,6).map(([k,v])=><div key={k} style={{fontSize:'11px',color:C.textSec}}><span style={{color:C.textMuted}}>{k}: </span><b style={{color:C.text,fontWeight:'600'}}>{v}</b></div>)}
+          </div>
+        )}
+        {compact&&origin.facts.length>0&&<p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px'}}>{origin.facts.slice(-2).map(([k,v])=>k+': '+v).join(' · ')}</p>}
+      </div>
+    );
+  };
+
   const supplyMaterialKey = (v) => String(v||'')
     .toLowerCase()
     .replace(/[.,;:()«»"']/g,' ')
@@ -9139,7 +9210,8 @@ function App() {
                         </ol>
                       </>);})()}
                       <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{req.date||''}{req.urgency==='срочная'?' · 🔴 Срочно':req.urgency==='низкая'?' · 🟢 Не срочно':''}</p>
-                      {req.notes && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
+	                      {renderSupplyRequestOrigin(req)}
+	                      {req.notes && !supplyRequestOrigin(req) && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
                       {req.status==='Подтверждена прорабом' && req.prorabName && <p style={{color:C.info,margin:'4px 0 0',fontSize:'11px'}}>👷 {req.prorabName} подтвердил — ждёт директора</p>}
                       {req.status==='Утверждена' && req.directorName && <p style={{color:C.success,margin:'4px 0 0',fontSize:'11px'}}>✅ Утвердил: {req.directorName}</p>}
                       {req.status==='Отклонена' && req.rejectReason && <p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>❌ Причина: {req.rejectReason}</p>}
@@ -13879,7 +13951,8 @@ function App() {
                         </ol>
                       </>);})()}
                       <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{(req.date||'')+' · '+(req.createdBy||'')+(req.requestedByRole?' ('+req.requestedByRole+')':'')}</p>
-                      {req.notes && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
+	                      {renderSupplyRequestOrigin(req)}
+	                      {req.notes && !supplyRequestOrigin(req) && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
                       {req.status==='Отклонена' && req.rejectReason && <p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>❌ Причина: {req.rejectReason}</p>}
                       {req.prorabName && <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>👷 Прораб: {req.prorabName}</p>}
                       {req.directorName && <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>👑 Директор: {req.directorName}</p>}
@@ -14157,11 +14230,11 @@ function App() {
                 {suppliers.filter(s=>!newRequest.category||s.category===newRequest.category).map(s=>(<label key={s.id} style={{display:'flex',alignItems:'center',gap:'8px',padding:'8px',cursor:'pointer',borderRadius:'6px',marginBottom:'4px',backgroundColor:newRequest.selectedSuppliers.includes(s.id)?C.accentLight:'transparent'}}><input type="checkbox" checked={newRequest.selectedSuppliers.includes(s.id)} onChange={e=>setNewRequest({...newRequest,selectedSuppliers:e.target.checked?[...newRequest.selectedSuppliers,s.id]:newRequest.selectedSuppliers.filter(id=>id!==s.id)})} style={{accentColor:C.accent}}/><span style={{fontSize:'13px',color:C.text}}>{s.name}</span><span style={{fontSize:'11px',color:C.textSec}}>{s.category}</span></label>))}
                 <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveRequest} style={btnO}><Check size={14}/>Отправить заявку</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
-              {supplyRequests.map(req=>(<div key={req.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                  <div><b style={{color:C.text,fontSize:'13px'}}>{req.materialName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{req.quantity+' '+req.unit+' · '+req.project+(req.category?' · '+req.category:'')}</p><p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{req.date+' · '+req.createdBy}</p></div>
+              {supplyRequests.map(req=>{const items=parseSupplyItems(req);const approvedStatus=['Утверждено','Утверждена','Поставлено'].includes(req.status);const canceledStatus=req.status==='Отменена';return(<div key={req.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                  <div style={{flex:'1 1 260px'}}>{items.length<=1?(()=>{const it=items[0]||{materialName:req.materialName,quantity:req.quantity,unit:req.unit};return(<><b style={{color:C.text,fontSize:'13px'}}>{it.materialName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{it.quantity+' '+it.unit+' · '+req.project+(req.category?' · '+req.category:'')}</p></>);})():(<><b style={{color:C.text,fontSize:'13px'}}>📋 Заявка из {items.length} позиций</b><ol style={{margin:'4px 0 6px',paddingLeft:'18px',color:C.text,fontSize:'12px'}}>{items.map((it,i)=><li key={i}>{it.materialName} <span style={{color:C.textSec}}>— {it.quantity} {it.unit}</span></li>)}</ol><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{req.project+(req.category?' · '+req.category:'')}</p></>)}<p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{req.date+' · '+req.createdBy}</p>{renderSupplyRequestOrigin(req,{compact:true})}{req.notes&&!supplyRequestOrigin(req)&&<p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}</div>
                   <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                    <span style={badge(req.status==='Утверждено'?C.success:req.status==='Отменена'?C.danger:C.warning,req.status==='Утверждено'?C.successLight:req.status==='Отменена'?C.dangerLight:C.warningLight,req.status==='Утверждено'?C.successBorder:req.status==='Отменена'?C.dangerBorder:C.warningBorder)}>{req.status}</span>
+                    <span style={badge(approvedStatus?C.success:canceledStatus?C.danger:C.warning,approvedStatus?C.successLight:canceledStatus?C.dangerLight:C.warningLight,approvedStatus?C.successBorder:canceledStatus?C.dangerBorder:C.warningBorder)}>{req.status}</span>
                     {req.status==='Новая'&&(<><button onClick={()=>setShowOffers(showOffers===req.id?null:req.id)} style={{...btnB,padding:'4px 10px',fontSize:'11px'}}>КП</button><button onClick={()=>cancelRequest(req.id)} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}>Отменить</button></>)}
                   </div>
                 </div>
@@ -14188,7 +14261,7 @@ function App() {
                     </div>);
                   })}
                 </div>)}
-              </div>))}
+              </div>);})}
               {supplyRequests.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Заявок нет</p>}
             </div>)}
 
@@ -14217,11 +14290,12 @@ function App() {
                     {/* Шапка заявки */}
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
                       <div>
-                        <b style={{color:C.text,fontSize:'15px'}}>{titleText}</b>
-                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>🏗 {req.project||'—'} · {offers.length} КП {winner?' · ✅ выбрано':''}</p>
-                        {isMulti && (<ol style={{margin:'4px 0 0',paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>
-                          {items.map((it,i)=>(<li key={i} style={{marginBottom:'1px'}}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>))}
-                        </ol>)}
+	                        <b style={{color:C.text,fontSize:'15px'}}>{titleText}</b>
+	                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>🏗 {req.project||'—'} · {offers.length} КП {winner?' · ✅ выбрано':''}</p>
+	                        {isMulti && (<ol style={{margin:'4px 0 0',paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>
+	                          {items.map((it,i)=>(<li key={i} style={{marginBottom:'1px'}}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>))}
+	                        </ol>)}
+	                        {renderSupplyRequestOrigin(req,{compact:true})}
                       </div>
                       {receivedOffers.length>=2 && isLeadership() && !winner && (
                         <button onClick={()=>runCompareKp(req.id)} disabled={compareLoading} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:compareLoading?0.6:1}}>
@@ -16233,17 +16307,18 @@ function App() {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
             <div>
               <b style={{color:C.text,fontSize:'16px',display:'block'}}>📨 Запросить КП у поставщиков</b>
-              {(()=>{const req=supplyRequests.find(r=>r.id===showRequestKpModal);if(!req) return null;
-                const items=parseSupplyItems(req);
-                if (items.length<=1) {
-                  const it=items[0]||{materialName:req.materialName,quantity:req.quantity,unit:req.unit};
-                  return(<p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{it.materialName+' · '+it.quantity+' '+it.unit+' · 🏗 '+(req.project||'')}</p>);
-                }
-                return (<div style={{margin:'4px 0 0'}}>
-                  <p style={{color:C.textSec,margin:'0 0 4px',fontSize:'12px'}}>📋 Пакет из {items.length} позиций · 🏗 {req.project||''} — отправим одним запросом</p>
-                  <ol style={{margin:0,paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>{items.slice(0,5).map((it,i)=>(<li key={i}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>))}{items.length>5 && <li style={{listStyle:'none',fontStyle:'italic'}}>...и ещё {items.length-5}</li>}</ol>
-                </div>);
-              })()}
+	              {(()=>{const req=supplyRequests.find(r=>r.id===showRequestKpModal);if(!req) return null;
+	                const items=parseSupplyItems(req);
+	                if (items.length<=1) {
+	                  const it=items[0]||{materialName:req.materialName,quantity:req.quantity,unit:req.unit};
+	                  return(<><p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{it.materialName+' · '+it.quantity+' '+it.unit+' · 🏗 '+(req.project||'')}</p>{renderSupplyRequestOrigin(req,{compact:true})}</>);
+	                }
+	                return (<div style={{margin:'4px 0 0'}}>
+	                  <p style={{color:C.textSec,margin:'0 0 4px',fontSize:'12px'}}>📋 Пакет из {items.length} позиций · 🏗 {req.project||''} — отправим одним запросом</p>
+	                  <ol style={{margin:0,paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>{items.slice(0,5).map((it,i)=>(<li key={i}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>))}{items.length>5 && <li style={{listStyle:'none',fontStyle:'italic'}}>...и ещё {items.length-5}</li>}</ol>
+	                  {renderSupplyRequestOrigin(req,{compact:true})}
+	                </div>);
+	              })()}
             </div>
             <button onClick={()=>setShowRequestKpModal(null)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
           </div>
