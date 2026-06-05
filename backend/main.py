@@ -702,6 +702,432 @@ def system_status(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES,
         status["db"] = {"ok": False, "error": e.__class__.__name__}
     return status
 
+DIRECTOR_AGENT_ROLES = ("директор", "system_owner")
+DIRECTOR_AGENT_MAX_STEPS = 4
+DIRECTOR_AGENT_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+
+def _director_agent_num(value) -> float:
+    try:
+        return float(value or 0)
+    except Exception:
+        return 0.0
+
+def _director_agent_json(value, fallback=None):
+    try:
+        if value is None:
+            return fallback
+        if isinstance(value, (dict, list)):
+            return value
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+def _director_agent_query(sql: str, params: tuple = ()) -> list[dict]:
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(sql, params)
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        cur.close(); conn.close()
+
+def _director_agent_tool_projects(args):
+    search = str((args or {}).get("search") or "").strip()
+    params = []
+    where = ""
+    if search:
+        where = "WHERE name ILIKE %s OR client ILIKE %s"
+        params = ["%" + search + "%", "%" + search + "%"]
+    rows = _director_agent_query(
+        f"""SELECT name, client, status, budget, progress, deadline
+            FROM projects {where}
+            ORDER BY archived ASC NULLS FIRST, id DESC
+            LIMIT 40""",
+        tuple(params),
+    )
+    return [
+        {
+            "name": r.get("name") or "",
+            "client": r.get("client") or "",
+            "status": r.get("status") or "",
+            "budget": round(_director_agent_num(r.get("budget")), 2),
+            "progress": int(_director_agent_num(r.get("progress"))),
+            "deadline": r.get("deadline") or "",
+        }
+        for r in rows
+    ]
+
+def _director_agent_tool_warehouse(args):
+    search = str((args or {}).get("search") or "").strip()
+    params = []
+    where = ""
+    if search:
+        where = "WHERE name ILIKE %s"
+        params = ["%" + search + "%"]
+    main_rows = _director_agent_query(
+        f"""SELECT name, quantity, unit, price, min_quantity, category
+            FROM warehouse_main {where}
+            ORDER BY COALESCE(quantity,0) ASC, name
+            LIMIT 40""",
+        tuple(params),
+    )
+    object_rows = _director_agent_query(
+        f"""SELECT name, quantity, unit, price, project, category
+            FROM materials {where}
+            ORDER BY project, name
+            LIMIT 60""",
+        tuple(params),
+    )
+    return {
+        "mainWarehouse": [
+            {
+                "name": r.get("name") or "",
+                "qty": round(_director_agent_num(r.get("quantity")), 3),
+                "unit": r.get("unit") or "",
+                "minQty": round(_director_agent_num(r.get("min_quantity")), 3),
+                "category": r.get("category") or "",
+            }
+            for r in main_rows
+        ],
+        "objectMaterials": [
+            {
+                "project": r.get("project") or "",
+                "name": r.get("name") or "",
+                "qty": round(_director_agent_num(r.get("quantity")), 3),
+                "unit": r.get("unit") or "",
+                "category": r.get("category") or "",
+            }
+            for r in object_rows
+        ],
+    }
+
+def _director_agent_tool_supply(args):
+    request_rows = _director_agent_query(
+        """SELECT id, project, material_name, quantity, unit, status, urgency,
+                  created_by, created_at, items_json
+           FROM supply_requests
+           ORDER BY id DESC LIMIT 60"""
+    )
+    delivery_rows = _director_agent_query(
+        """SELECT id, project, material_name, planned_quantity, shipped_quantity,
+                  received_quantity, unit, supplier_name, status, quality_status, created_at
+           FROM supply_deliveries
+           ORDER BY id DESC LIMIT 50"""
+    )
+    claim_rows = _director_agent_query(
+        """SELECT id, project, material_name, claim_type, status, shortage_quantity, created_at
+           FROM supply_claims
+           ORDER BY id DESC LIMIT 30"""
+    )
+    status_counts = {}
+    for r in request_rows:
+        st = r.get("status") or "Без статуса"
+        status_counts[st] = status_counts.get(st, 0) + 1
+    requests = []
+    for r in request_rows[:25]:
+        items = _director_agent_json(r.get("items_json"), []) or []
+        material_name = r.get("material_name") or ""
+        qty = _director_agent_num(r.get("quantity"))
+        unit = r.get("unit") or ""
+        if items:
+            first = items[0] or {}
+            material_name = material_name or first.get("materialName") or ""
+            qty = qty or _director_agent_num(first.get("quantity"))
+            unit = unit or first.get("unit") or ""
+        requests.append({
+            "id": r.get("id"),
+            "project": r.get("project") or "",
+            "material": material_name,
+            "qty": round(qty, 3),
+            "unit": unit,
+            "status": r.get("status") or "",
+            "urgency": r.get("urgency") or "",
+            "createdBy": r.get("created_by") or "",
+        })
+    return {
+        "requestStatusCounts": status_counts,
+        "recentRequests": requests,
+        "recentDeliveries": [
+            {
+                "project": r.get("project") or "",
+                "material": r.get("material_name") or "",
+                "planned": round(_director_agent_num(r.get("planned_quantity")), 3),
+                "shipped": round(_director_agent_num(r.get("shipped_quantity")), 3),
+                "received": round(_director_agent_num(r.get("received_quantity")), 3),
+                "unit": r.get("unit") or "",
+                "supplier": r.get("supplier_name") or "",
+                "status": r.get("status") or "",
+                "quality": r.get("quality_status") or "",
+            }
+            for r in delivery_rows[:25]
+        ],
+        "openClaims": [
+            {
+                "project": r.get("project") or "",
+                "material": r.get("material_name") or "",
+                "type": r.get("claim_type") or "",
+                "status": r.get("status") or "",
+                "shortage": round(_director_agent_num(r.get("shortage_quantity")), 3),
+            }
+            for r in claim_rows if (r.get("status") or "") != "Закрыта"
+        ][:20],
+    }
+
+def _director_agent_tool_estimates(args):
+    rows = _director_agent_query(
+        """SELECT id, name, project_name, version, status, smeta_type, work_package, sections_json, created_at
+           FROM estimates
+           WHERE COALESCE(is_template,FALSE)=FALSE
+           ORDER BY id DESC LIMIT 30"""
+    )
+    out = []
+    for r in rows:
+        sections = _director_agent_json(r.get("sections_json"), []) or []
+        total = 0.0
+        items_count = 0
+        material_count = 0
+        work_count = 0
+        for sec in sections:
+            for it in (sec or {}).get("items", []):
+                items_count += 1
+                item_type = str(it.get("itemType") or it.get("type") or "").lower()
+                if item_type == "material":
+                    material_count += 1
+                else:
+                    work_count += 1
+                qty = _director_agent_num(it.get("quantity"))
+                work = _director_agent_num(it.get("priceWork"))
+                mat = _director_agent_num(it.get("priceMaterial"))
+                total += (work + mat) if it.get("isImported") else qty * (work + mat)
+        out.append({
+            "id": r.get("id"),
+            "name": r.get("name") or "",
+            "project": r.get("project_name") or "",
+            "version": r.get("version") or "",
+            "status": r.get("status") or "",
+            "type": r.get("smeta_type") or "",
+            "package": r.get("work_package") or "",
+            "items": items_count,
+            "workItems": work_count,
+            "materialItems": material_count,
+            "total": round(total, 2),
+        })
+    return out
+
+def _director_agent_tool_finances(args):
+    project = str((args or {}).get("project") or "").strip()
+    params = []
+    where_project = ""
+    if project:
+        where_project = "WHERE name=%s"
+        params.append(project)
+    projects = _director_agent_query(
+        f"SELECT name, budget, status FROM projects {where_project} ORDER BY id DESC LIMIT 40",
+        tuple(params),
+    )
+    names = [p.get("name") for p in projects if p.get("name")]
+    if not names:
+        return []
+    payments = _director_agent_query(
+        """SELECT project_name, COALESCE(SUM(amount),0) AS total
+           FROM project_payments
+           WHERE project_name = ANY(%s)
+           GROUP BY project_name""",
+        (names,),
+    )
+    expenses = _director_agent_query(
+        """SELECT project, COALESCE(SUM(amount),0) AS total
+           FROM expenses
+           WHERE project = ANY(%s)
+           GROUP BY project""",
+        (names,),
+    )
+    pay_by_project = {r.get("project_name"): _director_agent_num(r.get("total")) for r in payments}
+    exp_by_project = {r.get("project"): _director_agent_num(r.get("total")) for r in expenses}
+    return [
+        {
+            "project": p.get("name") or "",
+            "status": p.get("status") or "",
+            "budget": round(_director_agent_num(p.get("budget")), 2),
+            "paymentsNet": round(pay_by_project.get(p.get("name"), 0), 2),
+            "manualExpenses": round(exp_by_project.get(p.get("name"), 0), 2),
+        }
+        for p in projects
+    ]
+
+def _director_agent_tool_staff(args):
+    staff_rows = _director_agent_query(
+        """SELECT name, role, project, specialization
+           FROM staff
+           ORDER BY project, role, name LIMIT 80"""
+    )
+    user_rows = _director_agent_query(
+        """SELECT role, COUNT(*) AS cnt
+           FROM users
+           WHERE COALESCE(active, TRUE)=TRUE
+           GROUP BY role
+           ORDER BY role"""
+    )
+    return {
+        "roleCounts": [{"role": r.get("role") or "", "count": int(r.get("cnt") or 0)} for r in user_rows],
+        "staff": [
+            {
+                "name": r.get("name") or "",
+                "role": r.get("role") or "",
+                "project": r.get("project") or "",
+                "specialization": r.get("specialization") or "",
+            }
+            for r in staff_rows
+        ],
+    }
+
+def _director_agent_tool_ai_tasks(args):
+    rows = _director_agent_query(
+        """SELECT project_name, title, assigned_role, assigned_to, status, due_date, updated_at
+           FROM ai_tasks
+           WHERE COALESCE(status,'') NOT IN ('Закрыто','Отклонено')
+           ORDER BY updated_at DESC, id DESC LIMIT 80"""
+    )
+    counts = {}
+    for r in rows:
+        st = r.get("status") or "Без статуса"
+        counts[st] = counts.get(st, 0) + 1
+    return {
+        "openStatusCounts": counts,
+        "tasks": [
+            {
+                "project": r.get("project_name") or "",
+                "title": r.get("title") or "",
+                "assignedRole": r.get("assigned_role") or "",
+                "assignedTo": r.get("assigned_to") or "",
+                "status": r.get("status") or "",
+                "dueDate": str(r.get("due_date")) if r.get("due_date") else "",
+            }
+            for r in rows[:30]
+        ],
+    }
+
+DIRECTOR_AGENT_TOOLS = {
+    "projects": {"fn": _director_agent_tool_projects, "desc": "Объекты: статус, бюджет, прогресс, сроки. args: {search?: текст}"},
+    "warehouse": {"fn": _director_agent_tool_warehouse, "desc": "Склад и материалы на объектах. args: {search?: материал}"},
+    "supply": {"fn": _director_agent_tool_supply, "desc": "Снабжение: заявки, поставки, претензии. args: {}"},
+    "estimates": {"fn": _director_agent_tool_estimates, "desc": "Сметы: редакции, типы строк, сумма, объект. args: {}"},
+    "finances": {"fn": _director_agent_tool_finances, "desc": "Финансовая сводка по объектам. args: {project?: название объекта}"},
+    "staff": {"fn": _director_agent_tool_staff, "desc": "Персонал и активные роли. args: {}"},
+    "ai_tasks": {"fn": _director_agent_tool_ai_tasks, "desc": "Открытые задачи ИИ-контроля. args: {}"},
+}
+
+def _director_agent_extract_json(text: str):
+    t = (text or "").strip()
+    if "```" in t:
+        parts = t.split("```")
+        if len(parts) >= 3:
+            t = parts[1].replace("json", "", 1).strip()
+    start = t.find("{")
+    end = t.rfind("}")
+    if start >= 0 and end > start:
+        t = t[start:end + 1]
+    return json.loads(t)
+
+def _director_agent_call_yandex(messages: list[dict], temperature: float = 0.2, max_tokens: int = 1600):
+    if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
+        raise HTTPException(status_code=503, detail="YANDEX_API_KEY / YANDEX_FOLDER_ID не настроены")
+    payload = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
+        "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
+        "messages": messages,
+    }
+    req = urllib.request.Request(
+        DIRECTOR_AGENT_URL,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+    )
+    req.add_header("Authorization", "Api-Key " + YANDEX_API_KEY)
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=40) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        return body["result"]["alternatives"][0]["message"]["text"]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail="YandexGPT не ответил: " + str(e))
+
+@app.get("/director-agent/tools")
+def director_agent_tools(_current_user: dict = Depends(require_roles(*DIRECTOR_AGENT_ROLES))):
+    return [{"name": k, "desc": v["desc"]} for k, v in DIRECTOR_AGENT_TOOLS.items()]
+
+@app.post("/director-agent/ask")
+def director_agent_ask(data: dict, current_user: dict = Depends(require_roles(*DIRECTOR_AGENT_ROLES))):
+    question = str((data or {}).get("question") or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Пустой вопрос")
+    if len(question) > 1000:
+        raise HTTPException(status_code=400, detail="Вопрос слишком длинный")
+    tools_desc = "\n".join([f"- {name}: {meta['desc']}" for name, meta in DIRECTOR_AGENT_TOOLS.items()])
+    system = (
+        "Ты — директорский помощник ERP СтройКа. Отвечай по-русски, кратко и управленчески.\n"
+        "Ты ничего не меняешь в системе. Ты можешь только попросить данные через инструменты чтения.\n"
+        "Данные могут быть неполными: если информации не хватает, прямо скажи что нужно уточнить.\n"
+        "Инструменты:\n" + tools_desc + "\n\n"
+        "Чтобы получить данные, ответь строго JSON без лишнего текста:\n"
+        '{"tool":"имя_инструмента","args":{}}\n'
+        "Когда данных достаточно, ответь строго JSON:\n"
+        '{"tool":"answer","text":"ответ директору"}\n'
+        "Не выдумывай суммы, объёмы, людей и сроки."
+    )
+    messages = [
+        {"role": "system", "text": system},
+        {"role": "user", "text": question},
+    ]
+    steps = []
+    for _ in range(DIRECTOR_AGENT_MAX_STEPS):
+        reply = _director_agent_call_yandex(messages, temperature=0.15)
+        try:
+            parsed = _director_agent_extract_json(reply)
+        except Exception:
+            log_audit(
+                user_name=current_user.get("name", ""),
+                user_role=current_user.get("role", ""),
+                action="director_agent_ask",
+                entity_type="director_agent",
+                description="Вопрос директорскому агенту: " + question[:180],
+            )
+            return {"answer": reply, "steps": steps, "model": "yandexgpt-lite"}
+        tool = parsed.get("tool") or ""
+        if tool == "answer":
+            log_audit(
+                user_name=current_user.get("name", ""),
+                user_role=current_user.get("role", ""),
+                action="director_agent_ask",
+                entity_type="director_agent",
+                description="Вопрос директорскому агенту: " + question[:180],
+            )
+            return {"answer": parsed.get("text") or "", "steps": steps, "model": "yandexgpt-lite"}
+        if tool not in DIRECTOR_AGENT_TOOLS:
+            return {"answer": "Неизвестный инструмент: " + str(tool), "steps": steps, "model": "yandexgpt-lite"}
+        args = parsed.get("args") or {}
+        try:
+            result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args)
+        except Exception as e:
+            result = {"error": str(e)}
+        steps.append({"tool": tool, "args": args})
+        messages.append({"role": "assistant", "text": json.dumps(parsed, ensure_ascii=False)})
+        messages.append({
+            "role": "user",
+            "text": "Результат инструмента " + tool + ": " + json.dumps(result, ensure_ascii=False, default=str)[:12000],
+        })
+    messages.append({"role": "user", "text": "Дай финальный ответ директору на основе уже полученных данных обычным текстом."})
+    reply = _director_agent_call_yandex(messages, temperature=0.25)
+    log_audit(
+        user_name=current_user.get("name", ""),
+        user_role=current_user.get("role", ""),
+        action="director_agent_ask",
+        entity_type="director_agent",
+        description="Вопрос директорскому агенту: " + question[:180],
+    )
+    return {"answer": reply or "Не удалось получить ответ", "steps": steps, "model": "yandexgpt-lite"}
+
 def _s3_enabled() -> bool:
     return (
         STORAGE_BACKEND == "s3"

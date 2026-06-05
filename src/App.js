@@ -831,6 +831,11 @@ function App() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiChat, setAiChat] = useState([]);
   const [aiMessage, setAiMessage] = useState('');
+  const [directorAgentQuestion, setDirectorAgentQuestion] = useState('');
+  const [directorAgentAnswer, setDirectorAgentAnswer] = useState('');
+  const [directorAgentSteps, setDirectorAgentSteps] = useState([]);
+  const [directorAgentLoading, setDirectorAgentLoading] = useState(false);
+  const [directorAgentError, setDirectorAgentError] = useState('');
   const [pushEnabled, setPushEnabled] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [previewContent, setPreviewContent] = useState(null);
@@ -1135,6 +1140,31 @@ function App() {
     const assistantMsg = {role:'assistant',content:response,time:new Date().toLocaleTimeString('ru-RU')};
     setAiChat(prev=>[...prev,assistantMsg]);
     setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:'smooth'}),100);
+  };
+
+  const askDirectorAgent = async (questionOverride = '') => {
+    const question = String(questionOverride || directorAgentQuestion || '').trim();
+    if (!question || directorAgentLoading) return;
+    setDirectorAgentQuestion(question);
+    setDirectorAgentLoading(true);
+    setDirectorAgentError('');
+    setDirectorAgentAnswer('');
+    setDirectorAgentSteps([]);
+    try {
+      const res = await fetch(API+'/director-agent/ask', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({question})
+      });
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) throw new Error(data.detail || data.error || 'Ошибка запроса');
+      setDirectorAgentAnswer(data.answer || 'Ответ пустой');
+      setDirectorAgentSteps(Array.isArray(data.steps) ? data.steps : []);
+    } catch(e) {
+      setDirectorAgentError(e.message || 'Не удалось получить ответ');
+    } finally {
+      setDirectorAgentLoading(false);
+    }
   };
 
   const getNotifPage = (type) => {
@@ -6932,6 +6962,7 @@ function App() {
     return html;
   };
   const isLeadership = () => ['директор','зам_директора'].includes(user?user.role:'');
+  const canUseDirectorAgent = () => ['директор','system_owner'].includes(user?user.role:'');
   const isProrab = () => ['директор','зам_директора','прораб','главный_инженер'].includes(user?user.role:'');
   const isMasterRole = () => ['мастер','субподрядчик'].includes(user?user.role:'');
   const roleColor = (r) => ({'директор':'#f97316','зам_директора':'#ea580c','главный_инженер':'#8b5cf6','прораб':'#3b82f6','кладовщик':'#10b981','снабженец':'#14b8a6','бухгалтер':'#6b7280','стройконтроль':'#06b6d4','менеджер_crm':'#8b5cf6','мастер':'#ec4899','субподрядчик':'#f59e0b','сметчик':'#3b82f6','заказчик':'#06b6d4','поставщик':'#f59e0b'}[r]||'#6b7280');
@@ -11222,6 +11253,36 @@ function App() {
                       </button>
                     ))}
                   </div>
+                  {canUseDirectorAgent()&&(
+                    <div style={{marginTop:'12px',padding:'16px',borderRadius:'18px',background:'rgba(15,23,42,.82)',border:'1px solid rgba(56,189,248,.28)',boxShadow:'0 18px 60px rgba(8,47,73,.22)'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap',marginBottom:'12px'}}>
+                        <div>
+                          <h3 style={{margin:0,fontSize:'16px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}><Bot size={17} color='#38bdf8'/>ИИ-помощник директора</h3>
+                          <p style={{margin:'4px 0 0',fontSize:'12px',color:'#94a3b8'}}>Читает объекты, склад, снабжение, сметы, финансы и задачи ИИ-контроля. Данные не меняет.</p>
+                        </div>
+                        <span style={{fontSize:'11px',fontWeight:'800',color:'#7dd3fc',background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.32)',borderRadius:'999px',padding:'5px 9px'}}>только директор</span>
+                      </div>
+                      <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
+                        {['Что сейчас критично по объектам?','Где есть риски по снабжению?','Какие сметы требуют внимания?','Где зависли задачи ИИ-контроля?'].map(q=>(
+                          <button key={q} onClick={()=>askDirectorAgent(q)} disabled={directorAgentLoading} style={{padding:'7px 10px',borderRadius:'999px',border:'1px solid rgba(148,163,184,.22)',background:'rgba(30,41,59,.72)',color:'#cbd5e1',fontSize:'11px',cursor:directorAgentLoading?'not-allowed':'pointer',opacity:directorAgentLoading?0.65:1}}>{q}</button>
+                        ))}
+                      </div>
+                      <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr auto',gap:'10px',alignItems:'stretch'}}>
+                        <textarea value={directorAgentQuestion} onChange={e=>setDirectorAgentQuestion(e.target.value)} placeholder="Спросите по объектам, складу, деньгам, сметам или задачам..." rows={isMobile?3:2} disabled={directorAgentLoading} style={{width:'100%',resize:'vertical',minHeight:'48px',padding:'11px 12px',borderRadius:'12px',border:'1px solid rgba(148,163,184,.28)',background:'rgba(2,6,23,.62)',color:'#f8fafc',outline:'none',fontSize:'13px',lineHeight:1.45,boxSizing:'border-box'}}/>
+                        <button onClick={()=>askDirectorAgent()} disabled={directorAgentLoading||!directorAgentQuestion.trim()} style={{padding:'10px 16px',borderRadius:'12px',border:'none',background:(directorAgentLoading||!directorAgentQuestion.trim())?'#334155':'linear-gradient(135deg,#0ea5e9,#0284c7)',color:'#f8fafc',fontWeight:'800',fontSize:'13px',cursor:(directorAgentLoading||!directorAgentQuestion.trim())?'not-allowed':'pointer',minWidth:isMobile?'100%':'120px'}}>{directorAgentLoading?'Думаю...':'Спросить'}</button>
+                      </div>
+                      {(directorAgentAnswer||directorAgentError||directorAgentLoading)&&(
+                        <div style={{marginTop:'12px',padding:'13px 14px',borderRadius:'14px',background:directorAgentError?'rgba(239,68,68,.10)':'rgba(30,41,59,.62)',border:'1px solid '+(directorAgentError?'rgba(239,68,68,.26)':'rgba(148,163,184,.18)'),color:directorAgentError?'#fca5a5':'#e2e8f0',fontSize:'13px',lineHeight:1.55,whiteSpace:'pre-wrap'}}>
+                          {directorAgentLoading?'Запрашиваю данные и собираю ответ...':(directorAgentError||directorAgentAnswer)}
+                        </div>
+                      )}
+                      {directorAgentSteps.length>0&&(
+                        <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'10px'}}>
+                          {directorAgentSteps.map((s,i)=><span key={i} style={{fontSize:'10px',fontWeight:'800',color:'#bae6fd',background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.24)',borderRadius:'999px',padding:'4px 8px'}}>{s.tool}</span>)}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               {showSupplyDashboard&&(<div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'18px 20px',marginBottom:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.28)'}}>
