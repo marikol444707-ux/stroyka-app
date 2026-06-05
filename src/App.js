@@ -3848,7 +3848,7 @@ function App() {
       .slice(0,4);
   };
   const createMaterialAlias = async (projectName, aliasName, canonicalName, canonicalUnit='') => {
-    if (!aliasName || !canonicalName) return;
+    if (!aliasName || !canonicalName) return null;
     const res = await fetch(API+'/material-aliases', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -3861,6 +3861,22 @@ function App() {
     }
     const row = await res.json();
     setMaterialAliases(prev=>[row, ...(prev||[]).filter(a=>!(a.active!==false&&(a.projectName||'')===(row.projectName||'')&&materialNameLookupKey(a.aliasName)===materialNameLookupKey(row.aliasName)))]);
+    return row;
+  };
+  const acceptMaterialAliasTask = async (task) => {
+    const payload = parseAiTaskPayload(task);
+    const suggestion = payload.aliasCandidate || null;
+    if (!suggestion?.aliasName || !suggestion?.canonicalName) {
+      openAiTaskAction(task);
+      return;
+    }
+    const row = await createMaterialAlias(
+      suggestion.projectName || payload.projectName || task.projectName || '',
+      suggestion.aliasName,
+      suggestion.canonicalName,
+      suggestion.canonicalUnit || ''
+    );
+    if (row && task?.id) await updateAiTask(task.id,{status:'Закрыто'});
   };
   const renderMaterialAliasControls = (projectName, row) => {
     if (!row?.isOutsideEstimate || !(isLeadership()||['прораб','главный_инженер','сметчик','снабженец','кладовщик'].includes(user?.role))) return null;
@@ -5454,11 +5470,15 @@ function App() {
         'Что сделать: проверить заявки, КП и поставки. Если материала действительно не хватает — оформить или уточнить заявку снабжения.'
       );
     } else if (kind === 'outside') {
+      const c = row.aliasCandidate || null;
       lines.push(
         'Материал есть в поставках, перемещениях или списании, но в активной смете нет плановой строки.',
         'Поступило/перемещено: '+fmtMeasure(row.supplied,row.unit)+'. Списано: '+fmtMeasure(row.used,row.unit)+'.',
+        c ? 'Похожая строка в смете: '+c.name+' ('+(c.unit||row.unit||'шт')+'), уверенность '+Math.min(99, Math.round(45 + toNum(c.score)*4))+'%.' : '',
         '',
-        'Что сделать: проверить, это материал вне сметы, ошибка импорта сметы или неверное наименование. При необходимости добавить позицию в смету или оформить изменение к смете.'
+        c
+          ? 'Что сделать: если это тот же материал — подтвердить сопоставление. Если нет — добавить позицию в смету или оформить изменение к смете.'
+          : 'Что сделать: проверить, это материал вне сметы, ошибка импорта сметы или неверное наименование. При необходимости добавить позицию в смету или оформить изменение к смете.'
       );
     } else if (kind === 'writeoff') {
       lines.push(
@@ -5491,7 +5511,7 @@ function App() {
     if (!projectName) return [];
     const summary = materialControlSummaryForProject(projectName);
     const normSummary = materialNormControlSummaryForProject(projectName);
-    const mk = (kind, row, title, assignedRole, actionType) => {
+    const mk = (kind, row, title, assignedRole, actionType, extraPayload={}) => {
       const marker = materialControlMarker(kind, projectName, row.name, row.unit);
       return {
         marker,
@@ -5506,7 +5526,8 @@ function App() {
           projectName,
           materialName: row.name || '',
           unit: row.unit || '',
-          reason
+          reason,
+          ...extraPayload
         }
       };
     };
@@ -5526,13 +5547,26 @@ function App() {
       .filter(r=>materialNameKey(r.name))
       .sort((a,b)=>(b.supplied+b.used)-(a.supplied+a.used))
       .slice(0,3)
-      .forEach(r=>descriptors.push(mk(
-        'outside',
-        r,
-        'Материал вне сметы: '+projectName+' — '+(r.name||'материал'),
-        hasActiveEstimator() ? 'сметчик' : 'директор',
-        'material_outside_estimate_review'
-      )));
+      .forEach(r=>{
+        const candidate = materialAliasCandidates(projectName, r)[0] || null;
+        const row = candidate ? {...r, aliasCandidate:candidate} : r;
+        descriptors.push(mk(
+          'outside',
+          row,
+          candidate
+            ? 'Проверить сопоставление материала: '+projectName+' — '+(r.name||'материал')+' → '+candidate.name
+            : 'Материал вне сметы: '+projectName+' — '+(r.name||'материал'),
+          hasActiveEstimator() ? 'сметчик' : 'директор',
+          'material_outside_estimate_review',
+          candidate ? {aliasCandidate:{
+            projectName,
+            aliasName: r.aliases?.[0] || r.name || '',
+            canonicalName: candidate.name || '',
+            canonicalUnit: candidate.unit || r.unit || '',
+            score: candidate.score || 0,
+          }} : {}
+        ));
+      });
     summary.usedWithoutIssueRows
       .filter(r=>r.usedWithoutIssue>0 && materialNameKey(r.name))
       .sort((a,b)=>b.usedWithoutIssue-a.usedWithoutIssue)
@@ -5840,7 +5874,7 @@ function App() {
       queueMaterialControlTasksForProject(p.name, 'Фоновая проверка материалов');
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, user?.role, projects, estimatesList, materials, supplyRequests, supplyDeliveries, supplyHistory, supplierInvoices, invoices, materialTransfers, workJournal, materialNorms, materialNormOverrides]);
+  }, [user?.id, user?.role, projects, estimatesList, materials, supplyRequests, supplyDeliveries, supplyHistory, supplierInvoices, invoices, materialTransfers, workJournal, materialNorms, materialNormOverrides, materialAliases]);
   useEffect(() => {
     if (!user || !['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user.role)) return;
     if (!Array.isArray(projects) || projects.length===0) return;
@@ -11467,6 +11501,7 @@ function App() {
                                 const isEstimateTask=['estimate_quality_review','estimate_norm_review','material_norm_coverage','estimate_diff_review','estimate_change_reconcile'].includes(payload.type);
                                 const isMaterialTask=['material_purchase_review','material_outside_estimate_review','material_writeoff_review','material_norm_over_review','material_without_norm_review'].includes(payload.type);
                                 const isRoomTask=['room_measurement_review','work_room_link_review'].includes(payload.type);
+                                const aliasCandidate=payload.aliasCandidate||null;
                                 return (<div key={task.id} style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'8px'}}>
                                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                                     <div style={{flex:1,minWidth:'220px'}}>
@@ -11480,6 +11515,7 @@ function App() {
                                         : task.description&&<p style={{color:C.textSec,fontSize:'12px',margin:'6px 0 0',lineHeight:1.45,whiteSpace:'pre-wrap'}}>{task.description}</p>}
                                     </div>
                                     <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                                      {aliasCandidate?.aliasName&&aliasCandidate?.canonicalName&&<button onClick={()=>acceptMaterialAliasTask(task)} style={{...btnGr,padding:'5px 9px',fontSize:'11px'}}><Check size={11}/>Привязать</button>}
                                       {task.actionLabel&&<button onClick={()=>openAiTaskAction(task)} style={{...btnB,padding:'5px 9px',fontSize:'11px'}}>{payload.type==='estimate_diff_review'?<FileText size={11}/>:isEstimateTask?<Calculator size={11}/>:isMaterialTask?<Package size={11}/>:isRoomTask?<MapPin size={11}/>:<Eye size={11}/>} {task.actionLabel}</button>}
                                       {task.status==='Новое'&&<button onClick={()=>updateAiTask(task.id,{status:'Принято к исполнению'})} style={{...btnG,padding:'5px 9px',fontSize:'11px'}}>Принять</button>}
                                       {['Новое','Принято к исполнению'].includes(task.status||'')&&<button onClick={()=>updateAiTask(task.id,{status:'В работе'})} style={{...btnO,padding:'5px 9px',fontSize:'11px'}}>В работу</button>}
