@@ -207,6 +207,8 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> dic
     cur.close(); conn.close()
     if not user:
         raise HTTPException(status_code=401, detail="Пользователь не найден")
+    if user.get("active") is False:
+        raise HTTPException(status_code=403, detail="Аккаунт отключён. Обратитесь к администратору.")
     return public_user(user, include_token=True)
 
 def require_roles(*roles: str):
@@ -483,6 +485,134 @@ S3_SECRET_ACCESS_KEY = (os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECR
 S3_PUBLIC_URL = os.getenv("S3_PUBLIC_URL", "").rstrip("/")
 S3_PREFIX = os.getenv("S3_PREFIX", "uploads").strip("/")
 S3_ACL = os.getenv("S3_ACL", "public-read").strip()
+
+def _git_dir_path() -> str:
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dot_git = os.path.join(root, ".git")
+    if os.path.isdir(dot_git):
+        return dot_git
+    if os.path.isfile(dot_git):
+        try:
+            with open(dot_git, "r", encoding="utf-8") as f:
+                raw = f.read().strip()
+            if raw.startswith("gitdir:"):
+                gitdir = raw.split(":", 1)[1].strip()
+                return gitdir if os.path.isabs(gitdir) else os.path.abspath(os.path.join(root, gitdir))
+        except Exception:
+            return ""
+    return ""
+
+def _app_version() -> str:
+    env_version = (os.getenv("APP_VERSION") or os.getenv("GIT_COMMIT") or "").strip()
+    if env_version:
+        return env_version[:12]
+    git_dir = _git_dir_path()
+    if not git_dir:
+        return "unknown"
+    try:
+        head_path = os.path.join(git_dir, "HEAD")
+        with open(head_path, "r", encoding="utf-8") as f:
+            head = f.read().strip()
+        if head.startswith("ref:"):
+            ref_path = os.path.join(git_dir, head.split(" ", 1)[1].strip())
+            with open(ref_path, "r", encoding="utf-8") as f:
+                return f.read().strip()[:12]
+        return head[:12]
+    except Exception:
+        return "unknown"
+
+def _utc_now_iso() -> str:
+    return dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+def _count_table(cur, table: str, where: str = "", params: tuple = ()) -> Optional[int]:
+    allowed = {
+        "projects", "users", "estimates", "work_journal", "materials",
+        "warehouse_main", "supply_requests", "ai_tasks", "audit_log"
+    }
+    if table not in allowed:
+        return None
+    cur.execute("SELECT to_regclass(%s)", (table,))
+    if not cur.fetchone()[0]:
+        return None
+    sql = f"SELECT COUNT(*) FROM {table}"
+    if where:
+        sql += " WHERE " + where
+    cur.execute(sql, params)
+    return int(cur.fetchone()[0] or 0)
+
+@app.get("/health")
+def health():
+    started = time.time()
+    db = {"ok": False}
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        cur.close(); conn.close()
+        db = {"ok": True, "latencyMs": round((time.time() - started) * 1000, 1)}
+    except Exception as e:
+        db = {"ok": False, "error": e.__class__.__name__}
+    return {
+        "ok": db["ok"],
+        "status": "ok" if db["ok"] else "degraded",
+        "service": "stroyka-backend",
+        "time": _utc_now_iso(),
+        "version": _app_version(),
+        "db": db,
+    }
+
+@app.get("/system-status")
+def system_status(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
+    started = time.time()
+    status = {
+        "ok": True,
+        "service": "stroyka-backend",
+        "time": _utc_now_iso(),
+        "version": _app_version(),
+        "storage": {
+            "backend": STORAGE_BACKEND,
+            "s3Configured": _s3_enabled(),
+            "prefix": S3_PREFIX,
+            "maxUploadMb": round(MAX_UPLOAD_BYTES / 1024 / 1024, 1),
+        },
+        "counts": {},
+        "recentAudit": [],
+    }
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        status["counts"]["projects"] = _count_table(cur, "projects")
+        status["counts"]["activeProjects"] = _count_table(cur, "projects", "COALESCE(status,'') <> 'Завершён'")
+        status["counts"]["users"] = _count_table(cur, "users")
+        status["counts"]["activeUsers"] = _count_table(cur, "users", "COALESCE(active, TRUE)=TRUE")
+        status["counts"]["inactiveUsers"] = _count_table(cur, "users", "COALESCE(active, TRUE)=FALSE")
+        status["counts"]["estimates"] = _count_table(cur, "estimates")
+        status["counts"]["workJournal"] = _count_table(cur, "work_journal")
+        status["counts"]["materials"] = _count_table(cur, "materials")
+        status["counts"]["warehouseMain"] = _count_table(cur, "warehouse_main")
+        status["counts"]["supplyRequests"] = _count_table(cur, "supply_requests")
+        status["counts"]["openAiTasks"] = _count_table(cur, "ai_tasks", "COALESCE(status,'') NOT IN ('Закрыто','Готово','Отменено')")
+        if _count_table(cur, "audit_log") is not None:
+            cur.execute("""SELECT user_name, user_role, action, entity_type, description, created_at
+                           FROM audit_log ORDER BY id DESC LIMIT 8""")
+            status["recentAudit"] = [
+                {
+                    "user": r[0] or "",
+                    "role": r[1] or "",
+                    "action": r[2] or "",
+                    "entityType": r[3] or "",
+                    "description": r[4] or "",
+                    "createdAt": str(r[5]) if r[5] else "",
+                }
+                for r in cur.fetchall()
+            ]
+        cur.close(); conn.close()
+        status["db"] = {"ok": True, "latencyMs": round((time.time() - started) * 1000, 1)}
+    except Exception as e:
+        status["ok"] = False
+        status["db"] = {"ok": False, "error": e.__class__.__name__}
+    return status
 
 def _s3_enabled() -> bool:
     return (
