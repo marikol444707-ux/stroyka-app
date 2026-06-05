@@ -4325,6 +4325,26 @@ def _float_or_zero(v):
     except Exception:
         return 0.0
 
+def _json_list_or_empty(value):
+    import json as _json
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode("utf-8", "replace")
+    if not value:
+        return []
+    try:
+        parsed = _json.loads(value)
+    except Exception:
+        return []
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        return [parsed]
+    return []
+
 def _detect_cable_info(name):
     import re as _re
     raw = (name or "").strip()
@@ -4637,10 +4657,7 @@ def _backfill_cable_journal(cur, project_names=None):
         target_project = project or (location if location and location != "Основной склад" else "")
         if project_names and target_project not in project_names:
             continue
-        try:
-            items = _json.loads(items_json) if items_json else []
-        except Exception:
-            items = []
+        items = _json_list_or_empty(items_json)
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -9451,11 +9468,9 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id FROM warehouse_invoices ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    import json as j
     result = []
     for r in rows:
-        try: items = j.loads(r[9]) if r[9] else []
-        except: items = []
+        items = _json_list_or_empty(r[9])
         result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":float(r[10] or 0),"totalVat":float(r[11] or 0),"totalWithVat":float(r[12] or 0),"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19]})
     return result
 
