@@ -2687,6 +2687,13 @@ function App() {
     setAiTasks(prev=>(prev||[]).map(t=>Number(t.id)===Number(id)?data:t));
     return data;
   };
+  const patchAiFindingSilent = async (id, patch) => {
+    const res = await fetch(API+'/ai-findings/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) return null;
+    setAiFindings(prev=>(prev||[]).map(f=>Number(f.id)===Number(id)?data:f));
+    return data;
+  };
   const parseAiTaskPayload = (task) => {
     try { return JSON.parse(task?.actionPayload || '{}'); } catch(e) { return {}; }
   };
@@ -5673,6 +5680,17 @@ function App() {
   const queueRoomControlTasksForProject = async (projectName, reason='Фоновая проверка помещений') => {
     const descriptors = roomControlTaskDescriptorsForProject(projectName, reason);
     const activeMarkers = new Set(descriptors.map(d=>d.marker));
+    const isLegacyRoomBinding = (item) => {
+      const dedupe = String(item?.dedupeKey || item?.dedupe_key || '');
+      const payload = String(item?.actionPayload || item?.action_payload || '');
+      return (dedupe.startsWith('work_journal:') && dedupe.endsWith(':room_binding')) || payload.includes('room_binding');
+    };
+    (aiTasks||[])
+      .filter(t=>isOpenAiStatus(t.status) && (t.projectName||'')===projectName && isLegacyRoomBinding(t))
+      .forEach(t=>patchAiTaskSilent(t.id,{status:'Закрыто'}));
+    (aiFindings||[])
+      .filter(f=>isOpenAiStatus(f.status) && (f.projectName||'')===projectName && isLegacyRoomBinding(f))
+      .forEach(f=>patchAiFindingSilent(f.id,{status:'Закрыто'}));
     const openRoomTasks = (aiTasks||[]).filter(t=>{
       if (!isOpenAiStatus(t.status)) return false;
       const payload = parseAiTaskPayload(t);
