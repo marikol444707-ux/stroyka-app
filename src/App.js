@@ -2633,6 +2633,7 @@ function App() {
     return list||[];
   };
   const selectableActiveProjects = (list=projects) => visibleProjects(list||[]).filter(p=>!p.archived&&p.status!=='Завершён');
+  const visibleActiveProjects = (list=projects) => selectableActiveProjects(list||[]);
   useEffect(() => {
     if(!user||!['мастер','субподрядчик'].includes(user.role)) return;
     const options = selectableActiveProjects(projects);
@@ -5528,7 +5529,7 @@ function App() {
   useEffect(() => {
     if (!user || !['директор','зам_директора','снабженец','прораб','главный_инженер','сметчик'].includes(user.role)) return;
     if (!Array.isArray(projects) || projects.length===0) return;
-    const visible = visibleProjects(projects).filter(p=>!p.archived && p.status!=='Завершён').slice(0,20);
+    const visible = visibleActiveProjects(projects).slice(0,20);
     visible.forEach(p=>{
       const signature = materialControlSignatureForProject(p.name);
       const prev = materialControlTaskAutoCheckedRef.current.get(p.name);
@@ -10571,7 +10572,7 @@ function App() {
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
           {activePage==='dashboard'&&(()=>{
             const _today=new Date().toISOString().split('T')[0];
-            const dashboardProjects = visibleProjects(projects||[]).filter(p=>!p.archived&&p.status!=='Завершён');
+            const dashboardProjects = visibleActiveProjects(projects||[]);
             const risks=[];
             // Низкие остатки материалов
             lowStock.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn',page:'warehouse'}));
@@ -11970,7 +11971,7 @@ function App() {
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                           <select value={newTransfer.fromLocation} onChange={e=>setNewTransfer({...newTransfer,fromLocation:e.target.value,materialName:'',quantity:''})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
                             <option value='Основной склад'>Основной склад</option>
-                            {projects.map(pr=><option key={pr.id} value={pr.name}>{pr.name}</option>)}
+                            {visibleActiveProjects(projects).map(pr=><option key={pr.id} value={pr.name}>{pr.name}</option>)}
                           </select>
                           <div style={{gridColumn:'span 2'}}>
                             <p style={{fontSize:'12px',color:C.textSec,marginBottom:'6px'}}>Материалы на складе:</p>
@@ -12740,9 +12741,9 @@ function App() {
                   <h3 style={{color:C.text,margin:'0 0 4px',fontSize:'15px',fontWeight:'700'}}>Контроль материалов по сметам</h3>
                   <p style={{color:C.textSec,margin:0,fontSize:'12px'}}>Один экран: план из активных смет, заявки, поставки, перемещения, выдача мастерам и списание по работам.</p>
                 </div>
-                <button onClick={()=>exportToExcel(visibleProjects(projects).flatMap(p=>materialReconciliationRows(p.name).map(r=>({Объект:p.name,Материал:r.name,Ед:r.unit,План:r.planQty,Заявки:r.requested,'В пути':r.inTransit,Накладные:r.invoiceReceived,Поставки:r.supplyReceived,Перемещено:r.movedNet,'Всего получено':r.supplied,Выдано:r.issued,Списано:r.used,'У мастеров':r.masterBalance,Остаток:r.stock,'Расчётный остаток':r.expectedStock,'Расхождение склада':r.stockDiff,Докупить:r.toBuy,Статус:r.stockMismatch?'Расхождение склада':r.issued>0&&r.usedWithoutIssue>0?'Списано сверх выдачи':r.isOutsideEstimate?'Вне сметы':r.toBuy>0?'Докупить':r.shortage>0?'Закрывается':r.masterBalance>0?'У мастеров':r.over>0?'Сверх сметы':'Закрыто'}))),'Контроль_материалов')} style={btnG}><Download size={14}/>Excel</button>
+                <button onClick={()=>exportToExcel(visibleActiveProjects(projects).flatMap(p=>materialReconciliationRows(p.name).map(r=>({Объект:p.name,Материал:r.name,Ед:r.unit,План:r.planQty,Заявки:r.requested,'В пути':r.inTransit,Накладные:r.invoiceReceived,Поставки:r.supplyReceived,Перемещено:r.movedNet,'Всего получено':r.supplied,Выдано:r.issued,Списано:r.used,'У мастеров':r.masterBalance,Остаток:r.stock,'Расчётный остаток':r.expectedStock,'Расхождение склада':r.stockDiff,Докупить:r.toBuy,Статус:r.stockMismatch?'Расхождение склада':r.issued>0&&r.usedWithoutIssue>0?'Списано сверх выдачи':r.isOutsideEstimate?'Вне сметы':r.toBuy>0?'Докупить':r.shortage>0?'Закрывается':r.masterBalance>0?'У мастеров':r.over>0?'Сверх сметы':'Закрыто'}))),'Контроль_материалов')} style={btnG}><Download size={14}/>Excel</button>
               </div>
-              {visibleProjects(projects).map(p=>{const s=materialControlSummaryForProject(p.name);const hasIssue=s.toBuyRows.length||s.outsideRows.length||s.mismatchRows.length||s.stockMismatchRows.length;return(<div key={p.id||p.name} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(s.stockMismatchRows.length?C.danger:s.toBuyRows.length?C.warning:s.outsideRows.length?C.danger:hasIssue?C.info:C.success)}}>
+              {visibleActiveProjects(projects).map(p=>{const s=materialControlSummaryForProject(p.name);const hasIssue=s.toBuyRows.length||s.outsideRows.length||s.mismatchRows.length||s.stockMismatchRows.length;return(<div key={p.id||p.name} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(s.stockMismatchRows.length?C.danger:s.toBuyRows.length?C.warning:s.outsideRows.length?C.danger:hasIssue?C.info:C.success)}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
                   <div style={{flex:1,minWidth:'240px'}}>
                     <b style={{color:C.text,fontSize:'14px'}}>{p.name}</b>
@@ -12766,7 +12767,7 @@ function App() {
                   </div>
                 </div>
               </div>);})}
-              {visibleProjects(projects).length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Объектов нет</div>}
+              {visibleActiveProjects(projects).length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Объектов нет</div>}
             </div>)}
 
             {warehouseTab==='warehouses'&&(<div>
@@ -12796,7 +12797,7 @@ function App() {
             {warehouseTab==='objects'&&(<div>
               {!selectedWarehouseProject?(<div>
                 <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Материалы по объектам</h3>
-                {projects.map(p=>{const mats=materials.filter(m=>m.project===p.name);const total=mats.reduce((s,m)=>s+m.price*m.quantity,0);return(<div key={p.id} style={{...card,padding:'16px',marginBottom:'10px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setSelectedWarehouseProject(p.name)}><div><b style={{color:C.text,fontSize:'14px'}}>{p.name}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{mats.length+' позиций · '+total.toLocaleString()+' ₽'}</p></div><ChevronRight size={18} color={C.textMuted}/></div>);})}
+                {visibleActiveProjects(projects).map(p=>{const mats=materials.filter(m=>m.project===p.name);const total=mats.reduce((s,m)=>s+m.price*m.quantity,0);return(<div key={p.id} style={{...card,padding:'16px',marginBottom:'10px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setSelectedWarehouseProject(p.name)}><div><b style={{color:C.text,fontSize:'14px'}}>{p.name}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{mats.length+' позиций · '+total.toLocaleString()+' ₽'}</p></div><ChevronRight size={18} color={C.textMuted}/></div>);})}
               </div>):(<div>
                 <div style={{display:'flex',gap:'10px',alignItems:'center',marginBottom:'15px'}}>
                   <button onClick={()=>setSelectedWarehouseProject(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
@@ -12958,7 +12959,7 @@ function App() {
                     <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'5px'}}>Откуда:</label>
                     <select value={newMovement.fromLocation} onChange={e=>setNewMovement({...newMovement,fromLocation:e.target.value,selectedMaterials:[]})} style={inp}>
                       <option value="Основной склад">Основной склад</option>
-                      {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+                      {visibleActiveProjects(projects).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
                     </select>
                   </div>
                   <div>
@@ -12966,7 +12967,7 @@ function App() {
                     <select value={newMovement.toLocation} onChange={e=>setNewMovement({...newMovement,toLocation:e.target.value})} style={inp}>
                       <option value="">Выберите...</option>
                       <option value="Основной склад">Основной склад</option>
-                      {projects.filter(p=>p.name!==newMovement.fromLocation).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+                      {visibleActiveProjects(projects).filter(p=>p.name!==newMovement.fromLocation).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -15291,7 +15292,7 @@ function App() {
                 </div>
                 <button onClick={()=>setMaterialNormNotice(null)} style={{...btnG,padding:'4px 8px',fontSize:'11px',flex:'0 0 auto'}}><X size={12}/></button>
               </div>;})()}
-              {(()=>{const projectOptions=visibleProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const invalidQtyCount=rows.filter(r=>r.status==='Некорректное количество').length;const zeroQtyCount=rows.filter(r=>r.status==='Материал без количества').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+              {(()=>{const projectOptions=visibleActiveProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const invalidQtyCount=rows.filter(r=>r.status==='Некорректное количество').length;const zeroQtyCount=rows.filter(r=>r.status==='Материал без количества').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
                   <div>
                     <b style={{color:C.text,fontSize:'13px',display:'block'}}>📐 Вся смета по нормам</b>
@@ -16491,8 +16492,8 @@ function App() {
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:'10px'}}>
         {[
-          {icon:<Plus size={24}/>,label:'Принять материал',color:'#3b82f6',action:()=>{const visible=visibleProjects(projects);if(visible.length===1){openReceiveInvoice(visible[0].name);setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте нужный объект → Объект → Материалы → Принять материал');}},roles:['директор','зам_директора','прораб','кладовщик','снабженец']},
-          {icon:<Truck size={24}/>,label:'Передать материал',color:'#10b981',action:async()=>{const visible=visibleProjects(projects);if(visible.length===1){const pn=visible[0].name;const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(pn));const data=await res.json();setMaterialTransfers(Array.isArray(data)?data:[]);setShowTransferForm(true);setExpandedProject(visible[0].id);setActivePage('projects');setActiveProjectTab('Материалы');setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте объект → Объект → Материалы → Передать материал');}},roles:['директор','зам_директора','прораб','кладовщик']},
+          {icon:<Plus size={24}/>,label:'Принять материал',color:'#3b82f6',action:()=>{const visible=visibleActiveProjects(projects);if(visible.length===1){openReceiveInvoice(visible[0].name);setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте нужный объект → Объект → Материалы → Принять материал');}},roles:['директор','зам_директора','прораб','кладовщик','снабженец']},
+          {icon:<Truck size={24}/>,label:'Передать материал',color:'#10b981',action:async()=>{const visible=visibleActiveProjects(projects);if(visible.length===1){const pn=visible[0].name;const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(pn));const data=await res.json();setMaterialTransfers(Array.isArray(data)?data:[]);setShowTransferForm(true);setExpandedProject(visible[0].id);setActivePage('projects');setActiveProjectTab('Материалы');setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте объект → Объект → Материалы → Передать материал');}},roles:['директор','зам_директора','прораб','кладовщик']},
           {icon:<CreditCard size={24}/>,label:'Мои траты',color:'#22c55e',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
           {icon:<MessageSquare size={24}/>,label:'Чат',color:'#3b82f6',action:()=>{setShowQuickActions(false);setShowChatPanel(true);}},
           {icon:<CloudSun size={24}/>,label:'Погода',color:'#06b6d4',action:()=>{setShowQuickActions(false);setActivePage('weather');},roles:['прораб','главный_инженер']},
