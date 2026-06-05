@@ -10555,12 +10555,13 @@ function App() {
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
           {activePage==='dashboard'&&(()=>{
             const _today=new Date().toISOString().split('T')[0];
+            const dashboardProjects = visibleProjects(projects||[]).filter(p=>!p.archived&&p.status!=='Завершён');
             const risks=[];
             // Низкие остатки материалов
             lowStock.slice(0,2).forEach(m=>risks.push({icon:'📦',text:'Мало на объекте: '+m.name,severity:'warn',page:'warehouse'}));
             lowMainStock.slice(0,2).forEach(m=>risks.push({icon:'🏭',text:'Мало на складе: '+m.name,severity:'warn',page:'warehouse',tab:'main'}));
             // Просроченные проекты
-            projects.filter(p=>p.deadline&&p.deadline<_today&&p.status!=='Завершён').slice(0,2).forEach(p=>risks.push({icon:'⏰',text:'Срок истёк: '+p.name+' (до '+p.deadline+')',severity:'danger',page:'projects'}));
+            dashboardProjects.filter(p=>p.deadline&&p.deadline<_today).slice(0,2).forEach(p=>risks.push({icon:'⏰',text:'Срок истёк: '+p.name+' (до '+p.deadline+')',severity:'danger',page:'projects'}));
             // АОСР зависшие в черновике > 7 дней
             const _weekAgo=new Date(Date.now()-7*24*3600*1000).toISOString().split('T')[0];
             (hiddenActs||[]).filter(a=>a.status!=='Подписан'&&a.createdAt&&String(a.createdAt).split('T')[0]<_weekAgo).slice(0,2).forEach(a=>risks.push({icon:'🔒',text:'АОСР долго без подписи: '+a.actNumber,severity:'warn',page:'projects'}));
@@ -10568,7 +10569,7 @@ function App() {
             const openInsp=(inspectionOrders||[]).filter(o=>o.status!=='Закрыто').length;
             if(openInsp>0) risks.push({icon:'🏛',text:'Открытых замечаний ГСН: '+openInsp,severity:'danger',page:'projects'});
             // Изменения к смете отдельной допработой >10%
-            projects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId).reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': изменения к смете '+pct.toFixed(1)+'% от бюджета',severity:'danger',page:'projects'});});
+            dashboardProjects.forEach(p=>{const budget=Number(p.budget||0);if(budget<=0) return;const sumUnx=(unexpectedWorksList||[]).filter(u=>u.projectName===p.name&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId).reduce((s,u)=>s+Number(u.total||0),0);const pct=sumUnx/budget*100;if(pct>10) risks.push({icon:'💸',text:p.name+': изменения к смете '+pct.toFixed(1)+'% от бюджета',severity:'danger',page:'projects'});});
             // Траты сотрудников на возмещении
             const pendingExp=(ownExpenses||[]).filter(e=>e.status==='Ожидает');
             if(pendingExp.length>0){const sum=pendingExp.reduce((s,e)=>s+Number(e.amount||0),0);risks.push({icon:'💸',text:'К возмещению сотрудникам: '+Math.round(sum).toLocaleString('ru-RU')+' ₽ ('+pendingExp.length+' трат)',severity:'warn',action:'reimburse'});}
@@ -10576,9 +10577,9 @@ function App() {
             const criticalAiControl=openAiControl.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных');
             if(openAiControl.length>0) risks.push({icon:'🤖',text:'ИИ-контроль: '+openAiControl.length+' замечаний, из них важных '+criticalAiControl.length,severity:criticalAiControl.length?'danger':'warn',page:'projects'});
             const _planDoneOf=projectPlanDone; const _projProgress=projectRealProgress;
-            const avgProg=projects.length?Math.round(projects.reduce((s,p)=>s+_projProgress(p),0)/projects.length):0;
+            const avgProg=dashboardProjects.length?Math.round(dashboardProjects.reduce((s,p)=>s+_projProgress(p),0)/dashboardProjects.length):0;
             // Выполнено = работы (max сметы/журнала) + материалы + утв.доп.соглашения по всем проектам
-            const _bsAll=projects.map(p=>projectBudgetSpent(p));
+            const _bsAll=dashboardProjects.map(p=>projectBudgetSpent(p));
             const totalDone=_bsAll.reduce((s,bs)=>s+bs.total,0);
             const totalMaterials=_bsAll.reduce((s,bs)=>s+bs.materials,0);
             const totalUnexpected=_bsAll.reduce((s,bs)=>s+bs.unexpected,0);
@@ -10641,10 +10642,10 @@ function App() {
                 </div>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'16px',marginBottom:'20px'}}>
-                {[{label:'Объекты',value:projects.filter(p=>p.status!=='Завершён').length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',page:'projects'},
+                {[{label:'Объекты',value:dashboardProjects.length,sub:'активных проектов',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',page:'projects'},
                   {label:'Прогресс',value:avgProg+'%',sub:'среднее по объектам',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',page:'projects'},
                   {label:'Себестоимость',value:totalDone>=1000000?(totalDone/1000000).toFixed(1)+' млн':Math.round(totalDone/1000)+' тыс',sub:'затраты по всем объектам',color:'#bef264',bg:'rgba(132,204,22,.12)',border:'rgba(132,204,22,.28)',page:'accounting',tab:'payments'},
-                  {label:'Бюджет',value:(()=>{const t=projects.reduce((s,p)=>s+Number(p.budget||0),0);return t>=1000000?Math.round(t/1000000)+' млн':Math.round(t/1000)+' тыс';})(),sub:'общий бюджет ₽',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',page:'accounting',tab:'summary'}
+                  {label:'Бюджет',value:(()=>{const t=dashboardProjects.reduce((s,p)=>s+Number(p.budget||0),0);return t>=1000000?Math.round(t/1000000)+' млн':Math.round(t/1000)+' тыс';})(),sub:'общий бюджет ₽',color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',page:'accounting',tab:'summary'}
                 ].map((k,i)=>(
                   <div key={i} onClick={()=>{if(k.page){setActivePage(k.page);if(k.tab)setAccountingTab(k.tab);}}} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)',cursor:'pointer',transition:'transform 0.15s, box-shadow 0.15s'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 30px 90px rgba(0,0,0,.45)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow='0 24px 80px rgba(0,0,0,.35)';}}>
                     <span style={{display:'inline-flex',borderRadius:'999px',padding:'5px 10px',fontSize:'11px',fontWeight:'700',background:k.bg,color:k.color,border:'1px solid '+k.border}}>{k.label}</span>
@@ -10702,7 +10703,7 @@ function App() {
               <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:'16px'}}>
                 <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                   <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
-                  {projects.slice(0,5).map(p=>{const pd=_planDoneOf(p);const fs=projectFactSpent(p);const bs=projectBudgetSpent(p);const factTotal=bs.total;const realProg=_projProgress(p);return(
+                  {dashboardProjects.slice(0,5).map(p=>{const pd=_planDoneOf(p);const fs=projectFactSpent(p);const bs=projectBudgetSpent(p);const factTotal=bs.total;const realProg=_projProgress(p);return(
                     <div key={p.id} onClick={()=>{setExpandedProject(p.id);setActivePage('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
                         <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
