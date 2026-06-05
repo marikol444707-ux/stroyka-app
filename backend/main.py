@@ -33,6 +33,7 @@ YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
 VK_TOKEN = os.getenv("VK_TOKEN", "")
 AUTH_SECRET = os.getenv("AUTH_SECRET") or (os.getenv("DB_PASSWORD", "password") + "|stroyka-auth")
 AUTH_TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "86400"))
+AI_CONTROL_RUN_TOKEN = os.getenv("AI_CONTROL_RUN_TOKEN", "").strip()
 
 def _env_list(name: str, default: list[str]) -> list[str]:
     raw = os.getenv(name, "")
@@ -202,6 +203,14 @@ def require_roles(*roles: str):
             raise HTTPException(status_code=403, detail="Недостаточно прав")
         return user
     return _dep
+
+def get_ai_control_runner(
+    authorization: Optional[str] = Header(default=None),
+    x_ai_control_token: Optional[str] = Header(default=None),
+) -> dict:
+    if AI_CONTROL_RUN_TOKEN and x_ai_control_token and hmac.compare_digest(x_ai_control_token, AI_CONTROL_RUN_TOKEN):
+        return _ai_system_user()
+    return get_current_user(authorization)
 
 LEADERSHIP_ROLES = ("директор", "зам_директора")
 FINANCE_ROLES = ("директор", "зам_директора", "бухгалтер")
@@ -6697,7 +6706,9 @@ def run_ai_control(data: dict, current_user: dict = Depends(require_roles(*PROJE
     return result
 
 @app.post("/ai-control/run-all")
-def run_all_ai_control(data: dict = None, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "главный_инженер", "сметчик"))):
+def run_all_ai_control(data: dict = None, current_user: dict = Depends(get_ai_control_runner)):
+    if current_user.get("role") not in (*LEADERSHIP_ROLES, "главный_инженер", "сметчик"):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
     data = data or {}
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
