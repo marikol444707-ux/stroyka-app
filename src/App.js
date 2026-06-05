@@ -7,6 +7,7 @@ import UsersPage from './components/UsersPage';
 import SupplyHeaderTabs from './components/SupplyHeaderTabs';
 import SupplyRequestForm from './components/SupplyRequestForm';
 import SupplyRequestsList from './components/SupplyRequestsList';
+import SupplyDeliveriesPanel from './components/SupplyDeliveriesPanel';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
 installAuthFetch();
@@ -13804,88 +13805,35 @@ function App() {
                   ))}
                 </div>);
               })()}
-              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && !(role==='мастер'||role==='субподрядчик') && (<div style={{...card,padding:'16px',marginBottom:'16px'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
-                  <div>
-                    <b style={{color:C.text,fontSize:'14px'}}>🚚 Поставки и приёмка</b>
-                    <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Отгрузка поставщика → AI-сверка накладной → приёмка на склад объекта → претензия при проблеме.</p>
-                  </div>
-                  {supplyClaims.filter(c=>c.status==='Открыта').length>0 && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>⚠️ Претензий: {supplyClaims.filter(c=>c.status==='Открыта').length}</span>}
-                </div>
-                {(supplyDeliveries||[]).length===0 && <p style={{color:C.textMuted,fontSize:'12px',margin:'8px 0'}}>Поставок пока нет. Они появятся после отгрузки выигранного КП поставщиком.</p>}
-                {(supplyDeliveries||[]).slice(0,8).map(d=>{
-                  const problem = d.status==='Проблема';
-                  const done = d.status==='Принято';
-                  const stC = problem?C.danger:done?C.success:C.info;
-                  const stBg = problem?C.dangerLight:done?C.successLight:C.infoLight;
-                  const stBd = problem?C.dangerBorder:done?C.successBorder:C.infoBorder;
-                  const isReceiving = receivingDeliveryId===d.id;
-                  const canReceive = ['прораб','кладовщик','снабженец','директор','зам_директора'].includes(role) && !done;
-                  const claim = supplyClaims.find(c=>c.id===d.claimId || c.deliveryId===d.id);
-                  const linkedInvoice = (invoices||[]).find(inv=>String(inv.supplyDeliveryId||'')===String(d.id));
-                  return (<div key={d.id} style={{padding:'12px',border:'1.5px solid '+stBd,backgroundColor:stBg,borderRadius:'8px',marginBottom:'8px'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                      <div style={{flex:'1 1 260px'}}>
-                        <b style={{color:C.text,fontSize:'13px'}}>{d.materialName}</b>
-                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{d.shippedQuantity || d.plannedQuantity} {d.unit} · 🏗 {d.project || '—'} · {d.supplierName || 'Поставщик'}</p>
-                        <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>ТТН/накладная: {d.waybillNumber || '—'}{d.vehicleNumber?' · авто '+d.vehicleNumber:''}{d.driverName?' · '+d.driverName:''}</p>
-                        {d.aiCheckResult && <p style={{color:C.accent,margin:'5px 0 0',fontSize:'11px'}}>🤖 {d.aiCheckResult}</p>}
-                        {claim && <p style={{color:C.danger,margin:'5px 0 0',fontSize:'11px'}}>⚠️ Претензия: {claim.claimType} · {claim.status}</p>}
-                        {linkedInvoice && <p style={{color:C.success,margin:'5px 0 0',fontSize:'11px'}}>📄 Накладная № {linkedInvoice.number} · запись #{linkedInvoice.id}</p>}
-                      </div>
-                      <div style={{display:'flex',gap:'5px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                        <span style={badge(stC,stBg,stBd)}>{d.status}</span>
-                        <label style={{...btnG,padding:'5px 10px',fontSize:'11px',cursor:'pointer'}}>
-                          <Bot size={11}/>AI накладная
-                          <input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{
-                            const file=e.target.files[0]; if(!file) return;
-                            setDeliveryAiLoadingId(d.id);
-                            try {
-                              const base64 = await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.readAsDataURL(file);});
-                              const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:base64})});
-                              const parsed = await resp.json();
-                              const items = parsed?.data?.items || [];
-                              await runDeliveryAiCheck(d, items);
-                              const match = items.find(it=>String(it.name||'').toLowerCase().includes(String(d.materialName||'').split(' ')[0].toLowerCase()));
-                              if (match) setReceiveForm(f=>({...f,receivedQuantity:String(match.quantity||''),qualityNotes:'AI распознал: '+(match.name||'')+' '+(match.quantity||'')+' '+(match.unit||'')}));
-                            } catch(_) {
-                              setDeliveryAiResultById(prev=>({...prev,[d.id]:'Не удалось распознать накладную'}));
-                            }
-                            setDeliveryAiLoadingId(null);
-                            e.target.value='';
-                          }}/>
-                        </label>
-                        {canReceive && <button onClick={()=>{setReceivingDeliveryId(isReceiving?null:d.id);setReceiveForm({receivedQuantity:String(d.shippedQuantity||d.plannedQuantity||''),qualityStatus:'Принято',qualityNotes:'',photoUrl:'',claimDescription:''});}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Принять</button>}
-                        {linkedInvoice && <button onClick={()=>showPreview(buildInvoiceContent(linkedInvoice),'Накладная № '+linkedInvoice.number)} style={{...btnB,padding:'5px 10px',fontSize:'11px'}}>Печать накл.</button>}
-                      </div>
-                    </div>
-                    {deliveryAiLoadingId===d.id && <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>AI сверяет накладную...</p>}
-                    {deliveryAiResultById[d.id] && <div style={{padding:'8px 10px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'6px',fontSize:'11px',color:C.text,marginTop:'8px'}}>{deliveryAiResultById[d.id]}</div>}
-                    {isReceiving && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'10px',marginTop:'10px'}}>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                        <input type='number' step='any' inputMode='decimal' value={receiveForm.receivedQuantity} onChange={e=>setReceiveForm({...receiveForm,receivedQuantity:e.target.value})} placeholder='Принято количество' style={{...inp,marginBottom:0}}/>
-                        <select value={receiveForm.qualityStatus} onChange={e=>setReceiveForm({...receiveForm,qualityStatus:e.target.value})} style={{...inp,marginBottom:0}}>
-                          <option>Принято</option>
-                          <option>Частично</option>
-                          <option>Недостача</option>
-                          <option>Брак</option>
-                          <option>Несоответствие</option>
-                        </select>
-                      </div>
-                      <textarea value={receiveForm.qualityNotes} onChange={e=>setReceiveForm({...receiveForm,qualityNotes:e.target.value})} placeholder='Комментарий по качеству / упаковке / документам' style={{...inp,height:'54px',resize:'vertical'}}/>
-                      {receiveForm.qualityStatus!=='Принято' && <textarea value={receiveForm.claimDescription} onChange={e=>setReceiveForm({...receiveForm,claimDescription:e.target.value})} placeholder='Текст претензии поставщику' style={{...inp,height:'54px',resize:'vertical'}}/>}
-                      <label style={{...btnG,padding:'7px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',marginBottom:'8px'}}>
-                        <Upload size={12}/>{receiveForm.photoUrl?'Фото загружено':'Фото приёмки'}
-                        <input type='file' accept='image/*,.pdf' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:d.project||d.projectName,context:'supply-deliveries'});setReceiveForm({...receiveForm,photoUrl:url});}}}/>
-                      </label>
-                      <div style={{display:'flex',gap:'8px'}}>
-                        <button onClick={()=>receiveSupplyDelivery(d)} style={btnO}><Check size={14}/>Сохранить приёмку</button>
-                        <button onClick={()=>setReceivingDeliveryId(null)} style={btnG}><X size={14}/>Отмена</button>
-                      </div>
-                    </div>)}
-                  </div>);
-                })}
-              </div>)}
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && !(role==='мастер'||role==='субподрядчик') && (
+                <SupplyDeliveriesPanel
+                  C={C}
+                  card={card}
+                  inp={inp}
+                  btnO={btnO}
+                  btnG={btnG}
+                  btnB={btnB}
+                  btnGr={btnGr}
+                  badge={badge}
+                  role={role}
+                  supplyClaims={supplyClaims}
+                  supplyDeliveries={supplyDeliveries}
+                  receivingDeliveryId={receivingDeliveryId}
+                  setReceivingDeliveryId={setReceivingDeliveryId}
+                  receiveForm={receiveForm}
+                  setReceiveForm={setReceiveForm}
+                  deliveryAiLoadingId={deliveryAiLoadingId}
+                  setDeliveryAiLoadingId={setDeliveryAiLoadingId}
+                  deliveryAiResultById={deliveryAiResultById}
+                  setDeliveryAiResultById={setDeliveryAiResultById}
+                  runDeliveryAiCheck={runDeliveryAiCheck}
+                  receiveSupplyDelivery={receiveSupplyDelivery}
+                  invoices={invoices}
+                  showPreview={showPreview}
+                  buildInvoiceContent={buildInvoiceContent}
+                  uploadPhoto={uploadPhoto}
+                />
+              )}
               {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && showSupplyForm && (
                 <SupplyRequestForm
                   C={C}
