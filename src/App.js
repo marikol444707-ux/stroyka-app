@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
+import { API, installAuthFetch } from './api';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
-const API = window.location.hostname==='localhost'?'http://localhost:8001':'';
+installAuthFetch();
 const loadStoredUser = () => {
   if (typeof window === 'undefined') return null;
   try {
@@ -17,17 +18,6 @@ const loadStoredUser = () => {
     return null;
   }
 };
-if (typeof window !== 'undefined' && !window.__stroykaAuthFetchInstalled) {
-  const nativeFetch = window.fetch.bind(window);
-  window.fetch = (input, init = {}) => {
-    const token = localStorage.getItem('authToken');
-    if (!token) return nativeFetch(input, init);
-    const headers = new Headers(init.headers || {});
-    if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
-    return nativeFetch(input, {...init, headers});
-  };
-  window.__stroykaAuthFetchInstalled = true;
-}
 // Парсинг чисел с поддержкой запятой как разделителя (русская локаль): "0,027" → 0.027
 const toNum = (v) => { if(v===null||v===undefined||v==='') return 0; const s=String(v).replace(',', '.').replace(/\s+/g,''); const n=Number(s); return isNaN(n)?0:n; };
 const ESTIMATE_ITEM_TYPES = [

@@ -9,4 +9,5 @@ PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py
 npm run build
 systemctl restart stroyka
 systemctl is-active --quiet stroyka
+bash scripts/prod-smoke-check.sh
 echo "Деплой завершён!"
