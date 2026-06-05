@@ -13712,14 +13712,16 @@ function App() {
             const canConfirmProrab = role==='прораб'||isLeadership();
             const canApprove = isLeadership();
             const canViewSuppliers = ['директор','зам_директора','прораб','кладовщик','снабженец','бухгалтер'].includes(role);
+            const canViewDeliveries = ['директор','зам_директора','прораб','кладовщик','снабженец','бухгалтер'].includes(role);
             // вкладки в зависимости от роли
             let tabs = [];
             if (role==='мастер'||role==='субподрядчик') tabs=[{id:'mine',label:'📋 Мои заявки'}];
-            else if (role==='прораб') tabs=[{id:'inbox',label:'⏳ Ждут подтверждения'},{id:'all',label:'📋 Все заявки'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
-            else if (role==='бухгалтер') tabs=[{id:'invoices',label:'💳 Счета'},{id:'all',label:'📋 Все заявки'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
-            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'},{id:'invoices',label:'💳 Счета'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
-            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'},{id:'invoices',label:'💳 Счета'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
+            else if (role==='прораб') tabs=[{id:'inbox',label:'⏳ Ждут подтверждения'},{id:'all',label:'📋 Все заявки'},{id:'deliveries',label:'🚚 Поставки'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
+            else if (role==='бухгалтер') tabs=[{id:'invoices',label:'💳 Счета'},{id:'all',label:'📋 Все заявки'},{id:'deliveries',label:'🚚 Поставки'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
+            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'},{id:'deliveries',label:'🚚 Поставки'},{id:'invoices',label:'💳 Счета'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
+            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'},{id:'deliveries',label:'🚚 Поставки'},{id:'invoices',label:'💳 Счета'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
             if (!canViewSuppliers) tabs = tabs.filter(t=>t.id!=='suppliers');
+            if (!canViewDeliveries) tabs = tabs.filter(t=>t.id!=='deliveries');
             // фильтрация
             let list = supplyRequests || [];
             const curTab = tabs.find(t=>t.id===supplyTab) ? supplyTab : tabs[0].id;
@@ -13805,7 +13807,7 @@ function App() {
                   ))}
                 </div>);
               })()}
-              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && !(role==='мастер'||role==='субподрядчик') && (
+              {curTab==='deliveries' && (
                 <SupplyDeliveriesPanel
                   C={C}
                   card={card}
@@ -13834,7 +13836,7 @@ function App() {
                   uploadPhoto={uploadPhoto}
                 />
               )}
-              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && showSupplyForm && (
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && curTab!=='deliveries' && showSupplyForm && (
                 <SupplyRequestForm
                   C={C}
                   card={card}
@@ -13860,11 +13862,11 @@ function App() {
                 />
               )}
               {/* Поиск */}
-              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && <div style={{position:'relative',marginBottom:'12px'}}>
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && curTab!=='deliveries' && <div style={{position:'relative',marginBottom:'12px'}}>
                 <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
                 <input placeholder='🔍 Поиск по материалу, объекту, автору' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
               </div>}
-              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && (
+              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && curTab!=='deliveries' && (
                 <SupplyRequestsList
                   C={C}
                   card={card}

@@ -24,7 +24,7 @@ function SupplyHeaderTabs({
           ? 'Утверждайте заявки. Проверяйте склад через AI'
           : 'Утверждённые заявки на закупку';
 
-  const showCreateButton = canCreate && curTab !== 'catalog' && curTab !== 'invoices' && curTab !== 'suppliers';
+  const showCreateButton = canCreate && curTab !== 'catalog' && curTab !== 'invoices' && curTab !== 'suppliers' && curTab !== 'deliveries';
 
   const selectTab = (tabId) => {
     setSupplyTab(tabId);
