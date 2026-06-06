@@ -12,6 +12,7 @@ import SupplyCatalogPanel from './components/SupplyCatalogPanel';
 import SupplySuppliersPanel from './components/SupplySuppliersPanel';
 import SupplySupplierInvoicesPanel from './components/SupplySupplierInvoicesPanel';
 import SuppliersPage from './components/SuppliersPage';
+import ProjectCardHeader from './components/ProjectCardHeader';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -11257,31 +11258,23 @@ function App() {
               const cat=expByCategory(p.name);const _bs=projectBudgetSpent(p);const total=_bs.total;
               const isOpen=expandedProject===p.id;
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
-              const sc=statusColors[p.status]||statusColors['Планирование'];
               return(<div key={p.id} style={{...card,marginBottom:'12px',overflow:'visible'}}>
-                <div style={{padding:'14px 16px',cursor:'pointer'}} onClick={async()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');if(user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&!projectAiSummaries[p.name]){try{const r=await fetch(API+'/project-ai-summary/'+encodeURIComponent(p.name));const d=await r.json();if(d&&d.exists)setProjectAiSummaries(prev=>({...prev,[p.name]:d}));}catch(e){}}}}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                    <div style={{flex:1}}>
-                      <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'6px'}}>
-                        <b style={{fontSize:'15px',color:C.text}}>{p.name}</b>
-                        <span style={badge(sc[0],sc[1],sc[2])}>{p.status}</span>
-                      </div>
-                      <div style={{display:'flex',gap:'15px',flexWrap:'wrap'}}>
-                        <span style={{fontSize:'12px',color:C.textSec}}>{'👤 '+p.client}</span>{p.floors>1&&<span style={{fontSize:'12px',color:C.textSec}}>{'🏢 '+p.floors+' эт.'}</span>}{p.liters&&<span style={{fontSize:'12px',color:C.textSec}}>{'🔤 Лит. '+p.liters}</span>}
-                        {p.deadline&&<span style={{fontSize:'12px',color:C.textSec}}>{'📅 '+p.deadline}</span>}
-                        {isFinanceRole()&&<span style={{fontSize:'12px',color:C.textSec}}>{'💰 '+total.toLocaleString()+' / '+p.budget.toLocaleString()+' ₽'}</span>}
-                      </div>
-                    </div>
-                    <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                      {isLeadership()&&<button onClick={e=>{e.stopPropagation();editProject(p);}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>}
-                      {isLeadership()&&(p.archived
-                        ? <button onClick={async e=>{e.stopPropagation();if(!window.confirm('Вернуть объект «'+p.name+'» из архива в работу?'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:false,archivedAt:''})});await loadAll();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}} title='Вернуть из архива'><Archive size={11}/>↩</button>
-                        : <button onClick={async e=>{e.stopPropagation();if(!window.confirm('Закрыть объект «'+p.name+'» и отправить в архив?\n\nВсе документы, переписка и акты сохранятся и будут доступны в архиве для просмотра.'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:true,archivedAt:new Date().toISOString(),status:'Завершён'})});await loadAll();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}} title='Закрыть объект в архив'><Archive size={11}/></button>)}
-                      {isLeadership()&&!p.archived&&<button onClick={e=>{e.stopPropagation();deleteProject(p.id);}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><Trash2 size={11}/></button>}
-                      {isOpen?<ChevronUp size={18} color={C.textMuted}/>:<ChevronDown size={18} color={C.textMuted}/>}
-                    </div>
-                  </div>
-                </div>
+                <ProjectCardHeader
+                  C={C}
+                  btnG={btnG}
+                  btnR={btnR}
+                  badge={badge}
+                  project={p}
+                  statusColors={statusColors}
+                  isOpen={isOpen}
+                  total={total}
+                  canSeeFinance={isFinanceRole()}
+                  canManage={isLeadership()}
+                  onToggle={async()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');if(user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&!projectAiSummaries[p.name]){try{const r=await fetch(API+'/project-ai-summary/'+encodeURIComponent(p.name));const d=await r.json();if(d&&d.exists)setProjectAiSummaries(prev=>({...prev,[p.name]:d}));}catch(e){}}}}}
+                  onEdit={()=>editProject(p)}
+                  onArchiveToggle={async()=>{if(p.archived){if(!window.confirm('Вернуть объект «'+p.name+'» из архива в работу?'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:false,archivedAt:''})});await loadAll();}else{if(!window.confirm('Закрыть объект «'+p.name+'» и отправить в архив?\n\nВсе документы, переписка и акты сохранятся и будут доступны в архиве для просмотра.'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:true,archivedAt:new Date().toISOString(),status:'Завершён'})});await loadAll();}}}
+                  onDelete={()=>deleteProject(p.id)}
+                />
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
                   <div style={{borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'18px 16px 10px'}}>
 	                    {(()=>{
