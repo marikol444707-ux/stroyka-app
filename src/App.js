@@ -39,6 +39,7 @@ import WarehouseCompanyWarehousesPanel from './components/WarehouseCompanyWareho
 import WarehouseHistoryPanel from './components/WarehouseHistoryPanel';
 import WarehouseTabsNav from './components/WarehouseTabsNav';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
+import EstimatesListToolbar from './components/EstimatesListToolbar';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -13890,17 +13891,18 @@ function App() {
             />
 
             {estimatesTab==='list'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сметы</b>
-                <div style={{display:'flex',gap:'8px'}}>
-                  <button onClick={()=>{setGenerateForm({description:'',projectId:'',projectName:'',pricelistId:'',area:'',name:'',version:'1.0',smetaType:'Заказчик',workPackage:'Основная',status:'Активная'});setShowGenerateEstimate(true);}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
-                  <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая смета</button>
-                </div>
-              </div>
-              <div style={{marginBottom:'14px',position:'relative'}}>
-                <Search size={15} style={{position:'absolute',left:'12px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                <input placeholder='🔍 Поиск по позициям всех смет (например: «демонтаж», «штукатурка»…)' value={estimateSearch||''} onChange={e=>setEstimateSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'34px'}}/>
-              </div>
+              <EstimatesListToolbar
+                C={C}
+                btnB={btnB}
+                btnO={btnO}
+                inp={inp}
+                showForm={showForm}
+                setShowForm={setShowForm}
+                setGenerateForm={setGenerateForm}
+                setShowGenerateEstimate={setShowGenerateEstimate}
+                estimateSearch={estimateSearch}
+                setEstimateSearch={setEstimateSearch}
+              />
               {estimateSearch&&estimateSearch.trim().length>=2&&(()=>{
                 const q=estimateSearch.toLowerCase().trim();
                 const results=[];
