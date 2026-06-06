@@ -22,6 +22,7 @@ import ProjectDocumentsRegistryPanel from './components/ProjectDocumentsRegistry
 import ProjectLettersPanel from './components/ProjectLettersPanel';
 import ProjectBrigadeCalculationTab from './components/ProjectBrigadeCalculationTab';
 import ProjectHiddenWorksActsPanel from './components/ProjectHiddenWorksActsPanel';
+import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12400,32 +12401,26 @@ function App() {
                         />
                       )}
                   </div>)}
-                    {activeProjectTab==='Предписания'&&(<div>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                        <b style={{color:C.text}}>Предписания</b>
-                        <button onClick={()=>setShowForm(showForm==='prescription'?false:'prescription')} style={btnO}><Plus size={14}/>Выдать</button>
-                      </div>
-                      {showForm==='prescription'&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
-                        <input placeholder="Номер предписания" value={newPrescription.number} onChange={e=>setNewPrescription({...newPrescription,number:e.target.value})} style={inp}/>
-                        <textarea placeholder="Описание нарушения *" value={newPrescription.violation} onChange={e=>setNewPrescription({...newPrescription,violation:e.target.value})} style={{...inp,height:'80px',resize:'vertical'}}/>
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                          <input type="date" placeholder="Устранить до" value={newPrescription.deadline} onChange={e=>setNewPrescription({...newPrescription,deadline:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <input placeholder="Ответственный" value={newPrescription.responsible} onChange={e=>setNewPrescription({...newPrescription,responsible:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        </div>
-                        <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={()=>savePrescription(p.name)} style={btnO}><Check size={14}/>Выдать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
-                  </div>)}
-                      {prescriptionsList.filter(pr=>pr.projectName===p.name).map(pr=>(<div key={pr.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(pr.status==='Закрыто'?C.success:pr.status==='На проверке'?C.warning:C.danger)}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                          <div><b style={{fontSize:'13px',color:C.text}}>{'Предписание '+(pr.number?'№'+pr.number:'')}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{pr.violation}</p><p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{'Выдал: '+pr.issuedBy+(pr.deadline?' · До: '+pr.deadline:'')+(pr.responsible?' · Ответственный: '+pr.responsible:'')}</p></div>
-                          <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                            <span style={badge(pr.status==='Закрыто'?C.success:pr.status==='На проверке'?C.warning:C.danger,pr.status==='Закрыто'?C.successLight:pr.status==='На проверке'?C.warningLight:C.dangerLight,pr.status==='Закрыто'?C.successBorder:pr.status==='На проверке'?C.warningBorder:C.dangerBorder)}>{pr.status}</span>
-                            {pr.status==='Открыто'&&<button onClick={async()=>{await fetch(API+'/prescriptions/'+pr.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'На проверке',fixNotes:'Устранено'})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Устранено</button>}
-                            {pr.status==='На проверке'&&isProrab()&&<button onClick={async()=>{await fetch(API+'/prescriptions/'+pr.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Закрыто'})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Закрыть</button>}
-                          </div>
-                        </div>
-                      </div>))}
-                      {prescriptionsList.filter(pr=>pr.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Предписаний нет</p>}
-                  </div>)}
+                    {activeProjectTab==='Предписания'&&(
+                      <ProjectPrescriptionsPanel
+                        projectName={p.name}
+                        prescriptionsList={prescriptionsList}
+                        showForm={showForm}
+                        setShowForm={setShowForm}
+                        newPrescription={newPrescription}
+                        setNewPrescription={setNewPrescription}
+                        savePrescription={savePrescription}
+                        loadAll={loadAll}
+                        canClose={isProrab()}
+                        C={C}
+                        card={card}
+                        inp={inp}
+                        btnO={btnO}
+                        btnG={btnG}
+                        btnGr={btnGr}
+                        badge={badge}
+                      />
+                    )}
 
                     {activeProjectTab==='Журнал ТБ'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
