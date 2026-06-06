@@ -19,6 +19,7 @@ import ProjectMaterialsStockPanel from './components/ProjectMaterialsStockPanel'
 import ProjectMaterialsTransferPanel from './components/ProjectMaterialsTransferPanel';
 import ProjectFinancePanel from './components/ProjectFinancePanel';
 import ProjectDocumentsRegistryPanel from './components/ProjectDocumentsRegistryPanel';
+import ProjectLettersPanel from './components/ProjectLettersPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12550,60 +12551,29 @@ function App() {
                       btnR={btnR}
                     />
                   )}
-                  {activeProjectTab==='✉️ Переписка'&&(<div>
-                    <div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
-                      <p style={{margin:0,color:C.text,fontSize:'12px',lineHeight:1.5}}>✉️ Переписка по объекту: письма, уведомления, претензии между компанией и заказчиком / подрядчиками. Привязана к объекту и сохранится в архиве.</p>
-                    </div>
-                    <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'12px'}}>
-                      <button onClick={()=>setShowLetterForm(!showLetterForm)} style={btnO}><Plus size={14}/>Добавить письмо</button>
-                    </div>
-                    {showLetterForm&&(<div style={{...card,padding:'18px',marginBottom:'14px'}}>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                        <select value={newLetter.side} onChange={e=>setNewLetter({...newLetter,side:e.target.value})} style={{...inp,marginBottom:0}}>
-                          <option value='customer'>С заказчиком</option>
-                          <option value='contractor'>С подрядчиками</option>
-                        </select>
-                        <select value={newLetter.direction} onChange={e=>setNewLetter({...newLetter,direction:e.target.value})} style={{...inp,marginBottom:0}}>
-                          <option value='outgoing'>📤 Исходящее</option>
-                          <option value='incoming'>📥 Входящее</option>
-                        </select>
-                        <input placeholder='Тема письма *' value={newLetter.subject} onChange={e=>setNewLetter({...newLetter,subject:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        <input type='date' value={newLetter.letterDate} onChange={e=>setNewLetter({...newLetter,letterDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        <input placeholder='Контрагент (ФИО / организация)' value={newLetter.counterparty} onChange={e=>setNewLetter({...newLetter,counterparty:e.target.value})} style={{...inp,marginBottom:0}}/>
-                      </div>
-                      <textarea placeholder='Текст письма' value={newLetter.body} onChange={e=>setNewLetter({...newLetter,body:e.target.value})} style={{...inp,marginTop:'10px',height:'90px'}}/>
-                      <div style={{display:'flex',alignItems:'center',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
-                        <label style={{...btnG,cursor:'pointer',margin:0}}>
-                          <Upload size={14}/>{uploadingLetter?'Загрузка...':(newLetter.fileUrl?'✅ Файл прикреплён':'📎 Прикрепить скан/файл')}
-                          <input type='file' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(!f)return;setUploadingLetter(true);const url=await uploadPhoto(f,{projectName:p.name,context:'project-letters'});setUploadingLetter(false);if(url)setNewLetter(prev=>({...prev,fileUrl:url}));}}/>
-                        </label>
-                        {newLetter.fileUrl&&<a href={fileSrc(newLetter.fileUrl)} target='_blank' rel='noreferrer' style={{fontSize:'12px',color:C.accent}}>посмотреть</a>}
-                      </div>
-                      <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-                        <button onClick={async()=>{if(!newLetter.subject.trim()){alert('Укажите тему письма');return;}await fetch(API+'/project-letters',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newLetter,projectName:p.name,author:user.name})});setNewLetter({side:'customer',direction:'outgoing',subject:'',body:'',counterparty:'',letterDate:'',fileUrl:''});setShowLetterForm(false);await loadAll();}} style={btnO}><Check size={14}/>Сохранить</button>
-                        <button onClick={()=>setShowLetterForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                      </div>
-                    </div>)}
-                    {(()=>{
-                      const letters=(projectLetters||[]).filter(l=>l.projectName===p.name);
-                      if(letters.length===0) return(<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Писем пока нет. Добавьте первое письмо по объекту.</p>);
-                      return letters.map(l=>{const out=l.direction==='outgoing';return(
-                        <div key={l.id} style={{...card,padding:'12px 14px',marginBottom:'8px',borderLeft:'3px solid '+(out?C.accent:C.warning)}}>
-                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
-                            <div style={{flex:1,minWidth:0}}>
-                              <b style={{fontSize:'13px',color:C.text}}>{out?'📤 ':'📥 '}{l.subject}</b>
-                              <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{[out?'Исходящее':'Входящее',l.side==='customer'?'заказчик':'подрядчик',l.counterparty,l.letterDate,l.author].filter(Boolean).join(' · ')}</p>
-                              {l.body&&<p style={{color:C.text,margin:'4px 0 0',fontSize:'12px',whiteSpace:'pre-wrap'}}>{l.body}</p>}
-                            </div>
-                            <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                              {l.fileUrl&&<a href={fileSrc(l.fileUrl)} target='_blank' rel='noreferrer' style={{...btnB,padding:'4px 8px',fontSize:'11px',textDecoration:'none'}}><Eye size={11}/>Файл</a>}
-                              <button onClick={async()=>{if(!window.confirm('Удалить письмо?'))return;await fetch(API+'/project-letters/'+l.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
-                            </div>
-                          </div>
-                        </div>);
-                      });
-                    })()}
-                  </div>)}
+                  {activeProjectTab==='✉️ Переписка'&&(
+                    <ProjectLettersPanel
+                      projectName={p.name}
+                      projectLetters={projectLetters}
+                      newLetter={newLetter}
+                      setNewLetter={setNewLetter}
+                      showLetterForm={showLetterForm}
+                      setShowLetterForm={setShowLetterForm}
+                      uploadingLetter={uploadingLetter}
+                      setUploadingLetter={setUploadingLetter}
+                      uploadPhoto={uploadPhoto}
+                      fileSrc={fileSrc}
+                      loadAll={loadAll}
+                      user={user}
+                      C={C}
+                      card={card}
+                      inp={inp}
+                      btnO={btnO}
+                      btnG={btnG}
+                      btnB={btnB}
+                      btnR={btnR}
+                    />
+                  )}
                   {activeProjectTab==='КС-2'&&(<div>
                     <div style={{...card,padding:'24px',textAlign:'center'}}>
                       <div style={{fontSize:'40px',marginBottom:'10px'}}>📄</div>
