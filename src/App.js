@@ -40,6 +40,7 @@ import WarehouseHistoryPanel from './components/WarehouseHistoryPanel';
 import WarehouseTabsNav from './components/WarehouseTabsNav';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
 import EstimatesListToolbar from './components/EstimatesListToolbar';
+import EstimateSearchResults from './components/EstimateSearchResults';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -13903,31 +13904,17 @@ function App() {
                 estimateSearch={estimateSearch}
                 setEstimateSearch={setEstimateSearch}
               />
-              {estimateSearch&&estimateSearch.trim().length>=2&&(()=>{
-                const q=estimateSearch.toLowerCase().trim();
-                const results=[];
-                (estimatesList||[]).forEach(est=>{
-                  const sects=(est.sections||(typeof est.sectionsJson==='string'?(()=>{try{return JSON.parse(est.sectionsJson||'[]')}catch(_){return []}})():est.sectionsJson)||[]);
-                  sects.forEach(sec=>{
-                    (sec.items||[]).forEach(it=>{
-                      const name=String(it.name||'').toLowerCase();
-                      if(name.includes(q)){results.push({estimate:est,section:sec,item:it});}
-                    });
-                  });
-                });
-                return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bg}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
-                    <b style={{color:C.text,fontSize:'13px'}}>🔍 Найдено: {results.length} позиций по запросу «{estimateSearch}»</b>
-                    <button onClick={()=>setEstimateSearch('')} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>Очистить</button>
-                  </div>
-                  {results.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Ничего не найдено. Попробуйте другое слово.</p>:
-                    <div style={{maxHeight:'400px',overflowY:'auto'}}>{results.slice(0,200).map((r,i)=>(<div key={i} onClick={()=>{setSelectedEstimate(r.estimate);setEstimateSearch('');setTimeout(()=>{const el=document.querySelector('[data-estitem="'+(r.item.id||r.item.name)+'"]');if(el) el.scrollIntoView({behavior:'smooth',block:'center'});},300);}} style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,cursor:'pointer'}}>
-                      <b style={{fontSize:'13px',color:C.text,display:'block'}}>{r.item.name}</b>
-                      <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px'}}>{'📋 '+r.estimate.name+' · '+(r.estimate.projectName||'—')+' · 📂 '+r.section.name}</p>
-                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{fmtMeasure(r.item.quantity,r.item.unit)+' · 💰 '+Math.round(estimateItemTotal(r.item)).toLocaleString('ru-RU')+' ₽'}</p>
-                    </div>))}{results.length>200&&<p style={{color:C.textMuted,fontSize:'11px',textAlign:'center',padding:'8px'}}>Показано первые 200 результатов. Уточните запрос.</p>}</div>}
-                </div>);
-              })()}
+              <EstimateSearchResults
+                C={C}
+                card={card}
+                btnG={btnG}
+                estimateSearch={estimateSearch}
+                estimatesList={estimatesList}
+                setEstimateSearch={setEstimateSearch}
+                setSelectedEstimate={setSelectedEstimate}
+                fmtMeasure={fmtMeasure}
+                estimateItemTotal={estimateItemTotal}
+              />
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                   <select value={newEstimate.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));const next={...newEstimate,projectId:e.target.value,projectName:p?p.name:'',name:p?'Смета — '+p.name:''};setNewEstimate({...next,version:nextEstimateVersionFor(next)});}} style={{...inp,marginBottom:0}}><option value="">Выберите проект</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
