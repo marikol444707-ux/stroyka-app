@@ -20,15 +20,7 @@ import ProjectMaterialsTransferPanel from './components/ProjectMaterialsTransfer
 import ProjectFinancePanel from './components/ProjectFinancePanel';
 import ProjectDocumentsRegistryPanel from './components/ProjectDocumentsRegistryPanel';
 import ProjectLettersPanel from './components/ProjectLettersPanel';
-import ProjectBrigadeBudgetSummary from './components/ProjectBrigadeBudgetSummary';
-import ProjectBrigadeCreateForm from './components/ProjectBrigadeCreateForm';
-import ProjectBrigadesList from './components/ProjectBrigadesList';
-import ProjectBrigadeSelectedHeader from './components/ProjectBrigadeSelectedHeader';
-import ProjectBrigadeCalculationSummary from './components/ProjectBrigadeCalculationSummary';
-import ProjectBrigadeWorkEntryPanel from './components/ProjectBrigadeWorkEntryPanel';
-import ProjectBrigadeBulkPricePanel from './components/ProjectBrigadeBulkPricePanel';
-import ProjectBrigadeCalculationTable from './components/ProjectBrigadeCalculationTable';
-import ProjectBrigadeActPaymentPanel from './components/ProjectBrigadeActPaymentPanel';
+import ProjectBrigadeCalculationTab from './components/ProjectBrigadeCalculationTab';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12237,7 +12229,55 @@ function App() {
                       {unexpectedWorksList.filter(u=>u.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Изменений к смете нет</p>}
                   </div>)}
 
-                    {activeProjectTab==='Расчёт с бригадой'&&(<div><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}><b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Расчёт с бригадой</b><button onClick={()=>setShowBrigadeForm(!showBrigadeForm)} style={btnO}><Plus size={14}/>Новая бригада</button></div><ProjectBrigadeBudgetSummary projectName={p.name} brigadeContracts={brigadeContracts} smetaTotal={projectPlanDone(p).plan} C={C} card={card}/>{showBrigadeForm&&(<ProjectBrigadeCreateForm project={p} newBrigadeContract={newBrigadeContract} setNewBrigadeContract={setNewBrigadeContract} staff={staff} pricelists={pricelists} setBrigadeContracts={setBrigadeContracts} setSelectedBrigadeContract={setSelectedBrigadeContract} setBrigadeContractItems={setBrigadeContractItems} setBrigadePayments={setBrigadePayments} setShowBrigadeForm={setShowBrigadeForm} card={card} inp={inp} btnO={btnO} btnG={btnG}/>)}{selectedBrigadeContract?(<div><ProjectBrigadeSelectedHeader projectName={p.name} selectedBrigadeContract={selectedBrigadeContract} setSelectedBrigadeContract={setSelectedBrigadeContract} brigadeContractItems={brigadeContractItems} setBrigadeContractItems={setBrigadeContractItems} setBrigadeContracts={setBrigadeContracts} setBrigadePayments={setBrigadePayments} showPreview={showPreview} C={C} btnG={btnG} btnO={btnO} btnB={btnB}/><ProjectBrigadeCalculationSummary brigadeContractItems={brigadeContractItems} showFinance={isFinanceRole()} C={C} card={card}/><ProjectBrigadeWorkEntryPanel project={p} selectedBrigadeContract={selectedBrigadeContract} estimatesList={estimatesList} newBrigadeItem={newBrigadeItem} setNewBrigadeItem={setNewBrigadeItem} setBrigadeContractItems={setBrigadeContractItems} UNITS={UNITS} C={C} card={card} inp={inp} btnG={btnG} btnO={btnO}/><ProjectBrigadeBulkPricePanel show={isLeadership()} brigadeCoef={brigadeCoef} setBrigadeCoef={setBrigadeCoef} brigadeContractItems={brigadeContractItems} setBrigadeContractItems={setBrigadeContractItems} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}/><ProjectBrigadeCalculationTable brigadeContractItems={brigadeContractItems} setBrigadeContractItems={setBrigadeContractItems} showFinance={isFinanceRole()} normalizeMeasure={normalizeMeasure} toNum={toNum} fmtMeasure={fmtMeasure} C={C} tbl={tbl} tblH={tblH} tblC={tblC} inp={inp} btnR={btnR}/><ProjectBrigadeActPaymentPanel project={p} selectedBrigadeContract={selectedBrigadeContract} brigadeContractItems={brigadeContractItems} brigadePayments={brigadePayments} showFinance={isFinanceRole()} userName={user.name} setNewBrigadePayment={setNewBrigadePayment} setShowBrigadePayModal={setShowBrigadePayModal} setSelectedBrigadeContract={setSelectedBrigadeContract} setBrigadeContracts={setBrigadeContracts} deleteBrigadePayment={deleteBrigadePayment} showPreview={showPreview} uploadPhoto={uploadPhoto} fileSrc={fileSrc} C={C} card={card} btnO={btnO} btnG={btnG} btnB={btnB} btnR={btnR}/></div>):(<ProjectBrigadesList projectName={p.name} brigadeContracts={brigadeContracts} openBrigadeContract={openBrigadeContract} setBrigadeContracts={setBrigadeContracts} C={C} card={card} btnR={btnR}/>)}</div>)}
+                    {activeProjectTab==='Расчёт с бригадой'&&(
+                      <ProjectBrigadeCalculationTab
+                        project={p}
+                        brigadeContracts={brigadeContracts}
+                        smetaTotal={projectPlanDone(p).plan}
+                        showBrigadeForm={showBrigadeForm}
+                        setShowBrigadeForm={setShowBrigadeForm}
+                        newBrigadeContract={newBrigadeContract}
+                        setNewBrigadeContract={setNewBrigadeContract}
+                        staff={staff}
+                        pricelists={pricelists}
+                        setBrigadeContracts={setBrigadeContracts}
+                        setSelectedBrigadeContract={setSelectedBrigadeContract}
+                        setBrigadeContractItems={setBrigadeContractItems}
+                        setBrigadePayments={setBrigadePayments}
+                        selectedBrigadeContract={selectedBrigadeContract}
+                        brigadeContractItems={brigadeContractItems}
+                        brigadePayments={brigadePayments}
+                        estimatesList={estimatesList}
+                        newBrigadeItem={newBrigadeItem}
+                        setNewBrigadeItem={setNewBrigadeItem}
+                        UNITS={UNITS}
+                        showLeadership={isLeadership()}
+                        brigadeCoef={brigadeCoef}
+                        setBrigadeCoef={setBrigadeCoef}
+                        showFinance={isFinanceRole()}
+                        normalizeMeasure={normalizeMeasure}
+                        toNum={toNum}
+                        fmtMeasure={fmtMeasure}
+                        userName={user.name}
+                        setNewBrigadePayment={setNewBrigadePayment}
+                        setShowBrigadePayModal={setShowBrigadePayModal}
+                        deleteBrigadePayment={deleteBrigadePayment}
+                        showPreview={showPreview}
+                        uploadPhoto={uploadPhoto}
+                        fileSrc={fileSrc}
+                        openBrigadeContract={openBrigadeContract}
+                        C={C}
+                        card={card}
+                        inp={inp}
+                        btnO={btnO}
+                        btnG={btnG}
+                        btnB={btnB}
+                        btnR={btnR}
+                        tbl={tbl}
+                        tblH={tblH}
+                        tblC={tblC}
+                      />
+                    )}
                     {activeProjectTab==='Материалы'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
                         <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Материалы объекта</b>
