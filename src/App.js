@@ -47,6 +47,7 @@ import MaterialNormsHeader from './components/MaterialNormsHeader';
 import EstimateImportSupportedFormat from './components/EstimateImportSupportedFormat';
 import MaterialNormCoverageSummaryBadges from './components/MaterialNormCoverageSummaryBadges';
 import MaterialNormCoverageHeader from './components/MaterialNormCoverageHeader';
+import EstimateSelectedTitleBadges from './components/EstimateSelectedTitleBadges';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -13977,7 +13978,17 @@ function App() {
                 />
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center',flexWrap:'wrap'}}>
                   <button onClick={()=>setSelectedEstimate(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
-                  {(()=>{const group=(estimatesList||[]).filter(e=>sameEstimateGroup(e,selectedEstimate));const st=estimateStatusView(selectedEstimate,group);return(<div style={{minWidth:'220px',flex:'1 1 260px'}}><b style={{color:C.text,fontSize:'15px',display:'block'}}>{selectedEstimate.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'3px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span><span style={badge(C.info,C.infoLight,C.infoBorder)}>{estimateTypeIcon(estimateKind(selectedEstimate))+' '+estimateKind(selectedEstimate)}</span><span style={badge(C.accent,C.accentLight,C.accentBorder)}>{'📁 '+estimatePackage(selectedEstimate)}</span>{selectedEstimate.version&&<span style={badge(C.textSec,C.bgGray,C.border)}>{'v'+selectedEstimate.version}</span>}</div></div>);})()}
+                  <EstimateSelectedTitleBadges
+                    C={C}
+                    badge={badge}
+                    selectedEstimate={selectedEstimate}
+                    estimatesList={estimatesList}
+                    sameEstimateGroup={sameEstimateGroup}
+                    estimateStatusView={estimateStatusView}
+                    estimateTypeIcon={estimateTypeIcon}
+                    estimateKind={estimateKind}
+                    estimatePackage={estimatePackage}
+                  />
                   {selectedEstimate.status!=='Активная'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Активная')} style={btnGr}><CheckCircle size={14}/>Активной</button>}
                   {selectedEstimate.status!=='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Архив')} style={btnG}><Archive size={14}/>В архив</button>}
                   {selectedEstimate.status==='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>↩ Черновик</button>}
