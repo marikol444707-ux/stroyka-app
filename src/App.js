@@ -25,6 +25,7 @@ import ProjectHiddenWorksActsPanel from './components/ProjectHiddenWorksActsPane
 import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
+import ProjectWorkJournalEditModal from './components/ProjectWorkJournalEditModal';
 import ProjectWorkJournalTableModal from './components/ProjectWorkJournalTableModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
@@ -10536,96 +10537,27 @@ function App() {
         </div>)}
         </>);
       })()}
-      {editingJournal&&(()=>{
-        const j=editingJournal;
-        const upd=(k,v)=>setEditingJournal({...editingJournal,[k]:v});
-        const todayWeather=weatherLog.find(w=>w.projectName===j.project&&w.date===j.date);
-        const proraby=users.filter(u=>['прораб','главный_инженер','зам_директора'].includes(u.role)).map(u=>u.name).filter(Boolean);
-        const labelStyle={fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px',display:'block'};
-        const sectionStyle={marginBottom:'14px'};
-        const fillByAI=async()=>{
-          setEditingJournal(prev=>({...prev,__aiLoading:true}));
-          try{
-            const res=await fetch(API+'/work-journal/'+j.id+'/ai-prefill',{method:'POST'});
-            if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||('HTTP '+res.status));}
-            const d=await res.json();
-            setEditingJournal(prev=>({...prev,normatives:d.normatives||prev.normatives,projectDocs:d.projectDocs||prev.projectDocs,comment:(prev.comment&&prev.comment.trim())?prev.comment:(d.qualityNote||''),aiFilled:true,__aiLoading:false}));
-            setWorkJournal(prev=>prev.map(x=>x.id===j.id?{...x,normatives:d.normatives||x.normatives,projectDocs:d.projectDocs||x.projectDocs,aiFilled:true}:x));
-          }catch(e){
-            alert('Не получилось получить ответ от AI: '+e.message);
-            setEditingJournal(prev=>({...prev,__aiLoading:false}));
-          }
-        };
-        const saveJournal=async()=>{
-          const body={
-            status:j.status||'На проверке',
-            comment:j.comment||'',
-            responsibleItr:j.responsibleItr||'',
-            weather:j.weather||'',
-            timeStart:j.timeStart||'',
-            timeEnd:j.timeEnd||'',
-            qualityStatus:j.qualityStatus||'',
-            normatives:j.normatives||'',
-            projectDocs:j.projectDocs||'',
-            sectionName:j.sectionName||'',
-            hiddenWork:!!j.hiddenWork,
-          };
-          await fetch(API+'/work-journal/'+j.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-          setWorkJournal(prev=>prev.map(x=>x.id===j.id?{...x,...body,aiFilled:false}:x));
-          setEditingJournal(null);
-        };
-        return(<div onClick={()=>setEditingJournal(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(900px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
-              <div>
-                <b style={{color:C.text,fontSize:'16px',display:'block'}}>📖 Запись журнала производства работ</b>
-                <span style={{fontSize:'12px',color:C.textSec}}>{(j.project||'—')+' · '+(j.date||'—')+' · '+(j.masterName||'—')}</span>
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                <span style={{padding:'4px 10px',borderRadius:'12px',fontSize:'12px',fontWeight:'600',backgroundColor:j.status==='Подтверждено'?C.successLight:j.status==='Отклонено'?C.dangerLight:C.warningLight,color:j.status==='Подтверждено'?C.success:j.status==='Отклонено'?C.danger:C.warning}}>{j.status||'—'}</span>
-                <button onClick={()=>setEditingJournal(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
-              </div>
-            </div>
-            <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {j.aiFilled&&(<div style={aiNotice}><span style={aiNoticeIcon}>🤖</span><span style={aiNoticeText}><b>Поля заполнены AI.</b> Проверь нормативы и проектные документы — при сохранении после правки метка снимется.</span></div>)}
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
-                <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize:'13px',color:C.text}}>{j.sectionName||'—'}</b></div>
-                <div><p style={labelStyle}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{j.description}</b></div>
-                <div><p style={labelStyle}>Исполнитель</p><b style={{fontSize:'13px',color:C.text}}>{j.masterName||'—'}</b></div>
-                <div><p style={labelStyle}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{fmtMeasure(j.quantity,j.unit)}</b></div>
-                <div><p style={labelStyle}>Сумма</p><b style={{fontSize:'14px',color:C.accent}}>{Number(j.total||0).toLocaleString('ru-RU')+' ₽'}</b></div>
-                <div><p style={labelStyle}>Дата</p><b style={{fontSize:'13px',color:C.text}}>{j.date||'—'}</b></div>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
-                <div><label style={labelStyle}>Ответственный ИТР (прораб)</label><input list="jrnl-itr-list" value={j.responsibleItr||''} onChange={e=>upd('responsibleItr',e.target.value)} placeholder="ФИО прораба или инженера" style={inp}/><datalist id="jrnl-itr-list">{proraby.map(n=><option key={n} value={n}/>)}</datalist></div>
-                <div><label style={labelStyle}>Статус</label><select value={j.status||'На проверке'} onChange={e=>upd('status',e.target.value)} style={inp}><option>На проверке</option><option>Подтверждено</option><option>Отклонено</option></select></div>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 2fr',gap:'10px',marginBottom:'14px'}}>
-                <div><label style={labelStyle}>Начало работы</label><input type="time" value={j.timeStart||''} onChange={e=>upd('timeStart',e.target.value)} style={inp}/></div>
-                <div><label style={labelStyle}>Окончание</label><input type="time" value={j.timeEnd||''} onChange={e=>upd('timeEnd',e.target.value)} style={inp}/></div>
-                <div><label style={labelStyle}>Метеоусловия (температура, осадки, ветер)</label><div style={{display:'flex',gap:'4px'}}><input value={j.weather||''} onChange={e=>upd('weather',e.target.value)} placeholder="напр. +12°C, без осадков, ветер 3 м/с" style={{...inp,marginBottom:0,flex:1}}/>{todayWeather&&<button onClick={()=>upd('weather',(todayWeather.condition||'')+', '+(todayWeather.temperature||'')+'°C, ветер '+(todayWeather.windSpeed||'')+' м/с')} title="Подтянуть из журнала погоды" style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>📡</button>}</div></div>
-              </div>
-              <div style={sectionStyle}><label style={labelStyle}>Качество / соответствие проекту</label><select value={j.qualityStatus||''} onChange={e=>upd('qualityStatus',e.target.value)} style={inp}><option value="">— не указано —</option><option>Соответствует проекту</option><option>Соответствует с замечаниями</option><option>Не соответствует</option></select></div>
-              <div style={sectionStyle}><label style={labelStyle}>Применимые нормативы (СНиП/СП/ГОСТ){j.aiFilled?' 🤖':''}</label><textarea value={j.normatives||''} onChange={e=>upd('normatives',e.target.value)} placeholder="Напр.: СП 71.13330.2017, ГОСТ 30693-2000" style={{...inp,minHeight:'60px',resize:'vertical'}}/></div>
-              <div style={sectionStyle}><label style={labelStyle}>Проектная документация (разделы, листы){j.aiFilled?' 🤖':''}</label><textarea value={j.projectDocs||''} onChange={e=>upd('projectDocs',e.target.value)} placeholder="Напр.: раздел КЖ, лист 12; раздел АР, узел 4" style={{...inp,minHeight:'60px',resize:'vertical'}}/></div>
-              <div style={sectionStyle}><label style={labelStyle}>Использованные материалы</label><div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'12px',color:C.textSec,whiteSpace:'pre-wrap'}}>{j.materialsUsed?(typeof j.materialsUsed==='string'?j.materialsUsed:JSON.stringify(j.materialsUsed)):'(не указаны)'}</div></div>
-              <div style={sectionStyle}><label style={labelStyle}>Комментарий / заключение</label><textarea value={j.comment||''} onChange={e=>upd('comment',e.target.value)} placeholder="Замечания, особенности производства работ, ссылки на акты" style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
-              {j.hiddenWork&&<div style={{padding:'10px 12px',backgroundColor:C.bg,border:'1.5px solid '+C.border,borderRadius:'8px',fontSize:'12px',color:C.textSec,marginBottom:'10px'}}>🔒 По этой записи доступна печатная форма АОСР. Проверьте реквизиты и распечатайте акт для исполнительной документации.</div>}
-            </div>
-            <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
-              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button onClick={()=>showPreview(buildWorkJournalContent([j],j.project,j.date,j.date),'Запись журнала')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
-                {j.hiddenWork&&(<button onClick={()=>{const matchingAct=hiddenActs.find(a=>a.projectName===j.project&&(a.workName||'').trim()===(j.description||'').trim());if(matchingAct){setEditingJournal(null);setEditingAct(matchingAct);}else{alert('Печатная форма АОСР для этой записи пока не создана. Она появляется из сметы: отметьте позицию 🔒 и заполните «Сделано».');}}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}>🔒 АОСР / печать</button>)}
-              </div>
-              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button disabled={!!j.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',opacity:j.__aiLoading?0.6:1,cursor:j.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{j.__aiLoading?'AI работает…':(j.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
-                <button onClick={()=>setEditingJournal(null)} style={btnG}>Отмена</button>
-                <button onClick={saveJournal} style={btnO}><Check size={14}/>Сохранить</button>
-              </div>
-            </div>
-          </div>
-        </div>);
-      })()}
+      <ProjectWorkJournalEditModal
+        journal={editingJournal}
+        setEditingJournal={setEditingJournal}
+        setWorkJournal={setWorkJournal}
+        weatherLog={weatherLog}
+        users={users}
+        hiddenActs={hiddenActs}
+        setEditingAct={setEditingAct}
+        showPreview={showPreview}
+        buildWorkJournalContent={buildWorkJournalContent}
+        fmtMeasure={fmtMeasure}
+        C={C}
+        card={card}
+        inp={inp}
+        btnB={btnB}
+        btnG={btnG}
+        btnO={btnO}
+        aiNotice={aiNotice}
+        aiNoticeIcon={aiNoticeIcon}
+        aiNoticeText={aiNoticeText}
+      />
       <ProjectWorkJournalTableModal
         projectName={showJournalTableModal}
         workJournal={workJournal}
