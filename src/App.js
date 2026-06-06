@@ -46,6 +46,7 @@ import MaterialNormNotice from './components/MaterialNormNotice';
 import MaterialNormsHeader from './components/MaterialNormsHeader';
 import EstimateImportSupportedFormat from './components/EstimateImportSupportedFormat';
 import MaterialNormCoverageSummaryBadges from './components/MaterialNormCoverageSummaryBadges';
+import MaterialNormCoverageHeader from './components/MaterialNormCoverageHeader';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14352,21 +14353,24 @@ function App() {
                 setMaterialNormNotice={setMaterialNormNotice}
               />
               {(()=>{const projectOptions=visibleActiveProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const invalidQtyCount=rows.filter(r=>r.status==='Некорректное количество').length;const zeroQtyCount=rows.filter(r=>r.status==='Материал без количества').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
-                  <div>
-                    <b style={{color:C.text,fontSize:'13px',display:'block'}}>📐 Вся смета по нормам</b>
-                    <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>Показывает не только проблемы, а полный проход по работам и материалам активной сметы.</p>
-                  </div>
-                  <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap',justifyContent:isMobile?'stretch':'flex-end',width:isMobile?'100%':'auto'}}>
-                    <select value={selectedProject} onChange={e=>setMaterialNormCoverageProject(e.target.value)} style={{...inp,marginBottom:0,width:isMobile?'100%':'260px'}}>
-                      {projectOptions.length===0&&<option value="">Нет объектов</option>}
-                      {projectOptions.map(p=><option key={p.id||p.name} value={p.name}>{p.name}</option>)}
-                    </select>
-                    <button disabled={!rows.length} onClick={()=>showPreview(buildMaterialNormCoverageContent(selectedProject),'Смета по нормам — '+selectedProject)} style={btnState(btnB,!rows.length,{padding:'7px 10px',fontSize:'12px'})}><Printer size={13}/>Печать</button>
-                    <button disabled={!rows.length} onClick={()=>exportToExcel(materialNormCoverageExportRows(rows),'Смета_по_нормам_'+selectedProject)} style={btnState(btnG,!rows.length,{padding:'7px 10px',fontSize:'12px'})}><Download size={13}/>Excel</button>
-                    {canCreateSupplyRequestFromNorm()&&<button disabled={!rows.some(r=>materialNormCanCreateSupply(r)&&!materialNormSupplyRequestExists(r))} onClick={()=>createBatchSupplyRequestFromNormCoverage(rows)} style={btnState(btnO,!rows.some(r=>materialNormCanCreateSupply(r)&&!materialNormSupplyRequestExists(r)),{padding:'7px 10px',fontSize:'12px'})}><ShoppingCart size={13}/>Заявка по всем</button>}
-                  </div>
-                </div>
+                <MaterialNormCoverageHeader
+                  C={C}
+                  inp={inp}
+                  btnB={btnB}
+                  btnG={btnG}
+                  btnO={btnO}
+                  btnState={btnState}
+                  isMobile={isMobile}
+                  projectOptions={projectOptions}
+                  selectedProject={selectedProject}
+                  setMaterialNormCoverageProject={setMaterialNormCoverageProject}
+                  rows={rows}
+                  showCreateBatchSupply={canCreateSupplyRequestFromNorm()}
+                  canCreateBatchSupply={rows.some(r=>materialNormCanCreateSupply(r)&&!materialNormSupplyRequestExists(r))}
+                  onPrint={()=>showPreview(buildMaterialNormCoverageContent(selectedProject),'Смета по нормам — '+selectedProject)}
+                  onExport={()=>exportToExcel(materialNormCoverageExportRows(rows),'Смета_по_нормам_'+selectedProject)}
+                  onCreateBatchSupply={()=>createBatchSupplyRequestFromNormCoverage(rows)}
+                />
                 <MaterialNormCoverageSummaryBadges
                   C={C}
                   badge={badge}
