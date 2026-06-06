@@ -14,6 +14,7 @@ import SupplySupplierInvoicesPanel from './components/SupplySupplierInvoicesPane
 import SuppliersPage from './components/SuppliersPage';
 import ProjectCardHeader from './components/ProjectCardHeader';
 import ProjectTabsNav from './components/ProjectTabsNav';
+import ProjectMaterialsControlPanel from './components/ProjectMaterialsControlPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12280,75 +12281,25 @@ function App() {
                           }} style={btnO}><Plus size={14}/>Передать материал</button>)}
                         </div>
                       </div>
-	                      {(()=>{const rows=materialReconciliationRows(p.name);const normRows=estimateWorkNormRequirementRows(p.name);const normCtrl=materialNormControlSummaryForProject(p.name);const planRows=rows.filter(r=>r.planQty>0);const toBuyRows=rows.filter(r=>r.toBuy>0);const pipelineRows=rows.filter(r=>r.requested>0||r.inTransit>0);const outsideRows=rows.filter(r=>r.isOutsideEstimate);const suppliedRows=rows.filter(r=>r.supplied>0);const invoiceRows=rows.filter(r=>r.invoiceReceived>0);const deliveryRows=rows.filter(r=>r.supplyReceived>0);const movedRows=rows.filter(r=>r.movedNet!==0);const masterBalanceRows=rows.filter(r=>r.masterBalance>0);const stockMismatchRows=rows.filter(r=>r.stockMismatch);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.accentBorder}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'12px'}}>
-                          <div>
-                            <b style={{color:C.text,fontSize:'14px'}}>📊 Материалы: смета ↔ поставки ↔ склад</b>
-                            <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>План берётся из активной сметы заказчика, цепочка — из заявок, поставок, накладных, перемещений, выдач и списаний.</p>
-                          </div>
-                          <button onClick={()=>showPreview(buildMaterialRequirementContent(p.name),'Потребность материалов — '+p.name)} style={{...btnB,fontSize:'12px',padding:'6px 12px'}}><Printer size={13}/>Печать</button>
-                        </div>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'8px',marginBottom:'12px'}}>
-	                          <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Позиций по смете</p><b style={{color:C.text,fontSize:'15px'}}>{planRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:C.successLight,borderRadius:'8px',border:'1px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 3px'}}>Поставлялось</p><b style={{color:C.success,fontSize:'15px'}}>{suppliedRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:invoiceRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(invoiceRows.length?C.infoBorder:C.border)}}><p style={{color:invoiceRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Накладные</p><b style={{color:invoiceRows.length?C.info:C.text,fontSize:'15px'}}>{invoiceRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:deliveryRows.length?C.successLight:C.bg,borderRadius:'8px',border:'1px solid '+(deliveryRows.length?C.successBorder:C.border)}}><p style={{color:deliveryRows.length?C.success:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Поставки</p><b style={{color:deliveryRows.length?C.success:C.text,fontSize:'15px'}}>{deliveryRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:movedRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(movedRows.length?C.infoBorder:C.border)}}><p style={{color:movedRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Перемещения</p><b style={{color:movedRows.length?C.info:C.text,fontSize:'15px'}}>{movedRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:masterBalanceRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(masterBalanceRows.length?C.infoBorder:C.border)}}><p style={{color:masterBalanceRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>У мастеров</p><b style={{color:masterBalanceRows.length?C.info:C.text,fontSize:'15px'}}>{masterBalanceRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:pipelineRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(pipelineRows.length?C.infoBorder:C.border)}}><p style={{color:pipelineRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>В заявках/пути</p><b style={{color:pipelineRows.length?C.info:C.text,fontSize:'15px'}}>{pipelineRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:toBuyRows.length?C.warningLight:C.successLight,borderRadius:'8px',border:'1px solid '+(toBuyRows.length?C.warningBorder:C.successBorder)}}><p style={{color:toBuyRows.length?C.warning:C.success,fontSize:'10px',margin:'0 0 3px'}}>Докупить</p><b style={{color:toBuyRows.length?C.warning:C.success,fontSize:'15px'}}>{toBuyRows.length}</b></div>
-	                          <div style={{padding:'10px',backgroundColor:outsideRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(outsideRows.length?C.dangerBorder:C.border)}}><p style={{color:outsideRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Вне сметы</p><b style={{color:outsideRows.length?C.danger:C.text,fontSize:'15px'}}>{outsideRows.length}</b></div>
-		                          <div style={{padding:'10px',backgroundColor:normRows.length?C.infoLight:C.bg,borderRadius:'8px',border:'1px solid '+(normRows.length?C.infoBorder:C.border)}}><p style={{color:normRows.length?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>По нормам работ</p><b style={{color:normRows.length?C.info:C.text,fontSize:'15px'}}>{normRows.length}</b></div>
-		                          <div style={{padding:'10px',backgroundColor:normCtrl.overRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(normCtrl.overRows.length?C.dangerBorder:C.border)}}><p style={{color:normCtrl.overRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Перерасход норм</p><b style={{color:normCtrl.overRows.length?C.danger:C.text,fontSize:'15px'}}>{normCtrl.overRows.length}</b></div>
-		                          <div style={{padding:'10px',backgroundColor:normCtrl.withoutNormRows.length?C.warningLight:C.bg,borderRadius:'8px',border:'1px solid '+(normCtrl.withoutNormRows.length?C.warningBorder:C.border)}}><p style={{color:normCtrl.withoutNormRows.length?C.warning:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Списано без нормы</p><b style={{color:normCtrl.withoutNormRows.length?C.warning:C.text,fontSize:'15px'}}>{normCtrl.withoutNormRows.length}</b></div>
-		                          <div style={{padding:'10px',backgroundColor:stockMismatchRows.length?C.dangerLight:C.bg,borderRadius:'8px',border:'1px solid '+(stockMismatchRows.length?C.dangerBorder:C.border)}}><p style={{color:stockMismatchRows.length?C.danger:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Расхождения</p><b style={{color:stockMismatchRows.length?C.danger:C.text,fontSize:'15px'}}>{stockMismatchRows.length}</b></div>
-		                        </div>
-	                        {rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
-	                          <table style={{...tbl,fontSize:'11px',minWidth:'1420px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Расчёт</th><th style={tblH}>Расх.</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
-	                            {rows.slice(0,25).map(r=>{const st=materialControlStatus(r);return(<tr key={r.key}>
-                              <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.aliases?.length>0&&<p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Синонимы: {r.aliases.slice(0,2).join(', ')}{r.aliases.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}{renderMaterialAliasControls(p.name,r)}</td>
-                              <td style={tblC}>{r.planQty>0?fmtMeasure(r.planQty,r.unit):'—'}</td>
-                              <td style={{...tblC,color:r.requested>0?C.info:C.textMuted}}>{fmtMeasure(r.requested,r.unit)}</td>
-                              <td style={{...tblC,color:r.inTransit>0?C.warning:C.textMuted}}>{fmtMeasure(r.inTransit,r.unit)}</td>
-                              <td style={{...tblC,color:r.invoiceReceived>0?C.success:C.textMuted}}>{fmtMeasure(r.invoiceReceived,r.unit)}</td>
-                              <td style={{...tblC,color:r.supplyReceived>0?C.success:C.textMuted}}>{fmtMeasure(r.supplyReceived,r.unit)}</td>
-                              <td style={{...tblC,color:r.movedNet!==0?C.info:C.textMuted}}>{fmtMeasure(r.movedNet,r.unit)}</td>
-                              <td style={{...tblC,color:r.supplied>=r.planQty&&r.planQty>0?C.success:C.text}}>{fmtMeasure(r.supplied,r.unit)}</td>
-                              <td style={tblC}>{fmtMeasure(r.issued,r.unit)}</td>
-	                              <td style={tblC}>{fmtMeasure(r.used,r.unit)}</td>
-	                              <td style={{...tblC,color:r.masterBalance>0?C.info:C.textMuted}}>{fmtMeasure(r.masterBalance,r.unit)}</td>
-	                              <td style={{...tblC,fontWeight:'600',color:r.stock>0?C.success:C.textMuted}}>{fmtMeasure(r.stock,r.unit)}</td>
-	                              <td style={{...tblC,color:r.expectedStock>0?C.text:C.textMuted}}>{fmtMeasure(r.expectedStock,r.unit)}</td>
-	                              <td style={{...tblC,fontWeight:'700',color:r.stockMismatch?C.danger:C.success}}>{r.stockMismatch?fmtMeasure(r.stockDiff,r.unit):'0'}</td>
-	                              <td style={{...tblC,fontWeight:'700',color:r.toBuy>0?C.warning:C.success}}>{fmtMeasure(r.toBuy,r.unit)}</td>
-	                              <td style={tblC}><span style={badge(st.color,st.bg,st.border)}>{st.label}{r.stockMismatch?' · '+fmtMeasure(r.stockDiff,r.unit):r.toBuy>0?' · '+fmtMeasure(r.toBuy,r.unit):r.shortage>0?' · '+fmtMeasure(r.shortage,r.unit):r.masterBalance>0?' · '+fmtMeasure(r.masterBalance,r.unit):''}</span>{renderMaterialSupplyAction(p.name,r)}</td>
-                            </tr>);})}
-                          </tbody></table>
-	                          {rows.length>25&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые 25 строк. Полный список — в печатной ведомости.</p>}
-	                        </div>}
-	                        {normRows.length>0&&(<div style={{marginTop:'14px',paddingTop:'12px',borderTop:'1.5px solid '+C.border}}>
-	                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'8px'}}>
-	                            <div><b style={{color:C.info,fontSize:'13px'}}>🧮 Нормативная потребность по работам</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Подсказка для проверки сметы: это не заявка и не списание, пока материал не заведён строкой типа «Материал».</p></div>
-	                          </div>
-	                          <div style={{overflowX:'auto'}}>
-	                            <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Материал по норме</th><th style={tblH}>Потребность</th><th style={tblH}>Работы-источники</th><th style={tblH}>Норма</th></tr></thead><tbody>
-	                              {normRows.slice(0,12).map(r=>(<tr key={r.key}><td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}</td><td style={{...tblC,fontWeight:'700',color:C.info}}>{fmtMeasure(r.planQty,r.unit)}</td><td style={tblC}>{r.works.slice(0,3).map(w=>w.name).join('; ')}{r.works.length>3?' …':''}</td><td style={{...tblC,color:C.textSec,fontSize:'10px'}}>{r.normSources.slice(0,2).join('; ')}</td></tr>))}
-	                            </tbody></table>
-	                            {normRows.length>12&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые 12 строк. Полный список — в печатной ведомости.</p>}
-	                          </div>
-	                        </div>)}
-	                        {(normCtrl.overRows.length>0||normCtrl.withoutNormRows.length>0)&&(<div style={{marginTop:'14px',paddingTop:'12px',borderTop:'1.5px solid '+C.border}}>
-	                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'8px'}}>
-	                            <div><b style={{color:normCtrl.overRows.length?C.danger:C.warning,fontSize:'13px'}}>🚦 Контроль списания по нормам</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Показывает, где факт списания материалов отличается от нормы, которую подставила система при закрытии работы.</p></div>
-	                          </div>
-	                          <div style={{overflowX:'auto'}}>
-	                            <table style={{...tbl,fontSize:'11px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>Факт</th><th style={tblH}>Норма</th><th style={tblH}>Отклонение</th><th style={tblH}>Работы</th><th style={tblH}>Статус</th></tr></thead><tbody>
-	                              {[...normCtrl.overRows,...normCtrl.withoutNormRows.filter(r=>!normCtrl.overRows.some(o=>o.key===r.key))].slice(0,12).map(r=>{const over=r.overQty>0;return(<tr key={r.key}><td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.normSources.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.normSources.slice(0,2).join('; ')}</p>}</td><td style={tblC}>{fmtMeasure(r.qty,r.unit)}</td><td style={tblC}>{r.normQty>0?fmtMeasure(r.normQty,r.unit):'—'}</td><td style={{...tblC,fontWeight:'700',color:over?C.danger:C.warning}}>{over?('+'+fmtMeasure(r.overQty,r.unit)):'без нормы '+fmtMeasure(r.withoutNormQty,r.unit)}</td><td style={tblC}>{r.works.slice(0,3).map(w=>w.workName+(w.master?' · '+w.master:'')).join('; ')}{r.works.length>3?' …':''}</td><td style={tblC}><span style={badge(over?C.danger:C.warning,over?C.dangerLight:C.warningLight,over?C.dangerBorder:C.warningBorder)}>{over?'Проверить перерасход':'Нужна норма'}</span></td></tr>);})}
-	                            </tbody></table>
-	                            {(normCtrl.overRows.length+normCtrl.withoutNormRows.length)>12&&<p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>Показаны первые 12 строк. Полный список — в печатной ведомости.</p>}
-	                          </div>
-	                        </div>)}
-	                      </div>);})()}
+                      <ProjectMaterialsControlPanel
+                        projectName={p.name}
+                        rows={materialReconciliationRows(p.name)}
+                        normRows={estimateWorkNormRequirementRows(p.name)}
+                        normCtrl={materialNormControlSummaryForProject(p.name)}
+                        C={C}
+                        card={card}
+                        tbl={tbl}
+                        tblH={tblH}
+                        tblC={tblC}
+                        btnB={btnB}
+                        badge={badge}
+                        fmtMeasure={fmtMeasure}
+                        materialControlStatus={materialControlStatus}
+                        renderMaterialSupplyAction={renderMaterialSupplyAction}
+                        renderMaterialAliasControls={renderMaterialAliasControls}
+                        showPreview={showPreview}
+                        buildMaterialRequirementContent={buildMaterialRequirementContent}
+                      />
                       {(()=>{const objMats=(materials||[]).filter(m=>m.project===p.name&&Number(m.quantity||0)>0);const mainStockMap={};(warehouseMain||[]).forEach(m=>{mainStockMap[m.name]=Number(m.quantity||0);});if(objMats.length===0) return(<div style={{...card,padding:'18px',marginBottom:'14px',backgroundColor:C.bg,textAlign:'center',color:C.textMuted,fontSize:'13px'}}>📦 Материалов на объекте нет. Нажмите «Принять материал» чтобы оприходовать накладную.</div>);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg}}>
                         <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>📦 Остатки на объекте ({objMats.length} поз.)</b>
                         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:'8px'}}>
