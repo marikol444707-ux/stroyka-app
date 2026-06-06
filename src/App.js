@@ -52,6 +52,7 @@ import EstimateCreateFormFields from './components/EstimateCreateFormFields';
 import EstimateImportSettings from './components/EstimateImportSettings';
 import EstimateTemplatesList from './components/EstimateTemplatesList';
 import EstimateListEmptyStates from './components/EstimateListEmptyStates';
+import EstimateListSummaryBar from './components/EstimateListSummaryBar';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14220,15 +14221,18 @@ function App() {
                 </div>
               </div>):(<div>
                 {(()=>{const normal=(estimatesList||[]).filter(e=>!isGlobalEstimateTemplate(e)||e.status==='Активная');const templates=(estimatesList||[]).filter(e=>isGlobalEstimateTemplate(e)&&e.status!=='Активная');const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});return(<>
-                  <div style={{...card,padding:'12px 14px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',backgroundColor:C.bg}}>
-                    <div style={{display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center'}}>
-                      <span style={badge(C.success,C.successLight,C.successBorder)}>{'Активные: '+normal.filter(e=>e.status==='Активная').length}</span>
-                      <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Черновики: '+normal.filter(e=>(e.status||'Черновик')==='Черновик').length}</span>
-                      <span style={badge(C.textMuted,C.bgGray,C.border)}>{'Архив: '+normal.filter(isArchivedEstimate).length}</span>
-                      {templates.length>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Шаблоны: '+templates.length}</span>}
-                    </div>
-                    <button onClick={()=>setShowArchivedEstimates(!showArchivedEstimates)} style={btnG}><Archive size={14}/>{showArchivedEstimates?'Скрыть архив':'Показать архив'}</button>
-                  </div>
+                  <EstimateListSummaryBar
+                    C={C}
+                    card={card}
+                    badge={badge}
+                    btnG={btnG}
+                    activeCount={normal.filter(e=>e.status==='Активная').length}
+                    draftCount={normal.filter(e=>(e.status||'Черновик')==='Черновик').length}
+                    archivedCount={normal.filter(isArchivedEstimate).length}
+                    templatesCount={templates.length}
+                    showArchivedEstimates={showArchivedEstimates}
+                    setShowArchivedEstimates={setShowArchivedEstimates}
+                  />
                   {grouped.map(([key,items])=>{const sorted=[...items].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));const active=activeEstimateFromList(sorted);const projectName=active?.projectName||sorted[0]?.projectName||'Без проекта';const kind=estimateKind(active||sorted[0]);const pkg=estimatePackage(active||sorted[0]);const archivedCount=sorted.filter(isArchivedEstimate).length;const draftCount=sorted.filter(e=>(e.status||'Черновик')==='Черновик').length;const activeCount=sorted.filter(e=>e.status==='Активная').length;const last=sorted[0];const prevForActive=active?sorted.find(e=>e.id!==active.id):null;const diff=active&&prevForActive?estimateTotal(active)-estimateTotal(prevForActive):0;return(<div key={key} style={{...card,marginBottom:'12px'}}>
                     <div style={{padding:'12px 14px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
                       <div style={{minWidth:'260px',flex:1}}><b style={{color:C.text,fontSize:'13px'}}>{estimateTypeIcon(kind)+' '+projectName}</b><p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>{kind+' · 📁 '+pkg+' · '+sorted.length+' верс. · активных '+activeCount+' · архив '+archivedCount+(draftCount?' · черновиков '+draftCount:'')}</p>{active&&<p style={{color:C.textMuted,margin:'3px 0 0',fontSize:'11px'}}>Сейчас в расчётах: {estimateDisplayVersion(active,sorted)} · {active.name}{last?.id!==active.id?' · последняя загруженная: '+estimateDisplayVersion(last,sorted):''}</p>}<p style={{color:C.textMuted,margin:'3px 0 0',fontSize:'11px'}}>Цепочка: {estimateVersionChain(sorted)}</p></div>
