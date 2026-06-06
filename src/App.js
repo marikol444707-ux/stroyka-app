@@ -62,6 +62,7 @@ import EstimateSectionHeader from './components/EstimateSectionHeader';
 import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsHeader from './components/MaterialNormSuggestionsHeader';
+import WeatherTabsNav from './components/WeatherTabsNav';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14513,9 +14514,7 @@ function App() {
           </div>)}
 
           {activePage==='weather'&&(<div>
-            <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['log','jpr'].map(tab=>(<button key={tab} onClick={()=>setWeatherTab(tab)} style={{...weatherTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{log:'Журнал погоды',jpr:'ЖПР'}[tab]}</button>))}
-            </div>
+            <WeatherTabsNav weatherTab={weatherTab} setWeatherTab={setWeatherTab} btnO={btnO} btnG={btnG}/>
 
             {weatherTab==='log'&&(<div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
