@@ -9,6 +9,7 @@ import SupplyRequestForm from './components/SupplyRequestForm';
 import SupplyRequestsList from './components/SupplyRequestsList';
 import SupplyDeliveriesPanel from './components/SupplyDeliveriesPanel';
 import SupplyCatalogPanel from './components/SupplyCatalogPanel';
+import SupplySuppliersPanel from './components/SupplySuppliersPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -7644,57 +7645,6 @@ function App() {
 
   const deleteSupplier = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/suppliers/'+id,{method:'DELETE'}); await loadAll(); } };
 
-  const renderSuppliersDirectory = () => {
-    const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец'].includes(user.role);
-    return (<div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'8px',flexWrap:'wrap'}}>
-        <div>
-          <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🚚 Поставщики</b>
-          <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Справочник поставщиков теперь находится внутри снабжения.</p>
-        </div>
-        {canEditSuppliers&&<div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
-          <button onClick={()=>{setSupplierInviteForm({presetName:'',presetCategory:'Сыпучие и бетон',supplierId:null,expiresInDays:14});setGeneratedInviteLink(null);setShowSupplierInviteModal(true);}} style={btnGr}><Plus size={14}/>🔗 Пригласить по ссылке</button>
-          <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewSupplier({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'});}} style={btnO}><Plus size={14}/>Добавить вручную</button>
-        </div>}
-      </div>
-      {showForm&&canEditSuppliers&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'10px'}}>
-          <input placeholder="Название *" value={newSupplier.name} onChange={e=>setNewSupplier({...newSupplier,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-          <input placeholder="Телефон" value={newSupplier.phone} onChange={e=>setNewSupplier({...newSupplier,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
-          <input placeholder="Email" value={newSupplier.email} onChange={e=>setNewSupplier({...newSupplier,email:e.target.value})} style={{...inp,marginBottom:0}}/>
-          <select value={newSupplier.category} onChange={e=>setNewSupplier({...newSupplier,category:e.target.value})} style={{...inp,marginBottom:0}}>{SUPPLIER_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select>
-          <input placeholder="Специализация" value={newSupplier.specialization} onChange={e=>setNewSupplier({...newSupplier,specialization:e.target.value})} style={{...inp,marginBottom:0}}/>
-          <select value={newSupplier.status} onChange={e=>setNewSupplier({...newSupplier,status:e.target.value})} style={{...inp,marginBottom:0}}>{['Активный','Неактивный','Заблокирован'].map(s=><option key={s}>{s}</option>)}</select>
-        </div>
-        <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveSupplier} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
-      </div>)}
-      <div style={{position:'relative',marginBottom:'12px'}}>
-        <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-        <input placeholder='🔍 Поиск поставщика' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
-      </div>
-      {SUPPLIER_CATEGORIES.map(cat=>{
-        const catSuppliers=suppliers.filter(s=>s.category===cat&&matchSearch(listSearch,s.name,s.specialization,s.phone,s.email));
-        if(catSuppliers.length===0) return null;
-        return(<div key={cat} style={{marginBottom:'20px'}}>
-          <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px',padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}>
-            <b style={{color:C.accent,fontSize:'13px'}}>{'🏭 '+cat}</b>
-            <span style={{color:C.textSec,fontSize:'12px'}}>{'('+catSuppliers.length+')'}</span>
-          </div>
-          {catSuppliers.map(s=>(<div key={s.id} style={{...card,padding:'14px',marginBottom:'8px',marginLeft:'12px'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
-              <div><b style={{color:C.text,fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{s.phone+(s.email?' · '+s.email:'')+(s.specialization?' · '+s.specialization:'')}</p><div style={{display:'flex',gap:'4px',marginTop:'4px'}}>{[1,2,3,4,5].map(star=>(<span key={star} style={{color:star<=s.rating?'#f59e0b':'#d1d5db',fontSize:'14px',cursor:canEditSuppliers?'pointer':'default'}} onClick={async()=>{if(!canEditSuppliers) return; await fetch(API+'/suppliers/'+s.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...s,rating:star})});await loadAll();}}>★</span>))}</div></div>
-              {canEditSuppliers&&<div style={{display:'flex',gap:'6px'}}>
-                <button onClick={()=>{setEditingItem(s);setNewSupplier({...s});setShowForm(true);}} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>
-                <button onClick={()=>deleteSupplier(s.id)} style={{...btnR,padding:'5px 10px'}}><Trash2 size={11}/></button>
-              </div>}
-            </div>
-          </div>))}
-        </div>);
-      })}
-      {suppliers.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Поставщиков нет</p>}
-    </div>);
-  };
-
   const saveRequest = async () => {
     const validItems = newRequest.items.filter(i=>i.materialName&&i.quantity);
     if (!validItems.length||!newRequest.project) return;
@@ -13825,7 +13775,35 @@ function App() {
               {/* Вкладка «Счета» — входящие счета от поставщиков (Ф5a.2: переехали из Бухгалтерии) */}
               {curTab==='invoices' && renderSupplierInvoices()}
               {/* Вкладка «Поставщики» — справочник поставщиков внутри снабжения */}
-              {curTab==='suppliers' && renderSuppliersDirectory()}
+              {curTab==='suppliers' && (
+                <SupplySuppliersPanel
+                  C={C}
+                  card={card}
+                  inp={inp}
+                  btnO={btnO}
+                  btnG={btnG}
+                  btnGr={btnGr}
+                  btnR={btnR}
+                  user={user}
+                  suppliers={suppliers}
+                  supplierCategories={SUPPLIER_CATEGORIES}
+                  showForm={showForm}
+                  setShowForm={setShowForm}
+                  editingItem={editingItem}
+                  setEditingItem={setEditingItem}
+                  newSupplier={newSupplier}
+                  setNewSupplier={setNewSupplier}
+                  saveSupplier={saveSupplier}
+                  deleteSupplier={deleteSupplier}
+                  listSearch={listSearch}
+                  setListSearch={setListSearch}
+                  matchSearch={matchSearch}
+                  setSupplierInviteForm={setSupplierInviteForm}
+                  setGeneratedInviteLink={setGeneratedInviteLink}
+                  setShowSupplierInviteModal={setShowSupplierInviteModal}
+                  loadAll={loadAll}
+                />
+              )}
               {/* Вкладка «Каталоги» — прайсы поставщиков (просмотр) */}
               {curTab==='catalog' && (
                 <SupplyCatalogPanel
