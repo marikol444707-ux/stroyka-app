@@ -37,6 +37,7 @@ import WarehouseInvoicesPanel from './components/WarehouseInvoicesPanel';
 import WarehouseMainStockPanel from './components/WarehouseMainStockPanel';
 import WarehouseCompanyWarehousesPanel from './components/WarehouseCompanyWarehousesPanel';
 import WarehouseHistoryPanel from './components/WarehouseHistoryPanel';
+import WarehouseTabsNav from './components/WarehouseTabsNav';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12317,9 +12318,13 @@ function App() {
           </div>)}
 
           {activePage==='warehouse'&&(<div>
-            <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['control','objects','main','move','invoices','history','tools','inventory','warehouses'].map(tab=>(<button key={tab} onClick={()=>{setWarehouseTab(tab);setShowForm(false);}} style={{...warehouseTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{control:'Контроль',objects:'Объекты',main:'Основной склад',move:'Перемещение',invoices:'Накладные',history:'История',tools:'Инструменты',inventory:'Инвентаризация',warehouses:'Склады'}[tab]}</button>))}
-            </div>
+            <WarehouseTabsNav
+              warehouseTab={warehouseTab}
+              setWarehouseTab={setWarehouseTab}
+              setShowForm={setShowForm}
+              btnO={btnO}
+              btnG={btnG}
+            />
 
             {warehouseTab==='control'&&(<div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'10px',flexWrap:'wrap'}}>
