@@ -57,6 +57,7 @@ import EstimateCreateActions from './components/EstimateCreateActions';
 import EstimateImportUploadButton from './components/EstimateImportUploadButton';
 import EstimateSelectedStatusActions from './components/EstimateSelectedStatusActions';
 import EstimateAddSectionForm from './components/EstimateAddSectionForm';
+import EstimateTotalCard from './components/EstimateTotalCard';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14222,12 +14223,7 @@ function App() {
                     </div>
                   </div>
                 </div>);})}
-                <div style={{...card,padding:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                    <b style={{color:C.text,fontSize:'14px'}}>ИТОГО по смете:</b>
-                    <b style={{color:C.accent,fontSize:'18px'}}>{Math.round((selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0)).toLocaleString('ru-RU')+' ₽'}</b>
-                  </div>
-                </div>
+                <EstimateTotalCard C={C} card={card} total={(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0)} />
               </div>):(<div>
                 {(()=>{const normal=(estimatesList||[]).filter(e=>!isGlobalEstimateTemplate(e)||e.status==='Активная');const templates=(estimatesList||[]).filter(e=>isGlobalEstimateTemplate(e)&&e.status!=='Активная');const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});return(<>
                   <EstimateListSummaryBar
