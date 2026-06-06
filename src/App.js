@@ -17,6 +17,7 @@ import ProjectTabsNav from './components/ProjectTabsNav';
 import ProjectMaterialsControlPanel from './components/ProjectMaterialsControlPanel';
 import ProjectMaterialsStockPanel from './components/ProjectMaterialsStockPanel';
 import ProjectMaterialsTransferPanel from './components/ProjectMaterialsTransferPanel';
+import ProjectFinancePanel from './components/ProjectFinancePanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12357,58 +12358,38 @@ function App() {
                   </div>)}
 
                     {activeProjectTab==='Финансы'&&(<div>
-                      {isFinanceRole()&&(()=>{
-                        const cat=expByCategory(p.name);
-                        const total=Object.values(cat).reduce((s,v)=>s+v,0);
-                        const projectPays=projectPayments.filter(pay=>pay.projectName===p.name);
-                        const received=projectPays.reduce((s,pay)=>s+projectPaymentInAmount(pay),0);
-                        const inAccountable=accountablePayments.filter(ac=>ac.projectName===p.name).reduce((s,ac)=>s+Math.max(0,Number(ac.amount||0)-Number(ac.spentAmount||0)),0);
-                        const profit=received-total-inAccountable;
-                        const toReimburse=ownExpenses.filter(e=>e.projectName===p.name&&e.status==='Ожидает');
-                        return(<div>
-                          <div style={{display:'flex',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
-                            {isFinanceRole()&&<button onClick={()=>{const amount=prompt('Сумма оплаты от заказчика (₽):');const note=prompt('Примечание:');if(amount&&Number(amount)>0){fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,amount:Number(amount),note:note||'',date:new Date().toISOString().split('T')[0],addedBy:user.name})}).then(()=>loadAll());}}} style={{...btnO,fontSize:'12px',padding:'7px 14px'}}><Plus size={13}/>Оплата от заказчика</button>}
-                            {(isFinanceRole()||user.role==='прораб')&&<button onClick={()=>{setAddExpenseProject(p.name);setNewManualExpense({category:'materials',amount:'',note:'',date:''});}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><Plus size={13}/>Расход по объекту</button>}
-                            {isFinanceRole()&&<button onClick={()=>{setShowAccountableForm(true);setNewAccountable({...newAccountable,projectName:p.name});}} style={{...btnG,fontSize:'12px',padding:'7px 14px'}}><Plus size={13}/>Подотчёт по объекту</button>}
-                            {toReimburse.length>0&&<div style={{display:'flex',alignItems:'center',gap:'6px',padding:'7px 14px',backgroundColor:C.warningLight,borderRadius:'8px',border:'1.5px solid '+C.warningBorder}}><span style={{fontSize:'12px',color:C.warning,fontWeight:'600'}}>{'⏳ К возмещению: '+toReimburse.reduce((s,e)=>s+Number(e.amount),0).toLocaleString()+' ₽'}</span></div>}
-                          </div>
-                          <div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',cursor:'pointer'}} onClick={()=>setShowBalanceDetails(!showBalanceDetails)}><b style={{color:C.text,fontSize:'14px'}}>💰 Баланс объекта</b><span style={{fontSize:'12px',color:C.accent}}>{showBalanceDetails?'▲ Свернуть':'▼ Подробнее'}</span></div>
-                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                              <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Получено от заказчика</p><b style={{color:C.success,fontSize:'15px'}}>{received.toLocaleString()+' ₽'}</b></div>
-                              <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Все расходы</p><b style={{color:C.danger,fontSize:'15px'}}>{total.toLocaleString()+' ₽'}</b></div>
-                              <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>В подотчёте</p><b style={{color:C.warning,fontSize:'15px'}}>{inAccountable.toLocaleString()+' ₽'}</b></div>
-                              {isLeadership()&&<div style={{padding:'10px',backgroundColor:profit>=0?C.successLight:C.dangerLight,borderRadius:'8px',border:'1.5px solid '+(profit>=0?C.successBorder:C.dangerBorder)}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 2px'}}>Прибыль</p><b style={{color:profit>=0?C.success:C.danger,fontSize:'15px'}}>{profit.toLocaleString()+' ₽'}</b></div>}
-                            </div>
-                          </div>
-                          {showBalanceDetails&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
-                            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📊 Расходы по категориям</b>
-                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                              {EXPENSE_CATEGORIES.filter(c=>cat[c.id]>0).map(c=>(<div key={c.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 2px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'14px',color:c.color}}>{cat[c.id].toLocaleString()+' ₽'}</b></div>))}
-                              {EXPENSE_CATEGORIES.filter(c=>cat[c.id]>0).length===0&&<p style={{color:C.textMuted,fontSize:'12px',gridColumn:'span 2',textAlign:'center',padding:'10px'}}>Расходов пока нет</p>}
-                            </div>
-                          </div>)}
-                          {toReimburse.length>0&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
-                            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>⏳ К возмещению</b>
-                            {toReimburse.map(e=>(<div key={e.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid '+C.border}}>
-                              <div><b style={{fontSize:'13px',color:C.text}}>{e.employeeName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{e.description}</p></div>
-                              <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                                <b style={{color:C.accent,fontSize:'13px'}}>{Number(e.amount).toLocaleString()+' ₽'}</b>
-                                {(()=>{const urls=(e.photoUrl||'').split(',').filter(Boolean);if(urls.length===0) return null;if(urls.length===1){const u=urls[0];return <button onClick={()=>setShowPhotoModal(fileSrc(u))} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}>📷</button>;}return <button onClick={()=>setShowPhotoModal(fileSrc(urls[0]))} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}>📷 {urls.length}</button>;})()}
-                                <button onClick={async()=>{await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Возмещено',approvedBy:user.name})});await loadAll();}} style={{...btnO,padding:'3px 8px',fontSize:'11px'}}>✅</button>
-                                <button onClick={async()=>{await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name})});await loadAll();}} style={{...btnR,padding:'3px 8px',fontSize:'11px'}}>❌</button>
-                              </div>
-                            </div>))}
-                          </div>)}
-                          {projectPays.length>0&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
-                            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📋 Движение денег по объекту</b>
-                            {projectPays.map(pay=>{const signed=projectPaymentSignedAmount(pay);return(<div key={pay.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
-                              <div><span style={{fontSize:'12px',color:C.text}}>{pay.note||'Оплата'}</span><span style={{fontSize:'11px',color:C.textMuted,marginLeft:'8px'}}>{pay.date}</span></div>
-                              <b style={{fontSize:'12px',color:signed>=0?C.success:C.danger}}>{formatSignedRub(signed)}</b>
-                            </div>);})}
-                          </div>)}
-                        </div>);
-                      })()}
+                      {isFinanceRole()&&(
+                        <ProjectFinancePanel
+                          projectName={p.name}
+                          projectPayments={projectPayments}
+                          accountablePayments={accountablePayments}
+                          ownExpenses={ownExpenses}
+                          expenseCategories={EXPENSE_CATEGORIES}
+                          expByCategory={expByCategory}
+                          projectPaymentInAmount={projectPaymentInAmount}
+                          projectPaymentSignedAmount={projectPaymentSignedAmount}
+                          formatSignedRub={formatSignedRub}
+                          user={user}
+                          C={C}
+                          card={card}
+                          btnO={btnO}
+                          btnB={btnB}
+                          btnG={btnG}
+                          btnR={btnR}
+                          showBalanceDetails={showBalanceDetails}
+                          setShowBalanceDetails={setShowBalanceDetails}
+                          setAddExpenseProject={setAddExpenseProject}
+                          setNewManualExpense={setNewManualExpense}
+                          setShowAccountableForm={setShowAccountableForm}
+                          newAccountable={newAccountable}
+                          setNewAccountable={setNewAccountable}
+                          setShowPhotoModal={setShowPhotoModal}
+                          fileSrc={fileSrc}
+                          loadAll={loadAll}
+                          showProfit={isLeadership()}
+                          canAddExpense={isFinanceRole()||user.role==='прораб'}
+                        />
+                      )}
                   </div>)}
                     {activeProjectTab==='Предписания'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
