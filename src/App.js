@@ -24,6 +24,7 @@ import ProjectBrigadeCalculationTab from './components/ProjectBrigadeCalculation
 import ProjectHiddenWorksActsPanel from './components/ProjectHiddenWorksActsPanel';
 import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
+import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -11935,49 +11936,35 @@ function App() {
 
 	                    {activeProjectTab==='Сверка ЖПР'&&renderWorkJournalEstimateReconciliationPanel(p)}
 
-	                    {activeProjectTab==='Производство работ'&&(<div>
-	                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
-	                        <b style={{color:C.text}}>Журнал производства работ</b>
-                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                          <button onClick={()=>setShowJournalTableModal(p.name)} style={btnB}><FileText size={14}/>📋 Таблица КС-6а</button>
-                          <button onClick={()=>showPreview(buildJPRContent(p.name),'ЖПР — '+p.name)} style={btnG}><ScrollText size={14}/>ЖПР</button>
-                          <button onClick={()=>showKS2(p)} style={btnG}><FileText size={14}/>КС-2</button>
-                        </div>
-                      </div>
-                      {(()=>{const unx=workJournal.filter(j=>j.project===p.name&&j.unexpectedWorkId);if(unx.length===0) return null;const unxSum=unx.reduce((s,j)=>s+Number(j.total||0),0);return(<div style={{marginBottom:'12px',padding:'10px 12px',backgroundColor:'#fef3c7',border:'1.5px solid #fbbf24',borderRadius:'10px',fontSize:'13px',color:'#78350f'}}>🆕 <b>Работы вне сметы:</b> {unx.length} позиц. на <b>{Math.round(unxSum).toLocaleString('ru-RU')+' ₽'}</b> (оформлены доп.соглашениями) — подсвечены жёлтым в списке ниже</div>);})()}
-                      <div style={{position:'relative',marginBottom:'10px'}}>
-                        <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                        <input placeholder='🔍 Поиск по работам или мастерам' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'12px',padding:'6px 8px 6px 32px'}}/>
-                      </div>
-                      {(()=>{
-                        const works=workJournal.filter(j=>j.project===p.name&&matchSearch(listSearch,j.description,j.masterName||j.master_name));
-                        const byDate={};
-                        works.forEach(w=>{if(!byDate[w.date]) byDate[w.date]={};if(!byDate[w.date][w.masterName]) byDate[w.date][w.masterName]=[];byDate[w.date][w.masterName].push(w);});
-                        return Object.keys(byDate).sort().reverse().map(date=>{
-                          const weather=weatherLog.find(w=>w.projectName===p.name&&w.date===date);
-                          return(<div key={date} style={{marginBottom:'16px'}}>
-                            <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
-                              <b style={{color:C.text,fontSize:'13px'}}>{date}</b>
-                              {weather&&<span style={{fontSize:'12px',color:C.info}}>{'🌤️ '+weather.condition+' '+weather.temperature+'°C'}</span>}
-                            </div>
-                            {Object.keys(byDate[date]).map(masterName=>(<div key={masterName} style={{marginBottom:'8px'}}>
-                              <p style={{color:C.accent,fontSize:'12px',fontWeight:'600',margin:'0 0 6px'}}>{'👷 '+masterName}</p>
-                              {byDate[date][masterName].map(w=>(<div key={w.id} onClick={()=>setEditingJournal(w)} style={{padding:'8px 10px',backgroundColor:w.unexpectedWorkId?'#fef3c7':C.bg,borderRadius:'8px',marginBottom:'4px',border:'1.5px solid '+(w.unexpectedWorkId?'#fbbf24':C.border),display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
-                                <div><b style={{fontSize:'12px',color:C.text}}>{w.description}{w.unexpectedWorkId?<span title="Непредвиденная работа (доп.соглашение)" style={{marginLeft:'4px',color:C.warning}}>🆕</span>:null}{w.hiddenWork?(()=>{const st=getActStatusForJournal(w);return(<span title={st&&st.act?'Открыть печатную форму АОСР':'Позиция актируется в АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);}}}>🔒{st?st.icon:''}</span>);})():null}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+(w.roomName?' · '+w.roomName:'')}</p></div>
-                                <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
-                                  <b style={{color:C.success,fontSize:'12px'}}>{(w.total||0).toLocaleString()+' ₽'}</b>
-                                  {isProrab()&&w.status==='На проверке'&&(<><button onClick={()=>openConfirmModal(w)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}} title='Принять (можно пересчитать)'><Check size={11}/></button><button onClick={()=>setRejectingEntry(w)} style={{...btnR,padding:'3px 8px',fontSize:'11px'}} title='Отклонить'><X size={11}/></button></>)}
-                                  {w.status==='Подтверждено'&&<span style={badge(C.success,C.successLight,C.successBorder)}>✅</span>}
-                                  {w.status==='Отклонено'&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>❌</span>}
-                                  {w.photoUrl&&<img src={fileSrc(w.photoUrl)} alt="" onClick={()=>setShowPhotoModal(fileSrc(w.photoUrl))} style={{width:'32px',height:'32px',borderRadius:'6px',objectFit:'cover',cursor:'pointer'}}/>}
-                                </div>
-                              </div>))}
-                            </div>))}
-                          </div>);
-                        });
-                      })()}
-                      {workJournal.filter(j=>j.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Работ нет</p>}
-                  </div>)}
+	                    {activeProjectTab==='Производство работ'&&(
+                      <ProjectWorkJournalPanel
+                        project={p}
+                        workJournal={workJournal}
+                        weatherLog={weatherLog}
+                        listSearch={listSearch}
+                        setListSearch={setListSearch}
+                        matchSearch={matchSearch}
+                        setShowJournalTableModal={setShowJournalTableModal}
+                        showPreview={showPreview}
+                        buildJPRContent={buildJPRContent}
+                        showKS2={showKS2}
+                        setEditingJournal={setEditingJournal}
+                        getActStatusForJournal={getActStatusForJournal}
+                        setEditingAct={setEditingAct}
+                        openConfirmModal={openConfirmModal}
+                        setRejectingEntry={setRejectingEntry}
+                        canConfirm={isProrab()}
+                        fileSrc={fileSrc}
+                        setShowPhotoModal={setShowPhotoModal}
+                        C={C}
+                        inp={inp}
+                        btnB={btnB}
+                        btnG={btnG}
+                        btnGr={btnGr}
+                        btnR={btnR}
+                        badge={badge}
+                      />
+                    )}
 
                     {activeProjectTab==='Помещения'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
