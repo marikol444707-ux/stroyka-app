@@ -10,6 +10,7 @@ import SupplyRequestsList from './components/SupplyRequestsList';
 import SupplyDeliveriesPanel from './components/SupplyDeliveriesPanel';
 import SupplyCatalogPanel from './components/SupplyCatalogPanel';
 import SupplySuppliersPanel from './components/SupplySuppliersPanel';
+import SupplySupplierInvoicesPanel from './components/SupplySupplierInvoicesPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -7758,87 +7759,6 @@ function App() {
     await loadAll();
   };
 
-  // Ф5a.2: блок «Счета от поставщиков» переехал из Бухгалтерии в раздел Снабжение.
-  // Вынесен в функцию, чтобы рендерить из вкладки «Счета». Утверждать/оплачивать может только финансы.
-  const renderSupplierInvoices = () => {
-    const canPay = isFinanceRole();
-    return (<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📥 Входящие счета от поставщиков</b>
-                <button onClick={()=>setNewSupplierInvoice({supplierName:'',projectName:'',invoiceNumber:'',invoiceDate:'',amount:'',vatAmount:'',description:''})} style={btnO}><Plus size={14}/>Новый счёт</button>
-              </div>
-              {newSupplierInvoice&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                  <select value={newSupplierInvoice.supplierName} onChange={e=>{const sup=suppliers.find(s=>s.name===e.target.value);setNewSupplierInvoice({...newSupplierInvoice,supplierName:e.target.value,supplierId:sup?sup.id:null});}} style={{...inp,marginBottom:0}}><option value=''>Поставщик *</option>{(suppliers||[]).map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select>
-                  <select value={newSupplierInvoice.projectName} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,projectName:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Объект (если по проекту)</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <input placeholder='№ счёта *' value={newSupplierInvoice.invoiceNumber} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input type='date' value={newSupplierInvoice.invoiceDate} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Сумма с НДС (₽) *' type='number' step='any' inputMode='decimal' value={newSupplierInvoice.amount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='В т.ч. НДС (₽)' type='number' step='any' inputMode='decimal' value={newSupplierInvoice.vatAmount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,vatAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
-                </div>
-                <textarea placeholder='Описание (за что счёт)' value={newSupplierInvoice.description} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,description:e.target.value})} style={{...inp,minHeight:'50px',marginBottom:'8px'}}/>
-                <div style={{display:'flex',gap:'8px'}}>
-                  <button onClick={async()=>{
-                    if(!newSupplierInvoice.supplierName||!newSupplierInvoice.invoiceNumber||!newSupplierInvoice.amount){alert('Заполните: поставщик, № счёта, сумма');return;}
-                    await fetch(API+'/supplier-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newSupplierInvoice,amount:Number(newSupplierInvoice.amount)||0,vatAmount:Number(newSupplierInvoice.vatAmount||0),status:'На утверждении'})});
-                    await loadAll(); setNewSupplierInvoice(null);
-                  }} style={btnO}><Check size={14}/>Сохранить</button>
-                  <button onClick={()=>setNewSupplierInvoice(null)} style={btnG}>Отмена</button>
-                </div>
-              </div>)}
-              {(()=>{const filtered=supplierInvoices.filter(i=>matchSearch(listSearch,i.supplierName,i.invoiceNumber,i.projectName,i.description));const pending=filtered.filter(i=>i.status==='На утверждении');const approved=filtered.filter(i=>i.status==='Утверждён'||i.status==='Частично оплачен');const paid=filtered.filter(i=>i.status==='Оплачен');const totalP=pending.reduce((s,i)=>s+Number(i.amount||0),0);const totalDebt=approved.reduce((s,i)=>s+(Number(i.amount||0)-Number(i.paidAmount||0)),0);
-                // Группировка по объектам
-                const byProj={};filtered.forEach(inv=>{const pn=inv.projectName||'Без объекта';if(!byProj[pn]) byProj[pn]=[];byProj[pn].push(inv);});
-                const projs=Object.keys(byProj).sort();
-                return(<div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'10px',marginBottom:'14px'}}>
-                  <div style={{...card,padding:'12px',backgroundColor:C.warningLight}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>На утверждении</p><b style={{color:C.warning,fontSize:'15px'}}>{pending.length+' · '+Math.round(totalP).toLocaleString('ru-RU')+' ₽'}</b></div>
-                  <div style={{...card,padding:'12px',backgroundColor:C.accentLight}}><p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px'}}>К оплате</p><b style={{color:C.accent,fontSize:'15px'}}>{approved.length}</b></div>
-                  {totalDebt>0&&<div style={{...card,padding:'12px',backgroundColor:C.dangerLight}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>⚠️ Долг по счетам</p><b style={{color:C.danger,fontSize:'15px'}}>{Math.round(totalDebt).toLocaleString('ru-RU')+' ₽'}</b></div>}
-                  <div style={{...card,padding:'12px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Оплачены</p><b style={{color:C.success,fontSize:'15px'}}>{paid.length}</b></div>
-                </div>
-                <div style={{position:'relative',marginBottom:'12px'}}>
-                  <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                  <input placeholder='🔍 Поиск по поставщику, № счёта, объекту' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
-                </div>
-                {filtered.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Счетов нет</div>:projs.map(pn=>{const list=byProj[pn];const sumTotal=list.reduce((s,i)=>s+Number(i.amount||0),0);const sumPaid=list.reduce((s,i)=>s+Number(i.paidAmount||0),0);const sumDebt=Math.max(0,sumTotal-sumPaid);const isOpen=expandedProject==='sup-'+pn;return(<div key={pn} style={{...card,marginBottom:'10px'}}>
-                  <div style={{padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}} onClick={()=>setExpandedProject(isOpen?null:'sup-'+pn)}>
-                    <div>
-                      <b style={{color:C.text,fontSize:'13px'}}>🏗 {pn}</b>
-                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{list.length+' счетов · итого '+Math.round(sumTotal).toLocaleString('ru-RU')+' ₽'+(sumPaid>0?' · оплачено '+Math.round(sumPaid).toLocaleString('ru-RU'):'')}</p>
-                    </div>
-                    <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
-                      {sumDebt>0&&<b style={{color:C.danger,fontSize:'13px'}}>{'⚠️ Долг '+Math.round(sumDebt).toLocaleString('ru-RU')+' ₽'}</b>}
-                      {isOpen?<ChevronUp size={14}/>:<ChevronDown size={14}/>}
-                    </div>
-                  </div>
-                  {isOpen&&(<div style={{borderTop:'1px solid '+C.border}}>
-                    {list.map(inv=>{const total=Number(inv.amount||0);const paid=Number(inv.paidAmount||0);const owe=Math.max(0,total-paid);return(<div key={inv.id} style={{padding:'12px 14px',borderBottom:'1px solid '+C.border,borderLeft:'3px solid '+(inv.status==='Оплачен'?C.success:owe>0&&paid>0?C.warning:inv.status==='Утверждён'?C.accent:C.warning),marginLeft:'10px'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                        <div style={{flex:1,minWidth:'200px'}}>
-                          <b style={{color:C.text,fontSize:'13px'}}>{inv.supplierName+' · № '+inv.invoiceNumber}</b>
-                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(inv.invoiceDate||'')+(inv.projectName?' · 🏗 '+inv.projectName:'')+(inv.description?' · '+inv.description:'')}</p>
-                          {(inv.offerId||inv.offer_id)&&<p style={{color:C.accent,margin:'2px 0',fontSize:'11px'}}>📨 Создан по выигранному КП #{inv.offerId||inv.offer_id}{inv.materialName?' · '+inv.materialName:''}{inv.paymentTerms?' · условия: '+inv.paymentTerms:''}</p>}
-                          <div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
-                            <span style={{fontSize:'12px',color:C.text}}>{'Сумма: '+Math.round(total).toLocaleString('ru-RU')+' ₽'}</span>
-                            {paid>0&&<span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+Math.round(paid).toLocaleString('ru-RU')+' ₽'}</span>}
-                            {owe>0&&paid>0&&<span style={{fontSize:'12px',color:C.danger,fontWeight:'700',padding:'2px 8px',borderRadius:'6px',backgroundColor:C.dangerLight}}>{'⚠️ Недоплата: '+Math.round(owe).toLocaleString('ru-RU')+' ₽'}</span>}
-                          </div>
-                        </div>
-                        <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
-                          <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Частично оплачен'?C.warning:inv.status==='Утверждён'?C.accent:C.warning,inv.status==='Оплачен'?C.successLight:inv.status==='Частично оплачен'?C.warningLight:inv.status==='Утверждён'?C.accentLight:C.warningLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Частично оплачен'?C.warningBorder:inv.status==='Утверждён'?C.accentBorder:C.warningBorder)}>{inv.status}</span>
-                          {canPay&&inv.status==='На утверждении'&&<button onClick={async()=>{await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button>}
-                          {canPay&&(inv.status==='Утверждён'||inv.status==='Частично оплачен')&&owe>0&&<button onClick={async()=>{const ans=prompt('Оплатить (₽). Полная: '+Math.round(owe).toLocaleString('ru-RU')+' ₽',String(owe));if(!ans) return;const sum=toNum(ans);if(sum<=0||sum>owe){alert('Сумма должна быть от 1 до '+Math.round(owe).toLocaleString('ru-RU'));return;}const newPaid=paid+sum;const newStatus=newPaid>=total?'Оплачен':'Частично оплачен';await fetch(API+'/supplier-invoices/'+inv.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:newPaid,paidBy:user.name,paidAt:new Date().toISOString().split('T')[0],paidNote:'Оплачено '+Math.round(sum).toLocaleString('ru-RU')+' ₽'})});if(inv.projectName){await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:inv.projectName,amount:sum,note:'Оплата счёта '+inv.supplierName+' №'+inv.invoiceNumber,date:new Date().toISOString().split('T')[0],paidBy:user.name})});}await loadAll();}} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 {owe<total?'Доплатить':'Оплатить'}</button>}
-                          {canPay&&<button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/supplier-invoices/'+inv.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>}
-                        </div>
-                      </div>
-                    </div>);})}
-                  </div>)}
-                </div>);})}
-              </div>);})()}
-    </div>);
-  };
-
   // Парсер items из supply_request: возвращает массив [{materialName, quantity, unit}]
   // Совместим со старыми заявками без itemsJson — там используется одна позиция из material_name
   const parseSupplyItems = (req) => {
@@ -13773,7 +13693,32 @@ function App() {
                 setShowForm={setShowForm}
               />
               {/* Вкладка «Счета» — входящие счета от поставщиков (Ф5a.2: переехали из Бухгалтерии) */}
-              {curTab==='invoices' && renderSupplierInvoices()}
+              {curTab==='invoices' && (
+                <SupplySupplierInvoicesPanel
+                  C={C}
+                  card={card}
+                  inp={inp}
+                  btnO={btnO}
+                  btnG={btnG}
+                  btnGr={btnGr}
+                  btnR={btnR}
+                  badge={badge}
+                  user={user}
+                  suppliers={suppliers}
+                  projects={projects}
+                  supplierInvoices={supplierInvoices}
+                  newSupplierInvoice={newSupplierInvoice}
+                  setNewSupplierInvoice={setNewSupplierInvoice}
+                  listSearch={listSearch}
+                  setListSearch={setListSearch}
+                  expandedProject={expandedProject}
+                  setExpandedProject={setExpandedProject}
+                  canPay={isFinanceRole()}
+                  matchSearch={matchSearch}
+                  loadAll={loadAll}
+                  toNum={toNum}
+                />
+              )}
               {/* Вкладка «Поставщики» — справочник поставщиков внутри снабжения */}
               {curTab==='suppliers' && (
                 <SupplySuppliersPanel
