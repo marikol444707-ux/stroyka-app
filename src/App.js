@@ -15,6 +15,7 @@ import SuppliersPage from './components/SuppliersPage';
 import ProjectCardHeader from './components/ProjectCardHeader';
 import ProjectTabsNav from './components/ProjectTabsNav';
 import ProjectMaterialsControlPanel from './components/ProjectMaterialsControlPanel';
+import ProjectMaterialsStockPanel from './components/ProjectMaterialsStockPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12300,19 +12301,13 @@ function App() {
                         showPreview={showPreview}
                         buildMaterialRequirementContent={buildMaterialRequirementContent}
                       />
-                      {(()=>{const objMats=(materials||[]).filter(m=>m.project===p.name&&Number(m.quantity||0)>0);const mainStockMap={};(warehouseMain||[]).forEach(m=>{mainStockMap[m.name]=Number(m.quantity||0);});if(objMats.length===0) return(<div style={{...card,padding:'18px',marginBottom:'14px',backgroundColor:C.bg,textAlign:'center',color:C.textMuted,fontSize:'13px'}}>📦 Материалов на объекте нет. Нажмите «Принять материал» чтобы оприходовать накладную.</div>);return(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg}}>
-                        <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>📦 Остатки на объекте ({objMats.length} поз.)</b>
-                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:'8px'}}>
-                          {objMats.map(m=>{const onMain=mainStockMap[m.name]||0;const low=m.minQuantity&&Number(m.quantity)<Number(m.minQuantity);return(<div key={m.id} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bgWhite,border:'1.5px solid '+(low?C.dangerBorder:C.border)}}>
-                            <b style={{color:C.text,fontSize:'12px',display:'block'}}>{m.name}</b>
-                            <div style={{display:'flex',justifyContent:'space-between',marginTop:'4px'}}>
-                              <span style={{fontSize:'11px',color:low?C.danger:C.success,fontWeight:'600'}}>{'На объекте: '+Number(m.quantity).toLocaleString('ru-RU')+' '+(m.unit||'шт')}</span>
-                              {onMain>0&&<span style={{fontSize:'11px',color:C.info}} title='Есть на основном складе'>{'+ склад: '+onMain.toLocaleString('ru-RU')}</span>}
-                            </div>
-                            {low&&<span style={{fontSize:'10px',color:C.danger,fontWeight:'600',marginTop:'3px',display:'block'}}>⚠️ Ниже минимума {m.minQuantity}</span>}
-                          </div>);})}
-                        </div>
-                      </div>);})()}
+                      <ProjectMaterialsStockPanel
+                        projectName={p.name}
+                        materials={materials}
+                        warehouseMain={warehouseMain}
+                        C={C}
+                        card={card}
+                      />
 
                       {showTransferForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                         <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Передача материала бригаде/мастеру</h3>
