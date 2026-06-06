@@ -29,6 +29,7 @@ import ProjectWorkJournalEditModal from './components/ProjectWorkJournalEditModa
 import ProjectWorkJournalTableModal from './components/ProjectWorkJournalTableModal';
 import ProjectMaterialInspectionEditModal from './components/ProjectMaterialInspectionEditModal';
 import ProjectCableJournalEditModal from './components/ProjectCableJournalEditModal';
+import ProjectHiddenWorksActEditModal from './components/ProjectHiddenWorksActEditModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -10375,170 +10376,26 @@ function App() {
     <div style={{display:'flex',height:'100vh',backgroundColor:C.bg,position:'relative',overflow:'hidden'}}>
       {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)}/>}
       {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'12px'}}/></div>)}
-      {editingAct&&(()=>{
-        const act=editingAct;
-        const upd=(k,v)=>setEditingAct({...editingAct,[k]:v});
-        const photosArr=(act.photos||'').split(',').filter(Boolean);
-        const certsArr=(act.certificates||'').split(',').filter(Boolean);
-        const fillByAI=async()=>{
-          setEditingAct(prev=>({...prev,__aiLoading:true}));
-          try{
-            const res=await fetch(API+'/hidden-works-acts/'+act.id+'/ai-prefill',{method:'POST'});
-            if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||('HTTP '+res.status));}
-            const d=await res.json();
-            setEditingAct(prev=>({...prev,conclusion:d.conclusion||prev.conclusion,projectDocs:d.projectDocs||prev.projectDocs,aiFilled:true,__aiLoading:false}));
-            setHiddenActs(prevList=>prevList.map(a=>a.id===act.id?{...a,conclusion:d.conclusion||a.conclusion,projectDocs:d.projectDocs||a.projectDocs,aiFilled:true}:a));
-          }catch(e){
-            alert('Не получилось получить ответ от AI: '+e.message);
-            setEditingAct(prev=>({...prev,__aiLoading:false}));
-          }
-        };
-        const saveAct=async()=>{
-          const body={status:act.status||'Черновик',signedCustomer:act.signedCustomer||'',signedSupervisor:act.signedSupervisor||'',signedContractor:act.signedContractor||'',signedSubcontractor:act.signedSubcontractor||'',signedCustomerAt:act.signedCustomerAt||'',signedSupervisorAt:act.signedSupervisorAt||'',signedContractorAt:act.signedContractorAt||'',signedSubcontractorAt:act.signedSubcontractorAt||'',conclusion:act.conclusion||'',comments:act.comments||'',materialsUsed:act.materialsUsed||'',projectDocs:act.projectDocs||'',photos:act.photos||'',certificates:act.certificates||'',city:act.city||''};
-          const res=await fetch(API+'/hidden-works-acts/'+act.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-          const data=await res.json().catch(()=>({}));
-          const newStatus=data.status||act.status;
-          const updated={...act,status:newStatus,aiFilled:false};
-          setHiddenActs(prev=>prev.map(a=>a.id===act.id?updated:a));
-          setEditingAct(null);
-        };
-        const openHistory=async()=>{
-          setEditingAct(prev=>({...prev,__versionsLoading:true,__versionsOpen:true}));
-          try{
-            const res=await fetch(API+'/document-versions?document_type=hidden_works_act&document_id='+act.id);
-            const list=await res.json();
-            setEditingAct(prev=>({...prev,__versionsList:Array.isArray(list)?list:[],__versionsLoading:false,__viewingVer:null}));
-          }catch(e){
-            setEditingAct(prev=>({...prev,__versionsList:[],__versionsLoading:false}));
-          }
-        };
-        const viewVersion=async(vid)=>{
-          setEditingAct(prev=>({...prev,__viewingVerLoading:true}));
-          try{
-            const res=await fetch(API+'/document-versions/'+vid);
-            const ver=await res.json();
-            setEditingAct(prev=>({...prev,__viewingVer:ver,__viewingVerLoading:false}));
-          }catch(e){
-            setEditingAct(prev=>({...prev,__viewingVerLoading:false}));
-          }
-        };
-        const onUploadPhoto=async file=>{const url=await uploadPhoto(file,{projectName:act.projectName,context:'hidden-works-acts'});if(url){const next=[...photosArr,url].join(',');upd('photos',next);}};
-        const onUploadCert=async file=>{const url=await uploadPhoto(file,{projectName:act.projectName,context:'hidden-works-acts-certificates'});if(url){const next=[...certsArr,url].join(',');upd('certificates',next);}};
-        const removePhoto=i=>{const next=photosArr.filter((_,idx)=>idx!==i).join(',');upd('photos',next);};
-        const removeCert=i=>{const next=certsArr.filter((_,idx)=>idx!==i).join(',');upd('certificates',next);};
-        const absUrl=u=>fileSrc(u);
-        const labelStyle={fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px',display:'block'};
-        const sectionStyle={marginBottom:'14px'};
-        const allSigned=!!(act.signedCustomer&&act.signedSupervisor&&act.signedContractor&&act.signedSubcontractor);
-        return(<><div onClick={()=>setEditingAct(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(900px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
-              <div>
-                <b style={{color:C.text,fontSize:'16px',display:'block'}}>🔒 {act.actNumber}</b>
-                <span style={{fontSize:'12px',color:C.textSec}}>Акт освидетельствования скрытых работ · {act.projectName}</span>
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                <span style={{padding:'4px 10px',borderRadius:'12px',fontSize:'12px',fontWeight:'600',backgroundColor:allSigned?C.successLight:C.warningLight,color:allSigned?C.success:C.warning}}>{allSigned?'Подписан':(act.status||'Черновик')}</span>
-                <button onClick={openHistory} style={{...btnG,padding:'5px 10px',fontSize:'12px'}} title="История изменений">📜 История</button>
-                <button onClick={()=>setEditingAct(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
-              </div>
-            </div>
-            <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {act.aiFilled&&(<div style={aiNotice}><span style={aiNoticeIcon}>🤖</span><span style={aiNoticeText}><b>Черновик заполнен AI.</b> Проверьте формулировки перед подписью — при сохранении после правки метка снимется.</span></div>)}
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
-                <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize:'13px',color:C.text}}>{act.sectionName||'—'}</b></div>
-                <div><p style={labelStyle}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{act.workName}</b></div>
-                <div><p style={labelStyle}>Бригада</p><b style={{fontSize:'13px',color:C.text}}>{act.brigade||'—'}</b></div>
-                <div><p style={labelStyle}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{Number(act.quantity||0).toLocaleString('ru-RU')+' '+(act.unit||'')}</b></div>
-                <div><p style={labelStyle}>Цена за ед.</p><b style={{fontSize:'13px',color:C.text}}>{Number(act.pricePerUnit||0).toLocaleString('ru-RU')+' ₽'}</b></div>
-                <div><p style={labelStyle}>Сумма</p><b style={{fontSize:'14px',color:C.accent}}>{Number(act.total||0).toLocaleString('ru-RU')+' ₽'}</b></div>
-                <div><p style={labelStyle}>Дата работ</p><b style={{fontSize:'13px',color:C.text}}>{act.workDate||'—'}</b></div>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
-                <div><label style={labelStyle}>Город (для печати)</label><input value={act.city||''} onChange={e=>upd('city',e.target.value)} placeholder='напр. г. Барнаул' style={inp}/></div>
-                <div><label style={labelStyle}>Статус (вручную)</label><select value={act.status||'Черновик'} onChange={e=>upd('status',e.target.value)} style={inp}><option>Черновик</option><option>На подписи</option><option>Подписан</option><option>Аннулирован</option></select></div>
-              </div>
-              <div style={sectionStyle}><label style={labelStyle}>Использованные материалы (марки, сертификаты)</label><textarea value={act.materialsUsed||''} onChange={e=>upd('materialsUsed',e.target.value)} placeholder='Напр.: арматура А500С по ГОСТ 5781-82, сертификат №...; бетон В25 W6, паспорт №...' style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
-              <div style={sectionStyle}><label style={labelStyle}>Проектная документация (чертежи, разделы){act.aiFilled?' 🤖':''}</label><textarea value={act.projectDocs||''} onChange={e=>upd('projectDocs',e.target.value)} placeholder='Напр.: раздел КЖ, лист 12; раздел АР, узел 4' style={{...inp,minHeight:'60px',resize:'vertical'}}/></div>
-              <div style={sectionStyle}><label style={labelStyle}>Заключение комиссии{act.aiFilled?' 🤖':''}</label><textarea value={act.conclusion||''} onChange={e=>upd('conclusion',e.target.value)} placeholder='Работы выполнены в соответствии с проектной документацией. Разрешается производство последующих работ.' style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
-              <div style={{...sectionStyle,padding:'14px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
-                <b style={{display:'block',marginBottom:'10px',color:C.text,fontSize:'13px'}}>✍️ Подписи комиссии (ФИО + дата)</b>
-                {[{role:'Заказчик',f:'signedCustomer',d:'signedCustomerAt'},{role:'Технадзор',f:'signedSupervisor',d:'signedSupervisorAt'},{role:'Генподрядчик',f:'signedContractor',d:'signedContractorAt'},{role:'Субподрядчик',f:'signedSubcontractor',d:'signedSubcontractorAt'}].map(s=>(<div key={s.f} style={{display:'grid',gridTemplateColumns:'140px 1fr 140px',gap:'8px',marginBottom:'8px',alignItems:'center'}}>
-                  <span style={{fontSize:'12px',color:C.textSec,fontWeight:'600'}}>{s.role}:</span>
-                  <input value={act[s.f]||''} onChange={e=>upd(s.f,e.target.value)} placeholder='ФИО, должность, организация' style={{...inp,marginBottom:0}}/>
-                  <input type='date' value={act[s.d]||''} onChange={e=>upd(s.d,e.target.value)} style={{...inp,marginBottom:0}}/>
-                </div>))}
-                <p style={{fontSize:'11px',color:C.textMuted,margin:'8px 0 0',lineHeight:1.4}}>Подписи можно заполнить для контроля. Если стороны подписали акт вне системы, переведите статус в «Подписан» вручную.</p>
-              </div>
-              <div style={sectionStyle}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
-                  <b style={{color:C.text,fontSize:'13px'}}>📷 Фото скрытых работ ({photosArr.length})</b>
-                  <label style={{...btnB,padding:'5px 10px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>Добавить фото<input type='file' accept='image/*' multiple style={{display:'none'}} onChange={async e=>{for(const f of Array.from(e.target.files)){await onUploadPhoto(f);}}}/></label>
-                </div>
-                {photosArr.length===0?<p style={{color:C.textMuted,fontSize:'12px',margin:0}}>Фотографий не загружено</p>:(<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(90px,1fr))',gap:'8px'}}>{photosArr.map((u,i)=>(<div key={i} style={{position:'relative'}}><img src={absUrl(u)} alt='' onClick={()=>setShowPhotoModal(absUrl(u))} style={{width:'100%',height:'90px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/><button onClick={()=>removePhoto(i)} style={{position:'absolute',top:'2px',right:'2px',backgroundColor:'rgba(0,0,0,0.6)',color:'white',border:'none',borderRadius:'50%',width:'20px',height:'20px',cursor:'pointer',fontSize:'11px'}}>×</button></div>))}</div>)}
-              </div>
-              <div style={sectionStyle}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
-                  <b style={{color:C.text,fontSize:'13px'}}>📄 Сертификаты и документы ({certsArr.length})</b>
-                  <label style={{...btnB,padding:'5px 10px',fontSize:'12px',cursor:'pointer'}}><Upload size={12}/>Загрузить файл<input type='file' accept='.pdf,.xlsx,.xls,.doc,.docx,image/*' multiple style={{display:'none'}} onChange={async e=>{for(const f of Array.from(e.target.files)){await onUploadCert(f);}}}/></label>
-                </div>
-                {certsArr.length===0?<p style={{color:C.textMuted,fontSize:'12px',margin:0}}>Файлов не прикреплено</p>:(<div style={{display:'flex',flexDirection:'column',gap:'4px'}}>{certsArr.map((u,i)=>{const name=u.split('/').pop()||u;return(<div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,borderRadius:'8px'}}><a href={absUrl(u)} target='_blank' rel='noreferrer' style={{color:C.accent,fontSize:'12px',textDecoration:'none',display:'flex',alignItems:'center',gap:'6px',flex:1,overflow:'hidden'}}><span>📄</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{name}</span></a><button onClick={()=>removeCert(i)} style={{...btnR,padding:'3px 7px',fontSize:'11px'}}><X size={10}/></button></div>);})}</div>)}
-              </div>
-              <div style={sectionStyle}><label style={labelStyle}>Комментарии (внутренние)</label><textarea value={act.comments||''} onChange={e=>upd('comments',e.target.value)} placeholder='Внутренние пометки, не печатаются' style={{...inp,minHeight:'50px',resize:'vertical'}}/></div>
-            </div>
-            <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
-              <button onClick={()=>{showPreview(buildHiddenActContent(act),'АОСР № '+act.actNumber);}} style={btnB}><Eye size={14}/>🖨️ Печать по СНиП</button>
-              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button disabled={!!act.__aiLoading} onClick={fillByAI} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',opacity:act.__aiLoading?0.6:1,cursor:act.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{act.__aiLoading?'AI работает…':(act.aiFilled?'🤖 Перезаполнить AI':'🤖 Заполнить через AI')}</button>
-                <button onClick={()=>setEditingAct(null)} style={btnG}>Отмена</button>
-                <button onClick={saveAct} style={btnO}><Check size={14}/>Сохранить</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        {act.__versionsOpen&&(<div onClick={()=>setEditingAct(prev=>({...prev,__versionsOpen:false,__viewingVer:null}))} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.6)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(900px,100%)',maxHeight:'88vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div>
-                <b style={{color:C.text,fontSize:'15px',display:'block'}}>📜 История версий</b>
-                <span style={{fontSize:'11px',color:C.textSec}}>АОСР № {act.actNumber} · {(act.__versionsList||[]).length} снимков</span>
-              </div>
-              <button onClick={()=>setEditingAct(prev=>({...prev,__versionsOpen:false,__viewingVer:null}))} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
-            </div>
-            <div style={{flex:1,overflowY:'auto',display:'flex'}}>
-              <div style={{width:'320px',borderRight:'1.5px solid '+C.border,overflowY:'auto'}}>
-                {act.__versionsLoading?(<p style={{color:C.textMuted,padding:'16px',fontSize:'12px',textAlign:'center'}}>Загрузка…</p>):
-                  (act.__versionsList||[]).length===0?(<p style={{color:C.textMuted,padding:'16px',fontSize:'12px',textAlign:'center'}}>История пуста.<br/>Снимки делаются при каждом изменении акта.</p>):
-                  (act.__versionsList||[]).map(v=>(<div key={v.id} onClick={()=>viewVersion(v.id)} style={{padding:'10px 14px',borderBottom:'1px solid '+C.border,cursor:'pointer',backgroundColor:act.__viewingVer&&act.__viewingVer.id===v.id?C.infoLight:'transparent'}}>
-                    <b style={{fontSize:'12px',color:C.text,display:'block'}}>{v.versionLabel}</b>
-                    <span style={{fontSize:'10px',color:C.textSec,display:'block'}}>{v.createdAt}</span>
-                    {v.changedBy&&<span style={{fontSize:'10px',color:C.textMuted,display:'block'}}>👤 {v.changedBy}</span>}
-                    {v.changeReason&&<span style={{fontSize:'10px',color:C.textMuted,display:'block'}}>📝 {v.changeReason}</span>}
-                  </div>))}
-              </div>
-              <div style={{flex:1,overflowY:'auto',padding:'14px 18px',backgroundColor:C.bg}}>
-                {act.__viewingVerLoading?(<p style={{color:C.textMuted,fontSize:'12px'}}>Загрузка снимка…</p>):
-                  !act.__viewingVer?(<p style={{color:C.textMuted,fontSize:'12px'}}>← Выберите версию слева чтобы посмотреть состояние акта на тот момент</p>):
-                  (()=>{const s=act.__viewingVer.snapshot||{};const rows=[
-                    ['Номер акта',s.act_number],['Проект',s.project_name],['Работа',s.work_name],['Раздел',s.section_name],
-                    ['Бригада',s.brigade],['Объём',(s.quantity||'')+' '+(s.unit||'')],['Цена',s.price_per_unit],['Итого',s.total],
-                    ['Дата работы',s.work_date],['Статус',s.status],
-                    ['Заказчик',s.signed_customer],['Технадзор',s.signed_supervisor],
-                    ['Подрядчик',s.signed_contractor],['Субподряд',s.signed_subcontractor],
-                    ['Заключение',s.conclusion],['Комментарии',s.comments],
-                    ['Материалы',s.materials_used],['Проектная док.',s.project_docs],
-                  ];return(<div>
-                    <b style={{fontSize:'13px',color:C.text,display:'block',marginBottom:'10px'}}>Снимок {act.__viewingVer.versionLabel}</b>
-                    <table style={{width:'100%',fontSize:'11px',borderCollapse:'collapse'}}>
-                      <tbody>{rows.filter(([_,v])=>v!==undefined&&v!==null&&v!=='').map(([k,v],i)=>(<tr key={i} style={{borderBottom:'1px solid '+C.border}}><td style={{padding:'5px 6px',color:C.textSec,fontWeight:'600',width:'130px',verticalAlign:'top'}}>{k}</td><td style={{padding:'5px 6px',color:C.text}}>{String(v)}</td></tr>))}</tbody>
-                    </table>
-                  </div>);})()}
-              </div>
-            </div>
-          </div>
-        </div>)}
-        </>);
-      })()}
+      <ProjectHiddenWorksActEditModal
+        act={editingAct}
+        setEditingAct={setEditingAct}
+        setHiddenActs={setHiddenActs}
+        setShowPhotoModal={setShowPhotoModal}
+        uploadPhoto={uploadPhoto}
+        fileSrc={fileSrc}
+        showPreview={showPreview}
+        buildHiddenActContent={buildHiddenActContent}
+        C={C}
+        card={card}
+        inp={inp}
+        btnB={btnB}
+        btnG={btnG}
+        btnO={btnO}
+        btnR={btnR}
+        aiNotice={aiNotice}
+        aiNoticeIcon={aiNoticeIcon}
+        aiNoticeText={aiNoticeText}
+      />
       <ProjectWorkJournalEditModal
         journal={editingJournal}
         setEditingJournal={setEditingJournal}
