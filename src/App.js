@@ -61,8 +61,9 @@ import EstimateTotalCard from './components/EstimateTotalCard';
 import EstimateSectionHeader from './components/EstimateSectionHeader';
 import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
+import MaterialNormSuggestionsHeader from './components/MaterialNormSuggestionsHeader';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
 installAuthFetch();
 const loadStoredUser = () => {
@@ -14420,13 +14421,13 @@ function App() {
                 </div>:<p style={{color:C.textMuted,fontSize:'12px',margin:'8px 0 0'}}>Выберите объект с активной сметой заказчика.</p>}
               </div>);})()}
               {activeMaterialNormSuggestions().length>0&&(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
-                  <div>
-                    <b style={{color:C.warning,fontSize:'13px',display:'block'}}>🤖 AI-подсказки к нормам</b>
-                    <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>Система нашла списания без нормы, перерасходы и материалы из сметы, которые не связаны со справочником норм.</p>
-                  </div>
-                  <button onClick={generateMaterialNormSuggestions} disabled={materialNormSuggestionLoading} style={btnState(btnG,materialNormSuggestionLoading)}><RefreshCw size={14}/>Обновить</button>
-                </div>
+                <MaterialNormSuggestionsHeader
+                  C={C}
+                  btnG={btnG}
+                  btnState={btnState}
+                  materialNormSuggestionLoading={materialNormSuggestionLoading}
+                  generateMaterialNormSuggestions={generateMaterialNormSuggestions}
+                />
                 <div style={{display:'grid',gap:'8px'}}>
                   {activeMaterialNormSuggestions().slice(0,12).map(s=>{
                     const isPreview = s.previewOnly || s.status==='Предпросмотр';
