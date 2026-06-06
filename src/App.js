@@ -49,6 +49,7 @@ import MaterialNormCoverageSummaryBadges from './components/MaterialNormCoverage
 import MaterialNormCoverageHeader from './components/MaterialNormCoverageHeader';
 import EstimateSelectedTitleBadges from './components/EstimateSelectedTitleBadges';
 import EstimateCreateFormFields from './components/EstimateCreateFormFields';
+import EstimateImportSettings from './components/EstimateImportSettings';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14249,22 +14250,14 @@ function App() {
               <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Импорт из Гранд Смета (Excel)</h3>
               <div style={{...card,padding:'20px',marginBottom:'20px'}}>
                 <p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>Загрузите Excel файл из Гранд Сметы — система автоматически распознает разделы и позиции.</p>
-                <select value={newEstimate.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));const next={...newEstimate,projectId:e.target.value,projectName:p?p.name:'',name:p?'Смета — '+p.name:''};setNewEstimate({...next,version:nextEstimateVersionFor(next)});}} style={{...inp,maxWidth:'400px'}}>
-                  <option value="">Привязать к проекту (необязательно)</option>
-                  {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <select value={newEstimate.smetaType} onChange={e=>{const next={...newEstimate,smetaType:e.target.value};setNewEstimate({...next,version:nextEstimateVersionFor(next)});}} style={{...inp,maxWidth:'400px'}}>
-                  <option value="Заказчик">📋 Смета заказчика (полная ЛСР)</option>
-                  <option value="Работы">👷 Смета работ (для бригады)</option>
-                  <option value="Материалы">📦 Смета материалов (для закупки)</option>
-                </select>
-                <select value={newEstimate.workPackage||'Основная'} onChange={e=>{const next={...newEstimate,workPackage:e.target.value};setNewEstimate({...next,version:nextEstimateVersionFor(next)});}} style={{...inp,maxWidth:'400px'}}>
-                  {ESTIMATE_PACKAGES.map(pkg=><option key={pkg} value={pkg}>📁 {pkg}</option>)}
-                </select>
-                <select value={newEstimate.status||'Активная'} onChange={e=>setNewEstimate({...newEstimate,status:e.target.value})} style={{...inp,maxWidth:'400px'}}>
-                  <option value="Активная">Активная</option>
-                  <option value="Черновик">Черновик</option>
-                </select>
+                <EstimateImportSettings
+                  inp={inp}
+                  projects={projects}
+                  newEstimate={newEstimate}
+                  setNewEstimate={setNewEstimate}
+                  nextEstimateVersionFor={nextEstimateVersionFor}
+                  estimatePackages={ESTIMATE_PACKAGES}
+                />
                 <label style={{display:'inline-flex',alignItems:'center',gap:'10px',cursor:'pointer',backgroundColor:C.accentLight,padding:'14px 24px',borderRadius:'10px',border:'1.5px dashed '+C.accent,fontSize:'14px',color:C.accent,fontWeight:'600'}}>
                   <Upload size={20}/>Загрузить Excel файл (.xlsx)
                   <input type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={async e=>{
