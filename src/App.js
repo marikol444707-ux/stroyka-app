@@ -18,6 +18,7 @@ import ProjectMaterialsControlPanel from './components/ProjectMaterialsControlPa
 import ProjectMaterialsStockPanel from './components/ProjectMaterialsStockPanel';
 import ProjectMaterialsTransferPanel from './components/ProjectMaterialsTransferPanel';
 import ProjectFinancePanel from './components/ProjectFinancePanel';
+import ProjectDocumentsRegistryPanel from './components/ProjectDocumentsRegistryPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12526,62 +12527,29 @@ function App() {
                       </div>);
                     })()}
                   </div>)}
-                  {activeProjectTab==='📁 Реестр'&&(<div>
-                    <div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
-                      <p style={{margin:0,color:C.text,fontSize:'12px',lineHeight:1.5}}>📁 Реестр всех документов по объекту: договоры, акты, доп.соглашения, журналы — с загрузкой <b>скана подписанного бумажного документа</b>. Когда объект закроют в архив, документы сохранятся здесь.</p>
-                    </div>
-                    <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'12px'}}>
-                      <button onClick={()=>setShowDocForm(!showDocForm)} style={btnO}><Plus size={14}/>Добавить документ</button>
-                    </div>
-                    {showDocForm&&(<div style={{...card,padding:'18px',marginBottom:'14px'}}>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                        <select value={newProjectDoc.side} onChange={e=>setNewProjectDoc({...newProjectDoc,side:e.target.value})} style={{...inp,marginBottom:0}}>
-                          <option value='customer'>📁 С заказчиком</option>
-                          <option value='contractor'>📁 С мастерами/бригадой</option>
-                        </select>
-                        <select value={newProjectDoc.docType} onChange={e=>setNewProjectDoc({...newProjectDoc,docType:e.target.value})} style={{...inp,marginBottom:0}}>
-                          {['Договор','Акт КС-2','Акт КС-3','АОСР','Доп.соглашение','Акт выполненных работ','Журнал','Счёт','Письмо','Другое'].map(t=><option key={t}>{t}</option>)}
-                        </select>
-                        <input placeholder='Номер' value={newProjectDoc.number} onChange={e=>setNewProjectDoc({...newProjectDoc,number:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        <input type='date' value={newProjectDoc.docDate} onChange={e=>setNewProjectDoc({...newProjectDoc,docDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        <input placeholder='Контрагент (ФИО / организация)' value={newProjectDoc.counterparty} onChange={e=>setNewProjectDoc({...newProjectDoc,counterparty:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        <select value={newProjectDoc.signStatus} onChange={e=>setNewProjectDoc({...newProjectDoc,signStatus:e.target.value})} style={{...inp,marginBottom:0}}>
-                          {['Не подписан','На подписи','Подписан'].map(t=><option key={t}>{t}</option>)}
-                        </select>
-                      </div>
-                      <input placeholder='Примечание' value={newProjectDoc.notes} onChange={e=>setNewProjectDoc({...newProjectDoc,notes:e.target.value})} style={{...inp,marginTop:'10px'}}/>
-                      <div style={{display:'flex',alignItems:'center',gap:'10px',marginTop:'10px',flexWrap:'wrap'}}>
-                        <label style={{...btnG,cursor:'pointer',margin:0}}>
-                          <Upload size={14}/>{uploadingDoc?'Загрузка...':(newProjectDoc.scanUrl?'✅ Скан загружен':'📎 Загрузить скан')}
-                          <input type='file' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(!f)return;setUploadingDoc(true);const url=await uploadPhoto(f,{projectName:p.name,context:'project-documents'});setUploadingDoc(false);if(url)setNewProjectDoc(prev=>({...prev,scanUrl:url,signStatus:prev.signStatus==='Не подписан'?'Подписан':prev.signStatus}));}}/>
-                        </label>
-                        {newProjectDoc.scanUrl&&<a href={fileSrc(newProjectDoc.scanUrl)} target='_blank' rel='noreferrer' style={{fontSize:'12px',color:C.accent}}>посмотреть</a>}
-                      </div>
-                      <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-                        <button onClick={async()=>{if(!newProjectDoc.docType){alert('Укажите тип документа');return;}await fetch(API+'/project-documents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newProjectDoc,projectName:p.name,uploadedBy:user.name})});setNewProjectDoc({side:'customer',docType:'Договор',number:'',docDate:'',counterparty:'',signStatus:'Не подписан',scanUrl:'',amount:'',notes:''});setShowDocForm(false);await loadAll();}} style={btnO}><Check size={14}/>Сохранить</button>
-                        <button onClick={()=>setShowDocForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                      </div>
-                    </div>)}
-                    {[{key:'customer',label:'📁 Документы с заказчиком'},{key:'contractor',label:'📁 Документы с мастерами / бригадой'}].map(grp=>{
-                      const docs=(projectDocuments||[]).filter(d=>d.projectName===p.name&&d.side===grp.key);
-                      return(<div key={grp.key} style={{...card,padding:'16px',marginBottom:'12px'}}>
-                        <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>{grp.label} <span style={{color:C.textMuted,fontWeight:'400',fontSize:'12px'}}>({docs.length})</span></b>
-                        {docs.length===0?<p style={{color:C.textMuted,fontSize:'12px',margin:0}}>Документов пока нет.</p>:docs.map(d=>{
-                          const signed=d.signStatus==='Подписан'&&d.scanUrl;
-                          return(<div key={d.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',padding:'8px 0',borderBottom:'1px solid '+C.border,flexWrap:'wrap'}}>
-                            <div style={{flex:1,minWidth:0}}>
-                              <b style={{fontSize:'12px',color:C.text}}>{d.docType}{d.number?' № '+d.number:''}</b>
-                              <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{[d.docDate,d.counterparty,d.notes].filter(Boolean).join(' · ')||'—'}</p>
-                            </div>
-                            <span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'10px',fontWeight:'600',backgroundColor:signed?C.successLight:C.warningLight,color:signed?C.success:C.warning}}>{signed?'✅ Подписан':d.scanUrl?'📎 Скан есть':'⏳ '+d.signStatus}</span>
-                            {d.scanUrl&&<a href={fileSrc(d.scanUrl)} target='_blank' rel='noreferrer' style={{...btnB,padding:'4px 8px',fontSize:'11px',textDecoration:'none'}}><Eye size={11}/>Скан</a>}
-                            {!d.scanUrl&&<label style={{...btnG,padding:'4px 8px',fontSize:'11px',cursor:'pointer',margin:0}}>📎<input type='file' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(!f)return;const url=await uploadPhoto(f,{projectName:p.name,context:'project-documents'});if(url){await fetch(API+'/project-documents/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({scanUrl:url,signStatus:'Подписан'})});await loadAll();}}}/></label>}
-                            <button onClick={async()=>{if(!window.confirm('Удалить документ?'))return;await fetch(API+'/project-documents/'+d.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
-                          </div>);
-                        })}
-                      </div>);
-                    })}
-                  </div>)}
+                  {activeProjectTab==='📁 Реестр'&&(
+                    <ProjectDocumentsRegistryPanel
+                      projectName={p.name}
+                      projectDocuments={projectDocuments}
+                      newProjectDoc={newProjectDoc}
+                      setNewProjectDoc={setNewProjectDoc}
+                      showDocForm={showDocForm}
+                      setShowDocForm={setShowDocForm}
+                      uploadingDoc={uploadingDoc}
+                      setUploadingDoc={setUploadingDoc}
+                      uploadPhoto={uploadPhoto}
+                      fileSrc={fileSrc}
+                      loadAll={loadAll}
+                      user={user}
+                      C={C}
+                      card={card}
+                      inp={inp}
+                      btnO={btnO}
+                      btnG={btnG}
+                      btnB={btnB}
+                      btnR={btnR}
+                    />
+                  )}
                   {activeProjectTab==='✉️ Переписка'&&(<div>
                     <div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
                       <p style={{margin:0,color:C.text,fontSize:'12px',lineHeight:1.5}}>✉️ Переписка по объекту: письма, уведомления, претензии между компанией и заказчиком / подрядчиками. Привязана к объекту и сохранится в архиве.</p>
