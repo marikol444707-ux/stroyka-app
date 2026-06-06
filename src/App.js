@@ -35,6 +35,7 @@ import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
 import WarehouseInvoicesPanel from './components/WarehouseInvoicesPanel';
 import WarehouseMainStockPanel from './components/WarehouseMainStockPanel';
+import WarehouseCompanyWarehousesPanel from './components/WarehouseCompanyWarehousesPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12354,29 +12355,25 @@ function App() {
               {visibleActiveProjects(projects).length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Объектов нет</div>}
             </div>)}
 
-            {warehouseTab==='warehouses'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text}}>Склады компании</b>
-                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewWarehouse({name:'',city:'',address:'',notes:''});}} style={btnO}><Plus size={14}/>Добавить склад</button>
-              </div>
-              {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <input placeholder="Название склада *" value={newWarehouse.name} onChange={e=>setNewWarehouse({...newWarehouse,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Город" value={newWarehouse.city} onChange={e=>setNewWarehouse({...newWarehouse,city:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Адрес" value={newWarehouse.address} onChange={e=>setNewWarehouse({...newWarehouse,address:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                  <textarea placeholder="Заметки" value={newWarehouse.notes} onChange={e=>setNewWarehouse({...newWarehouse,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',height:'60px',resize:'vertical'}}/>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveWarehouse} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
-              </div>)}
-              {warehouses.map(wh=>(<div key={wh.id} style={{...card,padding:'16px',marginBottom:'10px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div><b style={{color:C.text,fontSize:'14px'}}>{'🏭 '+wh.name}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{(wh.city?wh.city+', ':'')+wh.address}</p>{wh.notes&&<p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{wh.notes}</p>}</div>
-                <div style={{display:'flex',gap:'6px'}}>
-                  <button onClick={()=>{setEditingItem(wh);setNewWarehouse({name:wh.name,city:wh.city,address:wh.address,notes:wh.notes});setShowForm(true);}} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>
-                  <button onClick={()=>deleteWarehouse(wh.id)} style={{...btnR,padding:'5px 10px'}}><Trash2 size={11}/></button>
-                </div>
-              </div>))}
-              {warehouses.length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Складов нет — добавьте первый!</div>}
-            </div>)}
+            {warehouseTab==='warehouses'&&(
+              <WarehouseCompanyWarehousesPanel
+                warehouses={warehouses}
+                showForm={showForm}
+                setShowForm={setShowForm}
+                editingItem={editingItem}
+                setEditingItem={setEditingItem}
+                newWarehouse={newWarehouse}
+                setNewWarehouse={setNewWarehouse}
+                saveWarehouse={saveWarehouse}
+                deleteWarehouse={deleteWarehouse}
+                C={C}
+                card={card}
+                inp={inp}
+                btnO={btnO}
+                btnG={btnG}
+                btnR={btnR}
+              />
+            )}
 
             {warehouseTab==='objects'&&(<div>
               {!selectedWarehouseProject?(<div>
