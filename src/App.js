@@ -38,6 +38,7 @@ import WarehouseMainStockPanel from './components/WarehouseMainStockPanel';
 import WarehouseCompanyWarehousesPanel from './components/WarehouseCompanyWarehousesPanel';
 import WarehouseHistoryPanel from './components/WarehouseHistoryPanel';
 import WarehouseTabsNav from './components/WarehouseTabsNav';
+import EstimatesTabsNav from './components/EstimatesTabsNav';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -13880,10 +13881,13 @@ function App() {
             />
           )}
           {activePage==='estimates'&&(<div>
-            <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['list','import','norms'].map(tab=>(<button key={tab} onClick={()=>setEstimatesTab(tab)} style={{...estimatesTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{list:'📋 Сметы',import:'📥 Импорт Гранд Смета',norms:'⚙️ Нормы материалов'}[tab]}</button>))}
-              <button onClick={()=>setActivePage('pricelists')} style={{...btnG,fontSize:'12px',padding:'7px 14px'}}>🏷️ Прайс-листы</button>
-            </div>
+            <EstimatesTabsNav
+              estimatesTab={estimatesTab}
+              setEstimatesTab={setEstimatesTab}
+              setActivePage={setActivePage}
+              btnO={btnO}
+              btnG={btnG}
+            />
 
             {estimatesTab==='list'&&(<div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
