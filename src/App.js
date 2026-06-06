@@ -45,6 +45,7 @@ import EstimateImportValidationBanner from './components/EstimateImportValidatio
 import MaterialNormNotice from './components/MaterialNormNotice';
 import MaterialNormsHeader from './components/MaterialNormsHeader';
 import EstimateImportSupportedFormat from './components/EstimateImportSupportedFormat';
+import MaterialNormCoverageSummaryBadges from './components/MaterialNormCoverageSummaryBadges';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14366,16 +14367,18 @@ function App() {
                     {canCreateSupplyRequestFromNorm()&&<button disabled={!rows.some(r=>materialNormCanCreateSupply(r)&&!materialNormSupplyRequestExists(r))} onClick={()=>createBatchSupplyRequestFromNormCoverage(rows)} style={btnState(btnO,!rows.some(r=>materialNormCanCreateSupply(r)&&!materialNormSupplyRequestExists(r)),{padding:'7px 10px',fontSize:'12px'})}><ShoppingCart size={13}/>Заявка по всем</button>}
                   </div>
                 </div>
-                <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
-                  <span style={badge(C.success,C.successLight,C.successBorder)}>{'Покрыто: '+okCount}</span>
-                  <span style={badge(C.textSec,C.bgGray,C.border)}>{'Без материалов: '+skippedCount}</span>
-                  <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Нет нормы: '+missingCount}</span>
-                  <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Материал без работы: '+unlinkedCount}</span>
-                  <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Некорректно: '+invalidQtyCount}</span>
-                  <span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Без количества: '+zeroQtyCount}</span>
-                  <span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Нет материала в разделе: '+infoCount}</span>
-                  <span style={badge(C.textSec,C.bgGray,C.border)}>{'Всего строк: '+rows.length}</span>
-                </div>
+                <MaterialNormCoverageSummaryBadges
+                  C={C}
+                  badge={badge}
+                  okCount={okCount}
+                  skippedCount={skippedCount}
+                  missingCount={missingCount}
+                  unlinkedCount={unlinkedCount}
+                  invalidQtyCount={invalidQtyCount}
+                  zeroQtyCount={zeroQtyCount}
+                  infoCount={infoCount}
+                  totalRows={rows.length}
+                />
                 {rows.length>0?<div style={{display:'grid',gap:'7px',maxHeight:'420px',overflowY:'auto',paddingRight:'2px'}}>
                   {displayRows.slice(0,80).map(r=>{const meta=materialNormCoverageMeta(r.status);return(<div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1.6fr) minmax(220px,1fr) 170px auto',gap:'10px',alignItems:'center',padding:'10px 11px',borderRadius:'9px',border:'1px solid '+C.border,backgroundColor:C.bg}}>
                     <div style={{minWidth:0}}>
