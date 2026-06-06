@@ -21,6 +21,7 @@ import ProjectFinancePanel from './components/ProjectFinancePanel';
 import ProjectDocumentsRegistryPanel from './components/ProjectDocumentsRegistryPanel';
 import ProjectLettersPanel from './components/ProjectLettersPanel';
 import ProjectBrigadeCalculationTab from './components/ProjectBrigadeCalculationTab';
+import ProjectHiddenWorksActsPanel from './components/ProjectHiddenWorksActsPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12462,44 +12463,25 @@ function App() {
                       </div>))}
                       {tbJournal.filter(e=>e.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Записей нет</p>}
                   </div>)}
-                    {activeProjectTab==='АОСР'&&(<div>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
-                        <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>АОСР к журналу работ</b>
-                        <span style={{fontSize:'11px',color:C.textMuted}}>Печатные формы по позициям сметы, отмеченным 🔒</span>
-                      </div>
-                      {(()=>{const actsHere=hiddenActs.filter(a=>a.projectName===p.name);if(actsHere.length===0)return(<div style={{...card,padding:'22px',textAlign:'center',color:C.textMuted}}><p style={{margin:'0 0 8px',fontWeight:'600'}}>Печатных форм АОСР пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Отметьте в смете позиции 🔒 и заполните «Сделано» — запись появится в журнале работ, а форма АОСР создастся автоматически.</p></div>);
-                        return(<div>
-                          <p style={{fontSize:'12px',color:C.textSec,margin:'0 0 10px'}}>Найдено форм: {actsHere.length}. Используйте строку журнала работ или кнопку печати для подготовки документа.</p>
-                          <div style={{...card,padding:0,overflow:'auto'}}>
-                            <table style={tbl}><thead><tr>
-                              <th style={tblH}>№ акта</th>
-                              <th style={tblH}>Раздел</th>
-                              <th style={tblH}>Работа</th>
-                              <th style={tblH}>Бригада</th>
-                              <th style={tblH}>Объём</th>
-                              <th style={tblH}>Дата</th>
-                              <th style={tblH}>Статус</th>
-                              <th style={tblH}></th>
-                            </tr></thead><tbody>
-                              {actsHere.map(act=>(<tr key={act.id} style={{cursor:'pointer'}} onClick={()=>setEditingAct(act)}>
-                                <td style={tblC}><b style={{color:C.accent}}>{act.actNumber}</b></td>
-                                <td style={tblC}>{act.sectionName||'—'}</td>
-                                <td style={{...tblC,maxWidth:'280px',whiteSpace:'normal'}}>{act.workName}</td>
-                                <td style={tblC}>{act.brigade||'—'}</td>
-                                <td style={tblC}>{act.quantity+' '+(act.unit||'')}</td>
-                                <td style={tblC}>{act.workDate||'—'}</td>
-                                <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:act.status==='Подписан'?C.successLight:C.warningLight,color:act.status==='Подписан'?C.success:C.warning}}>{act.status||'Черновик'}</span></td>
-                                <td style={tblC} onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:'4px'}}>
-                                  <button onClick={()=>setEditingAct(act)} title="Открыть карточку" style={{...btnB,padding:'3px 7px'}}>✏️</button>
-                                  <button onClick={()=>showPreview(buildHiddenActContent(act),'АОСР № '+act.actNumber)} title="Печать по СНиП" style={{...btnG,padding:'3px 7px'}}>🖨️</button>
-                                  {isLeadership()&&<button onClick={async()=>{if(!window.confirm('Удалить акт '+act.actNumber+'?')) return;await fetch(API+'/hidden-works-acts/'+act.id,{method:'DELETE'});setHiddenActs(prev=>prev.filter(a=>a.id!==act.id));}} title="Удалить" style={{...btnR,padding:'3px 7px'}}>🗑️</button>}
-                                </div></td>
-                              </tr>))}
-                            </tbody></table>
-                          </div>
-                        </div>);
-                      })()}
-                  </div>)}
+                    {activeProjectTab==='АОСР'&&(
+                      <ProjectHiddenWorksActsPanel
+                        projectName={p.name}
+                        hiddenActs={hiddenActs}
+                        setEditingAct={setEditingAct}
+                        setHiddenActs={setHiddenActs}
+                        showPreview={showPreview}
+                        buildHiddenActContent={buildHiddenActContent}
+                        showDelete={isLeadership()}
+                        C={C}
+                        card={card}
+                        tbl={tbl}
+                        tblH={tblH}
+                        tblC={tblC}
+                        btnB={btnB}
+                        btnG={btnG}
+                        btnR={btnR}
+                      />
+                    )}
                   {activeProjectTab==='Главный'&&(<div>
                     <div style={{marginBottom:'15px'}}>
                       <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📚 Журналы объекта</b>
