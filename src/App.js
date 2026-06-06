@@ -34,6 +34,7 @@ import ProjectHiddenWorksActSignatureModal from './components/ProjectHiddenWorks
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
 import WarehouseInvoicesPanel from './components/WarehouseInvoicesPanel';
+import WarehouseMainStockPanel from './components/WarehouseMainStockPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12512,27 +12513,26 @@ function App() {
               </div>)}
             </div>)}
 
-            {warehouseTab==='main'&&(<div>
-              <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                <button onClick={()=>openReceiveInvoice('Основной склад')} style={btnO}><Plus size={14}/>Принять материал</button>
-                <button onClick={()=>exportToExcel(warehouseMain.map(m=>({Наименование:m.name,Единица:m.unit,Количество:m.quantity,Цена:m.price,Сумма:m.quantity*m.price})),'Основной_склад')} style={btnG}><Download size={14}/>Excel</button>
-                <div style={{position:'relative',flex:1,minWidth:'200px'}}>
-                  <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                  <input placeholder='🔍 Поиск материала' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'12px',padding:'6px 8px 6px 32px'}}/>
-                </div>
-              </div>
-              <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Категория</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}></th></tr></thead><tbody>
-                {warehouseMain.filter(m=>matchSearch(listSearch,m.name,m.category)).map(m=>(<tr key={m.id} style={{backgroundColor:m.minQuantity&&m.quantity<m.minQuantity?C.dangerLight:'transparent'}}>
-                  <td style={tblC}><b style={{fontSize:'13px'}}>{m.name}</b>{m.minQuantity&&m.quantity<m.minQuantity&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),marginLeft:'6px',fontSize:'10px'}}>Мало!</span>}</td>
-                  <td style={{...tblC,fontSize:'11px',color:C.textSec}}>{m.category||'—'}</td>
-                  <td style={tblC}>{m.quantity+' '+m.unit}</td>
-                  <td style={tblC}>{m.price.toLocaleString()+' ₽'}</td>
-                  <td style={{...tblC,fontWeight:'600'}}>{(m.price*m.quantity).toLocaleString()+' ₽'}</td>
-                  <td style={tblC}><button onClick={()=>deleteMainMaterial(m.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
-                </tr>))}
-              </tbody></table>
-              {warehouseMain.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Склад пуст</p>}
-            </div>)}
+            {warehouseTab==='main'&&(
+              <WarehouseMainStockPanel
+                warehouseMain={warehouseMain}
+                listSearch={listSearch}
+                setListSearch={setListSearch}
+                matchSearch={matchSearch}
+                openReceiveInvoice={openReceiveInvoice}
+                exportToExcel={exportToExcel}
+                deleteMainMaterial={deleteMainMaterial}
+                C={C}
+                inp={inp}
+                btnO={btnO}
+                btnG={btnG}
+                btnR={btnR}
+                tbl={tbl}
+                tblH={tblH}
+                tblC={tblC}
+                badge={badge}
+              />
+            )}
 
             {warehouseTab==='move'&&(<div>
               <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Перемещение материалов</h3>
