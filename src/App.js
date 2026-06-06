@@ -50,6 +50,7 @@ import MaterialNormCoverageHeader from './components/MaterialNormCoverageHeader'
 import EstimateSelectedTitleBadges from './components/EstimateSelectedTitleBadges';
 import EstimateCreateFormFields from './components/EstimateCreateFormFields';
 import EstimateImportSettings from './components/EstimateImportSettings';
+import EstimateTemplatesList from './components/EstimateTemplatesList';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14239,7 +14240,14 @@ function App() {
                       </div>);})}
                     </div>
                   </div>);})}
-                  {templates.length>0&&<div style={{...card,marginBottom:'12px'}}><div style={{padding:'12px 14px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}><b style={{color:C.text,fontSize:'13px'}}>⭐ Шаблоны смет</b></div><div style={{padding:'8px 12px'}}>{templates.map(est=><div key={est.id} onClick={()=>setSelectedEstimate(est)} style={{padding:'10px 8px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}><div><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{estimateKind(est)}</p></div><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b></div>)}</div></div>}
+                  <EstimateTemplatesList
+                    C={C}
+                    card={card}
+                    templates={templates}
+                    setSelectedEstimate={setSelectedEstimate}
+                    estimateKind={estimateKind}
+                    estimateTotal={estimateTotal}
+                  />
                   {normal.length===0&&templates.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Calculator size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Смет нет — создайте первую!</p></div>}
                   {normal.length>0&&grouped.length===0&&<div style={{...card,padding:'24px',textAlign:'center',color:C.textMuted}}>В активном списке только архивные сметы</div>}
                 </>);})()}
