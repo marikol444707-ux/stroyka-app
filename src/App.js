@@ -58,6 +58,7 @@ import EstimateImportUploadButton from './components/EstimateImportUploadButton'
 import EstimateSelectedStatusActions from './components/EstimateSelectedStatusActions';
 import EstimateAddSectionForm from './components/EstimateAddSectionForm';
 import EstimateTotalCard from './components/EstimateTotalCard';
+import EstimateSectionHeader from './components/EstimateSectionHeader';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14200,13 +14201,7 @@ function App() {
                     </tbody></table></div>):(<p style={{fontSize:'11px',color:C.textMuted,padding:'6px 10px'}}>Нет позиций</p>)}
                   </div>);
                   return(<div key={section.id} style={{...card,marginBottom:'12px'}}>
-                  <div style={{padding:'12px 16px',backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1.5px solid '+C.border}}>
-                    <b style={{color:C.accent,fontSize:'13px'}}>{'📁 '+section.name}</b>
-                    <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                      <button onClick={markSectionBasis} style={{...btnG,padding:'4px 9px',fontSize:'11px'}} title='Автоматически подобрать основание расчёта для работ раздела'><Bot size={11}/>Основания</button>
-                      <b style={{color:C.text,fontSize:'13px'}}>{total.toLocaleString('ru-RU')+' ₽'}</b>
-                    </div>
-                  </div>
+                  <EstimateSectionHeader C={C} btnG={btnG} sectionName={section.name} total={total} onMarkSectionBasis={markSectionBasis}/>
 	                  <div style={{padding:'12px 16px'}}>
 	                    {renderGroup('Работы','🔨',works,totalW,C.accent)}
 	                    {renderGroup('Материалы','📦',mats,totalM,C.info)}
