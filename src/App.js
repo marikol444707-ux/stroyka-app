@@ -56,6 +56,7 @@ import EstimateListSummaryBar from './components/EstimateListSummaryBar';
 import EstimateCreateActions from './components/EstimateCreateActions';
 import EstimateImportUploadButton from './components/EstimateImportUploadButton';
 import EstimateSelectedStatusActions from './components/EstimateSelectedStatusActions';
+import EstimateAddSectionForm from './components/EstimateAddSectionForm';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14136,12 +14137,14 @@ function App() {
                     }catch(e){alert('Ошибка соединения');}
                   }} style={btnB}><Bot size={14}/>Найти работы для АОСР</button>
                 </div>
-                <div style={{...card,padding:'16px',marginBottom:'16px'}}>
-                  <div style={{display:'flex',gap:'8px',marginBottom:'10px',alignItems:'center'}}>
-                    <input placeholder="Новый раздел" value={newEstimateSection.name} onChange={e=>setNewEstimateSection({name:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/>
-                    <button onClick={()=>{if(!newEstimateSection.name) return;const section={id:Date.now(),name:newEstimateSection.name,items:[]};const updated={...selectedEstimate,sections:[...(selectedEstimate.sections||[]),section]};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));setNewEstimateSection({name:''});}} style={btnO}><Plus size={14}/>Раздел</button>
-                  </div>
-                </div>
+                <EstimateAddSectionForm
+                  card={card}
+                  inp={inp}
+                  btnO={btnO}
+                  newEstimateSection={newEstimateSection}
+                  setNewEstimateSection={setNewEstimateSection}
+                  onAdd={()=>{if(!newEstimateSection.name) return;const section={id:Date.now(),name:newEstimateSection.name,items:[]};const updated={...selectedEstimate,sections:[...(selectedEstimate.sections||[]),section]};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));setNewEstimateSection({name:''});}}
+                />
                 {(selectedEstimate.sections||[]).map((section,si)=>{
                   const itemKind=(it)=>normalizeEstimateItemType(it, section.name);
                   const sumOf=(it)=>estimateItemTotal(it);
