@@ -16,6 +16,7 @@ import ProjectCardHeader from './components/ProjectCardHeader';
 import ProjectTabsNav from './components/ProjectTabsNav';
 import ProjectMaterialsControlPanel from './components/ProjectMaterialsControlPanel';
 import ProjectMaterialsStockPanel from './components/ProjectMaterialsStockPanel';
+import ProjectMaterialsTransferPanel from './components/ProjectMaterialsTransferPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12309,146 +12310,39 @@ function App() {
                         card={card}
                       />
 
-                      {showTransferForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                        <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Передача материала бригаде/мастеру</h3>
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                          <select value={newTransfer.fromLocation} onChange={e=>setNewTransfer({...newTransfer,fromLocation:e.target.value,materialName:'',quantity:''})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
-                            <option value='Основной склад'>Основной склад</option>
-                            {visibleActiveProjects(projects).map(pr=><option key={pr.id} value={pr.name}>{pr.name}</option>)}
-                          </select>
-                          <div style={{gridColumn:'span 2'}}>
-                            <p style={{fontSize:'12px',color:C.textSec,marginBottom:'6px'}}>Материалы на складе:</p>
-                            <div style={{maxHeight:'200px',overflowY:'auto',border:'1.5px solid '+C.border,borderRadius:'8px',padding:'8px'}}>
-                              {[...warehouseMain.filter(m=>m.location===newTransfer.fromLocation||(!m.location&&newTransfer.fromLocation==='Основной склад')),...materials.filter(m=>m.project===newTransfer.fromLocation)].map((m,i)=>(<div key={i} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
-                                <input type='checkbox' checked={newTransfer.materialName===m.name} onChange={e=>setNewTransfer({...newTransfer,materialName:e.target.checked?m.name:'',unit:e.target.checked?m.unit:newTransfer.unit,quantity:''})} style={{width:'16px',height:'16px',cursor:'pointer'}}/>
-                                <span style={{flex:1,fontSize:'12px',color:C.text}}>{m.name}</span>
-                                <span style={{fontSize:'11px',color:C.textSec}}>Остаток: {m.quantity} {m.unit}</span>
-                              </div>))}
-                              {[...warehouseMain.filter(m=>m.location===newTransfer.fromLocation||(!m.location&&newTransfer.fromLocation==='Основной склад')),...materials.filter(m=>m.project===newTransfer.fromLocation)].length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'10px'}}>Нет материалов на этом складе</p>}
-                            </div>
-                          </div>
-                          {newTransfer.materialName&&(<><div style={{display:'flex',gap:'6px',gridColumn:'span 2',alignItems:'center'}}>
-                            <b style={{fontSize:'12px',color:C.text,flex:1}}>Передаём: {newTransfer.materialName}</b>
-                            <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={e=>setNewTransfer({...newTransfer,quantity:e.target.value})} style={{...inp,marginBottom:0,width:'120px'}}/>
-                            <span style={{fontSize:'12px',color:C.textSec}}>{newTransfer.unit}</span>
-                            <span style={{fontSize:'11px',color:C.warning}}>
-                              Остаток: {(newTransfer.fromLocation==='Основной склад'?warehouseMain.find(m=>m.name===newTransfer.materialName):materials.find(m=>m.name===newTransfer.materialName&&m.project===newTransfer.fromLocation))?.quantity||0} {newTransfer.unit}
-                            </span>
-                  </div>
-                  {/* Конверсия единиц — если заявка в других единицах */}
-                  {(()=>{
-                    const matName=(newTransfer.materialName||'').toLowerCase().trim();
-                    const matched=(supplyRequests||[]).find(r=>{
-                      if (r.project!==p.name) return false;
-                      if (r.status==='Отменена'||r.status==='Отклонена') return false;
-                      const rn=(r.materialName||'').toLowerCase().trim();
-                      if (!matName||!rn) return false;
-                      return rn.includes(matName.split(' ')[0])||matName.includes(rn.split(' ')[0]);
-                    });
-                    if (!matched) return null;
-                    if (_normalizeUnit(matched.unit)===_normalizeUnit(newTransfer.unit)) return null;
-                    const conv=convertUnits(newTransfer.materialName,matched.quantity,matched.unit,newTransfer.unit);
-                    if (conv) {
-                      return (<div style={{gridColumn:'span 2',padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',fontSize:'12px'}}>
-                        📐 Заявка была на <b>{matched.quantity} {matched.unit}</b>, склад в {newTransfer.unit}. Это ≈ <b style={{color:C.accent}}>{conv.qty.toFixed(2)} {newTransfer.unit}</b>.
-                        <p style={{margin:'4px 0 6px',color:C.textSec,fontSize:'11px'}}>{conv.note}</p>
-                        <button onClick={()=>setNewTransfer({...newTransfer,quantity:Number(conv.qty.toFixed(3))})} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>
-                          <Check size={11}/>Подставить {conv.qty.toFixed(2)} {newTransfer.unit}
-                        </button>
-                      </div>);
-                    }
-                    return (<div style={{gridColumn:'span 2',padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',fontSize:'12px',color:C.text}}>
-                      ⚠️ Заявка в <b>{matched.quantity} {matched.unit}</b>, на складе в <b>{newTransfer.unit}</b>. Конверсия не задана — пересчитайте вручную.
-                    </div>);
-                  })()}
-                  </>)}
-                          <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={{...inp,marginBottom:0}}>
-                            <option value=''>Кому передать *</option>
-                            {(()=>{
-                              // Заявители: те кто делал supply_request на этот материал и объект
-                              const matName = (newTransfer.materialName||'').toLowerCase().trim();
-                              const requesters = new Map();
-                              (supplyRequests||[]).filter(r=>r.project===p.name&&(r.status==='Утверждена'||r.status==='Подтверждена прорабом'||r.status==='Новая')).forEach(r=>{
-                                if (matName) {
-                                  const rName = (r.materialName||'').toLowerCase();
-                                  if (!rName.includes(matName.split(' ')[0]) && !matName.includes(rName.split(' ')[0]||'')) return;
-                                }
-                                if (r.createdBy && !requesters.has(r.createdBy)) {
-                                  requesters.set(r.createdBy, {name:r.createdBy, role:r.requestedByRole||'', materialName:r.materialName, quantity:r.quantity, unit:r.unit});
-                                }
-                              });
-                              const requesterNames = new Set(requesters.keys());
-                              return (<>
-                                {requesters.size>0 && <optgroup label="📋 Заявляли этот материал">
-                                  {Array.from(requesters.values()).map((r,i)=>(<option key={'req-'+i} value={r.name}>⭐ {r.name} ({r.role}) — просил {r.quantity} {r.unit}</option>))}
-                                </optgroup>}
-                                <optgroup label={requesters.size>0?'👥 Остальные мастера и прорабы':'👥 Мастера и прорабы'}>
-                                  {staff.filter(s=>['мастер','прораб','бригадир','субподрядчик'].includes((s.role||'').toLowerCase())&&!requesterNames.has(s.name)).map(s=><option key={s.id} value={s.name}>{s.name} ({s.role})</option>)}
-                                </optgroup>
-                                {brigadeContracts.filter(bc=>bc.projectName===p.name).length>0 && <optgroup label="🔨 Бригады по объекту">
-                                  {brigadeContracts.filter(bc=>bc.projectName===p.name).map(bc=><option key={bc.id} value={bc.brigadeName}>{bc.brigadeName} ({bc.contractorType})</option>)}
-                                </optgroup>}
-                              </>);
-                            })()}
-                          </select>
-
-                          <input type='date' value={newTransfer.transferDate} onChange={e=>setNewTransfer({...newTransfer,transferDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          <input placeholder='Примечание' value={newTransfer.notes} onChange={e=>setNewTransfer({...newTransfer,notes:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        </div>
-                        <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-                          <button onClick={async()=>{
-                            if(!newTransfer.materialName||!newTransfer.quantity||!newTransfer.toPerson) return;
-                            const data={...newTransfer,projectName:p.name,createdBy:user.name};
-                            const res=await fetch(API+'/material-transfers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-                            const saved=await res.json();
-                            if(!res.ok||!saved.ok){alert('Ошибка: '+(saved.detail||saved.error||'не удалось списать со склада'));return;}
-                            setMaterialTransfers(prev=>[{...data,id:saved.id,signed:false},...prev]);
-                            const qty=Number(newTransfer.quantity);
-                            if(newTransfer.fromLocation==='Основной склад'){
-                              setWarehouseMain(prev=>prev.map(m=>m.name===newTransfer.materialName?{...m,quantity:Number(m.quantity||0)-qty}:m));
-                            }else{
-                              setMaterials(prev=>prev.map(m=>(m.name===newTransfer.materialName&&m.project===newTransfer.fromLocation)?{...m,quantity:Number(m.quantity||0)-qty}:m));
-                            }
-                            setNewTransfer({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
-                            setShowTransferForm(false);
-                          }} style={btnO}><Check size={14}/>Передать</button>
-                          <button onClick={()=>setShowTransferForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                        </div>
-                  </div>)}
-
-                      <table style={tbl}><thead><tr>
-                        <th style={tblH}>Материал</th>
-                        <th style={tblH}>Кол-во</th>
-                        <th style={tblH}>Кому</th>
-                        <th style={tblH}>Дата</th>
-                        <th style={tblH}>Статус</th>
-                        <th style={tblH}></th>
-                      </tr></thead><tbody>
-                        {materialTransfers.filter(t=>t.projectName===p.name).map(t=>(<tr key={t.id}>
-                          <td style={tblC}>{t.materialName}</td>
-                          <td style={tblC}>{t.quantity} {t.unit}</td>
-                          <td style={tblC}>{t.toPerson}<br/><span style={{fontSize:'11px',color:C.textSec}}>{t.toPersonRole}</span></td>
-                          <td style={tblC}>{t.transferDate}</td>
-                          <td style={tblC}>{t.signed?<span style={{color:C.success,fontSize:'12px'}}>✅ Подписано</span>:<span style={{color:C.warning,fontSize:'12px'}}>⏳ Ожидает подписи</span>}</td>
-                          <td style={tblC}>
-                            {!t.signed&&<button onClick={async()=>{
-                              await fetch(API+'/material-transfers/'+t.id+'/sign',{method:'PUT'});
-                              setMaterialTransfers(prev=>prev.map(mt=>mt.id===t.id?{...mt,signed:true}:mt));
-                            }} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Check size={11}/>Подписать</button>}
-                            <button onClick={()=>showPreview(buildM15Content(t),'М-15 № '+t.id)} style={{...btnB,padding:'4px 8px',marginLeft:'4px'}} title="Печать М-15 (накладная на отпуск)">🖨️</button>
-                            <button onClick={async()=>{
-                              await fetch(API+'/material-transfers/'+t.id,{method:'DELETE'});
-                              setMaterialTransfers(prev=>prev.filter(mt=>mt.id!==t.id));
-                            }} style={{...btnR,padding:'4px 8px',marginLeft:'4px'}}><Trash2 size={11}/></button>
-                          </td>
-                        </tr>))}
-                      </tbody></table>
-                      {materialTransfers.filter(t=>t.projectName===p.name).length===0&&(
-                        <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>
-                          <Package size={48} style={{marginBottom:'15px',opacity:0.3}}/>
-                          <p>Передач материалов нет</p>
-                        </div>
-                      )}
+                      <ProjectMaterialsTransferPanel
+                        projectName={p.name}
+                        showTransferForm={showTransferForm}
+                        setShowTransferForm={setShowTransferForm}
+                        newTransfer={newTransfer}
+                        setNewTransfer={setNewTransfer}
+                        materialTransfers={materialTransfers}
+                        setMaterialTransfers={setMaterialTransfers}
+                        warehouseMain={warehouseMain}
+                        setWarehouseMain={setWarehouseMain}
+                        materials={materials}
+                        setMaterials={setMaterials}
+                        visibleProjects={visibleActiveProjects(projects)}
+                        supplyRequests={supplyRequests}
+                        staff={staff}
+                        brigadeContracts={brigadeContracts}
+                        user={user}
+                        C={C}
+                        card={card}
+                        inp={inp}
+                        tbl={tbl}
+                        tblH={tblH}
+                        tblC={tblC}
+                        btnO={btnO}
+                        btnG={btnG}
+                        btnGr={btnGr}
+                        btnB={btnB}
+                        btnR={btnR}
+                        normalizeUnit={_normalizeUnit}
+                        convertUnits={convertUnits}
+                        showPreview={showPreview}
+                        buildM15Content={buildM15Content}
+                      />
                   </div>)}
                     {activeProjectTab==='Чат'&&(<div>
                       <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Чат проекта</b>
