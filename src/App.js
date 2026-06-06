@@ -42,6 +42,7 @@ import EstimatesTabsNav from './components/EstimatesTabsNav';
 import EstimatesListToolbar from './components/EstimatesListToolbar';
 import EstimateSearchResults from './components/EstimateSearchResults';
 import EstimateImportValidationBanner from './components/EstimateImportValidationBanner';
+import MaterialNormNotice from './components/MaterialNormNotice';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14344,13 +14345,13 @@ function App() {
                   {canEditMaterialNorms()&&<button disabled={materialNormSuggestionLoading} onClick={generateMaterialNormSuggestions} style={btnState(btnO,materialNormSuggestionLoading,{border:'1.5px solid #fb923c',boxShadow:'none'})}><Bot size={14}/>{materialNormSuggestionLoading?'Проверяю...':'Сохранить AI-проверку'}</button>}
                 </div>
               </div>
-              {materialNormNotice&&(()=>{const ok=materialNormNotice.tone==='success';return <div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:ok?C.successLight:C.infoLight,border:'1.5px solid '+(ok?C.successBorder:C.infoBorder),display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
-                <div>
-                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'3px'}}>{materialNormNotice.title}</b>
-                  <p style={{color:C.textSec,margin:0,fontSize:'12px',lineHeight:1.45}}>{materialNormNotice.text}</p>
-                </div>
-                <button onClick={()=>setMaterialNormNotice(null)} style={{...btnG,padding:'4px 8px',fontSize:'11px',flex:'0 0 auto'}}><X size={12}/></button>
-              </div>;})()}
+              <MaterialNormNotice
+                C={C}
+                card={card}
+                btnG={btnG}
+                materialNormNotice={materialNormNotice}
+                setMaterialNormNotice={setMaterialNormNotice}
+              />
               {(()=>{const projectOptions=visibleActiveProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const invalidQtyCount=rows.filter(r=>r.status==='Некорректное количество').length;const zeroQtyCount=rows.filter(r=>r.status==='Материал без количества').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
                   <div>
