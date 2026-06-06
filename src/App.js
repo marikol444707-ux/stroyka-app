@@ -36,6 +36,7 @@ import ImagePreviewModal from './components/ImagePreviewModal';
 import WarehouseInvoicesPanel from './components/WarehouseInvoicesPanel';
 import WarehouseMainStockPanel from './components/WarehouseMainStockPanel';
 import WarehouseCompanyWarehousesPanel from './components/WarehouseCompanyWarehousesPanel';
+import WarehouseHistoryPanel from './components/WarehouseHistoryPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12608,15 +12609,20 @@ function App() {
               />
             )}
 
-            {warehouseTab==='history'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>История движения</b>
-                <button onClick={()=>exportToExcel(history.map(h=>({Материал:h.material,Тип:h.type,Количество:h.quantity,Дата:h.date,Проект:h.project,Кому:h.issuedTo||''})),'История_склада')} style={btnG}><Download size={14}/>Excel</button>
-              </div>
-              <table style={tbl}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>Тип</th><th style={tblH}>Кол-во</th><th style={tblH}>Проект</th><th style={tblH}>Дата</th></tr></thead><tbody>
-                {history.filter(h=>matchSearch(listSearch,h.material,h.project,h.type)).slice(0,50).map((h,i)=>(<tr key={i}><td style={tblC}>{h.material}</td><td style={tblC}><span style={badge(h.type==='приход'?C.success:C.danger,h.type==='приход'?C.successLight:C.dangerLight,h.type==='приход'?C.successBorder:C.dangerBorder)}>{h.type}</span></td><td style={tblC}>{h.quantity}</td><td style={tblC}>{h.project}</td><td style={tblC}>{h.date}</td></tr>))}
-              </tbody></table>
-            </div>)}
+            {warehouseTab==='history'&&(
+              <WarehouseHistoryPanel
+                history={history}
+                listSearch={listSearch}
+                matchSearch={matchSearch}
+                exportToExcel={exportToExcel}
+                C={C}
+                btnG={btnG}
+                tbl={tbl}
+                tblH={tblH}
+                tblC={tblC}
+                badge={badge}
+              />
+            )}
 
             {warehouseTab==='tools'&&(<div>
               <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
