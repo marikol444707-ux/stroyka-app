@@ -25,6 +25,7 @@ import ProjectHiddenWorksActsPanel from './components/ProjectHiddenWorksActsPane
 import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
+import ProjectWorkJournalTableModal from './components/ProjectWorkJournalTableModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -10625,83 +10626,27 @@ function App() {
           </div>
         </div>);
       })()}
-      {showJournalTableModal&&(()=>{
-        const pn=showJournalTableModal;
-        const journalHere=workJournal.filter(jw=>jw.project===pn);
-        let filtered=journalHere;
-        if(journalFilter.from) filtered=filtered.filter(r=>(r.date||'')>=journalFilter.from);
-        if(journalFilter.to) filtered=filtered.filter(r=>(r.date||'')<=journalFilter.to);
-        if(journalFilter.masterName) filtered=filtered.filter(r=>(r.masterName||'')===journalFilter.masterName);
-        if(journalFilter.sectionName) filtered=filtered.filter(r=>(r.sectionName||'')===journalFilter.sectionName);
-        if(journalFilter.status) filtered=filtered.filter(r=>r.status===journalFilter.status);
-        const sections=[...new Set(journalHere.map(r=>r.sectionName).filter(Boolean))];
-        const masters=[...new Set(journalHere.map(r=>r.masterName).filter(Boolean))];
-        const sumF=filtered.reduce((s,r)=>s+Number(r.total||0),0);
-        const cntDraft=filtered.filter(r=>r.status==='На проверке').length;
-        const cntOk=filtered.filter(r=>r.status==='Подтверждено').length;
-        return(<div onClick={()=>setShowJournalTableModal(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(1100px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
-              <div>
-                <b style={{color:C.text,fontSize:'16px',display:'block'}}>📋 Журнал работ — Таблица КС-6а</b>
-                <span style={{fontSize:'12px',color:C.textSec}}>{pn+' · РД-11-05-2007 · СП 48.13330.2019'}</span>
-              </div>
-              <button onClick={()=>setShowJournalTableModal(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
-            </div>
-            <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {journalHere.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Записей в журнале пока нет</div>:(<div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:'8px',marginBottom:'12px'}}>
-                  <input type="date" value={journalFilter.from} onChange={e=>setJournalFilter({...journalFilter,from:e.target.value})} title="Период с" style={{...inp,marginBottom:0,fontSize:'11px'}}/>
-                  <input type="date" value={journalFilter.to} onChange={e=>setJournalFilter({...journalFilter,to:e.target.value})} title="Период по" style={{...inp,marginBottom:0,fontSize:'11px'}}/>
-                  <select value={journalFilter.sectionName} onChange={e=>setJournalFilter({...journalFilter,sectionName:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px'}}><option value="">Все разделы</option>{sections.map(s=><option key={s} value={s}>{s}</option>)}</select>
-                  <select value={journalFilter.masterName} onChange={e=>setJournalFilter({...journalFilter,masterName:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px'}}><option value="">Все исполнители</option>{masters.map(m=><option key={m} value={m}>{m}</option>)}</select>
-                  <select value={journalFilter.status} onChange={e=>setJournalFilter({...journalFilter,status:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px'}}><option value="">Все статусы</option><option>На проверке</option><option>Подтверждено</option><option>Отклонено</option></select>
-                  <button onClick={()=>showPreview(buildWorkJournalContent(filtered,pn,journalFilter.from,journalFilter.to),'КС-6а — '+pn)} style={{...btnB,fontSize:'11px',padding:'7px 10px'}}><Eye size={12}/>🖨 Печать КС-6а</button>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginBottom:'14px'}}>
-                  <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Записей</p><b style={{color:C.text,fontSize:'16px'}}>{filtered.length}</b></div>
-                  <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>На проверке</p><b style={{color:C.warning,fontSize:'16px'}}>{cntDraft}</b></div>
-                  <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Подтверждено</p><b style={{color:C.success,fontSize:'16px'}}>{cntOk}</b></div>
-                </div>
-                <div style={{...card,padding:0,overflow:'auto'}}>
-                  <table style={tbl}><thead><tr>
-                    <th style={tblH}>Дата</th>
-                    <th style={tblH}>Тип</th>
-                    <th style={tblH}>Раздел</th>
-                    <th style={tblH}>Работа</th>
-                    <th style={tblH}>Объём</th>
-                    <th style={tblH}>Исполнитель</th>
-                    <th style={tblH}>ИТР</th>
-                    <th style={tblH}>Погода</th>
-                    <th style={tblH}>Качество</th>
-                    <th style={tblH}>Статус</th>
-                    <th style={tblH}>Сумма</th>
-                  </tr></thead><tbody>
-                    {filtered.map(jw=>(<tr key={jw.id} style={{cursor:'pointer',backgroundColor:jw.unexpectedWorkId?'#fef3c7':undefined}} onClick={()=>{setEditingJournal(jw);setShowJournalTableModal(null);}}>
-                      <td style={tblC}>{jw.date||'—'}</td>
-                      <td style={tblC}>{jw.unexpectedWorkId?<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'700',backgroundColor:'#fbbf24',color:'#78350f'}}>🆕 вне сметы</span>:<span style={{padding:'2px 6px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:C.bg,color:C.textSec}}>по смете</span>}</td>
-                      <td style={tblC}>{jw.sectionName||'—'}</td>
-                      <td style={{...tblC,maxWidth:'260px',whiteSpace:'normal'}}>{jw.description}{jw.hiddenWork?(()=>{const st=getActStatusForJournal({...jw,project:jw.project||pn});return(<span title={st&&st.act?'Открыть печатную форму АОСР':'Позиция актируется в АОСР'} style={{marginLeft:'4px',cursor:st&&st.act?'pointer':'default'}} onClick={e=>{if(st&&st.act){e.stopPropagation();setEditingAct(st.act);setShowJournalTableModal(null);}}}>🔒{st?st.icon:''}</span>);})():null}{jw.aiFilled?<span title="Заполнено AI" style={{marginLeft:'4px'}}>🤖</span>:null}</td>
-                      <td style={tblC}>{fmtMeasure(jw.quantity,jw.unit)}</td>
-                      <td style={tblC}>{jw.masterName||'—'}</td>
-                      <td style={tblC}>{jw.responsibleItr||'—'}</td>
-                      <td style={tblC}>{jw.weather||'—'}</td>
-                      <td style={tblC}>{jw.qualityStatus||'—'}</td>
-                      <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:jw.status==='Подтверждено'?C.successLight:jw.status==='Отклонено'?C.dangerLight:C.warningLight,color:jw.status==='Подтверждено'?C.success:jw.status==='Отклонено'?C.danger:C.warning}}>{jw.status||'—'}</span></td>
-                      <td style={tblC}>{Number(jw.total||0).toLocaleString('ru-RU')+' ₽'}</td>
-                    </tr>))}
-                    {filtered.length===0&&<tr><td colSpan={11} style={{...tblC,textAlign:'center',color:C.textMuted}}>По выбранным фильтрам записей нет</td></tr>}
-                  </tbody></table>
-                </div>
-                <div style={{marginTop:'12px',padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,borderRadius:'10px',textAlign:'right'}}>
-                  <span style={{color:C.textSec,fontSize:'12px',marginRight:'10px'}}>Сумма по фильтру:</span>
-                  <b style={{color:C.accent,fontSize:'15px'}}>{sumF.toLocaleString('ru-RU')+' ₽'}</b>
-                </div>
-              </div>)}
-            </div>
-          </div>
-        </div>);
-      })()}
+      <ProjectWorkJournalTableModal
+        projectName={showJournalTableModal}
+        workJournal={workJournal}
+        journalFilter={journalFilter}
+        setJournalFilter={setJournalFilter}
+        setShowJournalTableModal={setShowJournalTableModal}
+        setEditingJournal={setEditingJournal}
+        getActStatusForJournal={getActStatusForJournal}
+        setEditingAct={setEditingAct}
+        showPreview={showPreview}
+        buildWorkJournalContent={buildWorkJournalContent}
+        fmtMeasure={fmtMeasure}
+        C={C}
+        card={card}
+        inp={inp}
+        tbl={tbl}
+        tblH={tblH}
+        tblC={tblC}
+        btnB={btnB}
+        btnG={btnG}
+      />
       {editingInspection&&(()=>{
         const mi=editingInspection;
         const upd=(k,v)=>setEditingInspection({...editingInspection,[k]:v});
