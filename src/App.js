@@ -54,6 +54,7 @@ import EstimateTemplatesList from './components/EstimateTemplatesList';
 import EstimateListEmptyStates from './components/EstimateListEmptyStates';
 import EstimateListSummaryBar from './components/EstimateListSummaryBar';
 import EstimateCreateActions from './components/EstimateCreateActions';
+import EstimateImportUploadButton from './components/EstimateImportUploadButton';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14277,9 +14278,7 @@ function App() {
                   nextEstimateVersionFor={nextEstimateVersionFor}
                   estimatePackages={ESTIMATE_PACKAGES}
                 />
-                <label style={{display:'inline-flex',alignItems:'center',gap:'10px',cursor:'pointer',backgroundColor:C.accentLight,padding:'14px 24px',borderRadius:'10px',border:'1.5px dashed '+C.accent,fontSize:'14px',color:C.accent,fontWeight:'600'}}>
-                  <Upload size={20}/>Загрузить Excel файл (.xlsx)
-                  <input type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={async e=>{
+                <EstimateImportUploadButton C={C} onFileChange={async e=>{
                     if(!e.target.files[0]) return;
                     if(!newEstimate.projectId){alert('Сначала выберите проект — без привязки смета не сохранится');e.target.value='';return;}
                     const fd=new FormData();
@@ -14334,8 +14333,8 @@ function App() {
                       setImportValidating(false);
                       alert('Импортировано '+data.count+' позиций! ИИ проверяет смету в фоне — результат появится сверху.');
                     } catch(err){alert('Ошибка импорта');}
-                  }}/>
-                </label>
+                  }}
+                />
                 <EstimateImportSupportedFormat C={C}/>
               </div>
             </div>)}
