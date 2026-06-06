@@ -55,6 +55,7 @@ import EstimateListEmptyStates from './components/EstimateListEmptyStates';
 import EstimateListSummaryBar from './components/EstimateListSummaryBar';
 import EstimateCreateActions from './components/EstimateCreateActions';
 import EstimateImportUploadButton from './components/EstimateImportUploadButton';
+import EstimateSelectedStatusActions from './components/EstimateSelectedStatusActions';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -13984,9 +13985,12 @@ function App() {
                     estimateKind={estimateKind}
                     estimatePackage={estimatePackage}
                   />
-                  {selectedEstimate.status!=='Активная'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Активная')} style={btnGr}><CheckCircle size={14}/>Активной</button>}
-                  {selectedEstimate.status!=='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Архив')} style={btnG}><Archive size={14}/>В архив</button>}
-                  {selectedEstimate.status==='Архив'&&<button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>↩ Черновик</button>}
+                  <EstimateSelectedStatusActions
+                    selectedEstimate={selectedEstimate}
+                    btnGr={btnGr}
+                    btnG={btnG}
+                    setEstimateStatusRemote={setEstimateStatusRemote}
+                  />
 	                  <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Тип</th><th>Основание</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="9"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>{const meta=estimateItemTypeMeta(normalizeEstimateItemType(it,s.name));const basis=estimateMeasurementBasisMeta(estimateMeasurementBasisOf(it,s.name));return `<tr><td>${i+1}</td><td>${meta.label}</td><td>${basis.label}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`;})]).join('')+'<tr><td colspan="8"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
                   {(()=>{const base=estimateDiffBaseFor(selectedEstimate);return base?<button onClick={()=>showPreview(buildEstimateDiffContent(base,selectedEstimate),'Сопоставительная ведомость')} style={btnB}><FileText size={14}/>Ведомость</button>:null;})()}
 	                  <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Тип:estimateItemTypeMeta(normalizeEstimateItemType(i,s.name)).label,Основание:estimateMeasurementBasisMeta(estimateMeasurementBasisOf(i,s.name)).label,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
