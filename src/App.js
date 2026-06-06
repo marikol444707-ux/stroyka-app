@@ -48,6 +48,7 @@ import EstimateImportSupportedFormat from './components/EstimateImportSupportedF
 import MaterialNormCoverageSummaryBadges from './components/MaterialNormCoverageSummaryBadges';
 import MaterialNormCoverageHeader from './components/MaterialNormCoverageHeader';
 import EstimateSelectedTitleBadges from './components/EstimateSelectedTitleBadges';
+import EstimateCreateFormFields from './components/EstimateCreateFormFields';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -13923,27 +13924,15 @@ function App() {
                 estimateItemTotal={estimateItemTotal}
               />
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <select value={newEstimate.projectId} onChange={e=>{const p=projects.find(pr=>pr.id===Number(e.target.value));const next={...newEstimate,projectId:e.target.value,projectName:p?p.name:'',name:p?'Смета — '+p.name:''};setNewEstimate({...next,version:nextEstimateVersionFor(next)});}} style={{...inp,marginBottom:0}}><option value="">Выберите проект</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-                  <input placeholder="Название сметы *" value={newEstimate.name} onChange={e=>setNewEstimate({...newEstimate,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Версия" value={newEstimate.version} onChange={e=>setNewEstimate({...newEstimate,version:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newEstimate.smetaType||'Заказчик'} onChange={e=>{const next={...newEstimate,smetaType:e.target.value};setNewEstimate({...next,version:nextEstimateVersionFor(next)});}} style={{...inp,marginBottom:0}}>
-                    <option value="Заказчик">📋 Смета заказчика</option>
-                    <option value="Работы">👷 Смета работ</option>
-                    <option value="Материалы">📦 Смета материалов</option>
-                  </select>
-                  <select value={newEstimate.workPackage||'Основная'} onChange={e=>{const next={...newEstimate,workPackage:e.target.value};setNewEstimate({...next,version:nextEstimateVersionFor(next)});}} style={{...inp,marginBottom:0}}>
-                    {ESTIMATE_PACKAGES.map(pkg=><option key={pkg} value={pkg}>📁 {pkg}</option>)}
-                  </select>
-                  <select value={newEstimate.status||'Активная'} onChange={e=>setNewEstimate({...newEstimate,status:e.target.value})} style={{...inp,marginBottom:0}}>
-                    <option value="Активная">Активная</option>
-                    <option value="Черновик">Черновик</option>
-                  </select>
-                  {estimatesList.filter(isGlobalEstimateTemplate).length>0&&(<select value={newEstimate.templateId||''} onChange={e=>setNewEstimate({...newEstimate,templateId:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
-                    <option value=''>📄 Пустая смета</option>
-                    {estimatesList.filter(isGlobalEstimateTemplate).map(t=>(<option key={t.id} value={t.id}>⭐ Из шаблона: {t.name}</option>))}
-                  </select>)}
-                </div>
+                <EstimateCreateFormFields
+                  inp={inp}
+                  projects={projects}
+                  newEstimate={newEstimate}
+                  setNewEstimate={setNewEstimate}
+                  nextEstimateVersionFor={nextEstimateVersionFor}
+                  estimatePackages={ESTIMATE_PACKAGES}
+                  templates={estimatesList.filter(isGlobalEstimateTemplate)}
+                />
                 <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{
                   if(!newEstimate.name) return;
                   let sections=[];
