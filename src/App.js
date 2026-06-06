@@ -27,6 +27,7 @@ import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import ProjectWorkJournalEditModal from './components/ProjectWorkJournalEditModal';
 import ProjectWorkJournalTableModal from './components/ProjectWorkJournalTableModal';
+import ProjectMaterialInspectionEditModal from './components/ProjectMaterialInspectionEditModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -10579,92 +10580,22 @@ function App() {
         btnB={btnB}
         btnG={btnG}
       />
-      {editingInspection&&(()=>{
-        const mi=editingInspection;
-        const upd=(k,v)=>setEditingInspection({...editingInspection,[k]:v});
-        const labelStyle={fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px',display:'block'};
-        const sectionStyle={marginBottom:'14px'};
-        const aiSuggest=async()=>{
-          setEditingInspection(prev=>({...prev,__aiLoading:true}));
-          try{
-            const res=await fetch(API+'/material-inspection/'+mi.id+'/ai-suggest',{method:'POST'});
-            if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||('HTTP '+res.status));}
-            const d=await res.json();
-            setEditingInspection(prev=>({...prev,normatives:d.normatives||prev.normatives,remarks:(prev.remarks&&prev.remarks.trim())?prev.remarks:('Требуемые документы: '+(d.requiredDocs||'')),aiFilled:true,__aiLoading:false}));
-            setMaterialInspections(prev=>prev.map(x=>x.id===mi.id?{...x,normatives:d.normatives||x.normatives,aiFilled:true}:x));
-          }catch(e){
-            alert('Не получилось получить ответ от AI: '+e.message);
-            setEditingInspection(prev=>({...prev,__aiLoading:false}));
-          }
-        };
-        const saveInspection=async()=>{
-          const body={
-            batchNumber:mi.batchNumber||'',
-            passportNumber:mi.passportNumber||'',
-            certificateNumber:mi.certificateNumber||'',
-            testProtocolNumber:mi.testProtocolNumber||'',
-            visualInspectionResult:mi.visualInspectionResult||'',
-            remarks:mi.remarks||'',
-            inspectorName:mi.inspectorName||'',
-            inspectedAt:mi.inspectedAt||'',
-            inspected:!!mi.inspected,
-            normatives:mi.normatives||'',
-          };
-          await fetch(API+'/material-inspection/'+mi.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-          setMaterialInspections(prev=>prev.map(x=>x.id===mi.id?{...x,...body,aiFilled:false}:x));
-          setEditingInspection(null);
-        };
-        return(<div onClick={()=>setEditingInspection(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(820px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
-              <div>
-                <b style={{color:C.text,fontSize:'16px',display:'block'}}>📦 Входной контроль материала</b>
-                <span style={{fontSize:'12px',color:C.textSec}}>{(mi.materialName||'—')+' · '+(mi.quantity||0)+' '+(mi.unit||'')+' · '+(mi.supplier||'—')}</span>
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                <span style={{padding:'4px 10px',borderRadius:'12px',fontSize:'12px',fontWeight:'600',backgroundColor:mi.inspected?C.successLight:C.warningLight,color:mi.inspected?C.success:C.warning}}>{mi.inspected?'Проверено':'Ждёт проверки'}</span>
-                <button onClick={()=>setEditingInspection(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
-              </div>
-            </div>
-            <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {mi.aiFilled&&(<div style={aiNotice}><span style={aiNoticeIcon}>🤖</span><span style={aiNoticeText}><b>Поле «Нормативы» подсказано AI.</b> Проверь и сохрани — при правке метка снимется.</span></div>)}
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
-                <div><p style={labelStyle}>Материал</p><b style={{fontSize:'13px',color:C.text}}>{mi.materialName||'—'}</b></div>
-                <div><p style={labelStyle}>Количество</p><b style={{fontSize:'13px',color:C.text}}>{(mi.quantity||0)+' '+(mi.unit||'')}</b></div>
-                <div><p style={labelStyle}>Поставщик</p><b style={{fontSize:'13px',color:C.text}}>{mi.supplier||'—'}</b></div>
-                <div><p style={labelStyle}>Дата приёмки</p><b style={{fontSize:'13px',color:C.text}}>{mi.receivedAt||'—'}</b></div>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
-                <div><label style={labelStyle}>№ партии (на упаковке/паспорте)</label><input value={mi.batchNumber||''} onChange={e=>upd('batchNumber',e.target.value)} placeholder="напр. №147" style={inp}/></div>
-                <div><label style={labelStyle}>Паспорт качества №</label><input value={mi.passportNumber||''} onChange={e=>upd('passportNumber',e.target.value)} placeholder="напр. ПК-2026/05/12" style={inp}/></div>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
-                <div><label style={labelStyle}>Сертификат соответствия №</label><input value={mi.certificateNumber||''} onChange={e=>upd('certificateNumber',e.target.value)} placeholder="напр. РОСС RU.AB12.H00000" style={inp}/></div>
-                <div><label style={labelStyle}>Протокол испытаний №</label><input value={mi.testProtocolNumber||''} onChange={e=>upd('testProtocolNumber',e.target.value)} placeholder="напр. ПИ-15 от 14.05.2026" style={inp}/></div>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
-                <div><label style={labelStyle}>Результат визуального осмотра</label><select value={mi.visualInspectionResult||''} onChange={e=>upd('visualInspectionResult',e.target.value)} style={inp}><option value="">— не указано —</option><option>Соответствует</option><option>С замечаниями</option><option>Не соответствует</option></select></div>
-                <div><label style={labelStyle}>Дата осмотра</label><input type='date' value={mi.inspectedAt||''} onChange={e=>upd('inspectedAt',e.target.value)} style={inp}/></div>
-              </div>
-              <div style={sectionStyle}><label style={labelStyle}>ФИО лица, проводившего входной контроль</label><input value={mi.inspectorName||''} onChange={e=>upd('inspectorName',e.target.value)} placeholder="ФИО прораба или кладовщика" style={inp}/></div>
-              <div style={sectionStyle}><label style={labelStyle}>Применимые нормативы (ГОСТ/СП/СНиП){mi.aiFilled?' 🤖':''}</label><textarea value={mi.normatives||''} onChange={e=>upd('normatives',e.target.value)} placeholder="Напр.: ГОСТ 7473-2010 (бетон), ГОСТ 5781-82 (арматура)" style={{...inp,minHeight:'60px',resize:'vertical'}}/></div>
-              <div style={sectionStyle}><label style={labelStyle}>Замечания / комментарий</label><textarea value={mi.remarks||''} onChange={e=>upd('remarks',e.target.value)} placeholder="Замечания по качеству, упаковке, документам" style={{...inp,minHeight:'70px',resize:'vertical'}}/></div>
-              <div style={{padding:'10px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,display:'flex',alignItems:'center',gap:'10px'}}>
-                <input type='checkbox' id='mi-checked' checked={!!mi.inspected} onChange={e=>upd('inspected',e.target.checked)} style={{width:'18px',height:'18px',cursor:'pointer'}}/>
-                <label htmlFor='mi-checked' style={{fontSize:'13px',color:C.text,cursor:'pointer',fontWeight:'600'}}>Входной контроль завершён — материал можно выдавать на работы</label>
-              </div>
-            </div>
-            <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
-              <button onClick={()=>showPreview(buildMaterialInspectionContent([mi],mi.projectName,mi.receivedAt,mi.receivedAt),'Запись входного контроля')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
-              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button disabled={!!mi.__aiLoading} onClick={aiSuggest} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',opacity:mi.__aiLoading?0.6:1,cursor:mi.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{mi.__aiLoading?'AI работает…':'🤖 AI-подсказка нормативов'}</button>
-                <button onClick={()=>setEditingInspection(null)} style={btnG}>Отмена</button>
-                <button onClick={saveInspection} style={btnO}><Check size={14}/>Сохранить</button>
-              </div>
-            </div>
-          </div>
-        </div>);
-      })()}
+      <ProjectMaterialInspectionEditModal
+        inspection={editingInspection}
+        setEditingInspection={setEditingInspection}
+        setMaterialInspections={setMaterialInspections}
+        showPreview={showPreview}
+        buildMaterialInspectionContent={buildMaterialInspectionContent}
+        C={C}
+        card={card}
+        inp={inp}
+        btnB={btnB}
+        btnG={btnG}
+        btnO={btnO}
+        aiNotice={aiNotice}
+        aiNoticeIcon={aiNoticeIcon}
+        aiNoticeText={aiNoticeText}
+      />
       {editingCable&&(()=>{
         const cb=editingCable;
         const upd=(k,v)=>setEditingCable({...editingCable,[k]:v});
