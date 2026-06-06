@@ -653,7 +653,6 @@ function App() {
   const [editingAct, setEditingAct] = useState(null);
   const [editingJournal, setEditingJournal] = useState(null);
   const [journalFilter, setJournalFilter] = useState({from:'',to:'',masterName:'',sectionName:'',status:''});
-  const [showJournalPrintDialog, setShowJournalPrintDialog] = useState(null);
   const [showJournalTableModal, setShowJournalTableModal] = useState(null);
   const [materialInspections, setMaterialInspections] = useState([]);
   const [editingInspection, setEditingInspection] = useState(null);
@@ -663,7 +662,6 @@ function App() {
   const [inspectionOrders, setInspectionOrders] = useState([]);
   const [newInspOrder, setNewInspOrder] = useState(null);
   const [auditLog, setAuditLog] = useState([]);
-  const [journalView, setJournalView] = useState('daily');
   const [expenseReports, setExpenseReports] = useState([]);
   const [newExpenseReport, setNewExpenseReport] = useState(null);
   const [supplierInvoices, setSupplierInvoices] = useState([]);
@@ -698,7 +696,7 @@ function App() {
   const [newBrigadeContract, setNewBrigadeContract] = useState({projectId:'',projectName:'',brigadeName:'',contractorType:'Своя бригада',contractorId:'',notes:'',pricelistId:''});
   const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
-  const [masterReportPhotos, setMasterReportPhotos] = useState([]);
+  const [masterReportPhotos] = useState([]);
   const [supplierCatalog, setSupplierCatalog] = useState([]);
   const [supplyTemplates, setSupplyTemplates] = useState([]);
   const [priceHints, setPriceHints] = useState({});
@@ -815,7 +813,7 @@ function App() {
   const materialControlTaskAutoCheckedRef = useRef(new Map());
   const roomControlTaskQueuedRef = useRef(new Set());
   const roomControlTaskAutoCheckedRef = useRef(new Map());
-  const [archivedProjects, setArchivedProjects] = useState([]);
+  const [, setArchivedProjects] = useState([]);
   const [tbJournal, setTbJournal] = useState([]);
   const [geoCheckins, setGeoCheckins] = useState([]);
   const [, setSignedDocs] = useState({});
@@ -879,7 +877,6 @@ function App() {
   const [suggestedSuppliers, setSuggestedSuppliers] = useState(null); // {suppliers:[], aiRecommendedCount}
   const [selectedSupplierIds, setSelectedSupplierIds] = useState([]);
   const [requestKpLoading, setRequestKpLoading] = useState(false);
-  const [expandedOfferId, setExpandedOfferId] = useState(null); // для раскрытия КП на странице снабжения
   // Сн.2: ответ поставщика на RFQ
   const [respondingOfferId, setRespondingOfferId] = useState(null);
   const [newKpResponse, setNewKpResponse] = useState({pricePerUnit:'',deliveryDays:'',paymentTerms:'Постоплата',vatIncluded:true,validUntil:'',supplierMessage:'',pdfUrl:''});
@@ -900,8 +897,6 @@ function App() {
   const [showSupplierInviteModal, setShowSupplierInviteModal] = useState(false);
   const [supplierInviteForm, setSupplierInviteForm] = useState({presetName:'',presetCategory:'Сыпучие и бетон',supplierId:null,expiresInDays:14});
   const [generatedInviteLink, setGeneratedInviteLink] = useState(null);
-  const [expandedSupplierId, setExpandedSupplierId] = useState(null);
-  const [supplierDocuments, setSupplierDocuments] = useState([]);
   const [personnelTab, setPersonnelTab] = useState('staff');
   const [warehouseTab, setWarehouseTab] = useState('objects');
   const [selectedWarehouseProject, setSelectedWarehouseProject] = useState(null);
@@ -2047,38 +2042,6 @@ function App() {
     html += '<p style="text-align:right;font-size:14px"><b>ВСЕГО к оплате: '+(mainTotal+changesTotal).toLocaleString()+' руб.</b></p>';
     html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал: '+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Принял:</div></div></div>';
     showPreview(html,'КС-2 — '+project.name);
-  };
-
-  const buildKS2Content = (project) => {
-    const pw = workJournal.filter(j=>j.project===project.name&&j.status==='Подтверждено');
-    const estRows = ks2ItemsFromEstimate(project);
-    const req = companyRequisites||{};
-    let html = '<h2 style="text-align:center">УНИФИЦИРОВАННАЯ ФОРМА № КС-2</h2><h3 style="text-align:center">АКТ О ПРИЁМКЕ ВЫПОЛНЕННЫХ РАБОТ</h3>';
-    html += '<table><tr><th>Организация</th><td>'+(req.fullName||req.shortName||companyName||'_____')+'</td><th>Объект</th><td>'+project.name+'</td></tr>';
-    if (req.inn) html += '<tr><th>ИНН</th><td>'+req.inn+'</td><th>КПП</th><td>'+(req.kpp||'')+'</td></tr>';
-    html += '</table>';
-    html += '<h3>Раздел 1. Основные работы по активной смете</h3>';
-    html += '<table><tr><th>N</th><th>Наименование работ</th><th>Помещение</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-    const mainItems = estRows.length>0 ? estRows.map(r=>({...r,roomName:''})) : pw.filter(j=>!j.unexpectedWorkId);
-    mainItems.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+(wk.total||0).toLocaleString()+'</td></tr>'; });
-    const mainSum=mainItems.reduce((s,wk)=>s+(wk.total||0),0);
-    html += '<tr><td colspan="6"><b>ИТОГО по разделу 1:</b></td><td><b>'+mainSum.toLocaleString()+' руб.</b></td></tr></table>';
-    const additionalVolumeItems = estimateChangeRowsForDocs(project.name, 'additional');
-    const outsideEstimateItems = estimateChangeRowsForDocs(project.name, 'outside');
-    const renderChangeSection = (title, items, sectionNo) => {
-      if(!items.length) return 0;
-      html += '<h3>Раздел '+sectionNo+'. '+title+'</h3>';
-      html += '<table><tr><th>N</th><th>Наименование работ</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-      items.forEach((wk,i)=>{ html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+Number(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+Number(wk.total||0).toLocaleString()+'</td></tr>'; });
-      const sum=items.reduce((s,wk)=>s+Number(wk.total||0),0);
-      html += '<tr><td colspan="5"><b>ИТОГО по разделу '+sectionNo+':</b></td><td><b>'+sum.toLocaleString()+' руб.</b></td></tr></table>';
-      return sum;
-    };
-    const addSum=renderChangeSection('Дополнительные объёмы к строкам сметы', additionalVolumeItems, 2);
-    const outSum=renderChangeSection('Работы вне сметы', outsideEstimateItems, 3);
-    html += '<p style="text-align:right;font-size:14px"><b>ИТОГО по акту: '+(mainSum+addSum+outSum).toLocaleString()+' руб.</b></p>';
-    html += '<div class="signatures"><div class="sig"><div class="sig-line">Сдал<br/>'+(req.directorName||'')+'</div></div><div class="sig"><div class="sig-line">Принял</div></div></div>';
-    return html;
   };
 
   const buildKS3Content = (project) => {
@@ -6625,7 +6588,6 @@ function App() {
   };
 
   const buildIGDContent = (projectName) => {
-    const project = projects.find(p=>p.name===projectName)||{};
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
     let html='<h2 style="text-align:center;margin:8px 0">ИСПОЛНИТЕЛЬНАЯ ГЕОДЕЗИЧЕСКАЯ ДОКУМЕНТАЦИЯ</h2>';
@@ -6652,7 +6614,6 @@ function App() {
   };
 
   const buildSpecJournalContent = (projectName, kind) => {
-    const project=projects.find(p=>p.name===projectName)||{};
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
     const works=workJournal.filter(j=>j.project===projectName);
@@ -7580,13 +7541,6 @@ function App() {
     }
   };
 
-  const loadSupplierDocuments = async (supplierId) => {
-    try {
-      const r = await fetch(API+'/supplier-documents?supplier_id='+supplierId);
-      const data = await r.json();
-      setSupplierDocuments(Array.isArray(data)?data:[]);
-    } catch(_) { setSupplierDocuments([]); }
-  };
   const deleteInvite = async (id) => { await fetch(API+'/invite-codes/'+id,{method:'DELETE'}); await loadAll(); };
 
   const savePricelist = async () => {
@@ -8449,7 +8403,6 @@ function App() {
     const sumMonth = myMonth.reduce((s,w)=>s+Number(w.total||0),0);
     const myIssues = materialTransfers.filter(t=>t.toPerson===user.name).map(t=>({id:t.id,materialName:t.materialName,quantity:t.quantity,unit:t.unit,project:t.projectName,confirmed:t.signed}));
     const categories = [...new Set(pricelistItems.map(i=>i.category))];
-    const myProjects = [...new Set(myWorks.map(w=>w.project))];
     const myContract = contracts.find(c=>c.masterId===user.id);
     const myActs = interimActs.filter(a=>a.masterId===user.id);
     const masterProjectOptions = selectableActiveProjects(projects);
@@ -11026,13 +10979,11 @@ function App() {
             const openAiControl=(aiFindings||[]).filter(f=>isOpenAiStatus(f.status));
             const criticalAiControl=openAiControl.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных');
             if(openAiControl.length>0) risks.push({icon:'🤖',text:'ИИ-контроль: '+openAiControl.length+' замечаний, из них важных '+criticalAiControl.length,severity:criticalAiControl.length?'danger':'warn',page:'projects'});
-            const _planDoneOf=projectPlanDone; const _projProgress=projectRealProgress;
+            const _projProgress=projectRealProgress;
             const avgProg=dashboardProjects.length?Math.round(dashboardProjects.reduce((s,p)=>s+_projProgress(p),0)/dashboardProjects.length):0;
             // Выполнено = работы (max сметы/журнала) + материалы + утв.доп.соглашения по всем проектам
             const _bsAll=dashboardProjects.map(p=>projectBudgetSpent(p));
             const totalDone=_bsAll.reduce((s,bs)=>s+bs.total,0);
-            const totalMaterials=_bsAll.reduce((s,bs)=>s+bs.materials,0);
-            const totalUnexpected=_bsAll.reduce((s,bs)=>s+bs.unexpected,0);
             const showSupplyDashboard = ['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец'].includes(user.role);
             const supplyPendingRequests = (supplyRequests||[]).filter(r=>{
               if (user.role==='прораб') return r.status==='Новая';
@@ -11183,7 +11134,7 @@ function App() {
               <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:'16px'}}>
                 <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                   <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
-                  {dashboardProjects.slice(0,5).map(p=>{const pd=_planDoneOf(p);const fs=projectFactSpent(p);const bs=projectBudgetSpent(p);const factTotal=bs.total;const realProg=_projProgress(p);return(
+                  {dashboardProjects.slice(0,5).map(p=>{const bs=projectBudgetSpent(p);const factTotal=bs.total;const realProg=_projProgress(p);return(
                     <div key={p.id} onClick={()=>{setExpandedProject(p.id);setActivePage('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
                         <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
@@ -14161,7 +14112,6 @@ function App() {
               {(()=>{
                 // Группировка ВСЕХ движений по объектам
                 const allMovesByProject={};
-                const _addToProject=(pn,m)=>{if(!pn) pn='Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn]=Object.assign(allMovesByProject[pn],m);};
                 (projectPayments||[]).forEach(p=>{const amount=projectPaymentInAmount(p);if(amount<=0) return;const pn=p.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].incoming.push({...p,_amountIn:amount});allMovesByProject[pn].totalIn+=amount;});
                 (ownExpenses||[]).filter(e=>e.status==='Возмещено').forEach(e=>{const pn=e.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].ownExp.push(e);allMovesByProject[pn].totalOut+=Number(e.amount||0);});
                 (accountablePayments||[]).forEach(a=>{const pn=a.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].accountable.push(a);allMovesByProject[pn].totalOut+=Number(a.amount||0);});
