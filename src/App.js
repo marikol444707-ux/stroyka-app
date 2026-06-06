@@ -28,6 +28,7 @@ import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import ProjectWorkJournalEditModal from './components/ProjectWorkJournalEditModal';
 import ProjectWorkJournalTableModal from './components/ProjectWorkJournalTableModal';
 import ProjectMaterialInspectionEditModal from './components/ProjectMaterialInspectionEditModal';
+import ProjectCableJournalEditModal from './components/ProjectCableJournalEditModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -10596,107 +10597,24 @@ function App() {
         aiNoticeIcon={aiNoticeIcon}
         aiNoticeText={aiNoticeText}
       />
-      {editingCable&&(()=>{
-        const cb=editingCable;
-        const upd=(k,v)=>setEditingCable({...editingCable,[k]:v});
-        const proraby=users.filter(u=>['прораб','главный_инженер','зам_директора'].includes(u.role)).map(u=>u.name).filter(Boolean);
-        const labelStyle={fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px',display:'block'};
-        const sectionStyle={marginBottom:'14px'};
-        const aiSuggest=async()=>{
-          setEditingCable(prev=>({...prev,__aiLoading:true}));
-          try{
-            const res=await fetch(API+'/cable-journal/'+cb.id+'/ai-suggest',{method:'POST'});
-            if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||('HTTP '+res.status));}
-            const d=await res.json();
-            setEditingCable(prev=>({...prev,normatives:d.normatives||prev.normatives,aiFilled:true,__aiLoading:false}));
-            setCableJournal(prev=>prev.map(x=>x.id===cb.id?{...x,normatives:d.normatives||x.normatives,aiFilled:true}:x));
-          }catch(e){
-            alert('Не получилось получить ответ от AI: '+e.message);
-            setEditingCable(prev=>({...prev,__aiLoading:false}));
-          }
-        };
-        const saveCable=async()=>{
-          const body={
-            cableType:cableTypeOf(cb),
-            drumNumber:cb.drumNumber||'',
-            manufacturer:cb.manufacturer||'',
-            certificateNumber:cb.certificateNumber||'',
-            passportNumber:cb.passportNumber||'',
-            insulationBefore:Number(cb.insulationBefore)||0,
-            insulationAfter:Number(cb.insulationAfter)||0,
-            lengthInstalled:Number(cb.lengthInstalled)||0,
-            installationLocation:cb.installationLocation||'',
-            installationMethod:cb.installationMethod||'',
-            installedAt:cb.installedAt||'',
-            responsibleItr:cb.responsibleItr||'',
-            normatives:cb.normatives||'',
-          };
-          await fetch(API+'/cable-journal/'+cb.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-          setCableJournal(prev=>prev.map(x=>x.id===cb.id?{...x,...body,aiFilled:false}:x));
-          setEditingCable(null);
-        };
-        return(<div onClick={()=>setEditingCable(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-          <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(900px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
-              <div>
-                <b style={{color:C.text,fontSize:'16px',display:'block'}}>⚡ Запись журнала кабельной продукции</b>
-                <span style={{fontSize:'12px',color:C.textSec}}>{cableTypeOf(cb)+' · '+(cb.cableBrand||'—')+' · '+(cb.crossSection?cb.crossSection+' мм² × '+(cb.coresCount||'?')+' жил':'—')+' · '+(cb.lengthReceived||0)+' м'}</span>
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                <span style={{padding:'4px 10px',borderRadius:'12px',fontSize:'12px',fontWeight:'600',backgroundColor:cb.installedAt?C.successLight:C.warningLight,color:cb.installedAt?C.success:C.warning}}>{cb.installedAt?'Проложен':'На складе'}</span>
-                <button onClick={()=>setEditingCable(null)} style={{...btnG,padding:'5px 10px'}}><X size={14}/></button>
-              </div>
-            </div>
-            <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-              {cb.aiFilled&&(<div style={aiNotice}><span style={aiNoticeIcon}>🤖</span><span style={aiNoticeText}><b>Нормативы и мин. R подсказаны AI.</b> Проверь и сохрани — при правке поля метка снимется.</span></div>)}
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'10px',marginBottom:'18px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
-                <div><p style={labelStyle}>Марка кабеля</p><b style={{fontSize:'13px',color:C.text}}>{cb.cableBrand||'—'}</b></div>
-                <div><p style={labelStyle}>Тип системы</p><b style={{fontSize:'13px',color:C.text}}>{cableTypeOf(cb)}</b></div>
-                <div><p style={labelStyle}>Сечение жилы</p><b style={{fontSize:'13px',color:C.text}}>{cb.crossSection?cb.crossSection+' мм²':'—'}</b></div>
-                <div><p style={labelStyle}>Кол-во жил</p><b style={{fontSize:'13px',color:C.text}}>{cb.coresCount||'—'}</b></div>
-                <div><p style={labelStyle}>Длина с барабана</p><b style={{fontSize:'13px',color:C.text}}>{(cb.lengthReceived||0)+' м'}</b></div>
-                <div><p style={labelStyle}>Поставщик</p><b style={{fontSize:'13px',color:C.text}}>{cb.supplier||'—'}</b></div>
-                <div><p style={labelStyle}>Дата приёмки</p><b style={{fontSize:'13px',color:C.text}}>{cb.receivedAt||'—'}</b></div>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
-                <div><label style={labelStyle}>№ барабана / бухты</label><input value={cb.drumNumber||''} onChange={e=>upd('drumNumber',e.target.value)} placeholder="напр. барабан №47" style={inp}/></div>
-                <div><label style={labelStyle}>Изготовитель</label><input value={cb.manufacturer||''} onChange={e=>upd('manufacturer',e.target.value)} placeholder="напр. Камкабель, Севкабель" style={inp}/></div>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
-                <div><label style={labelStyle}>Сертификат соответствия №</label><input value={cb.certificateNumber||''} onChange={e=>upd('certificateNumber',e.target.value)} style={inp}/></div>
-                <div><label style={labelStyle}>Паспорт качества №</label><input value={cb.passportNumber||''} onChange={e=>upd('passportNumber',e.target.value)} style={inp}/></div>
-              </div>
-              <div style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border,marginBottom:'14px'}}>
-                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>🔌 Замеры сопротивления изоляции (мегаомметр)</b>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-	                  <div><label style={labelStyle}>R изоляции ДО прокладки, МΩ</label><input type="number" inputMode="decimal" step="0.1" value={cb.insulationBefore||''} onChange={e=>upd('insulationBefore',e.target.value)} placeholder="напр. 500" style={inp}/></div>
-	                  <div><label style={labelStyle}>R изоляции ПОСЛЕ прокладки, МΩ</label><input type="number" inputMode="decimal" step="0.1" value={cb.insulationAfter||''} onChange={e=>upd('insulationAfter',e.target.value)} placeholder="напр. 480" style={inp}/></div>
-                </div>
-                <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>По ПУЭ для большинства силовых кабелей мин. R изоляции = 0.5 МΩ. AI-подсказка ниже даст точное значение для этой марки.</p>
-              </div>
-              <div style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border,marginBottom:'14px'}}>
-                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>🔧 Монтаж</b>
-                <div style={sectionStyle}><label style={labelStyle}>Место прокладки (объект, этаж, помещение)</label><textarea value={cb.installationLocation||''} onChange={e=>upd('installationLocation',e.target.value)} placeholder="напр. этаж 2, эл.щитовая → коридор → квартиры 21-25" style={{...inp,minHeight:'50px',resize:'vertical'}}/></div>
-                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:'10px'}}>
-                  <div><label style={labelStyle}>Способ прокладки</label><select value={cb.installationMethod||''} onChange={e=>upd('installationMethod',e.target.value)} style={inp}><option value="">— не указано —</option><option>Открыто</option><option>В кабель-канале</option><option>В трубе</option><option>По лотку</option><option>В слаботочном лотке</option><option>В гофре</option><option>В металлорукаве</option><option>На скобах</option><option>В земле</option><option>Под штукатуркой</option></select></div>
-	                  <div><label style={labelStyle}>Длина проложенная, м</label><input type="number" inputMode="decimal" step="0.1" value={cb.lengthInstalled||''} onChange={e=>upd('lengthInstalled',e.target.value)} style={inp}/></div>
-                  <div><label style={labelStyle}>Дата монтажа</label><input type="date" value={cb.installedAt||''} onChange={e=>upd('installedAt',e.target.value)} style={inp}/></div>
-                </div>
-              </div>
-              <div style={sectionStyle}><label style={labelStyle}>Ответственный ИТР / мастер</label><input list="cable-itr-list" value={cb.responsibleItr||''} onChange={e=>upd('responsibleItr',e.target.value)} placeholder="ФИО электрика или слаботочника" style={inp}/><datalist id="cable-itr-list">{proraby.map(n=><option key={n} value={n}/>)}</datalist></div>
-              <div style={sectionStyle}><label style={labelStyle}>Применимые нормативы (ГОСТ/СП/ПУЭ){cb.aiFilled?' 🤖':''}</label><textarea value={cb.normatives||''} onChange={e=>upd('normatives',e.target.value)} placeholder="Напр.: ПУЭ 7-е изд., ГОСТ Р 53769 (кабели силовые), СП 76.13330" style={{...inp,minHeight:'80px',resize:'vertical'}}/></div>
-            </div>
-            <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
-              <button onClick={()=>showPreview(buildCableJournalContent([cb],cb.projectName,cb.receivedAt,cb.installedAt||cb.receivedAt),'Запись кабеля')} style={btnB}><Eye size={14}/>🖨️ Печать</button>
-              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button disabled={!!cb.__aiLoading} onClick={aiSuggest} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',opacity:cb.__aiLoading?0.6:1,cursor:cb.__aiLoading?'not-allowed':'pointer'}}><Bot size={14}/>{cb.__aiLoading?'AI работает…':'🤖 AI-подсказка нормативов и R изоляции'}</button>
-                <button onClick={()=>setEditingCable(null)} style={btnG}>Отмена</button>
-                <button onClick={saveCable} style={btnO}><Check size={14}/>Сохранить</button>
-              </div>
-            </div>
-          </div>
-        </div>);
-      })()}
+      <ProjectCableJournalEditModal
+        cable={editingCable}
+        setEditingCable={setEditingCable}
+        setCableJournal={setCableJournal}
+        users={users}
+        cableTypeOf={cableTypeOf}
+        showPreview={showPreview}
+        buildCableJournalContent={buildCableJournalContent}
+        C={C}
+        card={card}
+        inp={inp}
+        btnB={btnB}
+        btnG={btnG}
+        btnO={btnO}
+        aiNotice={aiNotice}
+        aiNoticeIcon={aiNoticeIcon}
+        aiNoticeText={aiNoticeText}
+      />
       {showQRModal&&(<div onClick={()=>setShowQRModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.7)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><div style={{backgroundColor:'white',padding:'30px',borderRadius:'16px',textAlign:'center'}} onClick={e=>e.stopPropagation()}><h3 style={{color:C.text,marginBottom:'16px'}}>{showQRModal.title}</h3><img src={generateQR(showQRModal.data)} alt="QR" style={{width:'200px',height:'200px'}}/><p style={{color:C.textSec,fontSize:'12px',marginTop:'12px'}}>Сканируйте для быстрого доступа</p><button onClick={()=>setShowQRModal(null)} style={{...btnG,marginTop:'12px'}}>Закрыть</button></div></div>)}
       {rejectingEntry&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Причина отклонения</h3><textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inp,height:'100px',resize:'vertical'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>rejectJ(rejectingEntry,rejectComment)} style={btnR}><X size={14}/>Отклонить</button><button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnG}>Отмена</button></div></div></div>)}
       {confirmingEntry&&(()=>{const e=confirmingEntry;const plan=toNum(e.quantity||0);const accepted=toNum(confirmAcceptedQty||0);const ppu=Number(e._ppu||e.pricePerUnit||0) || (plan>0?Number(e.total||0)/plan:0);const newTotal=Math.round(accepted*ppu);const diff=plan-accepted;const norm=normalizeMeasure(plan,e.unit);const planNorm=norm.qty;const unitNorm=norm.unit;const factor=norm.factor;const acceptedNorm=accepted*factor;const ppuNorm=factor>1?(ppu/factor):ppu;const diffNorm=diff*factor;return(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500,padding:'20px'}}><div style={{...card,padding:'24px',width:'min(480px,100%)',maxHeight:'90vh',overflowY:'auto'}}>
