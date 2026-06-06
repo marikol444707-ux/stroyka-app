@@ -8,6 +8,7 @@ import SupplyHeaderTabs from './components/SupplyHeaderTabs';
 import SupplyRequestForm from './components/SupplyRequestForm';
 import SupplyRequestsList from './components/SupplyRequestsList';
 import SupplyDeliveriesPanel from './components/SupplyDeliveriesPanel';
+import SupplyCatalogPanel from './components/SupplyCatalogPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -13826,49 +13827,19 @@ function App() {
               {/* Вкладка «Поставщики» — справочник поставщиков внутри снабжения */}
               {curTab==='suppliers' && renderSuppliersDirectory()}
               {/* Вкладка «Каталоги» — прайсы поставщиков (просмотр) */}
-              {curTab==='catalog' && (()=>{
-                const q = (listSearch||'').toLowerCase().trim();
-                const items = (supplierCatalog||[]).filter(it=>!q || (it.materialName||'').toLowerCase().includes(q) || (it.supplierName||'').toLowerCase().includes(q));
-                const bySupplier = new Map();
-                items.forEach(it=>{
-                  const key = it.supplierName || ('Поставщик #'+it.supplierId);
-                  if (!bySupplier.has(key)) bySupplier.set(key, []);
-                  bySupplier.get(key).push(it);
-                });
-                return (<div>
-                  <div style={{...card,padding:'14px 16px',marginBottom:'16px',backgroundColor:C.accentLight,border:'1.5px solid '+(C.accentBorder||C.border)}}>
-                    <b style={{color:C.text,fontSize:'14px'}}>📦 Каталоги поставщиков</b>
-                    <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Прайсы заполняют сами поставщики в своих кабинетах. Здесь — актуальные цены, минимальные партии и сроки поставки. Используйте при выборе, у кого запросить КП.</p>
-                  </div>
-                  <input value={listSearch} onChange={e=>setListSearch(e.target.value)} placeholder="🔍 Поиск по материалу или поставщику..." style={{...inp,marginBottom:'16px'}} />
-                  {bySupplier.size===0 && <div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>{(supplierCatalog||[]).length===0?'Каталоги пока пусты — поставщики ещё не загрузили прайсы.':'Ничего не найдено по запросу.'}</div>}
-                  {Array.from(bySupplier.entries()).map(([sup, rows])=>(
-                    <div key={sup} style={{...card,padding:'14px 16px',marginBottom:'12px'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px'}}>
-                        <b style={{color:C.text,fontSize:'14px'}}>🏢 {sup}</b>
-                        <span style={{fontSize:'12px',color:C.textSec}}>{rows.length+' поз.'}</span>
-                      </div>
-                      <div style={{overflowX:'auto'}}>
-                        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
-                          <thead><tr style={{color:C.textMuted,textAlign:'left'}}>
-                            <th style={{...tblH}}>Материал</th><th style={tblH}>Цена</th><th style={tblH}>Ед.</th><th style={tblH}>Мин. партия</th><th style={tblH}>Срок</th><th style={tblH}>Наличие</th>
-                          </tr></thead>
-                          <tbody>
-                            {rows.map(it=>(<tr key={it.id} style={{borderTop:'1px solid '+C.border}}>
-                              <td style={{...tblC,fontWeight:'600',color:C.text}}>{it.materialName}</td>
-                              <td style={{...tblC,whiteSpace:'nowrap'}}>{(it.price||0).toLocaleString('ru-RU')+' ₽'}</td>
-                              <td style={tblC}>{it.unit}</td>
-                              <td style={tblC}>{it.minQuantity}</td>
-                              <td style={tblC}>{(it.deliveryDays||0)+' дн.'}</td>
-                              <td style={tblC}>{it.inStock?<span style={badge(C.success,C.successLight,C.successBorder)}>В наличии</span>:<span style={badge(C.textMuted,C.bg,C.border)}>Под заказ</span>}</td>
-                            </tr>))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))}
-                </div>);
-              })()}
+              {curTab==='catalog' && (
+                <SupplyCatalogPanel
+                  C={C}
+                  card={card}
+                  inp={inp}
+                  tblH={tblH}
+                  tblC={tblC}
+                  badge={badge}
+                  supplierCatalog={supplierCatalog}
+                  listSearch={listSearch}
+                  setListSearch={setListSearch}
+                />
+              )}
               {curTab==='deliveries' && (
                 <SupplyDeliveriesPanel
                   C={C}
