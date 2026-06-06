@@ -51,6 +51,7 @@ import EstimateSelectedTitleBadges from './components/EstimateSelectedTitleBadge
 import EstimateCreateFormFields from './components/EstimateCreateFormFields';
 import EstimateImportSettings from './components/EstimateImportSettings';
 import EstimateTemplatesList from './components/EstimateTemplatesList';
+import EstimateListEmptyStates from './components/EstimateListEmptyStates';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14248,8 +14249,13 @@ function App() {
                     estimateKind={estimateKind}
                     estimateTotal={estimateTotal}
                   />
-                  {normal.length===0&&templates.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><Calculator size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Смет нет — создайте первую!</p></div>}
-                  {normal.length>0&&grouped.length===0&&<div style={{...card,padding:'24px',textAlign:'center',color:C.textMuted}}>В активном списке только архивные сметы</div>}
+                  <EstimateListEmptyStates
+                    C={C}
+                    card={card}
+                    normalCount={normal.length}
+                    templatesCount={templates.length}
+                    groupedCount={grouped.length}
+                  />
                 </>);})()}
               </div>)}
             </div>)}
