@@ -53,6 +53,7 @@ import EstimateImportSettings from './components/EstimateImportSettings';
 import EstimateTemplatesList from './components/EstimateTemplatesList';
 import EstimateListEmptyStates from './components/EstimateListEmptyStates';
 import EstimateListSummaryBar from './components/EstimateListSummaryBar';
+import EstimateCreateActions from './components/EstimateCreateActions';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -13937,7 +13938,7 @@ function App() {
                   estimatePackages={ESTIMATE_PACKAGES}
                   templates={estimatesList.filter(isGlobalEstimateTemplate)}
                 />
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{
+                <EstimateCreateActions btnO={btnO} btnG={btnG} onCreate={async()=>{
                   if(!newEstimate.name) return;
                   let sections=[];
                   if(newEstimate.templateId){
@@ -13959,7 +13960,7 @@ function App() {
                   }
                   await queueEstimateQualityReviewTask(newEst, 'Смета создана');
                   await queueEstimateNormReviewTask(newEst, 'Смета создана', nextEstimates);
-                }} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
+                }} onCancel={()=>setShowForm(false)} />
               </div>)}
               {selectedEstimate?(<div>
                 <EstimateImportValidationBanner
