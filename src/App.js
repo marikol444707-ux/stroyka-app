@@ -30,6 +30,7 @@ import ProjectWorkJournalTableModal from './components/ProjectWorkJournalTableMo
 import ProjectMaterialInspectionEditModal from './components/ProjectMaterialInspectionEditModal';
 import ProjectCableJournalEditModal from './components/ProjectCableJournalEditModal';
 import ProjectHiddenWorksActEditModal from './components/ProjectHiddenWorksActEditModal';
+import ProjectHiddenWorksActSignatureModal from './components/ProjectHiddenWorksActSignatureModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -10007,71 +10008,17 @@ function App() {
             </div>
           )}
         </div>
-        {editingAct&&(()=>{
-          const a=editingAct;
-          const upd=(k,v)=>setEditingAct({...editingAct,[k]:v});
-          const allSigned=!!(a.signedCustomer&&a.signedSupervisor&&a.signedContractor&&a.signedSubcontractor);
-          const saveSign=async()=>{
-            const body={
-              status:allSigned?'Подписан':(a.status||'Черновик'),
-              signedCustomer:a.signedCustomer||'',signedSupervisor:a.signedSupervisor||'',
-              signedContractor:a.signedContractor||'',signedSubcontractor:a.signedSubcontractor||'',
-              signedCustomerAt:a.signedCustomerAt||'',signedSupervisorAt:a.signedSupervisorAt||'',
-              signedContractorAt:a.signedContractorAt||'',signedSubcontractorAt:a.signedSubcontractorAt||'',
-              conclusion:a.conclusion||'',comments:a.comments||'',
-              materialsUsed:a.materialsUsed||'',projectDocs:a.projectDocs||'',
-              photos:a.photos||'',certificates:a.certificates||'',city:a.city||'',
-            };
-            const res=await fetch(API+'/hidden-works-acts/'+a.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-            const data=await res.json().catch(()=>({}));
-            setHiddenActs(prev=>prev.map(x=>x.id===a.id?{...x,...body,status:data.status||body.status}:x));
-            setEditingAct(null);
-          };
-          return(<div onClick={()=>setEditingAct(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-            <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(640px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-              <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div>
-                  <b style={{color:C.text,fontSize:'15px',display:'block'}}>🔒 {a.actNumber}</b>
-                  <span style={{fontSize:'11px',color:C.textSec}}>Акт освидетельствования скрытых работ</span>
-                </div>
-                <button onClick={()=>setEditingAct(null)} style={{...btnG,padding:'5px 10px'}}>✕</button>
-              </div>
-              <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
-                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{a.workName}</b></div>
-                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{Number(a.quantity||0).toLocaleString('ru-RU')+' '+(a.unit||'')}</b></div>
-                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Бригада</p><b style={{fontSize:'13px',color:C.text}}>{a.brigade||'—'}</b></div>
-                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Дата</p><b style={{fontSize:'13px',color:C.text}}>{a.workDate||'—'}</b></div>
-                </div>
-                <p style={{fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px'}}>Материалы и применённые конструкции</p>
-                <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'12px',color:C.textSec,whiteSpace:'pre-wrap',marginBottom:'14px',minHeight:'40px'}}>{a.materialsUsed||'(не указаны подрядчиком)'}</div>
-                <p style={{fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px'}}>Проектная документация</p>
-                <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'12px',color:C.textSec,whiteSpace:'pre-wrap',marginBottom:'14px',minHeight:'40px'}}>{a.projectDocs||'(не указаны)'}</div>
-                <p style={{fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px'}}>Заключение комиссии</p>
-                <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'12px',color:C.textSec,whiteSpace:'pre-wrap',marginBottom:'14px',minHeight:'40px'}}>{a.conclusion||'(подрядчик ещё не заполнил)'}</div>
-                <div style={{padding:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'10px'}}>
-                  <b style={{display:'block',marginBottom:'10px',color:C.warning,fontSize:'13px'}}>✍️ Моя подпись (Технадзор)</b>
-                  <input value={a.signedSupervisor||''} onChange={e=>upd('signedSupervisor',e.target.value)} placeholder='ФИО, должность, организация' style={{...inp,marginBottom:'8px'}}/>
-                  <input type='date' value={a.signedSupervisorAt||''} onChange={e=>upd('signedSupervisorAt',e.target.value)} style={inp}/>
-                  <p style={{fontSize:'11px',color:C.textSec,margin:'8px 0 0',lineHeight:1.4}}>Впиши свои ФИО и дату → нажми «Подписать». Подпись подрядчика, заказчика и субподрядчика поставит каждый со своей стороны.</p>
-                </div>
-                <div style={{marginTop:'14px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'11px'}}>
-                  <b style={{color:C.text,fontSize:'12px'}}>Подписи 4 сторон:</b>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
-                    <div><span style={{color:a.signedCustomer?C.success:C.textMuted}}>{a.signedCustomer?'✅':'⏳'} Заказчик:</span> {a.signedCustomer||'—'}</div>
-                    <div><span style={{color:a.signedSupervisor?C.success:C.textMuted}}>{a.signedSupervisor?'✅':'⏳'} Технадзор:</span> {a.signedSupervisor||'—'}</div>
-                    <div><span style={{color:a.signedContractor?C.success:C.textMuted}}>{a.signedContractor?'✅':'⏳'} Генподрядчик:</span> {a.signedContractor||'—'}</div>
-                    <div><span style={{color:a.signedSubcontractor?C.success:C.textMuted}}>{a.signedSubcontractor?'✅':'⏳'} Субподрядчик:</span> {a.signedSubcontractor||'—'}</div>
-                  </div>
-                </div>
-              </div>
-              <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'flex-end'}}>
-                <button onClick={()=>setEditingAct(null)} style={btnG}>Отмена</button>
-                <button onClick={saveSign} style={btnO}>✍️ Подписать</button>
-              </div>
-            </div>
-          </div>);
-        })()}
+        <ProjectHiddenWorksActSignatureModal
+          act={editingAct}
+          mode="supervisor"
+          setEditingAct={setEditingAct}
+          setHiddenActs={setHiddenActs}
+          C={C}
+          card={card}
+          inp={inp}
+          btnG={btnG}
+          btnO={btnO}
+        />
         {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'12px'}}/></div>)}
         {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)}/>}
       </div>
@@ -10302,68 +10249,17 @@ function App() {
           )}
         </div>
         {/* Модалка АОСР для подписи заказчика */}
-        {editingAct&&(()=>{
-          const a=editingAct;
-          const upd=(k,v)=>setEditingAct({...editingAct,[k]:v});
-          const allSigned=!!(a.signedCustomer&&a.signedSupervisor&&a.signedContractor&&a.signedSubcontractor);
-          const saveSign=async()=>{
-            const body={
-              status:allSigned?'Подписан':(a.status||'Черновик'),
-              signedCustomer:a.signedCustomer||'',signedSupervisor:a.signedSupervisor||'',
-              signedContractor:a.signedContractor||'',signedSubcontractor:a.signedSubcontractor||'',
-              signedCustomerAt:a.signedCustomerAt||'',signedSupervisorAt:a.signedSupervisorAt||'',
-              signedContractorAt:a.signedContractorAt||'',signedSubcontractorAt:a.signedSubcontractorAt||'',
-              conclusion:a.conclusion||'',comments:a.comments||'',
-              materialsUsed:a.materialsUsed||'',projectDocs:a.projectDocs||'',
-              photos:a.photos||'',certificates:a.certificates||'',city:a.city||'',
-            };
-            const res=await fetch(API+'/hidden-works-acts/'+a.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-            const data=await res.json().catch(()=>({}));
-            setHiddenActs(prev=>prev.map(x=>x.id===a.id?{...x,...body,status:data.status||body.status}:x));
-            setEditingAct(null);
-          };
-          return(<div onClick={()=>setEditingAct(null)} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-            <div onClick={e=>e.stopPropagation()} style={{...card,padding:0,width:'min(640px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-              <div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div>
-                  <b style={{color:C.text,fontSize:'15px',display:'block'}}>🔒 {a.actNumber}</b>
-                  <span style={{fontSize:'11px',color:C.textSec}}>Акт освидетельствования скрытых работ</span>
-                </div>
-                <button onClick={()=>setEditingAct(null)} style={{...btnG,padding:'5px 10px'}}>✕</button>
-              </div>
-              <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px',padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
-                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Работа</p><b style={{fontSize:'13px',color:C.text}}>{a.workName}</b></div>
-                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Объём</p><b style={{fontSize:'13px',color:C.text}}>{Number(a.quantity||0).toLocaleString('ru-RU')+' '+(a.unit||'')}</b></div>
-                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Бригада</p><b style={{fontSize:'13px',color:C.text}}>{a.brigade||'—'}</b></div>
-                  <div><p style={{fontSize:'11px',color:C.textSec,margin:'0 0 4px',fontWeight:'600'}}>Дата</p><b style={{fontSize:'13px',color:C.text}}>{a.workDate||'—'}</b></div>
-                </div>
-                <p style={{fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px'}}>Материалы</p>
-                <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'12px',color:C.textSec,whiteSpace:'pre-wrap',marginBottom:'14px',minHeight:'40px'}}>{a.materialsUsed||'(не указаны подрядчиком)'}</div>
-                <p style={{fontSize:'11px',color:C.textSec,fontWeight:'600',marginBottom:'4px'}}>Заключение комиссии</p>
-                <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'12px',color:C.textSec,whiteSpace:'pre-wrap',marginBottom:'14px',minHeight:'40px'}}>{a.conclusion||'(подрядчик ещё не заполнил)'}</div>
-                <div style={{padding:'14px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,borderRadius:'10px'}}>
-                  <b style={{display:'block',marginBottom:'10px',color:C.accent,fontSize:'13px'}}>✍️ Моя подпись (Заказчик)</b>
-                  <input value={a.signedCustomer||''} onChange={e=>upd('signedCustomer',e.target.value)} placeholder='ФИО, должность, организация' style={{...inp,marginBottom:'8px'}}/>
-                  <input type='date' value={a.signedCustomerAt||''} onChange={e=>upd('signedCustomerAt',e.target.value)} style={inp}/>
-                </div>
-                <div style={{marginTop:'14px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,fontSize:'11px'}}>
-                  <b style={{color:C.text,fontSize:'12px'}}>Подписи 4 сторон:</b>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
-                    <div><span style={{color:a.signedCustomer?C.success:C.textMuted}}>{a.signedCustomer?'✅':'⏳'} Заказчик:</span> {a.signedCustomer||'—'}</div>
-                    <div><span style={{color:a.signedSupervisor?C.success:C.textMuted}}>{a.signedSupervisor?'✅':'⏳'} Технадзор:</span> {a.signedSupervisor||'—'}</div>
-                    <div><span style={{color:a.signedContractor?C.success:C.textMuted}}>{a.signedContractor?'✅':'⏳'} Генподрядчик:</span> {a.signedContractor||'—'}</div>
-                    <div><span style={{color:a.signedSubcontractor?C.success:C.textMuted}}>{a.signedSubcontractor?'✅':'⏳'} Субподрядчик:</span> {a.signedSubcontractor||'—'}</div>
-                  </div>
-                </div>
-              </div>
-              <div style={{padding:'14px 20px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg,display:'flex',gap:'8px',justifyContent:'flex-end'}}>
-                <button onClick={()=>setEditingAct(null)} style={btnG}>Отмена</button>
-                <button onClick={saveSign} style={btnO}>✍️ Подписать</button>
-              </div>
-            </div>
-          </div>);
-        })()}
+        <ProjectHiddenWorksActSignatureModal
+          act={editingAct}
+          mode="customer"
+          setEditingAct={setEditingAct}
+          setHiddenActs={setHiddenActs}
+          C={C}
+          card={card}
+          inp={inp}
+          btnG={btnG}
+          btnO={btnO}
+        />
         {showPhotoModal&&(<div onClick={()=>setShowPhotoModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.9)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><img src={showPhotoModal} alt="" style={{maxWidth:'90%',maxHeight:'90%',borderRadius:'12px'}}/></div>)}
         {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)}/>}
       </div>
