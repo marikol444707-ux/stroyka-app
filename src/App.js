@@ -44,6 +44,7 @@ import EstimateSearchResults from './components/EstimateSearchResults';
 import EstimateImportValidationBanner from './components/EstimateImportValidationBanner';
 import MaterialNormNotice from './components/MaterialNormNotice';
 import MaterialNormsHeader from './components/MaterialNormsHeader';
+import EstimateImportSupportedFormat from './components/EstimateImportSupportedFormat';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14321,13 +14322,7 @@ function App() {
                     } catch(err){alert('Ошибка импорта');}
                   }}/>
                 </label>
-                <div style={{marginTop:'20px',padding:'15px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}>
-                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>📋 Поддерживаемый формат:</b>
-                  <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0'}}>✅ Гранд Смета версии 2024-2025</p>
-                  <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0'}}>✅ Разделы и подразделы</p>
-                  <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0'}}>✅ Наименование, единица, количество, стоимость</p>
-                  <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0'}}>✅ До 5000+ позиций</p>
-                </div>
+                <EstimateImportSupportedFormat C={C}/>
               </div>
             </div>)}
 
