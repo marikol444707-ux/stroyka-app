@@ -41,6 +41,7 @@ import WarehouseTabsNav from './components/WarehouseTabsNav';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
 import EstimatesListToolbar from './components/EstimatesListToolbar';
 import EstimateSearchResults from './components/EstimateSearchResults';
+import EstimateImportValidationBanner from './components/EstimateImportValidationBanner';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -13962,13 +13963,13 @@ function App() {
                 }} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
               {selectedEstimate?(<div>
-                {(importValidating||importValidationWarnings.length>0)&&(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:importValidating?C.infoLight:(importValidationWarnings.some(w=>w.severity==='критично')?C.dangerLight:C.warningLight),border:'1.5px solid '+(importValidating?C.infoBorder:(importValidationWarnings.some(w=>w.severity==='критично')?C.dangerBorder:C.warningBorder))}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
-                    <b style={{fontSize:'13px',color:importValidating?C.info:(importValidationWarnings.some(w=>w.severity==='критично')?C.danger:C.warning)}}>{importValidating?'🤖 ИИ проверяет смету...':('⚠️ Найдено замечаний: '+importValidationWarnings.length)}</b>
-                    {!importValidating&&<button onClick={()=>setImportValidationWarnings([])} style={{background:'none',border:'none',cursor:'pointer',fontSize:'16px',color:C.textSec}}>×</button>}
-                  </div>
-                  {importValidationWarnings.length>0&&(<div>{importValidationWarnings.map((w,i)=>(<div key={i} style={{padding:'6px 8px',marginBottom:'4px',backgroundColor:'rgba(255,255,255,0.6)',borderRadius:'6px',borderLeft:'3px solid '+(w.severity==='критично'?C.danger:w.severity==='внимание'?C.warning:C.info)}}><b style={{fontSize:'11px',color:C.text}}>{(w.severity==='критично'?'🔴 ':w.severity==='внимание'?'🟡 ':'💡 ')+(w.where||'?')}</b><p style={{fontSize:'11px',color:C.textSec,margin:'2px 0 0'}}>{w.message||''}</p></div>))}</div>)}
-                </div>)}
+                <EstimateImportValidationBanner
+                  C={C}
+                  card={card}
+                  importValidating={importValidating}
+                  importValidationWarnings={importValidationWarnings}
+                  setImportValidationWarnings={setImportValidationWarnings}
+                />
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center',flexWrap:'wrap'}}>
                   <button onClick={()=>setSelectedEstimate(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
                   {(()=>{const group=(estimatesList||[]).filter(e=>sameEstimateGroup(e,selectedEstimate));const st=estimateStatusView(selectedEstimate,group);return(<div style={{minWidth:'220px',flex:'1 1 260px'}}><b style={{color:C.text,fontSize:'15px',display:'block'}}>{selectedEstimate.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'3px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span><span style={badge(C.info,C.infoLight,C.infoBorder)}>{estimateTypeIcon(estimateKind(selectedEstimate))+' '+estimateKind(selectedEstimate)}</span><span style={badge(C.accent,C.accentLight,C.accentBorder)}>{'📁 '+estimatePackage(selectedEstimate)}</span>{selectedEstimate.version&&<span style={badge(C.textSec,C.bgGray,C.border)}>{'v'+selectedEstimate.version}</span>}</div></div>);})()}
