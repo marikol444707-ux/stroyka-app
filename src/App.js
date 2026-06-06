@@ -60,6 +60,7 @@ import EstimateAddSectionForm from './components/EstimateAddSectionForm';
 import EstimateTotalCard from './components/EstimateTotalCard';
 import EstimateSectionHeader from './components/EstimateSectionHeader';
 import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
+import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -14196,7 +14197,7 @@ function App() {
                         <td style={{...tblC,fontWeight:'700',color:C.success,whiteSpace:'nowrap',fontSize:'14px'}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
                         <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
                       </tr>);})}
-                    </tbody></table></div>):(<p style={{fontSize:'11px',color:C.textMuted,padding:'6px 10px'}}>Нет позиций</p>)}
+                    </tbody></table></div>):(<EstimateItemGroupEmpty C={C}/>)}
                   </div>);
                   return(<div key={section.id} style={{...card,marginBottom:'12px'}}>
                   <EstimateSectionHeader C={C} btnG={btnG} sectionName={section.name} total={total} onMarkSectionBasis={markSectionBasis}/>
