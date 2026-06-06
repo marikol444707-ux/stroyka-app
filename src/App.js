@@ -23,6 +23,7 @@ import ProjectLettersPanel from './components/ProjectLettersPanel';
 import ProjectBrigadeCalculationTab from './components/ProjectBrigadeCalculationTab';
 import ProjectHiddenWorksActsPanel from './components/ProjectHiddenWorksActsPanel';
 import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
+import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, RefreshCw, Menu } from 'lucide-react';
 
@@ -12422,42 +12423,33 @@ function App() {
                       />
                     )}
 
-                    {activeProjectTab==='Журнал ТБ'&&(<div>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                        <b style={{color:C.text}}>Журнал ТБ</b>
-                        <button onClick={()=>setShowForm(showForm==='tb'?false:'tb')} style={btnO}><Plus size={14}/>Добавить</button>
-                      </div>
-                      {showForm==='tb'&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
-                        <select value={newTbEntry.type} onChange={e=>setNewTbEntry({...newTbEntry,type:e.target.value})} style={inp}>{TB_TYPES_GOST.map(t=><option key={t.value} value={t.value}>{t.value}</option>)}{Object.keys(TB_INSTRUCTIONS).filter(k=>!TB_TYPES_GOST.find(t=>t.value===k)).map(t=><option key={t}>{t}</option>)}</select>
-                        {(()=>{const meta=TB_TYPES_GOST.find(t=>t.value===newTbEntry.type);return meta?(<p style={{fontSize:'10px',color:C.textMuted,margin:'0 0 8px',padding:'4px 8px',backgroundColor:C.bg,borderRadius:'4px'}}>📋 Периодичность: <b>{meta.freq}</b> · {meta.legal}</p>):null;})()}
-                        <input type="date" value={newTbEntry.date} onChange={e=>setNewTbEntry({...newTbEntry,date:e.target.value})} style={inp}/>
-                        <textarea placeholder="Программа инструктажа (3-5 пунктов)" value={newTbEntry.program||''} onChange={e=>setNewTbEntry({...newTbEntry,program:e.target.value})} style={{...inp,minHeight:'50px',resize:'vertical'}}/>
-                        <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'6px'}}>
-                          <textarea placeholder="Текст инструктажа (можно сгенерировать ИИ →)" value={newTbEntry.instructionText||''} onChange={e=>setNewTbEntry({...newTbEntry,instructionText:e.target.value})} style={{...inp,minHeight:'80px',flex:1,marginBottom:0,resize:'vertical'}}/>
-                          <button disabled={newTbEntry.aiLoading} onClick={async()=>{setNewTbEntry(prev=>({...prev,aiLoading:true}));try{const res=await fetch(API+'/tb-journal/ai-generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instructionType:newTbEntry.type,projectName:p.name,workContext:''})});if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail||'Ошибка');}const d=await res.json();setNewTbEntry(prev=>({...prev,instructionText:d.instructionText||'',aiLoading:false}));}catch(e){alert('AI: '+e.message);setNewTbEntry(prev=>({...prev,aiLoading:false}));}}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',padding:'10px 12px',fontSize:'11px',opacity:newTbEntry.aiLoading?0.6:1}} title="Сгенерировать текст по ГОСТ через ИИ"><Bot size={14}/>{newTbEntry.aiLoading?'…':'🤖 ИИ'}</button>
-                        </div>
-                        <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
-                          <input placeholder="ФИО участника" value={newParticipant} onChange={e=>setNewParticipant(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(setNewTbEntry({...newTbEntry,participants:[...(newTbEntry.participants||[]),newParticipant]}),setNewParticipant(''))} style={{...inp,marginBottom:0,flex:1}}/>
-                          <button onClick={()=>{if(newParticipant){setNewTbEntry({...newTbEntry,participants:[...(newTbEntry.participants||[]),newParticipant]});setNewParticipant('');}}} style={btnO}><Plus size={14}/></button>
-                        </div>
-                        {(newTbEntry.participants||[]).map((part,i)=>(<div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 10px',backgroundColor:C.bg,borderRadius:'6px',marginBottom:'4px',border:'1px solid '+C.border}}><span style={{fontSize:'12px'}}>{part}</span><button onClick={()=>setNewTbEntry({...newTbEntry,participants:(newTbEntry.participants||[]).filter((_,idx)=>idx!==i)})} style={{...btnR,padding:'2px 6px'}}><X size={10}/></button></div>))}
-                        <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
-                          <button onClick={async()=>{await saveTbEntry({...newTbEntry,project:p.name});setShowForm(false);setNewTbEntry({project:'',type:'Вводный инструктаж',participants:[],date:'',program:'',instructionText:'',aiLoading:false});}} style={btnO}><Check size={14}/>Сохранить</button>
-                          <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                        </div>
-                  </div>)}
-                      <div style={{position:'relative',marginBottom:'10px'}}>
-                        <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                        <input placeholder='🔍 Поиск инструктажа' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
-                      </div>
-                      {tbJournal.filter(e=>e.project===p.name&&matchSearch(listSearch,e.type,e.instructionText,e.masterName,e.instructor)).map(entry=>(<div key={entry.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                          <div><b style={{color:C.text,fontSize:'13px'}}>{entry.type}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{entry.date+' · '+(entry.participants||[]).length+' участников'}</p></div>
-                          <button onClick={()=>showPreview(buildTBContent(entry),'Журнал ТБ')} style={btnB}><Eye size={14}/>ЖТБ</button>
-                        </div>
-                      </div>))}
-                      {tbJournal.filter(e=>e.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Записей нет</p>}
-                  </div>)}
+                    {activeProjectTab==='Журнал ТБ'&&(
+                      <ProjectSafetyJournalPanel
+                        projectName={p.name}
+                        tbJournal={tbJournal}
+                        showForm={showForm}
+                        setShowForm={setShowForm}
+                        newTbEntry={newTbEntry}
+                        setNewTbEntry={setNewTbEntry}
+                        newParticipant={newParticipant}
+                        setNewParticipant={setNewParticipant}
+                        listSearch={listSearch}
+                        setListSearch={setListSearch}
+                        tbTypes={TB_TYPES_GOST}
+                        tbInstructions={TB_INSTRUCTIONS}
+                        saveTbEntry={saveTbEntry}
+                        matchSearch={matchSearch}
+                        showPreview={showPreview}
+                        buildTBContent={buildTBContent}
+                        C={C}
+                        card={card}
+                        inp={inp}
+                        btnO={btnO}
+                        btnG={btnG}
+                        btnB={btnB}
+                        btnR={btnR}
+                      />
+                    )}
                     {activeProjectTab==='АОСР'&&(
                       <ProjectHiddenWorksActsPanel
                         projectName={p.name}
