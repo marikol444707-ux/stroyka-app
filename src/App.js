@@ -144,7 +144,8 @@ const ESTIMATE_ITEM_TYPES = [
   {id:'material', label:'Материал', icon:'📦'},
   {id:'equipment', label:'Оборудование', icon:'⚙️'},
   {id:'transport', label:'Доставка/механизм', icon:'🚚'},
-  {id:'overhead', label:'Прочее', icon:'📄'}
+  {id:'overhead', label:'Прочее', icon:'📄'},
+  {id:'adjustment', label:'Корректировка', icon:'↕️'}
 ];
 const ESTIMATE_ITEM_TYPE_BY_ID = ESTIMATE_ITEM_TYPES.reduce((acc, t) => { acc[t.id] = t; return acc; }, {});
 const estimateTextKey = (value) => String(value||'').toLowerCase().replace(/ё/g,'е').replace(/[.,;:()[\]{}«»"'`]/g,' ').replace(/[-–—]/g,' ').replace(/\s+/g,' ').trim();
@@ -159,21 +160,44 @@ const ESTIMATE_TYPE_TOKENS = {
   transport: ['доставка','перевозка','транспорт','вывоз','погрузка','разгрузка','экспедирование'],
   overhead: ['накладн','прочие','непредвид','коэффициент','сметная прибыль','заготовительно складские','компенсация','страхование']
 };
+const ESTIMATE_WORK_ACTION_TOKENS = ['монтаж','демонтаж','установка','устройство','прокладка','разбор','разборка','сборка','кладка','штукатур','шпатлев','шпаклев','окраск','грунтов','облицов','стяжк','бетонир','заливка','укладка','замена','подключение','снятие','очистка','ремонт','изготовление','нанесение','армирование'];
+const ESTIMATE_STRONG_WORK_TOKENS = ['монтаж','демонтаж','установка','устройство','прокладка','разбор','разборка','сборка','замена','подключение','снятие','очистка','ремонт','изготовление','нанесение','армирование','бетонирование','облицовка','окраска','кладка','стяжка','штукатурка стен','шпаклевка стен','шпатлевка стен','грунтовка стен','окраска стен','облицовка стен'];
+const estimateCodeLooksResource = (value) => {
+  const raw = String(value||'').trim();
+  return /^\d{2,}[-/]\d+/.test(raw) || /^\d{3,}$/.test(raw) || /^тц[_-]/i.test(raw) || /^фс[сб]ц/i.test(raw);
+};
 const normalizeEstimateItemType = (it={}, sectionName='') => {
   const explicit = estimateTextKey(it.itemType || it.type);
-  if (ESTIMATE_ITEM_TYPE_BY_ID[explicit]) return explicit;
+  const nameText = estimateTextKey(it.name);
+  const sourceCode = String(it.sourceCode || it.obosn || it.code || it.reason || '').trim();
+  const nameLooksStrongWork = estimateTextHasAny(nameText, ESTIMATE_STRONG_WORK_TOKENS);
+  const nameLooksWork = estimateTextHasAny(nameText, ESTIMATE_WORK_ACTION_TOKENS);
+  const nameLooksMaterial = estimateTextHasAny(nameText, ESTIMATE_TYPE_TOKENS.material);
+  const nameLooksEquipment = estimateTextHasAny(nameText, ESTIMATE_TYPE_TOKENS.equipment);
+  const nameLooksTransport = estimateTextHasAny(nameText, ESTIMATE_TYPE_TOKENS.transport);
+  const codeLooksResource = estimateCodeLooksResource(sourceCode);
+  const explicitKnown = ESTIMATE_ITEM_TYPE_BY_ID[explicit] ? explicit : '';
+  const importedWeakWork = it.isImported && explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport || toNum(it.quantity) < 0);
+  if (explicitKnown && !importedWeakWork) return explicitKnown;
+  if (explicit.includes('коррект') || explicit.includes('adjust')) return 'adjustment';
   if (explicit.includes('мат')) return 'material';
   if (explicit.includes('оборуд') || explicit.includes('механизм')) return 'equipment';
   if (explicit.includes('достав') || explicit.includes('транспорт')) return 'transport';
   if (explicit.includes('проч') || explicit.includes('наклад')) return 'overhead';
   if (explicit.includes('работ')) return 'work';
+  if (it.isImported && toNum(it.quantity) < 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
+  if (toNum(it.priceMaterial)>0 && toNum(it.priceWork)===0) return 'material';
+  if (codeLooksResource && !nameLooksStrongWork) return 'material';
+  if (nameLooksTransport && !nameLooksWork) return 'transport';
+  if (nameLooksEquipment && !nameLooksWork) return 'equipment';
+  if (nameLooksMaterial && !nameLooksStrongWork) return 'material';
+  if (nameLooksWork) return 'work';
   const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
-  if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.work)) return 'work';
   if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.transport)) return 'transport';
   if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.equipment)) return 'equipment';
   if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.overhead)) return 'overhead';
   if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.material)) return 'material';
-  if (toNum(it.priceMaterial)>0 && toNum(it.priceWork)===0) return 'material';
+  if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.work)) return 'work';
   return 'work';
 };
 const estimateItemTypeMeta = (type) => ESTIMATE_ITEM_TYPE_BY_ID[type] || ESTIMATE_ITEM_TYPE_BY_ID.work;
@@ -237,9 +261,47 @@ const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
   return 'manual';
 };
 const estimateMeasurementBasisOf = (it={}, sectionName='') => (it.measurementBasis && ESTIMATE_MEASUREMENT_BASE_BY_ID[it.measurementBasis]) ? it.measurementBasis : suggestEstimateMeasurementBasis(it, sectionName);
+const normalizeImportedEstimateItem = (item={}, sectionName='') => {
+  const base = {...item, isImported:true};
+  const itemType = normalizeEstimateItemType(base, sectionName);
+  const total = toNum(item.total);
+  const totalWork = toNum(item.totalWork);
+  const totalMaterial = toNum(item.totalMaterial);
+  let priceWork = toNum(item.priceWork);
+  let priceMaterial = toNum(item.priceMaterial);
+  if (!priceWork && !priceMaterial) {
+    if (itemType === 'work') priceWork = totalWork || total;
+    else if (['material','equipment','transport'].includes(itemType)) priceMaterial = totalMaterial || total;
+  }
+  if (itemType === 'material' && priceWork > 0 && !priceMaterial) {
+    priceMaterial = priceWork;
+    priceWork = 0;
+  }
+  if (itemType === 'work' && priceMaterial > 0 && !priceWork) {
+    priceWork = priceMaterial;
+    priceMaterial = 0;
+  }
+  if (itemType === 'adjustment') {
+    priceWork = 0;
+    priceMaterial = 0;
+  }
+  return {
+    ...base,
+    itemType,
+    priceWork: priceWork || '',
+    priceMaterial: priceMaterial || '',
+    measurementBasis: itemType === 'work' ? (item.measurementBasis || suggestEstimateMeasurementBasis(base, sectionName)) : 'manual',
+    importKind: itemType === 'adjustment' ? 'resource_adjustment' : (item.importKind || '')
+  };
+};
+const normalizeEstimateImportSections = (sections=[]) => (sections||[]).map(section => ({
+  ...section,
+  items: (section.items||[]).map(item => item?.isImported ? normalizeImportedEstimateItem(item, section.name) : item)
+}));
 const enrichEstimateMeasurementBasis = (sections=[]) => (sections||[]).map(section => ({
   ...section,
   items: (section.items||[]).map(item => {
+    if (item?.isImported) return normalizeImportedEstimateItem(item, section.name);
     const itemType = normalizeEstimateItemType(item, section.name);
     return {
       ...item,
@@ -248,8 +310,8 @@ const enrichEstimateMeasurementBasis = (sections=[]) => (sections||[]).map(secti
     };
   })
 }));
-const estimateItemWorkSum = (it) => (it?.isImported ? toNum(it?.priceWork) : toNum(it?.quantity) * toNum(it?.priceWork));
-const estimateItemMaterialSum = (it) => (it?.isImported ? toNum(it?.priceMaterial) : toNum(it?.quantity) * toNum(it?.priceMaterial));
+const estimateItemWorkSum = (it) => ['adjustment','note'].includes(normalizeEstimateItemType(it, it?.sectionName||it?.section||'')) ? 0 : (it?.isImported ? toNum(it?.priceWork) : toNum(it?.quantity) * toNum(it?.priceWork));
+const estimateItemMaterialSum = (it) => ['adjustment','note'].includes(normalizeEstimateItemType(it, it?.sectionName||it?.section||'')) ? 0 : (it?.isImported ? toNum(it?.priceMaterial) : toNum(it?.quantity) * toNum(it?.priceMaterial));
 const estimateItemTotal = (it) => estimateItemWorkSum(it) + estimateItemMaterialSum(it);
 const estimateItemDoneTotal = (it) => {
   const q = toNum(it?.quantity);
@@ -2881,6 +2943,8 @@ function App() {
   const estimateRowsForDiff = (est) => {
     const grouped = new Map();
     _sectionsOfEst(est).forEach((section,sectionIdx)=>(section.items||[]).forEach((item,itemIdx)=>{
+      const itemType = normalizeEstimateItemType(item, section.name);
+      if (['adjustment','note'].includes(itemType)) return;
       const rawQty = toNum(item.quantity);
       const normalized = normalizeMeasure(rawQty,item.unit);
       const qty = normalized.qty;
@@ -3661,6 +3725,7 @@ function App() {
     if(active.length===0) return [];
     const rows=[];
     active.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+        if(!isEstimateWorkItem(it,s.name)) return;
         const dq=Number(it.doneQuantity||0); if(dq<=0) return;
         const total=estimateItemDoneTotal(it);
         const price=dq>0 ? total/dq : 0;
@@ -3674,6 +3739,7 @@ function App() {
     if(active.length===0) return [];
     const rows=[];
     active.forEach(est=>_sectionsOfEst(est).forEach((s,sectionIdx)=>(s.items||[]).forEach((it,itemIdx)=>{
+        if(!isEstimateWorkItem(it,s.name)) return;
         rows.push({
           key:[est.id,sectionIdx,itemIdx].join(':'),
           estimateId:est.id,
@@ -4937,7 +5003,11 @@ function App() {
       if (!rawQtyText) {
         push('Нет количества', section, item, sectionIdx, itemIdx, 'Количество пустое. Нужно указать плановый объём по смете.', 'critical');
       } else if (qty < 0) {
-        push('Отрицательное количество', section, item, sectionIdx, itemIdx, 'Количество меньше нуля. Такая строка ломает сумму сметы, остатки и сопоставление с новой редакцией.', 'critical');
+        if (itemType === 'adjustment') {
+          push('Корректировка ресурса', section, item, sectionIdx, itemIdx, 'Минусовая ресурсная строка сохранена для аудита импорта, но не участвует в суммах, КС и закрытии работ.', 'info');
+        } else {
+          push('Отрицательное количество', section, item, sectionIdx, itemIdx, 'Количество меньше нуля. Такая строка ломает сумму сметы, остатки и сопоставление с новой редакцией.', 'critical');
+        }
       } else if (qty === 0) {
         push('Нулевое количество', section, item, sectionIdx, itemIdx, 'Количество равно 0. Если строка нужна, укажите объём; если не нужна — перенесите в исключение/архив.', 'warning');
       }
@@ -4947,8 +5017,8 @@ function App() {
       if (priceWork < 0 || priceMaterial < 0) {
         push('Отрицательная цена', section, item, sectionIdx, itemIdx, 'Цена работ или материалов меньше нуля. Для уменьшения объёма лучше использовать изменение к смете/исключение, а не минусовую цену.', 'critical');
       }
-      if (itemType !== 'note' && qty > 0 && Math.abs(estimateItemTotal(item)) < 0.01) {
-        push('Нулевая сумма', section, item, sectionIdx, itemIdx, 'У строки есть объём, но сумма равна 0. Заполните цену или проверьте тип позиции.', 'warning');
+      if (itemType === 'work' && qty > 0 && Math.abs(estimateItemTotal(item)) < 0.01) {
+        push('Нулевая сумма работы', section, item, sectionIdx, itemIdx, 'У рабочей строки есть объём, но сумма равна 0. Заполните цену или проверьте тип позиции.', 'warning');
       }
     }));
     const rank = {'critical':0,'warning':1,'info':2};
@@ -13581,6 +13651,23 @@ function App() {
                     }catch(e){alert('Не удалось загрузить историю');}
                   }} style={btnG}>📜 История</button>
                   <button onClick={async()=>{
+                    if(!selectedEstimate?.id) return;
+                    const normalizedSections=normalizeEstimateImportSections(selectedEstimate.sections||[]);
+                    const updated={...selectedEstimate,sections:normalizedSections};
+                    setSelectedEstimate(updated);
+                    setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
+                    await persistEstimate(updated);
+                    const qualityWarnings=estimateQualityRows(updated).map(row=>({
+                      type:'качество',
+                      where:(row.sectionName||'')+' / '+(row.itemName||''),
+                      message:row.status+': '+row.message,
+                      severity:row.severity==='critical'?'критично':row.severity==='info'?'совет':'внимание'
+                    }));
+                    setImportValidationWarnings(qualityWarnings);
+                    await queueEstimateQualityReviewTask(updated,'Нормализация импорта сметы');
+                    alert('Импорт нормализован. Осталось замечаний: '+qualityWarnings.length);
+                  }} style={btnGr}>🧹 Нормализовать импорт</button>
+                  <button onClick={async()=>{
                     setEstimateChatMessages([]);
                     setShowEstimateChat(true);
                     try{
@@ -13853,12 +13940,19 @@ function App() {
                       const sections={};
                       (data.items||[]).forEach(item=>{
                         if(!sections[item.section]) sections[item.section]={id:Date.now()+Math.random(),name:item.section,items:[]};
-                        const tw=Number(item.totalWork||0);
-                        const tm=Number(item.totalMaterial||0);
-	                        const importedItem={id:Date.now()+Math.random(),name:item.name,unit:item.unit,quantity:item.quantity,priceWork:tw>0||tm===0?(tw||item.total):0,priceMaterial:tm>0?tm:0,isImported:true,itemType:item.type||''};
-	                        importedItem.itemType=normalizeEstimateItemType(importedItem,item.section);
-                          importedItem.measurementBasis=importedItem.itemType==='work'?suggestEstimateMeasurementBasis(importedItem,item.section):'manual';
-	                        sections[item.section].items.push(importedItem);
+                        const importedItem=normalizeImportedEstimateItem({
+                          id:Date.now()+Math.random(),
+                          name:item.name,
+                          unit:item.unit,
+                          quantity:item.quantity,
+                          total:item.total,
+                          totalWork:item.totalWork,
+                          totalMaterial:item.totalMaterial,
+                          sourceCode:item.sourceCode||item.obosn||'',
+                          isImported:true,
+                          itemType:item.type||''
+                        }, item.section);
+                        sections[item.section].items.push(importedItem);
                       });
                       const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const estDraft={projectId:newEstimate.projectId,projectName:projName,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная'};const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:newEstimate.version||nextEstimateVersionFor(estDraft),smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная',sections:enrichEstimateMeasurementBasis(Object.values(sections))};
                       const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});
@@ -13879,7 +13973,7 @@ function App() {
                         type:'качество',
                         where:(row.sectionName||'')+' / '+(row.itemName||''),
                         message:row.status+': '+row.message,
-                        severity:row.severity==='critical'?'критично':'внимание'
+                        severity:row.severity==='critical'?'критично':row.severity==='info'?'совет':'внимание'
                       }));
                       setImportValidating(true);
                       setImportValidationWarnings(qualityWarnings);

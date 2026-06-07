@@ -15,6 +15,7 @@ import json
 import time
 import datetime as dt
 import mimetypes
+import re
 import urllib.parse
 import urllib.request
 
@@ -6108,7 +6109,10 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
     # Собираем уникальные названия работ
     names = []
     for sec in sections:
+        section_name = sec.get("name") or ""
         for it in (sec.get("items") or []):
+            if _estimate_item_type_backend(it, section_name) != "work":
+                continue
             nm = (it.get("name") or "").strip()
             if nm and nm not in names:
                 names.append(nm)
@@ -6155,7 +6159,10 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
     # Проставляем hiddenWork=true найденным (ручные отметки не снимаем)
     count = 0
     for sec in sections:
+        section_name = sec.get("name") or ""
         for it in (sec.get("items") or []):
+            if _estimate_item_type_backend(it, section_name) != "work":
+                continue
             nm = (it.get("name") or "").strip()
             if nm in hidden_set and not it.get("hiddenWork"):
                 it["hiddenWork"] = True
@@ -6871,12 +6878,18 @@ def _estimate_sections(value):
         return []
 
 def _estimate_item_sum_backend(item: dict) -> float:
+    raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").lower()
+    if raw in ("adjustment", "корректировка", "note", "примечание"):
+        return 0.0
     qty = _float_or_zero(item.get("quantity"))
     if item.get("isImported"):
         return _float_or_zero(item.get("priceWork")) + _float_or_zero(item.get("priceMaterial"))
     return qty * (_float_or_zero(item.get("priceWork")) + _float_or_zero(item.get("priceMaterial")))
 
 def _estimate_material_sum_backend(item: dict) -> float:
+    raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").lower()
+    if raw in ("adjustment", "корректировка", "note", "примечание"):
+        return 0.0
     qty = _float_or_zero(item.get("quantity"))
     if item.get("isImported"):
         return _float_or_zero(item.get("priceMaterial"))
@@ -8520,7 +8533,7 @@ def delete_unexpected_work(id: int, current_user: dict = Depends(require_roles(*
 
 @app.post("/parse-smeta")
 async def parse_smeta(file: UploadFile = File(...)):
-    import tempfile, os
+    import tempfile, os, re
     try:
         import openpyxl
     except ImportError:
@@ -8555,8 +8568,25 @@ async def parse_smeta(file: UploadFile = File(...)):
                 file_type = "vedomost"
                 break
         
-        work_prefixes = ["ГЭСН", "ФЕР", "ТЕР", "ГЭСНм", "ФЕРм", "ТЕРм", "ГЭСНи", "ФЕРи", "ГЭСНр", "ФЕРр", "ТЕРр"]
+        work_prefixes = ["ГЭСНм", "ФЕРм", "ТЕРм", "ГЭСНи", "ФЕРи", "ГЭСНр", "ФЕРр", "ТЕРр", "ГЭСН", "ФЕР", "ТЕР"]
         material_prefixes = ["ФСБЦ", "ФССЦ", "ТЦ_", "КАЦ", "МАТ"]
+        work_words = ("монтаж", "демонтаж", "установка", "устройство", "прокладка", "разбор", "разборка", "сборка", "замена", "подключение", "снятие", "очистка", "ремонт")
+        material_words = ("материал", "труба", "кабель", "провод", "смесь", "штукатурка", "шпатлевка", "шпаклевка", "клей", "краска", "грунтовка", "цемент", "бетон", "кирпич", "блок", "лист", "профиль", "саморез")
+
+        def _lsr_item_type(obosn_value, name_value):
+            code = str(obosn_value or "").strip()
+            name_key = str(name_value or "").lower().replace("ё", "е")
+            if any(code.startswith(x) for x in work_prefixes):
+                return "work"
+            if any(code.startswith(x) for x in material_prefixes):
+                return "material"
+            if re.match(r"^\d{2,}[-/]\d+", code) or re.match(r"^\d{3,}$", code):
+                return "material"
+            if any(word in name_key for word in work_words):
+                return "work"
+            if any(word in name_key for word in material_words):
+                return "material"
+            return "material"
         
         for i, row in enumerate(ws.iter_rows(min_row=data_start_row, values_only=True)):
             try:
@@ -8598,12 +8628,7 @@ async def parse_smeta(file: UploadFile = File(...)):
                     if "Пр/" in obosn or "648/" in obosn:
                         continue
                     
-                    if any(obosn.startswith(x) for x in work_prefixes):
-                        item_type = "work"
-                    elif any(obosn.startswith(x) for x in material_prefixes):
-                        item_type = "material"
-                    else:
-                        item_type = "work"
+                    item_type = _lsr_item_type(obosn, name_col)
                     
                     unit = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
                     qty = float(row[8]) if len(row) > 8 and isinstance(row[8], (int,float)) else 0
@@ -8629,7 +8654,8 @@ async def parse_smeta(file: UploadFile = File(...)):
                         "total": mat_total if item_type == "material" else work_total,
                         "totalWork": work_total,
                         "totalMaterial": mat_total,
-                        "type": item_type
+                        "type": item_type,
+                        "sourceCode": obosn
                     })
                 
                 elif file_type == "defect":
@@ -10178,8 +10204,11 @@ def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = 
     # Flatten items
     items = []
     for s in sections:
+        section_name = s.get("name","")
         for it in (s.get("items") or []):
-            items.append({"section": s.get("name",""), "name": it.get("name",""), "unit": it.get("unit",""), "quantity": it.get("quantity",0)})
+            if _estimate_item_type_backend(it, section_name) != "work":
+                continue
+            items.append({"section": section_name, "name": it.get("name",""), "unit": it.get("unit",""), "quantity": it.get("quantity",0)})
 
     if not items:
         return {"ok": True, "assignments": []}
@@ -11215,15 +11244,22 @@ def _norm_keywords_from_text(value: str, limit: int = 5) -> list[str]:
 def _estimate_item_type_backend(item: dict, section_name: str = "") -> str:
     raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").lower()
     text = _norm_key_text((item.get("name") or "") + " " + section_name)
+    source_code = str(item.get("sourceCode") or item.get("obosn") or item.get("code") or "").strip()
+    material_markers = ("смесь", "штукатурка", "шпатлевка", "шпаклевка", "клей", "краска", "грунтовка", "кабель", "провод", "гофра", "лист гкл", "профиль", "саморез", "кирпич", "бетон")
+    strong_work_markers = ("монтаж", "установка", "устройство", "демонтаж", "разбор", "разборка", "прокладка", "замена", "подключение", "снятие", "очистка", "ремонт", "облицовка", "окраска", "кладка", "стяжка")
+    source_looks_resource = bool(re.match(r"^\d{2,}[-/]\d+", source_code) or re.match(r"^\d{3,}$", source_code) or re.match(r"^(ТЦ_|ФСБЦ|ФССЦ)", source_code, re.I))
+    if raw in ("adjustment", "корректировка", "note", "примечание"):
+        return "other"
+    if raw in ("work", "работа", "works", "работы") and item.get("isImported"):
+        if (source_looks_resource or any(m in text for m in material_markers)) and not any(w in text for w in strong_work_markers):
+            return "material"
     if raw in ("work", "работа", "works", "работы"):
         return "work"
     if raw in ("material", "материал", "materials", "материалы") or "материал" in raw:
         return "material"
     if raw in ("equipment", "оборудование", "delivery", "доставка", "other", "прочее"):
         return "other"
-    material_markers = ("смесь", "штукатурка", "шпатлевка", "шпаклевка", "клей", "краска", "грунтовка", "кабель", "провод", "гофра", "лист гкл", "профиль", "саморез", "кирпич", "бетон")
-    work_markers = ("монтаж", "установка", "устройство", "демонтаж", "разбор", "кладка", "окраска", "штукатур", "стяжка", "облицовка", "прокладка")
-    if any(m in text for m in material_markers) and not any(w in text for w in work_markers):
+    if any(m in text for m in material_markers) and not any(w in text for w in strong_work_markers):
         return "material"
     return "work"
 
@@ -13601,6 +13637,8 @@ def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_ro
             seen.add(key)
             unit = str(it.get("unit") or "шт")
             item_type = str(it.get("itemType") or "")
+            if item_type in ("adjustment", "note"):
+                continue
             try:
                 price_work = float(it.get("priceWork") or 0)
                 price_material = float(it.get("priceMaterial") or 0)
@@ -13614,6 +13652,8 @@ def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_ro
             else:
                 kind = "work"
                 price = price_work if not is_imported or qty == 0 else (price_work / qty if qty > 0 else price_work)
+            if price <= 0:
+                continue
             cur.execute("INSERT INTO pricelist_items (pricelist_id, name, unit, price, category, specialization, item_type) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                         (pricelist_id, nm, unit, round(price, 2), category, for_who, kind))
             inserted += 1
