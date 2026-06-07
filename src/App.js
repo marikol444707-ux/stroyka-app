@@ -38,6 +38,7 @@ import WarehouseMainStockPanel from './components/WarehouseMainStockPanel';
 import WarehouseCompanyWarehousesPanel from './components/WarehouseCompanyWarehousesPanel';
 import WarehouseHistoryPanel from './components/WarehouseHistoryPanel';
 import WarehouseTabsNav from './components/WarehouseTabsNav';
+import WarehouseMaterialControlOverview from './components/WarehouseMaterialControlOverview';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
 import EstimatesListToolbar from './components/EstimatesListToolbar';
 import EstimateSearchResults from './components/EstimateSearchResults';
@@ -62,7 +63,7 @@ import EstimateSectionHeader from './components/EstimateSectionHeader';
 import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsHeader from './components/MaterialNormSuggestionsHeader';
-import WeatherTabsNav from './components/WeatherTabsNav';
+import WeatherPage from './components/WeatherPage';
 import ClientsPage from './components/ClientsPage';
 import PricelistsPage from './components/PricelistsPage';
 import MyExpensesPage from './components/MyExpensesPage';
@@ -12062,40 +12063,26 @@ function App() {
               btnG={btnG}
             />
 
-            {warehouseTab==='control'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'10px',flexWrap:'wrap'}}>
-                <div>
-                  <h3 style={{color:C.text,margin:'0 0 4px',fontSize:'15px',fontWeight:'700'}}>Контроль материалов по сметам</h3>
-                  <p style={{color:C.textSec,margin:0,fontSize:'12px'}}>Один экран: план из активных смет, заявки, поставки, перемещения, выдача мастерам и списание по работам.</p>
-                </div>
-                <button onClick={()=>exportToExcel(visibleActiveProjects(projects).flatMap(p=>materialReconciliationRows(p.name).map(r=>({Объект:p.name,Материал:r.name,Ед:r.unit,План:r.planQty,Заявки:r.requested,'В пути':r.inTransit,Накладные:r.invoiceReceived,Поставки:r.supplyReceived,Перемещено:r.movedNet,'Всего получено':r.supplied,Выдано:r.issued,Списано:r.used,'У мастеров':r.masterBalance,Остаток:r.stock,'Расчётный остаток':r.expectedStock,'Расхождение склада':r.stockDiff,Докупить:r.toBuy,Статус:r.stockMismatch?'Расхождение склада':r.issued>0&&r.usedWithoutIssue>0?'Списано сверх выдачи':r.isOutsideEstimate?'Вне сметы':r.toBuy>0?'Докупить':r.shortage>0?'Закрывается':r.masterBalance>0?'У мастеров':r.over>0?'Сверх сметы':'Закрыто'}))),'Контроль_материалов')} style={btnG}><Download size={14}/>Excel</button>
-              </div>
-              {visibleActiveProjects(projects).map(p=>{const s=materialControlSummaryForProject(p.name);const hasIssue=s.toBuyRows.length||s.outsideRows.length||s.mismatchRows.length||s.stockMismatchRows.length;return(<div key={p.id||p.name} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(s.stockMismatchRows.length?C.danger:s.toBuyRows.length?C.warning:s.outsideRows.length?C.danger:hasIssue?C.info:C.success)}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
-                  <div style={{flex:1,minWidth:'240px'}}>
-                    <b style={{color:C.text,fontSize:'14px'}}>{p.name}</b>
-                    <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'6px'}}>
-                      <span style={badge(C.textSec,C.bgGray,C.border)}>{'План: '+s.planRows.length}</span>
-                      <span style={badge(C.success,C.successLight,C.successBorder)}>{'Поставлялось: '+s.suppliedRows.length}</span>
-                      {s.invoiceRows.length>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Накладные: '+s.invoiceRows.length}</span>}
-                      {s.deliveryRows.length>0&&<span style={badge(C.success,C.successLight,C.successBorder)}>{'Поставки: '+s.deliveryRows.length}</span>}
-                      {s.movedRows.length>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'Перемещ.: '+s.movedRows.length}</span>}
-                      {s.masterBalanceRows.length>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'У мастеров: '+s.masterBalanceRows.length}</span>}
-                      <span style={badge(s.toBuyRows.length?C.warning:C.success,s.toBuyRows.length?C.warningLight:C.successLight,s.toBuyRows.length?C.warningBorder:C.successBorder)}>{'Докупить: '+s.toBuyRows.length}</span>
-                      {s.outsideRows.length>0&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Вне сметы: '+s.outsideRows.length}</span>}
-                      {s.mismatchRows.length>0&&<span style={badge(C.warning,C.warningLight,C.warningBorder)}>{'Ед. изм.: '+s.mismatchRows.length}</span>}
-                      {s.stockMismatchRows.length>0&&<span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Расхождения: '+s.stockMismatchRows.length}</span>}
-                    </div>
-                    {(isFinanceRole()||isLeadership())&&<p style={{color:C.textMuted,margin:'6px 0 0',fontSize:'11px'}}>План материалов: {Math.round(s.planSum).toLocaleString('ru-RU')+' ₽'} · Оприходовано: {Math.round(s.suppliedSum).toLocaleString('ru-RU')+' ₽'}</p>}
-                  </div>
-                  <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                    <button onClick={()=>{setSelectedWarehouseProject(p.name);setWarehouseTab('objects');}} style={{...btnB,padding:'6px 10px',fontSize:'12px'}}><Eye size={13}/>Открыть</button>
-                    <button onClick={()=>showPreview(buildMaterialRequirementContent(p.name),'Потребность материалов — '+p.name)} style={{...btnG,padding:'6px 10px',fontSize:'12px'}}><Printer size={13}/>Печать</button>
-                  </div>
-                </div>
-              </div>);})}
-              {visibleActiveProjects(projects).length===0&&<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Объектов нет</div>}
-            </div>)}
+            {warehouseTab==='control'&&(
+              <WarehouseMaterialControlOverview
+                C={C}
+                badge={badge}
+                btnB={btnB}
+                btnG={btnG}
+                buildMaterialRequirementContent={buildMaterialRequirementContent}
+                card={card}
+                exportToExcel={exportToExcel}
+                isFinanceRole={isFinanceRole}
+                isLeadership={isLeadership}
+                materialControlSummaryForProject={materialControlSummaryForProject}
+                materialReconciliationRows={materialReconciliationRows}
+                projects={projects}
+                setSelectedWarehouseProject={setSelectedWarehouseProject}
+                setWarehouseTab={setWarehouseTab}
+                showPreview={showPreview}
+                visibleActiveProjects={visibleActiveProjects}
+              />
+            )}
 
             {warehouseTab==='warehouses'&&(
               <WarehouseCompanyWarehousesPanel
@@ -14164,47 +14151,29 @@ function App() {
             </div>)}
           </div>)}
 
-          {activePage==='weather'&&(<div>
-            <WeatherTabsNav weatherTab={weatherTab} setWeatherTab={setWeatherTab} btnO={btnO} btnG={btnG}/>
-
-            {weatherTab==='log'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Журнал погоды</b>
-                <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Добавить запись</button>
-              </div>
-              {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <select value={newWeather.projectName} onChange={e=>setNewWeather({...newWeather,projectName:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Выберите объект *</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <input type="date" value={newWeather.date} onChange={e=>setNewWeather({...newWeather,date:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newWeather.condition} onChange={e=>setNewWeather({...newWeather,condition:e.target.value})} style={{...inp,marginBottom:0}}>{WEATHER_CONDITIONS.map(w=><option key={w}>{w}</option>)}</select>
-                  <input placeholder="Температура (°C)" type="number" step="any" inputMode="decimal" value={newWeather.temperature} onChange={e=>setNewWeather({...newWeather,temperature:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Скорость ветра (м/с)" type="number" step="any" inputMode="decimal" value={newWeather.windSpeed} onChange={e=>setNewWeather({...newWeather,windSpeed:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Примечание" value={newWeather.notes} onChange={e=>setNewWeather({...newWeather,notes:e.target.value})} style={{...inp,marginBottom:0}}/>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={()=>{saveWeather();setShowForm(false);}} style={btnO}><Check size={14}/>Сохранить</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
-              </div>)}
-              {projects.map(p=>{
-                const pWeather=weatherLog.filter(w=>w.projectName===p.name).sort((a,b)=>b.date.localeCompare(a.date));
-                if(pWeather.length===0) return null;
-                return(<div key={p.id} style={{...card,marginBottom:'12px'}}>
-                  <div style={{padding:'12px 16px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}><b style={{color:C.text,fontSize:'13px'}}>{'📍 '+p.name}</b></div>
-                  <div style={{padding:'12px 16px'}}>
-                    {pWeather.map(w=>(<div key={w.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid '+C.border}}>
-                      <div><b style={{fontSize:'13px',color:C.text}}>{w.date}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{w.condition+' · '+w.temperature+'°C · Ветер: '+w.windSpeed+' м/с'+(w.notes?' · '+w.notes:'')}</p></div>
-                      <span style={{fontSize:'24px'}}>{{Ясно:'☀️',Облачно:'⛅',Пасмурно:'☁️',Дождь:'🌧️',Снег:'❄️',Гроза:'⛈️',Туман:'🌫️',Ветер:'💨'}[w.condition]||'🌤️'}</span>
-                    </div>))}
-                  </div>
-                </div>);
-              })}
-              {weatherLog.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><CloudSun size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Записей нет</p></div>}
-            </div>)}
-
-            {weatherTab==='jpr'&&(<div>
-              <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Журнал производства работ</h3>
-              {projects.map(p=>{const works=workJournal.filter(j=>j.project===p.name&&j.status==='Подтверждено');if(works.length===0) return null;return(<div key={p.id} style={{...card,padding:'14px',marginBottom:'10px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{color:C.text,fontSize:'13px'}}>{p.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{works.length+' работ · '+works.reduce((s,w)=>s+(w.total||0),0).toLocaleString()+' ₽'}</p></div><button onClick={()=>showPreview(buildJPRContent(p.name),'ЖПР — '+p.name)} style={btnB}><ScrollText size={14}/>ЖПР</button></div>);})}
-              {projects.every(p=>workJournal.filter(j=>j.project===p.name&&j.status==='Подтверждено').length===0)&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Подтверждённых работ нет</div>}
-            </div>)}
-          </div>)}
+          {activePage==='weather'&&(
+            <WeatherPage
+              C={C}
+              WEATHER_CONDITIONS={WEATHER_CONDITIONS}
+              btnB={btnB}
+              btnG={btnG}
+              btnO={btnO}
+              buildJPRContent={buildJPRContent}
+              card={card}
+              inp={inp}
+              newWeather={newWeather}
+              projects={projects}
+              saveWeather={saveWeather}
+              setNewWeather={setNewWeather}
+              setShowForm={setShowForm}
+              setWeatherTab={setWeatherTab}
+              showForm={showForm}
+              showPreview={showPreview}
+              weatherLog={weatherLog}
+              weatherTab={weatherTab}
+              workJournal={workJournal}
+            />
+          )}
 
           {activePage==='myexpenses'&&(
             <MyExpensesPage C={C} EXPENSE_CATEGORIES={EXPENSE_CATEGORIES} accountablePayments={accountablePayments} btnO={btnO} card={card} fileSrc={fileSrc} ownExpenses={ownExpenses} setReportingPayment={setReportingPayment} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowPhotoModal={setShowPhotoModal} user={user}/>
