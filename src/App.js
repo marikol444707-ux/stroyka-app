@@ -95,8 +95,15 @@ import ScannedInvoiceFormModal from './components/ScannedInvoiceFormModal';
 import ScanInvoiceModal from './components/ScanInvoiceModal';
 import OwnExpenseFormModal from './components/OwnExpenseFormModal';
 import QuickActionsModal from './components/QuickActionsModal';
+import NotificationsDropdown from './components/NotificationsDropdown';
+import QrModal from './components/QrModal';
+import RejectEntryModal from './components/RejectEntryModal';
+import MobileMenuSheet from './components/MobileMenuSheet';
+import FloatingCompanyChatPanel from './components/FloatingCompanyChatPanel';
+import EstimateChatModal from './components/EstimateChatModal';
+import EstimateVersionHistoryModal from './components/EstimateVersionHistoryModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
 installAuthFetch();
 const loadStoredUser = () => {
@@ -8484,26 +8491,7 @@ function App() {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',gap:'8px'}}>
             <div><h2 style={{margin:0,color:C.text,fontSize:'20px',fontWeight:'800'}}>СтройКа</h2><p style={{margin:0,color:C.textSec,fontSize:'12px'}}>{user.name+' — '+(ROLE_LABELS[user.role]||user.role)}</p></div>
             <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-              <div data-notification-root="1" style={{position:'relative'}}>
-                <button onClick={toggleNotifications} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                  <Bell size={16} color={C.textSec}/>
-                  {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
-                </button>
-                {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:0,width:'300px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.3)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}>
-                  <div style={{padding:'12px 16px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
-                    <b style={{color:C.text,fontSize:'13px'}}>Уведомления</b>
-                    <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                      <button onClick={markMyNotificationsRead} style={{...btnG,fontSize:'10px',padding:'2px 8px'}}>Все прочитано</button>
-                      <button onClick={closeNotifications} title="Свернуть" style={{...btnG,fontSize:'10px',padding:'2px 7px'}}><X size={12}/></button>
-                    </div>
-                  </div>
-                  {myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>Нет уведомлений</p>}
-                  {myNotifications(notifications).map(n=>(<div key={n.id} onClick={()=>{navigateTo(getNotifPage(n.type));setShowNotifications(false);const u=notifications.map(x=>x.id===n.id?{...x,read:true}:x);setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{padding:'10px 16px',borderBottom:'1px solid '+C.border,backgroundColor:n.read?'transparent':C.accentLight,cursor:'pointer'}}>
-                    <p style={{margin:0,fontSize:'12px',color:C.text}}>{n.text}</p>
-                    <p style={{margin:'2px 0 0',fontSize:'10px',color:C.textMuted}}>{n.time}</p>
-                  </div>))}
-                </div>)}
-              </div>
+              <NotificationsDropdown showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} C={C} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} dropdownWidth="300px" bellSize={16} markAllText="Все прочитано" emptyStyle={{fontSize:'12px'}}/>
               <button onClick={checkinGeo} style={{...btnGr,padding:'8px 14px',fontSize:'12px'}}><MapPin size={14}/>Отметиться</button>
             </div>
           </div>
@@ -10381,8 +10369,8 @@ function App() {
         aiNoticeIcon={aiNoticeIcon}
         aiNoticeText={aiNoticeText}
       />
-      {showQRModal&&(<div onClick={()=>setShowQRModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.7)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000,cursor:'pointer'}}><div style={{backgroundColor:'white',padding:'30px',borderRadius:'16px',textAlign:'center'}} onClick={e=>e.stopPropagation()}><h3 style={{color:C.text,marginBottom:'16px'}}>{showQRModal.title}</h3><img src={generateQR(showQRModal.data)} alt="QR" style={{width:'200px',height:'200px'}}/><p style={{color:C.textSec,fontSize:'12px',marginTop:'12px'}}>Сканируйте для быстрого доступа</p><button onClick={()=>setShowQRModal(null)} style={{...btnG,marginTop:'12px'}}>Закрыть</button></div></div>)}
-      {rejectingEntry&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Причина отклонения</h3><textarea placeholder="Укажите причину..." value={rejectComment} onChange={e=>setRejectComment(e.target.value)} style={{...inp,height:'100px',resize:'vertical'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>rejectJ(rejectingEntry,rejectComment)} style={btnR}><X size={14}/>Отклонить</button><button onClick={()=>{setRejectingEntry(null);setRejectComment('');}} style={btnG}>Отмена</button></div></div></div>)}
+      <QrModal showQRModal={showQRModal} setShowQRModal={setShowQRModal} generateQR={generateQR} C={C} btnG={btnG}/>
+      <RejectEntryModal rejectingEntry={rejectingEntry} rejectComment={rejectComment} setRejectComment={setRejectComment} setRejectingEntry={setRejectingEntry} rejectJ={rejectJ} C={C} card={card} inp={inp} btnR={btnR} btnG={btnG}/>
       {confirmingEntry&&(()=>{const e=confirmingEntry;const plan=toNum(e.quantity||0);const accepted=toNum(confirmAcceptedQty||0);const ppu=Number(e._ppu||e.pricePerUnit||0) || (plan>0?Number(e.total||0)/plan:0);const newTotal=Math.round(accepted*ppu);const diff=plan-accepted;const norm=normalizeMeasure(plan,e.unit);const planNorm=norm.qty;const unitNorm=norm.unit;const factor=norm.factor;const acceptedNorm=accepted*factor;const ppuNorm=factor>1?(ppu/factor):ppu;const diffNorm=diff*factor;return(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500,padding:'20px'}}><div style={{...card,padding:'24px',width:'min(480px,100%)',maxHeight:'90vh',overflowY:'auto'}}>
         <h3 style={{color:C.text,marginBottom:'8px',fontWeight:'700'}}>✅ Принять работу мастера</h3>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>{(e.masterName||e.master_name||'—')+' · '+e.project}</p>
@@ -10447,18 +10435,7 @@ function App() {
             <button onClick={()=>setShowQuickActions(true)} title='Быстрые действия' style={{padding:isMobile?'8px 10px':'8px 12px',background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'10px',cursor:'pointer',color:'white',fontWeight:'700',fontSize:isMobile?'0':'13px',display:'flex',alignItems:'center',gap:'4px'}}>⚡ <span style={{fontSize:'13px',display:isMobile?'none':'inline'}}>Быстро</span></button>
             {['директор','зам_директора','system_owner'].includes(user.role)&&<button onClick={openSystemStatus} title='Статус системы' style={{padding:isMobile?'8px 10px':'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',gap:'5px',color:C.textSec,fontSize:isMobile?'0':'12px',fontWeight:'700'}}><Settings size={17}/><span style={{display:isMobile?'none':'inline'}}>Статус</span></button>}
             <button onClick={()=>setShowChatPanel(s=>!s)} title='Чат' style={{position:'relative',padding:isMobile?'8px 10px':'8px 12px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><MessageSquare size={18} color={C.textSec}/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
-            <div data-notification-root="1" style={{position:'relative',display:'flex',alignItems:'center'}}>
-            <button onClick={toggleNotifications} style={{position:'relative',padding:'8px',backgroundColor:C.bgGray,border:'1.5px solid '+C.border,borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
-              <Bell size={18} color={C.textSec}/>
-              {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:C.danger,color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
-            </button>
-            {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:isMobile?'-8px':0,width:isMobile?'calc(100vw - 24px)':'360px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.12)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}><div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}><b style={{color:C.text,fontSize:'14px'}}>Уведомления</b><div style={{display:'flex',gap:'6px',alignItems:'center'}}><button onClick={markMyNotificationsRead} style={{...btnG,fontSize:'11px',padding:'3px 10px'}}>Прочитать все</button><button onClick={closeNotifications} title="Свернуть" style={{...btnG,fontSize:'11px',padding:'3px 8px'}}><X size={13}/></button></div></div>{myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted}}>Нет уведомлений</p>}
-                  <div style={{padding:'12px 18px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bg}}>
-                    <p style={{fontSize:'11px',color:C.textSec,margin:'0 0 8px'}}>📱 Уведомления в ВКонтакте:</p>
-                    {user.vkId ? <span style={{fontSize:'12px',color:C.success}}>✅ ВК подключён (ID: {user.vkId})</span> :
-                    <button onClick={()=>{const vkId=prompt('Введите ваш ID ВКонтакте (число из vk.com/id12345):');if(vkId&&Number(vkId)){fetch(API+'/vk-connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vkId:Number(vkId),email:user.email})}).then(()=>{const updated={...user,vkId:Number(vkId)};setUser(updated);localStorage.setItem('user',JSON.stringify(updated));alert('ВК подключён!');});}}} style={{...btnO,fontSize:'11px',padding:'5px 12px',width:'100%',justifyContent:'center'}}>Подключить ВК</button>}
-                  </div>{myNotifications(notifications).map(n=>(<div key={n.id} onClick={()=>{navigateTo(getNotifPage(n.type));setShowNotifications(false);const u=notifications.map(x=>x.id===n.id?{...x,read:true}:x);setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{padding:'12px 18px',borderBottom:'1px solid '+C.border,backgroundColor:n.read?'transparent':C.accentLight,cursor:'pointer'}}><p style={{margin:0,fontSize:'13px',color:C.text}}>{n.text}</p><p style={{margin:'3px 0 0',fontSize:'11px',color:C.textMuted}}>{n.time}</p></div>))}</div>)}
-            </div>
+            <NotificationsDropdown showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} C={C} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} isMobile={isMobile} showVkConnect/>
           </div>
         </div>
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
@@ -10525,26 +10502,7 @@ function App() {
                   <button onClick={()=>setDarkMode(d=>!d)} title={darkMode?'Светлая тема':'Тёмная тема'} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'16px'}}>{darkMode?'☀️':'🌙'}</button>
                   <button onClick={()=>setShowChatPanel(s=>!s)} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><MessageSquare size={18} color='#94a3b8'/>{unreadMessagesCount>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700',minWidth:'16px',textAlign:'center'}}>{unreadMessagesCount>99?'99+':unreadMessagesCount}</span>}</button>
                   <button onClick={()=>setShowAiAssistant(!showAiAssistant)} style={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}><Bot size={18} color='#94a3b8'/></button>
-                  <div data-notification-root="1" style={{position:'relative'}}>
-                    <button onClick={toggleNotifications} style={{position:'relative',padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                      <Bell size={18} color='#94a3b8'/>
-                      {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications}</span>}
-                    </button>
-                    {showNotifications&&(<div style={{position:'absolute',top:'calc(100% + 8px)',right:0,width:'360px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.3)',zIndex:1000,maxHeight:'420px',overflowY:'auto'}}>
-                      <div style={{padding:'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
-                        <b style={{color:C.text,fontSize:'14px'}}>Уведомления</b>
-                        <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                          <button onClick={markMyNotificationsRead} style={{...btnG,fontSize:'11px',padding:'3px 10px'}}>Прочитать все</button>
-                          <button onClick={closeNotifications} title="Свернуть" style={{...btnG,fontSize:'11px',padding:'3px 8px'}}><X size={13}/></button>
-                        </div>
-                      </div>
-                      {myNotifications(notifications).length===0&&<p style={{padding:'20px',textAlign:'center',color:C.textMuted}}>Нет уведомлений</p>}
-                      {myNotifications(notifications).map(n=>(<div key={n.id} onClick={()=>{navigateTo(getNotifPage(n.type));setShowNotifications(false);const u=notifications.map(x=>x.id===n.id?{...x,read:true}:x);setNotifications(u);localStorage.setItem('notifications',JSON.stringify(u));}} style={{padding:'12px 18px',borderBottom:'1px solid '+C.border,backgroundColor:n.read?'transparent':C.accentLight,cursor:'pointer'}}>
-                        <p style={{margin:0,fontSize:'13px',color:C.text}}>{n.text}</p>
-                        <p style={{margin:'3px 0 0',fontSize:'11px',color:C.textMuted}}>{n.time}</p>
-                      </div>))}
-                    </div>)}
-                  </div>
+                  <NotificationsDropdown showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} C={C} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} buttonStyle={{padding:'8px 10px',background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',color:'#94a3b8'}}/>
                   <button onClick={()=>setShowQuickActions(true)} style={{background:'linear-gradient(135deg,#f97316,#ea580c)',border:'none',borderRadius:'14px',padding:'10px 18px',color:'white',fontWeight:'700',cursor:'pointer',fontSize:'13px',boxShadow:'0 8px 24px rgba(234,88,12,.35)'}}>⚡ Быстро</button>
                 </div>
               </div>
@@ -14733,114 +14691,8 @@ function App() {
     <PricelistFromEstimateModal showFromEstimate={showFromEstimate} setShowFromEstimate={setShowFromEstimate} creatingFromEstimate={creatingFromEstimate} setCreatingFromEstimate={setCreatingFromEstimate} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} fromEstimateForm={fromEstimateForm} setFromEstimateForm={setFromEstimateForm} estimatesList={estimatesList} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>
     <GeneratePricelistModal showGeneratePricelist={showGeneratePricelist} setShowGeneratePricelist={setShowGeneratePricelist} generatingPricelist={generatingPricelist} setGeneratingPricelist={setGeneratingPricelist} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatePricelistForm={generatePricelistForm} setGeneratePricelistForm={setGeneratePricelistForm} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>
     <GenerateEstimateModal showGenerateEstimate={showGenerateEstimate} setShowGenerateEstimate={setShowGenerateEstimate} generating={generating} setGenerating={setGenerating} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generateForm={generateForm} setGenerateForm={setGenerateForm} projects={projects} pricelists={pricelists} estimatePackages={ESTIMATE_PACKAGES} nextEstimateVersionFor={nextEstimateVersionFor} API={API} enrichEstimateMeasurementBasis={enrichEstimateMeasurementBasis} estimatesList={estimatesList} setEstimatesList={setEstimatesList} setSelectedEstimate={setSelectedEstimate} activeEstimateFromList={activeEstimateFromList} isGlobalEstimateTemplate={isGlobalEstimateTemplate} sameEstimateGroup={sameEstimateGroup} queueEstimateDiffReviewTask={queueEstimateDiffReviewTask} autoReconcileEstimateChanges={autoReconcileEstimateChanges} queueEstimateQualityReviewTask={queueEstimateQualityReviewTask} queueEstimateNormReviewTask={queueEstimateNormReviewTask}/>
-    {showEstimateChat&&selectedEstimate&&(<div onClick={()=>setShowEstimateChat(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} className='mobile-modal estimate-chat-modal' style={{...card,padding:0,width:'640px',height:'700px',margin:isMobile?'12px':'20px',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-        <div style={{padding:'14px 18px',backgroundColor:'#0ea5e9',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-            <span style={{fontSize:'22px'}}>💬</span>
-            <div>
-              <b style={{color:'white',fontSize:'14px',display:'block'}}>Чат по смете</b>
-              <p style={{color:'rgba(255,255,255,0.85)',fontSize:'11px',margin:0}}>{selectedEstimate.name}</p>
-            </div>
-          </div>
-          <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-            <button onClick={async()=>{if(window.confirm('Очистить историю чата?')){await fetch(API+'/estimates/'+selectedEstimate.id+'/chat-history',{method:'DELETE'});setEstimateChatMessages([]);}}} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.4)',color:'white',cursor:'pointer',padding:'4px 10px',borderRadius:'6px',fontSize:'11px'}}>🗑️ Очистить</button>
-            <button onClick={()=>setShowEstimateChat(false)} style={{background:'none',border:'none',cursor:'pointer',color:'white',fontSize:'22px',padding:'0 6px'}}>×</button>
-          </div>
-        </div>
-        <div style={{flex:1,overflowY:'auto',padding:'16px',display:'flex',flexDirection:'column',gap:'10px',backgroundColor:C.bg}}>
-          {estimateChatMessages.length===0&&!estimateChatLoading&&(<div style={{textAlign:'center',padding:'30px',color:C.textMuted}}>
-            <div style={{fontSize:'40px',marginBottom:'10px'}}>💬</div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'8px'}}>Задайте вопрос по смете</b>
-            <p style={{fontSize:'12px',marginBottom:'14px'}}>ИИ помнит контекст этой сметы и предыдущие вопросы</p>
-            <div style={{display:'flex',flexDirection:'column',gap:'6px',maxWidth:'420px',margin:'0 auto'}}>
-              {['Какая самая дорогая позиция?','А если убрать раздел 5?','Чем заменить дорогие материалы?','Помоги объяснить клиенту почему смета подорожала'].map(q=>(<button key={q} onClick={()=>setEstimateChatInput(q)} style={{...btnG,fontSize:'12px',textAlign:'left',justifyContent:'flex-start',padding:'8px 12px'}}>💭 {q}</button>))}
-            </div>
-          </div>)}
-          {estimateChatMessages.map((m,i)=>(<div key={m.id||i} style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}>
-            <div style={{maxWidth:isMobile?'92%':'85%',padding:'12px 16px',borderRadius:m.role==='user'?'14px 14px 4px 14px':'14px 14px 14px 4px',backgroundColor:m.role==='user'?C.accent:(darkMode?'#f8fafc':C.bgWhite),color:m.role==='user'?'white':(darkMode?'#0f172a':C.text),fontSize:'14px',lineHeight:'1.6',boxShadow:'0 1px 3px rgba(0,0,0,0.10)',border:m.role==='user'?'none':'1.5px solid '+(darkMode?'#cbd5e1':C.border),whiteSpace:'pre-wrap'}}>{m.content}</div>
-          </div>))}
-          {estimateChatLoading&&(<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{padding:'12px 16px',borderRadius:'14px 14px 14px 4px',backgroundColor:darkMode?'#f8fafc':C.bgWhite,border:'1.5px solid '+(darkMode?'#cbd5e1':C.border),fontSize:'14px',color:darkMode?'#334155':C.textSec}}>⏳ Думаю над вопросом…</div></div>)}
-        </div>
-        <div style={{padding:'12px 14px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bgWhite,display:'flex',gap:'8px'}}>
-          <input value={estimateChatInput} onChange={e=>setEstimateChatInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendEstimateChatMessage();}}} placeholder='Спросите по смете... (Enter — отправить)' disabled={estimateChatLoading} style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}}/>
-          <button disabled={estimateChatLoading||!estimateChatInput.trim()} onClick={sendEstimateChatMessage} style={{...btnO,padding:'10px 16px'}}>➤</button>
-        </div>
-      </div>
-    </div>)}
-    {showVersionHistory&&selectedEstimate&&(<div onClick={()=>setShowVersionHistory(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:'20px',width:'520px',margin:'20px',maxHeight:'85vh',overflowY:'auto'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
-          <b style={{color:C.text,fontSize:'15px'}}>📜 История версий: {selectedEstimate.name}</b>
-          <button onClick={()=>setShowVersionHistory(false)} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',color:C.textSec}}>×</button>
-        </div>
-        {estimateVersions.length===0?(<p style={{color:C.textMuted,fontSize:'13px',padding:'20px',textAlign:'center'}}>История пуста. Снимки сохраняются автоматически при сохранении изменений сметы.</p>):(<>
-          <p style={{color:C.textSec,fontSize:'12px',marginBottom:'10px'}}>Отметьте 2 версии, чтобы распечатать разницу или сравнить через ИИ:</p>
-          <div style={{maxHeight:'320px',overflowY:'auto',marginBottom:'12px'}}>
-            {estimateVersions.map(v=>{const sel=selectedVersionsToCompare.includes(v.id);return(<div key={v.id} style={{padding:'10px',marginBottom:'6px',borderRadius:'8px',border:'1.5px solid '+(sel?C.accent:C.border),backgroundColor:sel?C.accentLight:C.bg,display:'flex',alignItems:'center',gap:'10px'}}>
-              <input type='checkbox' checked={sel} onChange={e=>{if(e.target.checked){if(selectedVersionsToCompare.length<2)setSelectedVersionsToCompare([...selectedVersionsToCompare,v.id]);}else{setSelectedVersionsToCompare(selectedVersionsToCompare.filter(id=>id!==v.id));}}} style={{width:'16px',height:'16px',accentColor:C.accent}}/>
-              <div style={{flex:1}}>
-                <b style={{fontSize:'12px',color:C.text}}>v{v.versionLabel||'?'} — {Number(v.total||0).toLocaleString('ru-RU')} ₽</b>
-                <p style={{fontSize:'11px',color:C.textSec,margin:'2px 0'}}>{new Date(v.createdAt).toLocaleString('ru-RU')}{v.createdBy?' · '+v.createdBy:''}</p>
-                {v.comment&&<p style={{fontSize:'11px',color:C.textMuted,margin:'2px 0'}}>{v.comment}</p>}
-              </div>
-              <button onClick={async()=>{
-                if(!window.confirm('Восстановить эту версию? Текущие данные будут сохранены как новая запись в истории.')) return;
-                const ver=await fetch(API+'/estimate-version/'+v.id).then(r=>r.json());
-                if(ver&&ver.sections){
-                  const updated={...selectedEstimate,sections:ver.sections};
-                  await fetch(API+'/estimates/'+selectedEstimate.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...updated,versionComment:'Восстановление из v'+(v.versionLabel||''),updatedBy:user.name})});
-                  setSelectedEstimate(updated);
-                  setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
-                  setShowVersionHistory(false);
-                  alert('Версия восстановлена');
-                }
-              }} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>↶ Восстановить</button>
-            </div>);})}
-          </div>
-          {selectedVersionsToCompare.length===2&&(<div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'8px'}}>
-            <button onClick={async()=>{
-              const [aId,bId]=selectedVersionsToCompare;
-              const [a,b]=await Promise.all([fetch(API+'/estimate-version/'+aId).then(r=>r.json()),fetch(API+'/estimate-version/'+bId).then(r=>r.json())]);
-              const [older,newer]=[a,b].sort((x,y)=>(new Date(x.createdAt||0).getTime()-new Date(y.createdAt||0).getTime())||(Number(x.id||0)-Number(y.id||0)));
-              const base={...selectedEstimate,name:'Версия '+(older.versionLabel||'?'),version:older.versionLabel,status:'История',createdAt:older.createdAt,sections:older.sections||[]};
-              const next={...selectedEstimate,name:'Версия '+(newer.versionLabel||'?'),version:newer.versionLabel,status:'История',createdAt:newer.createdAt,sections:newer.sections||[]};
-              setShowVersionHistory(false);
-              showPreview(buildEstimateDiffContent(base,next),'Сопоставительная ведомость версий');
-            }} style={{...btnB,width:'100%',justifyContent:'center'}}><FileText size={14}/>Печать ведомости</button>
-            <button onClick={async()=>{
-            const [aId,bId]=selectedVersionsToCompare;
-            const pair=await Promise.all([fetch(API+'/estimate-version/'+aId).then(r=>r.json()),fetch(API+'/estimate-version/'+bId).then(r=>r.json())]);
-            const [a,b]=pair.sort((x,y)=>(new Date(x.createdAt||0).getTime()-new Date(y.createdAt||0).getTime())||(Number(x.id||0)-Number(y.id||0)));
-            const totalOf=(secs)=>secs.flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);
-            const flatten=(secs)=>secs.flatMap(s=>(s.items||[]).map(i=>({section:s.name,name:i.name,unit:i.unit,qty:Number(i.quantity||0),work:Number(i.priceWork||0),mat:Number(i.priceMaterial||0),sum:estimateItemTotal(i)})));
-            const payload={a:{label:a.versionLabel,total:totalOf(a.sections||[]),items:flatten(a.sections||[])},b:{label:b.versionLabel,total:totalOf(b.sections||[]),items:flatten(b.sections||[])}};
-            const prompt='Сравни две версии сметы. Версия A (старая) и B (новая). Данные:\n'+JSON.stringify(payload,null,1)+'\n\nОТВЕТЬ СТРОГО JSON:\n{"summary":"одной фразой что произошло (стало дороже/дешевле и насколько)","changes":[{"what":"конкретная позиция или раздел","kind":"добавлена|удалена|объём|цена","detail":"что изменилось","impact":число_в_рублях}]}\nИспользуй только данные.';
-            setShowVersionHistory(false);
-            setShowAiChat(true);
-            setAiMessages([{role:'user',content:'Сравнение версий v'+a.versionLabel+' ↔ v'+b.versionLabel}]);
-            setAiLoading(true);
-            try{
-              const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],jsonOnly:true})});
-              const data=await res.json();
-              const raw=(data.response||data.error||'').trim();
-              let parsed=null;
-              try{const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();const s=clean.indexOf('{'),e=clean.lastIndexOf('}');if(s>=0&&e>s) parsed=JSON.parse(clean.slice(s,e+1));}catch(e){}
-              let out;
-              if(parsed){
-                const ln=[];
-                if(parsed.summary) ln.push('📋 '+parsed.summary,'');
-                if(Array.isArray(parsed.changes)&&parsed.changes.length){ln.push('🔍 ИЗМЕНЕНИЯ');parsed.changes.forEach((c,n)=>ln.push((n+1)+'. ['+(c.kind||'?')+'] '+(c.what||'?')+': '+(c.detail||'')+(c.impact?' ('+(c.impact>0?'+':'')+Number(c.impact).toLocaleString('ru-RU')+' ₽)':'')));}
-                out=ln.join('\n');
-              }else out=raw||'Ошибка';
-              setAiMessages([{role:'user',content:'Сравнение v'+a.versionLabel+' ↔ v'+b.versionLabel},{role:'assistant',content:out}]);
-            }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
-            setAiLoading(false);
-          }} style={{...btnO,backgroundColor:'#10b981',width:'100%',justifyContent:'center'}}><Bot size={14}/>🤖 Сравнить через ИИ</button>
-          </div>)}
-        </>)}
-      </div>
-    </div>)}
+    <EstimateChatModal showEstimateChat={showEstimateChat} setShowEstimateChat={setShowEstimateChat} selectedEstimate={selectedEstimate} C={C} card={card} inp={inp} btnG={btnG} btnO={btnO} isMobile={isMobile} darkMode={darkMode} API={API} estimateChatMessages={estimateChatMessages} setEstimateChatMessages={setEstimateChatMessages} estimateChatLoading={estimateChatLoading} estimateChatInput={estimateChatInput} setEstimateChatInput={setEstimateChatInput} sendEstimateChatMessage={sendEstimateChatMessage}/>
+    <EstimateVersionHistoryModal showVersionHistory={showVersionHistory} setShowVersionHistory={setShowVersionHistory} selectedEstimate={selectedEstimate} estimateVersions={estimateVersions} selectedVersionsToCompare={selectedVersionsToCompare} setSelectedVersionsToCompare={setSelectedVersionsToCompare} isMobile={isMobile} C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} API={API} user={user} setSelectedEstimate={setSelectedEstimate} setEstimatesList={setEstimatesList} showPreview={showPreview} buildEstimateDiffContent={buildEstimateDiffContent} estimateItemTotal={estimateItemTotal} setShowAiChat={setShowAiChat} setAiMessages={setAiMessages} setAiLoading={setAiLoading}/>
     <ReceiveMaterialDialog showReceiveDialog={showReceiveDialog} setShowReceiveDialog={setShowReceiveDialog} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnB={btnB} btnG={btnG}/>
     <ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>
     <ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} setNewInvoice={setNewInvoice}/>
@@ -14856,42 +14708,9 @@ function App() {
       badge={badge}
       btnG={btnG}
     />
-    {showMobileMenu&&(<div onMouseDown={e=>{e.preventDefault();setShowMobileMenu(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>)}
-      {showMobileMenu&&(<div style={{position:'fixed',bottom:'60px',left:0,right:0,backgroundColor:C.bgWhite,borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,maxHeight:'60vh',overflowY:'auto',boxShadow:'0 -8px 30px rgba(0,0,0,0.15)',borderTop:'1.5px solid '+C.border}}>
-        <div style={{textAlign:'center',marginBottom:'12px'}}><div style={{width:'36px',height:'4px',backgroundColor:C.borderDark,borderRadius:'2px',margin:'0 auto'}}/></div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
-          {menuItems.map(m=>(<div key={m.id} onClick={()=>{setActivePage(m.id);setShowMobileMenu(false);}} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'12px 8px',borderRadius:'12px',cursor:'pointer',backgroundColor:activePage===m.id?'rgba(249,115,22,0.15)':'rgba(30,41,59,0.6)',border:'1px solid rgba(148,163,184,0.12)'}}><span style={{fontSize:'24px',marginBottom:'4px'}}>{m.icon}</span><span style={{fontSize:'11px',color:activePage===m.id?'#f97316':'#94a3b8',fontWeight:activePage===m.id?'700':'400',textAlign:'center',lineHeight:'1.3'}}>{m.label}</span></div>))}
-        </div>
-      </div>)}
-      
-      
-    {showChatPanel&&(<div onMouseDown={e=>{e.preventDefault();setShowChatPanel(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:399}}/>)}
-    {showChatPanel&&(<div style={{position:'fixed',bottom:'70px',right:'12px',width:'340px',height:'460px',backgroundColor:'#0f172a',borderRadius:'16px',zIndex:400,display:'flex',flexDirection:'column',boxShadow:'0 8px 32px rgba(0,0,0,0.5)',border:'1px solid rgba(148,163,184,0.18)'}}>
-      <div style={{padding:'16px',borderBottom:'1px solid rgba(148,163,184,0.18)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <b style={{color:'#f8fafc',fontSize:'16px'}}>💬 Чат</b>
-        <button onClick={()=>setShowChatPanel(false)} style={{background:'none',border:'none',cursor:'pointer',color:'#94a3b8'}}><X size={20}/></button>
-      </div>
-      <div style={{flex:1,overflowY:'auto',padding:'12px',display:'flex',flexDirection:'column',gap:'8px'}}>
-        {companyMessages.slice(-20).map((msg,i)=>(
-          <div key={i} style={{display:'flex',justifyContent:(msg.author_name||msg.author)===user.name?'flex-end':'flex-start'}}>
-            <div style={{maxWidth:'80%',padding:'10px 14px',borderRadius:(msg.author_name||msg.author)===user.name?'16px 16px 4px 16px':'16px 16px 16px 4px',backgroundColor:(msg.author_name||msg.author)===user.name?'#ea580c':'rgba(30,41,59,0.8)',color:'#f8fafc',fontSize:'13px',lineHeight:'1.5'}}>
-              {(msg.author_name||msg.author)!==user.name&&<div style={{fontSize:'11px',color:'#94a3b8',marginBottom:'4px',fontWeight:'600'}}>{msg.author_name||msg.author}</div>}
-              {msg.text}
-              <div style={{fontSize:'10px',color:'rgba(255,255,255,0.5)',marginTop:'4px',textAlign:'right'}}>{msg.time}</div>
-            </div>
-          </div>
-        ))}
-        {companyMessages.length===0&&<div style={{textAlign:'center',color:'#94a3b8',padding:'30px',fontSize:'14px'}}>Нет сообщений</div>}
-      </div>
-      <div style={{padding:'12px',borderTop:'1px solid rgba(148,163,184,0.18)',display:'flex',gap:'8px'}}>
-        <label style={{padding:'8px',background:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><Camera size={16} color='#94a3b8'/><input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'company-chat'});sendCompanyChatMessage('[Фото]',url);}}}/></label>
-        <label style={{padding:'8px',background:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}><FileText size={16} color='#94a3b8'/><input type='file' accept='.pdf,.doc,.docx' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){sendCompanyChatMessage('[Документ] '+e.target.files[0].name,'');}}}/>  </label>
-        <input placeholder="Сообщение..." value={companyChatInput||''} onChange={e=>setCompanyChatInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&companyChatInput?.trim()){sendCompanyChatMessage(companyChatInput);setCompanyChatInput('');}}} style={{flex:1,padding:'10px 14px',backgroundColor:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'12px',color:'#f8fafc',fontSize:'13px',outline:'none'}}/>
-        <button onClick={()=>{if(companyChatInput?.trim()){sendCompanyChatMessage(companyChatInput);setCompanyChatInput('');}}} style={{padding:'10px 16px',backgroundColor:'#ea580c',border:'none',borderRadius:'12px',color:'white',cursor:'pointer'}}><MessageSquare size={16}/></button>
-      </div>
-    </div>)}
+    <MobileMenuSheet showMobileMenu={showMobileMenu} setShowMobileMenu={setShowMobileMenu} menuItems={menuItems} activePage={activePage} setActivePage={setActivePage} C={C}/>
+    <FloatingCompanyChatPanel showChatPanel={showChatPanel} setShowChatPanel={setShowChatPanel} companyMessages={companyMessages} user={user} companyChatInput={companyChatInput} setCompanyChatInput={setCompanyChatInput} sendCompanyChatMessage={sendCompanyChatMessage} uploadPhoto={uploadPhoto}/>
 
-      
     </div>
   );
 }
