@@ -68,6 +68,7 @@ import AnalyticsStatsGrid from './components/AnalyticsStatsGrid';
 import AnalyticsProjectExpensesPanel from './components/AnalyticsProjectExpensesPanel';
 import AnalyticsWorkJournalActivityPanel from './components/AnalyticsWorkJournalActivityPanel';
 import CrmHeader from './components/CrmHeader';
+import CrmLeadForm from './components/CrmLeadForm';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14699,18 +14700,20 @@ function App() {
 
           {activePage==='crm'&&(<div>
             <CrmHeader C={C} btnO={btnO} onNewLead={()=>{setShowForm(!showForm);setEditingItem(null);setNewLead({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});}}/>
-            {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                <input placeholder="Имя клиента *" value={newLead.name} onChange={e=>setNewLead({...newLead,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder="Телефон" value={newLead.phone} onChange={e=>setNewLead({...newLead,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder="Email" value={newLead.email} onChange={e=>setNewLead({...newLead,email:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder="Источник" value={newLead.source} onChange={e=>setNewLead({...newLead,source:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder="Бюджет (₽)" type="number" step="any" inputMode="decimal" value={newLead.budget} onChange={e=>setNewLead({...newLead,budget:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <select value={newLead.stage} onChange={e=>setNewLead({...newLead,stage:e.target.value})} style={{...inp,marginBottom:0}}>{CRM_STAGES.map(s=><option key={s}>{s}</option>)}</select>
-                <textarea placeholder="Заметки" value={newLead.notes} onChange={e=>setNewLead({...newLead,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',height:'60px',resize:'vertical'}}/>
-              </div>
-              <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={()=>{saveLead(editingItem?{...newLead,id:editingItem.id}:newLead);setShowForm(false);setEditingItem(null);}} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
-            </div>)}
+            {showForm&&(
+              <CrmLeadForm
+                card={card}
+                inp={inp}
+                btnO={btnO}
+                btnG={btnG}
+                newLead={newLead}
+                setNewLead={setNewLead}
+                crmStages={CRM_STAGES}
+                editingItem={editingItem}
+                onSave={()=>{saveLead(editingItem?{...newLead,id:editingItem.id}:newLead);setShowForm(false);setEditingItem(null);}}
+                onCancel={()=>{setShowForm(false);setEditingItem(null);}}
+              />
+            )}
             <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'12px',overflowX:'auto'}}>
               {CRM_STAGES.map(stage=>(<div key={stage} style={{minWidth:'200px'}}>
                 <div style={{padding:'8px 12px',backgroundColor:stage==='Отказ'?C.dangerLight:stage==='Договор'?C.successLight:C.bg,borderRadius:'8px',marginBottom:'10px',border:'1.5px solid '+(stage==='Отказ'?C.dangerBorder:stage==='Договор'?C.successBorder:C.border)}}><b style={{color:stage==='Отказ'?C.danger:stage==='Договор'?C.success:C.text,fontSize:'12px'}}>{stage}</b><span style={{color:C.textSec,fontSize:'11px',marginLeft:'6px'}}>{'('+leads.filter(l=>l.stage===stage).length+')'}</span></div>
