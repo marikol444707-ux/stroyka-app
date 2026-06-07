@@ -55,9 +55,8 @@ export default function EstimateImportValidationBanner({
         marginBottom:'14px',
         backgroundColor: importValidating ? C.infoLight : (hasCritical ? C.dangerLight : C.warningLight),
         border: '1.5px solid '+(importValidating ? C.infoBorder : (hasCritical ? C.dangerBorder : C.warningBorder)),
-        position:'sticky',
-        top:'8px',
-        zIndex:18,
+        position:'relative',
+        zIndex:1,
       }}
     >
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',marginBottom:'10px'}}>
