@@ -85,8 +85,18 @@ import EstimateDistributeModal from './components/EstimateDistributeModal';
 import PricelistFromEstimateModal from './components/PricelistFromEstimateModal';
 import GeneratePricelistModal from './components/GeneratePricelistModal';
 import GenerateEstimateModal from './components/GenerateEstimateModal';
+import ToolIssueModal from './components/ToolIssueModal';
+import ToolReturnModal from './components/ToolReturnModal';
+import BrigadePaymentModal from './components/BrigadePaymentModal';
+import ActPaymentModal from './components/ActPaymentModal';
+import AiAssistantDrawer from './components/AiAssistantDrawer';
+import ReceiveMaterialDialog from './components/ReceiveMaterialDialog';
+import ScannedInvoiceFormModal from './components/ScannedInvoiceFormModal';
+import ScanInvoiceModal from './components/ScanInvoiceModal';
+import OwnExpenseFormModal from './components/OwnExpenseFormModal';
+import QuickActionsModal from './components/QuickActionsModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
 installAuthFetch();
 const loadStoredUser = () => {
@@ -8469,56 +8479,7 @@ function App() {
       <div style={{display:'flex',flexDirection:'column',minHeight:'100vh',backgroundColor:C.bg}}>
         <ImagePreviewModal src={showPhotoModal} onClose={()=>setShowPhotoModal(null)}/>
         {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)} onPrint={doPrint}/>}
-        {/* Модалка «Новая трата» для мастера/субподрядчика */}
-        {showOwnExpenseForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
-            <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
-            <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{masterProjectOptions.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
-            <select value={newOwnExpense.category||'other'} onChange={e=>setNewOwnExpense({...newOwnExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат *</option>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
-            <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
-            <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>
-            <input type='date' value={newOwnExpense.date} onChange={e=>setNewOwnExpense({...newOwnExpense,date:e.target.value})} style={inp}/>
-            <div style={{marginBottom:'12px'}}>
-              <span style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'6px'}}>📷 Фото чеков (можно несколько):</span>
-              <label style={{cursor:'pointer'}}>
-                <input type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={async e=>{
-                  if(e.target.files&&e.target.files.length>0){
-                    const newCsv = await appendPhotos(newOwnExpense.photoUrl, e.target.files,{projectName:newOwnExpense.projectName,context:'own-expenses'});
-                    setNewOwnExpense(prev=>({...prev,photoUrl:newCsv}));
-                    e.target.value='';
-                  }
-                }}/>
-                {(()=>{const urls=(newOwnExpense.photoUrl||'').split(',').filter(Boolean);
-                  if (urls.length===0) return (<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>📷 Нажмите чтобы добавить фото<br/><span style={{fontSize:'10px'}}>можно несколько за раз</span></div>);
-                  return (<div>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'6px',marginBottom:'8px'}}>
-                      {urls.map((u,i)=>(<div key={i} style={{position:'relative'}}>
-                        <img src={fileSrc(u)} alt='' style={{width:'100%',height:'80px',objectFit:'cover',borderRadius:'6px',border:'1px solid '+C.border}}/>
-                        <button type='button' onClick={(ev)=>{ev.preventDefault();ev.stopPropagation();const rem=urls.filter((_,j)=>j!==i).join(',');setNewOwnExpense(prev=>({...prev,photoUrl:rem}));}} style={{position:'absolute',top:'2px',right:'2px',background:'rgba(220,38,38,0.9)',color:'white',border:'none',borderRadius:'50%',width:'20px',height:'20px',cursor:'pointer',fontSize:'12px',lineHeight:'1',padding:0}}>×</button>
-                      </div>))}
-                    </div>
-                    <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',textAlign:'center',fontSize:'11px',color:C.accent,fontWeight:'600'}}>+ Добавить ещё фото ({urls.length} загружено)</div>
-                  </div>);
-                })()}
-              </label>
-            </div>
-            <div style={{padding:'10px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
-              ℹ️ После отправки трата попадёт бухгалтеру/директору на возмещение.
-            </div>
-            <div style={{display:'flex',gap:'8px'}}>
-              <button onClick={async()=>{
-                if(!newOwnExpense.projectName||!newOwnExpense.description||!newOwnExpense.amount) { alert('Заполните: проект, описание, сумма'); return; }
-                await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newOwnExpense,amount:Number(newOwnExpense.amount),employeeName:user.name,employeeId:user.id})});
-                setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
-                setShowOwnExpenseForm(false);
-                await loadAll();
-                notify('Трата отправлена на возмещение','myexpense');
-                alert('Отправлено на возмещение!');
-              }} style={btnO}><Check size={14}/>Отправить</button>
-              <button onClick={()=>{setShowOwnExpenseForm(false);setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});}} style={btnG}><X size={14}/>Отмена</button>
-            </div>
-          </div>
-        </div>)}
+        <OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={masterProjectOptions} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll} notify={notify} showInfo validationAlert/>
         <div style={{flex:1,padding:'15px',paddingBottom:isMobile?'90px':'15px',overflowY:'auto'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',gap:'8px'}}>
             <div><h2 style={{margin:0,color:C.text,fontSize:'20px',fontWeight:'800'}}>СтройКа</h2><p style={{margin:0,color:C.textSec,fontSize:'12px'}}>{user.name+' — '+(ROLE_LABELS[user.role]||user.role)}</p></div>
@@ -10445,11 +10406,11 @@ function App() {
         </div>
         <p style={{color:C.textMuted,fontSize:'11px',margin:'10px 0 0',lineHeight:1.4}}>После подтверждения работа уйдёт в КС-2 и в зарплатные начисления мастера. Списание материалов произойдёт автоматически.</p>
       </div></div>);})()}
-      {showIssueToolModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{'Выдать: '+showIssueToolModal.name}</h3><select value={issueToolData.masterName} onChange={e=>setIssueToolData({...issueToolData,masterName:e.target.value})} style={inp}><option value="">Выберите мастера</option>{masterProfiles.map(mp=><option key={mp.id} value={mp.fullName}>{mp.fullName}</option>)}</select><select value={issueToolData.project} onChange={e=>setIssueToolData({...issueToolData,project:e.target.value})} style={inp}><option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select><select value={issueToolData.issueType} onChange={e=>setIssueToolData({...issueToolData,issueType:e.target.value})} style={inp}><option value="Временно">Временно</option><option value="В счёт зарплаты">В счёт зарплаты</option></select><div style={{display:'flex',gap:'10px'}}><button onClick={()=>issueTool(showIssueToolModal)} style={btnO}><Check size={14}/>Выдать</button><button onClick={()=>setShowIssueToolModal(null)} style={btnG}>Отмена</button></div></div></div>)}
-      {showReturnToolModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'400px'}}><h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{'Вернуть: '+showReturnToolModal.name}</h3><p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{'От: '+showReturnToolModal.masterName}</p><select value={returnToolCondition} onChange={e=>setReturnToolCondition(e.target.value)} style={inp}><option value="Исправен">Исправен</option><option value="Требует ремонта">Требует ремонта</option><option value="Сломан">Сломан</option><option value="Утерян">Утерян</option></select><div style={{display:'flex',gap:'10px'}}><button onClick={()=>returnTool(showReturnToolModal)} style={btnGr}><Check size={14}/>Вернуть</button><button onClick={()=>setShowReturnToolModal(null)} style={btnG}>Отмена</button></div></div></div>)}
-      {showBrigadePayModal&&selectedBrigadeContract&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}} onClick={()=>setShowBrigadePayModal(false)}><div style={{...card,padding:'28px',width:'400px'}} onClick={e=>e.stopPropagation()}><h3 style={{color:C.text,marginBottom:'5px',fontWeight:'700'}}>💰 Записать оплату бригаде</h3><p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{selectedBrigadeContract.brigadeName}</p><input placeholder="Сумма (₽) *" type="number" step="any" inputMode="decimal" value={newBrigadePayment.amount} onChange={e=>setNewBrigadePayment({...newBrigadePayment,amount:e.target.value})} style={inp}/><input type="date" value={newBrigadePayment.paidDate} onChange={e=>setNewBrigadePayment({...newBrigadePayment,paidDate:e.target.value})} style={inp}/><input placeholder="Примечание (за что / как)" value={newBrigadePayment.note} onChange={e=>setNewBrigadePayment({...newBrigadePayment,note:e.target.value})} style={inp}/><div style={{display:'flex',gap:'10px'}}><button onClick={saveBrigadePayment} style={btnO}><Check size={14}/>Записать</button><button onClick={()=>setShowBrigadePayModal(false)} style={btnG}>Отмена</button></div></div></div>)}
-      {showPayActModal&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}><div style={{...card,padding:'30px',width:'420px'}}><h3 style={{color:C.text,marginBottom:'5px',fontWeight:'700'}}>Добавить оплату</h3><p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{'Акт №'+showPayActModal.id+' · '+showPayActModal.masterName}</p><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Сумма *" type="number" step="any" inputMode="decimal" value={newPayment.amount} onChange={e=>setNewPayment({...newPayment,amount:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPayment.paymentType} onChange={e=>setNewPayment({...newPayment,paymentType:e.target.value})} style={{...inp,marginBottom:0}}>{PAYMENT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select><select value={newPayment.paidBy} onChange={e=>setNewPayment({...newPayment,paidBy:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Кто выплатил</option>{financeUsers.map(u=><option key={u.id} value={u.name}>{u.name+' ('+ROLE_LABELS[u.role]+')'}</option>)}<option value="__manual__">Ввести вручную</option></select><input type="date" value={newPayment.date} onChange={e=>setNewPayment({...newPayment,date:e.target.value})} style={{...inp,marginBottom:0}}/></div>{newPayment.paidBy==='__manual__'&&<input placeholder="ФИО выплатившего" value={newPayment.paidByManual||''} onChange={e=>setNewPayment({...newPayment,paidByManual:e.target.value})} style={{...inp,marginTop:'10px'}}/>}<input placeholder="Примечание" value={newPayment.notes} onChange={e=>setNewPayment({...newPayment,notes:e.target.value})} style={{...inp,marginTop:'8px'}}/><div style={{display:'flex',gap:'10px'}}><button onClick={()=>saveActPayment(showPayActModal.id)} style={btnO}><Check size={14}/>Записать</button><button onClick={()=>setShowPayActModal(null)} style={btnG}>Отмена</button></div><div style={{marginTop:'15px',borderTop:'1.5px solid '+C.border,paddingTop:'12px'}}><b style={{color:C.text,fontSize:'13px'}}>История оплат:</b>{actPayments.filter(p=>p.actId===showPayActModal.id).map(p=>(<div key={p.id} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid '+C.border,fontSize:'12px'}}><span style={{color:C.textSec}}>{p.date+' · '+p.paymentType+' · '+p.paidBy}</span><b style={{color:C.success}}>{p.amount.toLocaleString()+' ₽'}</b></div>))}{actPayments.filter(p=>p.actId===showPayActModal.id).length===0&&<p style={{color:C.textMuted,fontSize:'12px',margin:'6px 0'}}>Оплат нет</p>}</div></div></div>)}
-      {showAiAssistant&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'flex-end',zIndex:1500}}><div style={{width:'420px',backgroundColor:C.bgWhite,display:'flex',flexDirection:'column',boxShadow:'-4px 0 30px rgba(0,0,0,0.15)'}}><div style={{padding:'16px 20px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',backgroundColor:C.sidebar}}><div><b style={{color:'white',fontSize:'15px'}}>🤖 ИИ Помощник</b><p style={{color:'rgba(255,255,255,0.5)',margin:'2px 0',fontSize:'12px'}}>Знает нормы СНиП, расценки, материалы</p></div><button onClick={()=>setShowAiAssistant(false)} style={{backgroundColor:'transparent',border:'none',cursor:'pointer',color:'white'}}><X size={20}/></button></div><div style={{flex:1,overflowY:'auto',padding:'16px',display:'flex',flexDirection:'column',gap:'12px'}}>{aiChat.length===0&&(<div style={{textAlign:'center',padding:'30px',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>🏗️</div><b style={{color:C.text}}>Спросите меня!</b><div style={{display:'flex',flexDirection:'column',gap:'8px',marginTop:'16px'}}>{['Сколько цемента нужно для стяжки 50м2?','Нормы расхода штукатурки на 1м2?','Как рассчитать количество кирпича?','Какие СНиП для жилых домов?'].map(q=>(<button key={q} onClick={()=>setAiMessage(q)} style={{...btnG,fontSize:'12px',textAlign:'left',justifyContent:'flex-start'}}>{q}</button>))}</div></div>)}{aiChat.map((msg,i)=>(<div key={i} style={{display:'flex',justifyContent:msg.role==='user'?'flex-end':'flex-start'}}><div style={{maxWidth:'85%',backgroundColor:msg.role==='user'?C.accent:C.bg,color:msg.role==='user'?'white':C.text,padding:'10px 14px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',border:'1.5px solid '+(msg.role==='user'?C.accent:C.border),fontSize:'13px',lineHeight:'1.5'}}>{msg.content}<div style={{fontSize:'10px',color:msg.role==='user'?'rgba(255,255,255,0.6)':C.textMuted,marginTop:'4px',textAlign:'right'}}>{msg.time}</div></div></div>))}{aiLoading&&<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{backgroundColor:C.bg,padding:'10px 14px',borderRadius:'16px',border:'1.5px solid '+C.border,color:C.textSec,fontSize:'13px'}}>Думаю...</div></div>}<div ref={chatEndRef}/></div><div style={{padding:'12px',borderTop:'1.5px solid '+C.border}}><div style={{display:'flex',gap:'8px'}}><input placeholder="Задайте вопрос..." value={aiMessage} onChange={e=>setAiMessage(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!aiLoading&&sendAiMessage()} style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}} disabled={aiLoading}/><button onClick={sendAiMessage} disabled={aiLoading} style={btnO}>➤</button></div></div></div></div>)}
+      <ToolIssueModal showIssueToolModal={showIssueToolModal} setShowIssueToolModal={setShowIssueToolModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} issueToolData={issueToolData} setIssueToolData={setIssueToolData} masterProfiles={masterProfiles} projects={projects} issueTool={issueTool}/>
+      <ToolReturnModal showReturnToolModal={showReturnToolModal} setShowReturnToolModal={setShowReturnToolModal} C={C} card={card} inp={inp} btnG={btnG} btnGr={btnGr} returnToolCondition={returnToolCondition} setReturnToolCondition={setReturnToolCondition} returnTool={returnTool}/>
+      <BrigadePaymentModal showBrigadePayModal={showBrigadePayModal} setShowBrigadePayModal={setShowBrigadePayModal} selectedBrigadeContract={selectedBrigadeContract} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newBrigadePayment={newBrigadePayment} setNewBrigadePayment={setNewBrigadePayment} saveBrigadePayment={saveBrigadePayment}/>
+      <ActPaymentModal showPayActModal={showPayActModal} setShowPayActModal={setShowPayActModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newPayment={newPayment} setNewPayment={setNewPayment} paymentTypes={PAYMENT_TYPES} financeUsers={financeUsers} roleLabels={ROLE_LABELS} saveActPayment={saveActPayment} actPayments={actPayments}/>
+      <AiAssistantDrawer showAiAssistant={showAiAssistant} setShowAiAssistant={setShowAiAssistant} C={C} inp={inp} btnG={btnG} btnO={btnO} aiChat={aiChat} aiLoading={aiLoading} aiMessage={aiMessage} setAiMessage={setAiMessage} sendAiMessage={sendAiMessage} chatEndRef={chatEndRef}/>
 
       <div style={{position:'fixed',top:0,left:0,width:'16px',height:'100vh',zIndex:200,display:isMobile?'none':'block'}} onMouseEnter={()=>setSidebarVisible(true)}/>
       <div ref={sidebarRef} onMouseLeave={()=>setSidebarVisible(false)} style={{position:'fixed',top:0,left:0,height:'100vh',width:isMobile?'min(86vw,300px)':'240px',backgroundColor:C.sidebar,color:'white',zIndex:300,transform:sidebarVisible?'translateX(0)':'translateX(-100%)',transition:'transform 0.25s cubic-bezier(0.4,0,0.2,1)',display:'flex',flexDirection:'column',boxShadow:sidebarVisible?'4px 0 30px rgba(0,0,0,0.15)':'none'}}>
@@ -14880,167 +14841,11 @@ function App() {
         </>)}
       </div>
     </div>)}
-    {showReceiveDialog&&(<div onClick={()=>setShowReceiveDialog(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:'24px',width:'320px',margin:'20px'}}>
-        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'4px'}}>📥 Принять материал</b>
-        <p style={{color:C.textSec,fontSize:'12px',marginBottom:'18px'}}>Выберите как заполнить накладную</p>
-        <button onClick={()=>{setShowReceiveDialog(false);setShowScanInvoice(true);}} style={{...btnB,width:'100%',padding:'14px',justifyContent:'center',marginBottom:'10px',fontSize:'14px'}}><Scan size={16}/>📷 Сканировать накладную</button>
-        <button onClick={()=>{setShowReceiveDialog(false);setShowScannedInvoiceForm(true);}} style={{...btnG,width:'100%',padding:'14px',justifyContent:'center',fontSize:'14px'}}><Edit2 size={14}/>✍️ Ввести вручную</button>
-        <button onClick={()=>setShowReceiveDialog(false)} style={{width:'100%',marginTop:'10px',padding:'8px',backgroundColor:'transparent',border:'none',color:C.textSec,cursor:'pointer',fontSize:'13px'}}>Отмена</button>
-      </div>
-    </div>)}
-    {showScannedInvoiceForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div className='mobile-modal' style={{...card,padding:'20px',width:'380px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
-        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'4px'}}>📋 Накладная</b>
-        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>Проверьте данные и сохраните</p>
-        <input placeholder='Номер накладной *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inp}/>
-        <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>setNewInvoice({...newInvoice,supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inp}/>
-        <select value={newInvoice.location||''} onChange={e=>setNewInvoice({...newInvoice,location:e.target.value,project:e.target.value!=='Основной склад'?e.target.value:''})} style={inp}>
-          <option value=''>Выберите склад *</option>
-          <option value='Основной склад'>📦 Основной склад</option>
-          {projects.map(p=><option key={p.id} value={p.name}>🏗️ {p.name}</option>)}
-        </select>
-        <input type='date' value={newInvoice.date||new Date().toISOString().split('T')[0]} onChange={e=>setNewInvoice({...newInvoice,date:e.target.value})} style={inp}/>
-        <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Позиции:</b>
-        {(newInvoice.items||[]).map((item,idx)=>(<div key={idx} style={{display:'grid',gridTemplateColumns:'2fr 0.7fr 0.7fr 1fr 24px',gap:'4px',marginBottom:'6px'}}>
-          <input placeholder='Название' value={item.name} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],name:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-          <input placeholder='Кол.' type='number' step='any' inputMode='decimal' value={item.quantity} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],quantity:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-          <select value={item.unit||'шт'} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],unit:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'11px',padding:'6px 4px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-          <input placeholder='Цена' type='number' step='any' inputMode='decimal' value={item.price} onChange={e=>{const items=[...newInvoice.items];items[idx]={...items[idx],price:e.target.value};setNewInvoice({...newInvoice,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-          <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push({name:'',quantity:'',unit:'шт',price:'',category:''});setNewInvoice({...newInvoice,items});}} style={{...btnR,padding:'4px 6px',fontSize:'11px'}}><X size={12}/></button>
-        </div>))}
-        <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),{name:'',quantity:'',unit:'шт',price:'',category:''}]})} style={{...btnG,fontSize:'12px',padding:'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'8px 0'}}>
-          <b style={{color:C.text,fontSize:'13px'}}>Итого: {(newInvoice.items||[]).reduce((s,i)=>s+Number(i.quantity||0)*Number(i.price||0),0).toLocaleString()} ₽</b>
-        </div>
-        <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-          <button onClick={async()=>{
-            if(!newInvoice.number) return alert('Укажите номер накладной');
-            if(!newInvoice.location) return alert('Выберите склад');
-            const validItems=(newInvoice.items||[]).filter(i=>i.name&&Number(i.quantity)>0);
-            if(!validItems.length) return alert('Добавьте хотя бы одну позицию');
-            try{
-              await saveInvoiceNew();
-              setShowScannedInvoiceForm(false);
-              alert('Накладная принята, материалы оприходованы!');
-            }catch(e){alert('Ошибка: '+(e.message||e));}
-          }} style={btnO}><Check size={14}/>Сохранить</button>
-          <button onClick={()=>setShowScannedInvoiceForm(false)} style={btnG}><X size={14}/>Отмена</button>
-        </div>
-      </div>
-    </div>)}
-    {showScanInvoice&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
-        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>📷 Сканировать накладную</b>
-        <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
-          <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={async e=>{
-            if(!e.target.files[0]) return;
-            setScanningInvoice(true);
-            const base64 = await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.readAsDataURL(e.target.files[0]);});
-            try {
-              const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:base64})});
-              const data = await resp.json();
-              if(!data.ok) throw new Error(data.error||'Ошибка');
-              const parsed = data.data;
-              const today = new Date().toISOString().split('T')[0];
-              setNewInvoice(prev=>({...prev,
-                supplier:parsed.supplier||'',
-                newSupplierName:parsed.supplier||'',
-                isNewSupplier:true,
-                date:today,
-                acceptedBy:user.name,
-                vat:'Без НДС',
-                totalWithVat:parsed.total||0,
-                items:(parsed.items||[]).map(item=>({
-                  name:item.name||'',
-                  quantity:String(item.quantity||''),
-                  unit:item.unit||'шт',
-                  price:String(item.price||''),
-                  category:''
-                }))
-              }));
-              setShowScanInvoice(false);
-              setShowScannedInvoiceForm(true);
-              alert('Накладная распознана! Проверьте данные.');
-            } catch(e){
-              alert('Не удалось распознать. Попробуйте ещё раз.');
-            }
-            setScanningInvoice(false);
-          }}/>
-          <div style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:'30px',textAlign:'center',cursor:'pointer'}}>
-            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт накладную...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📷</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Нажмите чтобы сфотографировать</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>ИИ автоматически заполнит форму</p></div>}
-          </div>
-        </label>
-        <button onClick={()=>setShowScanInvoice(false)} style={{...btnG,width:'100%',justifyContent:'center'}}><X size={14}/>Отмена</button>
-      </div>
-    </div>)}
-    {showOwnExpenseForm&&(<div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
-        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
-        <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{projects.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
-        <select value={newOwnExpense.category||'other'} onChange={e=>setNewOwnExpense({...newOwnExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат *</option>{EXPENSE_CATEGORIES.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
-        <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
-        <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>
-        <input type='date' value={newOwnExpense.date} onChange={e=>setNewOwnExpense({...newOwnExpense,date:e.target.value})} style={inp}/>
-        <div style={{marginBottom:'12px'}}>
-          <span style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'6px'}}>📷 Фото чеков (можно несколько):</span>
-          <label style={{cursor:'pointer'}}>
-            <input type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={async e=>{
-              if(e.target.files&&e.target.files.length>0){
-                const newCsv = await appendPhotos(newOwnExpense.photoUrl, e.target.files,{projectName:newOwnExpense.projectName,context:'own-expenses'});
-                setNewOwnExpense(prev=>({...prev,photoUrl:newCsv}));
-                e.target.value='';
-              }
-            }}/>
-            {(()=>{const urls=(newOwnExpense.photoUrl||'').split(',').filter(Boolean);
-              if (urls.length===0) return (<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>📷 Нажмите чтобы добавить фото<br/><span style={{fontSize:'10px'}}>можно несколько за раз</span></div>);
-              return (<div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'6px',marginBottom:'8px'}}>
-                  {urls.map((u,i)=>(<div key={i} style={{position:'relative'}}>
-                    <img src={fileSrc(u)} alt='' style={{width:'100%',height:'80px',objectFit:'cover',borderRadius:'6px',border:'1px solid '+C.border}}/>
-                    <button type='button' onClick={(ev)=>{ev.preventDefault();ev.stopPropagation();const rem=urls.filter((_,j)=>j!==i).join(',');setNewOwnExpense(prev=>({...prev,photoUrl:rem}));}} style={{position:'absolute',top:'2px',right:'2px',background:'rgba(220,38,38,0.9)',color:'white',border:'none',borderRadius:'50%',width:'20px',height:'20px',cursor:'pointer',fontSize:'12px',lineHeight:'1',padding:0}}>×</button>
-                  </div>))}
-                </div>
-                <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',textAlign:'center',fontSize:'11px',color:C.accent,fontWeight:'600'}}>+ Добавить ещё фото ({urls.length} загружено)</div>
-              </div>);
-            })()}
-          </label>
-        </div>
-        <div style={{display:'flex',gap:'8px'}}>
-          <button onClick={async()=>{
-            if(!newOwnExpense.projectName||!newOwnExpense.description||!newOwnExpense.amount) return;
-            await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newOwnExpense,amount:Number(newOwnExpense.amount),employeeName:user.name,employeeId:user.id})});
-            setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
-            setShowOwnExpenseForm(false);
-            await loadAll();
-            alert('Отправлено на возмещение!');
-          }} style={btnO}><Check size={14}/>Отправить</button>
-          <button onClick={()=>{setShowOwnExpenseForm(false);setNewOwnExpense({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});}} style={btnG}><X size={14}/>Отмена</button>
-        </div>
-      </div>
-    </div>)}
-    {showQuickActions&&(<div onMouseDown={e=>{e.preventDefault();setShowQuickActions(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700}}/>)}
-    {showQuickActions&&(<div style={{position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',backgroundColor:C.bgWhite,borderRadius:'18px',padding:'20px',zIndex:1701,boxShadow:'0 12px 50px rgba(0,0,0,0.4)',width:'min(520px, 92vw)',maxHeight:'85vh',overflowY:'auto',border:'1.5px solid '+C.border}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
-        <b style={{color:C.text,fontSize:'16px'}}>⚡ Быстрые действия</b>
-        <button onClick={()=>setShowQuickActions(false)} style={{...btnG,padding:'4px 10px'}}><X size={14}/></button>
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:'10px'}}>
-        {[
-          {icon:<Plus size={24}/>,label:'Принять материал',color:'#3b82f6',action:()=>{const visible=visibleActiveProjects(projects);if(visible.length===1){openReceiveInvoice(visible[0].name);setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте нужный объект → Объект → Материалы → Принять материал');}},roles:['директор','зам_директора','прораб','кладовщик','снабженец']},
-          {icon:<Truck size={24}/>,label:'Передать материал',color:'#10b981',action:async()=>{const visible=visibleActiveProjects(projects);if(visible.length===1){const pn=visible[0].name;const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(pn));const data=await res.json();setMaterialTransfers(Array.isArray(data)?data:[]);setShowTransferForm(true);setExpandedProject(visible[0].id);setActivePage('projects');setActiveProjectTab('Материалы');setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте объект → Объект → Материалы → Передать материал');}},roles:['директор','зам_директора','прораб','кладовщик']},
-          {icon:<CreditCard size={24}/>,label:'Мои траты',color:'#22c55e',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
-          {icon:<MessageSquare size={24}/>,label:'Чат',color:'#3b82f6',action:()=>{setShowQuickActions(false);setShowChatPanel(true);}},
-          {icon:<CloudSun size={24}/>,label:'Погода',color:'#06b6d4',action:()=>{setShowQuickActions(false);setActivePage('weather');},roles:['прораб','главный_инженер']},
-          {icon:<FolderKanban size={24}/>,label:'Объекты',color:'#f59e0b',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
-          {icon:<Package size={24}/>,label:'Склад',color:'#8b5cf6',action:()=>{setShowQuickActions(false);setActivePage('warehouse');},roles:['директор','зам_директора','бухгалтер','кладовщик','снабженец']},
-          {icon:<Bot size={24}/>,label:'ИИ',color:'#f97316',action:()=>{setShowQuickActions(false);setShowAiAssistant(true);}},
-        ].filter(btn=>!btn.roles||(user&&btn.roles.includes(user.role))).map((btn,i)=>(<div key={i} onClick={btn.action} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'14px 8px',borderRadius:'14px',cursor:'pointer',backgroundColor:C.bg,border:'1.5px solid '+C.border,transition:'all 0.15s'}}>
-          <div style={{width:'48px',height:'48px',borderRadius:'14px',background:`rgba(${btn.color==='#f97316'?'249,115,22':btn.color==='#22c55e'?'34,197,94':btn.color==='#3b82f6'?'59,130,246':btn.color==='#f59e0b'?'245,158,11':btn.color==='#8b5cf6'?'139,92,246':btn.color==='#10b981'?'16,185,129':btn.color==='#06b6d4'?'6,182,212':'249,115,22'},.15)`,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:'8px',color:btn.color}}>{btn.icon}</div>
-          <span style={{fontSize:'11px',color:C.text,fontWeight:'600',textAlign:'center',lineHeight:'1.3'}}>{btn.label}</span>
-        </div>))}
-      </div>
-    </div>)}
+    <ReceiveMaterialDialog showReceiveDialog={showReceiveDialog} setShowReceiveDialog={setShowReceiveDialog} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnB={btnB} btnG={btnG}/>
+    <ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>
+    <ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} setNewInvoice={setNewInvoice}/>
+    <OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>
+    <QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setExpandedProject={setExpandedProject} setActiveProjectTab={setActiveProjectTab} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>
     <SystemStatusModal
       show={showSystemStatus}
       systemStatus={systemStatus}
