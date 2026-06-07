@@ -63,6 +63,7 @@ import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsHeader from './components/MaterialNormSuggestionsHeader';
 import WeatherTabsNav from './components/WeatherTabsNav';
+import SettingsTabsNav from './components/SettingsTabsNav';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14608,9 +14609,7 @@ function App() {
           })()}
 
           {activePage==='settings'&&isFinanceRole()&&(<div>
-            <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['requisites','documents'].map(tab=>(<button key={tab} onClick={()=>setSettingsTab(tab)} style={{...settingsTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{requisites:'Реквизиты компании',documents:'Юр. документы'}[tab]}</button>))}
-            </div>
+            <SettingsTabsNav settingsTab={settingsTab} setSettingsTab={setSettingsTab} btnO={btnO} btnG={btnG}/>
 
             {settingsTab==='requisites'&&(<div>
               <div style={{...card,padding:'24px',marginBottom:'20px'}}>
