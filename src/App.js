@@ -76,6 +76,7 @@ import SverkaModal from './components/SverkaModal';
 import CompanyChatPage from './components/CompanyChatPage';
 import AiChatModal from './components/AiChatModal';
 import SupplierInviteForm from './components/SupplierInviteForm';
+import SupplierInviteResult from './components/SupplierInviteResult';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14761,21 +14762,7 @@ function App() {
             <button onClick={()=>setShowSupplierInviteModal(false)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
           </div>
           {!generatedInviteLink && <SupplierInviteForm C={C} inp={inp} btnO={btnO} btnG={btnG} supplierInviteForm={supplierInviteForm} setSupplierInviteForm={setSupplierInviteForm} suppliers={suppliers} supplierCategories={SUPPLIER_CATEGORIES} createSupplierInvite={createSupplierInvite} setShowSupplierInviteModal={setShowSupplierInviteModal}/>}
-          {generatedInviteLink && (<>
-            <div style={{padding:'14px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'10px',marginBottom:'12px'}}>
-              <b style={{color:C.success,fontSize:'13px',display:'block',marginBottom:'8px'}}>✅ Ссылка создана!</b>
-              <p style={{margin:'0 0 8px',fontSize:'12px',color:C.text}}>Отправьте её поставщику любым способом (email, мессенджер, телефон):</p>
-              <div style={{padding:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px',color:C.text,wordBreak:'break-all',userSelect:'all'}}>
-                {generatedInviteLink.link}
-              </div>
-              <p style={{margin:'8px 0 0',fontSize:'11px',color:C.textSec}}>Код: <b>{generatedInviteLink.code}</b> · Истекает: {generatedInviteLink.expiresAt?new Date(generatedInviteLink.expiresAt).toLocaleDateString('ru-RU'):'через 14 дней'}</p>
-            </div>
-            <div style={{display:'flex',gap:'8px'}}>
-              <button onClick={()=>{navigator.clipboard.writeText(generatedInviteLink.link).then(()=>{alert('Ссылка скопирована в буфер обмена');}).catch(()=>{alert('Скопируйте вручную');});}} style={btnO}><Copy size={14}/>Скопировать ссылку</button>
-              <button onClick={()=>{setGeneratedInviteLink(null);}} style={btnG}>Создать ещё одну</button>
-              <button onClick={()=>{setShowSupplierInviteModal(false);setGeneratedInviteLink(null);}} style={btnG}>Закрыть</button>
-            </div>
-          </>)}
+          {generatedInviteLink && <SupplierInviteResult C={C} btnO={btnO} btnG={btnG} generatedInviteLink={generatedInviteLink} setGeneratedInviteLink={setGeneratedInviteLink} setShowSupplierInviteModal={setShowSupplierInviteModal}/>}
         </div>
       </div>)}
 
