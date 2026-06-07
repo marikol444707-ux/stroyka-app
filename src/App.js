@@ -75,8 +75,7 @@ import MobileBottomNav from './components/MobileBottomNav';
 import SverkaModal from './components/SverkaModal';
 import CompanyChatPage from './components/CompanyChatPage';
 import AiChatModal from './components/AiChatModal';
-import SupplierInviteForm from './components/SupplierInviteForm';
-import SupplierInviteResult from './components/SupplierInviteResult';
+import SupplierInviteModal from './components/SupplierInviteModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14754,17 +14753,7 @@ function App() {
     <SverkaModal sverkaModal={sverkaModal} setSverkaModal={setSverkaModal} btnO={btnO}/>
     <AiChatModal showAiChat={showAiChat} isMobile={isMobile} C={C} inp={inp} btnO={btnO} aiMessages={aiMessages} aiLoading={aiLoading} aiInput={aiInput} setAiInput={setAiInput} setShowAiChat={setShowAiChat} onSend={sendAiAssistantMessage}/>
       <MobileBottomNav activePage={activePage} isMobile={isMobile} unreadMessagesCount={unreadMessagesCount} setActivePage={setActivePage} setShowMobileMenu={setShowMobileMenu} setShowQuickActions={setShowQuickActions} setShowChatPanel={setShowChatPanel}/>
-      {/* Модалка «Пригласить поставщика по ссылке» */}
-      {showSupplierInviteModal&&(<div onClick={()=>setShowSupplierInviteModal(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
-        <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'min(560px,100%)',maxHeight:'85vh',overflowY:'auto'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
-            <b style={{color:C.text,fontSize:'16px'}}>🔗 Пригласить поставщика по ссылке</b>
-            <button onClick={()=>setShowSupplierInviteModal(false)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
-          </div>
-          {!generatedInviteLink && <SupplierInviteForm C={C} inp={inp} btnO={btnO} btnG={btnG} supplierInviteForm={supplierInviteForm} setSupplierInviteForm={setSupplierInviteForm} suppliers={suppliers} supplierCategories={SUPPLIER_CATEGORIES} createSupplierInvite={createSupplierInvite} setShowSupplierInviteModal={setShowSupplierInviteModal}/>}
-          {generatedInviteLink && <SupplierInviteResult C={C} btnO={btnO} btnG={btnG} generatedInviteLink={generatedInviteLink} setGeneratedInviteLink={setGeneratedInviteLink} setShowSupplierInviteModal={setShowSupplierInviteModal}/>}
-        </div>
-      </div>)}
+      <SupplierInviteModal showSupplierInviteModal={showSupplierInviteModal} setShowSupplierInviteModal={setShowSupplierInviteModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatedInviteLink={generatedInviteLink} setGeneratedInviteLink={setGeneratedInviteLink} supplierInviteForm={supplierInviteForm} setSupplierInviteForm={setSupplierInviteForm} suppliers={suppliers} supplierCategories={SUPPLIER_CATEGORIES} createSupplierInvite={createSupplierInvite}/>
 
       {/* Модалка «Запросить КП у поставщиков» (Сн.2) */}
       {showRequestKpModal&&(<div onClick={()=>setShowRequestKpModal(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
