@@ -8591,7 +8591,24 @@ async def parse_smeta(file: UploadFile = File(...)):
             if any(word in name_key for word in material_words):
                 return "material"
             return "material"
+
+        def _infer_lsr_unit(unit_value, name_value, item_type):
+            raw = str(unit_value or "").strip()
+            compact = raw.lower().replace(" ", "")
+            if raw and compact not in ("1", "ед", "ед.", "шт", "шт."):
+                return raw
+            name_key = str(name_value or "").lower().replace("ё", "е")
+            if any(w in name_key for w in ("розет", "выключател", "светильник", "табло", "прибор", "радиатор", "решетк", "унитаз", "раковин", "смесител", "коробка", "шкаф", "стол")):
+                return "шт"
+            if any(w in name_key for w in ("уголок", "плинтус", "наличник", "кабель", "провод", "труба", "трубопровод", "лоток", "короб", "маяк", "подоконник")):
+                return "м"
+            if any(w in name_key for w in ("бетон", "брус", "каркас из брус")):
+                return "м3"
+            if item_type == "work" and any(w in name_key for w in ("поверхност", "фасад", "стен", "перегород", "потол", "обои", "облицов", "окраск", "штукатур", "шпатлев", "шпаклев", "грунтов", "плитк", "керамогранит", "гранит", "линолеум", "покрытие пола", "гкл", "гипсокартон", "сетка")):
+                return "100 м2"
+            return raw or "шт"
         
+        last_work_result_idx = None
         for i, row in enumerate(ws.iter_rows(min_row=data_start_row, values_only=True)):
             try:
                 first_val = str(row[0]).strip() if row[0] is not None else ""
@@ -8604,15 +8621,12 @@ async def parse_smeta(file: UploadFile = File(...)):
                 
                 if file_type == "lsr":
                     if "Всего по позиции" in name_col:
-                        if results and results[-1].get("total", 0) == 0:
+                        if last_work_result_idx is not None and 0 <= last_work_result_idx < len(results):
                             try:
                                 v = round(float(row[13]), 2) if len(row) > 13 and row[13] and isinstance(row[13], (int,float)) else 0
                                 if v > 0:
-                                    results[-1]["total"] = v
-                                    if results[-1].get("type") == "work":
-                                        results[-1]["totalWork"] = v
-                                    else:
-                                        results[-1]["totalMaterial"] = v
+                                    results[last_work_result_idx]["total"] = v
+                                    results[last_work_result_idx]["totalWork"] = v
                             except:
                                 pass
                         continue
@@ -8634,7 +8648,8 @@ async def parse_smeta(file: UploadFile = File(...)):
                     
                     item_type = _lsr_item_type(obosn, name_col)
                     
-                    unit = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
+                    unit_raw = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
+                    unit = _infer_lsr_unit(unit_raw, name_col, item_type)
                     qty = float(row[8]) if len(row) > 8 and isinstance(row[8], (int,float)) else 0
 
                     work_total = 0
@@ -8661,6 +8676,8 @@ async def parse_smeta(file: UploadFile = File(...)):
                         "type": item_type,
                         "sourceCode": obosn
                     })
+                    if item_type == "work":
+                        last_work_result_idx = len(results) - 1
                 
                 elif file_type == "defect":
                     if all(v is None or (isinstance(v, (int,float)) and v < 10) for v in row[:5]):

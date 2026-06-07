@@ -177,8 +177,8 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   const nameLooksTransport = estimateTextHasAny(nameText, ESTIMATE_TYPE_TOKENS.transport);
   const codeLooksResource = estimateCodeLooksResource(sourceCode);
   const explicitKnown = ESTIMATE_ITEM_TYPE_BY_ID[explicit] ? explicit : '';
-  const importedWeakWork = it.isImported && explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport || toNum(it.quantity) < 0);
-  if (explicitKnown && !importedWeakWork) return explicitKnown;
+  const weakExplicitWork = explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport || toNum(it.quantity) < 0);
+  if (explicitKnown && !weakExplicitWork) return explicitKnown;
   if (explicit.includes('коррект') || explicit.includes('adjust')) return 'adjustment';
   if (explicit.includes('мат')) return 'material';
   if (explicit.includes('оборуд') || explicit.includes('механизм')) return 'equipment';
@@ -203,6 +203,20 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
 const estimateItemTypeMeta = (type) => ESTIMATE_ITEM_TYPE_BY_ID[type] || ESTIMATE_ITEM_TYPE_BY_ID.work;
 const isEstimateMaterialItem = (it, sectionName='') => normalizeEstimateItemType(it, sectionName)==='material';
 const isEstimateWorkItem = (it, sectionName='') => normalizeEstimateItemType(it, sectionName)==='work';
+const estimateUnitLooksUnknown = (unit) => {
+  const u = estimateTextKey(unit).replace(/\s+/g,'');
+  return !u || ['1','ед','единица','шт','штука','штук','штуки'].includes(u);
+};
+const inferEstimateUnit = (it={}, sectionName='') => {
+  const current = String(it.unit || '').trim();
+  if (!estimateUnitLooksUnknown(current)) return current;
+  const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
+  if (estimateTextHasAny(text, ['розет','выключател','светильник','табло','прибор','радиатор','решетк','унитаз','раковин','смесител','коробка ответвительная','дверной блок','оконный блок','полотно','шкаф','стол'])) return 'шт';
+  if (estimateTextHasAny(text, ['уголок','плинтус','наличник','кабель','провод','труба','трубопровод','лоток','короб','профиль маяч','маяк','подоконник'])) return 'м';
+  if (estimateTextHasAny(text, ['бетон','каркас из брус','брусьев','брус'])) return 'м3';
+  if (estimateTextHasAny(text, ['поверхност','фасад','стен','перегород','потолк','потолоч','обои','облицов','окраск','штукатур','шпатлев','шпаклев','грунтов','плитк','керамогранит','гранит','линолеум','покрытие пола','полы','пола','гкл','гипсокартон','сетка'])) return '100 м2';
+  return current || 'шт';
+};
 const ESTIMATE_MEASUREMENT_BASES = [
   {id:'manual', label:'Ручной объём', icon:'✍️'},
   {id:'wall_net_area', label:'Стены чистые', icon:'🧱'},
@@ -229,8 +243,9 @@ const PROJECT_MEASUREMENT_DOC_TYPES = ['Проект','Обмер','Экспли
 const PROJECT_MEASUREMENT_STATUSES = ['Черновик','На проверке','Принято','Отклонено'];
 const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
   const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
-  const unit = _normalizeUnit(normalizeMeasure(1, it.unit).unit || it.unit || '');
-  if (estimateTextHasAny(text, ['демонтаж','разбор','разборка','снятие','удаление'])) return 'demolition';
+  const inferredUnit = inferEstimateUnit(it, sectionName);
+  const unit = _normalizeUnit(normalizeMeasure(1, inferredUnit).unit || inferredUnit || '');
+  const isDemolition = estimateTextHasAny(text, ['демонтаж','разбор','разборка','снятие','удаление','отбивка']);
   if (unit === 'м') return 'linear';
   if (unit === 'шт') {
     if (estimateTextHasAny(text, ['окно','оконный блок','подоконник'])) return 'window_count';
@@ -258,12 +273,14 @@ const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
   if (estimateTextHasAny(text, ['окно','оконный блок','оконные блоки','замена окон','стеклопакет'])) return 'window_area';
   if (estimateTextHasAny(text, ['двер','дверной блок','дверные блоки','полотно','замена двер'])) return 'door_area';
   if (estimateTextHasAny(text, ['штукатур','шпатлев','шпаклев','окраск','обои','облицовка стен','стен','перегород','фасад'])) return 'wall_net_area';
+  if (isDemolition) return 'demolition';
   return 'manual';
 };
 const estimateMeasurementBasisOf = (it={}, sectionName='') => (it.measurementBasis && ESTIMATE_MEASUREMENT_BASE_BY_ID[it.measurementBasis]) ? it.measurementBasis : suggestEstimateMeasurementBasis(it, sectionName);
 const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   const base = {...item, isImported:true};
   const itemType = normalizeEstimateItemType(base, sectionName);
+  const inferredUnit = inferEstimateUnit({...base,itemType}, sectionName);
   const total = toNum(item.total);
   const totalWork = toNum(item.totalWork);
   const totalMaterial = toNum(item.totalMaterial);
@@ -288,26 +305,32 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   return {
     ...base,
     itemType,
+    unit: inferredUnit,
     priceWork: priceWork || '',
     priceMaterial: priceMaterial || '',
-    measurementBasis: itemType === 'work' ? (item.measurementBasis || suggestEstimateMeasurementBasis(base, sectionName)) : 'manual',
+    measurementBasis: itemType === 'work' ? suggestEstimateMeasurementBasis({...base,itemType,unit:inferredUnit}, sectionName) : 'manual',
     importKind: itemType === 'adjustment' ? 'resource_adjustment' : (item.importKind || '')
   };
 };
 const normalizeEstimateImportSections = (sections=[]) => (sections||[]).map(section => ({
   ...section,
-  items: (section.items||[]).map(item => item?.isImported ? normalizeImportedEstimateItem(item, section.name) : item)
+  items: (section.items||[]).map(item => normalizeEstimateWorkingItem(item, section.name))
 }));
+const normalizeEstimateWorkingItem = (item={}, sectionName='') => {
+  if (item?.isImported) return normalizeImportedEstimateItem(item, sectionName);
+  const itemType = normalizeEstimateItemType(item, sectionName);
+  const inferredUnit = inferEstimateUnit({...item,itemType}, sectionName);
+  return {
+    ...item,
+    itemType,
+    unit: inferredUnit,
+    measurementBasis: itemType === 'work' ? suggestEstimateMeasurementBasis({...item,itemType,unit:inferredUnit}, sectionName) : 'manual'
+  };
+};
 const enrichEstimateMeasurementBasis = (sections=[]) => (sections||[]).map(section => ({
   ...section,
   items: (section.items||[]).map(item => {
-    if (item?.isImported) return normalizeImportedEstimateItem(item, section.name);
-    const itemType = normalizeEstimateItemType(item, section.name);
-    return {
-      ...item,
-      itemType: item.itemType || itemType,
-      measurementBasis: itemType === 'work' ? (item.measurementBasis || suggestEstimateMeasurementBasis(item, section.name)) : 'manual'
-    };
+    return normalizeEstimateWorkingItem(item, section.name);
   })
 }));
 const estimateItemWorkSum = (it) => ['adjustment','note'].includes(normalizeEstimateItemType(it, it?.sectionName||it?.section||'')) ? 0 : (it?.isImported ? toNum(it?.priceWork) : toNum(it?.quantity) * toNum(it?.priceWork));
@@ -4988,7 +5011,8 @@ function App() {
         message
       });
     };
-    _sectionsOfEst(est).forEach((section, sectionIdx)=>(section.items||[]).forEach((item, itemIdx)=>{
+    _sectionsOfEst(est).forEach((section, sectionIdx)=>(section.items||[]).forEach((rawItem, itemIdx)=>{
+      const item = normalizeEstimateWorkingItem(rawItem, section?.name||'');
       const name = String(item?.name||'').trim();
       const rawQtyText = String(item?.quantity ?? '').trim();
       const qty = toNum(item?.quantity);
@@ -13807,7 +13831,7 @@ function App() {
                   const itemKind=(it)=>normalizeEstimateItemType(it, section.name);
                   const sumOf=(it)=>estimateItemTotal(it);
                   const allItems=section.items||[];
-                  const typedItems=allItems.map((i,idx)=>{const normalized=i?.isImported?normalizeImportedEstimateItem(i,section.name):i;return {...normalized,_idx:idx,_type:itemKind(normalized)};});
+                  const typedItems=allItems.map((i,idx)=>{const normalized=normalizeEstimateWorkingItem(i,section.name);return {...normalized,_idx:idx,_type:itemKind(normalized)};});
                   const works=typedItems.filter(i=>i._type==='work');
                   const mats=typedItems.filter(i=>i._type==='material');
                   const others=typedItems.filter(i=>!['work','material'].includes(i._type));
@@ -13827,8 +13851,8 @@ function App() {
                     <EstimateItemGroupHeader title={title} emoji={emoji} count={list.length} total={groupTotal} accent={accent}/>
                     {list.length>0?(<div style={{overflowX:'auto',paddingBottom:'2px'}}><table style={estimateTbl}><thead><tr>
 	                      <th style={{...tblH,width:'500px'}}>Наименование</th>
-	                      <th style={{...tblH,width:'150px'}}>Тип</th>
-                        <th style={{...tblH,width:'170px'}}>Основание</th>
+	                      <th style={{...tblH,width:'150px'}}>Тип системы</th>
+                        <th style={{...tblH,width:'170px'}}>Обмер</th>
 	                      <th style={{...tblH,width:'82px'}}>Ед.</th>
                       <th style={{...tblH,width:'110px'}}>План</th>
                       <th style={{...tblH,width:'130px'}}>👷 Кому</th>
@@ -13838,11 +13862,11 @@ function App() {
                       <th style={{...tblH,width:'180px'}}>Сумма</th>
                       <th style={{...tblH,width:'48px'}}></th>
                     </tr></thead><tbody>
-	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const isAutoImported=Boolean(item.isImported);const basis=estimateMeasurementBasisOf(item,section.name);const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
+	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
 	                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'13px',width:'18px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
-	                        <td style={tblC}>{isAutoImported?<div title="Тип определён автоматически по коду, названию и сумме строки" style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:C.text,backgroundColor:C.bg}}><span>{meta.icon}</span><span>{meta.label}</span><span style={{marginLeft:'auto',fontSize:'10px',color:C.textMuted}}>авто</span></div>:<select value={kind} onChange={e=>{const next=e.target.value;const patch={itemType:next};if(next==='material'&&toNum(item.priceWork)>0&&!toNum(item.priceMaterial)){patch.priceMaterial=item.priceWork;patch.priceWork='';}if(next==='work'&&toNum(item.priceMaterial)>0&&!toNum(item.priceWork)){patch.priceWork=item.priceMaterial;patch.priceMaterial='';}patch.measurementBasis=next==='work'?estimateMeasurementBasisOf({...item,itemType:next},section.name):'manual';updateItemPatch(item._idx,patch,true);}} style={inpCell}>{ESTIMATE_ITEM_TYPES.map(t=><option key={t.id} value={t.id}>{t.icon+' '+t.label}</option>)}</select>}</td>
-                          <td style={tblC}><select disabled={!isWork} value={isWork?basis:'manual'} onChange={e=>updateItem(item._idx,'measurementBasis',e.target.value,true)} title={isWork?'Основание для сравнения со вкладкой Помещения':'Основание нужно только для работ'} style={{...inpCell,opacity:isWork?1:0.55}}>{ESTIMATE_MEASUREMENT_BASES.map(b=><option key={b.id} value={b.id}>{b.icon+' '+b.label}</option>)}</select></td>
-	                        <td style={tblC}><select value={item.unit||'шт'} onChange={e=>updateItem(item._idx,'unit',e.target.value,true)} style={inpCell}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></td>
+	                        <td style={tblC}>{autoPill(meta.icon,meta.label)}</td>
+                          <td style={tblC}>{autoPill(basisMeta.icon,isWork?basisMeta.label:'—',!isWork)}</td>
+	                        <td style={tblC}>{autoPill('',qtyNorm.unit||item.unit||'шт')}</td>
 	                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={qtyNorm.qty||''} onChange={e=>updateItem(item._idx,'quantity',denormalizeMeasure(e.target.value,item.unit))} onBlur={persist} style={inpCell}/></td>
 	                        <td style={tblC}><select disabled={!isWork} value={isWork?(item.brigadeName||''):''} onChange={e=>updateItem(item._idx,'brigadeName',e.target.value,true)} style={{...inpCell,opacity:isWork?1:0.55}}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
 	                        <td style={tblC}><input disabled={!isWork} type='number' step='any' inputMode='decimal' value={isWork?(doneNorm.qty||''):''} onChange={e=>{const raw=denormalizeMeasure(e.target.value,item.unit);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+fmtMeasure(qty,item.unit)+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text,opacity:isWork?1:0.55}}/></td>
