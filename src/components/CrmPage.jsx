@@ -1,0 +1,45 @@
+import React from 'react';
+import CrmHeader from './CrmHeader';
+import CrmLeadForm from './CrmLeadForm';
+import CrmStageBoard from './CrmStageBoard';
+
+export default function CrmPage({
+  C,
+  CRM_STAGES,
+  btnG,
+  btnO,
+  btnR,
+  card,
+  deleteLead,
+  editingItem,
+  inp,
+  leads,
+  newLead,
+  saveLead,
+  setEditingItem,
+  setNewLead,
+  setShowForm,
+  showForm,
+}) {
+  return (
+    <div>
+      <CrmHeader C={C} btnO={btnO} onNewLead={()=>{setShowForm(!showForm);setEditingItem(null);setNewLead({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});}}/>
+      {showForm&&(
+        <CrmLeadForm
+          card={card}
+          inp={inp}
+          btnO={btnO}
+          btnG={btnG}
+          newLead={newLead}
+          setNewLead={setNewLead}
+          crmStages={CRM_STAGES}
+          editingItem={editingItem}
+          onSave={()=>{saveLead(editingItem?{...newLead,id:editingItem.id}:newLead);setShowForm(false);setEditingItem(null);}}
+          onCancel={()=>{setShowForm(false);setEditingItem(null);}}
+        />
+      )}
+      <CrmStageBoard C={C} card={card} btnG={btnG} btnR={btnR} crmStages={CRM_STAGES} leads={leads} saveLead={saveLead} deleteLead={deleteLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm}/>
+    </div>
+  );
+}
+

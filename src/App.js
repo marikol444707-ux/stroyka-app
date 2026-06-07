@@ -63,13 +63,12 @@ import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsHeader from './components/MaterialNormSuggestionsHeader';
 import WeatherTabsNav from './components/WeatherTabsNav';
-import SettingsTabsNav from './components/SettingsTabsNav';
-import AnalyticsStatsGrid from './components/AnalyticsStatsGrid';
-import AnalyticsProjectExpensesPanel from './components/AnalyticsProjectExpensesPanel';
-import AnalyticsWorkJournalActivityPanel from './components/AnalyticsWorkJournalActivityPanel';
-import CrmHeader from './components/CrmHeader';
-import CrmLeadForm from './components/CrmLeadForm';
-import CrmStageBoard from './components/CrmStageBoard';
+import ClientsPage from './components/ClientsPage';
+import PricelistsPage from './components/PricelistsPage';
+import MyExpensesPage from './components/MyExpensesPage';
+import SettingsPage from './components/SettingsPage';
+import AnalyticsPage from './components/AnalyticsPage';
+import CrmPage from './components/CrmPage';
 import ActivityLogPage from './components/ActivityLogPage';
 import MobileBottomNav from './components/MobileBottomNav';
 import SverkaModal from './components/SverkaModal';
@@ -113,7 +112,7 @@ import DashboardProductionSummaryPanel from './components/DashboardProductionSum
 import DashboardActivityPanel from './components/DashboardActivityPanel';
 import ConfirmWorkAcceptanceModal from './components/ConfirmWorkAcceptanceModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
 installAuthFetch();
 const loadStoredUser = () => {
@@ -12050,42 +12049,9 @@ function App() {
             })}
             {projects.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><FolderKanban size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Проектов нет — создайте первый!</p></div>}
           </div>)}
-          {activePage==='clients'&&(<div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
-              <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewClient({name:'',phone:'',email:'',status:'Активный',notes:''});}} style={btnO}><Plus size={14}/>Новый клиент</button>
-            </div>
-            {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
-              <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать':'Новый клиент'}</h3>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px'}}>
-                <input placeholder="Название *" value={newClient.name} onChange={e=>setNewClient({...newClient,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder="Телефон" value={newClient.phone} onChange={e=>setNewClient({...newClient,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder="Email" value={newClient.email} onChange={e=>setNewClient({...newClient,email:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <select value={newClient.status} onChange={e=>setNewClient({...newClient,status:e.target.value})} style={{...inp,marginBottom:0}}>{['Активный','Потенциальный','Завершён'].map(s=><option key={s}>{s}</option>)}</select>
-                <textarea placeholder="Заметки" value={newClient.notes} onChange={e=>setNewClient({...newClient,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',height:'60px',resize:'vertical'}}/>
-              </div>
-              <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveClient} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
-            </div>)}
-            <div style={{position:'relative',marginBottom:'12px'}}>
-              <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-              <input placeholder='🔍 Поиск клиента' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
-            </div>
-            {clients.filter(c=>matchSearch(listSearch,c.name,c.phone,c.email)).map(c=>(<div key={c.id} style={{...card,marginBottom:'10px'}}>
-              <div style={{padding:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedClient(expandedClient===c.id?null:c.id)}>
-                <div><b style={{color:C.text,fontSize:'14px'}}>{c.name}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{c.phone+(c.email?' · '+c.email:'')}</p></div>
-                <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                  <button onClick={e=>{e.stopPropagation();setEditingItem(c);setNewClient({...c});setShowForm(true);}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>
-                  <button onClick={e=>{e.stopPropagation();deleteClient(c.id);}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><Trash2 size={11}/></button>
-                </div>
-              </div>
-              {expandedClient===c.id&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'16px'}}>
-                <p style={{color:C.textSec,fontSize:'13px'}}>{c.notes||'Заметок нет'}</p>
-                <b style={{color:C.text,fontSize:'13px',display:'block',marginTop:'10px',marginBottom:'8px'}}>Проекты клиента:</b>
-                {projects.filter(p=>p.client===c.name).map(p=>(<div key={p.id} style={{padding:'8px 10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={{fontSize:'13px',color:C.text}}>{p.name}</span><span style={{fontSize:'12px',color:C.textSec}}>{p.status}</span></div>))}
-                {projects.filter(p=>p.client===c.name).length===0&&<p style={{color:C.textMuted,fontSize:'12px'}}>Проектов нет</p>}
-              </div>)}
-            </div>))}
-            {clients.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Клиентов нет</div>}
-          </div>)}
+          {activePage==='clients'&&(
+            <ClientsPage C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} clients={clients} projects={projects} showForm={showForm} setShowForm={setShowForm} editingItem={editingItem} setEditingItem={setEditingItem} newClient={newClient} setNewClient={setNewClient} saveClient={saveClient} listSearch={listSearch} setListSearch={setListSearch} expandedClient={expandedClient} setExpandedClient={setExpandedClient} deleteClient={deleteClient} matchSearch={matchSearch}/>
+          )}
 
           {activePage==='warehouse'&&(<div>
             <WarehouseTabsNav
@@ -13545,69 +13511,9 @@ function App() {
             </div>)}
           </div>)}
 
-          {activePage==='pricelists'&&(<div>
-            <div style={{display:'flex',gap:'16px',height:'calc(100vh - 120px)'}}>
-              <div style={{width:'280px',flexShrink:0,display:'flex',flexDirection:'column',gap:'10px',overflowY:'auto'}}>
-                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewPricelist({name:'',description:'',forWho:'',coefficient:1.0});setSelectedPricelist(null);setPricelistItems([]);}} style={{...btnO,justifyContent:'center'}}><Plus size={14}/>Новый прайс-лист</button>
-                <button onClick={()=>{setGeneratePricelistForm({description:'',name:'',forWho:'',coefficient:1.0});setShowGeneratePricelist(true);}} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',justifyContent:'center'}}><Bot size={14}/>🤖 Сгенерировать ИИ</button>
-                <button onClick={()=>{setFromEstimateForm({estimateId:'',name:'',forWho:'',coefficient:1.0});setShowFromEstimate(true);}} style={{...btnB,justifyContent:'center'}}><FileText size={14}/>📋 Из сметы</button>
-                {showForm&&!selectedPricelist&&(<div style={{...card,padding:'20px'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><input placeholder="Название *" value={newPricelist.name} onChange={e=>setNewPricelist({...newPricelist,name:e.target.value})} style={{...inp,marginBottom:0}}/><select value={newPricelist.forWho} onChange={e=>setNewPricelist({...newPricelist,forWho:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Для кого</option>{['Электрики','Сантехники','Каменщики','Отделочники','Кровельщики','Монтажники','Общий'].map(r=><option key={r}>{r}</option>)}</select></div><label style={{color:C.textSec,fontSize:'13px',display:'block',marginTop:'10px',marginBottom:'4px'}}>{'Коэффициент: ×'+newPricelist.coefficient}</label><input type="range" min="0.5" max="3" step="0.1" value={newPricelist.coefficient} onChange={e=>setNewPricelist({...newPricelist,coefficient:Number(e.target.value)})} style={{width:'100%',marginBottom:'12px',accentColor:C.accent}}/><div style={{display:'flex',gap:'10px'}}><button onClick={savePricelist} style={btnO}>Сохранить</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}>Отмена</button></div></div>)}
-                {pricelists.map(pl=>(<div key={pl.id} onClick={async()=>{setSelectedPricelist(pl);await loadPricelistItems(pl.id);setShowForm(false);setEditingPlItem(null);}} style={{...card,padding:'14px',cursor:'pointer',border:'1.5px solid '+(selectedPricelist?.id===pl.id?C.accent:C.border),backgroundColor:selectedPricelist?.id===pl.id?C.accentLight:C.bgWhite}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                    <div style={{flex:1}}><h3 style={{margin:0,color:C.text,fontSize:'14px',fontWeight:'600'}}>{pl.name}</h3>{pl.forWho&&<p style={{color:C.accent,margin:'3px 0',fontSize:'12px'}}>{'Для: '+pl.forWho}</p>}<p style={{color:C.info,margin:'3px 0',fontSize:'12px'}}>{'Коэф.: ×'+pl.coefficient}</p></div>
-                    <div style={{display:'flex',gap:'4px'}} onClick={e=>e.stopPropagation()}><button onClick={()=>copyPricelist(pl)} style={{...btnG,padding:'3px 7px',fontSize:'10px'}}><Copy size={10}/></button><button onClick={()=>deletePricelist(pl.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={10}/></button></div>
-                  </div>
-                </div>))}
-              </div>
-              <div style={{flex:1,overflowY:'auto'}}>
-                {selectedPricelist?(<div>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
-	                    <div><h3 style={{margin:0,color:C.text,fontWeight:'700'}}>{selectedPricelist.name}</h3>{selectedPricelist.forWho&&<p style={{color:C.accent,margin:'4px 0',fontSize:'13px'}}>{'Для: '+selectedPricelist.forWho}</p>}<div style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'4px'}}><span style={{color:C.textSec,fontSize:'13px'}}>Коэффициент: ×</span><input type='number' inputMode='decimal' step='0.1' min='0.1' max='10' value={selectedPricelist.coefficient} onChange={e=>setSelectedPricelist(prev=>({...prev,coefficient:Number(e.target.value)}))} onKeyDown={async e=>{if(e.key==='Enter'){await fetch(API+'/pricelists/'+selectedPricelist.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selectedPricelist,coefficient:Number(e.target.value)})});await loadAll();alert('Сохранено!');}}} style={{width:'70px',padding:'4px 8px',border:'1.5px solid '+C.accent,borderRadius:'6px',fontSize:'13px',fontWeight:'600',color:C.accent}}/><span style={{color:C.textMuted,fontSize:'11px'}}>Enter для сохранения</span></div></div>
-                    <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                      <button onClick={()=>showPreview(buildPricelistContent(selectedPricelist,pricelistItems),'Прайс-лист')} style={btnB}><Eye size={14}/>Просмотр</button>
-                      <button onClick={()=>exportToExcel(pricelistItems.map(i=>({Категория:i.category||'',Наименование:i.name,Единица:i.unit,Цена:i.price,'С коэф.':i.price*selectedPricelist.coefficient})),'Прайс_'+selectedPricelist.name)} style={btnG}><Download size={14}/>Excel</button>
-                    </div>
-                  </div>
-                  <div style={{...card,padding:'16px',marginBottom:'16px'}}>
-                    <h4 style={{color:C.text,marginBottom:'12px',fontSize:'13px',fontWeight:'600'}}>{editingPlItem?'Редактировать позицию':'Добавить позицию'}</h4>
-                    <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 2fr auto',gap:'8px',alignItems:'center'}}>
-                      <input placeholder="Наименование *" value={newPlItem.name} onChange={e=>setNewPlItem({...newPlItem,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
-                      <select value={newPlItem.unit} onChange={e=>setNewPlItem({...newPlItem,unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                      <input placeholder="Цена *" type="number" step="any" inputMode="decimal" value={newPlItem.price} onChange={e=>setNewPlItem({...newPlItem,price:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
-                      <select value={newPlItem.category} onChange={e=>setNewPlItem({...newPlItem,category:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}><option value="">Категория</option>{Object.keys(PRICELISTS_DATA).map(c=><option key={c}>{c}</option>)}</select>
-                      <button onClick={savePlItem} style={{...btnO,padding:'8px 14px'}}><Check size={14}/>{editingPlItem?'Сохр.':'Добавить'}</button>
-                    </div>
-                    {editingPlItem&&<button onClick={()=>{setEditingPlItem(null);setNewPlItem({name:'',unit:'м2',price:'',category:''});}} style={{...btnG,marginTop:'8px',fontSize:'12px'}}><X size={12}/>Отменить</button>}
-                  </div>
-                  <div style={{position:'relative',marginBottom:'12px'}}>
-                    <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                    <input placeholder='🔍 Поиск позиции прайса' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
-                  </div>
-                  {[...new Set(pricelistItems.map(i=>(i.category||'').trim()))].sort((a,b)=>a==='' ? 1 : b==='' ? -1 : a.localeCompare(b,'ru')).map(cat=>{
-                    const catItems=pricelistItems.filter(i=>(i.category||'').trim()===cat&&matchSearch(listSearch,i.name,i.category));
-                    if(catItems.length===0) return null;
-                    return(<div key={cat||'nocat'} style={{marginBottom:'20px'}}>
-                      {cat&&<div style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,marginBottom:'8px',display:'flex',alignItems:'center',gap:'8px'}}><b style={{color:C.accent,fontSize:'12px',textTransform:'uppercase'}}>{'🔧 '+cat}</b><span style={{color:C.textSec,fontSize:'11px'}}>{'('+catItems.length+' позиций)'}</span></div>}
-                      <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Цена</th><th style={tblH}>С коэф.</th><th style={tblH}></th></tr></thead><tbody>
-                        {catItems.map(item=>{
-                          const editing = inlineEditPl===item.id;
-                          const editKey = async e => { if(e.key==='Enter') await saveInlinePlItem(item); if(e.key==='Escape') cancelInlinePlEdit(); };
-                          return (<tr key={item.id}>
-                            <td style={tblC}>{editing?<input value={inlineEditPlData.name} onChange={e=>setInlineEditPlData({...inlineEditPlData,name:e.target.value})} onKeyDown={editKey} autoFocus style={{...inp,marginBottom:0,fontSize:'12px',padding:'5px 8px',minWidth:'260px'}}/>:item.name}</td>
-                            <td style={tblC}>{editing?<select value={inlineEditPlData.unit} onChange={e=>setInlineEditPlData({...inlineEditPlData,unit:e.target.value})} onKeyDown={editKey} style={{...inp,marginBottom:0,fontSize:'12px',padding:'5px 8px',width:'82px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>:item.unit}</td>
-                            <td style={tblC}>{editing?<input type='number' step='any' inputMode='decimal' value={inlineEditPlData.price} onChange={e=>{setInlineEditPlData({...inlineEditPlData,price:e.target.value});setInlineEditPrice(e.target.value);}} onKeyDown={editKey} style={{...inp,marginBottom:0,fontSize:'12px',padding:'5px 8px',width:'105px'}}/>:<span style={{cursor:'pointer',fontWeight:'500'}} onClick={()=>startInlinePlEdit(item)}>{item.price.toLocaleString()+' ₽'}</span>}</td>
-                            <td style={{...tblC,color:C.info,fontWeight:'600'}}>{((editing?Number(inlineEditPlData.price||0):item.price)*selectedPricelist.coefficient).toLocaleString()+' ₽'}</td>
-                            <td style={tblC}><div style={{display:'flex',gap:'4px'}}>{editing?<><button onClick={()=>saveInlinePlItem(item)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/></button><button onClick={cancelInlinePlEdit} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><X size={11}/></button></>:<><button onClick={()=>startInlinePlEdit(item)} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}><Edit2 size={11}/></button><button onClick={()=>deletePlItem(item.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button></>}</div></td>
-                          </tr>);
-                        })}
-                      </tbody></table>
-                    </div>);
-                  })}
-                  {pricelistItems.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Позиций нет — добавьте первую!</p>}
-                </div>):(<div style={{...card,padding:'60px',textAlign:'center',color:C.textMuted}}><Tag size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Выберите прайс-лист</p></div>)}
-              </div>
-            </div>
-          </div>)}
+          {activePage==='pricelists'&&(
+            <PricelistsPage API={API} C={C} PRICELISTS_DATA={PRICELISTS_DATA} UNITS={UNITS} buildPricelistContent={buildPricelistContent} btnB={btnB} btnG={btnG} btnGr={btnGr} btnO={btnO} btnR={btnR} card={card} copyPricelist={copyPricelist} deletePlItem={deletePlItem} deletePricelist={deletePricelist} editingPlItem={editingPlItem} exportToExcel={exportToExcel} inlineEditPl={inlineEditPl} inlineEditPlData={inlineEditPlData} inp={inp} listSearch={listSearch} loadAll={loadAll} loadPricelistItems={loadPricelistItems} matchSearch={matchSearch} newPlItem={newPlItem} newPricelist={newPricelist} pricelistItems={pricelistItems} pricelists={pricelists} saveInlinePlItem={saveInlinePlItem} savePlItem={savePlItem} savePricelist={savePricelist} selectedPricelist={selectedPricelist} setEditingItem={setEditingItem} setEditingPlItem={setEditingPlItem} setFromEstimateForm={setFromEstimateForm} setGeneratePricelistForm={setGeneratePricelistForm} setInlineEditPlData={setInlineEditPlData} setInlineEditPrice={setInlineEditPrice} setListSearch={setListSearch} setNewPlItem={setNewPlItem} setNewPricelist={setNewPricelist} setPricelistItems={setPricelistItems} setSelectedPricelist={setSelectedPricelist} setShowForm={setShowForm} setShowFromEstimate={setShowFromEstimate} setShowGeneratePricelist={setShowGeneratePricelist} showForm={showForm} showPreview={showPreview} startInlinePlEdit={startInlinePlEdit} cancelInlinePlEdit={cancelInlinePlEdit} tbl={tbl} tblC={tblC} tblH={tblH}/>
+          )}
 
           {activePage==='users'&&isLeadership()&&(
             <UsersPage
@@ -14300,161 +14206,21 @@ function App() {
             </div>)}
           </div>)}
 
-          {activePage==='myexpenses'&&(()=>{
-            const myExp=(ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);
-            const pending=myExp.filter(e=>e.status==='Ожидает');
-            const approved=myExp.filter(e=>e.status==='Возмещено');
-            const rejected=myExp.filter(e=>e.status==='Отклонено');
-            const sumP=pending.reduce((s,e)=>s+Number(e.amount||0),0);
-            const sumA=approved.reduce((s,e)=>s+Number(e.amount||0),0);
-            const sumR=rejected.reduce((s,e)=>s+Number(e.amount||0),0);
-            // Мои подотчётные, по которым нужно отчитаться
-            const myAcc=(accountablePayments||[]).filter(a=>a.givenTo===user.name&&Number(a.amount||0)>Number(a.spentAmount||0));
-            return(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'18px',flexWrap:'wrap',gap:'10px'}}>
-                <b style={{color:C.text,fontSize:'18px',fontWeight:'700'}}>💸 Мои траты на возмещении</b>
-                <button onClick={()=>setShowOwnExpenseForm(true)} style={btnO}><Plus size={14}/>Новая трата</button>
-              </div>
-              {myAcc.length>0&&(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
-                <b style={{color:C.warning,fontSize:'13px',display:'block',marginBottom:'8px'}}>💵 Подотчётные — нужно отчитаться</b>
-                {myAcc.map(a=>{const total=Number(a.amount||0);const spent=Number(a.spentAmount||0);const remaining=total-spent;return(<div key={a.id} style={{...card,padding:'10px 12px',marginBottom:'6px',backgroundColor:C.bgWhite,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
-                  <div style={{flex:1,minWidth:'200px'}}>
-                    <b style={{color:C.text,fontSize:'12px'}}>{a.projectName||'—'}{a.purpose?' · '+a.purpose:''}</b>
-                    <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{'Выдано: '+Math.round(total).toLocaleString('ru-RU')+' ₽ · Потрачено: '+Math.round(spent).toLocaleString('ru-RU')+' ₽'}</p>
-                    <b style={{color:C.warning,fontSize:'12px'}}>{'⏳ Остаток отчитаться: '+Math.round(remaining).toLocaleString('ru-RU')+' ₽'}</b>
-                  </div>
-                  <button onClick={()=>setReportingPayment(a)} style={btnO}><FileText size={14}/>Отчитаться</button>
-                </div>);})}
-              </div>)}
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'18px'}}>
-                <div style={{...card,padding:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>⏳ Ожидают возмещения</p><b style={{color:C.warning,fontSize:'18px'}}>{Math.round(sumP).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{pending.length+' шт'}</p></div>
-                <div style={{...card,padding:'14px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>✅ Возмещено</p><b style={{color:C.success,fontSize:'18px'}}>{Math.round(sumA).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{approved.length+' шт'}</p></div>
-                <div style={{...card,padding:'14px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>❌ Отклонено</p><b style={{color:C.danger,fontSize:'18px'}}>{Math.round(sumR).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{rejected.length+' шт'}</p></div>
-              </div>
-              <p style={{color:C.textMuted,fontSize:'12px',marginBottom:'12px'}}>Здесь видны все ваши траты собственными деньгами. После одобрения бухгалтерией сумма попадёт в расходы объекта по выбранной категории.</p>
-              {myExp.length===0?<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Трат пока нет.<br/>Нажмите «Новая трата» чтобы зафиксировать расход.</div>:
-                ['Ожидает','Возмещено','Отклонено'].map(st=>{const items=myExp.filter(e=>e.status===st);if(items.length===0) return null;const stColor=st==='Возмещено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Возмещено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;return(<div key={st} style={{marginBottom:'18px'}}>
-                  <b style={{color:stColor,fontSize:'12px',display:'block',marginBottom:'8px'}}>{st==='Ожидает'?'⏳':st==='Возмещено'?'✅':'❌'} {st} ({items.length})</b>
-                  {items.map(e=>{const cat=EXPENSE_CATEGORIES.find(c=>c.id===e.category)||{label:'Прочее',color:C.textMuted};return(<div key={e.id} style={{...card,padding:'12px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                    <div style={{flex:1,minWidth:'200px'}}>
-                      <b style={{color:C.text,fontSize:'13px'}}>{e.description}</b>
-                      <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'—'} · 📅 {e.date||e.createdAt||'—'}</p>
-                      <span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:stBg,color:cat.color,fontSize:'10px',fontWeight:'600'}}>{cat.label}</span>
-                      {e.photoUrl&&<img src={fileSrc(e.photoUrl)} alt='' onClick={()=>setShowPhotoModal(fileSrc(e.photoUrl))} style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>}
-                    </div>
-                    <div style={{textAlign:'right'}}>
-                      <b style={{color:stColor,fontSize:'15px',display:'block'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
-                      {e.approvedBy&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{e.status==='Возмещено'?'Утв.':'Откл.'} {e.approvedBy}</p>}
-                    </div>
-                  </div>);})}
-                </div>);})
-              }
-            </div>);
-          })()}
+          {activePage==='myexpenses'&&(
+            <MyExpensesPage C={C} EXPENSE_CATEGORIES={EXPENSE_CATEGORIES} accountablePayments={accountablePayments} btnO={btnO} card={card} fileSrc={fileSrc} ownExpenses={ownExpenses} setReportingPayment={setReportingPayment} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowPhotoModal={setShowPhotoModal} user={user}/>
+          )}
 
-          {activePage==='settings'&&isFinanceRole()&&(<div>
-            <SettingsTabsNav settingsTab={settingsTab} setSettingsTab={setSettingsTab} btnO={btnO} btnG={btnG}/>
+          {activePage==='settings'&&isFinanceRole()&&(
+            <SettingsPage API={API} C={C} btnB={btnB} btnG={btnG} btnO={btnO} btnR={btnR} card={card} companyDocuments={companyDocuments} companyReqForm={companyReqForm} companyRequisites={companyRequisites} inp={inp} loadAll={loadAll} newCompanyDoc={newCompanyDoc} saveCompanyRequisites={saveCompanyRequisites} setCompanyReqForm={setCompanyReqForm} setCompanyRequisites={setCompanyRequisites} setNewCompanyDoc={setNewCompanyDoc} setShowForm={setShowForm} setShowPhotoModal={setShowPhotoModal} settingsTab={settingsTab} setSettingsTab={setSettingsTab} showForm={showForm} uploadPhoto={uploadPhoto} user={user}/>
+          )}
 
-            {settingsTab==='requisites'&&(<div>
-              <div style={{...card,padding:'24px',marginBottom:'20px'}}>
-                <h3 style={{color:C.text,marginBottom:'20px',fontWeight:'700',fontSize:'16px'}}>🏢 Реквизиты организации</h3>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
-                  <input placeholder="Полное название организации" value={companyReqForm.fullName} onChange={e=>setCompanyReqForm({...companyReqForm,fullName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                  <input placeholder="Краткое название" value={companyReqForm.shortName} onChange={e=>setCompanyReqForm({...companyReqForm,shortName:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="ИНН" value={companyReqForm.inn} onChange={e=>setCompanyReqForm({...companyReqForm,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="КПП" value={companyReqForm.kpp} onChange={e=>setCompanyReqForm({...companyReqForm,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="ОГРН" value={companyReqForm.ogrn} onChange={e=>setCompanyReqForm({...companyReqForm,ogrn:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Юридический адрес" value={companyReqForm.legalAddress} onChange={e=>setCompanyReqForm({...companyReqForm,legalAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                  <input placeholder="Фактический адрес" value={companyReqForm.actualAddress} onChange={e=>setCompanyReqForm({...companyReqForm,actualAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                  <input placeholder="Телефон" value={companyReqForm.phone} onChange={e=>setCompanyReqForm({...companyReqForm,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Email" value={companyReqForm.email} onChange={e=>setCompanyReqForm({...companyReqForm,email:e.target.value})} style={{...inp,marginBottom:0}}/>
-                </div>
-                <div style={{borderTop:'1.5px solid '+C.border,marginTop:'20px',paddingTop:'20px'}}>
-                  <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>Руководство</b>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
-                    <input placeholder="ФИО директора" value={companyReqForm.directorName} onChange={e=>setCompanyReqForm({...companyReqForm,directorName:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder="Должность" value={companyReqForm.directorPosition} onChange={e=>setCompanyReqForm({...companyReqForm,directorPosition:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder="Действует на основании" value={companyReqForm.basis} onChange={e=>setCompanyReqForm({...companyReqForm,basis:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                  </div>
-                </div>
-                <div style={{borderTop:'1.5px solid '+C.border,marginTop:'20px',paddingTop:'20px'}}>
-                  <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>Банковские реквизиты</b>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
-                    <input placeholder="Банк" value={companyReqForm.bankName} onChange={e=>setCompanyReqForm({...companyReqForm,bankName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                    <input placeholder="БИК" value={companyReqForm.bik} onChange={e=>setCompanyReqForm({...companyReqForm,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder="Расчётный счёт" value={companyReqForm.rs} onChange={e=>setCompanyReqForm({...companyReqForm,rs:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder="Корр. счёт" value={companyReqForm.ks} onChange={e=>setCompanyReqForm({...companyReqForm,ks:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  </div>
-                </div>
-                <button onClick={async()=>{await saveCompanyRequisites();setCompanyRequisites(companyReqForm);}} style={{...btnO,marginTop:'20px',padding:'12px 30px',fontSize:'15px'}}><Check size={16}/>Сохранить реквизиты</button>
-              </div>
-              {companyRequisites&&companyRequisites.fullName&&(<div style={{...card,padding:'20px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
-                <b style={{color:C.success,fontSize:'14px',display:'block',marginBottom:'10px'}}>✅ Реквизиты сохранены — подставляются во все документы</b>
-                <p style={{color:C.text,margin:'3px 0',fontSize:'13px'}}>{companyRequisites.fullName}</p>
-                <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'ИНН: '+companyRequisites.inn+' · КПП: '+companyRequisites.kpp+' · ОГРН: '+companyRequisites.ogrn}</p>
-                <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Директор: '+companyRequisites.directorName}</p>
-                <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Банк: '+companyRequisites.bankName+' · Р/с: '+companyRequisites.rs}</p>
-              </div>)}
-            </div>)}
+          {activePage==='analytics'&&(
+            <AnalyticsPage C={C} badge={badge} card={card} contracts={contracts} expByCategory={expByCategory} projects={projects} staff={staff} suppliers={suppliers} tbl={tbl} tblC={tblC} tblH={tblH} workJournal={workJournal}/>
+          )}
 
-            {settingsTab==='documents'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Юридические документы</b>
-                <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Добавить документ</button>
-              </div>
-              {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <input placeholder="Название документа *" value={newCompanyDoc.name} onChange={e=>setNewCompanyDoc({...newCompanyDoc,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newCompanyDoc.docType} onChange={e=>setNewCompanyDoc({...newCompanyDoc,docType:e.target.value})} style={{...inp,marginBottom:0}}>{['Устав','ОГРН','ИНН','Выписка ЕГРЮЛ','Лицензия СРО','Доверенность','Прочее'].map(t=><option key={t}>{t}</option>)}</select>
-                  <input type="date" placeholder="Срок действия" value={newCompanyDoc.expiresAt} onChange={e=>setNewCompanyDoc({...newCompanyDoc,expiresAt:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить файл<input type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'company-documents'});setNewCompanyDoc(prev=>({...prev,fileUrl:url}));}}} /></label>
-                </div>
-                {newCompanyDoc.fileUrl&&<p style={{color:C.success,fontSize:'12px',marginTop:'8px'}}>✅ Файл загружен</p>}
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{if(!newCompanyDoc.name) return;await fetch(API+'/company-documents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCompanyDoc,uploadedBy:user.name})});await loadAll();setNewCompanyDoc({name:'',docType:'Устав',fileUrl:'',expiresAt:''});setShowForm(false);}} style={btnO}><Check size={14}/>Сохранить</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
-              </div>)}
-              {['Устав','ОГРН','ИНН','Выписка ЕГРЮЛ','Лицензия СРО','Доверенность','Прочее'].map(docType=>{
-                const docs=companyDocuments.filter(d=>d.docType===docType);
-                if(docs.length===0) return null;
-                return(<div key={docType} style={{marginBottom:'16px'}}>
-                  <div style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,marginBottom:'8px'}}><b style={{color:C.accent,fontSize:'12px'}}>{'📄 '+docType}</b></div>
-                  {docs.map(doc=>(<div key={doc.id} style={{...card,padding:'14px',marginBottom:'6px',marginLeft:'12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                    <div><b style={{color:C.text,fontSize:'13px'}}>{doc.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{doc.uploadedBy+(doc.expiresAt?' · до '+doc.expiresAt:'')}</p></div>
-                    <div style={{display:'flex',gap:'6px'}}>
-                      {doc.fileUrl&&<button onClick={()=>setShowPhotoModal(doc.fileUrl)} style={btnB}><Eye size={13}/>Открыть</button>}
-                      <button onClick={async()=>{await fetch(API+'/company-documents/'+doc.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'5px 8px'}}><Trash2 size={11}/></button>
-                    </div>
-                  </div>))}
-                </div>);
-              })}
-              {companyDocuments.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><FileText size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Документов нет — загрузите первый!</p></div>}
-            </div>)}
-          </div>)}
-
-          {activePage==='analytics'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'20px',fontSize:'16px',fontWeight:'700'}}>Аналитика</h3>
-            <AnalyticsStatsGrid C={C} card={card} projects={projects} staff={staff} suppliers={suppliers} contracts={contracts}/>
-            <AnalyticsProjectExpensesPanel C={C} card={card} projects={projects} expByCategory={expByCategory}/>
-            <AnalyticsWorkJournalActivityPanel C={C} card={card} tbl={tbl} tblH={tblH} tblC={tblC} badge={badge} workJournal={workJournal}/>
-          </div>)}
-
-          {activePage==='crm'&&(<div>
-            <CrmHeader C={C} btnO={btnO} onNewLead={()=>{setShowForm(!showForm);setEditingItem(null);setNewLead({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});}}/>
-            {showForm&&(
-              <CrmLeadForm
-                card={card}
-                inp={inp}
-                btnO={btnO}
-                btnG={btnG}
-                newLead={newLead}
-                setNewLead={setNewLead}
-                crmStages={CRM_STAGES}
-                editingItem={editingItem}
-                onSave={()=>{saveLead(editingItem?{...newLead,id:editingItem.id}:newLead);setShowForm(false);setEditingItem(null);}}
-                onCancel={()=>{setShowForm(false);setEditingItem(null);}}
-              />
-            )}
-            <CrmStageBoard C={C} card={card} btnG={btnG} btnR={btnR} crmStages={CRM_STAGES} leads={leads} saveLead={saveLead} deleteLead={deleteLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm}/>
-          </div>)}
+          {activePage==='crm'&&(
+            <CrmPage C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm}/>
+          )}
 
           {activePage==='activitylog'&&(
             <ActivityLogPage C={C} tbl={tbl} tblH={tblH} tblC={tblC} activityLog={activityLog} roleLabels={ROLE_LABELS}/>
