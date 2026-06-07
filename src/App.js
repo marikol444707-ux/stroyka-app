@@ -753,7 +753,6 @@ function App() {
   const [newBrigadeContract, setNewBrigadeContract] = useState({projectId:'',projectName:'',brigadeName:'',contractorType:'Своя бригада',contractorId:'',notes:'',pricelistId:''});
   const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
-  const [masterReportPhotos] = useState([]);
   const [supplierCatalog, setSupplierCatalog] = useState([]);
   const [supplyTemplates, setSupplyTemplates] = useState([]);
   const [priceHints, setPriceHints] = useState({});
@@ -870,7 +869,6 @@ function App() {
   const materialControlTaskAutoCheckedRef = useRef(new Map());
   const roomControlTaskQueuedRef = useRef(new Set());
   const roomControlTaskAutoCheckedRef = useRef(new Map());
-  const [, setArchivedProjects] = useState([]);
   const [tbJournal, setTbJournal] = useState([]);
   const [geoCheckins, setGeoCheckins] = useState([]);
   const [, setSignedDocs] = useState({});
@@ -1279,8 +1277,8 @@ function App() {
       loadAll();
       if (['мастер','субподрядчик'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
       const saved = localStorage.getItem('companyName'); if (saved) setCompanyName(saved);
-      const keys = ['masterRatings','activityLog','notifications','archivedProjects','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
-      const setters = [setMasterRatings,setActivityLog,setNotifications,setArchivedProjects,setTbJournal,setGeoCheckins,setSignedDocs,setActPayments,setWeatherLog];
+      const keys = ['masterRatings','activityLog','notifications','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
+      const setters = [setMasterRatings,setActivityLog,setNotifications,setTbJournal,setGeoCheckins,setSignedDocs,setActPayments,setWeatherLog];
       keys.forEach((k,i) => { const v=localStorage.getItem(k); if(v) setters[i](JSON.parse(v)); });
       requestPushPermission().then(granted => setPushEnabled(granted));
       const pingOnline = async () => {
@@ -1443,7 +1441,7 @@ function App() {
         const mdrafts = await get('/measurement-room-drafts');
         setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
       } catch(e) {}
-    } catch(e) { console.log('Load error:',e); }
+    } catch(e) {}
   };
 
   // Счётчик непрочитанных сообщений чата для текущего пользователя
@@ -8758,7 +8756,7 @@ function App() {
                       for(const item of doneItems){
                         const existing=workJournal.find(j=>j.description===item.name&&j.masterId===user.id&&j.status==='На проверке');
                         if(existing){await fetch(API+'/work-journal/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:item.doneQuantity,total:Math.round(item.doneQuantity*item.priceBrigade),date:new Date().toISOString().split('T')[0]})});}
-                        else{await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});}
+                        else{await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});}
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
@@ -11018,7 +11016,7 @@ function App() {
                       const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
                       if(!doneItems.length){alert('Введите выполненные объёмы');return;}
                       for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
+                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
@@ -11342,7 +11340,7 @@ function App() {
                       const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
                       if(!doneItems.length){alert('Введите выполненные объёмы');return;}
                       for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
+                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
@@ -11375,7 +11373,7 @@ function App() {
                       const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
                       if(!doneItems.length){alert('Введите выполненные объёмы');return;}
                       for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке',photoUrl:(masterReportPhotos||[]).join(',')})});
+                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
                       }
                       alert('Отправлено на проверку прорабу!');
                       await loadAll();
@@ -15094,4 +15092,3 @@ function App() {
 }
 
 export default App;
-// cache bust понедельник, 18 мая 2026 г. 00:22:26 (MSK)
