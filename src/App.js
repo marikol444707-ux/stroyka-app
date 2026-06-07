@@ -138,6 +138,7 @@ const isEstimatePricelist = (pl={}) => {
   const description = String(pl.description || '').toLowerCase();
   return name.startsWith('прайс из') || description.includes('создан из сметы');
 };
+const estimateIssueDomId = (estimateId, sectionIdx, itemIdx) => 'estimate-row-'+String(estimateId||'new')+'-'+String(sectionIdx)+'-'+String(itemIdx);
 const ESTIMATE_ITEM_TYPES = [
   {id:'work', label:'Работа', icon:'🔨'},
   {id:'material', label:'Материал', icon:'📦'},
@@ -1029,6 +1030,7 @@ function App() {
   const [selectedVersionsToCompare, setSelectedVersionsToCompare] = useState([]);
   const [importValidationWarnings, setImportValidationWarnings] = useState([]);
   const [importValidating, setImportValidating] = useState(false);
+  const [estimateIssueFocusKey, setEstimateIssueFocusKey] = useState('');
   const [showEstimateChat, setShowEstimateChat] = useState(false);
   const [estimateChatMessages, setEstimateChatMessages] = useState([]);
   const [estimateChatInput, setEstimateChatInput] = useState('');
@@ -4905,6 +4907,8 @@ function App() {
         estimateId:est.id,
         estimateName:est.name||'',
         packageName:estimatePackage(est),
+        sectionIdx,
+        itemIdx,
         sectionName:section?.name||'Без раздела',
         itemName:item?.name||'Без названия',
         itemType:normalizeEstimateItemType(item, section?.name||''),
@@ -4951,6 +4955,16 @@ function App() {
     return rows.sort((a,b)=>(rank[a.severity]??9)-(rank[b.severity]??9)
       || String(a.sectionName).localeCompare(String(b.sectionName),'ru')
       || String(a.itemName).localeCompare(String(b.itemName),'ru'));
+  };
+  const jumpToEstimateIssue = (row) => {
+    if (!row || row.sectionIdx === undefined || row.itemIdx === undefined) return;
+    const key = estimateIssueDomId(row.estimateId || selectedEstimate?.id, row.sectionIdx, row.itemIdx);
+    setEstimateIssueFocusKey(key);
+    setTimeout(() => {
+      const el = document.getElementById(key);
+      if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
+    }, 30);
+    setTimeout(() => setEstimateIssueFocusKey(prev => prev === key ? '' : prev), 4500);
   };
   const estimateQualityDescription = (est, rows, reason) => {
     const counts = [...new Set(rows.map(r=>r.status))]
@@ -13526,6 +13540,8 @@ function App() {
                   importValidating={importValidating}
                   importValidationWarnings={importValidationWarnings}
                   setImportValidationWarnings={setImportValidationWarnings}
+                  estimateIssues={estimateQualityRows(selectedEstimate)}
+                  onJumpToIssue={jumpToEstimateIssue}
                 />
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center',flexWrap:'wrap'}}>
                   <button onClick={()=>setSelectedEstimate(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
@@ -13734,7 +13750,7 @@ function App() {
                       <th style={{...tblH,width:'180px'}}>Сумма</th>
                       <th style={{...tblH,width:'48px'}}></th>
                     </tr></thead><tbody>
-	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);return(<tr key={item.id||item._idx} data-estitem={item.id||item.name||item._idx}>
+	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
 	                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'13px',width:'18px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
 	                        <td style={tblC}><select value={kind} onChange={e=>{const next=e.target.value;const patch={itemType:next};if(next==='material'&&toNum(item.priceWork)>0&&!toNum(item.priceMaterial)){patch.priceMaterial=item.priceWork;patch.priceWork='';}if(next==='work'&&toNum(item.priceMaterial)>0&&!toNum(item.priceWork)){patch.priceWork=item.priceMaterial;patch.priceMaterial='';}patch.measurementBasis=next==='work'?estimateMeasurementBasisOf({...item,itemType:next},section.name):'manual';updateItemPatch(item._idx,patch,true);}} style={inpCell}>{ESTIMATE_ITEM_TYPES.map(t=><option key={t.id} value={t.id}>{t.icon+' '+t.label}</option>)}</select></td>
                           <td style={tblC}><select disabled={!isWork} value={isWork?basis:'manual'} onChange={e=>updateItem(item._idx,'measurementBasis',e.target.value,true)} title={isWork?'Основание для сравнения со вкладкой Помещения':'Основание нужно только для работ'} style={{...inpCell,opacity:isWork?1:0.55}}>{ESTIMATE_MEASUREMENT_BASES.map(b=><option key={b.id} value={b.id}>{b.icon+' '+b.label}</option>)}</select></td>
