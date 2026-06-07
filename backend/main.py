@@ -1489,7 +1489,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_api_errors_created_at ON api_errors(created_at DESC);
         CREATE TABLE IF NOT EXISTS pricelists (
             id SERIAL PRIMARY KEY,
-            name VARCHAR(255),
+            name TEXT,
             description TEXT,
             for_who VARCHAR(255),
             coefficient FLOAT DEFAULT 1.0
@@ -1497,11 +1497,11 @@ def init_db():
         CREATE TABLE IF NOT EXISTS pricelist_items (
             id SERIAL PRIMARY KEY,
             pricelist_id INT,
-            name VARCHAR(255),
+            name TEXT,
             unit VARCHAR(50),
             price FLOAT DEFAULT 0,
-            category VARCHAR(255),
-            specialization VARCHAR(255)
+            category TEXT,
+            specialization TEXT
         );
         CREATE TABLE IF NOT EXISTS invite_codes (
             id SERIAL PRIMARY KEY,
@@ -2673,6 +2673,10 @@ def init_db():
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS signature_url VARCHAR(255);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS notes TEXT;
         ALTER TABLE pricelist_items ADD COLUMN IF NOT EXISTS item_type VARCHAR(20);
+        ALTER TABLE pricelists ALTER COLUMN name TYPE TEXT;
+        ALTER TABLE pricelist_items ALTER COLUMN name TYPE TEXT;
+        ALTER TABLE pricelist_items ALTER COLUMN category TYPE TEXT;
+        ALTER TABLE pricelist_items ALTER COLUMN specialization TYPE TEXT;
         CREATE TABLE IF NOT EXISTS hidden_works_acts (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -13601,66 +13605,83 @@ def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_ro
     estimate_id = data.get("estimateId")
     name = (data.get("name") or "").strip()
     for_who = (data.get("forWho") or "").strip()
-    coefficient = float(data.get("coefficient") or 1.0)
+    def _safe_float(value, default=0.0):
+        try:
+            if value is None or value == "":
+                return default
+            return float(str(value).replace("\xa0", "").replace(" ", "").replace(",", "."))
+        except Exception:
+            return default
+    coefficient = _safe_float(data.get("coefficient"), 1.0)
     if not estimate_id:
         raise HTTPException(status_code=400, detail="Выберите смету")
 
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    cur.execute("SELECT name, sections_json FROM estimates WHERE id=%s", (int(estimate_id),))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Смета не найдена")
-    estimate_name = row[0] or ""
     try:
-        sections = _json.loads(row[1]) if row[1] else []
-    except Exception:
-        sections = []
+        cur.execute("SELECT name, sections_json FROM estimates WHERE id=%s", (int(estimate_id),))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Смета не найдена")
+        estimate_name = row[0] or ""
+        try:
+            sections = _json.loads(row[1]) if row[1] else []
+        except Exception:
+            sections = []
+        if not isinstance(sections, list):
+            sections = []
 
-    final_name = name or ("Прайс из сметы — " + estimate_name)
-    cur.execute("INSERT INTO pricelists (name, description, for_who, coefficient) VALUES (%s, %s, %s, %s) RETURNING id",
-                (final_name, "Создан из сметы: " + estimate_name, for_who, coefficient))
-    pricelist_id = cur.fetchone()[0]
+        final_name = name or ("Прайс из сметы — " + estimate_name)
+        cur.execute("INSERT INTO pricelists (name, description, for_who, coefficient) VALUES (%s, %s, %s, %s) RETURNING id",
+                    (final_name, "Создан из сметы: " + estimate_name, for_who, coefficient))
+        pricelist_id = cur.fetchone()[0]
 
-    inserted = 0
-    seen = set()
-    for s in sections:
-        category = str(s.get("name") or "")
-        for it in (s.get("items") or []):
-            nm = str(it.get("name") or "").strip()
-            if not nm:
-                continue
-            key = (nm.lower(), category.lower())
-            if key in seen:
-                continue
-            seen.add(key)
-            unit = str(it.get("unit") or "шт")
-            item_type = str(it.get("itemType") or "")
-            if item_type in ("adjustment", "note"):
-                continue
-            try:
-                price_work = float(it.get("priceWork") or 0)
-                price_material = float(it.get("priceMaterial") or 0)
-                qty = float(it.get("quantity") or 0)
-            except Exception:
-                price_work = price_material = qty = 0
-            is_imported = bool(it.get("isImported"))
-            if item_type == "material" or (price_material > 0 and price_work == 0):
-                kind = "material"
-                price = price_material if not is_imported or qty == 0 else (price_material / qty if qty > 0 else price_material)
-            else:
-                kind = "work"
+        inserted = 0
+        skipped = 0
+        seen = set()
+        for s in sections:
+            category = str(s.get("name") or "")
+            for it in (s.get("items") or []):
+                nm = str(it.get("name") or "").strip()
+                if not nm:
+                    skipped += 1
+                    continue
+                kind = _estimate_item_type_backend(it, category)
+                if kind != "work":
+                    skipped += 1
+                    continue
+                key = (nm.lower(), category.lower())
+                if key in seen:
+                    skipped += 1
+                    continue
+                seen.add(key)
+                unit = str(it.get("unit") or "шт")
+                price_work = _safe_float(it.get("priceWork"))
+                qty = _safe_float(it.get("quantity"))
+                is_imported = bool(it.get("isImported"))
                 price = price_work if not is_imported or qty == 0 else (price_work / qty if qty > 0 else price_work)
-            if price <= 0:
-                continue
-            cur.execute("INSERT INTO pricelist_items (pricelist_id, name, unit, price, category, specialization, item_type) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                        (pricelist_id, nm, unit, round(price, 2), category, for_who, kind))
-            inserted += 1
+                price = round(price, 2)
+                if price <= 0:
+                    skipped += 1
+                    continue
+                cur.execute("INSERT INTO pricelist_items (pricelist_id, name, unit, price, category, specialization, item_type) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                            (pricelist_id, nm, unit, price, category, for_who, "work"))
+                inserted += 1
 
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "id": pricelist_id, "name": final_name, "itemsCount": inserted}
+        if inserted <= 0:
+            raise HTTPException(status_code=400, detail="В выбранной смете не найдено рабочих строк с ценой для прайс-листа. Сначала нажмите «Нормализовать импорт» в смете.")
+        conn.commit()
+        return {"ok": True, "id": pricelist_id, "name": final_name, "itemsCount": inserted, "skippedCount": skipped}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        print("PRICELIST FROM ESTIMATE ERROR:", str(e))
+        raise HTTPException(status_code=500, detail="Не удалось создать прайс из сметы: " + str(e))
+    finally:
+        cur.close(); conn.close()
 
 @app.post("/ai-generate-pricelist")
 def ai_generate_pricelist(data: dict, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):

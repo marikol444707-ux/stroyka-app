@@ -25,14 +25,16 @@ export default function PricelistFromEstimateModal({
     setCreatingFromEstimate(true);
     try{
       const res=await fetch(API+'/pricelists/from-estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(fromEstimateForm)});
-      const data=await res.json();
+      const raw=await res.text();
+      let data={};
+      try{data=raw?JSON.parse(raw):{};}catch(e){data={detail:raw||'сервер вернул не JSON'};}
       if(!res.ok||!data.ok){alert('Не удалось создать: '+(data.detail||'ошибка'));setCreatingFromEstimate(false);return;}
       await loadAll();
       const newPl=await fetch(API+'/pricelists').then(r=>r.json()).then(arr=>(Array.isArray(arr)?arr.find(p=>p.id===data.id):null));
       if(newPl){setSelectedPricelist(newPl);await loadPricelistItems(newPl.id);}
       setShowFromEstimate(false);
       setCreatingFromEstimate(false);
-      alert('Прайс-лист «'+data.name+'» создан! Позиций: '+data.itemsCount);
+      alert('Прайс-лист «'+data.name+'» создан! Работ: '+data.itemsCount+(data.skippedCount?' · пропущено материалов/дублей: '+data.skippedCount:''));
     }catch(e){alert('Ошибка: '+e.message);setCreatingFromEstimate(false);}
   };
 
@@ -43,7 +45,7 @@ export default function PricelistFromEstimateModal({
           <span style={{fontSize:'22px'}}>📋</span>
           <b style={{color:C.text,fontSize:'15px'}}>Создать прайс-лист из сметы</b>
         </div>
-        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>Все позиции выбранной сметы попадут в прайс. Категория = название раздела сметы. Цены подтянутся из сметы — потом можно поправить вручную.</p>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>В прайс попадут только работы выбранной сметы. Материалы, корректировки и дубли пропускаются, чтобы не смешивать цены работ со снабжением.</p>
         <select value={fromEstimateForm.estimateId} onChange={e=>{const est=estimatesList.find(es=>String(es.id)===e.target.value);setFromEstimateForm({...fromEstimateForm,estimateId:e.target.value,name:est?'Прайс из «'+est.name+'»':fromEstimateForm.name});}} style={inp}>
           <option value=''>Выберите смету *</option>
           {estimatesList.map(e=><option key={e.id} value={e.id}>{e.name}{e.projectName?' — '+e.projectName:''}</option>)}
