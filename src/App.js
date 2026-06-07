@@ -65,6 +65,7 @@ import MaterialNormSuggestionsHeader from './components/MaterialNormSuggestionsH
 import WeatherTabsNav from './components/WeatherTabsNav';
 import SettingsTabsNav from './components/SettingsTabsNav';
 import AnalyticsStatsGrid from './components/AnalyticsStatsGrid';
+import AnalyticsProjectExpensesPanel from './components/AnalyticsProjectExpensesPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14690,10 +14691,7 @@ function App() {
           {activePage==='analytics'&&(<div>
             <h3 style={{color:C.text,marginBottom:'20px',fontSize:'16px',fontWeight:'700'}}>Аналитика</h3>
             <AnalyticsStatsGrid C={C} card={card} projects={projects} staff={staff} suppliers={suppliers} contracts={contracts}/>
-            <div style={{...card,padding:'20px',marginBottom:'20px'}}>
-              <h4 style={{color:C.text,marginBottom:'15px',fontSize:'14px',fontWeight:'700'}}>Расходы по проектам</h4>
-              {projects.filter(p=>p.status==='В работе').map(p=>{const cat=expByCategory(p.name);const total=Object.values(cat).reduce((s,v)=>s+v,0);const pct=p.budget>0?Math.min(100,Math.round(total/p.budget*100)):0;return(<div key={p.id} style={{marginBottom:'14px'}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:'5px'}}><b style={{fontSize:'13px',color:C.text}}>{p.name}</b><span style={{fontSize:'12px',color:total>p.budget?C.danger:C.textSec}}>{total.toLocaleString()+' / '+p.budget.toLocaleString()+' ₽ ('+pct+'%)'}</span></div><div style={{backgroundColor:C.bgGray,borderRadius:'6px',height:'10px'}}><div style={{backgroundColor:pct>80?C.danger:pct>60?C.warning:C.success,width:pct+'%',height:'100%',borderRadius:'6px'}}/></div></div>);})}
-            </div>
+            <AnalyticsProjectExpensesPanel C={C} card={card} projects={projects} expByCategory={expByCategory}/>
             <div style={{...card,padding:'20px'}}>
               <h4 style={{color:C.text,marginBottom:'15px',fontSize:'14px',fontWeight:'700'}}>Активность журнала работ</h4>
               <table style={tbl}><thead><tr><th style={tblH}>Мастер</th><th style={tblH}>Работ</th><th style={tblH}>Сумма</th><th style={tblH}>Подтверждено</th></tr></thead><tbody>
