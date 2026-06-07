@@ -2,6 +2,27 @@
 
 Документ нужен для запуска реальных пользователей после чистки базы. Здесь описано, кто что делает, где это должно отражаться и какие действия нельзя дублировать.
 
+## Отдельные инструкции
+
+Персональные инструкции для выдачи пользователям лежат в `docs/roles/`:
+
+- [Директор](docs/roles/director.md)
+- [Зам директора](docs/roles/deputy-director.md)
+- [Главный инженер](docs/roles/chief-engineer.md)
+- [Прораб](docs/roles/foreman.md)
+- [Мастер](docs/roles/master.md)
+- [Субподрядчик](docs/roles/subcontractor.md)
+- [Сметчик](docs/roles/estimator.md)
+- [Снабженец](docs/roles/procurement.md)
+- [Кладовщик](docs/roles/warehouse.md)
+- [Бухгалтер](docs/roles/accountant.md)
+- [Технадзор](docs/roles/technical-supervision.md)
+- [Стройконтроль](docs/roles/construction-control.md)
+- [Заказчик](docs/roles/client.md)
+- [Поставщик](docs/roles/supplier.md)
+- [Менеджер CRM](docs/roles/crm-manager.md)
+- [Владелец платформы, system_owner](docs/roles/system-owner.md)
+
 ## Главное правило
 
 В системе один факт не должен жить в двух местах.
