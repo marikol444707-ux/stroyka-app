@@ -73,8 +73,7 @@ import CrmStageBoard from './components/CrmStageBoard';
 import ActivityLogPage from './components/ActivityLogPage';
 import MobileBottomNav from './components/MobileBottomNav';
 import SverkaModal from './components/SverkaModal';
-import CompanyChatMessagesList from './components/CompanyChatMessagesList';
-import CompanyChatComposer from './components/CompanyChatComposer';
+import CompanyChatPage from './components/CompanyChatPage';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14727,13 +14726,9 @@ function App() {
             <ActivityLogPage C={C} tbl={tbl} tblH={tblH} tblC={tblC} activityLog={activityLog} roleLabels={ROLE_LABELS}/>
           )}
 
-          {activePage==='companychat'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'20px',fontSize:'16px',fontWeight:'700'}}>Общий чат</h3>
-            <div style={{...card,padding:'0',overflow:'hidden',height:'calc(100vh - 200px)',display:'flex',flexDirection:'column'}}>
-              <CompanyChatMessagesList C={C} companyMessages={companyMessages} user={user} roleColor={roleColor} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal}/>
-              <CompanyChatComposer C={C} inp={inp} btnO={btnO} companyChatMessage={companyChatMessage} setCompanyChatMessage={setCompanyChatMessage} uploadPhoto={uploadPhoto} sendCompanyChatMessage={sendCompanyChatMessage}/>
-            </div>
-          </div>)}
+          {activePage==='companychat'&&(
+            <CompanyChatPage C={C} card={card} inp={inp} btnO={btnO} companyMessages={companyMessages} user={user} roleColor={roleColor} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} companyChatMessage={companyChatMessage} setCompanyChatMessage={setCompanyChatMessage} uploadPhoto={uploadPhoto} sendCompanyChatMessage={sendCompanyChatMessage}/>
+          )}
         </div>
       </div>
     <SverkaModal sverkaModal={sverkaModal} setSverkaModal={setSverkaModal} btnO={btnO}/>
