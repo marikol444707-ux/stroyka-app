@@ -73,6 +73,7 @@ import CrmStageBoard from './components/CrmStageBoard';
 import ActivityLogPage from './components/ActivityLogPage';
 import MobileBottomNav from './components/MobileBottomNav';
 import SverkaModal from './components/SverkaModal';
+import CompanyChatMessagesList from './components/CompanyChatMessagesList';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14728,10 +14729,7 @@ function App() {
           {activePage==='companychat'&&(<div>
             <h3 style={{color:C.text,marginBottom:'20px',fontSize:'16px',fontWeight:'700'}}>Общий чат</h3>
             <div style={{...card,padding:'0',overflow:'hidden',height:'calc(100vh - 200px)',display:'flex',flexDirection:'column'}}>
-              <div style={{flex:1,overflowY:'auto',padding:'20px',display:'flex',flexDirection:'column',gap:'12px',backgroundColor:C.bg}}>
-                {companyMessages.length===0&&<p style={{color:C.textMuted,textAlign:'center',margin:'auto'}}>Сообщений нет</p>}
-                {companyMessages.map(msg=>{const isMe=(msg.author_name||msg.author)===user.name;return(<div key={msg.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start',alignItems:'flex-end',gap:'8px'}}>{!isMe&&<div style={{width:'32px',height:'32px',borderRadius:'10px',backgroundColor:roleColor(msg.author_role||msg.role),display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:'700',fontSize:'13px',flexShrink:0}}>{(msg.author_name||msg.author||'?').charAt(0)}</div>}<div style={{maxWidth:'70%'}}>{!isMe&&<div style={{fontSize:'11px',fontWeight:'700',color:roleColor(msg.author_role||msg.role),marginBottom:'4px'}}>{msg.author_name||msg.author}</div>}<div style={{backgroundColor:isMe?C.accent:C.bgWhite,color:isMe?'white':C.text,padding:'10px 14px',borderRadius:isMe?'18px 18px 4px 18px':'18px 18px 18px 4px',border:'1.5px solid '+(isMe?C.accent:C.border),boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>{msg.text&&<p style={{margin:0,fontSize:'14px',lineHeight:'1.5'}}>{msg.text}</p>}{msg.photo_url&&<img src={fileSrc(msg.photo_url)} alt='' onClick={()=>setShowPhotoModal(fileSrc(msg.photo_url))} style={{width:'200px',borderRadius:'8px',display:'block',marginTop:msg.text?'8px':'0',cursor:'pointer'}}/>}</div><div style={{fontSize:'10px',color:C.textMuted,marginTop:'3px',textAlign:isMe?'right':'left'}}>{msg.created_at?new Date(msg.created_at).toLocaleTimeString('ru-RU'):''}</div></div></div>);})}
-              </div>
+              <CompanyChatMessagesList C={C} companyMessages={companyMessages} user={user} roleColor={roleColor} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal}/>
               <div style={{padding:'14px 16px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bgWhite}}>
                 <div style={{display:'flex',gap:'8px',alignItems:'flex-end'}}>
                   <label style={{cursor:'pointer',backgroundColor:C.bgGray,padding:'10px',borderRadius:'10px',border:'1.5px solid '+C.border,display:'flex',alignItems:'center'}}><Upload size={18} color={C.textSec}/><input type="file" accept="image/*" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'company-chat'});sendCompanyChatMessage('',url);}}}/></label>
