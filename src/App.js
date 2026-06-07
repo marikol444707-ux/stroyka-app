@@ -66,6 +66,7 @@ import WeatherTabsNav from './components/WeatherTabsNav';
 import SettingsTabsNav from './components/SettingsTabsNav';
 import AnalyticsStatsGrid from './components/AnalyticsStatsGrid';
 import AnalyticsProjectExpensesPanel from './components/AnalyticsProjectExpensesPanel';
+import AnalyticsWorkJournalActivityPanel from './components/AnalyticsWorkJournalActivityPanel';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14692,12 +14693,7 @@ function App() {
             <h3 style={{color:C.text,marginBottom:'20px',fontSize:'16px',fontWeight:'700'}}>Аналитика</h3>
             <AnalyticsStatsGrid C={C} card={card} projects={projects} staff={staff} suppliers={suppliers} contracts={contracts}/>
             <AnalyticsProjectExpensesPanel C={C} card={card} projects={projects} expByCategory={expByCategory}/>
-            <div style={{...card,padding:'20px'}}>
-              <h4 style={{color:C.text,marginBottom:'15px',fontSize:'14px',fontWeight:'700'}}>Активность журнала работ</h4>
-              <table style={tbl}><thead><tr><th style={tblH}>Мастер</th><th style={tblH}>Работ</th><th style={tblH}>Сумма</th><th style={tblH}>Подтверждено</th></tr></thead><tbody>
-                {[...new Set(workJournal.map(j=>j.masterName))].map(name=>{const mWorks=workJournal.filter(j=>j.masterName===name);const confirmed=mWorks.filter(j=>j.status==='Подтверждено');return(<tr key={name}><td style={tblC}>{name}</td><td style={tblC}>{mWorks.length}</td><td style={{...tblC,fontWeight:'600',color:C.success}}>{mWorks.reduce((s,w)=>s+(w.total||0),0).toLocaleString()+' ₽'}</td><td style={tblC}><span style={badge(C.success,C.successLight,C.successBorder)}>{confirmed.length+'/'+mWorks.length}</span></td></tr>);})}
-              </tbody></table>
-            </div>
+            <AnalyticsWorkJournalActivityPanel C={C} card={card} tbl={tbl} tblH={tblH} tblC={tblC} badge={badge} workJournal={workJournal}/>
           </div>)}
 
           {activePage==='crm'&&(<div>
