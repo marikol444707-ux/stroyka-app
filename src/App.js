@@ -70,6 +70,7 @@ import AnalyticsWorkJournalActivityPanel from './components/AnalyticsWorkJournal
 import CrmHeader from './components/CrmHeader';
 import CrmLeadForm from './components/CrmLeadForm';
 import CrmStageBoard from './components/CrmStageBoard';
+import ActivityLogPage from './components/ActivityLogPage';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14718,13 +14719,9 @@ function App() {
             <CrmStageBoard C={C} card={card} btnG={btnG} btnR={btnR} crmStages={CRM_STAGES} leads={leads} saveLead={saveLead} deleteLead={deleteLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm}/>
           </div>)}
 
-          {activePage==='activitylog'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'20px',fontSize:'16px',fontWeight:'700'}}>Журнал активности</h3>
-            <table style={tbl}><thead><tr><th style={tblH}>Действие</th><th style={tblH}>Пользователь</th><th style={tblH}>Роль</th><th style={tblH}>Время</th></tr></thead><tbody>
-              {activityLog.map((e,i)=>(<tr key={i}><td style={tblC}>{e.action}</td><td style={tblC}>{e.user}</td><td style={tblC}>{ROLE_LABELS[e.role]||e.role}</td><td style={tblC}>{e.time}</td></tr>))}
-            </tbody></table>
-            {activityLog.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Журнал пуст</p>}
-          </div>)}
+          {activePage==='activitylog'&&(
+            <ActivityLogPage C={C} tbl={tbl} tblH={tblH} tblC={tblC} activityLog={activityLog} roleLabels={ROLE_LABELS}/>
+          )}
 
           {activePage==='companychat'&&(<div>
             <h3 style={{color:C.text,marginBottom:'20px',fontSize:'16px',fontWeight:'700'}}>Общий чат</h3>
