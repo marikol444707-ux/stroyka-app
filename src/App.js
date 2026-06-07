@@ -558,9 +558,9 @@ const C = {
 const inp = {width:'100%',padding:'10px 12px',marginBottom:'10px',border:'1.5px solid '+C.border,borderRadius:'8px',boxSizing:'border-box',fontSize:'14px',outline:'none',backgroundColor:C.bgWhite,color:C.text,transition:'border-color 0.2s'};
 const btnO = {padding:'9px 18px',background:'linear-gradient(135deg,#f97316,#ea580c)',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:'600',display:'inline-flex',alignItems:'center',gap:'6px'};
 const btnG = {padding:'7px 14px',backgroundColor:C.bgGray,color:C.textSec,border:'1.5px solid '+C.border,borderRadius:'8px',cursor:'pointer',fontSize:'13px',display:'inline-flex',alignItems:'center',gap:'6px'};
-const btnR = {padding:'7px 14px',backgroundColor:C.dangerLight,color:C.danger,border:'1.5px solid '+C.dangerBorder,borderRadius:'8px',cursor:'pointer',fontSize:'13px',display:'inline-flex',alignItems:'center',gap:'6px'};
-const btnGr = {padding:'7px 14px',backgroundColor:C.successLight,color:C.success,border:'1.5px solid '+C.successBorder,borderRadius:'8px',cursor:'pointer',fontSize:'13px',display:'inline-flex',alignItems:'center',gap:'6px'};
-const btnB = {padding:'7px 14px',backgroundColor:C.infoLight,color:C.info,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',cursor:'pointer',fontSize:'13px',display:'inline-flex',alignItems:'center',gap:'6px'};
+const btnR = {padding:'7px 14px',backgroundColor:C.danger,color:'white',border:'1.5px solid '+C.danger,borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:'600',display:'inline-flex',alignItems:'center',gap:'6px'};
+const btnGr = {padding:'7px 14px',backgroundColor:C.success,color:'white',border:'1.5px solid '+C.success,borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:'600',display:'inline-flex',alignItems:'center',gap:'6px'};
+const btnB = {padding:'7px 14px',backgroundColor:C.info,color:'white',border:'1.5px solid '+C.info,borderRadius:'8px',cursor:'pointer',fontSize:'13px',fontWeight:'600',display:'inline-flex',alignItems:'center',gap:'6px'};
 const btnDisabledReadable = {background:'none',backgroundColor:'#334155',color:'#f8fafc',border:'1.5px solid #64748b',cursor:'not-allowed',opacity:1};
 const btnState = (base, disabled=false, overrides={}) => ({...base,...overrides,...(disabled?btnDisabledReadable:{})});
 const card = {backgroundColor:C.bgWhite,borderRadius:'12px',border:'1.5px solid '+C.border,overflow:'hidden'};
