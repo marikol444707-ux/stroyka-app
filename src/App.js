@@ -67,6 +67,7 @@ import SettingsTabsNav from './components/SettingsTabsNav';
 import AnalyticsStatsGrid from './components/AnalyticsStatsGrid';
 import AnalyticsProjectExpensesPanel from './components/AnalyticsProjectExpensesPanel';
 import AnalyticsWorkJournalActivityPanel from './components/AnalyticsWorkJournalActivityPanel';
+import CrmHeader from './components/CrmHeader';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -14697,10 +14698,7 @@ function App() {
           </div>)}
 
           {activePage==='crm'&&(<div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}}>
-              <h3 style={{color:C.text,margin:0,fontSize:'16px',fontWeight:'700'}}>CRM — Лиды</h3>
-              <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewLead({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});}} style={btnO}><Plus size={14}/>Новый лид</button>
-            </div>
+            <CrmHeader C={C} btnO={btnO} onNewLead={()=>{setShowForm(!showForm);setEditingItem(null);setNewLead({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});}}/>
             {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                 <input placeholder="Имя клиента *" value={newLead.name} onChange={e=>setNewLead({...newLead,name:e.target.value})} style={{...inp,marginBottom:0}}/>
