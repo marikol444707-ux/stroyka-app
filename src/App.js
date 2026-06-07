@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
 import { API, installAuthFetch } from './api';
-import { EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, UNITS, VAT_OPTIONS } from './constants/catalogs';
+import { CRM_STAGES, DOOR_PURPOSES, DOOR_TYPES, ESTIMATE_CHANGE_APPROVED_STATUSES, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES, EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, REVEAL_MATERIALS, STAGE_STATUSES, SUPPLIER_CATEGORIES, SURFACES, TOOL_STATUSES, UNITS, VAT_OPTIONS, WEATHER_CONDITIONS, WINDOW_TYPES } from './constants/catalogs';
 import { ROLES, ROLE_GROUPS, ROLE_LABELS } from './constants/roles';
 import SystemStatusModal from './components/SystemStatusModal';
 import UsersPage from './components/UsersPage';
@@ -307,10 +307,6 @@ const generateQR = (text) => {
   return url;
 };
 
-const ESTIMATE_PACKAGES = ['Основная','Общестрой','Отопление','ВК / канализация','Электрика','Слаботочка','Вентиляция','Отделка','Благоустройство'];
-const ESTIMATE_CHANGE_TYPES = ['Работа вне сметы','Дополнительный объём к строке сметы','Замена решения','Исключение объёма'];
-const ESTIMATE_CHANGE_APPROVED_STATUSES = ['Утверждено','Утверждено отдельной допработой'];
-const ESTIMATE_CHANGE_VISIBLE_STATUSES = ['Ожидает согласования','Утверждено отдельной допработой','Утверждено','Включено в новую смету','Отклонено'];
 const EMPTY_ESTIMATE_CHANGE = {
   changeType:'Работа вне сметы',
   estimateId:'',
@@ -458,19 +454,6 @@ const convertUnits = (materialName, qty, fromUnit, toUnit) => {
   if (from === 'кг' && to === 'т') return { qty: qty/1000, factor: 1/1000, note: '1000 кг = 1 т' };
   return null;
 };
-const CRM_STAGES = ['Новый','Переговоры','КП отправлено','Договор','Отказ'];
-const SUPPLIER_CATEGORIES = [
-  'Сыпучие и бетон','Кровельные','Металл и арматура','Отделочные','Сантехника','Электрика',
-  'Инструмент','Утеплители','Окна и двери','Отопление','Вентиляция','Слаботочные системы','Прочее'
-];
-const SURFACES = ['Стены','Потолок','Пол','Откосы оконные','Откосы дверные','Фасад','Цоколь'];
-const TOOL_STATUSES = ['На складе','На объекте','У мастера','На ремонте','Списан'];
-const WINDOW_TYPES = ['ПВХ','Алюминий','Дерево','Комбинированное'];
-const DOOR_TYPES = ['Деревянная','ПВХ','Алюминий','Металлическая','МДФ'];
-const DOOR_PURPOSES = ['Входная','Межкомнатная','Балконная','Техническая'];
-const REVEAL_MATERIALS = ['Штукатурка','Гипсокартон','ПВХ панели','Алюминиевые','Деревянные','Плитка','МДФ','Камень'];
-const WEATHER_CONDITIONS = ['Ясно','Облачно','Пасмурно','Дождь','Снег','Гроза','Туман','Ветер'];
-const STAGE_STATUSES = ['Не начат','В работе','Завершён','Заморожен','Просрочен'];
 const CHECKLIST_TEMPLATES = {
   'Приёмка фундамента': ['Проверка геометрии фундамента','Проверка армирования','Проверка гидроизоляции','Проверка отметок','Фото фиксация','Подпись прораба','Подпись технадзора','Акт освидетельствования'],
   'Приёмка стен': ['Проверка вертикальности','Проверка горизонтальности','Проверка перевязки','Проверка швов','Фото фиксация','Подпись прораба','Подпись технадзора','Акт освидетельствования'],
