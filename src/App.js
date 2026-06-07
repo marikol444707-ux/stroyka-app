@@ -175,16 +175,20 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   const nameLooksMaterial = estimateTextHasAny(nameText, ESTIMATE_TYPE_TOKENS.material);
   const nameLooksEquipment = estimateTextHasAny(nameText, ESTIMATE_TYPE_TOKENS.equipment);
   const nameLooksTransport = estimateTextHasAny(nameText, ESTIMATE_TYPE_TOKENS.transport);
+  const codeLooksWork = /^(ГЭСН|ФЕР|ТЕР)/i.test(sourceCode);
   const codeLooksResource = estimateCodeLooksResource(sourceCode);
   const explicitKnown = ESTIMATE_ITEM_TYPE_BY_ID[explicit] ? explicit : '';
+  const weakExplicitMaterial = explicitKnown === 'material' && (codeLooksWork || nameLooksStrongWork);
   const weakExplicitWork = explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport || toNum(it.quantity) < 0);
-  if (explicitKnown && !weakExplicitWork) return explicitKnown;
+  if (explicitKnown && !weakExplicitWork && !weakExplicitMaterial) return explicitKnown;
+  if (weakExplicitMaterial) return 'work';
   if (explicit.includes('коррект') || explicit.includes('adjust')) return 'adjustment';
-  if (explicit.includes('мат')) return 'material';
+  if (explicit.includes('мат') && !weakExplicitMaterial) return 'material';
   if (explicit.includes('оборуд') || explicit.includes('механизм')) return 'equipment';
   if (explicit.includes('достав') || explicit.includes('транспорт')) return 'transport';
   if (explicit.includes('проч') || explicit.includes('наклад')) return 'overhead';
-  if (explicit.includes('работ')) return 'work';
+  if (explicit.includes('работ') && !weakExplicitWork) return 'work';
+  if (codeLooksWork || nameLooksStrongWork) return 'work';
   if (it.isImported && toNum(it.quantity) < 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
   if (toNum(it.priceMaterial)>0 && toNum(it.priceWork)===0) return 'material';
   if (codeLooksResource && !nameLooksStrongWork) return 'material';
@@ -210,11 +214,20 @@ const estimateUnitLooksUnknown = (unit) => {
 const inferEstimateUnit = (it={}, sectionName='') => {
   const current = String(it.unit || '').trim();
   if (!estimateUnitLooksUnknown(current)) return current;
+  const explicitType = estimateTextKey(it.itemType || it.type);
+  const itemType = ESTIMATE_ITEM_TYPE_BY_ID[explicitType] ? explicitType : '';
   const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
+  if (itemType === 'material') {
+    if (estimateTextHasAny(text, ['смесь','штукатурная','шпатлевка','шпатлевк','шпаклевка','шпаклевк','клей','затирка','цемент','пескобетон','сухая смесь'])) return 'кг';
+    if (estimateTextHasAny(text, ['краска','грунтовка','эмаль','лак','акрил'])) return 'кг';
+    if (estimateTextHasAny(text, ['уголок','плинтус','наличник','кабель','провод','труба','трубопровод','лоток','короб','профиль','маяк','подоконник'])) return 'м';
+    if (estimateTextHasAny(text, ['плитк','керамогранит','гранит','линолеум','покрытие пола','обои','лист гипсокартон','листы гипсокартон','гкл','панель','плита'])) return 'м2';
+    if (estimateTextHasAny(text, ['кирпич','блок','саморез','дюбель','гвозд','светильник','розетка','выключатель','прибор','радиатор','решетк'])) return 'шт';
+  }
   if (estimateTextHasAny(text, ['розет','выключател','светильник','табло','прибор','радиатор','решетк','унитаз','раковин','смесител','коробка ответвительная','дверной блок','оконный блок','полотно','шкаф','стол'])) return 'шт';
   if (estimateTextHasAny(text, ['уголок','плинтус','наличник','кабель','провод','труба','трубопровод','лоток','короб','профиль маяч','маяк','подоконник'])) return 'м';
   if (estimateTextHasAny(text, ['бетон','каркас из брус','брусьев','брус'])) return 'м3';
-  if (estimateTextHasAny(text, ['поверхност','фасад','стен','перегород','потолк','потолоч','обои','облицов','окраск','штукатур','шпатлев','шпаклев','грунтов','плитк','керамогранит','гранит','линолеум','покрытие пола','полы','пола','гкл','гипсокартон','сетка'])) return '100 м2';
+  if (itemType !== 'material' && estimateTextHasAny(text, ['поверхност','фасад','стен','перегород','потолк','потолоч','обои','облицов','окраск','штукатур','шпатлев','шпаклев','грунтов','плитк','керамогранит','гранит','линолеум','покрытие пола','полы','пола','гкл','гипсокартон','сетка'])) return '100 м2';
   return current || 'шт';
 };
 const ESTIMATE_MEASUREMENT_BASES = [
@@ -3914,7 +3927,8 @@ function App() {
       !isArchivedEstimate(e) &&
       ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
     );
-    (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+    (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
+      const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (!isEstimateMaterialItem(it, s.name)) return;
       const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
       const r = ensure(it.name, it.unit, sectionLabel);
@@ -4029,7 +4043,8 @@ function App() {
       !isArchivedEstimate(e) &&
       ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
     );
-    (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+    (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
+      const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (isEstimateMaterialItem(it, s.name)) {
         const r = ensure(it.name, it.unit);
         if (!r) return;
