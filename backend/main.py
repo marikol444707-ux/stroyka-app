@@ -3717,15 +3717,15 @@ def get_staff_profile(staff_id: int, _current_user: dict = Depends(require_roles
 
     contracts_list = []
     if user_id is not None:
-        cur.execute("SELECT id, contract_number, project, start_date, end_date, signed_at, status FROM contracts WHERE master_id=%s ORDER BY id DESC", (user_id,))
+        cur.execute("SELECT id, contract_number, project, start_date, end_date FROM contracts WHERE master_id=%s ORDER BY id DESC", (user_id,))
         for r in cur.fetchall():
-            contracts_list.append({"id": r[0], "contractNumber": r[1] or "", "project": r[2] or "", "startDate": str(r[3]) if r[3] else "", "endDate": str(r[4]) if r[4] else "", "signedAt": str(r[5]) if r[5] else "", "status": r[6] or ""})
+            contracts_list.append({"id": r[0], "contractNumber": r[1] or "", "project": r[2] or "", "startDate": str(r[3]) if r[3] else "", "endDate": str(r[4]) if r[4] else "", "signedAt": "", "status": ""})
 
     acts_list = []
     if user_id is not None:
-        cur.execute("SELECT id, act_number, project, period_from, period_to, total_amount, paid_amount, status, created_at FROM interim_acts WHERE master_id=%s ORDER BY id DESC", (user_id,))
+        cur.execute("SELECT id, project, period_start, period_end, total_amount, paid_amount, status FROM interim_acts WHERE master_id=%s ORDER BY id DESC", (user_id,))
         for r in cur.fetchall():
-            acts_list.append({"id": r[0], "actNumber": r[1] or "", "project": r[2] or "", "periodFrom": str(r[3]) if r[3] else "", "periodTo": str(r[4]) if r[4] else "", "totalAmount": float(r[5] or 0), "paidAmount": float(r[6] or 0), "status": r[7] or "", "createdAt": str(r[8])})
+            acts_list.append({"id": r[0], "actNumber": str(r[0]), "project": r[1] or "", "periodFrom": str(r[2]) if r[2] else "", "periodTo": str(r[3]) if r[3] else "", "totalAmount": float(r[4] or 0), "paidAmount": float(r[5] or 0), "status": r[6] or "", "createdAt": ""})
 
     pd_consents = []
     if user_id is not None:
