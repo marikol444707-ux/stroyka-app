@@ -106,6 +106,11 @@ import AppSidebar from './components/AppSidebar';
 import AppHeaderBar from './components/AppHeaderBar';
 import DashboardTopBar from './components/DashboardTopBar';
 import DashboardStatsGrid from './components/DashboardStatsGrid';
+import DashboardDirectorAiPanel from './components/DashboardDirectorAiPanel';
+import DashboardSupplyPanel from './components/DashboardSupplyPanel';
+import DashboardRisksPanel from './components/DashboardRisksPanel';
+import DashboardProductionSummaryPanel from './components/DashboardProductionSummaryPanel';
+import DashboardActivityPanel from './components/DashboardActivityPanel';
 import ConfirmWorkAcceptanceModal from './components/ConfirmWorkAcceptanceModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
@@ -10443,82 +10448,8 @@ function App() {
             <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
               <DashboardTopBar C={C} setSidebarVisible={setSidebarVisible} darkMode={darkMode} setDarkMode={setDarkMode} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} setShowAiAssistant={setShowAiAssistant} showAiAssistant={showAiAssistant} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} setShowQuickActions={setShowQuickActions}/>
               <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} setActivePage={setActivePage} setAccountingTab={setAccountingTab}/>
-              {isLeadership()&&(
-                <div style={{marginBottom:'20px'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
-                    <div>
-                      <h2 style={{margin:0,fontSize:'18px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}><Bot size={18} color='#fdba74'/>ИИ-контроль директора</h2>
-                      <p style={{color:'#94a3b8',fontSize:'12px',margin:'3px 0 0'}}>Автопроверки по данным программы</p>
-                    </div>
-                    <input type='date' value={dailyReportDate} onChange={e=>setDailyReportDate(e.target.value)} style={{height:'34px',padding:'6px 8px',borderRadius:'8px',border:'1px solid rgba(148,163,184,.32)',background:'rgba(15,23,42,.72)',color:'#f8fafc',fontSize:'12px',boxSizing:'border-box'}}/>
-                  </div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'12px'}}>
-                    {directorSkillCards.map((k,i)=>(
-                      <button key={i} onClick={k.onClick} style={{textAlign:'left',padding:'14px',borderRadius:'16px',background:k.bg,border:'1px solid '+k.border,cursor:'pointer',transition:'transform 0.15s, background 0.15s',color:'#f8fafc',display:'flex',flexDirection:'column',gap:'10px',minHeight:'116px'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.background='rgba(30,41,59,.75)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.background=k.bg;}}>
-                        <span style={{width:'34px',height:'34px',borderRadius:'12px',display:'inline-flex',alignItems:'center',justifyContent:'center',background:'rgba(15,23,42,.55)',border:'1px solid '+k.border,color:k.color}}>{k.icon}</span>
-                        <span style={{display:'block'}}>
-                          <b style={{display:'block',fontSize:'13px',color:'#f8fafc'}}>{k.label}</b>
-                          <span style={{display:'block',marginTop:'3px',color:'#94a3b8',fontSize:'11px'}}>{k.sub}</span>
-                        </span>
-                        <span style={{marginTop:'auto',fontSize:'12px',fontWeight:'800',color:k.color}}>{k.metric}</span>
-                      </button>
-                    ))}
-                  </div>
-                  {canUseDirectorAgent()&&(
-                    <div style={{marginTop:'12px',padding:'16px',borderRadius:'18px',background:'rgba(15,23,42,.82)',border:'1px solid rgba(56,189,248,.28)',boxShadow:'0 18px 60px rgba(8,47,73,.22)'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap',marginBottom:'12px'}}>
-                        <div>
-                          <h3 style={{margin:0,fontSize:'16px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}><Bot size={17} color='#38bdf8'/>ИИ-помощник директора</h3>
-                          <p style={{margin:'4px 0 0',fontSize:'12px',color:'#94a3b8'}}>Читает объекты, склад, снабжение, сметы, финансы и задачи ИИ-контроля. Данные не меняет.</p>
-                        </div>
-                        <span style={{fontSize:'11px',fontWeight:'800',color:'#7dd3fc',background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.32)',borderRadius:'999px',padding:'5px 9px'}}>только директор</span>
-                      </div>
-                      <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
-                        {['Что сейчас критично по объектам?','Где есть риски по снабжению?','Какие сметы требуют внимания?','Где зависли задачи ИИ-контроля?'].map(q=>(
-                          <button key={q} onClick={()=>askDirectorAgent(q)} disabled={directorAgentLoading} style={{padding:'7px 10px',borderRadius:'999px',border:'1px solid rgba(148,163,184,.22)',background:'rgba(30,41,59,.72)',color:'#cbd5e1',fontSize:'11px',cursor:directorAgentLoading?'not-allowed':'pointer',opacity:directorAgentLoading?0.65:1}}>{q}</button>
-                        ))}
-                      </div>
-                      <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr auto',gap:'10px',alignItems:'stretch'}}>
-                        <textarea value={directorAgentQuestion} onChange={e=>setDirectorAgentQuestion(e.target.value)} placeholder="Спросите по объектам, складу, деньгам, сметам или задачам..." rows={isMobile?3:2} disabled={directorAgentLoading} style={{width:'100%',resize:'vertical',minHeight:'48px',padding:'11px 12px',borderRadius:'12px',border:'1px solid rgba(148,163,184,.28)',background:'rgba(2,6,23,.62)',color:'#f8fafc',outline:'none',fontSize:'13px',lineHeight:1.45,boxSizing:'border-box'}}/>
-                        <button onClick={()=>askDirectorAgent()} disabled={directorAgentLoading||!directorAgentQuestion.trim()} style={{padding:'10px 16px',borderRadius:'12px',border:'none',background:(directorAgentLoading||!directorAgentQuestion.trim())?'#334155':'linear-gradient(135deg,#0ea5e9,#0284c7)',color:'#f8fafc',fontWeight:'800',fontSize:'13px',cursor:(directorAgentLoading||!directorAgentQuestion.trim())?'not-allowed':'pointer',minWidth:isMobile?'100%':'120px'}}>{directorAgentLoading?'Думаю...':'Спросить'}</button>
-                      </div>
-                      {(directorAgentAnswer||directorAgentError||directorAgentLoading)&&(
-                        <div style={{marginTop:'12px',padding:'13px 14px',borderRadius:'14px',background:directorAgentError?'rgba(239,68,68,.10)':'rgba(30,41,59,.62)',border:'1px solid '+(directorAgentError?'rgba(239,68,68,.26)':'rgba(148,163,184,.18)'),color:directorAgentError?'#fca5a5':'#e2e8f0',fontSize:'13px',lineHeight:1.55,whiteSpace:'pre-wrap'}}>
-                          {directorAgentLoading?'Запрашиваю данные и собираю ответ...':(directorAgentError||directorAgentAnswer)}
-                        </div>
-                      )}
-                      {directorAgentSteps.length>0&&(
-                        <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'10px'}}>
-                          {directorAgentSteps.map((s,i)=><span key={i} style={{fontSize:'10px',fontWeight:'800',color:'#bae6fd',background:'rgba(14,165,233,.12)',border:'1px solid rgba(14,165,233,.24)',borderRadius:'999px',padding:'4px 8px'}}>{s.tool}</span>)}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              {showSupplyDashboard&&(<div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'18px 20px',marginBottom:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.28)'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
-                  <div>
-                    <h2 style={{margin:0,fontSize:'18px',color:'#f8fafc'}}>🛒 Снабжение</h2>
-                    <p style={{color:'#94a3b8',fontSize:'12px',margin:'3px 0 0'}}>Заявки, КП и счета поставщиков в одном месте</p>
-                  </div>
-                  <button onClick={()=>openSupplyDashboard(user.role==='бухгалтер'?'invoices':'all')} style={{background:'rgba(30,41,59,.78)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'8px 12px',color:'#fdba74',fontWeight:'700',cursor:'pointer',fontSize:'12px'}}>Открыть →</button>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px'}}>
-                  {[
-                    {label:user.role==='прораб'?'Ждут подтверждения':'Заявки в работе',value:supplyPendingRequests.length,sub:'материалы по объектам',color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',tab:'inbox'},
-                    {label:'КП на согласование',value:supplyOffersToReview.length,sub:'ответы поставщиков',color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',tab:'all'},
-                    {label:'Счета к оплате',value:supplyInvoicesToPay.length,sub:supplyInvoiceDebt>0?Math.round(supplyInvoiceDebt).toLocaleString('ru-RU')+' ₽':'долга нет',color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',tab:'invoices'},
-                  ].map((k,i)=>(<div key={i} onClick={()=>openSupplyDashboard(k.tab)} style={{padding:'14px',borderRadius:'16px',background:k.bg,border:'1px solid '+k.border,cursor:'pointer',transition:'transform 0.15s, background 0.15s'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.background='rgba(30,41,59,.75)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.background=k.bg;}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
-                      <span style={{color:k.color,fontSize:'12px',fontWeight:'800'}}>{k.label}</span>
-                      <span style={{color:k.color,fontSize:'11px'}}>→</span>
-                    </div>
-                    <div style={{fontSize:'30px',fontWeight:'800',letterSpacing:'-.03em',margin:'8px 0 2px',color:'#f8fafc'}}>{k.value}</div>
-                    <div style={{color:'#94a3b8',fontSize:'12px'}}>{k.sub}</div>
-                  </div>))}
-                </div>
-              </div>)}
+              <DashboardDirectorAiPanel isLeadership={isLeadership} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={askDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={setDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>
+              <DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>
               <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:'16px'}}>
                 <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                   <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
@@ -10541,75 +10472,9 @@ function App() {
                   );})}
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
-                  <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
-                    <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc',display:'flex',alignItems:'center',gap:'8px'}}>⚠️ Предупреждения системы {risks.length>0&&<span style={{fontSize:'12px',padding:'2px 8px',borderRadius:'10px',background:'rgba(239,68,68,.2)',color:'#fca5a5',fontWeight:'700'}}>{risks.length}</span>}</h2>
-                    {risks.length>0?risks.map((r,i)=>{
-                      const cdng=r.severity==='danger';
-                      const isClickable = r.page || r.action;
-                      const handleClick = () => {
-                        if (r.action==='reimburse') { setShowReimburseModal(true); return; }
-                        if (r.page) { setActivePage(r.page); if (r.tab) setWarehouseTab(r.tab); }
-                      };
-                      return(<div key={i} onClick={isClickable?handleClick:undefined} style={{padding:'10px 12px',borderRadius:'12px',background:cdng?'rgba(239,68,68,.10)':'rgba(245,158,11,.10)',border:'1px solid '+(cdng?'rgba(239,68,68,.22)':'rgba(245,158,11,.24)'),color:cdng?'#fca5a5':'#fcd34d',fontSize:'12px',marginBottom:'8px',display:'flex',gap:'8px',alignItems:'flex-start',cursor:isClickable?'pointer':'default',transition:'transform 0.15s'}} onMouseEnter={e=>{if(isClickable) e.currentTarget.style.transform='translateX(2px)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';}}>
-                        <span style={{fontSize:'14px',flexShrink:0}}>{r.icon}</span>
-                        <span style={{flex:1}}>{r.text}</span>
-                        {isClickable && <span style={{fontSize:'11px',opacity:0.6}}>→</span>}
-                      </div>);
-                    }):<div style={{padding:'14px',borderRadius:'14px',background:'rgba(34,197,94,.10)',border:'1px solid rgba(34,197,94,.24)',color:'#86efac',fontSize:'13px',textAlign:'center'}}>✅ Всё под контролем<br/><span style={{fontSize:'11px',color:'#94a3b8'}}>Нет просроченных проектов, дефицита материалов, открытых замечаний и изменений к смете свыше 10%</span></div>}
-                  </div>
-                  {(()=>{
-                    const today=new Date().toISOString().split('T')[0];
-                    const yest=new Date(Date.now()-24*3600*1000).toISOString().split('T')[0];
-                    const wj=(workJournal||[]).filter(w=>w.status==='Подтверждено');
-                    const todayWorks=wj.filter(w=>workDocDate(w)===today);
-                    const yestWorks=wj.filter(w=>workDocDate(w)===yest);
-                    const reportDate=normalizeDocDate(dailyReportDate)||today;
-                    const reportWorks=(workJournal||[]).filter(w=>workDocDate(w)===reportDate);
-                    const reportProjects=new Set(reportWorks.map(w=>w.project).filter(Boolean)).size;
-                    const sumToday=todayWorks.reduce((s,w)=>s+Number(w.total||0),0);
-                    const sumYest=yestWorks.reduce((s,w)=>s+Number(w.total||0),0);
-                    const byMaster={};
-                    todayWorks.forEach(w=>{const n=w.masterName||w.master_name||'—';byMaster[n]=(byMaster[n]||0)+Number(w.total||0);});
-                    const masters=Object.entries(byMaster).sort((a,b)=>b[1]-a[1]).slice(0,5);
-                    return(<div onClick={()=>{setActivePage('accounting');setAccountingTab('acts');}} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',cursor:'pointer'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:'12px',flexWrap:'wrap'}}>
-                        <div>
-                          <h2 style={{margin:'0 0 4px',fontSize:'17px',color:'#f8fafc'}}>👷 Производство работ <span style={{fontSize:'12px',color:'#94a3b8',fontWeight:'400'}}>→ Акты</span></h2>
-                          <p style={{margin:0,color:'#94a3b8',fontSize:'11px'}}>{'Отчёт за день: '+reportWorks.length+' работ · '+reportProjects+' объектов'}</p>
-                        </div>
-                        {user&&['директор','зам_директора'].includes(user.role)&&(<div onClick={e=>e.stopPropagation()} style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                          <input type='date' value={dailyReportDate} onChange={e=>setDailyReportDate(e.target.value)} style={{height:'34px',padding:'6px 8px',borderRadius:'8px',border:'1px solid rgba(148,163,184,.32)',background:'rgba(15,23,42,.72)',color:'#f8fafc',fontSize:'12px',boxSizing:'border-box'}}/>
-                          <button onClick={e=>{e.stopPropagation();showPreview(buildDailyObjectReportContent(reportDate),'Ежедневный отчет — '+new Date(reportDate+'T00:00:00').toLocaleDateString('ru-RU'));}} style={{height:'34px',padding:'7px 10px',borderRadius:'8px',border:'1px solid rgba(34,197,94,.34)',background:'rgba(34,197,94,.14)',color:'#86efac',fontWeight:'700',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'5px'}}><FileText size={13}/>Ежедневный отчёт</button>
-                        </div>)}
-                      </div>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
-                        <div style={{padding:'12px',borderRadius:'14px',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.28)'}}>
-                          <p style={{color:'#86efac',fontSize:'11px',margin:'0 0 4px'}}>Сегодня</p>
-                          <b style={{color:'#86efac',fontSize:'17px',display:'block'}}>{sumToday>=1000000?(sumToday/1000000).toFixed(1)+' млн':Math.round(sumToday/1000)+' тыс'} ₽</b>
-                          <span style={{color:'#94a3b8',fontSize:'10px'}}>{todayWorks.length+' работ'}</span>
-                        </div>
-                        <div style={{padding:'12px',borderRadius:'14px',background:'rgba(59,130,246,.12)',border:'1px solid rgba(59,130,246,.28)'}}>
-                          <p style={{color:'#93c5fd',fontSize:'11px',margin:'0 0 4px'}}>Вчера</p>
-                          <b style={{color:'#93c5fd',fontSize:'17px',display:'block'}}>{sumYest>=1000000?(sumYest/1000000).toFixed(1)+' млн':Math.round(sumYest/1000)+' тыс'} ₽</b>
-                          <span style={{color:'#94a3b8',fontSize:'10px'}}>{yestWorks.length+' работ'}</span>
-                        </div>
-                      </div>
-                      {masters.length>0?(<div>
-                        <p style={{color:'#94a3b8',fontSize:'11px',margin:'0 0 8px'}}>По мастерам сегодня:</p>
-                        {masters.map(([name,sum])=>(<div key={name} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid rgba(148,163,184,.18)'}}><span style={{color:'#f8fafc',fontSize:'12px'}}>{name}</span><b style={{color:'#86efac',fontSize:'12px'}}>{Math.round(sum).toLocaleString('ru-RU')+' ₽'}</b></div>))}
-                      </div>):(<div style={{color:'#94a3b8',fontSize:'13px',padding:'8px 0',textAlign:'center'}}>Сегодня работ ещё нет</div>)}
-                    </div>);
-                  })()}
-                  <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
-                    <h2 style={{margin:'0 0 12px',fontSize:'17px',color:'#f8fafc'}}>📜 Активность</h2>
-                    {activityLog.slice(0,5).map((a,i)=>(
-                      <div key={i} style={{display:'flex',gap:'12px',padding:'10px 0',borderBottom:'1px solid rgba(148,163,184,.18)'}}>
-                        <div style={{width:'10px',height:'10px',borderRadius:'50%',background:'#f97316',boxShadow:'0 0 14px rgba(249,115,22,.8)',marginTop:'4px',flexShrink:0}}/>
-                        <div><div style={{fontSize:'13px',fontWeight:'700',color:'#f8fafc'}}>{a.action}</div><div style={{color:'#94a3b8',fontSize:'11px',marginTop:'2px'}}>{a.user+' · '+a.time}</div></div>
-                      </div>
-                    ))}
-                    {activityLog.length===0&&<div style={{color:'#94a3b8',fontSize:'13px'}}>Пока нет активности</div>}
-                  </div>
+                  <DashboardRisksPanel risks={risks} setShowReimburseModal={setShowReimburseModal} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab}/>
+                  <DashboardProductionSummaryPanel workJournal={workJournal} workDocDate={workDocDate} normalizeDocDate={normalizeDocDate} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} user={user} showPreview={showPreview} buildDailyObjectReportContent={buildDailyObjectReportContent} setActivePage={setActivePage} setAccountingTab={setAccountingTab}/>
+                  <DashboardActivityPanel activityLog={activityLog}/>
                 </div>
               </div>
               <div style={{height:'100px'}}/>
