@@ -74,6 +74,7 @@ import ActivityLogPage from './components/ActivityLogPage';
 import MobileBottomNav from './components/MobileBottomNav';
 import SverkaModal from './components/SverkaModal';
 import CompanyChatPage from './components/CompanyChatPage';
+import AiChatModal from './components/AiChatModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, Tag, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Bell, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Copy, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, Scan, CreditCard, Bot, Camera, ShoppingCart, GitBranch, Menu } from 'lucide-react';
 
@@ -10292,6 +10293,23 @@ function App() {
     );
   }
 
+  const sendAiAssistantMessage = async (rawMessage, fallbackText='Ошибка соединения с ИИ.') => {
+    const msg = String(rawMessage||'').trim();
+    if(!msg) return;
+    setAiInput('');
+    setAiMessages(prev=>[...prev,{role:'user',content:msg}]);
+    setAiLoading(true);
+    try{
+      const context='Данные системы: проектов '+projects.length+', сотрудников '+staff.length+', материалов на складе '+materials.length+' позиций, договоров '+contracts.length+'. Текущий пользователь: '+user.name+' ('+ROLE_LABELS[user.role]+').';
+      const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[...aiMessages,{role:'user',content:context+' Вопрос: '+msg}]})});
+      const data=await res.json();
+      setAiMessages(prev=>[...prev,{role:'assistant',content:data.response||data.error||'Ошибка ответа'}]);
+    }catch(err){
+      setAiMessages(prev=>[...prev,{role:'assistant',content:fallbackText}]);
+    }
+    setAiLoading(false);
+  };
+
   const menuItems = allMenuItems.filter(item=>canAccess(item.id));
 
   return (
@@ -14732,59 +14750,7 @@ function App() {
         </div>
       </div>
     <SverkaModal sverkaModal={sverkaModal} setSverkaModal={setSverkaModal} btnO={btnO}/>
-    {showAiChat&&(<div style={isMobile?{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:C.bgWhite,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}:{position:'fixed',bottom:'80px',right:'20px',width:'480px',height:'620px',backgroundColor:C.bgWhite,borderRadius:'16px',boxShadow:'0 8px 32px rgba(0,0,0,0.15)',border:'1.5px solid '+C.border,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-        <div style={{padding:'14px 16px',backgroundColor:C.accent,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
-            <span style={{fontSize:'20px'}}>🤖</span>
-            <div><b style={{color:'white',fontSize:'14px',display:'block'}}>ИИ Помощник</b><p style={{color:'rgba(255,255,255,0.8)',fontSize:'11px',margin:0}}>СтройКа Assistant</p></div>
-          </div>
-          <button onClick={()=>setShowAiChat(false)} style={{background:'none',border:'none',color:'white',cursor:'pointer',fontSize:'18px'}}>×</button>
-        </div>
-        <div style={{flex:1,overflowY:'auto',padding:'12px',display:'flex',flexDirection:'column',gap:'8px',backgroundColor:C.bg}}>
-          {aiMessages.map((msg,i)=>(<div key={i} style={{display:'flex',justifyContent:msg.role==='user'?'flex-end':'flex-start'}}>
-            <div style={{maxWidth:'85%',padding:'8px 12px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',backgroundColor:msg.role==='user'?C.accent:C.bgWhite,color:msg.role==='user'?'white':C.text,fontSize:'13px',lineHeight:'1.5',boxShadow:'0 1px 3px rgba(0,0,0,0.08)',border:msg.role==='user'?'none':'1.5px solid '+C.border,whiteSpace:'pre-wrap'}}>
-              {msg.content}
-            </div>
-          </div>))}
-          {aiLoading&&(<div style={{display:'flex',justifyContent:'flex-start'}}><div style={{padding:'8px 12px',borderRadius:'16px 16px 16px 4px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,fontSize:'13px',color:C.textSec}}>⏳ Думаю...</div></div>)}
-        </div>
-        <div style={{padding:'10px 12px',borderTop:'1.5px solid '+C.border,backgroundColor:C.bgWhite,display:'flex',gap:'8px'}}>
-          <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={async e=>{
-            if(e.key==='Enter'&&!e.shiftKey&&aiInput.trim()){
-              e.preventDefault();
-              const msg=aiInput.trim();
-              setAiInput('');
-              setAiMessages(prev=>[...prev,{role:'user',content:msg}]);
-              setAiLoading(true);
-              try{
-                const context='Данные системы: проектов '+projects.length+', сотрудников '+staff.length+', материалов на складе '+materials.length+' позиций, договоров '+contracts.length+'. Текущий пользователь: '+user.name+' ('+ROLE_LABELS[user.role]+').';
-                const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[...aiMessages,{role:'user',content:context+' Вопрос: '+msg}]})});
-                const data=await res.json();
-                setAiMessages(prev=>[...prev,{role:'assistant',content:data.response||data.error||'Ошибка ответа'}]);
-              }catch(err){
-                setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения с ИИ. Проверьте подключение.'}]);
-              }
-              setAiLoading(false);
-            }
-          }} placeholder='Задайте вопрос...' style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}}/>
-          <button onClick={async()=>{
-            if(!aiInput.trim()) return;
-            const msg=aiInput.trim();
-            setAiInput('');
-            setAiMessages(prev=>[...prev,{role:'user',content:msg}]);
-            setAiLoading(true);
-            try{
-              const context='Данные системы: проектов '+projects.length+', сотрудников '+staff.length+', материалов на складе '+materials.length+' позиций, договоров '+contracts.length+'. Текущий пользователь: '+user.name+' ('+ROLE_LABELS[user.role]+').';
-              const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[...aiMessages,{role:'user',content:context+' Вопрос: '+msg}]})});
-              const data=await res.json();
-              setAiMessages(prev=>[...prev,{role:'assistant',content:data.response||data.error||'Ошибка ответа'}]);
-            }catch(err){
-              setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения с ИИ.'}]);
-            }
-            setAiLoading(false);
-          }} style={{...btnO,padding:'8px 14px'}}>➤</button>
-        </div>
-      </div>)}
+    <AiChatModal showAiChat={showAiChat} isMobile={isMobile} C={C} inp={inp} btnO={btnO} aiMessages={aiMessages} aiLoading={aiLoading} aiInput={aiInput} setAiInput={setAiInput} setShowAiChat={setShowAiChat} onSend={sendAiAssistantMessage}/>
       <MobileBottomNav activePage={activePage} isMobile={isMobile} unreadMessagesCount={unreadMessagesCount} setActivePage={setActivePage} setShowMobileMenu={setShowMobileMenu} setShowQuickActions={setShowQuickActions} setShowChatPanel={setShowChatPanel}/>
       {/* Модалка «Пригласить поставщика по ссылке» */}
       {showSupplierInviteModal&&(<div onClick={()=>setShowSupplierInviteModal(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
