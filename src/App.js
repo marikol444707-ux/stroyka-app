@@ -133,6 +133,11 @@ const loadStoredUser = () => {
 };
 // Парсинг чисел с поддержкой запятой как разделителя (русская локаль): "0,027" → 0.027
 const toNum = (v) => { if(v===null||v===undefined||v==='') return 0; const s=String(v).replace(',', '.').replace(/\s+/g,''); const n=Number(s); return isNaN(n)?0:n; };
+const isEstimatePricelist = (pl={}) => {
+  const name = String(pl.name || '').toLowerCase();
+  const description = String(pl.description || '').toLowerCase();
+  return name.startsWith('прайс из') || description.includes('создан из сметы');
+};
 const ESTIMATE_ITEM_TYPES = [
   {id:'work', label:'Работа', icon:'🔨'},
   {id:'material', label:'Материал', icon:'📦'},
@@ -10404,7 +10409,7 @@ function App() {
                 <select value={newProject.status} onChange={e=>setNewProject({...newProject,status:e.target.value})} style={{...inp,marginBottom:0}}>{['Планирование','В работе','Завершён','Заморожен'].map(s=><option key={s}>{s}</option>)}</select>
                 <input placeholder="Бюджет" type="number" step="any" inputMode="decimal" value={newProject.budget} onChange={e=>setNewProject({...newProject,budget:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder="Дедлайн" type="date" value={newProject.deadline} onChange={e=>setNewProject({...newProject,deadline:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <select value={newProject.pricelistId||''} onChange={e=>setNewProject({...newProject,pricelistId:e.target.value?Number(e.target.value):null})} style={{...inp,marginBottom:0}}><option value="">Прайс-лист</option>{pricelists.map(pl=><option key={pl.id} value={pl.id}>{pl.name}</option>)}</select>
+                <select value={newProject.pricelistId||''} onChange={e=>setNewProject({...newProject,pricelistId:e.target.value?Number(e.target.value):null})} style={{...inp,marginBottom:0}}><option value="">Прайс-лист</option>{pricelists.filter(pl=>!isEstimatePricelist(pl)||Number(pl.id)===Number(newProject.pricelistId)).map(pl=><option key={pl.id} value={pl.id}>{pl.name}</option>)}</select>
                 <input placeholder="Этажей (например: 3)" type="number" step="any" inputMode="decimal" value={newProject.floors||''} onChange={e=>setNewProject({...newProject,floors:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder="Литеры (например: А,Б,В)" value={newProject.liters||''} onChange={e=>setNewProject({...newProject,liters:e.target.value})} style={{...inp,marginBottom:0}}/>
               </div>
