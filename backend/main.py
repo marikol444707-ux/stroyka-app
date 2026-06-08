@@ -8618,6 +8618,42 @@ async def parse_smeta(file: UploadFile = File(...)):
             if item_type == "work" and any(w in name_key for w in ("поверхност", "фасад", "стен", "перегород", "потол", "обои", "облицов", "окраск", "штукатур", "шпатлев", "шпаклев", "грунтов", "плитк", "керамогранит", "гранит", "линолеум", "покрытие пола", "гкл", "гипсокартон", "сетка")):
                 return "100 м2"
             return raw or "шт"
+
+        def _row_float(value):
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            text = str(value).strip().replace("\xa0", " ").replace(" ", "").replace(",", ".")
+            if not text:
+                return None
+            text = re.sub(r"[^0-9.\-]", "", text)
+            if text in ("", "-", ".", "-."):
+                return None
+            try:
+                return float(text)
+            except Exception:
+                return None
+
+        def _pick_lsr_sum(row, preferred_indexes=()):
+            for idx in preferred_indexes:
+                if len(row) > idx:
+                    n = _row_float(row[idx])
+                    if n is not None and abs(n) > 0.0001:
+                        return round(n, 2)
+            candidates = []
+            for idx, value in enumerate(row):
+                if idx < 9:
+                    continue
+                n = _row_float(value)
+                if n is not None and abs(n) > 0.0001:
+                    candidates.append((idx, n))
+            if not candidates:
+                return 0
+            for _, n in reversed(candidates):
+                if abs(n) >= 1:
+                    return round(n, 2)
+            return round(candidates[-1][1], 2)
         
         last_work_result_idx = None
         for i, row in enumerate(ws.iter_rows(min_row=data_start_row, values_only=True)):
@@ -8634,7 +8670,7 @@ async def parse_smeta(file: UploadFile = File(...)):
                     if "Всего по позиции" in name_col:
                         if last_work_result_idx is not None and 0 <= last_work_result_idx < len(results):
                             try:
-                                v = round(float(row[13]), 2) if len(row) > 13 and row[13] and isinstance(row[13], (int,float)) else 0
+                                v = _pick_lsr_sum(row, (13, 14, 15, 16, 17))
                                 if v > 0:
                                     results[last_work_result_idx]["total"] = v
                                     results[last_work_result_idx]["totalWork"] = v
@@ -8661,20 +8697,11 @@ async def parse_smeta(file: UploadFile = File(...)):
                     
                     unit_raw = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
                     unit = _infer_lsr_unit(unit_raw, name_col, item_type)
-                    qty = float(row[8]) if len(row) > 8 and isinstance(row[8], (int,float)) else 0
+                    qty = _row_float(row[8]) if len(row) > 8 else 0
+                    qty = qty if qty is not None else 0
 
-                    work_total = 0
-                    mat_total = 0
-                    try:
-                        if item_type == "work" and len(row) > 13 and row[13] and isinstance(row[13], (int,float)):
-                            work_total = round(float(row[13]), 2)
-                    except:
-                        pass
-                    try:
-                        if item_type == "material" and len(row) > 15 and row[15] and isinstance(row[15], (int,float)):
-                            mat_total = round(float(row[15]), 2)
-                    except:
-                        pass
+                    work_total = _pick_lsr_sum(row, (13, 14, 15, 16, 17)) if item_type == "work" else 0
+                    mat_total = _pick_lsr_sum(row, (15, 14, 13, 16, 17)) if item_type == "material" else 0
 
                     results.append({
                         "section": current_section,

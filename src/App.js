@@ -346,8 +346,26 @@ const enrichEstimateMeasurementBasis = (sections=[]) => (sections||[]).map(secti
     return normalizeEstimateWorkingItem(item, section.name);
   })
 }));
-const estimateItemWorkSum = (it) => ['adjustment','note'].includes(normalizeEstimateItemType(it, it?.sectionName||it?.section||'')) ? 0 : (it?.isImported ? toNum(it?.priceWork) : toNum(it?.quantity) * toNum(it?.priceWork));
-const estimateItemMaterialSum = (it) => ['adjustment','note'].includes(normalizeEstimateItemType(it, it?.sectionName||it?.section||'')) ? 0 : (it?.isImported ? toNum(it?.priceMaterial) : toNum(it?.quantity) * toNum(it?.priceMaterial));
+const estimateImportedWorkTotal = (it, itemType) => {
+  const priceWork = toNum(it?.priceWork);
+  const totalWork = toNum(it?.totalWork);
+  const totalMaterial = toNum(it?.totalMaterial);
+  const total = toNum(it?.total);
+  if (priceWork) return priceWork;
+  if (totalWork) return totalWork;
+  return itemType === 'work' && !totalMaterial ? total : 0;
+};
+const estimateImportedMaterialTotal = (it, itemType) => {
+  const priceMaterial = toNum(it?.priceMaterial);
+  const totalMaterial = toNum(it?.totalMaterial);
+  const totalWork = toNum(it?.totalWork);
+  const total = toNum(it?.total);
+  if (priceMaterial) return priceMaterial;
+  if (totalMaterial) return totalMaterial;
+  return ['material','equipment','transport'].includes(itemType) && !totalWork ? total : 0;
+};
+const estimateItemWorkSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) ? 0 : (it?.isImported ? estimateImportedWorkTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceWork)); };
+const estimateItemMaterialSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) ? 0 : (it?.isImported ? estimateImportedMaterialTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceMaterial)); };
 const estimateItemTotal = (it) => estimateItemWorkSum(it) + estimateItemMaterialSum(it);
 const estimateItemDoneTotal = (it) => {
   const q = toNum(it?.quantity);
