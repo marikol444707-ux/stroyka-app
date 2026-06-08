@@ -8682,9 +8682,18 @@ async def parse_smeta(file: UploadFile = File(...)):
                 elif nums:
                     qty = nums[0]
             normalized_qty, normalized_unit, factor = _normalize_lsr_measure(qty, unit)
-            return normalized_unit, normalized_qty, unit, qty, factor
+            return normalized_unit, normalized_qty, unit, qty, factor, found_idx
 
-        def _pick_lsr_sum(row, preferred_indexes=()):
+        def _pick_lsr_sum(row, preferred_indexes=(), unit_idx=None):
+            if unit_idx is not None:
+                after_unit = []
+                for idx in range(unit_idx + 1, len(row)):
+                    n = _row_float(row[idx])
+                    if n is not None and abs(n) > 0.0001:
+                        after_unit.append((idx, n))
+                money_candidates = [item for item in after_unit[3:] if abs(item[1]) >= 1]
+                if money_candidates:
+                    return round(max(money_candidates, key=lambda item: abs(item[1]))[1], 2)
             for idx in preferred_indexes:
                 if len(row) > idx:
                     n = _row_float(row[idx])
@@ -8758,10 +8767,10 @@ async def parse_smeta(file: UploadFile = File(...)):
                     inferred_unit = _infer_lsr_unit(unit_raw, name_col, item_type)
                     raw_qty = _row_float(row[8]) if len(row) > 8 else 0
                     raw_qty = raw_qty if raw_qty is not None else 0
-                    unit, qty, raw_unit, raw_qty, unit_factor = _pick_lsr_unit_and_quantity(row, inferred_unit, raw_qty)
+                    unit, qty, raw_unit, raw_qty, unit_factor, unit_idx = _pick_lsr_unit_and_quantity(row, inferred_unit, raw_qty)
 
-                    work_total = _pick_lsr_sum(row, (13, 14, 15, 16, 17)) if item_type == "work" else 0
-                    mat_total = _pick_lsr_sum(row, (15, 14, 13, 16, 17)) if item_type == "material" else 0
+                    work_total = _pick_lsr_sum(row, (13, 14, 15, 16, 17), unit_idx) if item_type == "work" else 0
+                    mat_total = _pick_lsr_sum(row, (15, 14, 13, 16, 17), unit_idx) if item_type == "material" else 0
 
                     item = {
                         "section": current_section,
