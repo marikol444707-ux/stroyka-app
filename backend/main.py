@@ -8634,15 +8634,40 @@ async def parse_smeta(file: UploadFile = File(...)):
                 columns["quantity_final"] = unit_idx + 3
 
             for row in scan_rows:
+                seen_cost_unit = False
                 for idx, value in enumerate(row):
                     key = _lsr_text_key(value).replace("\n", " ")
                     compact = re.sub(r"\s+", " ", key)
                     if "на единицу" in compact:
-                        columns["quantity_base"] = idx
+                        if idx <= columns.get("quantity_final", 6):
+                            columns["quantity_base"] = idx
+                        elif not seen_cost_unit:
+                            columns["cost_unit"] = idx
+                            seen_cost_unit = True
                     elif "коэффициент" in compact and "сметн" not in compact:
-                        columns["quantity_coeff"] = idx
-                    elif "всего" in compact and "учет" in compact and "коэффициент" in compact:
-                        columns["quantity_final"] = idx
+                        if idx <= columns.get("quantity_final", 6):
+                            columns["quantity_coeff"] = idx
+                        elif "cost_coeff" not in columns:
+                            columns["cost_coeff"] = idx
+                    elif "всего" in compact:
+                        if "учет" in compact and "коэффициент" in compact:
+                            columns["quantity_final"] = idx
+                        elif idx > columns.get("quantity_final", 6) and "cost_total" not in columns:
+                            columns["cost_total"] = idx
+                    elif "индекс" in compact:
+                        columns["cost_index"] = idx
+
+            qf = columns.get("quantity_final", 6)
+            if "cost_unit" not in columns:
+                columns["cost_unit"] = qf + 1
+            if "cost_coeff" not in columns:
+                columns["cost_coeff"] = columns["cost_unit"] + 1
+            if "cost_total" not in columns:
+                columns["cost_total"] = columns["cost_coeff"] + 1
+            if "cost_index" not in columns:
+                columns["cost_index"] = columns["cost_total"] + 1
+            if "cost_current_total" not in columns:
+                columns["cost_current_total"] = columns["cost_index"] + 1
             return columns
 
         lsr_columns = _detect_lsr_columns(header_rows, lsr_header_row_idx) if file_type == "lsr" else {}
@@ -8899,6 +8924,65 @@ async def parse_smeta(file: UploadFile = File(...)):
                 return round(max(money_candidates, key=lambda item: abs(item[1]))[1], 2)
             return round(candidates[-1][1], 2)
 
+        def _cell_float(row, idx):
+            if idx is None or idx < 0 or len(row) <= idx:
+                return None
+            return _row_float(row[idx])
+
+        def _valid_lsr_money(value):
+            return value is not None and 0.0001 < abs(float(value)) < 1000000000000
+
+        def _pick_lsr_money(row, columns, unit_idx=None):
+            base_unit_price = _cell_float(row, columns.get("cost_unit"))
+            cost_coeff = _cell_float(row, columns.get("cost_coeff"))
+            base_total = _cell_float(row, columns.get("cost_total"))
+            cost_index = _cell_float(row, columns.get("cost_index"))
+            current_total = _cell_float(row, columns.get("cost_current_total"))
+            quantity_final = _cell_float(row, columns.get("quantity_final"))
+
+            result = {
+                "baseUnitPrice": round(float(base_unit_price), 6) if base_unit_price is not None else None,
+                "costCoefficient": round(float(cost_coeff), 6) if cost_coeff is not None else None,
+                "baseTotal": round(float(base_total), 2) if base_total is not None else None,
+                "costIndex": round(float(cost_index), 6) if cost_index is not None else None,
+                "currentTotal": round(float(current_total), 2) if current_total is not None else None,
+                "lineTotalSource": "",
+                "lineTotal": 0,
+            }
+
+            if _valid_lsr_money(current_total):
+                if _valid_lsr_money(base_total) and cost_index not in (None, 0):
+                    expected = float(base_total) * float(cost_index)
+                    if abs(float(current_total) - expected) <= max(1, abs(expected) * 0.03):
+                        result["lineTotal"] = round(float(current_total), 2)
+                        result["lineTotalSource"] = "current_total"
+                        return result
+                elif not _valid_lsr_money(base_total) or abs(float(current_total)) >= abs(float(base_total)):
+                    result["lineTotal"] = round(float(current_total), 2)
+                    result["lineTotalSource"] = "current_total"
+                    return result
+
+            if _valid_lsr_money(base_total) and cost_index not in (None, 0) and 0.0001 < abs(float(cost_index)) < 1000:
+                result["lineTotal"] = round(float(base_total) * float(cost_index), 2)
+                result["lineTotalSource"] = "base_total_x_index"
+                return result
+
+            if _valid_lsr_money(base_total):
+                result["lineTotal"] = round(float(base_total), 2)
+                result["lineTotalSource"] = "base_total"
+                return result
+
+            if base_unit_price is not None and quantity_final is not None:
+                coeff = float(cost_coeff) if cost_coeff not in (None, 0) else 1
+                result["lineTotal"] = round(float(base_unit_price) * coeff * float(quantity_final), 2)
+                result["lineTotalSource"] = "unit_price_x_quantity"
+                return result
+
+            fallback = _pick_lsr_sum(row, (), unit_idx)
+            result["lineTotal"] = fallback
+            result["lineTotalSource"] = "fallback_scan" if fallback else ""
+            return result
+
         def _lsr_work_key(section, code, name, row_index):
             raw = "|".join([
                 str(section or ""),
@@ -8970,8 +9054,10 @@ async def parse_smeta(file: UploadFile = File(...)):
                         qty_final_idx,
                     )
 
-                    work_total = _pick_lsr_sum(row, (13, 14, 15, 16, 17), unit_idx) if item_type == "work" else 0
-                    mat_total = _pick_lsr_sum(row, (15, 14, 13, 16, 17), unit_idx) if item_type == "material" else 0
+                    money = _pick_lsr_money(row, lsr_columns, unit_idx)
+                    line_money = float(money.get("lineTotal") or 0)
+                    work_total = line_money if item_type == "work" else 0
+                    mat_total = line_money if item_type == "material" else 0
                     line_total = mat_total if item_type == "material" else work_total
                     if qty < 0 or line_total < 0:
                         item_type = "adjustment"
@@ -8987,6 +9073,12 @@ async def parse_smeta(file: UploadFile = File(...)):
                         "quantityBase": round(float(quantity_base), 4) if quantity_base is not None else None,
                         "quantityCoefficient": round(float(quantity_coeff), 6) if quantity_coeff is not None else None,
                         "quantityFinal": round(float(quantity_final), 4) if quantity_final is not None else None,
+                        "baseUnitPrice": money.get("baseUnitPrice"),
+                        "costCoefficient": money.get("costCoefficient"),
+                        "baseTotal": money.get("baseTotal"),
+                        "costIndex": money.get("costIndex"),
+                        "currentTotal": money.get("currentTotal"),
+                        "lineTotalSource": money.get("lineTotalSource"),
                         "lineTotal": line_total,
                         "total": 0 if item_type == "adjustment" else line_total,
                         "totalWork": work_total if item_type == "work" else 0,

@@ -347,6 +347,12 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
     quantityBase: base.quantityBase,
     quantityCoefficient: base.quantityCoefficient,
     quantityFinal: base.quantityFinal,
+    baseUnitPrice: base.baseUnitPrice,
+    costCoefficient: base.costCoefficient,
+    baseTotal: base.baseTotal,
+    costIndex: base.costIndex,
+    currentTotal: base.currentTotal,
+    lineTotalSource: base.lineTotalSource,
     priceWork: priceWork || '',
     priceMaterial: priceMaterial || '',
     workKey: item.workKey || (itemType === 'work' ? estimateWorkKeyForItem(item, sectionName, item.id || '') : ''),
@@ -14092,7 +14098,7 @@ function App() {
                       <th style={{...tblH,width:'180px'}}>Сумма</th>
                       <th style={{...tblH,width:'48px'}}></th>
                     </tr></thead><tbody>
-	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const importMeta=item.isImported?[item.unitFactor&&Number(item.unitFactor)>1?'ед. ×'+Number(item.unitFactor).toLocaleString('ru-RU'):'',item.quantityCoefficient!==undefined&&item.quantityCoefficient!==null&&item.quantityCoefficient!==''?'кф. объёма '+Number(item.quantityCoefficient).toLocaleString('ru-RU'):'',item.rawQuantity!==undefined&&item.rawQuantity!==null&&item.rawQuantity!==''?'исх. '+Number(item.rawQuantity).toLocaleString('ru-RU'):'' ].filter(Boolean).join(' · '):'';const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
+	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const importMeta=item.isImported?[item.unitFactor&&Number(item.unitFactor)>1?'ед. ×'+Number(item.unitFactor).toLocaleString('ru-RU'):'',item.quantityCoefficient!==undefined&&item.quantityCoefficient!==null&&item.quantityCoefficient!==''?'кф. объёма '+Number(item.quantityCoefficient).toLocaleString('ru-RU'):'',item.rawQuantity!==undefined&&item.rawQuantity!==null&&item.rawQuantity!==''?'исх. '+Number(item.rawQuantity).toLocaleString('ru-RU'):'',item.baseTotal?'база '+Number(item.baseTotal).toLocaleString('ru-RU'):'',item.costIndex?'инд. '+Number(item.costIndex).toLocaleString('ru-RU'):'',item.currentTotal?'тек. '+Number(item.currentTotal).toLocaleString('ru-RU'):'' ].filter(Boolean).join(' · '):'';const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
 	                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'13px',width:'18px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
 	                        <td style={tblC}>{autoPill(meta.icon,meta.label)}</td>
                           <td style={tblC}>{autoPill(basisMeta.icon,isWork?basisMeta.label:'—',!isWork)}</td>
@@ -14203,6 +14209,12 @@ function App() {
                           quantityBase:item.quantityBase,
                           quantityCoefficient:item.quantityCoefficient,
                           quantityFinal:item.quantityFinal,
+                          baseUnitPrice:item.baseUnitPrice,
+                          costCoefficient:item.costCoefficient,
+                          baseTotal:item.baseTotal,
+                          costIndex:item.costIndex,
+                          currentTotal:item.currentTotal,
+                          lineTotalSource:item.lineTotalSource,
                           total:item.total,
                           sum:item.sum,
                           amount:item.amount,
