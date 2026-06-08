@@ -221,10 +221,11 @@ const inferEstimateUnit = (it={}, sectionName='') => {
   const explicitType = estimateTextKey(it.itemType || it.type);
   const itemType = ESTIMATE_ITEM_TYPE_BY_ID[explicitType] ? explicitType : '';
   const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
+  if (it.isImported && !estimateUnitLooksUnknown(current)) return current;
   const currentBaseUnit = _normalizeUnit(normalizeMeasure(1, current).unit || current || '');
   const looksAreaWork = itemType !== 'material' && estimateTextHasAny(text, ['поверхност','фасад','стен','перегород','потолк','потолоч','обои','облицов','окраск','штукатур','шпатлев','шпаклев','грунтов','плитк','керамогранит','гранит','линолеум','покрытие пола','полы','пола','гкл','гипсокартон','сетка']);
   const looksLinearWork = estimateTextHasAny(text, ['кабель','провод','труба','трубопровод','лоток','короб','уголок','уголк','угол','плинтус','наличник','профиль маяч','маяк','подоконник','погон']);
-  if (it.isImported && currentBaseUnit === 'м' && looksAreaWork && !looksLinearWork) return '100 м2';
+  if (!it.isImported && currentBaseUnit === 'м' && looksAreaWork && !looksLinearWork) return '100 м2';
   if (!estimateUnitLooksUnknown(current)) return current;
   if (itemType === 'material') {
     if (estimateTextHasAny(text, ['смесь','штукатурная','шпатлевка','шпатлевк','шпаклевка','шпаклевк','клей','затирка','цемент','пескобетон','сухая смесь'])) return 'кг';
@@ -299,16 +300,22 @@ const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
   return 'manual';
 };
 const estimateMeasurementBasisOf = (it={}, sectionName='') => (it.measurementBasis && ESTIMATE_MEASUREMENT_BASE_BY_ID[it.measurementBasis]) ? it.measurementBasis : suggestEstimateMeasurementBasis(it, sectionName);
+const authoritativeImportedUnit = (item={}) => {
+  const candidates = [item.unit, item.rawUnit].map(v => String(v || '').trim()).filter(Boolean);
+  return candidates.find(u => !estimateUnitLooksUnknown(u)) || candidates[0] || '';
+};
 const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   const base = {...item, isImported:true};
   const total = toNum(item.lineTotal ?? item.total ?? item.sum ?? item.amount ?? item.totalSum);
   const totalWork = toNum(item.totalWork ?? item.workTotal ?? item.workSum);
   const totalMaterial = toNum(item.totalMaterial ?? item.materialTotal ?? item.materialSum);
   const itemType = (total < 0 || totalWork < 0 || totalMaterial < 0) ? 'adjustment' : normalizeEstimateItemType(base, sectionName);
-  const inferredUnit = inferEstimateUnit({...base,itemType}, sectionName);
-  const normalizedMeasure = normalizeMeasure(base.quantity, inferredUnit);
+  const importedUnit = authoritativeImportedUnit(base);
+  const unitForMeasure = importedUnit || inferEstimateUnit({...base,itemType}, sectionName);
+  const normalizedMeasure = normalizeMeasure(base.quantity, unitForMeasure);
+  const normalizedUnit = _normalizeUnit(normalizedMeasure.unit || unitForMeasure || '');
   const normalizedDoneMeasure = (base.doneQuantity !== undefined && base.doneQuantity !== null && base.doneQuantity !== '')
-    ? normalizeMeasure(base.doneQuantity, inferredUnit)
+    ? normalizeMeasure(base.doneQuantity, unitForMeasure)
     : null;
   let priceWork = toNum(item.priceWork);
   let priceMaterial = toNum(item.priceMaterial);
@@ -331,12 +338,12 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   return {
     ...base,
     itemType,
-    unit: _normalizeUnit(normalizedMeasure.unit || inferredUnit || ''),
+    unit: normalizedUnit,
     quantity: normalizedMeasure.qty,
     doneQuantity: normalizedDoneMeasure ? normalizedDoneMeasure.qty : base.doneQuantity,
-    rawUnit: base.rawUnit || inferredUnit,
+    rawUnit: base.rawUnit || unitForMeasure,
     rawQuantity: base.rawQuantity ?? base.quantity,
-    unitFactor: normalizedMeasure.factor || 1,
+    unitFactor: toNum(base.unitFactor) || normalizedMeasure.factor || 1,
     quantityBase: base.quantityBase,
     quantityCoefficient: base.quantityCoefficient,
     quantityFinal: base.quantityFinal,
@@ -349,7 +356,7 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
     parentWorkName: item.parentWorkName || '',
     parentWorkSourceCode: item.parentWorkSourceCode || '',
     resourceRole: item.resourceRole || (['material','equipment','transport'].includes(itemType) ? itemType : ''),
-    measurementBasis: itemType === 'work' ? suggestEstimateMeasurementBasis({...base,itemType,unit:inferredUnit}, sectionName) : 'manual',
+    measurementBasis: itemType === 'work' ? suggestEstimateMeasurementBasis({...base,itemType,unit:normalizedUnit}, sectionName) : 'manual',
     importKind: itemType === 'adjustment' ? 'resource_adjustment' : (item.importKind || '')
   };
 };
@@ -560,6 +567,12 @@ const REBAR_KG_PER_M = { 6:0.222, 8:0.395, 10:0.617, 12:0.888, 14:1.21, 16:1.58,
 const _normalizeUnit = (u) => {
   const raw = (u||'').toLowerCase().trim().replace(/[²]/g,'2').replace(/[³]/g,'3');
   const x = raw.replace(/^\d{2,}\s*/, '').replace(/\s+/g,'');
+  if (x.startsWith('м2') || x.startsWith('квм')) return 'м2';
+  if (x.startsWith('м3') || x.startsWith('кубм')) return 'м3';
+  if (x.startsWith('м.п') || x.startsWith('пог.м') || x.startsWith('погм') || x.startsWith('п.м') || x.startsWith('пм')) return 'м';
+  if (x.startsWith('шт')) return 'шт';
+  if (x.startsWith('кг')) return 'кг';
+  if (x.startsWith('тонн') || x.startsWith('тонна') || x.startsWith('тонны')) return 'т';
   if (['кг','kg','килограмм','килограмма','килограммов'].includes(x)) return 'кг';
   if (['м','м.п','пог.м','погм','п.м','пм','метр','метра','метров'].includes(x)) return 'м';
   if (['л','литр','литра','литров','l'].includes(x)) return 'л';
