@@ -14053,7 +14053,7 @@ function App() {
                   const totalM=mats.reduce((s,i)=>s+sumOf(i),0);
                   const totalOther=others.reduce((s,i)=>s+sumOf(i),0);
                   const removeAt=(idx)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).filter((_,i)=>i!==idx)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
-                  const updateItemPatch=(idx,patch,saveNow=false)=>{const fields=Object.keys(patch||{});const changesAmount=fields.some(f=>['quantity','priceWork','priceMaterial'].includes(f));const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map((it,i)=>i===idx?{...it,...patch,isImported:changesAmount?false:it.isImported}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));if(saveNow)persistEstimate(updated);return updated;};
+                  const updateItemPatch=(idx,patch,saveNow=false)=>{const fields=Object.keys(patch||{});const changesAmount=fields.some(f=>['quantity','priceWork','priceMaterial'].includes(f));const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map((it,i)=>{if(i!==idx)return it;const keepImported=it.isImported&&changesAmount;return {...it,...patch,isImported:keepImported?true:it.isImported};})}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));if(saveNow)persistEstimate(updated);return updated;};
                   const updateItem=(idx,field,val,saveNow=false)=>updateItemPatch(idx,{[field]:val},saveNow);
                   const persist=()=>persistEstimate(selectedEstimate);
                   const inpCell={padding:'6px 8px',border:'1px solid '+C.border,borderRadius:'6px',fontSize:'12px',width:'100%',minWidth:0,backgroundColor:C.bgWhite,color:C.text,outline:'none'};
@@ -14071,7 +14071,7 @@ function App() {
                       <th style={{...tblH,width:'130px'}}>👷 Кому</th>
                       <th style={{...tblH,width:'120px'}}>✅ Сделано</th>
                       <th style={{...tblH,width:'130px'}}>📉 Осталось</th>
-                      <th style={{...tblH,width:'140px'}}>Цена</th>
+                      <th style={{...tblH,width:'140px'}}>Цена / сумма</th>
                       <th style={{...tblH,width:'180px'}}>Сумма</th>
                       <th style={{...tblH,width:'48px'}}></th>
                     </tr></thead><tbody>
@@ -14084,7 +14084,7 @@ function App() {
 	                        <td style={tblC}><select disabled={!isWork} value={isWork?(item.brigadeName||''):''} onChange={e=>updateItem(item._idx,'brigadeName',e.target.value,true)} style={{...inpCell,opacity:isWork?1:0.55}}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
 	                        <td style={tblC}><input disabled={!isWork} type='number' step='any' inputMode='decimal' value={isWork?(doneNorm.qty||''):''} onChange={e=>{const raw=denormalizeMeasure(e.target.value,item.unit);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+fmtMeasure(qty,item.unit)+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text,opacity:isWork?1:0.55}}/></td>
 	                        <td style={{...tblC,color:isWork?(qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted):C.textMuted,fontWeight:'600',fontSize:'11px'}}>{isWork&&qty>0?fmtMeasure(remain,item.unit):'—'}</td>
-	                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={item[priceField]||''} onChange={e=>updateItem(item._idx,priceField,e.target.value)} onBlur={persist} style={inpCell}/></td>
+	                        <td style={tblC}><input type='number' step='any' inputMode='decimal' title={item.isImported?'Для импортной строки это сумма строки из ЛСР/Гранд Сметы, а не цена за единицу':'Цена за единицу'} value={item[priceField]||''} onChange={e=>updateItem(item._idx,priceField,e.target.value)} onBlur={persist} style={inpCell}/>{item.isImported&&<div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>сумма строки</div>}</td>
                         <td style={{...tblC,fontWeight:'700',color:C.success,whiteSpace:'nowrap',fontSize:'14px'}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
                         <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
                       </tr>);})}
