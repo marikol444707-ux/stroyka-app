@@ -2905,6 +2905,13 @@ function App() {
   };
   const openAiTaskAction = async (task) => {
     const payload = parseAiTaskPayload(task);
+    if (payload.type === 'password_reset_request') {
+      navigateTo('users');
+      if (task?.id && ['Новое','Принято к исполнению'].includes(task.status||'')) {
+        await patchAiTaskSilent(task.id,{status:'В работе'});
+      }
+      return;
+    }
     if (payload.type === 'estimate_diff_review') {
       const next = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.nextEstimateId));
       const base = (estimatesList||[]).find(e=>Number(e.id)===Number(payload.baseEstimateId)) || (next ? estimateDiffBaseFor(next) : null);

@@ -229,6 +229,7 @@ def get_ai_control_runner(
     return get_current_user(authorization)
 
 LEADERSHIP_ROLES = ("директор", "зам_директора")
+SYSTEM_PROJECT_NAME = "Система"
 FINANCE_ROLES = ("директор", "зам_директора", "бухгалтер")
 WAREHOUSE_ROLES = ("директор", "зам_директора", "кладовщик", "снабженец", "прораб")
 SUPPLY_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "мастер", "субподрядчик", "поставщик", "бухгалтер")
@@ -320,7 +321,12 @@ def visible_project_names(user: dict) -> Optional[List[str]]:
         return None
     return names
 
+def can_see_system_tasks(user: dict) -> bool:
+    return user.get("role") in LEADERSHIP_ROLES or user.get("role") == "system_owner"
+
 def has_project_access(user: dict, project_name: str) -> bool:
+    if project_name == SYSTEM_PROJECT_NAME:
+        return can_see_system_tasks(user)
     allowed = visible_project_names(user)
     return allowed is None or bool(project_name and project_name in allowed)
 
@@ -3226,11 +3232,82 @@ def login(data: LoginModel):
               description="Успешный вход в систему")
     return public_user(user, include_token=True)
 
+def _password_reset_dedupe_key(user_id) -> str:
+    return f"PASSWORD_RESET:{user_id}"
+
+def _upsert_password_reset_task(cur, user_id, user_name: str, email: str, code: str, expires):
+    dedupe_key = _password_reset_dedupe_key(user_id)
+    expires_text = expires.strftime("%d.%m.%Y %H:%M")
+    title = f"Сброс пароля: {email}"
+    description = (
+        f"Пользователь {user_name or email} запросил восстановление пароля.\n"
+        f"Email: {email}\n"
+        f"Код: {code}\n"
+        f"Действует до: {expires_text}\n\n"
+        "Передайте код пользователю или задайте новый пароль в разделе Пользователи."
+    )
+    action_payload = json.dumps({
+        "type": "password_reset_request",
+        "email": email,
+        "userId": user_id,
+        "dedupeKey": dedupe_key,
+    }, ensure_ascii=False)
+    cur.execute("""
+        SELECT id
+        FROM ai_tasks
+        WHERE project_name=%s
+          AND dedupe_key=%s
+          AND status NOT IN ('Закрыто','Отклонено')
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+    """, (SYSTEM_PROJECT_NAME, dedupe_key))
+    existing = cur.fetchone()
+    if existing:
+        task_id = existing[0]
+        cur.execute("""
+            UPDATE ai_tasks
+            SET title=%s,
+                description=%s,
+                assigned_role='директор',
+                assigned_to='',
+                status='Новое',
+                due_date=%s,
+                accepted_by=NULL,
+                accepted_at=NULL,
+                closed_by=NULL,
+                closed_at=NULL,
+                action_label='Открыть пользователей',
+                action_payload=%s,
+                updated_at=NOW()
+            WHERE id=%s
+        """, (title, description, expires.date(), action_payload, task_id))
+        return task_id
+    cur.execute("""
+        INSERT INTO ai_tasks (
+            finding_id, project_name, title, description, assigned_role, assigned_to,
+            status, due_date, action_label, action_payload, dedupe_key, created_at, updated_at
+        ) VALUES (NULL,%s,%s,%s,'директор','','Новое',%s,'Открыть пользователей',%s,%s,NOW(),NOW())
+        RETURNING id
+    """, (SYSTEM_PROJECT_NAME, title, description, expires.date(), action_payload, dedupe_key))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+def _close_password_reset_task(cur, user_id):
+    cur.execute("""
+        UPDATE ai_tasks
+        SET status='Закрыто',
+            closed_by='system',
+            closed_at=NOW(),
+            updated_at=NOW()
+        WHERE project_name=%s
+          AND dedupe_key=%s
+          AND status NOT IN ('Закрыто','Отклонено')
+    """, (SYSTEM_PROJECT_NAME, _password_reset_dedupe_key(user_id)))
+
 @app.post("/password-reset-request")
 def password_reset_request(data: dict):
     """Генерирует 6-значный код для восстановления пароля. Действителен 30 минут."""
     from datetime import datetime as _dt, timedelta as _td
-    import random
     email = (data.get("email") or "").strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Введите email")
@@ -3241,18 +3318,19 @@ def password_reset_request(data: dict):
     if not row:
         cur.close(); conn.close()
         # Не палим существование email для безопасности
-        return {"ok": True, "message": "Если такой email зарегистрирован, код отправлен"}
-    code = str(random.randint(100000, 999999))
+        return {"ok": True, "message": "Если такой email зарегистрирован, код восстановления создан"}
+    code = f"{secrets.randbelow(900000) + 100000:06d}"
     expires = _dt.now() + _td(minutes=30)
     cur.execute("UPDATE users SET reset_token=%s, reset_token_expires=%s WHERE id=%s", (code, expires, row[0]))
+    _upsert_password_reset_task(cur, row[0], row[1], email, code, expires)
     conn.commit()
     cur.close(); conn.close()
-    # В реальной системе тут отправляется email/SMS. Пока выводим в ответе для админа (в логах сервера)
+    # В реальной системе тут отправляется email/SMS. Пока код видит директор в системной задаче.
     print(f"PASSWORD RESET CODE for {email}: {code} (valid 30 min)")
     log_audit(user_name=row[1] or "—", user_role="—",
               action="password_reset_request", entity_type="user", entity_id=row[0],
               description="Запрошен код восстановления пароля")
-    response = {"ok": True, "message": "Код отправлен на email (или его выдаст администратор из логов)"}
+    response = {"ok": True, "message": "Код восстановления создан. Если почта не подключена, его выдаст директор."}
     if os.getenv("SHOW_RESET_CODE", "").lower() in ("1", "true", "yes"):
         response["_devCode"] = code
     return response
@@ -3280,6 +3358,7 @@ def password_reset(data: dict):
         raise HTTPException(status_code=401, detail="Код истёк — запросите новый")
     cur.execute("UPDATE users SET password=%s, reset_token=NULL, reset_token_expires=NULL, failed_login_count=0, locked_until=NULL WHERE id=%s",
                 (hash_password(new_password), row[0]))
+    _close_password_reset_task(cur, row[0])
     conn.commit()
     cur.close(); conn.close()
     log_audit(user_name="—", user_role="—",
@@ -7502,6 +7581,8 @@ def list_ai_tasks(project_name: str = None, current_user: dict = Depends(require
                 cur.close(); conn.close()
                 return []
             cur.execute(AI_TASK_SELECT + " WHERE project_name = ANY(%s) ORDER BY updated_at DESC, id DESC", (allowed_projects,))
+        elif not can_see_system_tasks(current_user):
+            cur.execute(AI_TASK_SELECT + " WHERE COALESCE(project_name,'')<>%s ORDER BY updated_at DESC, id DESC", (SYSTEM_PROJECT_NAME,))
         else:
             cur.execute(AI_TASK_SELECT + " ORDER BY updated_at DESC, id DESC")
     rows = cur.fetchall()

@@ -42,7 +42,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginEr
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
       <div style={{width:'100%',maxWidth:'400px',borderRadius:'34px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',padding:'32px 28px',color:'#e5e5ea'}}>
         <h2 style={{margin:'0 0 8px',fontSize:'22px',fontWeight:'800',color:'#fff'}}>🔑 Восстановление пароля</h2>
-        <p style={{margin:'0 0 20px',fontSize:'13px',color:'#8e8e93'}}>{forgotStep===1?'Введи свой email — мы сгенерируем код':forgotStep===2?'Введи 6-значный код и новый пароль':'Готово!'}</p>
+        <p style={{margin:'0 0 20px',fontSize:'13px',color:'#8e8e93'}}>{forgotStep===1?'Введи свой email — мы создадим код восстановления':forgotStep===2?'Введи 6-значный код и новый пароль':'Готово!'}</p>
         {forgotStep===1&&(<div>
           <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
             <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>E-mail</span>
@@ -51,9 +51,9 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginEr
           <button onClick={requestReset} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',color:'white',fontSize:'15px',fontWeight:'700'}}>Получить код</button>
         </div>)}
         {forgotStep===2&&(<div>
-          {devCode&&<div style={{padding:'10px 14px',borderRadius:'10px',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.26)',color:'#86efac',fontSize:'12px',marginBottom:'10px'}}>🔧 Dev-режим: код <b style={{fontSize:'16px',letterSpacing:'2px'}}>{devCode}</b><br/><span style={{fontSize:'10px',opacity:0.7}}>В production отправляется на email</span></div>}
+          {devCode&&<div style={{padding:'10px 14px',borderRadius:'10px',background:'rgba(34,197,94,.12)',border:'1px solid rgba(34,197,94,.26)',color:'#86efac',fontSize:'12px',marginBottom:'10px'}}>🔧 Dev-режим: код <b style={{fontSize:'16px',letterSpacing:'2px'}}>{devCode}</b><br/><span style={{fontSize:'10px',opacity:0.7}}>В production код выдаётся через настроенный канал восстановления</span></div>}
           <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
-            <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>Код из email (6 цифр)</span>
+            <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>Код восстановления (6 цифр)</span>
             <input type='text' value={resetCode} onChange={e=>setResetCode(e.target.value)} placeholder='123456' maxLength={6} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'18px',letterSpacing:'4px',width:'100%'}}/>
           </div>
           <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
