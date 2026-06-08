@@ -8664,6 +8664,79 @@ async def parse_smeta(file: UploadFile = File(...)):
             except Exception:
                 return None
 
+        def _money_candidates_from_text(value):
+            text = str(value or "").replace("\xa0", " ")
+            candidates = []
+            for match in re.finditer(r"(?<![\w-])(?:\d{1,3}(?:\s+\d{3})+|\d{5,})(?:[,.]\d{1,2})?(?![\w-])", text):
+                raw = match.group(0).replace(" ", "").replace(",", ".")
+                try:
+                    amount = abs(float(raw))
+                except Exception:
+                    continue
+                if 1000 <= amount < 1000000000000:
+                    candidates.append(amount)
+            return candidates
+
+        def _extract_declared_estimate_total():
+            file_candidates = _money_candidates_from_text(file.filename or "")
+            if file_candidates:
+                return round(max(file_candidates), 2), "filename"
+            summary_candidates = []
+            summary_tokens = ("сметн", "итого", "всего", "стоимость", "стоимост", "руб")
+            for row in ws.iter_rows(values_only=True):
+                row_text = " ".join(str(v) for v in row if v is not None).lower().replace("ё", "е")
+                if not any(token in row_text for token in summary_tokens):
+                    continue
+                for value in row:
+                    if isinstance(value, (int, float)) and 1000 <= abs(float(value)) < 1000000000000:
+                        summary_candidates.append(abs(float(value)))
+                    elif isinstance(value, str):
+                        summary_candidates.extend(_money_candidates_from_text(value))
+            if summary_candidates:
+                return round(max(summary_candidates), 2), "workbook"
+            return 0, ""
+
+        def _lsr_items_total(items):
+            return round(sum(float(item.get("total") or 0) for item in items if item.get("type") in ("work", "material", "equipment", "transport")), 2)
+
+        def _apply_declared_total_factor(items, declared_total, declared_source):
+            parsed_total = _lsr_items_total(items)
+            meta = {
+                "declaredTotal": declared_total,
+                "declaredTotalSource": declared_source,
+                "parsedTotalBeforeScale": parsed_total,
+                "parsedTotalAfterScale": parsed_total,
+                "scaleFactor": 1,
+                "scaleApplied": False,
+            }
+            if not declared_total or parsed_total <= 0:
+                return meta
+            factor = declared_total / parsed_total
+            if not (0.05 <= factor <= 20):
+                return meta
+            if abs(declared_total - parsed_total) <= max(1000, declared_total * 0.01):
+                return meta
+            for item in items:
+                item_type = item.get("type")
+                if item_type not in ("work", "material", "equipment", "transport"):
+                    continue
+                before_total = float(item.get("total") or 0)
+                before_work = float(item.get("totalWork") or 0)
+                before_material = float(item.get("totalMaterial") or 0)
+                item["lineTotalBeforeScale"] = round(before_total, 2)
+                item["parsedEstimateTotalBeforeScale"] = parsed_total
+                item["declaredEstimateTotal"] = declared_total
+                item["declaredTotalSource"] = declared_source
+                item["importTotalFactor"] = round(factor, 8)
+                item["total"] = round(before_total * factor, 2)
+                item["lineTotal"] = item["total"]
+                item["totalWork"] = round(before_work * factor, 2) if item_type == "work" else 0
+                item["totalMaterial"] = round(before_material * factor, 2) if item_type == "material" else 0
+            meta["parsedTotalAfterScale"] = _lsr_items_total(items)
+            meta["scaleFactor"] = round(factor, 8)
+            meta["scaleApplied"] = True
+            return meta
+
         def _normalize_lsr_unit_text(value):
             text = str(value or "").strip().replace("\xa0", " ")
             text = re.sub(r"\s+", " ", text)
@@ -8894,8 +8967,10 @@ async def parse_smeta(file: UploadFile = File(...)):
             except:
                 continue
         
+        declared_total, declared_source = _extract_declared_estimate_total() if file_type == "lsr" else (0, "")
+        meta = _apply_declared_total_factor(results, declared_total, declared_source) if file_type == "lsr" else {}
         os.unlink(tmp_path)
-        return {"items": results, "count": len(results)}
+        return {"items": results, "count": len(results), "meta": meta}
     except Exception as e:
         try:
             os.unlink(tmp_path)
