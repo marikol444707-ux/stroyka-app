@@ -13035,6 +13035,80 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
                    RETURNING id""",
         (project["id"], project_name, estimate_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
     estimate_id = cur.fetchone()["id"]
+    supply_request = None
+    if data.get("createSupplyRequest") or data.get("create_supply_request"):
+        grouped = {}
+        for section in sections:
+            for item in section.get("items") or []:
+                key = _norm_key_text(item.get("name") or "") + "|" + _norm_base_unit(item.get("unit") or "")
+                if not key.strip("|"):
+                    continue
+                if key not in grouped:
+                    grouped[key] = {
+                        "materialName": item.get("name") or "",
+                        "quantity": 0.0,
+                        "unit": item.get("unit") or "шт",
+                        "pricePerUnit": item.get("priceMaterial") or 0,
+                        "estimateId": estimate_id,
+                    }
+                grouped[key]["quantity"] += _safe_float(item.get("quantity"))
+                if not grouped[key].get("pricePerUnit") and item.get("priceMaterial"):
+                    grouped[key]["pricePerUnit"] = item.get("priceMaterial")
+        supply_items = []
+        for item in grouped.values():
+            qty = _safe_float(item.get("quantity"))
+            if qty <= 0:
+                continue
+            price = _safe_float(item.get("pricePerUnit"))
+            supply_items.append({
+                "materialName": item.get("materialName") or "",
+                "quantity": round(qty, 6),
+                "unit": item.get("unit") or "шт",
+                "pricePerUnit": round(price, 2) if price else 0,
+                "totalPrice": round(qty * price, 2) if price else 0,
+            })
+        if supply_items:
+            marker = "NORM_ESTIMATE_REQUEST:" + str(estimate_id)
+            notes = "\n".join([
+                "Пакетная заявка из черновика сметы по нормам.",
+                marker,
+                "Объект: " + project_name,
+                "Смета: " + estimate_name,
+                "ID сметы: " + str(estimate_id),
+                "Позиций: " + str(len(supply_items)),
+                "С ценой: " + str(priced_count),
+                "Без цены: " + str(missing_price_count),
+                "Сумма по найденным ценам: " + str(round(total_amount, 2)),
+            ])
+            agg_name = supply_items[0]["materialName"] + (" и ещё " + str(len(supply_items)-1) + " поз." if len(supply_items) > 1 else "")
+            agg_qty = float(len(supply_items)) if len(supply_items) > 1 else _safe_float(supply_items[0].get("quantity"))
+            agg_unit = "поз." if len(supply_items) > 1 else supply_items[0].get("unit") or "шт"
+            cur.execute(
+                "INSERT INTO supply_requests "
+                "(material_name,quantity,unit,project,created_by,date,notes,selected_suppliers,"
+                "status,requested_by_role,requested_by_id,urgency,category,items_json) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                (
+                    agg_name,
+                    agg_qty,
+                    agg_unit,
+                    project_name,
+                    current_user.get("name") or "",
+                    dt.date.today().isoformat(),
+                    notes,
+                    [],
+                    "Новая",
+                    current_user.get("role") or "",
+                    current_user.get("id"),
+                    "обычная",
+                    "Нормы материалов",
+                    _json.dumps(supply_items, ensure_ascii=False),
+                ),
+            )
+            supply_id = cur.fetchone()["id"]
+            cur.execute(SUPPLY_SELECT + " WHERE id=%s", (supply_id,))
+            sr = cur.fetchone()
+            supply_request = dict(sr) if sr else {"id": supply_id}
     conn.commit()
     cur.close(); conn.close()
     return {
@@ -13054,6 +13128,7 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
         "skippedLowConfidence": skipped_low_confidence,
         "skippedNoQuantity": skipped_no_quantity,
         "diagnostics": diagnostics,
+        "supplyRequest": supply_request,
     }
 
 @app.put("/material-norm-suggestions/{id}")

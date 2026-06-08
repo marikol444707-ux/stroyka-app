@@ -6642,7 +6642,7 @@ function App() {
     setMaterialNormNotice({tone:'success',title:'Поправка объекта сохранена',text:'Базовая норма не изменена. Поправка будет применяться при расчётах по этому объекту.'});
     await loadAll();
   };
-  const createEstimateFromNormSuggestions = async () => {
+  const createEstimateFromNormSuggestions = async (withSupplyRequest=false) => {
     if (!canEditMaterialNorms()) return;
     const defaultProjectName = materialNormCoverageProject || visibleActiveProjects(projects||[])[0]?.name || '';
     let projectName = window.prompt('Для какого объекта сформировать черновик материалов по нормам?', defaultProjectName);
@@ -6655,7 +6655,7 @@ function App() {
       const res = await fetch(API+'/material-norm-suggestions/create-estimate',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({projectName,minConfidence:0.75,status:'Черновик'})
+        body:JSON.stringify({projectName,minConfidence:0.75,status:'Черновик',createSupplyRequest:!!withSupplyRequest})
       });
       const data = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(data.detail || 'Не удалось сформировать черновик сметы');
@@ -6670,11 +6670,14 @@ function App() {
         status:data.status||'Черновик'
       };
       setEstimatesList(prev=>[created,...(prev||[]).filter(e=>Number(e.id)!==Number(created.id))]);
+      if (data.supplyRequest?.id) {
+        setSupplyRequests(prev=>[data.supplyRequest,...(prev||[]).filter(r=>Number(r.id)!==Number(data.supplyRequest.id))]);
+      }
       setSelectedEstimate(created);
       setMaterialNormNotice({
         tone:'success',
-        title:'Черновик сметы создан',
-        text:'Строк: '+(data.items||0)+', с ценой '+(data.priced||0)+', без цены '+(data.missingPrice||0)+', сумма '+Number(data.total||0).toLocaleString('ru-RU')+' ₽. Черновик не меняет активную смету.'
+        title:data.supplyRequest?.id?'Черновик сметы и заявка созданы':'Черновик сметы создан',
+        text:'Строк: '+(data.items||0)+', с ценой '+(data.priced||0)+', без цены '+(data.missingPrice||0)+', сумма '+Number(data.total||0).toLocaleString('ru-RU')+' ₽. '+(data.supplyRequest?.id?'Заявка снабжения #'+data.supplyRequest.id+' создана в статусе «Новая». ':'')+'Черновик не меняет активную смету.'
       });
       await loadAll();
       navigateTo('estimates');
@@ -14491,7 +14494,8 @@ function App() {
                   generateMaterialNormSuggestions={generateMaterialNormSuggestions}
                 />
                 {canEditMaterialNorms()&&<div style={{display:'flex',gap:'8px',flexWrap:'wrap',margin:'0 0 10px'}}>
-                  <button onClick={createEstimateFromNormSuggestions} disabled={materialNormSuggestionLoading} style={btnState(btnO,materialNormSuggestionLoading,{padding:'7px 10px',fontSize:'12px'})}><FileText size={13}/>Черновик сметы из норм</button>
+                  <button onClick={()=>createEstimateFromNormSuggestions(false)} disabled={materialNormSuggestionLoading} style={btnState(btnO,materialNormSuggestionLoading,{padding:'7px 10px',fontSize:'12px'})}><FileText size={13}/>Черновик сметы из норм</button>
+                  <button onClick={()=>createEstimateFromNormSuggestions(true)} disabled={materialNormSuggestionLoading} style={btnState(btnGr,materialNormSuggestionLoading,{padding:'7px 10px',fontSize:'12px'})}><ShoppingCart size={13}/>Черновик + заявка</button>
                 </div>}
                 <div style={{display:'grid',gap:'8px'}}>
                   {activeMaterialNormSuggestions().slice(0,12).map(s=>{
