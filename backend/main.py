@@ -8580,10 +8580,33 @@ async def parse_smeta(file: UploadFile = File(...)):
         material_prefixes = ["ФСБЦ", "ФССЦ", "ТЦ_", "КАЦ", "МАТ"]
         work_words = ("монтаж", "демонтаж", "установка", "устройство", "прокладка", "разбор", "разборка", "сборка", "замена", "подключение", "снятие", "очистка", "ремонт", "отбивка", "облицов", "окраск", "шпатлев", "шпаклев", "грунтов", "стяжк", "укладка")
         material_words = ("материал", "труба", "кабель", "провод", "смесь", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "краска", "акрил", "грунтовка", "цемент", "бетон", "кирпич", "блок", "лист", "профиль", "саморез", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "пвх", "уголок", "уголк", "угол", "панель", "плинтус", "наличник")
+        lsr_service_tokens = (
+            "итого", "всего", "в том числе", "объем=", "объём=",
+            "фот", "средства на оплату труда", "нормативные затраты труда",
+            "накладные расходы", "сметная прибыль", "индекс", "индексы",
+            "коэффициент к итогам", "коэффициенты к итогам",
+            "заготовительно-складские", "заготовительно складские",
+            "справочно", "начисление", "начисления",
+            "вспомогательные ненормируемые"
+        )
+
+        def _lsr_text_key(value):
+            return str(value or "").lower().replace("ё", "е").replace("\xa0", " ").strip()
+
+        def _is_lsr_service_row(name_value, obosn_value=""):
+            name_key = _lsr_text_key(name_value)
+            code_key = _lsr_text_key(obosn_value)
+            if not name_key:
+                return True
+            if "пр/" in code_key or "648/" in code_key:
+                return True
+            if any(token in name_key for token in lsr_service_tokens):
+                return True
+            return False
 
         def _lsr_item_type(obosn_value, name_value):
             code = str(obosn_value or "").strip()
-            name_key = str(name_value or "").lower().replace("ё", "е")
+            name_key = _lsr_text_key(name_value)
             if any(code.startswith(x) for x in work_prefixes):
                 return "work"
             if any(code.startswith(x) for x in material_prefixes):
@@ -8601,7 +8624,7 @@ async def parse_smeta(file: UploadFile = File(...)):
             compact = raw.lower().replace(" ", "")
             if raw and compact not in ("1", "ед", "ед.", "шт", "шт."):
                 return raw
-            name_key = str(name_value or "").lower().replace("ё", "е")
+            name_key = _lsr_text_key(name_value)
             if item_type == "material":
                 if any(w in name_key for w in ("смесь", "штукатурная", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "затирка", "цемент", "пескобетон", "сухая смесь")):
                     return "кг"
@@ -8668,6 +8691,9 @@ async def parse_smeta(file: UploadFile = File(...)):
         def _pick_lsr_unit_and_quantity(row, fallback_unit, fallback_qty):
             found_unit = None
             found_idx = None
+            quantity_base = None
+            quantity_coeff = None
+            quantity_final = None
             for idx, value in enumerate(row):
                 if _looks_lsr_unit(value):
                     found_unit = _normalize_lsr_unit_text(value)
@@ -8681,12 +8707,15 @@ async def parse_smeta(file: UploadFile = File(...)):
                     n = _row_float(row[idx])
                     if n is not None:
                         nums.append(n)
+                quantity_base = nums[0] if len(nums) >= 1 else None
+                quantity_coeff = nums[1] if len(nums) >= 2 else None
+                quantity_final = nums[2] if len(nums) >= 3 else None
                 if len(nums) >= 3 and abs(nums[2]) > 0.0001:
                     qty = nums[2]
                 elif nums:
                     qty = nums[0]
             normalized_qty, normalized_unit, factor = _normalize_lsr_measure(qty, unit)
-            return normalized_unit, normalized_qty, unit, qty, factor, found_idx
+            return normalized_unit, normalized_qty, unit, qty, factor, found_idx, quantity_base, quantity_coeff, quantity_final
 
         def _pick_lsr_sum(row, preferred_indexes=(), unit_idx=None):
             if unit_idx is not None:
@@ -8695,19 +8724,18 @@ async def parse_smeta(file: UploadFile = File(...)):
                     n = _row_float(row[idx])
                     if n is not None and abs(n) > 0.0001:
                         after_unit.append((idx, n))
+                # В ЛСР после единицы обычно идут: объем на единицу, коэффициент,
+                # итоговый объем, затем денежная часть. Первые 3 числа не считаем суммой.
                 money_candidates = [item for item in after_unit[3:] if abs(item[1]) >= 1]
                 if money_candidates:
                     return round(max(money_candidates, key=lambda item: abs(item[1]))[1], 2)
-                for _, n in reversed(after_unit):
-                    if abs(n) >= 1:
-                        return round(n, 2)
             for idx in preferred_indexes:
                 if len(row) > idx:
                     n = _row_float(row[idx])
                     if n is not None and abs(n) > 0.0001:
                         return round(n, 2)
             candidates = []
-            start_idx = 3
+            start_idx = max(6, (unit_idx + 4) if unit_idx is not None else 6)
             for idx, value in enumerate(row):
                 if idx < start_idx:
                     continue
@@ -8764,9 +8792,7 @@ async def parse_smeta(file: UploadFile = File(...)):
                     
                     if not name_col or len(name_col) < 5:
                         continue
-                    if any(x in name_col for x in ["Объем=", "Итого", "ФОТ", "Всего", "Вспомогательные ненормируемые"]):
-                        continue
-                    if "Пр/" in obosn or "648/" in obosn:
+                    if _is_lsr_service_row(name_col, obosn):
                         continue
                     
                     item_type = _lsr_item_type(obosn, name_col)
@@ -8775,10 +8801,13 @@ async def parse_smeta(file: UploadFile = File(...)):
                     inferred_unit = _infer_lsr_unit(unit_raw, name_col, item_type)
                     raw_qty = _row_float(row[8]) if len(row) > 8 else 0
                     raw_qty = raw_qty if raw_qty is not None else 0
-                    unit, qty, raw_unit, raw_qty, unit_factor, unit_idx = _pick_lsr_unit_and_quantity(row, inferred_unit, raw_qty)
+                    unit, qty, raw_unit, raw_qty, unit_factor, unit_idx, quantity_base, quantity_coeff, quantity_final = _pick_lsr_unit_and_quantity(row, inferred_unit, raw_qty)
 
                     work_total = _pick_lsr_sum(row, (13, 14, 15, 16, 17), unit_idx) if item_type == "work" else 0
                     mat_total = _pick_lsr_sum(row, (15, 14, 13, 16, 17), unit_idx) if item_type == "material" else 0
+                    line_total = mat_total if item_type == "material" else work_total
+                    if qty < 0 or line_total < 0:
+                        item_type = "adjustment"
 
                     item = {
                         "section": current_section,
@@ -8788,9 +8817,13 @@ async def parse_smeta(file: UploadFile = File(...)):
                         "rawUnit": raw_unit,
                         "rawQuantity": round(float(raw_qty or 0), 4),
                         "unitFactor": unit_factor,
-                        "total": mat_total if item_type == "material" else work_total,
-                        "totalWork": work_total,
-                        "totalMaterial": mat_total,
+                        "quantityBase": round(float(quantity_base), 4) if quantity_base is not None else None,
+                        "quantityCoefficient": round(float(quantity_coeff), 6) if quantity_coeff is not None else None,
+                        "quantityFinal": round(float(quantity_final), 4) if quantity_final is not None else None,
+                        "lineTotal": line_total,
+                        "total": 0 if item_type == "adjustment" else line_total,
+                        "totalWork": work_total if item_type == "work" else 0,
+                        "totalMaterial": mat_total if item_type == "material" else 0,
                         "type": item_type,
                         "sourceCode": obosn
                     }
