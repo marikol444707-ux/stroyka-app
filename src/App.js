@@ -14452,6 +14452,12 @@ function App() {
                   {activeMaterialNormSuggestions().slice(0,12).map(s=>{
                     const isPreview = s.previewOnly || s.status==='Предпросмотр';
                     const sevColor=s.severity==='Критично'?C.danger:s.severity==='Не хватает данных'?C.warning:C.info;
+                    const sourceLabel={
+                      'estimate-parent':'связка из сметы',
+                      'estimate-search':'найдено по названию',
+                      'rules+yandexgpt':'проверено AI',
+                      rules:'правило системы'
+                    }[s.source] || s.source || 'расчёт системы';
                     const typeLabel={
                       without_norm:'Списано без нормы',
                       over_norm:'Перерасход нормы',
@@ -14473,7 +14479,7 @@ function App() {
                         <div>
                           <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Предложение</span>
                           <p style={{color:C.success,margin:'2px 0 0',fontSize:'13px',fontWeight:'800'}}>{s.suggestedQtyPerUnit?Number(s.suggestedQtyPerUnit).toLocaleString('ru-RU'):'—'} {s.materialUnit||''} / {s.workUnit||'ед.'}</p>
-                          <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>Уверенность: {Math.round(Number(s.confidence||0)*100)}% · примеров: {s.sampleCount||0}</p>
+                          <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>Уверенность: {Math.round(Number(s.confidence||0)*100)}% · {sourceLabel} · примеров: {s.sampleCount||0}</p>
                         </div>
                         <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end',flexWrap:'wrap'}}>
                           {isPreview ? <>

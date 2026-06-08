@@ -12796,12 +12796,13 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                     "sampleCount": 1,
                     "actualQty": mat_qty,
                     "normQty": 0,
-                    "confidence": (0.62 if parent_work else 0.45) if suggested else 0.35,
+                    "confidence": (0.78 if parent_work else 0.52) if suggested else 0.35,
                     "reason": "В активной смете есть материал без нормы. Связка взята из родительской работы сметы." if parent_work else "В активной смете есть материал, но справочник норм не связывает его с работами этого раздела.",
                     "work": _norm_keywords_from_text((work.get("name") or "") + " " + section_name),
                     "material": _norm_keywords_from_text(material_name),
                     "blockWork": ["демонтаж", "разбор"],
                     "label": f"{material_name}" + (f" {suggested} {mat.get('unit') or ''} / {work.get('unit') or 'ед.'}" if suggested else ""),
+                    "source": "estimate-parent" if parent_work else "estimate-search",
                     "dedupeKey": dedupe,
                 })
     result = list(suggestions.values())
