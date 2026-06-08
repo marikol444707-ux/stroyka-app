@@ -8651,14 +8651,16 @@ async def parse_smeta(file: UploadFile = File(...)):
                 return None
             if isinstance(value, (int, float)):
                 return float(value)
-            text = str(value).strip().replace("\xa0", " ").replace(" ", "").replace(",", ".")
+            text = str(value).strip().replace("\xa0", " ")
             if not text:
                 return None
-            text = re.sub(r"[^0-9.\-]", "", text)
-            if text in ("", "-", ".", "-."):
+            compact = text.replace(" ", "").replace(",", ".")
+            if re.match(r"^\([+-]?\d+(?:\.\d+)?\)$", compact):
+                compact = "-" + compact.strip("()").lstrip("+")
+            if not re.match(r"^[+-]?\d+(?:\.\d+)?$", compact):
                 return None
             try:
-                return float(text)
+                return float(compact)
             except Exception:
                 return None
 
@@ -8666,6 +8668,26 @@ async def parse_smeta(file: UploadFile = File(...)):
             text = str(value or "").strip().replace("\xa0", " ")
             text = re.sub(r"\s+", " ", text)
             text = text.replace("м²", "м2").replace("М²", "м2").replace("м³", "м3").replace("М³", "м3")
+            compact = text.lower().replace(" ", "").replace(".", "")
+            if not re.match(r"^\d", compact):
+                if compact.startswith("маш"):
+                    return "маш-ч"
+                if compact.startswith("чел"):
+                    return "чел-ч"
+                if compact.startswith("м2"):
+                    return "м2"
+                if compact.startswith("м3"):
+                    return "м3"
+                if compact.startswith(("мп", "пм", "м/п", "м")):
+                    return "м"
+                if compact.startswith("шт"):
+                    return "шт"
+                if compact.startswith("кг"):
+                    return "кг"
+                if compact.startswith("т"):
+                    return "т"
+                if compact.startswith("л"):
+                    return "л"
             return text
 
         def _looks_lsr_unit(value):
@@ -8718,11 +8740,12 @@ async def parse_smeta(file: UploadFile = File(...)):
             return normalized_unit, normalized_qty, unit, qty, factor, found_idx, quantity_base, quantity_coeff, quantity_final
 
         def _pick_lsr_sum(row, preferred_indexes=(), unit_idx=None):
+            max_line_total = 1000000000000
             if unit_idx is not None:
                 after_unit = []
                 for idx in range(unit_idx + 1, len(row)):
                     n = _row_float(row[idx])
-                    if n is not None and abs(n) > 0.0001:
+                    if n is not None and 0.0001 < abs(n) < max_line_total:
                         after_unit.append((idx, n))
                 # В ЛСР после единицы обычно идут: объем на единицу, коэффициент,
                 # итоговый объем, затем денежная часть. Первые 3 числа не считаем суммой.
@@ -8732,7 +8755,7 @@ async def parse_smeta(file: UploadFile = File(...)):
             for idx in preferred_indexes:
                 if len(row) > idx:
                     n = _row_float(row[idx])
-                    if n is not None and abs(n) > 0.0001:
+                    if n is not None and 0.0001 < abs(n) < max_line_total:
                         return round(n, 2)
             candidates = []
             start_idx = max(6, (unit_idx + 4) if unit_idx is not None else 6)
@@ -8740,7 +8763,7 @@ async def parse_smeta(file: UploadFile = File(...)):
                 if idx < start_idx:
                     continue
                 n = _row_float(value)
-                if n is not None and abs(n) > 0.0001:
+                if n is not None and 0.0001 < abs(n) < max_line_total:
                     candidates.append((idx, n))
             if not candidates:
                 return 0
