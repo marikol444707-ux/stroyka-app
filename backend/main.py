@@ -8699,42 +8699,20 @@ async def parse_smeta(file: UploadFile = File(...)):
         def _lsr_items_total(items):
             return round(sum(float(item.get("total") or 0) for item in items if item.get("type") in ("work", "material", "equipment", "transport")), 2)
 
-        def _apply_declared_total_factor(items, declared_total, declared_source):
+        def _declared_total_diagnostics(items, declared_total, declared_source):
             parsed_total = _lsr_items_total(items)
+            factor = (declared_total / parsed_total) if declared_total and parsed_total > 0 else 1
+            difference = (declared_total - parsed_total) if declared_total and parsed_total > 0 else 0
+            mismatch = bool(declared_total and parsed_total > 0 and abs(difference) > max(1000, declared_total * 0.01))
             meta = {
                 "declaredTotal": declared_total,
                 "declaredTotalSource": declared_source,
-                "parsedTotalBeforeScale": parsed_total,
-                "parsedTotalAfterScale": parsed_total,
-                "scaleFactor": 1,
+                "parsedTotal": parsed_total,
+                "difference": round(difference, 2),
+                "diagnosticFactor": round(factor, 8),
+                "totalMismatch": mismatch,
                 "scaleApplied": False,
             }
-            if not declared_total or parsed_total <= 0:
-                return meta
-            factor = declared_total / parsed_total
-            if not (0.05 <= factor <= 20):
-                return meta
-            if abs(declared_total - parsed_total) <= max(1000, declared_total * 0.01):
-                return meta
-            for item in items:
-                item_type = item.get("type")
-                if item_type not in ("work", "material", "equipment", "transport"):
-                    continue
-                before_total = float(item.get("total") or 0)
-                before_work = float(item.get("totalWork") or 0)
-                before_material = float(item.get("totalMaterial") or 0)
-                item["lineTotalBeforeScale"] = round(before_total, 2)
-                item["parsedEstimateTotalBeforeScale"] = parsed_total
-                item["declaredEstimateTotal"] = declared_total
-                item["declaredTotalSource"] = declared_source
-                item["importTotalFactor"] = round(factor, 8)
-                item["total"] = round(before_total * factor, 2)
-                item["lineTotal"] = item["total"]
-                item["totalWork"] = round(before_work * factor, 2) if item_type == "work" else 0
-                item["totalMaterial"] = round(before_material * factor, 2) if item_type == "material" else 0
-            meta["parsedTotalAfterScale"] = _lsr_items_total(items)
-            meta["scaleFactor"] = round(factor, 8)
-            meta["scaleApplied"] = True
             return meta
 
         def _normalize_lsr_unit_text(value):
@@ -8968,7 +8946,7 @@ async def parse_smeta(file: UploadFile = File(...)):
                 continue
         
         declared_total, declared_source = _extract_declared_estimate_total() if file_type == "lsr" else (0, "")
-        meta = _apply_declared_total_factor(results, declared_total, declared_source) if file_type == "lsr" else {}
+        meta = _declared_total_diagnostics(results, declared_total, declared_source) if file_type == "lsr" else {}
         os.unlink(tmp_path)
         return {"items": results, "count": len(results), "meta": meta}
     except Exception as e:
