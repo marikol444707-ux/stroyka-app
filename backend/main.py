@@ -8654,8 +8654,18 @@ async def parse_smeta(file: UploadFile = File(...)):
                 if abs(n) >= 1:
                     return round(n, 2)
             return round(candidates[-1][1], 2)
+
+        def _lsr_work_key(section, code, name, row_index):
+            raw = "|".join([
+                str(section or ""),
+                str(code or ""),
+                str(name or ""),
+                str(row_index or ""),
+            ]).lower().replace("ё", "е")
+            return re.sub(r"[^a-zа-я0-9]+", "-", raw).strip("-")[:160]
         
         last_work_result_idx = None
+        current_work_ref = None
         for i, row in enumerate(ws.iter_rows(min_row=data_start_row, values_only=True)):
             try:
                 first_val = str(row[0]).strip() if row[0] is not None else ""
@@ -8703,7 +8713,7 @@ async def parse_smeta(file: UploadFile = File(...)):
                     work_total = _pick_lsr_sum(row, (13, 14, 15, 16, 17)) if item_type == "work" else 0
                     mat_total = _pick_lsr_sum(row, (15, 14, 13, 16, 17)) if item_type == "material" else 0
 
-                    results.append({
+                    item = {
                         "section": current_section,
                         "name": name_col,
                         "unit": unit,
@@ -8713,7 +8723,23 @@ async def parse_smeta(file: UploadFile = File(...)):
                         "totalMaterial": mat_total,
                         "type": item_type,
                         "sourceCode": obosn
-                    })
+                    }
+                    if item_type == "work":
+                        work_key = _lsr_work_key(current_section, obosn, name_col, i)
+                        current_work_ref = {
+                            "workKey": work_key,
+                            "workName": name_col,
+                            "workSourceCode": obosn,
+                        }
+                        item.update(current_work_ref)
+                    elif item_type in ("material", "equipment", "transport") and current_work_ref:
+                        item.update({
+                            "parentWorkKey": current_work_ref.get("workKey"),
+                            "parentWorkName": current_work_ref.get("workName"),
+                            "parentWorkSourceCode": current_work_ref.get("workSourceCode"),
+                            "resourceRole": item_type,
+                        })
+                    results.append(item)
                     if item_type == "work":
                         last_work_result_idx = len(results) - 1
                 
