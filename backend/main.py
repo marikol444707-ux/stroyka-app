@@ -8555,17 +8555,21 @@ async def parse_smeta(file: UploadFile = File(...)):
         current_section = "Без раздела"
         data_start_row = 1
         file_type = "unknown"
+        header_rows = list(ws.iter_rows(max_row=80, values_only=True))
+        lsr_header_row_idx = None
         
-        for i, row in enumerate(ws.iter_rows(max_row=60, values_only=True)):
+        for i, row in enumerate(header_rows[:60]):
             vals = [str(v).strip() for v in row if v is not None]
             row_text = " ".join(vals).lower()
             if "обоснование" in row_text and "наименование" in row_text and ("работ" in row_text or "затрат" in row_text):
                 data_start_row = i + 2
                 file_type = "lsr"
+                lsr_header_row_idx = i
                 break
             elif "наименование" in row_text and ("работ" in row_text or "затрат" in row_text) and ("сметн" in row_text or "стоим" in row_text):
                 data_start_row = i + 2
                 file_type = "lsr"
+                lsr_header_row_idx = i
                 break
             elif "наименование" in row_text and "ед" in row_text and "кол" in row_text and "обоснование" not in row_text:
                 data_start_row = i + 2
@@ -8592,6 +8596,56 @@ async def parse_smeta(file: UploadFile = File(...)):
 
         def _lsr_text_key(value):
             return str(value or "").lower().replace("ё", "е").replace("\xa0", " ").strip()
+
+        def _detect_lsr_columns(rows, header_idx):
+            columns = {
+                "num": 0,
+                "obosn": 1,
+                "name": 2,
+                "unit": 3,
+                "quantity_base": 4,
+                "quantity_coeff": 5,
+                "quantity_final": 6,
+            }
+            if header_idx is None:
+                return columns
+
+            start = max(0, header_idx - 2)
+            end = min(len(rows), header_idx + 6)
+            scan_rows = rows[start:end]
+
+            for row in scan_rows:
+                for idx, value in enumerate(row):
+                    key = _lsr_text_key(value).replace("\n", " ")
+                    if "обоснование" in key:
+                        columns["obosn"] = idx
+                    if "наименование" in key and ("работ" in key or "затрат" in key):
+                        columns["name"] = idx
+                    if "единица" in key and "измер" in key:
+                        columns["unit"] = idx
+
+            unit_idx = columns.get("unit")
+            if unit_idx is not None:
+                columns.setdefault("quantity_base", unit_idx + 1)
+                columns.setdefault("quantity_coeff", unit_idx + 2)
+                columns.setdefault("quantity_final", unit_idx + 3)
+                columns["quantity_base"] = unit_idx + 1
+                columns["quantity_coeff"] = unit_idx + 2
+                columns["quantity_final"] = unit_idx + 3
+
+            for row in scan_rows:
+                for idx, value in enumerate(row):
+                    key = _lsr_text_key(value).replace("\n", " ")
+                    compact = re.sub(r"\s+", " ", key)
+                    if "на единицу" in compact:
+                        columns["quantity_base"] = idx
+                    elif "коэффициент" in compact and "сметн" not in compact:
+                        columns["quantity_coeff"] = idx
+                    elif "всего" in compact and "учет" in compact and "коэффициент" in compact:
+                        columns["quantity_final"] = idx
+            return columns
+
+        lsr_columns = _detect_lsr_columns(header_rows, lsr_header_row_idx) if file_type == "lsr" else {}
 
         def _is_lsr_service_row(name_value, obosn_value=""):
             name_key = _lsr_text_key(name_value)
@@ -8761,20 +8815,42 @@ async def parse_smeta(file: UploadFile = File(...)):
                 return float(raw_qty or 0), raw_unit, 1
             return float(raw_qty or 0) * factor, _normalize_lsr_unit_text(m.group(2)), factor
 
-        def _pick_lsr_unit_and_quantity(row, fallback_unit, fallback_qty):
+        def _pick_lsr_unit_and_quantity(row, fallback_unit, fallback_qty, preferred_unit_idx=None,
+                                        quantity_base_idx=None, quantity_coeff_idx=None, quantity_final_idx=None):
             found_unit = None
             found_idx = None
             quantity_base = None
             quantity_coeff = None
             quantity_final = None
-            for idx, value in enumerate(row):
-                if _looks_lsr_unit(value):
-                    found_unit = _normalize_lsr_unit_text(value)
-                    found_idx = idx
-                    break
+            if preferred_unit_idx is not None and len(row) > preferred_unit_idx and _looks_lsr_unit(row[preferred_unit_idx]):
+                found_unit = _normalize_lsr_unit_text(row[preferred_unit_idx])
+                found_idx = preferred_unit_idx
+            elif preferred_unit_idx is None:
+                # Если колонка единицы не определена, ищем только в начале строки ЛСР.
+                # В хвосте строки встречаются единицы ресурсов/труда ("т", "чел-ч"),
+                # их нельзя принимать за единицу самой работы.
+                for idx, value in enumerate(row[:10]):
+                    if _looks_lsr_unit(value):
+                        found_unit = _normalize_lsr_unit_text(value)
+                        found_idx = idx
+                        break
             unit = found_unit or fallback_unit
             qty = fallback_qty
-            if found_idx is not None:
+
+            def _num_at(idx):
+                if idx is None or idx < 0 or len(row) <= idx:
+                    return None
+                return _row_float(row[idx])
+
+            quantity_base = _num_at(quantity_base_idx)
+            quantity_coeff = _num_at(quantity_coeff_idx)
+            quantity_final = _num_at(quantity_final_idx)
+            if quantity_final is not None and abs(quantity_final) > 0.0001:
+                qty = quantity_final
+            elif quantity_base is not None:
+                qty = quantity_base
+
+            if quantity_base is None and quantity_final is None and found_idx is not None:
                 nums = []
                 for idx in range(found_idx + 1, min(len(row), found_idx + 6)):
                     n = _row_float(row[idx])
@@ -8836,9 +8912,12 @@ async def parse_smeta(file: UploadFile = File(...)):
         current_work_ref = None
         for i, row in enumerate(ws.iter_rows(min_row=data_start_row, values_only=True)):
             try:
+                num_idx = lsr_columns.get("num", 0) if file_type == "lsr" else 0
+                obosn_idx = lsr_columns.get("obosn", 1) if file_type == "lsr" else 1
+                name_idx = lsr_columns.get("name", 2) if file_type == "lsr" else 2
                 first_val = str(row[0]).strip() if row[0] is not None else ""
-                name_col = str(row[2]).strip() if len(row) > 2 and row[2] else ""
-                obosn = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+                name_col = str(row[name_idx]).strip() if len(row) > name_idx and row[name_idx] else ""
+                obosn = str(row[obosn_idx]).strip() if len(row) > obosn_idx and row[obosn_idx] else ""
                 
                 if "Раздел" in first_val or "РАЗДЕЛ" in first_val:
                     current_section = first_val
@@ -8856,7 +8935,7 @@ async def parse_smeta(file: UploadFile = File(...)):
                                 pass
                         continue
                     
-                    num = row[0]
+                    num = row[num_idx] if len(row) > num_idx else None
                     if not num:
                         continue
                     try:
@@ -8871,11 +8950,25 @@ async def parse_smeta(file: UploadFile = File(...)):
                     
                     item_type = _lsr_item_type(obosn, name_col)
                     
-                    unit_raw = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
+                    unit_idx_hint = lsr_columns.get("unit")
+                    qty_base_idx = lsr_columns.get("quantity_base")
+                    qty_coeff_idx = lsr_columns.get("quantity_coeff")
+                    qty_final_idx = lsr_columns.get("quantity_final")
+                    unit_raw = str(row[unit_idx_hint]).strip() if unit_idx_hint is not None and len(row) > unit_idx_hint and row[unit_idx_hint] else "шт"
                     inferred_unit = _infer_lsr_unit(unit_raw, name_col, item_type)
-                    raw_qty = _row_float(row[8]) if len(row) > 8 else 0
+                    raw_qty = _row_float(row[qty_final_idx]) if qty_final_idx is not None and len(row) > qty_final_idx else None
+                    if raw_qty is None and qty_base_idx is not None and len(row) > qty_base_idx:
+                        raw_qty = _row_float(row[qty_base_idx])
                     raw_qty = raw_qty if raw_qty is not None else 0
-                    unit, qty, raw_unit, raw_qty, unit_factor, unit_idx, quantity_base, quantity_coeff, quantity_final = _pick_lsr_unit_and_quantity(row, inferred_unit, raw_qty)
+                    unit, qty, raw_unit, raw_qty, unit_factor, unit_idx, quantity_base, quantity_coeff, quantity_final = _pick_lsr_unit_and_quantity(
+                        row,
+                        inferred_unit,
+                        raw_qty,
+                        unit_idx_hint,
+                        qty_base_idx,
+                        qty_coeff_idx,
+                        qty_final_idx,
+                    )
 
                     work_total = _pick_lsr_sum(row, (13, 14, 15, 16, 17), unit_idx) if item_type == "work" else 0
                     mat_total = _pick_lsr_sum(row, (15, 14, 13, 16, 17), unit_idx) if item_type == "material" else 0
