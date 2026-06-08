@@ -11255,11 +11255,46 @@ def sign_material_transfer(id: int, _current_user: dict = Depends(require_roles(
 @app.delete("/material-transfers/{id}")
 def delete_material_transfer(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    cur.execute("DELETE FROM material_transfers WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+    try:
+        cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed
+                       FROM material_transfers WHERE id=%s FOR UPDATE""", (id,))
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            return {"ok": True}
+
+        project_name, from_location, to_person, material_name, qty, unit, signed = row
+        qty = float(qty or 0)
+        if signed:
+            raise HTTPException(status_code=400, detail="Подписанную передачу нельзя удалить. Оформите возврат материала отдельной операцией.")
+
+        if (from_location or "") == "Основной склад":
+            cur.execute("UPDATE warehouse_main SET quantity=quantity+%s WHERE name=%s", (qty, material_name))
+            if cur.rowcount == 0:
+                cur.execute("INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (material_name, unit or "шт", qty, 0, 0, "Возврат передачи"))
+        else:
+            cur.execute("UPDATE materials SET quantity=quantity+%s WHERE name=%s AND project=%s", (qty, material_name, from_location))
+            if cur.rowcount == 0:
+                cur.execute("INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (material_name, unit or "шт", qty, 0, 0, from_location or project_name or "", "Возврат передачи"))
+
+        cur.execute("DELETE FROM material_transfers WHERE id=%s", (id,))
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (material_name, "отмена передачи", qty, None, from_location or project_name or "", to_person or "", _current_user.get("name",""), __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        conn.commit()
+        _run_project_ai_control_safely(project_name or "", "material_transfer:delete")
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close(); conn.close()
 
 @app.get("/supplier-catalog")
 def get_supplier_catalog(supplier_id: int = None, current_user: dict = Depends(get_current_user)):

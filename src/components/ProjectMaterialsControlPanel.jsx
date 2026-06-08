@@ -38,6 +38,7 @@ export default function ProjectMaterialsControlPanel({
   renderMaterialAliasControls,
   showPreview,
   buildMaterialRequirementContent,
+  onIssueMaterial,
 }) {
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState('all');
@@ -205,18 +206,45 @@ export default function ProjectMaterialsControlPanel({
                     <td style={{...tblC, color: r.supplied >= r.planQty && r.planQty > 0 ? C.success : C.text}}>{fmtMeasure(r.supplied, r.unit)}</td>
                     <td style={tblC}>{fmtMeasure(r.issued, r.unit)}</td>
                     <td style={tblC}>{fmtMeasure(r.used, r.unit)}</td>
-                    <td style={{...tblC, color: r.masterBalance > 0 ? C.info : C.textMuted}}>{fmtMeasure(r.masterBalance, r.unit)}</td>
+	                    <td style={{...tblC, color: r.masterBalance > 0 ? C.info : C.textMuted}}>
+	                      <b>{fmtMeasure(r.masterBalance, r.unit)}</b>
+	                      {r.pendingAtMasters > 0 && <p style={{margin: '2px 0 0', color: C.warning, fontSize: '10px'}}>Ждёт подписи: {fmtMeasure(r.pendingAtMasters, r.unit)}</p>}
+	                      {r.holders?.slice(0, 3).map(h => (
+	                        <p key={h.name} style={{margin: '2px 0 0', color: h.balance > 0 ? C.textSec : C.textMuted, fontSize: '10px'}}>
+	                          {h.name}: {fmtMeasure(h.balance, h.unit || r.unit)}{h.pending > 0 ? ' · ждёт ' + fmtMeasure(h.pending, h.unit || r.unit) : ''}
+	                        </p>
+	                      ))}
+	                    </td>
                     <td style={{...tblC, fontWeight: '600', color: r.stock > 0 ? C.success : C.textMuted}}>{fmtMeasure(r.stock, r.unit)}</td>
                     <td style={{...tblC, color: r.expectedStock > 0 ? C.text : C.textMuted}}>{fmtMeasure(r.expectedStock, r.unit)}</td>
                     <td style={{...tblC, fontWeight: '700', color: r.stockMismatch ? C.danger : C.success}}>{r.stockMismatch ? fmtMeasure(r.stockDiff, r.unit) : '0'}</td>
                     <td style={{...tblC, fontWeight: '700', color: r.toBuy > 0 ? C.warning : C.success}}>{fmtMeasure(r.toBuy, r.unit)}</td>
                     <td style={tblC}>
-                      <span style={badge(st.color, st.bg, st.border)}>
-                        {st.label}
-                        {r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
-                      </span>
-                      {renderMaterialSupplyAction(projectName, r)}
-                    </td>
+	                      <span style={badge(st.color, st.bg, st.border)}>
+	                        {st.label}
+	                        {r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
+	                      </span>
+	                      {renderMaterialSupplyAction(projectName, r)}
+	                      {onIssueMaterial && r.stock > 0 && (
+	                        <button
+	                          type="button"
+	                          onClick={() => onIssueMaterial(r)}
+	                          style={{
+	                            marginTop: '5px',
+	                            padding: '4px 8px',
+	                            borderRadius: '999px',
+	                            border: '1px solid ' + C.successBorder,
+	                            backgroundColor: C.successLight,
+	                            color: C.success,
+	                            fontSize: '10px',
+	                            fontWeight: '800',
+	                            cursor: 'pointer'
+	                          }}
+	                        >
+	                          Выдать
+	                        </button>
+	                      )}
+	                    </td>
                   </tr>
                 );
               })}

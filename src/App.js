@@ -4182,7 +4182,7 @@ function App() {
       const key = keyOf(meta.name);
       if (!key) return null;
       const cleanUnit = materialUnit(meta.unit || unit);
-      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
       if (rawName && keyOf(rawName)!==key && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
       if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
       if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
@@ -4195,6 +4195,17 @@ function App() {
       if (converted.unit && row.unit && converted.unit!==row.unit) row.unitMismatch = true;
       if (!row.unit && converted.unit) row.unit = converted.unit;
       row[field] += converted.qty;
+    };
+    const addHolderQty = (row, person, role, field, qty, unit, transfer) => {
+      if (!row) return;
+      const name = (person || 'Без ответственного').trim();
+      const key = name.toLowerCase();
+      const converted = materialQty(qty, unit || row.unit);
+      if (converted.unit && row.unit && converted.unit !== row.unit) row.unitMismatch = true;
+      if (!row.unit && converted.unit) row.unit = converted.unit;
+      if (!row.holders[key]) row.holders[key] = {name, role: role || '', unit: row.unit || converted.unit || unit || '', issued: 0, pending: 0, used: 0, transfers: []};
+      row.holders[key][field] += converted.qty;
+      if (transfer) row.holders[key].transfers.push(transfer);
     };
     const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
     const fallbackEstimates = (estimatesList||[]).filter(e=>
@@ -4262,6 +4273,9 @@ function App() {
       const r = ensure(t.materialName, t.unit);
       if ((t.fromLocation||'')==='Основной склад') addQty(r, 'issuedFromMain', t.quantity, t.unit);
       addQty(r, 'issued', t.quantity, t.unit);
+      if (t.signed) addQty(r, 'issuedSigned', t.quantity, t.unit);
+      else addQty(r, 'issuedPending', t.quantity, t.unit);
+      addHolderQty(r, t.toPerson, t.toPersonRole, t.signed ? 'issued' : 'pending', t.quantity, t.unit, t);
     });
     (workJournal||[]).filter(w=>w.project===projectName&&w.status!=='Отклонено').forEach(w=>{
       let mats = w.materialsUsed!==undefined ? w.materialsUsed : w.materials_used;
@@ -4270,6 +4284,7 @@ function App() {
       mats.forEach(m=>{
         const r = ensure(m.name, m.unit);
         addQty(r, 'used', m.quantity, m.unit);
+        addHolderQty(r, w.masterName||w.master_name||'Без ответственного', '', 'used', m.quantity, m.unit);
       });
     });
     (materials||[]).filter(m=>m.project===projectName).forEach(m=>{
@@ -4298,15 +4313,23 @@ function App() {
       const toBuy = r.planQty>0 ? Math.max(0, (r.planQty||0) - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
       const coveredWithPipeline = supplied + (r.requested||0) + (r.inTransit||0);
       const hasMaterialActivity = coveredWithPipeline>0 || (r.stock||0)>0 || (r.issued||0)>0 || (r.used||0)>0;
-      const masterBalance = Math.max(0, (r.issued||0) - (r.used||0));
-      const usedWithoutIssue = Math.max(0, (r.used||0) - (r.issued||0));
+      const holders = Object.values(r.holders||{}).map(h=>({
+        ...h,
+        balance: Math.max(0, (h.issued||0) - (h.used||0)),
+      })).filter(h=>(h.issued||0)>0 || (h.pending||0)>0 || (h.used||0)>0)
+        .sort((a,b)=>(b.balance-a.balance)||(b.pending-a.pending)||a.name.localeCompare(b.name,'ru'));
+      const masterBalance = holders.reduce((sum,h)=>sum+(h.balance||0),0);
+      const pendingAtMasters = holders.reduce((sum,h)=>sum+(h.pending||0),0);
+      const usedWithoutIssue = Math.max(0, (r.used||0) - (r.issuedSigned||0));
       const expectedStock = supplied - (r.issued||0) - usedWithoutIssue;
       const stockDiff = (r.stock||0) - expectedStock;
       return {
         ...r,
         movedNet,
         supplied,
+        holders,
         masterBalance,
+        pendingAtMasters,
         usedWithoutIssue,
         expectedStock,
         stockDiff,
@@ -4600,17 +4623,19 @@ function App() {
       .forEach(t=>{
         const key = materialNameKey(t.materialName);
         if (!key) return;
-        if (!byName[key]) byName[key] = {name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, pending:0, project:projectName};
+        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
         byName[key].received += toNum(t.quantity);
         byName[key].quantity += toNum(t.quantity);
+        byName[key].transfers.push(t);
       });
     (materialTransfers||[])
       .filter(t=>t.projectName===projectName && t.toPerson===personName && !t.signed)
       .forEach(t=>{
         const key = materialNameKey(t.materialName);
         if (!key) return;
-        if (!byName[key]) byName[key] = {name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, pending:0, project:projectName};
+        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
         byName[key].pending += toNum(t.quantity);
+        byName[key].pendingTransfers.push(t);
       });
     (workJournal||[])
       .filter(w=>w.project===projectName && w.status!=='Отклонено' && (Number(w.masterId||w.master_id)===Number(personId) || w.masterName===personName || w.master_name===personName))
@@ -8842,10 +8867,12 @@ function App() {
     const _monthAgo = new Date(Date.now()-30*24*3600*1000).toISOString().split('T')[0];
     const myToday = myConfirmed.filter(w=>(w.confirmedAt||w.date||'').split('T')[0]===_today);
     const myMonth = myConfirmed.filter(w=>(w.confirmedAt||w.date||'') >= _monthAgo);
-    const sumToday = myToday.reduce((s,w)=>s+Number(w.total||0),0);
-    const sumMonth = myMonth.reduce((s,w)=>s+Number(w.total||0),0);
-    const myIssues = materialTransfers.filter(t=>t.toPerson===user.name).map(t=>({id:t.id,materialName:t.materialName,quantity:t.quantity,unit:t.unit,project:t.projectName,confirmed:t.signed}));
-    const categories = [...new Set(pricelistItems.map(i=>i.category))];
+	    const sumToday = myToday.reduce((s,w)=>s+Number(w.total||0),0);
+	    const sumMonth = myMonth.reduce((s,w)=>s+Number(w.total||0),0);
+	    const myMaterialProjectNames = [...new Set(materialTransfers.filter(t=>t.toPerson===user.name).map(t=>t.projectName).filter(Boolean))];
+	    const myMaterialBalances = myMaterialProjectNames.flatMap(projectName=>personalMaterialRowsForProject(projectName, user.name, user.id));
+	    const myPendingMaterialTransfers = materialTransfers.filter(t=>t.toPerson===user.name && !t.signed);
+	    const categories = [...new Set(pricelistItems.map(i=>i.category))];
     const myContract = contracts.find(c=>c.masterId===user.id);
     const myActs = interimActs.filter(a=>a.masterId===user.id);
     const masterProjectOptions = selectableActiveProjects(projects);
@@ -9150,99 +9177,72 @@ function App() {
             })()}
           </div>)}
 
-          {activePage==='materials'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>📦 Мой склад</h3>
-            {/* Сводка */}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
-              <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
-                <p style={{color:C.success,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>📦 Материалов</p>
-                <b style={{color:C.success,fontSize:'18px'}}>{myIssues.length}</b>
-              </div>
-              <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
-                <p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>⏳ Не подтверждено</p>
-                <b style={{color:C.warning,fontSize:'18px'}}>{myIssues.filter(i=>!i.confirmed).length}</b>
-              </div>
-              <div style={{...card,padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+(C.accentBorder||C.border)}}>
-                <p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>🔧 Инструментов</p>
-                <b style={{color:C.accent,fontSize:'18px'}}>{myTools.length}</b>
-              </div>
-            </div>
-            {/* Подсказка про списание */}
-            {myIssues.length>0 && <div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}>
-              <p style={{color:C.text,fontSize:'12px',margin:0}}>
-                💡 <b>Как списать материал:</b> перейди во вкладку «Работы», в форме «Добавить работы» укажи использованные материалы — спишется автоматически.
-              </p>
-            </div>}
-            {/* МАТЕРИАЛЫ — агрегировано по «материал + объект» с балансом */}
-            <div style={{marginBottom:'18px'}}>
-              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📦 Материалы, выданные мне</b>
-              {myIssues.length===0 && <div style={{...card,padding:'20px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>Материалы пока не передавались.<br/>Заявку на материал можно сделать во вкладке «🛒 Снабжение».</div>}
-              {(()=>{
-                // Агрегируем по «название + проект»
-                const balance = new Map();
-                myIssues.forEach(t=>{
-                  const key = (t.materialName||'').toLowerCase().trim()+'|'+(t.project||'');
-	                  if (!balance.has(key)) balance.set(key, {name:t.materialName, project:t.project, unit:t.unit, received:0, pending:0, used:0, transfers:[]});
-	                  const cur = balance.get(key);
-	                  if (t.confirmed) cur.received += Number(t.quantity||0);
-	                  else cur.pending += Number(t.quantity||0);
-	                  cur.transfers.push(t);
-                });
-                // Считаем использованное из work_journal этого мастера
-                (workJournal||[]).filter(w=>Number(w.masterId||w.master_id)===user.id).forEach(w=>{
-                  let mats = w.materialsUsed!==undefined ? w.materialsUsed : w.materials_used;
-                  if (typeof mats === 'string') { try { mats = JSON.parse(mats); } catch(_) { mats = []; } }
-                  if (!Array.isArray(mats)) return;
-                  mats.forEach(m=>{
-                    const key = ((m.name||'').toLowerCase().trim())+'|'+(w.project||'');
-                    const cur = balance.get(key);
-                    if (cur) cur.used += Number(m.quantity||0);
-                  });
-                });
-                return Array.from(balance.values()).map((b,i)=>{
-                  const remaining = b.received - b.used;
-                  const pct = b.received>0 ? Math.min(100, Math.round((b.used/b.received)*100)) : 0;
-                  const remColor = remaining<=0 ? C.danger : remaining<b.received*0.2 ? C.warning : C.success;
-                  const unconfirmed = b.transfers.filter(t=>!t.confirmed);
-                  return (<div key={i} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+remColor}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
-                      <div style={{flex:'1 1 200px'}}>
-                        <b style={{color:C.text,fontSize:'14px'}}>{b.name}</b>
-                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{'🏗 '+(b.project||'—')+(b.transfers.length>1?' · '+b.transfers.length+' передач':'')}</p>
-                      </div>
-                    </div>
-                    {/* Бар Получено / Использовано / Остаток */}
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'6px',marginBottom:'8px'}}>
-	                      <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',border:'1px solid '+C.border}}>
-	                        <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Получено</p>
-	                        <b style={{color:C.text,fontSize:'13px'}}>{b.received+' '+b.unit}</b>
-	                        {b.pending>0&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>+ ждёт подписи {b.pending+' '+b.unit}</p>}
-	                      </div>
-                      <div style={{padding:'8px',backgroundColor:C.warningLight,borderRadius:'6px',border:'1px solid '+C.warningBorder}}>
-                        <p style={{color:C.warning,fontSize:'10px',margin:'0 0 2px'}}>Использовано</p>
-                        <b style={{color:C.warning,fontSize:'13px'}}>{b.used+' '+b.unit}</b>
-                      </div>
-                      <div style={{padding:'8px',backgroundColor:remColor===C.danger?C.dangerLight:remColor===C.warning?C.warningLight:C.successLight,borderRadius:'6px',border:'1px solid '+(remColor===C.danger?C.dangerBorder:remColor===C.warning?C.warningBorder:C.successBorder)}}>
-                        <p style={{color:remColor,fontSize:'10px',margin:'0 0 2px'}}>Остаток</p>
-                        <b style={{color:remColor,fontSize:'13px'}}>{remaining+' '+b.unit}</b>
-                      </div>
-                    </div>
-                    {/* Прогресс бар */}
-                    <div style={{height:'6px',backgroundColor:C.bg,borderRadius:'4px',overflow:'hidden',marginBottom:'8px'}}>
-                      <div style={{width:pct+'%',height:'100%',backgroundColor:pct>=100?C.danger:pct>=80?C.warning:C.success}}/>
-                    </div>
-                    {/* Не подтверждённые передачи */}
-                    {unconfirmed.length>0 && (<div style={{padding:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,borderRadius:'6px',marginTop:'6px'}}>
-                      <p style={{color:C.warning,fontSize:'11px',margin:'0 0 6px',fontWeight:'600'}}>⏳ Не подтверждено получение ({unconfirmed.length} передач):</p>
-                      {unconfirmed.map(t=>(<div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0'}}>
-                        <span style={{fontSize:'12px',color:C.text}}>{t.quantity+' '+t.unit}</span>
-                        <button onClick={()=>confirmMaterialReceipt(t.id)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/>Подтвердить</button>
-                      </div>))}
-                    </div>)}
-                  </div>);
-                });
-              })()}
-            </div>
+	          {activePage==='materials'&&(<div>
+	            <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>📦 Мой склад</h3>
+	            {/* Сводка */}
+	            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
+	              <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
+	                <p style={{color:C.success,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>📦 Материалов</p>
+	                <b style={{color:C.success,fontSize:'18px'}}>{myMaterialBalances.length}</b>
+	              </div>
+	              <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
+	                <p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>⏳ Не подтверждено</p>
+	                <b style={{color:C.warning,fontSize:'18px'}}>{myPendingMaterialTransfers.length}</b>
+	              </div>
+	              <div style={{...card,padding:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+(C.accentBorder||C.border)}}>
+	                <p style={{color:C.accent,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>🔧 Инструментов</p>
+	                <b style={{color:C.accent,fontSize:'18px'}}>{myTools.length}</b>
+	              </div>
+	            </div>
+	            {/* Подсказка про списание */}
+	            {myMaterialBalances.length>0 && <div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}>
+	              <p style={{color:C.text,fontSize:'12px',margin:0}}>
+	                💡 <b>Как списать материал:</b> перейди во вкладку «Работы», в форме «Добавить работы» укажи использованные материалы — спишется автоматически.
+	              </p>
+	            </div>}
+	            {/* МАТЕРИАЛЫ — агрегировано по «материал + объект» с балансом */}
+	            <div style={{marginBottom:'18px'}}>
+	              <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📦 Материалы, выданные мне</b>
+	              {myMaterialBalances.length===0 && <div style={{...card,padding:'20px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>Материалы пока не передавались.<br/>Заявку на материал можно сделать во вкладке «🛒 Снабжение».</div>}
+	              {myMaterialBalances.map(b=>{
+	                const remaining = toNum(b.quantity);
+	                const pct = b.received>0 ? Math.min(100, Math.round((b.used/b.received)*100)) : 0;
+	                const remColor = remaining<=0 && b.received>0 ? C.danger : remaining<b.received*0.2 ? C.warning : C.success;
+	                return (<div key={b.id||b.key} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+remColor}}>
+	                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
+	                    <div style={{flex:'1 1 200px'}}>
+	                      <b style={{color:C.text,fontSize:'14px'}}>{b.name}</b>
+	                      <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{'🏗 '+(b.project||'—')+((b.transfers||[]).length>1?' · '+b.transfers.length+' подписанных передач':'')}</p>
+	                    </div>
+	                  </div>
+	                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'6px',marginBottom:'8px'}}>
+	                    <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',border:'1px solid '+C.border}}>
+	                      <p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Получено</p>
+	                      <b style={{color:C.text,fontSize:'13px'}}>{fmtMeasure(b.received,b.unit)}</b>
+	                      {b.pending>0&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>+ ждёт подписи {fmtMeasure(b.pending,b.unit)}</p>}
+	                    </div>
+	                    <div style={{padding:'8px',backgroundColor:C.warningLight,borderRadius:'6px',border:'1px solid '+C.warningBorder}}>
+	                      <p style={{color:C.warning,fontSize:'10px',margin:'0 0 2px'}}>Списано</p>
+	                      <b style={{color:C.warning,fontSize:'13px'}}>{fmtMeasure(b.used,b.unit)}</b>
+	                    </div>
+	                    <div style={{padding:'8px',backgroundColor:remColor===C.danger?C.dangerLight:remColor===C.warning?C.warningLight:C.successLight,borderRadius:'6px',border:'1px solid '+(remColor===C.danger?C.dangerBorder:remColor===C.warning?C.warningBorder:C.successBorder)}}>
+	                      <p style={{color:remColor,fontSize:'10px',margin:'0 0 2px'}}>Остаток у меня</p>
+	                      <b style={{color:remColor,fontSize:'13px'}}>{fmtMeasure(remaining,b.unit)}</b>
+	                    </div>
+	                  </div>
+	                  <div style={{height:'6px',backgroundColor:C.bg,borderRadius:'4px',overflow:'hidden',marginBottom:'8px'}}>
+	                    <div style={{width:pct+'%',height:'100%',backgroundColor:pct>=100?C.danger:pct>=80?C.warning:C.success}}/>
+	                  </div>
+	                  {(b.pendingTransfers||[]).length>0 && (<div style={{padding:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,borderRadius:'6px',marginTop:'6px'}}>
+	                    <p style={{color:C.warning,fontSize:'11px',margin:'0 0 6px',fontWeight:'600'}}>⏳ Не подтверждено получение ({b.pendingTransfers.length} передач):</p>
+	                    {b.pendingTransfers.map(t=>(<div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0'}}>
+	                      <span style={{fontSize:'12px',color:C.text}}>{fmtMeasure(t.quantity,t.unit)}</span>
+	                      <button onClick={()=>confirmMaterialReceipt(t.id)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/>Подтвердить</button>
+	                    </div>))}
+	                  </div>)}
+	                </div>);
+	              })}
+	            </div>
             {/* ИНСТРУМЕНТЫ */}
             <div>
               <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>🔧 Инструменты за мной</b>
@@ -9527,7 +9527,7 @@ function App() {
         </div>
 
         <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid '+C.border,display:'flex',justifyContent:'flex-start',gap:'2px',padding:'10px 8px 14px',zIndex:100,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',overflowX:'auto'}}>
-          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Склад',badge:myIssues.filter(i=>!i.confirmed).length},{id:'cable',icon:<ScrollText size={22}/>,label:'Кабель'},{id:'supply',icon:<ShoppingCart size={22}/>,label:'Снабжение',badge:(supplyRequests||[]).filter(r=>(r.createdBy===user.name||r.requestedById===user.id)&&r.status==='Отклонена').length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 7px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative',flex:'0 0 58px'}}><span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px',whiteSpace:'nowrap'}}>{item.label}</span>{item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}</div>))}
+	          {[{id:'works',icon:<Briefcase size={22}/>,label:'Работы'},{id:'history',icon:<BarChart3 size={22}/>,label:'История'},{id:'materials',icon:<Package size={22}/>,label:'Склад',badge:myPendingMaterialTransfers.length},{id:'cable',icon:<ScrollText size={22}/>,label:'Кабель'},{id:'supply',icon:<ShoppingCart size={22}/>,label:'Снабжение',badge:(supplyRequests||[]).filter(r=>(r.createdBy===user.name||r.requestedById===user.id)&&r.status==='Отклонена').length},{id:'documents',icon:<FileText size={22}/>,label:'Документы'},{id:'companychat',icon:<MessageSquare size={22}/>,label:'Чат'}].map(item=>(<div key={item.id} onClick={()=>setActivePage(item.id)} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 7px',borderRadius:'10px',backgroundColor:activePage===item.id?C.accentLight:'transparent',position:'relative',flex:'0 0 58px'}}><span style={{color:activePage===item.id?C.accent:C.textMuted}}>{item.icon}</span><span style={{fontSize:'10px',color:activePage===item.id?C.accent:C.textMuted,fontWeight:activePage===item.id?'600':'400',marginTop:'2px',whiteSpace:'nowrap'}}>{item.label}</span>{item.badge>0&&<span style={{position:'absolute',top:0,right:3,backgroundColor:C.danger,color:'white',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'10px'}}>{item.badge}</span>}</div>))}
           <div onClick={()=>handleLogout()} style={{display:'flex',flexDirection:'column',alignItems:'center',cursor:'pointer',padding:'5px 7px',flex:'0 0 58px'}}><LogOut size={22} color={C.textMuted}/><span style={{fontSize:'10px',color:C.textMuted,marginTop:'2px',whiteSpace:'nowrap'}}>Выйти</span></div>
         </div>
       </div>
@@ -11896,9 +11896,22 @@ function App() {
                         materialControlStatus={materialControlStatus}
                         renderMaterialSupplyAction={renderMaterialSupplyAction}
                         renderMaterialAliasControls={renderMaterialAliasControls}
-                        showPreview={showPreview}
-                        buildMaterialRequirementContent={buildMaterialRequirementContent}
-                      />
+	                        showPreview={showPreview}
+	                        buildMaterialRequirementContent={buildMaterialRequirementContent}
+	                        onIssueMaterial={(row)=>{
+	                          setNewTransfer({
+	                            materialName: row.name || '',
+	                            quantity: '',
+	                            unit: row.unit || 'шт',
+	                            toPerson: '',
+	                            toPersonRole: '',
+	                            fromLocation: p.name,
+	                            notes: 'Выдача мастеру из контроля материалов',
+	                            transferDate: new Date().toISOString().split('T')[0],
+	                          });
+	                          setShowTransferForm(true);
+	                        }}
+	                      />
                       <ProjectMaterialsStockPanel
                         projectName={p.name}
                         materials={materials}

@@ -126,13 +126,30 @@ export default function ProjectMaterialsTransferPanel({
   };
 
   const signTransfer = async (transferId) => {
-    await fetch(API + '/material-transfers/' + transferId + '/sign', {method: 'PUT'});
+    const res = await fetch(API + '/material-transfers/' + transferId + '/sign', {method: 'PUT'});
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert('Ошибка: ' + (data.detail || data.error || 'не удалось подписать передачу'));
+      return;
+    }
     setMaterialTransfers(prev => prev.map(mt => mt.id === transferId ? {...mt, signed: true} : mt));
   };
 
-  const deleteTransfer = async (transferId) => {
-    await fetch(API + '/material-transfers/' + transferId, {method: 'DELETE'});
-    setMaterialTransfers(prev => prev.filter(mt => mt.id !== transferId));
+  const deleteTransfer = async (transfer) => {
+    if (!transfer || transfer.signed) return;
+    const res = await fetch(API + '/material-transfers/' + transfer.id, {method: 'DELETE'});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      alert('Ошибка: ' + (data.detail || data.error || 'не удалось удалить передачу'));
+      return;
+    }
+    setMaterialTransfers(prev => prev.filter(mt => mt.id !== transfer.id));
+    const qty = Number(transfer.quantity || 0);
+    if ((transfer.fromLocation || '') === 'Основной склад') {
+      setWarehouseMain(prev => prev.map(m => m.name === transfer.materialName ? {...m, quantity: Number(m.quantity || 0) + qty} : m));
+    } else {
+      setMaterials(prev => prev.map(m => (m.name === transfer.materialName && m.project === transfer.fromLocation) ? {...m, quantity: Number(m.quantity || 0) + qty} : m));
+    }
   };
 
   return (
@@ -275,9 +292,13 @@ export default function ProjectMaterialsTransferPanel({
                   </button>
                 )}
                 <button onClick={() => showPreview(buildM15Content(t), 'М-15 № ' + t.id)} style={{...btnB, padding: '4px 8px', marginLeft: '4px'}} title="Печать М-15 (накладная на отпуск)">🖨️</button>
-                <button onClick={() => deleteTransfer(t.id)} style={{...btnR, padding: '4px 8px', marginLeft: '4px'}}>
-                  <Trash2 size={11}/>
-                </button>
+	                {!t.signed ? (
+	                  <button onClick={() => deleteTransfer(t)} style={{...btnR, padding: '4px 8px', marginLeft: '4px'}} title="Удалить неподписанную передачу и вернуть материал на склад">
+	                    <Trash2 size={11}/>
+	                  </button>
+	                ) : (
+	                  <span style={{marginLeft: '6px', color: C.textMuted, fontSize: '10px'}} title="Подписанную передачу нельзя удалить, нужен возврат">закрыто</span>
+	                )}
               </td>
             </tr>
           ))}
