@@ -13930,13 +13930,14 @@ function App() {
                       const work=Number(i.priceWork||0);
                       const mat=Number(i.priceMaterial||0);
                       const qty=Number(i.quantity||0);
-                      const sum=i.isImported?work:qty*(work+mat);
+                      const sum=estimateItemTotal(i);
                       let plPrice=0,diff=0;
                       if(Object.keys(plMap).length){
                         const k=(i.name||'').toLowerCase().trim();
                         plPrice=plMap[k]||0;
                         if(!plPrice){const f=Object.keys(plMap).find(pk=>pk.length>5&&(k.includes(pk)||pk.includes(k)));if(f) plPrice=plMap[f];}
-                        if(plPrice&&(work+mat)>0){diff=Math.round(((work+mat)/plPrice-1)*100);}
+                        const unitPrice=qty>0 ? sum/qty : (work+mat);
+                        if(plPrice&&unitPrice>0){diff=Math.round((unitPrice/plPrice-1)*100);}
                       }
                       return {section:s.name,name:i.name,unit:i.unit,qty,work,mat,sum,plPrice,diff};
                     }));
