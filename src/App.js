@@ -7522,17 +7522,35 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  const readApiResult = async (res) => {
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (e) {}
+    if (!res.ok) {
+      throw new Error(data?.detail || data?.error || text.slice(0, 240) || ('HTTP '+res.status));
+    }
+    return data;
+  };
+
   const saveProject = async () => {
     if (!newProject.name) { alert('Введите название'); return; }
     const data = {...newProject,budget:Number(newProject.budget)};
-    if (editingItem) await fetch(API+'/projects/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    else { await fetch(API+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); notify('Создан проект: '+newProject.name,'project'); }
-    await loadAll(); addActivity((editingItem?'Обновил':'Создал')+' проект: '+newProject.name);
-    if (!editingItem && newProject.clientEmail && newProject.clientPassword) {
-      await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newProject.client||newProject.name,email:newProject.clientEmail,password:newProject.clientPassword,role:'заказчик',projectName:newProject.name})});
-      alert('Заказчик создан! Логин: '+newProject.clientEmail+' Пароль: '+newProject.clientPassword);
+    try {
+      if (editingItem) {
+        await readApiResult(await fetch(API+'/projects/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}));
+      } else {
+        await readApiResult(await fetch(API+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}));
+        notify('Создан проект: '+newProject.name,'project');
+      }
+      await loadAll(); addActivity((editingItem?'Обновил':'Создал')+' проект: '+newProject.name);
+      if (!editingItem && newProject.clientEmail && newProject.clientPassword) {
+        await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newProject.client||newProject.name,email:newProject.clientEmail,password:newProject.clientPassword,role:'заказчик',projectName:newProject.name})}));
+        alert('Заказчик создан! Логин: '+newProject.clientEmail+' Пароль: '+newProject.clientPassword);
+      }
+      setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null}); setEditingItem(null); setShowForm(false);
+    } catch (err) {
+      alert('Не удалось сохранить проект: '+(err.message||err));
     }
-    setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null}); setEditingItem(null); setShowForm(false);
   };
 
   const updateProjectProgress = async (projectName) => {
@@ -13851,8 +13869,7 @@ function App() {
                     const tmpl=estimatesList.find(e=>String(e.id)===String(newEstimate.templateId));
                     if(tmpl) sections=enrichEstimateMeasurementBasis((tmpl.sections||[]).map(s=>({...s,id:Date.now()+Math.random(),items:(s.items||[]).map(i=>({...i,id:Date.now()+Math.random()}))})));
                   }
-                  const res=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections})});
-                  const est=await res.json();
+                  const est=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections})}));
                   const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};
                   const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>newEst.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,newEst)&&e.status==='Активная'));
                   const nextEstimates=[...(estimatesList||[]).map(e=>(newEst.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,newEst))?{...e,status:'Архив'}:e),newEst];
@@ -14202,9 +14219,9 @@ function App() {
                     const fd=new FormData();
                     fd.append('file',e.target.files[0]);
                     try {
-                      const res=await fetch(API+'/parse-smeta',{method:'POST',body:fd});
-                      const data=await res.json();
-                      if(data.error){alert('Ошибка: '+data.error);return;}
+                      const data=await readApiResult(await fetch(API+'/parse-smeta',{method:'POST',body:fd}));
+                      if(data.error) throw new Error(data.error);
+                      if(!Array.isArray(data.items)||!data.items.length) throw new Error('В файле не найдены рабочие строки сметы. Если это ССР/сводный расчёт, загрузите его как документ, а рабочую смету импортируйте из ЛСР или СК.');
                       const sections={};
                       (data.items||[]).forEach(item=>{
                         if(!sections[item.section]) sections[item.section]={id:Date.now()+Math.random(),name:item.section,items:[]};
@@ -14248,8 +14265,8 @@ function App() {
                         sections[item.section].items.push(importedItem);
                       });
                       const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const estDraft={projectId:newEstimate.projectId,projectName:projName,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная'};const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:newEstimate.version||nextEstimateVersionFor(estDraft),smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная',sections:enrichEstimateMeasurementBasis(Object.values(sections))};
-                      const saveRes=await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)});
-                      const saved=await saveRes.json();
+                      const saved=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)}));
+                      if(!saved?.id) throw new Error('Сервер не вернул id сохранённой сметы');
                       const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};
                       const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId)&&e.status==='Активная'));
                       const nextEstimates=[...(estimatesList||[]).map(e=>(estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId];
@@ -14284,7 +14301,8 @@ function App() {
                       const meta=data.meta||{};
                       const mismatchText=meta.totalMismatch?('\n\nВнимание: итог файла '+Number(meta.declaredTotal||0).toLocaleString('ru-RU')+' ₽, сумма разобранных строк '+Number(meta.parsedTotal||0).toLocaleString('ru-RU')+' ₽. Строки НЕ умножались общим коэффициентом, чтобы не ломать оплату мастерам. Нужно разобрать итоговый блок/индексы работ и материалов отдельно.'):'';
                       alert('Импортировано '+data.count+' позиций! ИИ проверяет смету в фоне — результат появится сверху.'+mismatchText);
-                    } catch(err){alert('Ошибка импорта');}
+                    } catch(err){alert('Ошибка импорта: '+(err.message||err));}
+                    finally { e.target.value=''; }
                   }}
                 />
                 <EstimateImportSupportedFormat C={C}/>
