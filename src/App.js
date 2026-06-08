@@ -2656,6 +2656,8 @@ function App() {
   const buildInvoiceContent = (inv) => {
     const req = companyRequisites||{};
     const invoiceRows = warehouseInvoiceItems(inv);
+    const estimateControlRows = warehouseInvoiceEstimateControl(inv);
+    const estimateControlIssues = estimateControlRows.filter(r=>['danger','warning'].includes(r.severity));
     const rowsTotal = invoiceRows.items.reduce((s,it)=>s+(Number(it.total||0)||Number(it.quantity||0)*Number(it.price||0)),0);
     const invoiceAmount = Number(inv.totalBase||0) || Number(inv.totalWithVat||0) || rowsTotal;
     const vatCalc = calcVat(invoiceAmount, inv.vat||'Без НДС');
@@ -2668,10 +2670,19 @@ function App() {
     html += '<tr><th>НДС</th><td colspan="3">'+inv.vat+'</td></tr></table>';
     if (isSupplyDeliveryInvoice(inv)) html += '<p style="font-size:11px;color:#0f766e;margin:6px 0">Источник: поставка снабжения #'+(inv.supplyDeliveryId||inv.sourceId||'')+(inv.supplyRequestId?' по заявке #'+inv.supplyRequestId:'')+'. В материальном контроле это поступление учитывается в колонке «Поставки».</p>';
     if(invoiceRows.reconstructed) html += '<p style="font-size:11px;color:#666;margin:6px 0">Строки восстановлены из '+invoiceRows.source+', потому что в старой накладной был сохранён только итог.</p>';
-    html += '<table><tr><th>N</th><th>Наименование товара</th><th>Категория</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th></tr>';
-    (invoiceRows.items||[]).forEach((item,i) => { const rowSum=Number(item.total||0)||Number(item.quantity||0)*Number(item.price||0); html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+rowSum.toLocaleString()+'</td></tr>'; });
-    html += '<tr><td colspan="6">Итого без НДС:</td><td>'+vatCalc.base.toLocaleString()+' руб.</td></tr>';
-    if (inv.vat==='С НДС 22%') html += '<tr><td colspan="6">НДС 22%:</td><td>'+vatCalc.vat.toLocaleString()+' руб.</td></tr><tr><td colspan="6"><b>Итого с НДС:</b></td><td><b>'+vatCalc.total.toLocaleString()+' руб.</b></td></tr>';
+    if ((inv.location||'') !== 'Основной склад' && estimateControlRows.length>0) {
+      const color = estimateControlIssues.length ? '#b91c1c' : '#047857';
+      html += '<p style="font-size:11px;color:'+color+';margin:6px 0"><b>Сметный контроль:</b> '+(estimateControlIssues.length ? 'есть замечания: '+estimateControlIssues.length : 'все строки сопоставлены со сметой')+'</p>';
+    }
+    html += '<table><tr><th>N</th><th>Наименование товара</th><th>Категория</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th><th>Сметный контроль</th></tr>';
+    (invoiceRows.items||[]).forEach((item,i) => {
+      const rowSum=Number(item.total||0)||Number(item.quantity||0)*Number(item.price||0);
+      const ctrl = estimateControlRows[i] || {};
+      const ctrlText = ctrl.status ? ctrl.status+'; план: '+(ctrl.planText||'—')+'; после: '+(ctrl.afterText||'—')+(ctrl.overText&&ctrl.overText!=='—'?'; сверх: '+ctrl.overText:'') : '—';
+      html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+rowSum.toLocaleString()+'</td><td>'+ctrlText+'</td></tr>';
+    });
+    html += '<tr><td colspan="7">Итого без НДС:</td><td>'+vatCalc.base.toLocaleString()+' руб.</td></tr>';
+    if (inv.vat==='С НДС 22%') html += '<tr><td colspan="7">НДС 22%:</td><td>'+vatCalc.vat.toLocaleString()+' руб.</td></tr><tr><td colspan="7"><b>Итого с НДС:</b></td><td><b>'+vatCalc.total.toLocaleString()+' руб.</b></td></tr>';
     html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Поставщик</div></div><div class="sig"><div class="sig-line">Принял: '+inv.acceptedBy+'</div></div></div>';
     return html;
   };
@@ -4256,6 +4267,92 @@ function App() {
     if (r.masterBalance>0) return {label:'У мастеров', color:C.info, bg:C.infoLight, border:C.infoBorder};
     if (r.over>0) return {label:'Сверх сметы', color:C.info, bg:C.infoLight, border:C.infoBorder};
     return {label:'Закрыто', color:C.success, bg:C.successLight, border:C.successBorder};
+  };
+  const warehouseInvoiceEstimateControl = (inv) => {
+    const invoiceRows = warehouseInvoiceItems(inv);
+    const items = invoiceRows.items || [];
+    const place = inv?.location === 'Основной склад' ? '' : (inv?.project || inv?.location || '');
+    if (!place) {
+      return items.map((item, index)=>({
+        index,
+        name:item.name||'',
+        status:'Основной склад',
+        severity:'neutral',
+        detail:'Без привязки к объектной смете',
+        planText:'—',
+        beforeText:'—',
+        afterText:'—',
+        overText:'—',
+      }));
+    }
+
+    const summary = materialControlSummaryForProject(place);
+    const rowsByKey = new Map((summary.rows||[]).map(r=>[r.key, r]));
+    const itemMeta = items.map(item=>{
+      const meta = canonicalMaterialMeta(place, item.name, item.unit);
+      const key = materialNameLookupKey(meta.name || item.name);
+      const norm = normalizeMeasure(item.quantity, item.unit);
+      return {meta, key, qty:norm.qty, unit:norm.unit || item.unit || ''};
+    });
+    const invoiceQtyByKey = {};
+    itemMeta.forEach(m=>{ if (m.key) invoiceQtyByKey[m.key] = (invoiceQtyByKey[m.key]||0) + Number(m.qty||0); });
+    const seenQtyByKey = {};
+
+    return items.map((item, index)=>{
+      const m = itemMeta[index] || {};
+      const qty = Number(m.qty||0);
+      const unit = m.unit || item.unit || '';
+      if (!item?.name) {
+        return {index, name:'', status:'Не заполнено', severity:'neutral', detail:'', planText:'—', beforeText:'—', afterText:'—', overText:'—'};
+      }
+      const row = m.key ? rowsByKey.get(m.key) : null;
+      const alreadySeen = seenQtyByKey[m.key] || 0;
+      seenQtyByKey[m.key] = alreadySeen + qty;
+
+      if (!row || Number(row.planQty||0) <= 0) {
+        return {
+          index,
+          name:item.name||'',
+          status:'Вне сметы',
+          severity:'danger',
+          detail:'Материал есть в накладной, но не найден в активной смете объекта',
+          planText:'нет в смете',
+          beforeText:'—',
+          afterText:fmtMeasure(qty, unit),
+          overText:fmtMeasure(qty, unit),
+        };
+      }
+
+      const rowUnit = row.unit || unit;
+      const unitMismatch = rowUnit && unit && _normalizeUnit(rowUnit) !== _normalizeUnit(unit);
+      const invoiceQty = Number(invoiceQtyByKey[m.key]||0);
+      const suppliedBeforeInvoice = inv?.id ? Math.max(0, Number(row.supplied||0) - invoiceQty) : Number(row.supplied||0);
+      const afterQty = suppliedBeforeInvoice + alreadySeen + qty;
+      const overQty = Math.max(0, afterQty - Number(row.planQty||0));
+      const shortageQty = Math.max(0, Number(row.planQty||0) - afterQty);
+      const severity = unitMismatch ? 'warning' : overQty > 0 ? 'danger' : 'success';
+      const status = unitMismatch ? 'Ед. не совпала' : overQty > 0 ? 'Сверх сметы' : 'По смете';
+
+      return {
+        index,
+        name:item.name||'',
+        canonicalName:row.name,
+        status,
+        severity,
+        detail:unitMismatch
+          ? 'В смете '+(rowUnit||'—')+', в накладной '+(unit||'—')
+          : overQty > 0
+            ? 'После этой строки будет превышение плана'
+            : shortageQty > 0
+              ? 'Поставка закрывает часть сметной потребности'
+              : 'Поставка закрывает сметную потребность',
+        planText:fmtMeasure(row.planQty, rowUnit),
+        beforeText:fmtMeasure(suppliedBeforeInvoice + alreadySeen, rowUnit),
+        afterText:fmtMeasure(afterQty, rowUnit),
+        overText:overQty > 0 ? fmtMeasure(overQty, rowUnit) : '—',
+        sections:(row.sections||[]).slice(0,2).join(' · '),
+      };
+    });
   };
   const materialNameKey = materialNameLookupKey;
   const materialControlSupplyMarker = (projectName, row) => 'MATERIAL_CONTROL_REQUEST:'+[materialNameKey(projectName), materialNameKey(row?.name), _normalizeUnit(row?.unit||'')].join('|');
@@ -12421,6 +12518,7 @@ function App() {
                 setSverkaModal={setSverkaModal}
                 warehouseInvoiceItems={warehouseInvoiceItems}
                 isSupplyDeliveryInvoice={isSupplyDeliveryInvoice}
+                warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
                 showPreview={showPreview}
                 buildInvoiceContent={buildInvoiceContent}
                 setShowQRModal={setShowQRModal}

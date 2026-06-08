@@ -17,6 +17,7 @@ export default function WarehouseInvoicesPanel({
   setSverkaModal,
   warehouseInvoiceItems,
   isSupplyDeliveryInvoice,
+  warehouseInvoiceEstimateControl,
   showPreview,
   buildInvoiceContent,
   setShowQRModal,
@@ -37,6 +38,34 @@ export default function WarehouseInvoicesPanel({
   const invoiceItems = newInvoice.items || [];
   const invoiceTotal = invoiceItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
   const materialEstimates = (estimatesList || []).filter(est => est.projectName === newInvoice.location && est.smetaType === 'Материалы');
+  const draftEstimateControl = warehouseInvoiceEstimateControl ? warehouseInvoiceEstimateControl(newInvoice) : [];
+  const draftControlIssues = draftEstimateControl.filter(row => ['danger', 'warning'].includes(row.severity));
+  const controlTone = (row = {}) => {
+    if (row.severity === 'danger') return {color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
+    if (row.severity === 'warning') return {color:C.warning, bg:C.warningLight, border:C.warningBorder};
+    if (row.severity === 'success') return {color:C.success, bg:C.successLight, border:C.successBorder};
+    return {color:C.textSec, bg:C.bg, border:C.border};
+  };
+  const renderControlBadge = (row) => {
+    const tone = controlTone(row);
+    return (
+      <span style={{
+        display:'inline-flex',
+        alignItems:'center',
+        gap:'4px',
+        padding:'3px 8px',
+        borderRadius:'999px',
+        backgroundColor:tone.bg,
+        border:'1px solid '+tone.border,
+        color:tone.color,
+        fontSize:'10px',
+        fontWeight:'800',
+        whiteSpace:'nowrap',
+      }}>
+        {row?.status || '—'}
+      </span>
+    );
+  };
 
   const setItem = (idx, patch) => {
     const items = [...invoiceItems];
@@ -170,6 +199,26 @@ export default function WarehouseInvoicesPanel({
 
           <button onClick={addItem} style={{...btnG,fontSize:'12px',marginBottom:'15px'}}><Plus size={13}/>Добавить строку</button>
 
+          {newInvoice.location !== 'Основной склад' && draftEstimateControl.some(row => row.name) && (
+            <div style={{padding:'10px',backgroundColor:draftControlIssues.length?C.warningLight:C.successLight,borderRadius:'10px',border:'1.5px solid '+(draftControlIssues.length?C.warningBorder:C.successBorder),marginBottom:'15px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',gap:'8px',alignItems:'center',marginBottom:'8px'}}>
+                <b style={{color:draftControlIssues.length?C.warning:C.success,fontSize:'12px'}}>Сверка накладной со сметой</b>
+                <span style={{color:C.textSec,fontSize:'11px'}}>{draftControlIssues.length ? 'Замечаний: '+draftControlIssues.length : 'Без замечаний'}</span>
+              </div>
+              <div style={{display:'grid',gap:'6px'}}>
+                {draftEstimateControl.filter(row => row.name).map(row => (
+                  <div key={row.index} style={{display:'grid',gridTemplateColumns:'minmax(160px,1fr) auto minmax(180px,auto)',gap:'8px',alignItems:'center',fontSize:'11px',color:C.text}}>
+                    <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.name}>{row.name}</span>
+                    {renderControlBadge(row)}
+                    <span style={{color:C.textSec,textAlign:'right'}}>
+                      {'План '+row.planText+' · после '+row.afterText+(row.overText && row.overText !== '—' ? ' · сверх '+row.overText : '')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'15px',flexWrap:'wrap'}}>
             <label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 14px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}>
               <Upload size={13}/>Добавить фото
@@ -209,6 +258,8 @@ export default function WarehouseInvoicesPanel({
       {(invoices || []).map(inv => {
         const invoiceRows = warehouseInvoiceItems(inv);
         const items = invoiceRows.items;
+        const estimateControl = warehouseInvoiceEstimateControl ? warehouseInvoiceEstimateControl(inv) : [];
+        const estimateIssues = estimateControl.filter(row => ['danger', 'warning'].includes(row.severity));
         return (
           <div key={inv.id} style={{...card,padding:'16px',marginBottom:'10px'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
@@ -218,6 +269,11 @@ export default function WarehouseInvoicesPanel({
                 <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat+' · позиций: '+items.length}</p>
                 {isSupplyDeliveryInvoice(inv) && <p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Из поставки снабжения #{inv.supplyDeliveryId||inv.sourceId}{inv.supplyRequestId?' · заявка #'+inv.supplyRequestId:''}</p>}
                 {invoiceRows.reconstructed && <p style={{color:C.warning,margin:'2px 0 0',fontSize:'11px'}}>Строки восстановлены из {invoiceRows.source}</p>}
+                {inv.location !== 'Основной склад' && estimateControl.length > 0 && (
+                  <p style={{color:estimateIssues.length?C.warning:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'800'}}>
+                    {'Сметный контроль: '+(estimateIssues.length ? 'замечаний '+estimateIssues.length : 'без замечаний')}
+                  </p>
+                )}
               </div>
               <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
                 <b style={{color:C.success,fontSize:'14px'}}>{(inv.totalWithVat||inv.totalBase||0).toLocaleString()+' ₽'}</b>
@@ -231,10 +287,11 @@ export default function WarehouseInvoicesPanel({
                 <summary style={{cursor:'pointer',color:C.accent,fontSize:'12px',fontWeight:'600',padding:'4px 0'}}>📋 Показать материалы ({items.length})</summary>
                 <div style={{marginTop:'8px',overflowX:'auto'}}>
                   <table style={{...tbl,fontSize:'11px'}}>
-                    <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th></tr></thead>
+                    <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План / после</th></tr></thead>
                     <tbody>
                       {items.map((item, index) => {
                         const rowSum = Number(item.total || 0) || Number((item.quantity || 0) * (item.price || 0));
+                        const ctrl = estimateControl[index] || {};
                         return (
                           <tr key={index}>
                             <td style={tblC}>{item.name || ''}</td>
@@ -242,6 +299,10 @@ export default function WarehouseInvoicesPanel({
                             <td style={tblC}>{item.quantity || 0}</td>
                             <td style={tblC}>{Number(item.price || 0).toLocaleString('ru-RU')+' ₽'}</td>
                             <td style={tblC}>{rowSum.toLocaleString('ru-RU')+' ₽'}</td>
+                            <td style={tblC}>{renderControlBadge(ctrl)}</td>
+                            <td style={{...tblC,color:ctrl.severity==='danger'?C.danger:C.textSec}}>
+                              {'План '+(ctrl.planText||'—')+' · после '+(ctrl.afterText||'—')+(ctrl.overText && ctrl.overText !== '—' ? ' · сверх '+ctrl.overText : '')}
+                            </td>
                           </tr>
                         );
                       })}
