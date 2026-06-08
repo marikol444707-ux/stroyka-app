@@ -12024,6 +12024,11 @@ def _safe_float(value, default=0.0):
     try:
         if value is None or value == "":
             return default
+        if isinstance(value, str):
+            text = value.strip().replace("\xa0", " ").replace(" ", "").replace(",", ".")
+            if not text:
+                return default
+            return float(text)
         return float(value)
     except Exception:
         return default
@@ -12088,6 +12093,67 @@ def _norm_base_unit(value: str) -> str:
     if compact in ("мешок", "мешка", "мешков"):
         return "мешок"
     return text
+
+def _estimate_scaled_unit(value: str) -> tuple[int, str]:
+    import re
+    raw = str(value or "").strip().replace("\xa0", " ")
+    raw = re.sub(r"\s+", " ", raw)
+    m = re.match(r"^(\d{2,})\s*(.+)$", raw)
+    if not m:
+        return 1, raw
+    factor = int(m.group(1) or 1)
+    return (factor, m.group(2).strip()) if factor >= 10 else (1, raw)
+
+def _estimate_imported_quantity(item: dict) -> float:
+    qty = _safe_float(item.get("quantity"))
+    if not item.get("isImported"):
+        return qty
+    unit_factor = _safe_float(item.get("unitFactor") or item.get("unit_factor"), 1)
+    unit_factor = unit_factor if unit_factor > 0 else 1
+    unit_scale, _ = _estimate_scaled_unit(item.get("unit") or "")
+    raw_unit_scale, _ = _estimate_scaled_unit(item.get("rawUnit") or item.get("raw_unit") or "")
+    factor = max(unit_factor, unit_scale, raw_unit_scale, 1)
+    if factor <= 1:
+        return qty
+    source = None
+    for key in ("rawQuantity", "raw_quantity", "quantityFinal", "quantity_final", "quantityBase", "quantity_base"):
+        if item.get(key) not in (None, ""):
+            source = _safe_float(item.get(key))
+            break
+    source = qty if source is None else source
+    expected = source if abs(source) >= factor else source * factor
+    if qty == 0:
+        return expected
+    inflated = abs(qty) > max(1000, abs(expected) * 10)
+    scaled_unit_visible = unit_scale > 1 or raw_unit_scale > 1
+    if inflated or scaled_unit_visible:
+        return expected
+    return qty
+
+def _estimate_parent_work_for_material(material: dict, works: list[dict]) -> dict:
+    if not material or not works:
+        return {}
+    parent_key = str(material.get("parentWorkKey") or material.get("parent_work_key") or "").strip()
+    parent_code = str(material.get("parentWorkSourceCode") or material.get("parent_work_source_code") or "").strip()
+    parent_name = _norm_key_text(material.get("parentWorkName") or material.get("parent_work_name") or "")
+    if parent_key:
+        for work in works:
+            if parent_key == str(work.get("workKey") or work.get("work_key") or "").strip():
+                return work
+    if parent_code:
+        for work in works:
+            if parent_code == str(work.get("sourceCode") or work.get("source_code") or work.get("obosn") or work.get("code") or "").strip():
+                return work
+    if parent_name:
+        for work in works:
+            work_name = _norm_key_text(work.get("workName") or work.get("name") or "")
+            if work_name == parent_name:
+                return work
+        for work in works:
+            work_name = _norm_key_text(work.get("workName") or work.get("name") or "")
+            if work_name and (parent_name in work_name or work_name in parent_name):
+                return work
+    return {}
 
 def _work_no_material_norm_reason(work_name: str = "", section_name: str = "") -> str:
     text = _norm_key_text((work_name or "") + " " + (section_name or ""))
@@ -12558,6 +12624,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             "activeCustomerEstimates": 0,
             "estimateWorks": 0,
             "estimateMaterials": 0,
+            "estimateMaterialsLinkedByParent": 0,
+            "estimateMaterialsLinkedByHeuristic": 0,
             "estimateMaterialsCoveredByNorm": 0,
             "estimateMaterialsWithoutCandidateWork": 0,
         })
@@ -12685,24 +12753,32 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                     continue
                 if _material_no_norm_reason(material_name):
                     continue
-                mat_qty = _safe_float(mat.get("quantity"))
+                mat_qty = _estimate_imported_quantity(mat)
                 if mat_qty <= 0:
                     continue
-                if any(_norm_rule_matches(r, w.get("name"), section_name, material_name, w.get("unit"), mat.get("unit") or "") for r in est_norm_rules for w in works):
+                parent_work = _estimate_parent_work_for_material(mat, works)
+                candidate_works = [parent_work] if parent_work else works
+                if any(_norm_rule_matches(r, w.get("name"), section_name, material_name, w.get("unit"), mat.get("unit") or "") for r in est_norm_rules for w in candidate_works):
                     if diagnostics is not None:
                         diagnostics["estimateMaterialsCoveredByNorm"] += 1
                     continue
-                work = _estimate_norm_candidate_work(material_name, works, section_name, mat.get("unit") or "")
+                work = parent_work or _estimate_norm_candidate_work(material_name, works, section_name, mat.get("unit") or "")
                 if not work:
                     if diagnostics is not None:
                         diagnostics["estimateMaterialsWithoutCandidateWork"] += 1
                     continue
-                work_qty = _safe_float(work.get("quantity"))
+                if diagnostics is not None:
+                    if parent_work:
+                        diagnostics["estimateMaterialsLinkedByParent"] += 1
+                    else:
+                        diagnostics["estimateMaterialsLinkedByHeuristic"] += 1
+                work_qty = _estimate_imported_quantity(work)
                 suggested = round(mat_qty / work_qty, 4) if work_qty > 0 and mat_qty > 0 else 0
                 dedupe = "|".join([
                     "estimate_material_without_norm",
                     _norm_key_text(est["project_name"]),
                     _norm_key_text(section_name)[:70],
+                    _norm_key_text(work.get("name") or "")[:70],
                     _norm_key_text(material_name)[:70],
                 ])
                 suggestions.setdefault(dedupe, {
@@ -12720,8 +12796,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                     "sampleCount": 1,
                     "actualQty": mat_qty,
                     "normQty": 0,
-                    "confidence": 0.45 if suggested else 0.35,
-                    "reason": "В активной смете есть материал, но справочник норм не связывает его с работами этого раздела.",
+                    "confidence": (0.62 if parent_work else 0.45) if suggested else 0.35,
+                    "reason": "В активной смете есть материал без нормы. Связка взята из родительской работы сметы." if parent_work else "В активной смете есть материал, но справочник норм не связывает его с работами этого раздела.",
                     "work": _norm_keywords_from_text((work.get("name") or "") + " " + section_name),
                     "material": _norm_keywords_from_text(material_name),
                     "blockWork": ["демонтаж", "разбор"],

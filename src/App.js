@@ -6596,7 +6596,7 @@ function App() {
       if (!res.ok) throw new Error(data.detail || 'Не удалось проверить нормы');
       const scopeText = projectName ? 'Объект: '+projectName : 'Все объекты';
       const d = data.diagnostics || {};
-      const diagnosticText = 'Проверено: смет '+(d.activeCustomerEstimates||0)+', работ '+(d.estimateWorks||0)+', материалов '+(d.estimateMaterials||0)+', покрыто нормами '+(d.estimateMaterialsCoveredByNorm||0)+', без работы '+(d.estimateMaterialsWithoutCandidateWork||0)+', ЖПР '+(d.workJournalRows||0)+', списаний '+(d.workJournalMaterialFacts||0);
+      const diagnosticText = 'Проверено: смет '+(d.activeCustomerEstimates||0)+', работ '+(d.estimateWorks||0)+', материалов '+(d.estimateMaterials||0)+', по родителю '+(d.estimateMaterialsLinkedByParent||0)+', по поиску '+(d.estimateMaterialsLinkedByHeuristic||0)+', покрыто нормами '+(d.estimateMaterialsCoveredByNorm||0)+', без работы '+(d.estimateMaterialsWithoutCandidateWork||0)+', ЖПР '+(d.workJournalRows||0)+', списаний '+(d.workJournalMaterialFacts||0);
       if (dryRun) {
         setMaterialNormPreviewSuggestions((data.suggestions||[]).map((s,i)=>({...s,id:s.id||('preview-'+i),status:'Предпросмотр',previewOnly:true})));
         setMaterialNormNotice({
