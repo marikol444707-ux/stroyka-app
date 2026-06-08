@@ -2678,7 +2678,9 @@ function App() {
     (invoiceRows.items||[]).forEach((item,i) => {
       const rowSum=Number(item.total||0)||Number(item.quantity||0)*Number(item.price||0);
       const ctrl = estimateControlRows[i] || {};
-      const ctrlText = ctrl.status ? ctrl.status+'; план: '+(ctrl.planText||'—')+'; после: '+(ctrl.afterText||'—')+(ctrl.overText&&ctrl.overText!=='—'?'; сверх: '+ctrl.overText:'') : '—';
+      const ctrlText = ctrl.status
+        ? ctrl.status+'; план: '+(ctrl.planText||'—')+'; после: '+(ctrl.afterText||'—')+(ctrl.overText&&ctrl.overText!=='—'?'; сверх: '+ctrl.overText:'')+(ctrl.priceOverText&&ctrl.priceOverText!=='—'?'; дороже плана: '+ctrl.priceOverText:'')
+        : '—';
       html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+rowSum.toLocaleString()+'</td><td>'+ctrlText+'</td></tr>';
     });
     html += '<tr><td colspan="7">Итого без НДС:</td><td>'+vatCalc.base.toLocaleString()+' руб.</td></tr>';
@@ -4302,6 +4304,7 @@ function App() {
       const m = itemMeta[index] || {};
       const qty = Number(m.qty||0);
       const unit = m.unit || item.unit || '';
+      const lineSum = Number(item.total||0) || Number(item.quantity||0) * Number(item.price||0);
       if (!item?.name) {
         return {index, name:'', status:'Не заполнено', severity:'neutral', detail:'', planText:'—', beforeText:'—', afterText:'—', overText:'—'};
       }
@@ -4320,6 +4323,9 @@ function App() {
           beforeText:'—',
           afterText:fmtMeasure(qty, unit),
           overText:fmtMeasure(qty, unit),
+          lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
+          planPriceText:'—',
+          priceOverText:'—',
         };
       }
 
@@ -4330,8 +4336,12 @@ function App() {
       const afterQty = suppliedBeforeInvoice + alreadySeen + qty;
       const overQty = Math.max(0, afterQty - Number(row.planQty||0));
       const shortageQty = Math.max(0, Number(row.planQty||0) - afterQty);
-      const severity = unitMismatch ? 'warning' : overQty > 0 ? 'danger' : 'success';
-      const status = unitMismatch ? 'Ед. не совпала' : overQty > 0 ? 'Сверх сметы' : 'По смете';
+      const planUnitPrice = Number(row.planQty||0) > 0 ? Number(row.planSum||0) / Number(row.planQty||1) : 0;
+      const invoiceUnitPrice = qty > 0 ? lineSum / qty : Number(item.price||0);
+      const priceOverSum = planUnitPrice > 0 ? Math.max(0, lineSum - planUnitPrice * qty) : 0;
+      const priceOver = priceOverSum > 1;
+      const severity = unitMismatch ? 'warning' : overQty > 0 ? 'danger' : priceOver ? 'warning' : 'success';
+      const status = unitMismatch ? 'Ед. не совпала' : overQty > 0 ? 'Сверх сметы' : priceOver ? 'Цена выше плана' : 'По смете';
 
       return {
         index,
@@ -4343,13 +4353,19 @@ function App() {
           ? 'В смете '+(rowUnit||'—')+', в накладной '+(unit||'—')
           : overQty > 0
             ? 'После этой строки будет превышение плана'
-            : shortageQty > 0
-              ? 'Поставка закрывает часть сметной потребности'
-              : 'Поставка закрывает сметную потребность',
+            : priceOver
+              ? 'Сумма строки выше сметного ориентира'
+              : shortageQty > 0
+                ? 'Поставка закрывает часть сметной потребности'
+                : 'Поставка закрывает сметную потребность',
         planText:fmtMeasure(row.planQty, rowUnit),
         beforeText:fmtMeasure(suppliedBeforeInvoice + alreadySeen, rowUnit),
         afterText:fmtMeasure(afterQty, rowUnit),
         overText:overQty > 0 ? fmtMeasure(overQty, rowUnit) : '—',
+        lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
+        planPriceText:planUnitPrice > 0 ? Math.round(planUnitPrice).toLocaleString('ru-RU')+' ₽/'+(rowUnit||'ед.') : '—',
+        invoicePriceText:invoiceUnitPrice > 0 ? Math.round(invoiceUnitPrice).toLocaleString('ru-RU')+' ₽/'+(rowUnit||'ед.') : '—',
+        priceOverText:priceOverSum > 1 ? Math.round(priceOverSum).toLocaleString('ru-RU')+' ₽' : '—',
         sections:(row.sections||[]).slice(0,2).join(' · '),
       };
     });

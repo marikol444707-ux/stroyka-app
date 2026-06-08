@@ -211,7 +211,7 @@ export default function WarehouseInvoicesPanel({
                     <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.name}>{row.name}</span>
                     {renderControlBadge(row)}
                     <span style={{color:C.textSec,textAlign:'right'}}>
-                      {'План '+row.planText+' · после '+row.afterText+(row.overText && row.overText !== '—' ? ' · сверх '+row.overText : '')}
+                      {'План '+row.planText+' · после '+row.afterText+(row.overText && row.overText !== '—' ? ' · сверх '+row.overText : '')+(row.priceOverText && row.priceOverText !== '—' ? ' · дороже '+row.priceOverText : '')}
                     </span>
                   </div>
                 ))}
@@ -287,7 +287,7 @@ export default function WarehouseInvoicesPanel({
                 <summary style={{cursor:'pointer',color:C.accent,fontSize:'12px',fontWeight:'600',padding:'4px 0'}}>📋 Показать материалы ({items.length})</summary>
                 <div style={{marginTop:'8px',overflowX:'auto'}}>
                   <table style={{...tbl,fontSize:'11px'}}>
-                    <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План / после</th></tr></thead>
+                    <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План / после</th><th style={tblH}>Цена по смете</th></tr></thead>
                     <tbody>
                       {items.map((item, index) => {
                         const rowSum = Number(item.total || 0) || Number((item.quantity || 0) * (item.price || 0));
@@ -302,6 +302,9 @@ export default function WarehouseInvoicesPanel({
                             <td style={tblC}>{renderControlBadge(ctrl)}</td>
                             <td style={{...tblC,color:ctrl.severity==='danger'?C.danger:C.textSec}}>
                               {'План '+(ctrl.planText||'—')+' · после '+(ctrl.afterText||'—')+(ctrl.overText && ctrl.overText !== '—' ? ' · сверх '+ctrl.overText : '')}
+                            </td>
+                            <td style={{...tblC,color:ctrl.priceOverText && ctrl.priceOverText !== '—' ? C.warning : C.textSec}}>
+                              {(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+(ctrl.priceOverText && ctrl.priceOverText !== '—' ? ' · +'+ctrl.priceOverText : '')}
                             </td>
                           </tr>
                         );
