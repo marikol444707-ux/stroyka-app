@@ -309,7 +309,10 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   const total = toNum(item.lineTotal ?? item.total ?? item.sum ?? item.amount ?? item.totalSum);
   const totalWork = toNum(item.totalWork ?? item.workTotal ?? item.workSum);
   const totalMaterial = toNum(item.totalMaterial ?? item.materialTotal ?? item.materialSum);
-  const itemType = (total < 0 || totalWork < 0 || totalMaterial < 0) ? 'adjustment' : normalizeEstimateItemType(base, sectionName);
+  const detectedType = normalizeEstimateItemType(base, sectionName);
+  const itemType = (total < 0 || totalWork < 0 || totalMaterial < 0) && !['material','equipment','transport','overhead'].includes(detectedType)
+    ? 'adjustment'
+    : detectedType;
   const importedUnit = authoritativeImportedUnit(base);
   const unitForMeasure = importedUnit || inferEstimateUnit({...base,itemType}, sectionName);
   const normalizedMeasure = normalizeMeasure(base.quantity, unitForMeasure);
@@ -417,6 +420,7 @@ const estimateImportedWorkTotal = (it, itemType) => {
   const total = toNum(it?.total);
   if (priceWork) return priceWork;
   if (totalWork) return totalWork;
+  if (itemType === 'overhead') return total;
   return itemType === 'work' && !totalMaterial ? total : 0;
 };
 const estimateImportedMaterialTotal = (it, itemType) => {
@@ -5248,7 +5252,9 @@ function App() {
       const itemType = normalizeEstimateItemType(item, section?.name||'');
       const priceWork = toNum(item?.priceWork);
       const priceMaterial = toNum(item?.priceMaterial);
+      const isImportedResourceAdjustment = item?.isImported && item?.importKind === 'resource_adjustment';
       if (itemType === 'adjustment') return;
+      if (isImportedResourceAdjustment) return;
       if (!name) push('Нет наименования', section, item, sectionIdx, itemIdx, 'У позиции нет названия — её нельзя надёжно сопоставить с работой, материалом или новой сметой.', 'critical');
       if (!unit) push('Нет единицы', section, item, sectionIdx, itemIdx, 'Не указана единица измерения. Без неё нельзя корректно закрывать объёмы, нормы и КС.', 'critical');
       if (!rawQtyText) {
