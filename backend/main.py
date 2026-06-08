@@ -8563,6 +8563,10 @@ async def parse_smeta(file: UploadFile = File(...)):
                 data_start_row = i + 2
                 file_type = "lsr"
                 break
+            elif "наименование" in row_text and ("работ" in row_text or "затрат" in row_text) and ("сметн" in row_text or "стоим" in row_text):
+                data_start_row = i + 2
+                file_type = "lsr"
+                break
             elif "наименование" in row_text and "ед" in row_text and "кол" in row_text and "обоснование" not in row_text:
                 data_start_row = i + 2
                 file_type = "defect"
@@ -8694,23 +8698,27 @@ async def parse_smeta(file: UploadFile = File(...)):
                 money_candidates = [item for item in after_unit[3:] if abs(item[1]) >= 1]
                 if money_candidates:
                     return round(max(money_candidates, key=lambda item: abs(item[1]))[1], 2)
+                for _, n in reversed(after_unit):
+                    if abs(n) >= 1:
+                        return round(n, 2)
             for idx in preferred_indexes:
                 if len(row) > idx:
                     n = _row_float(row[idx])
                     if n is not None and abs(n) > 0.0001:
                         return round(n, 2)
             candidates = []
+            start_idx = 3
             for idx, value in enumerate(row):
-                if idx < 9:
+                if idx < start_idx:
                     continue
                 n = _row_float(value)
                 if n is not None and abs(n) > 0.0001:
                     candidates.append((idx, n))
             if not candidates:
                 return 0
-            for _, n in reversed(candidates):
-                if abs(n) >= 1:
-                    return round(n, 2)
+            money_candidates = [item for item in candidates if abs(item[1]) >= 1]
+            if money_candidates:
+                return round(max(money_candidates, key=lambda item: abs(item[1]))[1], 2)
             return round(candidates[-1][1], 2)
 
         def _lsr_work_key(section, code, name, row_index):

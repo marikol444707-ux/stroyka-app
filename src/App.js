@@ -307,9 +307,9 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   const normalizedDoneMeasure = (base.doneQuantity !== undefined && base.doneQuantity !== null && base.doneQuantity !== '')
     ? normalizeMeasure(base.doneQuantity, inferredUnit)
     : null;
-  const total = toNum(item.total);
-  const totalWork = toNum(item.totalWork);
-  const totalMaterial = toNum(item.totalMaterial);
+  const total = toNum(item.total ?? item.sum ?? item.amount ?? item.lineTotal ?? item.totalSum);
+  const totalWork = toNum(item.totalWork ?? item.workTotal ?? item.workSum);
+  const totalMaterial = toNum(item.totalMaterial ?? item.materialTotal ?? item.materialSum);
   let priceWork = toNum(item.priceWork);
   let priceMaterial = toNum(item.priceMaterial);
   if (!priceWork && !priceMaterial) {
@@ -14184,8 +14184,14 @@ function App() {
                           rawQuantity:item.rawQuantity,
                           unitFactor:item.unitFactor||1,
                           total:item.total,
+                          sum:item.sum,
+                          amount:item.amount,
+                          lineTotal:item.lineTotal,
+                          totalSum:item.totalSum,
                           totalWork:item.totalWork,
                           totalMaterial:item.totalMaterial,
+                          priceWork:item.priceWork,
+                          priceMaterial:item.priceMaterial,
                           sourceCode:item.sourceCode||item.obosn||'',
                           workKey:item.workKey||'',
                           workName:item.workName||'',
