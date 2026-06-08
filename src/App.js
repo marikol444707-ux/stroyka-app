@@ -218,10 +218,14 @@ const estimateUnitLooksUnknown = (unit) => {
 };
 const inferEstimateUnit = (it={}, sectionName='') => {
   const current = String(it.unit || '').trim();
-  if (!estimateUnitLooksUnknown(current)) return current;
   const explicitType = estimateTextKey(it.itemType || it.type);
   const itemType = ESTIMATE_ITEM_TYPE_BY_ID[explicitType] ? explicitType : '';
   const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
+  const currentBaseUnit = _normalizeUnit(normalizeMeasure(1, current).unit || current || '');
+  const looksAreaWork = itemType !== 'material' && estimateTextHasAny(text, ['поверхност','фасад','стен','перегород','потолк','потолоч','обои','облицов','окраск','штукатур','шпатлев','шпаклев','грунтов','плитк','керамогранит','гранит','линолеум','покрытие пола','полы','пола','гкл','гипсокартон','сетка']);
+  const looksLinearWork = estimateTextHasAny(text, ['кабель','провод','труба','трубопровод','лоток','короб','плинтус','наличник','профиль маяч','маяк','подоконник','погон']);
+  if (it.isImported && currentBaseUnit === 'м' && looksAreaWork && !looksLinearWork) return '100 м2';
+  if (!estimateUnitLooksUnknown(current)) return current;
   if (itemType === 'material') {
     if (estimateTextHasAny(text, ['смесь','штукатурная','шпатлевка','шпатлевк','шпаклевка','шпаклевк','клей','затирка','цемент','пескобетон','сухая смесь'])) return 'кг';
     if (estimateTextHasAny(text, ['краска','грунтовка','эмаль','лак','акрил'])) return 'кг';
@@ -299,6 +303,10 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   const base = {...item, isImported:true};
   const itemType = normalizeEstimateItemType(base, sectionName);
   const inferredUnit = inferEstimateUnit({...base,itemType}, sectionName);
+  const normalizedMeasure = normalizeMeasure(base.quantity, inferredUnit);
+  const normalizedDoneMeasure = (base.doneQuantity !== undefined && base.doneQuantity !== null && base.doneQuantity !== '')
+    ? normalizeMeasure(base.doneQuantity, inferredUnit)
+    : null;
   const total = toNum(item.total);
   const totalWork = toNum(item.totalWork);
   const totalMaterial = toNum(item.totalMaterial);
@@ -323,7 +331,12 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   return {
     ...base,
     itemType,
-    unit: inferredUnit,
+    unit: _normalizeUnit(normalizedMeasure.unit || inferredUnit || ''),
+    quantity: normalizedMeasure.qty,
+    doneQuantity: normalizedDoneMeasure ? normalizedDoneMeasure.qty : base.doneQuantity,
+    rawUnit: base.rawUnit || inferredUnit,
+    rawQuantity: base.rawQuantity ?? base.quantity,
+    unitFactor: normalizedMeasure.factor || 1,
     priceWork: priceWork || '',
     priceMaterial: priceMaterial || '',
     workKey: item.workKey || (itemType === 'work' ? estimateWorkKeyForItem(item, sectionName, item.id || '') : ''),
@@ -409,7 +422,7 @@ const estimateItemDoneTotal = (it) => {
   return d * (toNum(it?.priceWork) + toNum(it?.priceMaterial));
 };
 // Нормализация ГЭСН-единиц: «100 м²» × 0.23 → «м²» × 23, «1000 шт» × 0.5 → «шт» × 500.
-// Это для УДОБНОГО показа мастеру/прорабу/заказчику. В БД хранится исходник.
+// В рабочей смете храним нормальный объём, исходник импорта — в rawUnit/rawQuantity.
 const normalizeMeasure = (qty, unit) => {
   if(!unit) return {qty: toNum(qty), unit: unit||'', factor: 1};
   // Ищем число-множитель в начале строки: "100 м²", "1000 шт", "10 м³", "100м2"

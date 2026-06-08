@@ -8635,6 +8635,55 @@ async def parse_smeta(file: UploadFile = File(...)):
             except Exception:
                 return None
 
+        def _normalize_lsr_unit_text(value):
+            text = str(value or "").strip().replace("\xa0", " ")
+            text = re.sub(r"\s+", " ", text)
+            text = text.replace("м²", "м2").replace("М²", "м2").replace("м³", "м3").replace("М³", "м3")
+            return text
+
+        def _looks_lsr_unit(value):
+            text = _normalize_lsr_unit_text(value).lower().replace(" ", "")
+            if not text or text in ("1", "ед", "ед.", "единица"):
+                return False
+            units = ("шт", "м", "м2", "м3", "кг", "т", "л", "рулон", "лист", "упак", "компл", "маш-ч", "чел-ч")
+            if text in units:
+                return True
+            return bool(re.match(r"^\d{2,}(шт|м|м2|м3|кг|т|л|рулон|лист|упак|компл)", text))
+
+        def _normalize_lsr_measure(qty, unit):
+            raw_unit = _normalize_lsr_unit_text(unit)
+            raw_qty = qty if qty is not None else 0
+            m = re.match(r"^(\d{2,})\s*(.+)$", raw_unit)
+            if not m:
+                return float(raw_qty or 0), raw_unit, 1
+            factor = int(m.group(1) or 1)
+            if factor < 10:
+                return float(raw_qty or 0), raw_unit, 1
+            return float(raw_qty or 0) * factor, _normalize_lsr_unit_text(m.group(2)), factor
+
+        def _pick_lsr_unit_and_quantity(row, fallback_unit, fallback_qty):
+            found_unit = None
+            found_idx = None
+            for idx, value in enumerate(row):
+                if _looks_lsr_unit(value):
+                    found_unit = _normalize_lsr_unit_text(value)
+                    found_idx = idx
+                    break
+            unit = found_unit or fallback_unit
+            qty = fallback_qty
+            if found_idx is not None:
+                nums = []
+                for idx in range(found_idx + 1, min(len(row), found_idx + 6)):
+                    n = _row_float(row[idx])
+                    if n is not None:
+                        nums.append(n)
+                if len(nums) >= 3 and abs(nums[2]) > 0.0001:
+                    qty = nums[2]
+                elif nums:
+                    qty = nums[0]
+            normalized_qty, normalized_unit, factor = _normalize_lsr_measure(qty, unit)
+            return normalized_unit, normalized_qty, unit, qty, factor
+
         def _pick_lsr_sum(row, preferred_indexes=()):
             for idx in preferred_indexes:
                 if len(row) > idx:
@@ -8706,9 +8755,10 @@ async def parse_smeta(file: UploadFile = File(...)):
                     item_type = _lsr_item_type(obosn, name_col)
                     
                     unit_raw = str(row[7]).strip() if len(row) > 7 and row[7] else "шт"
-                    unit = _infer_lsr_unit(unit_raw, name_col, item_type)
-                    qty = _row_float(row[8]) if len(row) > 8 else 0
-                    qty = qty if qty is not None else 0
+                    inferred_unit = _infer_lsr_unit(unit_raw, name_col, item_type)
+                    raw_qty = _row_float(row[8]) if len(row) > 8 else 0
+                    raw_qty = raw_qty if raw_qty is not None else 0
+                    unit, qty, raw_unit, raw_qty, unit_factor = _pick_lsr_unit_and_quantity(row, inferred_unit, raw_qty)
 
                     work_total = _pick_lsr_sum(row, (13, 14, 15, 16, 17)) if item_type == "work" else 0
                     mat_total = _pick_lsr_sum(row, (15, 14, 13, 16, 17)) if item_type == "material" else 0
@@ -8718,6 +8768,9 @@ async def parse_smeta(file: UploadFile = File(...)):
                         "name": name_col,
                         "unit": unit,
                         "quantity": round(qty, 4),
+                        "rawUnit": raw_unit,
+                        "rawQuantity": round(float(raw_qty or 0), 4),
+                        "unitFactor": unit_factor,
                         "total": mat_total if item_type == "material" else work_total,
                         "totalWork": work_total,
                         "totalMaterial": mat_total,
