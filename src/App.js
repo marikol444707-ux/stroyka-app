@@ -153,6 +153,13 @@ const estimateTextHasAny = (text, tokens=[]) => {
   const t = estimateTextKey(text);
   return tokens.some(token => t.includes(estimateTextKey(token)));
 };
+const estimateTextStartsWithAny = (text, tokens=[]) => {
+  const t = estimateTextKey(text);
+  return tokens.some(token => {
+    const k = estimateTextKey(token);
+    return t === k || t.startsWith(k + ' ');
+  });
+};
 const estimateWorkKeyForItem = (item={}, sectionName='', index='') => {
   const code = String(item.sourceCode || item.obosn || item.code || item.reason || '').trim();
   const base = [sectionName, code || item.name || '', index].filter(v=>String(v||'').trim()).join('|');
@@ -166,7 +173,8 @@ const ESTIMATE_TYPE_TOKENS = {
   overhead: ['накладн','прочие','непредвид','коэффициент','сметная прибыль','заготовительно складские','компенсация','страхование']
 };
 const ESTIMATE_WORK_ACTION_TOKENS = ['монтаж','демонтаж','установка','устройство','прокладка','разбор','разборка','сборка','кладка','штукатур','шпатлев','шпаклев','окраск','грунтов','облицов','стяжк','бетонир','заливка','укладка','замена','подключение','снятие','очистка','ремонт','изготовление','нанесение','армирование','отбивк'];
-const ESTIMATE_STRONG_WORK_TOKENS = ['монтаж','демонтаж','установка','устройство','прокладка','разбор','разборка','сборка','замена','подключение','снятие','очистка','ремонт','изготовление','нанесение','армирование','бетонирование','облицовка','окраска','кладка','стяжка','штукатурка стен','шпаклевка стен','шпатлевка стен','грунтовка стен','окраска стен','облицовка стен','отбивка','отбивк'];
+const ESTIMATE_STRONG_WORK_TOKENS = ['штукатурка стен','шпаклевка стен','шпатлевка стен','грунтовка стен','окраска стен','облицовка стен'];
+const ESTIMATE_WORK_START_TOKENS = ['монтаж','демонтаж','установка','устройство','прокладка','разбор','разборка','сборка','замена','подключение','снятие','очистка','ремонт','изготовление','нанесение','армирование','бетонирование','облицовка','окраска','кладка','стяжка','штукатурка','шпаклевка','шпатлевка','грунтование','отбивка'];
 const estimateCodeLooksResource = (value) => {
   const raw = String(value||'').trim();
   return /^\d{2,}[-/]\d+/.test(raw) || /^\d{3,}$/.test(raw) || /^тц[_-]/i.test(raw) || /^фс[сб]ц/i.test(raw);
@@ -175,7 +183,8 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   const explicit = estimateTextKey(it.itemType || it.type);
   const nameText = estimateTextKey(it.name);
   const sourceCode = String(it.sourceCode || it.obosn || it.code || it.reason || '').trim();
-  const nameLooksStrongWork = estimateTextHasAny(nameText, ESTIMATE_STRONG_WORK_TOKENS);
+  const nameStartsWithWork = estimateTextStartsWithAny(nameText, ESTIMATE_WORK_START_TOKENS);
+  const nameLooksStrongWork = nameStartsWithWork || estimateTextHasAny(nameText, ESTIMATE_STRONG_WORK_TOKENS);
   const nameLooksWork = estimateTextHasAny(nameText, ESTIMATE_WORK_ACTION_TOKENS);
   const nameLooksMaterial = estimateTextHasAny(nameText, ESTIMATE_TYPE_TOKENS.material);
   const nameLooksEquipment = estimateTextHasAny(nameText, ESTIMATE_TYPE_TOKENS.equipment);
@@ -183,8 +192,11 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   const codeLooksWork = /^(ГЭСН|ФЕР|ТЕР)/i.test(sourceCode);
   const codeLooksResource = estimateCodeLooksResource(sourceCode);
   const explicitKnown = ESTIMATE_ITEM_TYPE_BY_ID[explicit] ? explicit : '';
+  const nameMaterialShouldWin = nameLooksMaterial && !nameStartsWithWork;
+  const nameEquipmentShouldWin = nameLooksEquipment && !nameStartsWithWork;
+  const nameTransportShouldWin = nameLooksTransport && !nameStartsWithWork;
   const weakExplicitMaterial = explicitKnown === 'material' && (codeLooksWork || nameLooksStrongWork);
-  const weakExplicitWork = explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport || toNum(it.quantity) < 0);
+  const weakExplicitWork = explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameMaterialShouldWin || nameEquipmentShouldWin || nameTransportShouldWin || toNum(it.quantity) < 0);
   if (explicitKnown && !weakExplicitWork && !weakExplicitMaterial) return explicitKnown;
   if (weakExplicitMaterial) return 'work';
   if (explicit.includes('коррект') || explicit.includes('adjust')) return 'adjustment';
@@ -197,9 +209,9 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   if (it.isImported && toNum(it.quantity) < 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
   if (toNum(it.priceMaterial)>0 && toNum(it.priceWork)===0) return 'material';
   if (codeLooksResource && !nameLooksStrongWork) return 'material';
-  if (nameLooksTransport && !nameLooksWork) return 'transport';
-  if (nameLooksEquipment && !nameLooksWork) return 'equipment';
-  if (nameLooksMaterial && !nameLooksStrongWork) return 'material';
+  if (nameTransportShouldWin && !nameLooksWork) return 'transport';
+  if (nameEquipmentShouldWin && !nameLooksWork) return 'equipment';
+  if (nameMaterialShouldWin) return 'material';
   if (nameLooksWork) return 'work';
   const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
   if (estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.transport)) return 'transport';
@@ -304,6 +316,36 @@ const authoritativeImportedUnit = (item={}) => {
   const candidates = [item.unit, item.rawUnit].map(v => String(v || '').trim()).filter(Boolean);
   return candidates.find(u => !estimateUnitLooksUnknown(u)) || candidates[0] || '';
 };
+const estimateUnitScaleInfo = (unit) => {
+  const raw = String(unit || '').trim();
+  const m = raw.match(/^(\d{2,})\s*(.+)$/);
+  if (!m) return {factor: 1, unit: raw};
+  const factor = parseInt(m[1], 10);
+  return factor >= 10 ? {factor, unit: m[2].trim()} : {factor: 1, unit: raw};
+};
+const normalizeImportedMeasure = (item={}, unitForMeasure='') => {
+  const current = normalizeMeasure(item.quantity, unitForMeasure);
+  const unitInfo = estimateUnitScaleInfo(unitForMeasure || item.unit || '');
+  const rawUnitInfo = estimateUnitScaleInfo(item.rawUnit || '');
+  const rawQtyExists = item.rawQuantity !== undefined && item.rawQuantity !== null && item.rawQuantity !== '';
+  const rawQty = rawQtyExists ? toNum(item.rawQuantity) : null;
+  const factor = toNum(item.unitFactor) || unitInfo.factor || rawUnitInfo.factor || current.factor || 1;
+  const currentQty = Number(current.qty);
+  let qty = currentQty;
+  let unit = current.unit || unitInfo.unit || rawUnitInfo.unit || unitForMeasure || item.unit || '';
+  if (unitInfo.factor > 1) unit = unitInfo.unit;
+  else if (rawUnitInfo.factor > 1 && (!unit || String(unit).trim() === String(item.rawUnit || '').trim())) unit = rawUnitInfo.unit;
+
+  if (rawQty !== null && factor > 1) {
+    const expected = rawQty * factor;
+    const inflated = Math.abs(currentQty) > Math.max(1000, Math.abs(expected) * 10);
+    const missing = !Number.isFinite(currentQty) || currentQty === 0;
+    const scaledUnitStillVisible = unitInfo.factor > 1 || rawUnitInfo.factor > 1;
+    if (missing || inflated || scaledUnitStillVisible) qty = expected;
+  }
+
+  return {qty, unit, factor};
+};
 const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   const base = {...item, isImported:true};
   const total = toNum(item.lineTotal ?? item.total ?? item.sum ?? item.amount ?? item.totalSum);
@@ -315,7 +357,7 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
     : detectedType;
   const importedUnit = authoritativeImportedUnit(base);
   const unitForMeasure = importedUnit || inferEstimateUnit({...base,itemType}, sectionName);
-  const normalizedMeasure = normalizeMeasure(base.quantity, unitForMeasure);
+  const normalizedMeasure = normalizeImportedMeasure(base, unitForMeasure);
   const normalizedUnit = _normalizeUnit(normalizedMeasure.unit || unitForMeasure || '');
   const normalizedDoneMeasure = (base.doneQuantity !== undefined && base.doneQuantity !== null && base.doneQuantity !== '')
     ? normalizeMeasure(base.doneQuantity, unitForMeasure)
