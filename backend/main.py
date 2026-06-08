@@ -3449,17 +3449,19 @@ def get_projects(current_user: dict = Depends(get_current_user)):
     return [dict(r) for r in rows]
 
 @app.post("/projects")
-def create_project(p: ProjectModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def create_project(p: ProjectModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters",
+    cur.execute("INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,COALESCE(archived,false) as archived,archived_at as \"archivedAt\"",
                 (p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
     row = cur.fetchone()
+    log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
+              action="create", entity_type="project", entity_id=row["id"], description="Создан объект", project_name=row["name"])
     conn.close()
     return dict(row)
 
 @app.put("/projects/{id}")
-def update_project(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
+def update_project(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
     fields_map = [
         ('name','name'),('client','client'),('status','status'),('budget','budget'),
         ('deadline','deadline'),('progress','progress'),('tasks','tasks'),
@@ -3482,19 +3484,33 @@ def update_project(id: int, data: dict, _current_user: dict = Depends(require_ro
         return {"ok": True}
     vals.append(id)
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("UPDATE projects SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    cur.execute("SELECT id,name,COALESCE(archived,false) as archived FROM projects WHERE id=%s", (id,))
+    row = cur.fetchone()
     conn.commit()
     cur.close(); conn.close()
+    if row:
+        action = "archive" if "archived" in data and data.get("archived") else ("restore" if "archived" in data else "update")
+        log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
+                  action=action, entity_type="project", entity_id=id, description="Обновлён объект", project_name=row["name"])
     return {"ok": True}
 
 @app.delete("/projects/{id}")
-def delete_project(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def delete_project(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM projects WHERE id=%s", (id,))
-    conn.close()
-    return {"ok": True}
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id,name,COALESCE(archived,false) as archived FROM projects WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    cur.execute("UPDATE projects SET archived=TRUE, archived_at=NOW(), status='Завершён' WHERE id=%s", (id,))
+    conn.commit()
+    cur.close(); conn.close()
+    log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
+              action="archive", entity_type="project", entity_id=id, description="Объект отправлен в архив вместо удаления", project_name=row["name"])
+    return {"ok": True, "archived": True}
 
 @app.get("/clients")
 def get_clients(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):

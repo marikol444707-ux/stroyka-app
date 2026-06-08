@@ -7555,7 +7555,6 @@ function App() {
     }
   };
 
-  const deleteProject = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/projects/'+id,{method:'DELETE'}); await loadAll(); } };
   const editProject = (p) => { setEditingItem(p); setNewProject({...p}); setShowForm(true); };
   const addTask = async (p) => { if (!newTask) return; await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:[...(p.tasks||[]),newTask]})}); await loadAll(); setNewTask(''); };
   const removeTask = async (p,i) => { await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:p.tasks.filter((_,idx)=>idx!==i)})}); await loadAll(); };
@@ -10764,7 +10763,6 @@ function App() {
                 <ProjectCardHeader
                   C={C}
                   btnG={btnG}
-                  btnR={btnR}
                   badge={badge}
                   project={p}
                   statusColors={statusColors}
@@ -10775,7 +10773,6 @@ function App() {
                   onToggle={async()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');if(user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&!projectAiSummaries[p.name]){try{const r=await fetch(API+'/project-ai-summary/'+encodeURIComponent(p.name));const d=await r.json();if(d&&d.exists)setProjectAiSummaries(prev=>({...prev,[p.name]:d}));}catch(e){}}}}}
                   onEdit={()=>editProject(p)}
                   onArchiveToggle={async()=>{if(p.archived){if(!window.confirm('Вернуть объект «'+p.name+'» из архива в работу?'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:false,archivedAt:''})});await loadAll();}else{if(!window.confirm('Закрыть объект «'+p.name+'» и отправить в архив?\n\nВсе документы, переписка и акты сохранятся и будут доступны в архиве для просмотра.'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:true,archivedAt:new Date().toISOString(),status:'Завершён'})});await loadAll();}}}
-                  onDelete={()=>deleteProject(p.id)}
                 />
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
                   <div style={{borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'18px 16px 10px'}}>

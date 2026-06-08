@@ -1,10 +1,9 @@
 import React from 'react';
-import { Archive, ChevronDown, ChevronUp, Edit2, Trash2 } from 'lucide-react';
+import { Archive, ChevronDown, ChevronUp, Edit2 } from 'lucide-react';
 
 function ProjectCardHeader({
   C,
   btnG,
-  btnR,
   badge,
   project,
   statusColors,
@@ -15,7 +14,6 @@ function ProjectCardHeader({
   onToggle,
   onEdit,
   onArchiveToggle,
-  onDelete,
 }) {
   const statusStyle = statusColors[project.status] || statusColors['Планирование'];
 
@@ -46,7 +44,6 @@ function ProjectCardHeader({
               <Archive size={11}/>{project.archived?'↩':''}
             </button>
           )}
-          {canManage&&!project.archived&&<button onClick={e=>{e.stopPropagation();onDelete();}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><Trash2 size={11}/></button>}
           {isOpen?<ChevronUp size={18} color={C.textMuted}/>:<ChevronDown size={18} color={C.textMuted}/>}
         </div>
       </div>
