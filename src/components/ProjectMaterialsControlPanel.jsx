@@ -39,6 +39,8 @@ export default function ProjectMaterialsControlPanel({
   showPreview,
   buildMaterialRequirementContent,
 }) {
+  const [query, setQuery] = React.useState('');
+  const [filter, setFilter] = React.useState('all');
   const planRows = rows.filter(r => r.planQty > 0);
   const toBuyRows = rows.filter(r => r.toBuy > 0);
   const pipelineRows = rows.filter(r => r.requested > 0 || r.inTransit > 0);
@@ -55,6 +57,34 @@ export default function ProjectMaterialsControlPanel({
     ...overRows,
     ...withoutNormRows.filter(r => !overRows.some(o => o.key === r.key))
   ];
+  const queryKey = String(query || '').toLowerCase().trim();
+  const filterOptions = [
+    {id: 'all', label: 'Все', rows},
+    {id: 'toBuy', label: 'Докупить', rows: toBuyRows},
+    {id: 'pipeline', label: 'В заявках/пути', rows: pipelineRows},
+    {id: 'outside', label: 'Вне сметы', rows: outsideRows},
+    {id: 'stock', label: 'Остатки/расх.', rows: rows.filter(r => r.stock > 0 || r.stockMismatch || r.masterBalance > 0)}
+  ];
+  const filterSet = filter === 'all'
+    ? null
+    : new Set((filterOptions.find(f => f.id === filter)?.rows || []).map(r => r.key));
+  const visibleRows = rows.filter(r => {
+    if (filterSet && !filterSet.has(r.key)) return false;
+    if (!queryKey) return true;
+    return [
+      r.name,
+      ...(r.sections || []),
+      ...(r.workRefs || []),
+      ...(r.aliases || [])
+    ].join(' ').toLowerCase().includes(queryKey);
+  });
+  const headCell = {
+    ...tblH,
+    position: 'sticky',
+    top: 0,
+    zIndex: 2,
+    backgroundColor: C.bg
+  };
 
   return (
     <div style={{
@@ -93,30 +123,69 @@ export default function ProjectMaterialsControlPanel({
       {rows.length === 0 ? (
         <p style={{color: C.textMuted, fontSize: '12px', textAlign: 'center', padding: '14px'}}>Нет сметных материалов и движений по объекту.</p>
       ) : (
-        <div style={{overflowX: 'auto'}}>
+        <>
+        <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '10px'}}>
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Поиск материала, раздела или работы..."
+            style={{
+              flex: '1 1 280px',
+              minWidth: 0,
+              padding: '10px 12px',
+              borderRadius: '8px',
+              border: '1.5px solid ' + C.border,
+              backgroundColor: C.bg,
+              color: C.text,
+              fontSize: '12px'
+            }}
+          />
+          <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
+            {filterOptions.map(opt => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setFilter(opt.id)}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: '999px',
+                  border: '1.5px solid ' + (filter === opt.id ? C.accentBorder : C.border),
+                  backgroundColor: filter === opt.id ? C.accentLight : C.bg,
+                  color: filter === opt.id ? C.accent : C.textSec,
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                {opt.label}: {opt.rows.length}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{overflow: 'auto', maxHeight: '68vh', border: '1px solid ' + C.border, borderRadius: '10px'}}>
           <table style={{...tbl, fontSize: '11px', minWidth: '1420px'}}>
             <thead>
               <tr>
-                <th style={tblH}>Материал</th>
-                <th style={tblH}>План</th>
-                <th style={tblH}>В заявках</th>
-                <th style={tblH}>В пути</th>
-                <th style={tblH}>Накладные</th>
-                <th style={tblH}>Поставки</th>
-                <th style={tblH}>Перемещено</th>
-                <th style={tblH}>Всего получено</th>
-                <th style={tblH}>Выдано</th>
-                <th style={tblH}>Списано</th>
-                <th style={tblH}>У мастеров</th>
-                <th style={tblH}>Остаток</th>
-                <th style={tblH}>Расчёт</th>
-                <th style={tblH}>Расх.</th>
-                <th style={tblH}>Докупить</th>
-                <th style={tblH}>Статус</th>
+                <th style={headCell}>Материал</th>
+                <th style={headCell}>План</th>
+                <th style={headCell}>В заявках</th>
+                <th style={headCell}>В пути</th>
+                <th style={headCell}>Накладные</th>
+                <th style={headCell}>Поставки</th>
+                <th style={headCell}>Перемещено</th>
+                <th style={headCell}>Всего получено</th>
+                <th style={headCell}>Выдано</th>
+                <th style={headCell}>Списано</th>
+                <th style={headCell}>У мастеров</th>
+                <th style={headCell}>Остаток</th>
+                <th style={headCell}>Расчёт</th>
+                <th style={headCell}>Расх.</th>
+                <th style={headCell}>Докупить</th>
+                <th style={headCell}>Статус</th>
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, 25).map(r => {
+              {visibleRows.map(r => {
                 const st = materialControlStatus(r);
                 return (
                   <tr key={r.key}>
@@ -153,8 +222,12 @@ export default function ProjectMaterialsControlPanel({
               })}
             </tbody>
           </table>
-          {rows.length > 25 && <p style={{color: C.textMuted, fontSize: '11px', margin: '8px 0 0'}}>Показаны первые 25 строк. Полный список — в печатной ведомости.</p>}
+          {visibleRows.length === 0 && <p style={{color: C.textMuted, fontSize: '12px', textAlign: 'center', padding: '14px'}}>По фильтру ничего не найдено.</p>}
         </div>
+        <p style={{color: C.textMuted, fontSize: '11px', margin: '8px 0 0'}}>
+          Показано {visibleRows.length} из {rows.length}. Заявку можно создать прямо в колонке «Статус».
+        </p>
+        </>
       )}
 
       {normRows.length > 0 && (

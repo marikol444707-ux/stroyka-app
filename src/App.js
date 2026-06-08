@@ -327,8 +327,9 @@ const normalizeImportedMeasure = (item={}, unitForMeasure='') => {
   const current = normalizeMeasure(item.quantity, unitForMeasure);
   const unitInfo = estimateUnitScaleInfo(unitForMeasure || item.unit || '');
   const rawUnitInfo = estimateUnitScaleInfo(item.rawUnit || '');
-  const rawQtyExists = item.rawQuantity !== undefined && item.rawQuantity !== null && item.rawQuantity !== '';
-  const rawQty = rawQtyExists ? toNum(item.rawQuantity) : null;
+  const rawQtySource = [item.rawQuantity, item.quantityFinal, item.quantityBase]
+    .find(v => v !== undefined && v !== null && v !== '');
+  const rawQty = rawQtySource !== undefined ? toNum(rawQtySource) : null;
   const factor = toNum(item.unitFactor) || unitInfo.factor || rawUnitInfo.factor || current.factor || 1;
   const currentQty = Number(current.qty);
   let qty = currentQty;
@@ -336,8 +337,10 @@ const normalizeImportedMeasure = (item={}, unitForMeasure='') => {
   if (unitInfo.factor > 1) unit = unitInfo.unit;
   else if (rawUnitInfo.factor > 1 && (!unit || String(unit).trim() === String(item.rawUnit || '').trim())) unit = rawUnitInfo.unit;
 
-  if (rawQty !== null && factor > 1) {
-    const expected = rawQty * factor;
+  if (factor > 1) {
+    const sourceQty = rawQty !== null ? rawQty : toNum(item.quantity);
+    const alreadyNormalized = Math.abs(sourceQty) >= factor;
+    const expected = alreadyNormalized ? sourceQty : sourceQty * factor;
     const inflated = Math.abs(currentQty) > Math.max(1000, Math.abs(expected) * 10);
     const missing = !Number.isFinite(currentQty) || currentQty === 0;
     const scaledUnitStillVisible = unitInfo.factor > 1 || rawUnitInfo.factor > 1;
