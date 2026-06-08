@@ -12877,6 +12877,185 @@ def generate_material_norm_suggestions(data: dict = None, current_user: dict = D
     cur.close(); conn.close()
     return {"ok": True, "created": created, "updated": updated, "findings": findings, "total": len(suggestions), "aiUsed": bool(YANDEX_API_KEY and YANDEX_FOLDER_ID), "diagnostics": diagnostics}
 
+def _material_pricelist_match_score(material_name: str, material_unit: str, price_item: dict) -> int:
+    material_key = _norm_key_text(material_name)
+    item_key = _norm_key_text(price_item.get("name") or "")
+    if not material_key or not item_key:
+        return 0
+    score = 0
+    item_type = _norm_key_text(price_item.get("item_type") or price_item.get("itemType") or "")
+    if "материал" in item_type or item_type == "material":
+        score += 20
+    if "работ" in item_type or item_type == "work":
+        score -= 35
+    if material_key == item_key:
+        score += 100
+    elif material_key in item_key or item_key in material_key:
+        score += 70
+    else:
+        material_tokens = {w for w in material_key.split() if len(w) >= 4}
+        item_tokens = {w for w in item_key.split() if len(w) >= 4}
+        common = material_tokens & item_tokens
+        if common:
+            score += min(60, len(common) * 18)
+    material_unit_key = _norm_base_unit(material_unit)
+    item_unit_key = _norm_base_unit(price_item.get("unit") or "")
+    if material_unit_key and item_unit_key:
+        score += 15 if material_unit_key == item_unit_key else -10
+    return score
+
+def _find_material_pricelist_price(material_name: str, material_unit: str, price_items: list[dict]) -> dict:
+    best = None
+    best_score = 0
+    for item in price_items:
+        score = _material_pricelist_match_score(material_name, material_unit, item)
+        if score > best_score:
+            best = item
+            best_score = score
+    if not best or best_score < 65:
+        return {"price": 0, "source": "", "score": best_score}
+    return {"price": _safe_float(best.get("price")), "source": best.get("name") or "", "score": best_score}
+
+@app.post("/material-norm-suggestions/create-estimate")
+def create_estimate_from_material_norm_suggestions(data: dict = None, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+    import json as _json
+    data = data or {}
+    project_name = (data.get("projectName") or data.get("project_name") or "").strip()
+    if not project_name:
+        raise HTTPException(status_code=400, detail="Укажите объект")
+    require_project_access(current_user, project_name)
+
+    min_confidence = _safe_float(data.get("minConfidence"), 0.75)
+    min_confidence = min(max(min_confidence, 0.0), 1.0)
+    include_search = bool(data.get("includeSearch") or data.get("include_search"))
+    status = data.get("status") or "Черновик"
+    smeta_type = data.get("smetaType") or "Материалы"
+    work_package = data.get("workPackage") or data.get("work_package") or "Доп. материалы"
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, pricelist_id FROM projects WHERE name=%s LIMIT 1", (project_name,))
+    project = cur.fetchone()
+    if not project:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Объект не найден")
+
+    pricelist_id = data.get("pricelistId") or data.get("pricelist_id") or project.get("pricelist_id")
+    price_items = []
+    if pricelist_id:
+        try:
+            cur.execute("""SELECT id, name, unit, price, category, item_type
+                           FROM pricelist_items
+                           WHERE pricelist_id=%s
+                           ORDER BY category, name""", (int(pricelist_id),))
+            price_items = [dict(r) for r in cur.fetchall()]
+        except Exception:
+            price_items = []
+
+    diagnostics = {}
+    raw_suggestions = _generate_material_norm_suggestions(cur, current_user, project_name, use_ai=False, diagnostics=diagnostics)
+    rows_by_section = {}
+    skipped_low_confidence = 0
+    skipped_no_quantity = 0
+    priced_count = 0
+    missing_price_count = 0
+    total_amount = 0.0
+    now_id = int(time.time() * 1000)
+
+    for suggestion in raw_suggestions:
+        if suggestion.get("suggestionType") != "estimate_material_without_norm":
+            continue
+        source = suggestion.get("source") or ""
+        confidence = _safe_float(suggestion.get("confidence"))
+        if source != "estimate-parent":
+            if not include_search:
+                skipped_low_confidence += 1
+                continue
+            if confidence < min_confidence:
+                skipped_low_confidence += 1
+                continue
+        elif confidence < min_confidence:
+            skipped_low_confidence += 1
+            continue
+        qty = _safe_float(suggestion.get("actualQty"))
+        if qty <= 0:
+            skipped_no_quantity += 1
+            continue
+        material_name = (suggestion.get("materialName") or "").strip()
+        if not material_name:
+            continue
+        material_unit = suggestion.get("materialUnit") or "шт"
+        price_match = _find_material_pricelist_price(material_name, material_unit, price_items)
+        price = price_match["price"]
+        if price > 0:
+            priced_count += 1
+            total_amount += qty * price
+        else:
+            missing_price_count += 1
+        section_name = suggestion.get("sectionName") or "Материалы по нормам"
+        rows_by_section.setdefault(section_name, []).append({
+            "id": now_id + sum(len(v) for v in rows_by_section.values()) + 1,
+            "name": material_name,
+            "unit": material_unit,
+            "quantity": round(qty, 6),
+            "priceWork": 0,
+            "priceMaterial": round(price, 2) if price else 0,
+            "itemType": "material",
+            "resourceRole": "material",
+            "source": "material_norm_suggestion",
+            "normSource": source,
+            "confidence": confidence,
+            "workName": suggestion.get("workName") or "",
+            "parentWorkName": suggestion.get("workName") or "",
+            "sectionName": section_name,
+            "suggestedQtyPerUnit": suggestion.get("suggestedQtyPerUnit") or 0,
+            "workUnit": suggestion.get("workUnit") or "",
+            "priceSource": price_match["source"],
+            "priceMatchScore": price_match["score"],
+            "note": "Цена подтянута из прайса" if price > 0 else "Цена не найдена в прайсе, нужно проверить вручную",
+        })
+
+    if not rows_by_section:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Нет безопасных строк для черновика. Сначала проверьте предложения норм или включите предложения по поиску.")
+
+    sections = []
+    for idx, (section_name, items) in enumerate(rows_by_section.items(), start=1):
+        sections.append({
+            "id": now_id + idx,
+            "name": "Материалы по нормам / " + section_name,
+            "items": items,
+        })
+
+    estimate_name = (data.get("name") or f"Черновик материалов по нормам — {project_name}").strip()
+    version = data.get("version") or "norm-" + dt.datetime.now().strftime("%Y%m%d-%H%M")
+    cur.execute("""INSERT INTO estimates
+                   (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                   RETURNING id""",
+        (project["id"], project_name, estimate_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
+    estimate_id = cur.fetchone()["id"]
+    conn.commit()
+    cur.close(); conn.close()
+    return {
+        "ok": True,
+        "id": estimate_id,
+        "name": estimate_name,
+        "version": version,
+        "projectName": project_name,
+        "smetaType": smeta_type,
+        "workPackage": work_package,
+        "status": status,
+        "sections": sections,
+        "items": sum(len(s["items"]) for s in sections),
+        "priced": priced_count,
+        "missingPrice": missing_price_count,
+        "total": round(total_amount, 2),
+        "skippedLowConfidence": skipped_low_confidence,
+        "skippedNoQuantity": skipped_no_quantity,
+        "diagnostics": diagnostics,
+    }
+
 @app.put("/material-norm-suggestions/{id}")
 def update_material_norm_suggestion(id: int, data: MaterialNormSuggestionUpdateModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()

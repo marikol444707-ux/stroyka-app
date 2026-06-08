@@ -6642,6 +6642,48 @@ function App() {
     setMaterialNormNotice({tone:'success',title:'Поправка объекта сохранена',text:'Базовая норма не изменена. Поправка будет применяться при расчётах по этому объекту.'});
     await loadAll();
   };
+  const createEstimateFromNormSuggestions = async () => {
+    if (!canEditMaterialNorms()) return;
+    const defaultProjectName = materialNormCoverageProject || visibleActiveProjects(projects||[])[0]?.name || '';
+    let projectName = window.prompt('Для какого объекта сформировать черновик материалов по нормам?', defaultProjectName);
+    if (projectName === null) return;
+    projectName = projectName.trim();
+    if (!projectName) return;
+    setMaterialNormSuggestionLoading(true);
+    setMaterialNormNotice(null);
+    try {
+      const res = await fetch(API+'/material-norm-suggestions/create-estimate',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({projectName,minConfidence:0.75,status:'Черновик'})
+      });
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) throw new Error(data.detail || 'Не удалось сформировать черновик сметы');
+      const created = {
+        id:data.id,
+        projectName:data.projectName,
+        name:data.name,
+        version:data.version||'',
+        sections:data.sections||[],
+        smetaType:data.smetaType||'Материалы',
+        workPackage:data.workPackage||'Доп. материалы',
+        status:data.status||'Черновик'
+      };
+      setEstimatesList(prev=>[created,...(prev||[]).filter(e=>Number(e.id)!==Number(created.id))]);
+      setSelectedEstimate(created);
+      setMaterialNormNotice({
+        tone:'success',
+        title:'Черновик сметы создан',
+        text:'Строк: '+(data.items||0)+', с ценой '+(data.priced||0)+', без цены '+(data.missingPrice||0)+', сумма '+Number(data.total||0).toLocaleString('ru-RU')+' ₽. Черновик не меняет активную смету.'
+      });
+      await loadAll();
+      navigateTo('estimates');
+    } catch(e) {
+      alert(e.message || 'Не удалось сформировать черновик сметы');
+    } finally {
+      setMaterialNormSuggestionLoading(false);
+    }
+  };
   const rejectMaterialNormSuggestion = async (id) => {
     if (!canEditMaterialNorms() || !id) return;
     const res = await fetch(API+'/material-norm-suggestions/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонена'})});
@@ -14448,6 +14490,9 @@ function App() {
                   materialNormSuggestionLoading={materialNormSuggestionLoading}
                   generateMaterialNormSuggestions={generateMaterialNormSuggestions}
                 />
+                {canEditMaterialNorms()&&<div style={{display:'flex',gap:'8px',flexWrap:'wrap',margin:'0 0 10px'}}>
+                  <button onClick={createEstimateFromNormSuggestions} disabled={materialNormSuggestionLoading} style={btnState(btnO,materialNormSuggestionLoading,{padding:'7px 10px',fontSize:'12px'})}><FileText size={13}/>Черновик сметы из норм</button>
+                </div>}
                 <div style={{display:'grid',gap:'8px'}}>
                   {activeMaterialNormSuggestions().slice(0,12).map(s=>{
                     const isPreview = s.previewOnly || s.status==='Предпросмотр';
