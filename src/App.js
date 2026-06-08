@@ -1495,7 +1495,7 @@ function App() {
         isFinanceRole ? get('/expenses') : skip([]),
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-main') : skip([]),
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-movements') : skip([]),
-        (isWarehouseRole || isFinanceRole) ? get('/warehouse-history') : skip([]),
+	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик'].includes(role)) ? get('/warehouse-history') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/staff') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/piecework') : skip([]),
         role === 'system_owner' ? skip([]) : get('/users'),
@@ -2795,12 +2795,36 @@ function App() {
 
   const deleteLead = async (id) => { await fetch(API+'/crm-leads/'+id,{method:'DELETE'}); const ls=await fetch(API+'/crm-leads').then(r=>r.json()); setLeads(Array.isArray(ls)?ls:[]); };
   const ratemaster = (masterId, rating) => { const updated={...masterRatings,[masterId]:rating}; setMasterRatings(updated); localStorage.setItem('masterRatings',JSON.stringify(updated)); };
-  const confirmMaterialReceipt = async (transferId) => {
-    await fetch(API+'/material-transfers/'+transferId+'/sign',{method:'PUT'});
-    setMaterialTransfers(prev=>prev.map(t=>t.id===transferId?{...t,signed:true}:t));
-  };
+	  const confirmMaterialReceipt = async (transferId) => {
+	    await fetch(API+'/material-transfers/'+transferId+'/sign',{method:'PUT'});
+	    setMaterialTransfers(prev=>prev.map(t=>t.id===transferId?{...t,signed:true}:t));
+	  };
+	  const returnMaterialToProject = async (materialRow) => {
+	    const maxQty = toNum(materialRow?.quantity);
+	    if (!materialRow || maxQty <= 0) return;
+	    const raw = window.prompt('Сколько вернуть на склад объекта? Доступно: '+fmtMeasure(maxQty, materialRow.unit), String(maxQty));
+	    if (raw === null) return;
+	    const qty = toNum(raw);
+	    if (!qty || qty <= 0) return alert('Укажите количество больше 0');
+	    if (qty > maxQty) return alert('Нельзя вернуть больше остатка: '+fmtMeasure(maxQty, materialRow.unit));
+	    const res = await fetch(API+'/material-transfers/return', {
+	      method:'POST',
+	      headers:{'Content-Type':'application/json'},
+	      body:JSON.stringify({
+	        projectName: materialRow.project,
+	        materialName: materialRow.name,
+	        quantity: qty,
+	        unit: materialRow.unit,
+	        date: new Date().toISOString().split('T')[0],
+	      })
+	    });
+	    const data = await res.json().catch(()=>({}));
+	    if (!res.ok || !data.ok) return alert('Ошибка: '+(data.detail||data.error||'не удалось вернуть материал'));
+	    notify('Материал возвращён на склад объекта: '+materialRow.name+' · '+fmtMeasure(qty, materialRow.unit), 'material');
+	    await loadAll();
+	  };
 
-  const handleLogout = () => {
+	  const handleLogout = () => {
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
     setUser(null);
@@ -4182,7 +4206,7 @@ function App() {
       const key = keyOf(meta.name);
       if (!key) return null;
       const cleanUnit = materialUnit(meta.unit || unit);
-      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
       if (rawName && keyOf(rawName)!==key && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
       if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
       if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
@@ -4203,7 +4227,7 @@ function App() {
       const converted = materialQty(qty, unit || row.unit);
       if (converted.unit && row.unit && converted.unit !== row.unit) row.unitMismatch = true;
       if (!row.unit && converted.unit) row.unit = converted.unit;
-      if (!row.holders[key]) row.holders[key] = {name, role: role || '', unit: row.unit || converted.unit || unit || '', issued: 0, pending: 0, used: 0, transfers: []};
+      if (!row.holders[key]) row.holders[key] = {name, role: role || '', unit: row.unit || converted.unit || unit || '', issued: 0, pending: 0, used: 0, returned: 0, transfers: []};
       row.holders[key][field] += converted.qty;
       if (transfer) row.holders[key].transfers.push(transfer);
     };
@@ -4287,6 +4311,13 @@ function App() {
         addHolderQty(r, w.masterName||w.master_name||'Без ответственного', '', 'used', m.quantity, m.unit);
       });
     });
+    (history||[])
+      .filter(h=>h.project===projectName && h.type==='возврат от мастера')
+      .forEach(h=>{
+        const r = ensure(h.material, '');
+        addQty(r, 'returnedFromMasters', h.quantity, r?.unit);
+        addHolderQty(r, h.issuedBy||h.issued_by||'Без ответственного', '', 'returned', h.quantity, r?.unit);
+      });
     (materials||[]).filter(m=>m.project===projectName).forEach(m=>{
       const r = ensure(m.name, m.unit);
       if (r) {
@@ -4315,13 +4346,13 @@ function App() {
       const hasMaterialActivity = coveredWithPipeline>0 || (r.stock||0)>0 || (r.issued||0)>0 || (r.used||0)>0;
       const holders = Object.values(r.holders||{}).map(h=>({
         ...h,
-        balance: Math.max(0, (h.issued||0) - (h.used||0)),
+        balance: Math.max(0, (h.issued||0) - (h.used||0) - (h.returned||0)),
       })).filter(h=>(h.issued||0)>0 || (h.pending||0)>0 || (h.used||0)>0)
         .sort((a,b)=>(b.balance-a.balance)||(b.pending-a.pending)||a.name.localeCompare(b.name,'ru'));
       const masterBalance = holders.reduce((sum,h)=>sum+(h.balance||0),0);
       const pendingAtMasters = holders.reduce((sum,h)=>sum+(h.pending||0),0);
       const usedWithoutIssue = Math.max(0, (r.used||0) - (r.issuedSigned||0));
-      const expectedStock = supplied - (r.issued||0) - usedWithoutIssue;
+      const expectedStock = supplied - (r.issued||0) + (r.returnedFromMasters||0) - usedWithoutIssue;
       const stockDiff = (r.stock||0) - expectedStock;
       return {
         ...r,
@@ -4623,7 +4654,7 @@ function App() {
       .forEach(t=>{
         const key = materialNameKey(t.materialName);
         if (!key) return;
-        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
+        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, returned:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
         byName[key].received += toNum(t.quantity);
         byName[key].quantity += toNum(t.quantity);
         byName[key].transfers.push(t);
@@ -4633,7 +4664,7 @@ function App() {
       .forEach(t=>{
         const key = materialNameKey(t.materialName);
         if (!key) return;
-        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
+        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, returned:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
         byName[key].pending += toNum(t.quantity);
         byName[key].pendingTransfers.push(t);
       });
@@ -4642,11 +4673,21 @@ function App() {
       .forEach(w=>parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
         const key = materialNameKey(m.name);
         const cur = byName[key];
+	        if (cur) {
+	          cur.used += toNum(m.quantity);
+	          cur.quantity -= toNum(m.quantity);
+	        }
+	      }));
+    (history||[])
+      .filter(h=>h.project===projectName && h.type==='возврат от мастера' && h.issuedBy===personName)
+      .forEach(h=>{
+        const key = materialNameKey(h.material);
+        const cur = byName[key];
         if (cur) {
-          cur.used += toNum(m.quantity);
-          cur.quantity -= toNum(m.quantity);
+          cur.returned += toNum(h.quantity);
+          cur.quantity -= toNum(h.quantity);
         }
-      }));
+      });
     return Object.values(byName).filter(r=>r.received>0 || r.pending>0).map(r=>({...r, quantity:Math.max(0,r.quantity)}));
   };
   const materialRowsAvailableForWork = (projectName) => {
@@ -9224,6 +9265,7 @@ function App() {
 	                    <div style={{padding:'8px',backgroundColor:C.warningLight,borderRadius:'6px',border:'1px solid '+C.warningBorder}}>
 	                      <p style={{color:C.warning,fontSize:'10px',margin:'0 0 2px'}}>Списано</p>
 	                      <b style={{color:C.warning,fontSize:'13px'}}>{fmtMeasure(b.used,b.unit)}</b>
+	                      {b.returned>0&&<p style={{color:C.success,fontSize:'10px',margin:'2px 0 0'}}>возврат: {fmtMeasure(b.returned,b.unit)}</p>}
 	                    </div>
 	                    <div style={{padding:'8px',backgroundColor:remColor===C.danger?C.dangerLight:remColor===C.warning?C.warningLight:C.successLight,borderRadius:'6px',border:'1px solid '+(remColor===C.danger?C.dangerBorder:remColor===C.warning?C.warningBorder:C.successBorder)}}>
 	                      <p style={{color:remColor,fontSize:'10px',margin:'0 0 2px'}}>Остаток у меня</p>
@@ -9233,6 +9275,11 @@ function App() {
 	                  <div style={{height:'6px',backgroundColor:C.bg,borderRadius:'4px',overflow:'hidden',marginBottom:'8px'}}>
 	                    <div style={{width:pct+'%',height:'100%',backgroundColor:pct>=100?C.danger:pct>=80?C.warning:C.success}}/>
 	                  </div>
+	                  {remaining>0 && (
+	                    <button onClick={()=>returnMaterialToProject(b)} style={{...btnG,padding:'6px 10px',fontSize:'12px',marginBottom:'8px'}}>
+	                      Вернуть остаток на склад
+	                    </button>
+	                  )}
 	                  {(b.pendingTransfers||[]).length>0 && (<div style={{padding:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,borderRadius:'6px',marginTop:'6px'}}>
 	                    <p style={{color:C.warning,fontSize:'11px',margin:'0 0 6px',fontWeight:'600'}}>⏳ Не подтверждено получение ({b.pendingTransfers.length} передач):</p>
 	                    {b.pendingTransfers.map(t=>(<div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0'}}>
