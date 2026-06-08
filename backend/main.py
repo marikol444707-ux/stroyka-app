@@ -12545,9 +12545,22 @@ def _enhance_norm_suggestions_with_ai(suggestions: list[dict]) -> list[dict]:
         print("MATERIAL NORM SUGGEST AI PARSE ERROR:", str(e))
         return suggestions
 
-def _generate_material_norm_suggestions(cur, current_user: dict, project_name: str = "", use_ai: bool = True) -> list[dict]:
+def _generate_material_norm_suggestions(cur, current_user: dict, project_name: str = "", use_ai: bool = True, diagnostics: dict = None) -> list[dict]:
     allowed_projects = visible_project_names(current_user)
     norm_rules = _load_active_norm_rules(cur, project_name)
+    if diagnostics is not None:
+        diagnostics.update({
+            "projectName": project_name or "",
+            "activeNormRules": len(norm_rules),
+            "workJournalRows": 0,
+            "workJournalRowsWithMaterials": 0,
+            "workJournalMaterialFacts": 0,
+            "activeCustomerEstimates": 0,
+            "estimateWorks": 0,
+            "estimateMaterials": 0,
+            "estimateMaterialsCoveredByNorm": 0,
+            "estimateMaterialsWithoutCandidateWork": 0,
+        })
     suggestions = {}
     where = "WHERE COALESCE(status,'') <> 'Отклонено'"
     params = []
@@ -12562,7 +12575,10 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
     cur.execute(f"""SELECT id, project, description, section_name, unit, quantity, materials_used, date
                     FROM work_journal {where}
                     ORDER BY id DESC LIMIT 800""", tuple(params))
-    for row in cur.fetchall():
+    journal_rows = cur.fetchall()
+    if diagnostics is not None:
+        diagnostics["workJournalRows"] = len(journal_rows)
+    for row in journal_rows:
         work = dict(row)
         try:
             used = json.loads(work.get("materials_used") or "[]")
@@ -12570,6 +12586,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             used = []
         if not isinstance(used, list):
             used = []
+        if used and diagnostics is not None:
+            diagnostics["workJournalRowsWithMaterials"] += 1
         work_qty = _safe_float(work.get("quantity"))
         if work_qty <= 0:
             continue
@@ -12578,6 +12596,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             mat_qty = _safe_float((mat or {}).get("quantity"))
             if not material_name or mat_qty <= 0:
                 continue
+            if diagnostics is not None:
+                diagnostics["workJournalMaterialFacts"] += 1
             if _material_no_norm_reason(material_name):
                 continue
             mat_unit = str((mat or {}).get("unit") or "шт")
@@ -12642,7 +12662,10 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
         estimate_where += " AND e.project_name = ANY(%s)"
         estimate_params.append(allowed_projects)
     cur.execute(f"""SELECT e.id, e.project_name, e.sections_json FROM estimates e {estimate_where} ORDER BY e.id DESC LIMIT 120""", tuple(estimate_params))
-    for est in cur.fetchall():
+    estimate_rows = cur.fetchall()
+    if diagnostics is not None:
+        diagnostics["activeCustomerEstimates"] = len(estimate_rows)
+    for est in estimate_rows:
         est_norm_rules = _load_active_norm_rules(cur, est["project_name"] or "", est["id"])
         try:
             sections = json.loads(est["sections_json"] or "[]")
@@ -12653,6 +12676,9 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             items = section.get("items") or []
             works = [it for it in items if _estimate_item_type_backend(it, section_name) == "work"]
             mats = [it for it in items if _estimate_item_type_backend(it, section_name) == "material"]
+            if diagnostics is not None:
+                diagnostics["estimateWorks"] += len(works)
+                diagnostics["estimateMaterials"] += len(mats)
             for mat in mats:
                 material_name = str(mat.get("name") or "").strip()
                 if not material_name:
@@ -12663,9 +12689,13 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                 if mat_qty <= 0:
                     continue
                 if any(_norm_rule_matches(r, w.get("name"), section_name, material_name, w.get("unit"), mat.get("unit") or "") for r in est_norm_rules for w in works):
+                    if diagnostics is not None:
+                        diagnostics["estimateMaterialsCoveredByNorm"] += 1
                     continue
                 work = _estimate_norm_candidate_work(material_name, works, section_name, mat.get("unit") or "")
                 if not work:
+                    if diagnostics is not None:
+                        diagnostics["estimateMaterialsWithoutCandidateWork"] += 1
                     continue
                 work_qty = _safe_float(work.get("quantity"))
                 suggested = round(mat_qty / work_qty, 4) if work_qty > 0 and mat_qty > 0 else 0
@@ -12699,6 +12729,8 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                     "dedupeKey": dedupe,
                 })
     result = list(suggestions.values())
+    if diagnostics is not None:
+        diagnostics["suggestions"] = len(result)
     return _enhance_norm_suggestions_with_ai(result) if use_ai else result
 
 @app.get("/material-norm-suggestions")
@@ -12731,14 +12763,15 @@ def generate_material_norm_suggestions(data: dict = None, current_user: dict = D
         require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    suggestions = _generate_material_norm_suggestions(cur, current_user, project_name, use_ai=use_ai)
+    diagnostics = {}
+    suggestions = _generate_material_norm_suggestions(cur, current_user, project_name, use_ai=use_ai, diagnostics=diagnostics)
     if dry_run:
         for idx, suggestion in enumerate(suggestions, start=1):
             suggestion["id"] = "preview-" + str(idx)
             suggestion["status"] = "Предпросмотр"
             suggestion["source"] = suggestion.get("source") or "rules-preview"
         cur.close(); conn.close()
-        return {"ok": True, "dryRun": True, "created": 0, "updated": 0, "findings": 0, "total": len(suggestions), "aiUsed": False, "suggestions": suggestions}
+        return {"ok": True, "dryRun": True, "created": 0, "updated": 0, "findings": 0, "total": len(suggestions), "aiUsed": False, "diagnostics": diagnostics, "suggestions": suggestions}
     created = updated = findings = 0
     for suggestion in suggestions:
         sid, is_created = _upsert_material_norm_suggestion(cur, suggestion, current_user)
@@ -12765,7 +12798,7 @@ def generate_material_norm_suggestions(data: dict = None, current_user: dict = D
             if f_created:
                 findings += 1
     cur.close(); conn.close()
-    return {"ok": True, "created": created, "updated": updated, "findings": findings, "total": len(suggestions), "aiUsed": bool(YANDEX_API_KEY and YANDEX_FOLDER_ID)}
+    return {"ok": True, "created": created, "updated": updated, "findings": findings, "total": len(suggestions), "aiUsed": bool(YANDEX_API_KEY and YANDEX_FOLDER_ID), "diagnostics": diagnostics}
 
 @app.put("/material-norm-suggestions/{id}")
 def update_material_norm_suggestion(id: int, data: MaterialNormSuggestionUpdateModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):

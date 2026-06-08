@@ -6576,13 +6576,14 @@ function App() {
     if (!canEditMaterialNorms()) return;
     const dryRun = !!opts.dryRun;
     let projectName = opts.projectName || '';
+    const defaultProjectName = materialNormCoverageProject || visibleActiveProjects(projects||[])[0]?.name || '';
     if (dryRun && !projectName) {
-      projectName = window.prompt('Объект для безопасного предпросмотра норм:', 'Лермонтова Спорт зал');
+      projectName = window.prompt('Объект для безопасного предпросмотра норм:', defaultProjectName);
       if (projectName === null) return;
       projectName = projectName.trim();
     }
     if (!dryRun && !projectName) {
-      projectName = window.prompt('Объект для AI-проверки норм (пусто — все объекты):', 'Лермонтова Спорт зал');
+      projectName = window.prompt('Объект для AI-проверки норм (пусто — все объекты):', defaultProjectName);
       if (projectName === null) return;
       projectName = projectName.trim();
     }
@@ -6594,12 +6595,14 @@ function App() {
       const data = await res.json().catch(()=>({}));
       if (!res.ok) throw new Error(data.detail || 'Не удалось проверить нормы');
       const scopeText = projectName ? 'Объект: '+projectName : 'Все объекты';
+      const d = data.diagnostics || {};
+      const diagnosticText = 'Проверено: смет '+(d.activeCustomerEstimates||0)+', работ '+(d.estimateWorks||0)+', материалов '+(d.estimateMaterials||0)+', покрыто нормами '+(d.estimateMaterialsCoveredByNorm||0)+', без работы '+(d.estimateMaterialsWithoutCandidateWork||0)+', ЖПР '+(d.workJournalRows||0)+', списаний '+(d.workJournalMaterialFacts||0);
       if (dryRun) {
         setMaterialNormPreviewSuggestions((data.suggestions||[]).map((s,i)=>({...s,id:s.id||('preview-'+i),status:'Предпросмотр',previewOnly:true})));
         setMaterialNormNotice({
           tone:'info',
           title:'Предпросмотр норм',
-          text:'Найдено '+(data.total||0)+' · '+scopeText+' · без сохранения · без внешнего ИИ'
+          text:'Найдено '+(data.total||0)+' · '+scopeText+' · '+diagnosticText+' · без сохранения · без внешнего ИИ'
         });
       } else {
         setMaterialNormPreviewSuggestions([]);
@@ -6607,7 +6610,7 @@ function App() {
         setMaterialNormNotice({
           tone:'success',
           title:'AI-проверка норм',
-          text:'Найдено '+(data.total||0)+', новых '+(data.created||0)+', обновлено '+(data.updated||0)+' · '+scopeText+(data.aiUsed?' · YandexGPT подключён':' · без внешнего ИИ')
+          text:'Найдено '+(data.total||0)+', новых '+(data.created||0)+', обновлено '+(data.updated||0)+' · '+scopeText+' · '+diagnosticText+(data.aiUsed?' · YandexGPT подключён':' · без внешнего ИИ')
         });
       }
     } catch(e) {
