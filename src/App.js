@@ -2297,12 +2297,89 @@ function App() {
     html+='<div class="signatures"><div class="sig"><div class="sig-line">Сдал (исполнитель)<br/>'+(bc.brigadeName||'')+'</div></div><div class="sig"><div class="sig-line">Принял<br/>'+(req.directorName||'')+'</div></div></div>';
     return html;
   };
-  const buildContractContent = (profile, contract) => {
-    return buildPerformerContractHtml({
+  const normalizePersonKey = (value) => String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
+  const staffPassportText = (s={}) => {
+    const number = [s.passportSeries, s.passportNumber].filter(Boolean).join(' ').trim();
+    const issued = [s.passportIssuedBy, s.passportIssuedDate].filter(Boolean).join(', ');
+    return [number, issued].filter(Boolean).join('; ');
+  };
+  const findStaffForPerformer = (contract={}) => {
+    const id = Number(contract.masterId||contract.contractorId||0);
+    if (id) {
+      const byId = (staff||[]).find(s=>Number(s.id)===id);
+      if (byId) return byId;
+    }
+    const name = normalizePersonKey(contract.masterName||contract.brigadeName||contract.performerName);
+    if (!name) return null;
+    return (staff||[]).find(s=>normalizePersonKey(s.name)===name||normalizePersonKey(s.brigade)===name) || null;
+  };
+  const findUserForStaff = (st) => {
+    if (!st) return null;
+    const name = normalizePersonKey(st.name);
+    return (users||[]).find(u=>normalizePersonKey(u.name)===name||normalizePersonKey(u.email)===normalizePersonKey(st.emailWork)) || null;
+  };
+  const findProfileForPerformer = (contract={}, st=null, preferredProfile=null) => {
+    if (preferredProfile) return preferredProfile;
+    const id = Number(contract.masterId||contract.contractorId||0);
+    const userRow = findUserForStaff(st);
+    const name = normalizePersonKey(contract.masterName||contract.brigadeName||st?.name);
+    return (masterProfiles||[]).find(p=>Number(p.userId)===id)
+      || (userRow ? (masterProfiles||[]).find(p=>Number(p.userId)===Number(userRow.id)) : null)
+      || (name ? (masterProfiles||[]).find(p=>normalizePersonKey(p.fullName)===name) : null)
+      || null;
+  };
+  const resolveContractPerformer = (contract={}, preferredProfile=null) => {
+    const st = findStaffForPerformer(contract);
+    const userRow = findUserForStaff(st);
+    const profile = findProfileForPerformer(contract, st, preferredProfile);
+    const type = contract.contractType || contract.contractorType || profile?.contractType || st?.employmentType || 'ГПХ';
+    const fullName = profile?.fullName || st?.name || contract.masterName || contract.brigadeName || 'Исполнитель не выбран';
+    return {
+      ...(st||{}),
+      ...(profile||{}),
+      userId: profile?.userId || userRow?.id || st?.userId || contract.masterId || contract.contractorId || '',
+      staffId: st?.id || contract.masterId || contract.contractorId || '',
+      fullName,
+      name: fullName,
+      brigadeName: contract.brigadeName || st?.brigade || fullName,
+      passport: profile?.passport || staffPassportText(st) || '',
+      inn: profile?.inn || st?.inn || '',
+      bankAccount: profile?.bankAccount || st?.bankAccount || '',
+      bankName: profile?.bankName || st?.bankName || '',
+      ogrnip: profile?.ogrnip || st?.ogrnip || '',
+      phone: profile?.phone || st?.phone || '',
+      specialization: profile?.specialization || st?.specialization || st?.role || '',
+      contractType: type,
+      _staff: st,
+      _user: userRow,
+      _profile: profile,
+    };
+  };
+  const performerMissingRequisites = (performer={}, contractType='') => {
+    const t = String(contractType||performer.contractType||'').toLowerCase();
+    const missing = [];
+    if (!performer.fullName || performer.fullName==='Исполнитель не выбран') missing.push('ФИО/название');
+    if (!performer.inn) missing.push('ИНН');
+    if ((t.includes('самозан')||t.includes('гпх')) && !performer.passport) missing.push('паспорт');
+    if (t.includes('ип') && !performer.ogrnip) missing.push('ОГРНИП');
+    if (!t.includes('труд') && !performer.bankAccount) missing.push('расчётный счёт');
+    if (!t.includes('труд') && !performer.bankName) missing.push('банк');
+    return missing;
+  };
+  const contractRequisitesWarning = (performer={}, contractType='') => {
+    const missing = performerMissingRequisites(performer, contractType);
+    return missing.length ? 'Не хватает реквизитов: '+missing.join(', ')+'. Заполните карточку исполнителя, чтобы договор печатался без пустых полей.' : '';
+  };
+  const buildContractContent = (profile, contract, items=[]) => {
+    const performer = resolveContractPerformer(contract, profile);
+    const warning = contractRequisitesWarning(performer, contract?.contractType||contract?.contractorType||performer.contractType);
+    const body = buildPerformerContractHtml({
       company: companyRequisites&&companyRequisites.fullName ? companyRequisites : companyName,
-      performer: profile,
+      performer,
       contract,
+      items,
     });
+    return warning ? '<div style="border:1px solid #f59e0b;background:#fff7ed;padding:10px 12px;margin-bottom:12px;border-radius:8px;color:#92400e"><b>Внимание:</b> '+warning+'</div>'+body : body;
   };
 
   const buildHiddenActContent = (act) => {
@@ -8954,7 +9031,14 @@ function App() {
 
   const createContract = async () => {
     if (!newContract.masterId||!newContract.contractNumber||!newContract.project) return;
-    await fetch(API+'/contracts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newContract)});
+    const performer = resolveContractPerformer(newContract);
+    const payload = {
+      ...newContract,
+      masterId: Number(newContract.masterId),
+      masterName: performer.fullName || newContract.masterName,
+      contractType: newContract.contractType || performer.contractType || 'ГПХ',
+    };
+    await fetch(API+'/contracts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     await loadAll(); setNewContract({masterId:'',masterName:'',contractType:'ГПХ',contractNumber:'',project:'',startDate:'',endDate:''}); setShowForm(false);
   };
 
@@ -12193,6 +12277,8 @@ function App() {
                         newBrigadeContract={newBrigadeContract}
                         setNewBrigadeContract={setNewBrigadeContract}
                         staff={staff}
+                        masterProfiles={masterProfiles}
+                        users={users}
                         pricelists={pricelists}
                         setBrigadeContracts={setBrigadeContracts}
                         setSelectedBrigadeContract={setSelectedBrigadeContract}
@@ -13556,7 +13642,7 @@ function App() {
               </div>
               {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <select value={newContract.masterId} onChange={e=>{const val=e.target.value;const mp=masterProfiles.find(p=>p.userId===Number(val));const st=(staff||[]).find(s=>s.id===Number(val));const name=mp?mp.fullName:(st?st.name:'');setNewContract({...newContract,masterId:val,masterName:name});}} style={{...inp,marginBottom:0}}>
+                  <select value={newContract.masterId} onChange={e=>{const val=e.target.value;const performer=resolveContractPerformer({...newContract,masterId:val});setNewContract({...newContract,masterId:val,masterName:performer.fullName,contractType:performer.contractType||newContract.contractType});}} style={{...inp,marginBottom:0}}>
                     <option value="">Выберите исполнителя *</option>
                     {/* Группировка по типу */}
                     {(()=>{
@@ -13585,23 +13671,63 @@ function App() {
                   <input type="date" placeholder="Начало" value={newContract.startDate} onChange={e=>setNewContract({...newContract,startDate:e.target.value})} style={{...inp,marginBottom:0}}/>
                   <input type="date" placeholder="Конец" value={newContract.endDate} onChange={e=>setNewContract({...newContract,endDate:e.target.value})} style={{...inp,marginBottom:0}}/>
                 </div>
+                {newContract.masterId&&(()=>{const performer=resolveContractPerformer(newContract);const warning=contractRequisitesWarning(performer,newContract.contractType);return warning?(<div style={{marginTop:'10px',padding:'10px 12px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,color:C.warning,fontSize:'12px',fontWeight:'600'}}>⚠️ {warning}</div>):(<div style={{marginTop:'10px',padding:'10px 12px',borderRadius:'8px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,color:C.success,fontSize:'12px',fontWeight:'600'}}>✅ Реквизиты исполнителя заполнены для печати договора</div>);})()}
                 <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={createContract} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
               </div>)}
               <div style={{position:'relative',marginBottom:'12px'}}>
                 <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
                 <input placeholder='🔍 Поиск договора (номер, мастер, объект)' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
               </div>
-              {contracts.filter(c=>{const m=masterProfiles.find(p=>p.userId===c.masterId);return matchSearch(listSearch,c.contractNumber,c.project,m?.fullName);}).map(c=>{const profile=masterProfiles.find(p=>p.userId===c.masterId);return(<div key={c.id} style={{...card,padding:'14px',marginBottom:'8px'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <div><b style={{color:C.text,fontSize:'13px'}}>{'Договор № '+c.contractNumber+' · '+c.contractType}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{c.masterName+' · '+c.project}</p><p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{c.startDate+' — '+c.endDate}</p></div>
-                  <div style={{display:'flex',gap:'6px'}}>
-                    {profile&&<button onClick={()=>showPreview(buildContractContent(profile,c),'Договор')} style={btnB}><Eye size={13}/>Просмотр</button>}
-                    {pdConsents.find(pd=>pd.userId===c.masterId)&&<span style={badge(C.success,C.successLight,C.successBorder)}>ПД ✅</span>}
-                    <button onClick={()=>deleteContract(c.id)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
+              {(()=>{
+                const sourceRows=[
+                  ...(contracts||[]).map(c=>({...c,_kind:'contract',_rowKey:'contract-'+c.id,projectName:c.project})),
+                  ...(brigadeContracts||[]).map(bc=>({...bc,_kind:'brigade',_rowKey:'brigade-'+bc.id,masterId:bc.contractorId,masterName:bc.brigadeName,contractType:bc.contractorType,contractNumber:bc.contractNumber||('БР-'+bc.id),project:bc.projectName,projectName:bc.projectName,startDate:bc.signedAt||'',endDate:''})),
+                ];
+                const visible=sourceRows.filter(row=>{const performer=resolveContractPerformer(row);return matchSearch(listSearch,row.contractNumber,row.project,row.projectName,row.masterName,row.brigadeName,performer.fullName,performer.inn);});
+                if(visible.length===0) return(<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Договоров и расчётов с исполнителями нет</p>);
+                const groups={};
+                visible.forEach(row=>{
+                  const performer=resolveContractPerformer(row);
+                  const key=normalizePersonKey(performer.fullName||row.masterName||row.brigadeName)||row._rowKey;
+                  if(!groups[key]) groups[key]={key,name:performer.fullName||row.masterName||row.brigadeName||'Исполнитель',performer,rows:[],projects:new Set(),types:new Set(),total:0,warnings:new Set()};
+                  groups[key].rows.push({...row,performer});
+                  if(row.project||row.projectName) groups[key].projects.add(row.project||row.projectName);
+                  if(row.contractType||row.contractorType) groups[key].types.add(row.contractType||row.contractorType);
+                  groups[key].total += Number(row.totalAmount||row.doneAmount||0);
+                  const warning=contractRequisitesWarning(performer,row.contractType||row.contractorType);
+                  if(warning) groups[key].warnings.add(warning);
+                });
+                return Object.values(groups).sort((a,b)=>a.name.localeCompare(b.name,'ru')).map(g=>(
+                  <div key={g.key} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'3px solid '+(g.warnings.size?C.warning:C.accent)}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
+                      <div>
+                        <b style={{color:C.text,fontSize:'14px'}}>📁 {g.name}</b>
+                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{Array.from(g.types).filter(Boolean).join(' · ')||'Исполнитель'} · {g.rows.length} док. · {Array.from(g.projects).join(', ')||'без объекта'}</p>
+                        {g.performer.inn&&<p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>ИНН: {g.performer.inn}{g.performer.bankName?' · '+g.performer.bankName:''}</p>}
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        {g.total>0&&<b style={{color:C.success,fontSize:'14px'}}>{Math.round(g.total).toLocaleString('ru-RU')+' ₽'}</b>}
+                        {g.warnings.size>0&&<p style={{color:C.warning,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>⚠️ реквизиты не полные</p>}
+                      </div>
+                    </div>
+                    {g.warnings.size>0&&<div style={{padding:'8px 10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,color:C.warning,fontSize:'11px',marginBottom:'8px'}}>{Array.from(g.warnings)[0]}</div>}
+                    {g.rows.sort((a,b)=>String(a.project||'').localeCompare(String(b.project||''),'ru')).map(row=>{const isBrigade=row._kind==='brigade';const items=isBrigade?(allBrigadeItems||[]).filter(it=>Number(it.contractId)===Number(row.id)):[];return(
+                      <div key={row._rowKey} style={{padding:'8px 0',borderTop:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                        <div>
+                          <b style={{color:C.text,fontSize:'12px'}}>{isBrigade?'Расчёт/договор бригады № ':'Договор № '}{row.contractNumber}</b>
+                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(row.project||row.projectName||'без объекта')+' · '+(row.contractType||row.contractorType||'')}{isBrigade&&row.status?' · '+row.status:''}</p>
+                          {!isBrigade&&<p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>{(row.startDate||'')+' — '+(row.endDate||'')}</p>}
+                        </div>
+                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
+                          <button onClick={()=>showPreview(buildContractContent(row.performer,row,items),'Договор')} style={btnB}><Eye size={13}/>Просмотр</button>
+                          {!isBrigade&&pdConsents.find(pd=>Number(pd.userId)===Number(row.masterId))&&<span style={badge(C.success,C.successLight,C.successBorder)}>ПД ✅</span>}
+                          {!isBrigade&&<button onClick={()=>deleteContract(row.id)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>}
+                        </div>
+                      </div>
+                    );})}
                   </div>
-                </div>
-              </div>);})}
-              {contracts.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Договоров нет</p>}
+                ));
+              })()}
             </div>)}
 
             {accountingTab==='acts'&&(<div>

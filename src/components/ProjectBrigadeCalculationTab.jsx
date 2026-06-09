@@ -19,6 +19,8 @@ export default function ProjectBrigadeCalculationTab({
   newBrigadeContract,
   setNewBrigadeContract,
   staff,
+  masterProfiles = [],
+  users = [],
   pricelists,
   setBrigadeContracts,
   setSelectedBrigadeContract,
@@ -82,6 +84,7 @@ export default function ProjectBrigadeCalculationTab({
           newBrigadeContract={newBrigadeContract}
           setNewBrigadeContract={setNewBrigadeContract}
           staff={staff}
+          masterProfiles={masterProfiles}
           pricelists={pricelists}
           setBrigadeContracts={setBrigadeContracts}
           setSelectedBrigadeContract={setSelectedBrigadeContract}
@@ -108,6 +111,9 @@ export default function ProjectBrigadeCalculationTab({
             showPreview={showPreview}
             companyRequisites={companyRequisites}
             companyName={companyName}
+            staff={staff}
+            masterProfiles={masterProfiles}
+            users={users}
             C={C}
             btnG={btnG}
             btnO={btnO}

@@ -56,15 +56,13 @@ export default function ProjectBrigadeCreateForm({
     <div style={{...card, padding: '20px', marginBottom: '16px'}}>
       <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
         <select value={newBrigadeContract.contractorType} onChange={e => setNewBrigadeContract({...newBrigadeContract, contractorType: e.target.value})} style={{...inp, marginBottom: 0}}>
-          {['Своя бригада', 'Субподрядчик', 'Мастер', 'Самозанятый'].map(t => <option key={t}>{t}</option>)}
+          {['Своя бригада', 'Субподрядчик', 'Мастер', 'ГПХ', 'Самозанятый', 'ИП', 'ООО', 'Трудовой договор'].map(t => <option key={t}>{t}</option>)}
         </select>
         <input placeholder="Название / ФИО *" value={newBrigadeContract.brigadeName} onChange={e => setNewBrigadeContract({...newBrigadeContract, brigadeName: e.target.value})} style={{...inp, marginBottom: 0}}/>
-        {newBrigadeContract.contractorType !== 'Субподрядчик' && (
-          <select value={newBrigadeContract.contractorId} onChange={e => setNewBrigadeContract({...newBrigadeContract, contractorId: e.target.value})} style={{...inp, marginBottom: 0}}>
-            <option value="">Привязать к сотруднику</option>
-            {staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        )}
+        <select value={newBrigadeContract.contractorId} onChange={e => {const val=e.target.value;const st=staff.find(s=>String(s.id)===String(val));setNewBrigadeContract({...newBrigadeContract, contractorId: val, brigadeName: st?.name || newBrigadeContract.brigadeName, contractorType: st?.employmentType || newBrigadeContract.contractorType});}} style={{...inp, marginBottom: 0}}>
+          <option value="">Привязать к карточке исполнителя</option>
+          {staff.map(s => <option key={s.id} value={s.id}>{s.name}{s.employmentType ? ' · ' + s.employmentType : ''}{s.specialization ? ' · ' + s.specialization : ''}</option>)}
+        </select>
         <select value={newBrigadeContract.pricelistId || ''} onChange={e => setNewBrigadeContract({...newBrigadeContract, pricelistId: e.target.value})} style={{...inp, marginBottom: 0}}>
           <option value="">🏷️ Прайс бригады (по умолчанию — прайс объекта)</option>
           {pricelists.map(pl => <option key={pl.id} value={pl.id}>{pl.name}{pl.forWho ? ' (' + pl.forWho + ')' : ''}</option>)}

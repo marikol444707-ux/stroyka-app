@@ -14,6 +14,9 @@ export default function ProjectBrigadeSelectedHeader({
   showPreview,
   companyRequisites,
   companyName,
+  staff = [],
+  masterProfiles = [],
+  users = [],
   C,
   btnG,
   btnO,
@@ -38,13 +41,62 @@ export default function ProjectBrigadeSelectedHeader({
     setBrigadeContracts(prev => prev.map(bc => bc.id === selectedBrigadeContract.id ? signedContract : bc));
   };
 
+  const normalizeKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const staffPassportText = (s = {}) => {
+    const number = [s.passportSeries, s.passportNumber].filter(Boolean).join(' ').trim();
+    const issued = [s.passportIssuedBy, s.passportIssuedDate].filter(Boolean).join(', ');
+    return [number, issued].filter(Boolean).join('; ');
+  };
+  const resolvePerformer = () => {
+    const id = Number(selectedBrigadeContract.contractorId || 0);
+    const nameKey = normalizeKey(selectedBrigadeContract.brigadeName);
+    const st = (staff || []).find(s => Number(s.id) === id)
+      || (staff || []).find(s => normalizeKey(s.name) === nameKey || normalizeKey(s.brigade) === nameKey)
+      || null;
+    const userRow = st ? (users || []).find(u => normalizeKey(u.name) === normalizeKey(st.name) || normalizeKey(u.email) === normalizeKey(st.emailWork)) : null;
+    const profile = (masterProfiles || []).find(p => Number(p.userId) === id)
+      || (userRow ? (masterProfiles || []).find(p => Number(p.userId) === Number(userRow.id)) : null)
+      || (masterProfiles || []).find(p => normalizeKey(p.fullName) === nameKey || (st && normalizeKey(p.fullName) === normalizeKey(st.name)))
+      || null;
+    const type = selectedBrigadeContract.contractorType || profile?.contractType || st?.employmentType || 'Подряд';
+    const fullName = profile?.fullName || st?.name || selectedBrigadeContract.brigadeName || 'Исполнитель';
+    return {
+      ...(st || {}),
+      ...(profile || {}),
+      fullName,
+      name: fullName,
+      brigadeName: selectedBrigadeContract.brigadeName || fullName,
+      passport: profile?.passport || staffPassportText(st) || '',
+      inn: profile?.inn || st?.inn || '',
+      bankAccount: profile?.bankAccount || st?.bankAccount || '',
+      bankName: profile?.bankName || st?.bankName || '',
+      ogrnip: profile?.ogrnip || st?.ogrnip || '',
+      phone: profile?.phone || st?.phone || '',
+      specialization: profile?.specialization || st?.specialization || st?.role || '',
+      contractType: type,
+    };
+  };
+  const missingRequisites = (performer) => {
+    const type = String(selectedBrigadeContract.contractorType || performer.contractType || '').toLowerCase();
+    const missing = [];
+    if (!performer.fullName) missing.push('ФИО/название');
+    if (!performer.inn) missing.push('ИНН');
+    if ((type.includes('самозан') || type.includes('гпх')) && !performer.passport) missing.push('паспорт');
+    if (type.includes('ип') && !performer.ogrnip) missing.push('ОГРНИП');
+    if (!type.includes('труд') && !performer.bankAccount) missing.push('расчётный счёт');
+    if (!type.includes('труд') && !performer.bankName) missing.push('банк');
+    return missing;
+  };
+
   const showContract = () => {
     const total = brigadeContractItems.reduce((sum, item) => sum + item.quantity * item.priceBrigade, 0);
-    const html = buildPerformerContractHtml({
+    const performer = resolvePerformer();
+    const missing = missingRequisites(performer);
+    const html = (missing.length
+      ? '<div style="border:1px solid #f59e0b;background:#fff7ed;padding:10px 12px;margin-bottom:12px;border-radius:8px;color:#92400e"><b>Внимание:</b> не хватает реквизитов: ' + missing.join(', ') + '. Заполните карточку исполнителя.</div>'
+      : '') + buildPerformerContractHtml({
       company: companyRequisites && companyRequisites.fullName ? companyRequisites : companyName,
-      performer: {
-        fullName: selectedBrigadeContract.brigadeName,
-      },
+      performer,
       contract: {
         ...selectedBrigadeContract,
         id: selectedBrigadeContract.id,

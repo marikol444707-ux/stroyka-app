@@ -6370,6 +6370,8 @@ def create_contract(c: ContractModel, _current_user: dict = Depends(require_role
     cur.execute("INSERT INTO contracts (master_id,master_name,contract_type,contract_number,project,start_date,end_date) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
                 (c.masterId,c.masterName,c.contractType,c.contractNumber,c.project,c.startDate,c.endDate))
     row = cur.fetchone()
+    conn.commit()
+    cur.close()
     conn.close()
     return dict(row)
 

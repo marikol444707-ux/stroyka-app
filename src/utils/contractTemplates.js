@@ -60,6 +60,8 @@ const performerRequisites = (performer, type) => {
     ['ФИО / наименование', performerName(performer, {})],
     ['ИНН', performer?.inn || '_______'],
   ];
+  if (performer?.passport) rows.push(['Паспорт', performer.passport]);
+  if (performer?.phone) rows.push(['Телефон', performer.phone]);
   if (isIp || performer?.ogrnip) rows.push(['ОГРНИП', performer?.ogrnip || '_______']);
   if (performer?.bankAccount) rows.push(['Р/с', performer.bankAccount]);
   if (performer?.bankName) rows.push(['Банк', performer.bankName]);
