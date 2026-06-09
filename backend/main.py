@@ -9670,7 +9670,22 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 qty = 0
             name = (m.get("name") or "").strip()
             if name and qty > 0:
-                used.append({"name": name, "quantity": qty, "unit": m.get("unit") or "шт"})
+                row = {"name": name, "quantity": qty, "unit": m.get("unit") or "шт"}
+                try:
+                    norm_qty = float(m.get("normQuantity") or 0)
+                except Exception:
+                    norm_qty = 0
+                if norm_qty > 0:
+                    row["normQuantity"] = norm_qty
+                if m.get("normSource"):
+                    row["normSource"] = m.get("normSource")
+                if "autoNorm" in m:
+                    row["autoNorm"] = bool(m.get("autoNorm"))
+                if "overNorm" in m:
+                    row["overNorm"] = bool(m.get("overNorm"))
+                if m.get("overNormReason"):
+                    row["overNormReason"] = m.get("overNormReason")
+                used.append(row)
         return used
 
     for section_idx, s in enumerate(new_sections):
