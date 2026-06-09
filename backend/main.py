@@ -3188,10 +3188,11 @@ class PdConsentModel(BaseModel):
 @app.post("/login")
 def login(data: LoginModel):
     from datetime import datetime as _dt, timedelta as _td
+    email = (data.email or "").strip().lower()
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     # Проверяем не заблокирован ли пользователь
-    cur.execute("SELECT id, failed_login_count, locked_until FROM users WHERE email=%s", (data.email,))
+    cur.execute("SELECT id, failed_login_count, locked_until FROM users WHERE LOWER(email)=LOWER(%s)", (email,))
     user_check = cur.fetchone()
     if user_check and user_check.get('locked_until'):
         if user_check['locked_until'] > _dt.now():
@@ -3203,7 +3204,7 @@ def login(data: LoginModel):
             cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user_check['id'],))
             conn.commit()
     # Логинимся: пароль проверяем в Python, чтобы поддержать хеши и старые plaintext-пароли.
-    cur.execute("SELECT * FROM users WHERE LOWER(email)=LOWER(%s)", (data.email,))
+    cur.execute("SELECT * FROM users WHERE LOWER(email)=LOWER(%s)", (email,))
     user = cur.fetchone()
     if user and user.get("active") is False:
         conn.close()
@@ -3346,7 +3347,7 @@ def password_reset(data: dict):
     from datetime import datetime as _dt
     email = (data.get("email") or "").strip().lower()
     code = (data.get("code") or "").strip()
-    new_password = data.get("newPassword") or ""
+    new_password = (data.get("newPassword") or "").strip()
     if not email or not code or not new_password:
         raise HTTPException(status_code=400, detail="Заполните email, код и новый пароль")
     if len(new_password) < 5:
@@ -3376,8 +3377,8 @@ def register(data: dict):
     from datetime import datetime
     code = (data.get("code") or "").strip()
     name = (data.get("name") or "").strip()
-    email = (data.get("email") or "").strip()
-    password = data.get("password") or ""
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "").strip()
     if not code or not name or not email or not password:
         raise HTTPException(status_code=400, detail="Заполните имя, email, пароль и код приглашения")
     conn = get_db()
@@ -3973,13 +3974,16 @@ def update_assigned_projects(id: int, data: dict, _current_user: dict = Depends(
 def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     if not (u.password or "").strip():
         raise HTTPException(status_code=400, detail="Пароль обязателен")
+    email = (u.email or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email обязателен")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute("""INSERT INTO users (name,email,password,role,project_id,project_name,active)
                        VALUES (%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id,name,email,role,project_id,project_name,active""",
-                    (u.name,u.email,hash_password(u.password),u.role,int(u.projectId) if u.projectId else None,u.projectName or "", u.active is not False))
+                    ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "", u.active is not False))
         row = cur.fetchone()
         conn.commit()
         cur.close()
@@ -3993,6 +3997,9 @@ def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADE
 
 @app.put("/users/{id}")
 def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    email = (u.email or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email обязателен")
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -4002,11 +4009,11 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
             active_sql = ", active=%s"
             params_tail.append(u.active is not False)
         if u.password:
-            cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s"+active_sql+" WHERE id=%s",
-                        (u.name,u.email,hash_password(u.password),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
+            cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s,failed_login_count=0,locked_until=NULL"+active_sql+" WHERE id=%s",
+                        ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
         else:
             cur.execute("UPDATE users SET name=%s,email=%s,role=%s,project_id=%s,project_name=%s"+active_sql+" WHERE id=%s",
-                        (u.name,u.email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
+                        ((u.name or "").strip(),email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
         if cur.rowcount == 0:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Пользователь не найден")

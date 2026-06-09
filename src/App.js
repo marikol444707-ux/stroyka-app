@@ -2906,7 +2906,7 @@ function App() {
 
   const handleLogin = async () => {
     try {
-      const res = await fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+      const res = await fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:(email||'').trim().toLowerCase(),password:(password||'').trim()})});
       if (!res.ok) { setLoginError('Неверный email или пароль'); return; }
       const data = await res.json();
       if (data.authToken) localStorage.setItem('authToken', data.authToken);
@@ -8230,8 +8230,10 @@ function App() {
   const saveStaff = async () => {
     if (!newStaff.name && !newStaff.lastName && !newStaff.firstName) { alert('Заполните хотя бы фамилию и имя'); return; }
     const fullName = newStaff.name || [newStaff.lastName, newStaff.firstName, newStaff.middleName].filter(Boolean).join(' ');
-    const hasEmail = !!newStaff.email;
-    const hasPassword = !!newStaff.password;
+    const accessEmail = (newStaff.email || '').trim().toLowerCase();
+    const accessPassword = (newStaff.password || '').trim();
+    const hasEmail = !!accessEmail;
+    const hasPassword = !!accessPassword;
     const hasRole = !!newStaff.systemRole;
     if ((hasEmail || hasPassword || hasRole) && !(hasEmail && hasPassword && hasRole)) {
       alert('Для выдачи доступа нужны ВСЕ три поля: системная роль + email + пароль. Сейчас заполнено не всё — заполните или очистите все три.');
@@ -8241,14 +8243,14 @@ function App() {
     if (editingItem) await fetch(API+'/staff/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     else await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     if (hasEmail && hasPassword && hasRole) {
-      const existing = users.find(u=>(u.email||'').toLowerCase()===newStaff.email.toLowerCase());
+      const existing = users.find(u=>(u.email||'').trim().toLowerCase()===accessEmail);
       const ap = Array.isArray(newStaff.assignedProjects)?newStaff.assignedProjects:[];
       if (existing) {
         try {
           await readApiResult(await fetch(API+'/users/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
             name:fullName,
-            email:newStaff.email,
-            password:newStaff.password,
+            email:accessEmail,
+            password:accessPassword,
             role:newStaff.systemRole,
             projectId:existing.projectId||existing.project_id||'',
             projectName:newStaff.project||existing.projectName||existing.project_name||'',
@@ -8261,10 +8263,10 @@ function App() {
         if(ap.length>0||['прораб','технадзор','стройконтроль'].includes(newStaff.systemRole)){
           try { await readApiResult(await fetch(API+'/users/'+existing.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})})); } catch(e){}
         }
-        alert('Пользователь с email '+newStaff.email+' уже существует — пароль, роль и назначенные объекты обновлены. Сотрудник сохранён.');
+        alert('Пользователь с email '+accessEmail+' уже существует — пароль, роль и назначенные объекты обновлены. Сотрудник сохранён.');
       } else {
         try {
-          const created = await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:fullName,email:newStaff.email,password:newStaff.password,role:newStaff.systemRole,projectName:newStaff.project||''})}));
+          const created = await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:fullName,email:accessEmail,password:accessPassword,role:newStaff.systemRole,projectName:newStaff.project||''})}));
           if(ap.length>0&&created&&created.id){
             try { await readApiResult(await fetch(API+'/users/'+created.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})})); } catch(e){}
           }
@@ -8449,19 +8451,25 @@ function App() {
   };
 
   const saveUser = async () => {
-    if (!newUser.name||!newUser.email) return;
-    if (!editingItem && !newUser.password) { alert('Укажите пароль'); return; }
+    const cleanUser = {
+      ...newUser,
+      name:(newUser.name||'').trim(),
+      email:(newUser.email||'').trim().toLowerCase(),
+      password:(newUser.password||'').trim(),
+    };
+    if (!cleanUser.name||!cleanUser.email) return;
+    if (!editingItem && !cleanUser.password) { alert('Укажите пароль'); return; }
     if (editingItem) {
-      const res = await fetch(API+'/users/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
+      const res = await fetch(API+'/users/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(cleanUser)});
       if(!res.ok){ const e=await res.json().catch(()=>({})); alert(e.detail||'Не удалось сохранить пользователя'); return; }
     }
     else {
-      const res = await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newUser)});
+      const res = await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cleanUser)});
       if(!res.ok){ const e=await res.json().catch(()=>({})); alert(e.detail||'Не удалось создать пользователя'); return; }
-      if(newUser.role==='поставщик'){
-        const existing = suppliers.find(s=>s.name===newUser.name||s.email===newUser.email);
+      if(cleanUser.role==='поставщик'){
+        const existing = suppliers.find(s=>s.name===cleanUser.name||s.email===cleanUser.email);
         if(!existing){
-          await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newUser.name,email:newUser.email,phone:'',specialization:'',category:'Прочее',rating:5.0,status:'Активный'})});
+          await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:cleanUser.name,email:cleanUser.email,phone:'',specialization:'',category:'Прочее',rating:5.0,status:'Активный'})});
         }
       }
     }
