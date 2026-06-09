@@ -368,16 +368,25 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
     : null;
   let priceWork = toNum(item.priceWork);
   let priceMaterial = toNum(item.priceMaterial);
+  const normalizedQty = Math.abs(toNum(normalizedMeasure.qty));
+  const workLineTotal = totalWork || (itemType === 'work' ? total : 0);
+  const materialLineTotal = totalMaterial || (['material','equipment','transport'].includes(itemType) ? total : 0);
+  const unitPriceFromTotal = (lineTotal) => normalizedQty > 0 ? lineTotal / normalizedQty : lineTotal;
+  const priceLooksLikeLineTotal = (price, lineTotal) => price > 0 && lineTotal > 0 && Math.abs(price - lineTotal) <= Math.max(1, Math.abs(lineTotal) * 0.001);
   if (!priceWork && !priceMaterial) {
-    if (itemType === 'work') priceWork = totalWork || total;
-    else if (['material','equipment','transport'].includes(itemType)) priceMaterial = totalMaterial || total;
+    if (itemType === 'work') priceWork = unitPriceFromTotal(workLineTotal);
+    else if (['material','equipment','transport'].includes(itemType)) priceMaterial = unitPriceFromTotal(materialLineTotal);
+  } else if (itemType === 'work' && priceLooksLikeLineTotal(priceWork, workLineTotal)) {
+    priceWork = unitPriceFromTotal(workLineTotal);
+  } else if (['material','equipment','transport'].includes(itemType) && priceLooksLikeLineTotal(priceMaterial, materialLineTotal)) {
+    priceMaterial = unitPriceFromTotal(materialLineTotal);
   }
   if (itemType === 'material' && priceWork > 0 && !priceMaterial) {
-    priceMaterial = priceWork;
+    priceMaterial = priceLooksLikeLineTotal(priceWork, materialLineTotal) ? unitPriceFromTotal(materialLineTotal) : priceWork;
     priceWork = 0;
   }
   if (itemType === 'work' && priceMaterial > 0 && !priceWork) {
-    priceWork = priceMaterial;
+    priceWork = priceLooksLikeLineTotal(priceMaterial, workLineTotal) ? unitPriceFromTotal(workLineTotal) : priceMaterial;
     priceMaterial = 0;
   }
   if (itemType === 'adjustment') {
@@ -463,19 +472,25 @@ const estimateImportedWorkTotal = (it, itemType) => {
   const priceWork = toNum(it?.priceWork);
   const totalWork = toNum(it?.totalWork);
   const totalMaterial = toNum(it?.totalMaterial);
+  const lineTotal = toNum(it?.lineTotal ?? it?.currentTotal);
   const total = toNum(it?.total);
-  if (priceWork) return priceWork;
   if (totalWork) return totalWork;
+  if (itemType === 'work' && lineTotal && !totalMaterial) return lineTotal;
   if (itemType === 'overhead') return total;
+  if (priceWork && toNum(it?.quantity) > 0) return priceWork * toNum(it.quantity);
+  if (priceWork) return priceWork;
   return itemType === 'work' && !totalMaterial ? total : 0;
 };
 const estimateImportedMaterialTotal = (it, itemType) => {
   const priceMaterial = toNum(it?.priceMaterial);
   const totalMaterial = toNum(it?.totalMaterial);
   const totalWork = toNum(it?.totalWork);
+  const lineTotal = toNum(it?.lineTotal ?? it?.currentTotal);
   const total = toNum(it?.total);
-  if (priceMaterial) return priceMaterial;
   if (totalMaterial) return totalMaterial;
+  if (['material','equipment','transport'].includes(itemType) && lineTotal && !totalWork) return lineTotal;
+  if (priceMaterial && toNum(it?.quantity) > 0) return priceMaterial * toNum(it.quantity);
+  if (priceMaterial) return priceMaterial;
   return ['material','equipment','transport'].includes(itemType) && !totalWork ? total : 0;
 };
 const estimateItemWorkSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) ? 0 : (it?.isImported ? estimateImportedWorkTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceWork)); };
@@ -15207,7 +15222,45 @@ function App() {
                   const totalM=mats.reduce((s,i)=>s+sumOf(i),0);
                   const totalOther=others.reduce((s,i)=>s+sumOf(i),0);
                   const removeAt=(idx)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).filter((_,i)=>i!==idx)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
-                  const updateItemPatch=(idx,patch,saveNow=false)=>{const fields=Object.keys(patch||{});const changesAmount=fields.some(f=>['quantity','priceWork','priceMaterial'].includes(f));const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map((it,i)=>{if(i!==idx)return it;const keepImported=it.isImported&&changesAmount;return {...it,...patch,isImported:keepImported?true:it.isImported};})}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));if(saveNow)persistEstimate(updated);return updated;};
+                  const updateItemPatch=(idx,patch,saveNow=false)=>{
+                    const fields=Object.keys(patch||{});
+                    const changesAmount=fields.some(f=>['quantity','priceWork','priceMaterial'].includes(f));
+                    const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{
+                      ...s,
+                      items:(s.items||[]).map((it,i)=>{
+                        if(i!==idx)return it;
+                        const keepImported=it.isImported&&changesAmount;
+                        const next={...it,...patch,isImported:keepImported?true:it.isImported};
+                        if(next.isImported&&changesAmount){
+                          const kind=normalizeEstimateItemType(next,s.name);
+                          const qty=toNum(next.quantity);
+                          if(kind==='work'&&(fields.includes('quantity')||fields.includes('priceWork'))){
+                            const total=qty*toNum(next.priceWork);
+                            next.totalWork=total;
+                            next.totalMaterial=0;
+                            next.total=total;
+                            next.lineTotal=total;
+                            next.currentTotal=total;
+                            next.lineTotalSource='manual_unit_price';
+                          }else if(['material','equipment','transport'].includes(kind)&&(fields.includes('quantity')||fields.includes('priceMaterial'))){
+                            const total=qty*toNum(next.priceMaterial);
+                            next.totalMaterial=total;
+                            next.totalWork=0;
+                            next.total=total;
+                            next.lineTotal=total;
+                            next.currentTotal=total;
+                            next.lineTotalSource='manual_unit_price';
+                          }
+                        }
+                        return next;
+                      })
+                    }:s);
+                    const updated={...selectedEstimate,sections};
+                    setSelectedEstimate(updated);
+                    setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
+                    if(saveNow)persistEstimate(updated);
+                    return updated;
+                  };
                   const updateItem=(idx,field,val,saveNow=false)=>updateItemPatch(idx,{[field]:val},saveNow);
                   const persist=()=>persistEstimate(selectedEstimate);
                   const inpCell={padding:'6px 8px',border:'1px solid '+C.border,borderRadius:'6px',fontSize:'12px',width:'100%',minWidth:0,backgroundColor:C.bgWhite,color:C.text,outline:'none'};

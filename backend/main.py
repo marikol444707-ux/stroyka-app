@@ -9009,7 +9009,7 @@ async def parse_smeta(file: UploadFile = File(...)):
             units = ("шт", "м", "м2", "м3", "кг", "т", "л", "рулон", "лист", "упак", "компл", "маш-ч", "чел-ч")
             if text in units:
                 return True
-            return bool(re.match(r"^\d+(шт|м|м2|м3|кг|т|л|рулон|лист|упак|компл)", text))
+            return bool(re.match(r"^\d+(м2|м3|маш-ч|чел-ч|шт|кг|рулон|лист|упак|компл|м|т|л)", text))
 
         def _normalize_lsr_measure(qty, unit):
             raw_unit = _normalize_lsr_unit_text(unit)
@@ -9052,7 +9052,7 @@ async def parse_smeta(file: UploadFile = File(...)):
             quantity_base = _num_at(quantity_base_idx)
             quantity_coeff = _num_at(quantity_coeff_idx)
             quantity_final = _num_at(quantity_final_idx)
-            if quantity_final is not None and abs(quantity_final) > 0.0001:
+            if quantity_final is not None:
                 qty = quantity_final
             elif quantity_base is not None:
                 qty = quantity_base
@@ -9373,6 +9373,8 @@ async def parse_smeta(file: UploadFile = File(...)):
                     work_total = line_money if item_type == "work" else 0
                     mat_total = line_money if item_type in ("material", "equipment", "transport") else 0
                     line_total = mat_total if item_type in ("material", "equipment", "transport") else work_total
+                    if item_type in ("material", "equipment", "transport") and abs(float(qty or 0)) <= 0.0001 and abs(line_total) <= 0.0001:
+                        continue
 
                     item = {
                         "section": current_section,
