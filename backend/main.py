@@ -3468,6 +3468,10 @@ def create_project(p: ProjectModel, current_user: dict = Depends(require_roles(*
 
 @app.put("/projects/{id}")
 def update_project(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
+    if data.get("archived") is True:
+        raise HTTPException(status_code=403, detail="Архивация объекта отключена. Объект может закрыть только директор отдельной процедурой закрытия.")
+    if str(data.get("status") or "").strip().lower() in ("завершён", "завершен"):
+        raise HTTPException(status_code=403, detail="Статус 'Завершён' отключён в обычном редактировании. Объект закрывается только отдельной процедурой директора.")
     fields_map = [
         ('name','name'),('client','client'),('status','status'),('budget','budget'),
         ('deadline','deadline'),('progress','progress'),('tasks','tasks'),
@@ -3504,19 +3508,7 @@ def update_project(id: int, data: dict, current_user: dict = Depends(require_rol
 
 @app.delete("/projects/{id}")
 def delete_project(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,COALESCE(archived,false) as archived FROM projects WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Проект не найден")
-    cur.execute("UPDATE projects SET archived=TRUE, archived_at=NOW(), status='Завершён' WHERE id=%s", (id,))
-    conn.commit()
-    cur.close(); conn.close()
-    log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
-              action="archive", entity_type="project", entity_id=id, description="Объект отправлен в архив вместо удаления", project_name=row["name"])
-    return {"ok": True, "archived": True}
+    raise HTTPException(status_code=405, detail="Удаление и архивирование объекта отключены. Объект может закрыть только директор отдельной процедурой закрытия.")
 
 @app.get("/clients")
 def get_clients(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
@@ -10118,15 +10110,23 @@ def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(r
     return {"id":r[0],"estimateId":r[1],"versionLabel":r[2] or "","sections":sections,"total":float(r[4] or 0),"comment":r[5] or "","createdBy":r[6] or "","createdAt":str(r[7])}
 
 @app.delete("/estimates/{id}")
-def delete_estimate(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
+def delete_estimate(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
     conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "estimates", id, _current_user, "project_name")
-    cur.execute("DELETE FROM estimate_versions WHERE estimate_id=%s", (id,))
-    cur.execute("DELETE FROM estimates WHERE id=%s",(id,))
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    require_row_project_access(cur, "estimates", id, current_user, "project_name")
+    cur.execute("SELECT id,name,project_name FROM estimates WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    cur.execute("UPDATE estimates SET status='Архив' WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
-    return {"ok":True}
+    log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
+              action="archive", entity_type="estimate", entity_id=id,
+              description="Смета отправлена в архив вместо физического удаления",
+              project_name=row.get("project_name") or "")
+    return {"ok":True, "archived": True}
 
 @app.get("/brigade-contracts")
 def get_brigade_contracts(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):

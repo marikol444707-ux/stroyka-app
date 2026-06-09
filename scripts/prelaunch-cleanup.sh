@@ -15,10 +15,9 @@ if [[ ! "$KEEP_EMAIL" =~ ^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+$ ]]; then
   exit 1
 fi
 
-if [[ "$DRY_RUN" != "1" && "$CONFIRM" != "CLEAN_STROYKA_PROD" ]]; then
-  echo "ERROR: destructive cleanup requires CONFIRM=CLEAN_STROYKA_PROD" >&2
-  echo "Run dry preview first:" >&2
-  echo "  KEEP_EMAIL='$KEEP_EMAIL' DRY_RUN=1 $0" >&2
+if [[ "$DRY_RUN" != "1" ]]; then
+  echo "ERROR: destructive prelaunch cleanup is disabled. Do not wipe production data from this script." >&2
+  echo "Use manual, reviewed archive/restore procedures instead." >&2
   exit 1
 fi
 
