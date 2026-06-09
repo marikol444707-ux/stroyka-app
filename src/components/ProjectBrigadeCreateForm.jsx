@@ -56,7 +56,7 @@ export default function ProjectBrigadeCreateForm({
     <div style={{...card, padding: '20px', marginBottom: '16px'}}>
       <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
         <select value={newBrigadeContract.contractorType} onChange={e => setNewBrigadeContract({...newBrigadeContract, contractorType: e.target.value})} style={{...inp, marginBottom: 0}}>
-          {['Своя бригада', 'Субподрядчик', 'Мастер'].map(t => <option key={t}>{t}</option>)}
+          {['Своя бригада', 'Субподрядчик', 'Мастер', 'Самозанятый'].map(t => <option key={t}>{t}</option>)}
         </select>
         <input placeholder="Название / ФИО *" value={newBrigadeContract.brigadeName} onChange={e => setNewBrigadeContract({...newBrigadeContract, brigadeName: e.target.value})} style={{...inp, marginBottom: 0}}/>
         {newBrigadeContract.contractorType !== 'Субподрядчик' && (

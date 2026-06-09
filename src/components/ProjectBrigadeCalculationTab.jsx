@@ -35,6 +35,8 @@ export default function ProjectBrigadeCalculationTab({
   brigadeCoef,
   setBrigadeCoef,
   showFinance,
+  companyRequisites,
+  companyName,
   normalizeMeasure,
   toNum,
   fmtMeasure,
@@ -104,6 +106,8 @@ export default function ProjectBrigadeCalculationTab({
             setBrigadeContracts={setBrigadeContracts}
             setBrigadePayments={setBrigadePayments}
             showPreview={showPreview}
+            companyRequisites={companyRequisites}
+            companyName={companyName}
             C={C}
             btnG={btnG}
             btnO={btnO}

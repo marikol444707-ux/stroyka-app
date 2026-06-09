@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowLeft, Check, Download, Eye } from 'lucide-react';
 import { API } from '../api';
+import { buildPerformerContractHtml } from '../utils/contractTemplates';
 
 export default function ProjectBrigadeSelectedHeader({
   projectName,
@@ -11,6 +12,8 @@ export default function ProjectBrigadeSelectedHeader({
   setBrigadeContracts,
   setBrigadePayments,
   showPreview,
+  companyRequisites,
+  companyName,
   C,
   btnG,
   btnO,
@@ -36,11 +39,23 @@ export default function ProjectBrigadeSelectedHeader({
   };
 
   const showContract = () => {
-    const rows = brigadeContractItems.map((item, index) => (
-      '<tr><td>' + (index + 1) + '</td><td>' + item.name + '</td><td>' + item.unit + '</td><td>' + item.quantity + '</td><td>' + Number(item.priceBrigade).toLocaleString() + '</td><td>' + Math.round(item.quantity * item.priceBrigade).toLocaleString() + '</td></tr>'
-    )).join('');
     const total = brigadeContractItems.reduce((sum, item) => sum + item.quantity * item.priceBrigade, 0);
-    const html = '<h2>ДОГОВОР ПОДРЯДА</h2><p>Объект: ' + projectName + '</p><p>Исполнитель: ' + selectedBrigadeContract.brigadeName + '</p><table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Объём</th><th>Цена</th><th>Сумма</th></tr>' + rows + '<tr><td colspan=5><b>ИТОГО:</b></td><td><b>' + total.toLocaleString() + ' руб.</b></td></tr></table>';
+    const html = buildPerformerContractHtml({
+      company: companyRequisites && companyRequisites.fullName ? companyRequisites : companyName,
+      performer: {
+        fullName: selectedBrigadeContract.brigadeName,
+      },
+      contract: {
+        ...selectedBrigadeContract,
+        id: selectedBrigadeContract.id,
+        contractNumber: selectedBrigadeContract.contractNumber || 'БР-' + selectedBrigadeContract.id,
+        contractType: selectedBrigadeContract.contractorType,
+        project: projectName,
+        projectName,
+        totalAmount: total || selectedBrigadeContract.totalAmount || selectedBrigadeContract.planAmount || 0,
+      },
+      items: brigadeContractItems,
+    });
 
     showPreview(html, 'Договор');
   };
