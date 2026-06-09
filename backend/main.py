@@ -3981,9 +3981,13 @@ def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADE
                        RETURNING id,name,email,role,project_id,project_name,active""",
                     (u.name,u.email,hash_password(u.password),u.role,int(u.projectId) if u.projectId else None,u.projectName or "", u.active is not False))
         row = cur.fetchone()
+        conn.commit()
+        cur.close()
         conn.close()
         return dict(row)
     except Exception as e:
+        conn.rollback()
+        cur.close()
         conn.close()
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -3991,17 +3995,32 @@ def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADE
 def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    active_sql = ""
-    params_tail = []
-    if u.active is not None:
-        active_sql = ", active=%s"
-        params_tail.append(u.active is not False)
-    if u.password:
-        cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s"+active_sql+" WHERE id=%s",
-                    (u.name,u.email,hash_password(u.password),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
-    else:
-        cur.execute("UPDATE users SET name=%s,email=%s,role=%s,project_id=%s,project_name=%s"+active_sql+" WHERE id=%s",
-                    (u.name,u.email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
+    try:
+        active_sql = ""
+        params_tail = []
+        if u.active is not None:
+            active_sql = ", active=%s"
+            params_tail.append(u.active is not False)
+        if u.password:
+            cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s"+active_sql+" WHERE id=%s",
+                        (u.name,u.email,hash_password(u.password),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
+        else:
+            cur.execute("UPDATE users SET name=%s,email=%s,role=%s,project_id=%s,project_name=%s"+active_sql+" WHERE id=%s",
+                        (u.name,u.email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",*params_tail,id))
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        conn.commit()
+    except HTTPException:
+        cur.close()
+        conn.close()
+        raise
+    except Exception as e:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=400, detail=str(e))
+    cur.close()
     conn.close()
     return {"ok": True}
 
@@ -4012,6 +4031,13 @@ def delete_user(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE users SET active=FALSE, locked_until=NULL WHERE id=%s", (id,))
+    if cur.rowcount == 0:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    conn.commit()
+    cur.close()
     conn.close()
     return {"ok": True}
 
