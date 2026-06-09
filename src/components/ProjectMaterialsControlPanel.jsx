@@ -42,6 +42,9 @@ export default function ProjectMaterialsControlPanel({
 }) {
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState('all');
+  const [showAllRows, setShowAllRows] = React.useState(false);
+  const [showAllNormRows, setShowAllNormRows] = React.useState(false);
+  const [showAllNormProblemRows, setShowAllNormProblemRows] = React.useState(false);
   const [expandedRows, setExpandedRows] = React.useState({});
   const toggleExpandedRow = (key) => setExpandedRows(prev => ({...prev, [key]: !prev[key]}));
   const planRows = rows.filter(r => r.planQty > 0);
@@ -81,6 +84,17 @@ export default function ProjectMaterialsControlPanel({
       ...(r.aliases || [])
     ].join(' ').toLowerCase().includes(queryKey);
   });
+  React.useEffect(() => {
+    setShowAllRows(false);
+  }, [queryKey, filter, rows.length]);
+  const rowLimit = queryKey || filter !== 'all' ? 240 : 120;
+  const displayedRows = showAllRows ? visibleRows : visibleRows.slice(0, rowLimit);
+  const hiddenRows = Math.max(0, visibleRows.length - displayedRows.length);
+  const normRowLimit = 12;
+  const displayedNormRows = showAllNormRows ? normRows : normRows.slice(0, normRowLimit);
+  const hiddenNormRows = Math.max(0, normRows.length - displayedNormRows.length);
+  const displayedNormProblemRows = showAllNormProblemRows ? normProblemRows : normProblemRows.slice(0, normRowLimit);
+  const hiddenNormProblemRows = Math.max(0, normProblemRows.length - displayedNormProblemRows.length);
   const headCell = {
     ...tblH,
     position: 'sticky',
@@ -200,7 +214,7 @@ export default function ProjectMaterialsControlPanel({
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map(r => {
+              {displayedRows.map(r => {
                 const st = materialControlStatus(r);
                 const planDetails = r.planDetails || [];
                 const isExpanded = !!expandedRows[r.key];
@@ -349,8 +363,17 @@ export default function ProjectMaterialsControlPanel({
           </table>
           {visibleRows.length === 0 && <p style={{color: C.textMuted, fontSize: '12px', textAlign: 'center', padding: '14px'}}>По фильтру ничего не найдено.</p>}
         </div>
+        {hiddenRows > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowAllRows(true)}
+            style={{...btnB, width: '100%', justifyContent: 'center', marginTop: '8px', fontSize: '12px'}}
+          >
+            Показать ещё {hiddenRows} материалов
+          </button>
+        )}
         <p style={{color: C.textMuted, fontSize: '11px', margin: '8px 0 0'}}>
-          Показано {visibleRows.length} из {rows.length}. Заявку можно создать прямо в колонке «Статус».
+          Показано {displayedRows.length} из {visibleRows.length}{visibleRows.length !== rows.length ? ' найденных' : ''}. Заявку можно создать прямо в колонке «Статус».
         </p>
         </>
       )}
@@ -367,7 +390,7 @@ export default function ProjectMaterialsControlPanel({
             <table style={{...tbl, fontSize: '11px'}}>
               <thead><tr><th style={tblH}>Материал по норме</th><th style={tblH}>Потребность</th><th style={tblH}>Работы-источники</th><th style={tblH}>Норма</th></tr></thead>
               <tbody>
-                {normRows.slice(0, 12).map(r => (
+                {displayedNormRows.map(r => (
                   <tr key={r.key}>
                     <td style={tblC}><b style={{fontSize: '12px'}}>{r.name}</b>{r.sections.length > 0 && <p style={{color: C.textMuted, fontSize: '10px', margin: '2px 0 0'}}>{r.sections.slice(0, 2).join(', ')}{r.sections.length > 2 ? '…' : ''}</p>}</td>
                     <td style={{...tblC, fontWeight: '700', color: C.info}}>{fmtMeasure(r.planQty, r.unit)}</td>
@@ -377,7 +400,15 @@ export default function ProjectMaterialsControlPanel({
                 ))}
               </tbody>
             </table>
-            {normRows.length > 12 && <p style={{color: C.textMuted, fontSize: '11px', margin: '8px 0 0'}}>Показаны первые 12 строк. Полный список — в печатной ведомости.</p>}
+            {hiddenNormRows > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowAllNormRows(true)}
+                style={{...btnB, width: '100%', justifyContent: 'center', marginTop: '8px', fontSize: '12px'}}
+              >
+                Показать ещё {hiddenNormRows} строк норм
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -394,7 +425,7 @@ export default function ProjectMaterialsControlPanel({
             <table style={{...tbl, fontSize: '11px'}}>
               <thead><tr><th style={tblH}>Материал</th><th style={tblH}>Факт</th><th style={tblH}>Норма</th><th style={tblH}>Отклонение</th><th style={tblH}>Работы</th><th style={tblH}>Статус</th></tr></thead>
               <tbody>
-                {normProblemRows.slice(0, 12).map(r => {
+                {displayedNormProblemRows.map(r => {
                   const over = r.overQty > 0;
                   return (
                     <tr key={r.key}>
@@ -416,7 +447,15 @@ export default function ProjectMaterialsControlPanel({
                 })}
               </tbody>
             </table>
-            {normProblemRows.length > 12 && <p style={{color: C.textMuted, fontSize: '11px', margin: '8px 0 0'}}>Показаны первые 12 строк. Полный список — в печатной ведомости.</p>}
+            {hiddenNormProblemRows > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowAllNormProblemRows(true)}
+                style={{...btnB, width: '100%', justifyContent: 'center', marginTop: '8px', fontSize: '12px'}}
+              >
+                Показать ещё {hiddenNormProblemRows} отклонений
+              </button>
+            )}
           </div>
         </div>
       )}

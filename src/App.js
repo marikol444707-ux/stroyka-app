@@ -1171,6 +1171,7 @@ function App() {
   const [selectedPricelist, setSelectedPricelist] = useState(null);
   const [selectedInventory, setSelectedInventory] = useState(null);
   const [selectedEstimate, setSelectedEstimate] = useState(null);
+  const [mobileExpandedRenderLists, setMobileExpandedRenderLists] = useState({});
   const [selectedChecklist, setSelectedChecklist] = useState(null);
   const [expandedProject, setExpandedProject] = useState(null);
   const [projectAiSummaries, setProjectAiSummaries] = useState({});
@@ -15212,9 +15213,14 @@ function App() {
                   const estimateTbl={...tbl,minWidth:'1840px',tableLayout:'fixed'};
                   const projBrigades=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName).map(bc=>bc.brigadeName).filter(Boolean);
                   const markSectionBasis=()=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map(it=>isEstimateWorkItem(it,s.name)?{...it,measurementBasis:estimateMeasurementBasisOf(it,s.name)}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
-                  const renderGroup=(title,emoji,list,groupTotal,accent)=>(<div style={{marginBottom:'10px'}}>
-                    <EstimateItemGroupHeader title={title} emoji={emoji} count={list.length} total={groupTotal} accent={accent}/>
-                    {list.length>0?(<div style={{overflowX:'auto',paddingBottom:'2px'}}><table style={estimateTbl}><thead><tr>
+	                  const renderGroup=(title,emoji,list,groupTotal,accent)=>{
+	                    const mobileGroupLimit=showEstimateIssuesOnly?100:60;
+	                    const listKey=['estimate',selectedEstimate.id,si,title].join(':');
+	                    const groupRows=isMobile&&!mobileExpandedRenderLists[listKey]?list.slice(0,mobileGroupLimit):list;
+	                    const hiddenRows=list.length-groupRows.length;
+	                    return(<div style={{marginBottom:'10px'}}>
+	                    <EstimateItemGroupHeader title={title} emoji={emoji} count={list.length} total={groupTotal} accent={accent}/>
+	                    {list.length>0?(<div style={{overflowX:'auto',paddingBottom:'2px'}}><table style={estimateTbl}><thead><tr>
 	                      <th style={{...tblH,width:'500px'}}>Наименование</th>
 	                      <th style={{...tblH,width:'150px'}}>Тип системы</th>
                         <th style={{...tblH,width:'170px'}}>Обмер</th>
@@ -15227,7 +15233,7 @@ function App() {
                       <th style={{...tblH,width:'180px'}}>Сумма</th>
                       <th style={{...tblH,width:'48px'}}></th>
                     </tr></thead><tbody>
-	                      {list.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const importMeta=item.isImported?[item.unitFactor&&Number(item.unitFactor)>1?'ед. ×'+Number(item.unitFactor).toLocaleString('ru-RU'):'',item.quantityCoefficient!==undefined&&item.quantityCoefficient!==null&&item.quantityCoefficient!==''?'кф. объёма '+Number(item.quantityCoefficient).toLocaleString('ru-RU'):'',item.rawQuantity!==undefined&&item.rawQuantity!==null&&item.rawQuantity!==''?'исх. '+Number(item.rawQuantity).toLocaleString('ru-RU'):'',item.baseTotal?'база '+Number(item.baseTotal).toLocaleString('ru-RU'):'',item.costIndex?'инд. '+Number(item.costIndex).toLocaleString('ru-RU'):'',item.currentTotal?'тек. '+Number(item.currentTotal).toLocaleString('ru-RU'):'' ].filter(Boolean).join(' · '):'';const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
+		                      {groupRows.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const importMeta=item.isImported?[item.unitFactor&&Number(item.unitFactor)>1?'ед. ×'+Number(item.unitFactor).toLocaleString('ru-RU'):'',item.quantityCoefficient!==undefined&&item.quantityCoefficient!==null&&item.quantityCoefficient!==''?'кф. объёма '+Number(item.quantityCoefficient).toLocaleString('ru-RU'):'',item.rawQuantity!==undefined&&item.rawQuantity!==null&&item.rawQuantity!==''?'исх. '+Number(item.rawQuantity).toLocaleString('ru-RU'):'',item.baseTotal?'база '+Number(item.baseTotal).toLocaleString('ru-RU'):'',item.costIndex?'инд. '+Number(item.costIndex).toLocaleString('ru-RU'):'',item.currentTotal?'тек. '+Number(item.currentTotal).toLocaleString('ru-RU'):'' ].filter(Boolean).join(' · '):'';const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
 	                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'13px',width:'18px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
 	                        <td style={tblC}>{autoPill(meta.icon,meta.label)}</td>
                           <td style={tblC}>{autoPill(basisMeta.icon,isWork?basisMeta.label:'—',!isWork)}</td>
@@ -15239,9 +15245,11 @@ function App() {
 	                        <td style={tblC}><input type='number' step='any' inputMode='decimal' title={item.isImported?'Для импортной строки это сумма строки из ЛСР/Гранд Сметы, а не цена за единицу':'Цена за единицу'} value={item[priceField]||''} onChange={e=>updateItem(item._idx,priceField,e.target.value)} onBlur={persist} style={inpCell}/>{item.isImported&&<div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>{importMeta||'сумма строки'}</div>}</td>
                         <td style={{...tblC,fontWeight:'700',color:C.success,whiteSpace:'nowrap',fontSize:'14px'}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
                         <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
-                      </tr>);})}
-                    </tbody></table></div>):(<EstimateItemGroupEmpty C={C}/>)}
-                  </div>);
+	                      </tr>);})}
+	                    </tbody></table></div>):(<EstimateItemGroupEmpty C={C}/>)}
+	                    {hiddenRows>0&&<button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[listKey]:true}))} style={{...btnB,width:'100%',justifyContent:'center',marginTop:'8px',fontSize:'12px'}}>Показать ещё {hiddenRows} строк</button>}
+	                  </div>);
+	                  };
                   return(<div key={section.id} style={{...card,marginBottom:'12px'}}>
                   <EstimateSectionHeader C={C} btnG={btnG} sectionName={section.name} total={total} onMarkSectionBasis={markSectionBasis}/>
 	                  <div style={{padding:'12px 16px'}}>
@@ -15435,7 +15443,7 @@ function App() {
                 materialNormNotice={materialNormNotice}
                 setMaterialNormNotice={setMaterialNormNotice}
               />
-              {(()=>{const projectOptions=visibleActiveProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const invalidQtyCount=rows.filter(r=>r.status==='Некорректное количество').length;const zeroQtyCount=rows.filter(r=>r.status==='Материал без количества').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+	              {(()=>{const projectOptions=visibleActiveProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const coverageKey=['material-norm-coverage',selectedProject].join(':');const coverageLimit=isMobile?80:160;const visibleCoverageRows=mobileExpandedRenderLists[coverageKey]?displayRows:displayRows.slice(0,coverageLimit);const hiddenCoverageRows=displayRows.length-visibleCoverageRows.length;const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const invalidQtyCount=rows.filter(r=>r.status==='Некорректное количество').length;const zeroQtyCount=rows.filter(r=>r.status==='Материал без количества').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
                 <MaterialNormCoverageHeader
                   C={C}
                   inp={inp}
@@ -15466,8 +15474,8 @@ function App() {
                   infoCount={infoCount}
                   totalRows={rows.length}
                 />
-                {rows.length>0?<div style={{display:'grid',gap:'7px',maxHeight:'420px',overflowY:'auto',paddingRight:'2px'}}>
-                  {displayRows.slice(0,80).map(r=>{const meta=materialNormCoverageMeta(r.status);return(<div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1.6fr) minmax(220px,1fr) 170px auto',gap:'10px',alignItems:'center',padding:'10px 11px',borderRadius:'9px',border:'1px solid '+C.border,backgroundColor:C.bg}}>
+	                {rows.length>0?<div style={{display:'grid',gap:'7px',maxHeight:'420px',overflowY:'auto',paddingRight:'2px'}}>
+	                  {visibleCoverageRows.map(r=>{const meta=materialNormCoverageMeta(r.status);return(<div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1.6fr) minmax(220px,1fr) 170px auto',gap:'10px',alignItems:'center',padding:'10px 11px',borderRadius:'9px',border:'1px solid '+C.border,backgroundColor:C.bg}}>
                     <div style={{minWidth:0}}>
                       <span style={badge(meta.color,meta.bg,meta.border)}>{r.status}</span>
                       <b style={{display:'block',color:C.text,fontSize:'12px',marginTop:'5px',overflow:'hidden',textOverflow:'ellipsis'}}>{r.workName}</b>
@@ -15489,10 +15497,11 @@ function App() {
                       {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>markEstimateWorkNoMaterialFromCoverage(r)} style={btnState(btnG,false,{padding:'5px 8px',fontSize:'11px'})}><Check size={11}/>Без материала</button>}
                       {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>createMaterialNormCoverageTask(r)} style={btnState(btnB,false,{padding:'5px 8px',fontSize:'11px'})}><Bot size={11}/>Поручение</button>}
                       {r.rule&&canEditMaterialNorms()&&<button onClick={()=>saveMaterialNormOverrideFromCoverage(r)} style={btnState(btnB,false,{padding:'5px 8px',fontSize:'11px'})}>Поправка</button>}
-                    </div>
-                  </div>);})}
-                  {rows.length>80&&<p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Показано 80 из {rows.length}. Сначала обработайте строки без нормы и материалы без работы.</p>}
-                </div>:<p style={{color:C.textMuted,fontSize:'12px',margin:'8px 0 0'}}>Выберите объект с активной сметой заказчика.</p>}
+	                    </div>
+	                  </div>);})}
+	                  {hiddenCoverageRows>0&&<button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[coverageKey]:true}))} style={{...btnB,width:'100%',justifyContent:'center',fontSize:'12px'}}>Показать ещё {hiddenCoverageRows} строк</button>}
+	                  {displayRows.length>0&&<p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Показано {visibleCoverageRows.length} из {displayRows.length}. Сначала обработайте строки без нормы и материалы без работы.</p>}
+	                </div>:<p style={{color:C.textMuted,fontSize:'12px',margin:'8px 0 0'}}>Выберите объект с активной сметой заказчика.</p>}
               </div>);})()}
               {activeMaterialNormSuggestions().length>0&&(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
                 <MaterialNormSuggestionsHeader
