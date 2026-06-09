@@ -789,6 +789,7 @@ function App() {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const [isCompactHeader, setIsCompactHeader] = useState(typeof window !== 'undefined' && window.innerWidth < 1180);
   const mobileLoadedScopesRef = useRef(new Set());
+  const mobileApiRequestsRef = useRef(new Map());
   const [darkMode, setDarkMode] = useState(typeof window !== 'undefined' && localStorage.getItem('darkMode')==='1');
   useEffect(() => {
     if (typeof document !== 'undefined') document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
@@ -1431,6 +1432,7 @@ function App() {
   useEffect(() => {
     if (user) {
       mobileLoadedScopesRef.current.clear();
+      mobileApiRequestsRef.current.clear();
       if (isMobile) loadMobileInitial();
       else refreshData();
       if (['мастер','субподрядчик'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
@@ -1464,9 +1466,15 @@ function App() {
     return {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isProjectRole,isInternalRole,canSeeProjectDocs};
   };
 
-  const getApi = (path, fallback = []) => fetch(API + path)
-    .then(r => r.ok ? r.json() : fallback)
-    .catch(() => fallback);
+  const getApi = (path, fallback = []) => {
+    if (mobileApiRequestsRef.current.has(path)) return mobileApiRequestsRef.current.get(path);
+    const request = fetch(API + path)
+      .then(r => r.ok ? r.json() : fallback)
+      .catch(() => fallback)
+      .finally(() => mobileApiRequestsRef.current.delete(path));
+    mobileApiRequestsRef.current.set(path, request);
+    return request;
+  };
 
   const loadMobileScopeOnce = async (scope, loader) => {
     if (mobileLoadedScopesRef.current.has('full') || mobileLoadedScopesRef.current.has(scope)) return;
@@ -1892,6 +1900,7 @@ function App() {
       await loadAll();
       return;
     }
+    mobileApiRequestsRef.current.clear();
     mobileLoadedScopesRef.current.delete('full');
     const scope = mobileScopeForPage(page);
     if (scope) mobileLoadedScopesRef.current.delete(scope);
