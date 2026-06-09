@@ -305,7 +305,14 @@ export default function ProjectMaterialsControlPanel({
                       <td style={tblC}>{fmtMeasure(r.qty, r.unit)}</td>
                       <td style={tblC}>{r.normQty > 0 ? fmtMeasure(r.normQty, r.unit) : '—'}</td>
                       <td style={{...tblC, fontWeight: '700', color: over ? C.danger : C.warning}}>{over ? ('+' + fmtMeasure(r.overQty, r.unit)) : 'без нормы ' + fmtMeasure(r.withoutNormQty, r.unit)}</td>
-                      <td style={tblC}>{r.works.slice(0, 3).map(w => w.workName + (w.master ? ' · ' + w.master : '')).join('; ')}{r.works.length > 3 ? ' …' : ''}</td>
+                      <td style={tblC}>
+                        {r.works.slice(0, 3).map(w => w.workName + (w.master ? ' · ' + w.master : '')).join('; ')}{r.works.length > 3 ? ' …' : ''}
+                        {r.works.some(w => w.overNormReason) && (
+                          <p style={{color: C.textMuted, fontSize: '10px', margin: '3px 0 0'}}>
+                            Причина: {r.works.find(w => w.overNormReason)?.overNormReason}
+                          </p>
+                        )}
+                      </td>
                       <td style={tblC}><span style={badge(over ? C.danger : C.warning, over ? C.dangerLight : C.warningLight, over ? C.dangerBorder : C.warningBorder)}>{over ? 'Проверить перерасход' : 'Нужна норма'}</span></td>
                     </tr>
                   );

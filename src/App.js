@@ -4627,6 +4627,7 @@ function App() {
           diff,
           unit,
           normSource:m.normSource||'',
+          overNormReason:m.overNormReason||'',
         });
       }));
     return Object.values(rows).map(r=>({...r,overPct:r.normQty>0?Math.round(r.overQty/r.normQty*100):0})).sort((a,b)=>(b.overQty-a.overQty)||(b.withoutNormQty-a.withoutNormQty)||a.name.localeCompare(b.name,'ru'));
