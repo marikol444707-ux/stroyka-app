@@ -15191,7 +15191,8 @@ function App() {
                   setNewEstimateSection={setNewEstimateSection}
                   onAdd={()=>{if(!newEstimateSection.name) return;const section={id:Date.now(),name:newEstimateSection.name,items:[]};const updated={...selectedEstimate,sections:[...(selectedEstimate.sections||[]),section]};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));setNewEstimateSection({name:''});}}
                 />
-                {(selectedEstimate.sections||[]).map((section,si)=>{
+	                {(()=>{const allSections=(selectedEstimate.sections||[]).map((section,si)=>({section,si}));const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const sectionLimit=8;const limitSections=isMobile&&!showEstimateIssuesOnly&&!mobileExpandedRenderLists[sectionListKey];const visibleSections=limitSections?allSections.slice(0,sectionLimit):allSections;const hiddenSections=allSections.length-visibleSections.length;return(<>
+	                {visibleSections.map(({section,si})=>{
                   const itemKind=(it)=>normalizeEstimateItemType(it, section.name);
                   const sumOf=(it)=>estimateItemTotal(it);
                   const allItems=section.items||[];
@@ -15264,7 +15265,9 @@ function App() {
 	                      <button onClick={()=>{if(!newEstimateItem.name||newEstimateItem.sectionId!==section.id) return;const draft={id:Date.now(),name:newEstimateItem.name,quantity:newEstimateItem.quantity,priceWork:newEstimateItem.priceWork,priceMaterial:newEstimateItem.priceMaterial};const item=normalizeEstimateWorkingItem(draft,section.name);const sections=(selectedEstimate.sections||[]).map((s,idx)=>idx===si?{...s,items:[...(s.items||[]),item]}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);setNewEstimateItem({sectionId:'',itemType:'work',name:'',unit:'м2',quantity:'',priceWork:'',priceMaterial:'',measurementBasis:''});}} style={{...btnO,padding:'7px 12px'}}><Plus size={13}/></button>
                     </div>
                   </div>
-                </div>);})}
+	                </div>);})}
+	                {hiddenSections>0&&<button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[sectionListKey]:true}))} style={{...btnB,width:'100%',justifyContent:'center',marginBottom:'12px',fontSize:'12px'}}>Показать ещё {hiddenSections} разделов сметы</button>}
+	                </>);})()}
                 <EstimateTotalCard C={C} card={card} total={(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0)} />
               </div>):(<div>
                 {(()=>{const normal=(estimatesList||[]).filter(e=>!isGlobalEstimateTemplate(e)||e.status==='Активная');const templates=(estimatesList||[]).filter(e=>isGlobalEstimateTemplate(e)&&e.status!=='Активная');const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});return(<>
