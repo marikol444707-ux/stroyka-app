@@ -8241,28 +8241,35 @@ function App() {
     if (editingItem) await fetch(API+'/staff/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     else await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     if (hasEmail && hasPassword && hasRole) {
-      const existing = users.find(u=>u.email===newStaff.email);
+      const existing = users.find(u=>(u.email||'').toLowerCase()===newStaff.email.toLowerCase());
       const ap = Array.isArray(newStaff.assignedProjects)?newStaff.assignedProjects:[];
       if (existing) {
-        // Обновим назначенные проекты у существующего user
-        if(ap.length>0||['прораб','технадзор','стройконтроль'].includes(newStaff.systemRole)){
-          try { await fetch(API+'/users/'+existing.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})}); } catch(e){}
+        try {
+          await readApiResult(await fetch(API+'/users/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            name:fullName,
+            email:newStaff.email,
+            password:newStaff.password,
+            role:newStaff.systemRole,
+            projectId:existing.projectId||existing.project_id||'',
+            projectName:newStaff.project||existing.projectName||existing.project_name||'',
+            active:true
+          })}));
+        } catch(e) {
+          alert('Сотрудник сохранён, но пароль/роль обновить не удалось: '+(e.message||e));
+          return;
         }
-        alert('Пользователь с email '+newStaff.email+' уже существует — назначенные объекты обновлены, сотрудник сохранён.');
+        if(ap.length>0||['прораб','технадзор','стройконтроль'].includes(newStaff.systemRole)){
+          try { await readApiResult(await fetch(API+'/users/'+existing.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})})); } catch(e){}
+        }
+        alert('Пользователь с email '+newStaff.email+' уже существует — пароль, роль и назначенные объекты обновлены. Сотрудник сохранён.');
       } else {
         try {
-          const r = await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:fullName,email:newStaff.email,password:newStaff.password,role:newStaff.systemRole,projectName:newStaff.project||''})});
-          if (!r.ok) {
-            const err = await r.json().catch(()=>({detail:'неизвестная ошибка'}));
-            alert('Сотрудник сохранён, но доступ создать не удалось: '+(err.detail||r.status));
-          } else if(ap.length>0){
-            const created = await r.json().catch(()=>null);
-            if(created&&created.id){
-              try { await fetch(API+'/users/'+created.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})}); } catch(e){}
-            }
+          const created = await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:fullName,email:newStaff.email,password:newStaff.password,role:newStaff.systemRole,projectName:newStaff.project||''})}));
+          if(ap.length>0&&created&&created.id){
+            try { await readApiResult(await fetch(API+'/users/'+created.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})})); } catch(e){}
           }
         } catch(e) {
-          alert('Сотрудник сохранён, но доступ создать не удалось: '+e.message);
+          alert('Сотрудник сохранён, но доступ создать не удалось: '+(e.message||e));
         }
       }
     }
