@@ -2629,8 +2629,41 @@ function App() {
   };
   const findUserForStaff = (st) => {
     if (!st) return null;
+    const emails = [st.emailWork, st.emailPersonal, st.email].map(e=>String(e||'').trim().toLowerCase()).filter(Boolean);
+    const byEmail = (users||[]).find(u=>emails.includes(String(u.email||'').trim().toLowerCase()));
+    if (byEmail) return byEmail;
     const name = normalizePersonKey(st.name);
-    return (users||[]).find(u=>normalizePersonKey(u.name)===name||normalizePersonKey(u.email)===normalizePersonKey(st.emailWork)) || null;
+    return (users||[]).find(u=>normalizePersonKey(u.name)===name) || null;
+  };
+  const upsertStaffAccess = async ({staffRow={}, fullName, email, password, role, projectName, assignedProjects=[]}) => {
+    const cleanEmail = String(email||'').trim().toLowerCase();
+    const cleanPassword = String(password||'').trim();
+    if (!cleanEmail || !cleanPassword || !role) throw new Error('Нужны системная роль, email и пароль');
+    if (cleanPassword.length < 5) throw new Error('Пароль минимум 5 символов');
+    const existing = (users||[]).find(u=>String(u.email||'').trim().toLowerCase()===cleanEmail);
+    const project = projectName || staffRow.project || existing?.projectName || existing?.project_name || '';
+    const projectRow = (projects||[]).find(p=>String(p.name||'')===String(project||''));
+    const payload = {
+      name: fullName || staffRow.name || existing?.name || cleanEmail,
+      email: cleanEmail,
+      password: cleanPassword,
+      role,
+      projectId: existing?.projectId || existing?.project_id || projectRow?.id || '',
+      projectName: project,
+      active: true
+    };
+    let accessUser = existing || null;
+    if (existing?.id) {
+      await readApiResult(await fetch(API+'/users/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
+      accessUser = {...existing, ...payload};
+    } else {
+      accessUser = await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
+    }
+    const ap = Array.isArray(assignedProjects) ? assignedProjects : [];
+    if (accessUser?.id && (ap.length>0 || ['прораб','технадзор','стройконтроль'].includes(role))) {
+      await readApiResult(await fetch(API+'/users/'+accessUser.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})}));
+    }
+    return {accessUser, updatedExisting: !!existing};
   };
   const findProfileForPerformer = (contract={}, st=null, preferredProfile=null) => {
     if (preferredProfile) return preferredProfile;
@@ -8552,36 +8585,12 @@ function App() {
     if (editingItem) await fetch(API+'/staff/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     else await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     if (hasEmail && hasPassword && hasRole) {
-      const existing = users.find(u=>(u.email||'').trim().toLowerCase()===accessEmail);
       const ap = Array.isArray(newStaff.assignedProjects)?newStaff.assignedProjects:[];
-      if (existing) {
-        try {
-          await readApiResult(await fetch(API+'/users/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-            name:fullName,
-            email:accessEmail,
-            password:accessPassword,
-            role:newStaff.systemRole,
-            projectId:existing.projectId||existing.project_id||'',
-            projectName:newStaff.project||existing.projectName||existing.project_name||'',
-            active:true
-          })}));
-        } catch(e) {
-          alert('Сотрудник сохранён, но пароль/роль обновить не удалось: '+(e.message||e));
-          return;
-        }
-        if(ap.length>0||['прораб','технадзор','стройконтроль'].includes(newStaff.systemRole)){
-          try { await readApiResult(await fetch(API+'/users/'+existing.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})})); } catch(e){}
-        }
-        alert('Пользователь с email '+accessEmail+' уже существует — пароль, роль и назначенные объекты обновлены. Сотрудник сохранён.');
-      } else {
-        try {
-          const created = await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:fullName,email:accessEmail,password:accessPassword,role:newStaff.systemRole,projectName:newStaff.project||''})}));
-          if(ap.length>0&&created&&created.id){
-            try { await readApiResult(await fetch(API+'/users/'+created.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})})); } catch(e){}
-          }
-        } catch(e) {
-          alert('Сотрудник сохранён, но доступ создать не удалось: '+(e.message||e));
-        }
+      try {
+        const result = await upsertStaffAccess({staffRow:newStaff, fullName, email:accessEmail, password:accessPassword, role:newStaff.systemRole, projectName:newStaff.project||'', assignedProjects:ap});
+        if (result.updatedExisting) alert('Пользователь с email '+accessEmail+' уже существует — пароль, роль и назначенные объекты обновлены. Сотрудник сохранён.');
+      } catch(e) {
+        alert('Сотрудник сохранён, но доступ создать/обновить не удалось: '+(e.message||e));
       }
     }
     await refreshData(); setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:''}); setEditingItem(null); setShowForm(false);
@@ -8591,17 +8600,8 @@ function App() {
     const password = prompt('Новый пароль для '+(accessUser.email||staffRow.name)+':');
     if (!password) return;
     const cleanPassword = password.trim();
-    if (cleanPassword.length < 5) { alert('Пароль минимум 5 символов'); return; }
     try {
-      await readApiResult(await fetch(API+'/users/'+accessUser.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        name:accessUser.name||staffRow.name,
-        email:(accessUser.email||'').trim().toLowerCase(),
-        password:cleanPassword,
-        role:accessUser.role||'мастер',
-        projectId:accessUser.projectId||accessUser.project_id||'',
-        projectName:accessUser.projectName||accessUser.project_name||staffRow.project||'',
-        active:true
-      })}));
+      await upsertStaffAccess({staffRow, fullName:accessUser.name||staffRow.name, email:accessUser.email, password:cleanPassword, role:accessUser.role||'мастер', projectName:accessUser.projectName||accessUser.project_name||staffRow.project||'', assignedProjects:accessUser.assignedProjects||accessUser.assigned_projects||[]});
       await refreshData();
       alert('Пароль обновлён: '+(accessUser.email||staffRow.name));
     } catch(e) {
@@ -8617,9 +8617,9 @@ function App() {
     const role = (prompt('Системная роль (директор/зам_директора/бухгалтер/прораб/мастер/субподрядчик/кладовщик/снабженец):','мастер')||'').trim();
     if(!role) return;
     try {
-      await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:staffRow.name,email,password,role,projectName:staffRow.project||''})}));
+      const result = await upsertStaffAccess({staffRow, fullName:staffRow.name, email, password, role, projectName:staffRow.project||'', assignedProjects:staffRow.assignedProjects||[]});
       await refreshData();
-      alert('Доступ выдан: '+email);
+      alert(result.updatedExisting?'Доступ обновлён: '+email:'Доступ выдан: '+email);
     } catch(e) {
       alert('Не удалось выдать доступ: '+(e.message||e));
     }
@@ -14683,7 +14683,7 @@ function App() {
                   <span style={{fontSize:'14px',color:C.textSec}}>{staffExpandedSections.access?'▾':'▸'}</span>
                 </div>
                 {staffExpandedSections.access&&(<div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
-                  <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Чтобы сотрудник мог входить в приложение — заполните все три поля.</p>
+                  <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Чтобы сотрудник мог входить в приложение — заполните все три поля. Если email уже есть, пароль, роль и объекты будут обновлены.</p>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
                     <select value={newStaff.systemRole} onChange={e=>setNewStaff({...newStaff,systemRole:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Системная роль</option>{Object.keys(ROLE_LABELS).filter(r=>r!=='заказчик'&&r!=='поставщик').map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>
                     <input type='email' placeholder='Email для входа' value={newStaff.email} onChange={e=>setNewStaff({...newStaff,email:e.target.value,emailWork:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -14755,7 +14755,7 @@ function App() {
                 <input placeholder='🔍 Поиск сотрудника (ФИО, должность, объект)' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
               </div>
               <table style={tbl}><thead><tr><th style={tblH}></th><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Объект</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Зарплата</th><th style={tblH}>Доступ</th><th style={tblH}></th></tr></thead><tbody>
-                {staff.filter(s=>matchSearch(listSearch,s.name,s.role,s.project,s.specialization)).map(s=>{const hasAccess=users.find(u=>u.name===s.name);const isExp=expandedStaffId===s.id;return(<React.Fragment key={s.id}>
+                {staff.filter(s=>matchSearch(listSearch,s.name,s.role,s.project,s.specialization)).map(s=>{const hasAccess=findUserForStaff(s);const isExp=expandedStaffId===s.id;return(<React.Fragment key={s.id}>
                   <tr style={{cursor:'pointer',backgroundColor:isExp?C.bg:'transparent'}} onClick={()=>openStaffProfile(s)}>
                     <td style={{...tblC,width:'24px',textAlign:'center'}}>{isExp?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</td>
                     <td style={tblC}><b style={{fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.phone}</p></td>
@@ -14764,7 +14764,7 @@ function App() {
                     <td style={tblC}>{s.payType==='сдельно'?'Сдельно':'Оклад: '+(s.salary||0).toLocaleString()+' ₽'}</td>
                     <td style={{...tblC,fontWeight:'600',color:C.success}}>{calcSalary(s).toLocaleString()+' ₽'}</td>
                     <td style={tblC} onClick={e=>e.stopPropagation()}>{hasAccess?<div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}}><span style={{padding:'2px 8px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'11px',fontWeight:'600'}}>✅ {hasAccess.email||'есть'}</span><button onClick={()=>resetStaffAccessPassword(hasAccess,s)} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}>🔑 Пароль</button></div>:<button onClick={()=>createStaffAccessFromPrompt(s)} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}>🔐 Выдать</button>}</td>
-                    <td style={tblC} onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(s);setNewStaff({...s,salary:String(s.salary||''),email:'',password:'',systemRole:''});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td>
+                    <td style={tblC} onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{const access=findUserForStaff(s);setEditingItem(s);setNewStaff({...s,salary:String(s.salary||''),email:access?.email||s.emailWork||s.emailPersonal||'',password:'',systemRole:access?.role||''});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td>
                   </tr>
                   {isExp&&(<tr><td colSpan='8' style={{padding:'14px 18px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}>
                     {staffProfileLoading?<p style={{color:C.textMuted,fontSize:'12px'}}>⏳ Загрузка профиля...</p>:staffProfile?(<div>

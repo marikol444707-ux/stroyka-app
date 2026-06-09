@@ -1361,6 +1361,7 @@ su - postgres -c "psql stroyka -c \"INSERT INTO users (name, email, password, ro
 - `a519f9b` UI polish: tabs, sums card, brigade button gradient
 
 **Карточка сотрудника и Персонал:**
+- `2026-06-09` Исправлена выдача доступа сотрудникам: `Персонал → Сотрудники` теперь ищет системного пользователя по рабочему/личному email, а не только по ФИО. Если email уже существует, кнопка выдачи доступа, сохранение карточки и смена пароля обновляют пароль, роль, активность и назначенные объекты одним upsert-сценарием; старый пароль в форме не показывается.
 - `5e02254` Employee profile expandable card with documents (Stage 1)
 - `6cf48f6` Collapse Masters tab, single employees list
 - `98f5c2a` saveStaff validate access trio, surface errors
