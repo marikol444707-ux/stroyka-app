@@ -6827,11 +6827,19 @@ function App() {
       return 'Недостаточно материала «'+r.name+'»: выбрано '+fmtMeasure(r.qty,r.unit)+', доступно '+fmtMeasure(r.available,r.stock.unit||r.unit)+'.';
     }).join('\n');
   };
-  const confirmMaterialNormOverrun = (projectName, workName, usedMaterials=[]) => {
+  const materialNormOverrunReason = (projectName, workName, usedMaterials=[]) => {
     const rows = materialWriteoffRows(projectName, usedMaterials).filter(r=>r.overNorm);
-    if (!rows.length) return true;
+    if (!rows.length) return '';
     const lines = rows.slice(0,6).map(r=>'• '+r.name+': списать '+fmtMeasure(r.qty,r.unit)+', норма '+fmtMeasure(r.normQty,r.unit)+', перерасход '+fmtMeasure(r.overNormQty,r.unit));
-    return window.confirm('По работе «'+workName+'» есть перерасход материала выше нормы.\n\n'+lines.join('\n')+'\n\nОтправить всё равно? Прораб увидит перерасход в контроле норм.');
+    if (!window.confirm('По работе «'+workName+'» есть перерасход материала выше нормы.\n\n'+lines.join('\n')+'\n\nОтправить всё равно? Прораб увидит перерасход в контроле норм.')) return null;
+    const reason = window.prompt('Кратко укажите причину перерасхода для прораба:', '');
+    if (reason === null) return null;
+    return reason.trim() || 'Причина не указана';
+  };
+  const applyMaterialOverNormReason = (projectName, usedMaterials=[], reason='') => {
+    if (!reason) return usedMaterials || [];
+    const overKeys = new Set(materialWriteoffRows(projectName, usedMaterials).filter(r=>r.overNorm).map(r=>r.key));
+    return (usedMaterials||[]).map(m=>overKeys.has(materialNameKey(m.name)) ? {...m, overNorm:true, overNormReason:reason} : m);
   };
   const renderMaterialWriteoffStatus = (projectName, usedMaterials=[]) => {
     const rows = materialWriteoffRows(projectName, usedMaterials).filter(r=>r.qty>0 || r.normQty>0);
@@ -7915,7 +7923,7 @@ function App() {
     const deltaQty = Math.max(0, raw-done);
     const roomCheck = roomMeasurementCheck(project.name, params.roomId, params.surface||'Стены', deltaQty, mi.unit, mi.name);
     if (roomCheck?.over>0) { alert(roomMeasurementMessage(roomCheck)); return; }
-    const usedMats = (estimateWorkMaterials[workKey]||[])
+    let usedMats = (estimateWorkMaterials[workKey]||[])
       .filter(m=>m.name)
       .map(m=>({name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт', normQuantity:toNum(m.normQuantity), normSource:m.normSource||'', autoNorm:!!m.autoNorm, overNorm:toNum(m.normQuantity)>0 && toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
     for (const m of usedMats) {
@@ -7923,7 +7931,9 @@ function App() {
     }
     const blockMessage = materialWriteoffBlockMessage(project.name, usedMats);
     if (blockMessage) { alert(blockMessage); return; }
-    if (!confirmMaterialNormOverrun(project.name, mi.name, usedMats)) return;
+    const overReason = materialNormOverrunReason(project.name, mi.name, usedMats);
+    if (overReason === null) return;
+    usedMats = applyMaterialOverNormReason(project.name, usedMats, overReason);
     const newSections = est.sections.map((s,si)=>si===mi.sectionIdx?{...s,items:s.items.map((it,ii)=>ii===mi.itemIdx?{...it,doneQuantity:raw}:it)}:s);
     const updated = {...est, sections:newSections, _workJournalMaterials:{[workKey]:usedMats}};
     const res = await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
@@ -7971,9 +7981,13 @@ function App() {
     }
     const blockMessage = materialWriteoffBlockMessage(project.name, Object.values(plannedUsage));
     if (blockMessage) { alert(blockMessage); return; }
+    const overrunReasons = {};
     for (const [itemId, workData] of selectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
-      if (item && !confirmMaterialNormOverrun(project.name, item.name, workData.materials||[])) return;
+      if (!item) continue;
+      const overReason = materialNormOverrunReason(project.name, item.name, workData.materials||[]);
+      if (overReason === null) return;
+      if (overReason) overrunReasons[itemId] = overReason;
     }
     for (const [itemId,workData] of selectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
@@ -7982,7 +7996,8 @@ function App() {
       const ppu = item.price*coeff;
       const workQty = toNum(workData.quantity);
       const total = workQty*ppu;
-      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>({name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',autoNorm:!!m.autoNorm,overNorm:toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
+      const reason = overrunReasons[itemId] || '';
+      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>{const over=toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1;return {name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',autoNorm:!!m.autoNorm,overNorm:over,overNormReason:over?reason:''};});
       const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats})});
       if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось списать материалы: '+(er.detail||'ошибка'));return;}
       if (workData.roomId) {
