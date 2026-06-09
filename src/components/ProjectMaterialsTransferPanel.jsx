@@ -29,6 +29,8 @@ export default function ProjectMaterialsTransferPanel({
   supplyRequests = [],
   staff = [],
   brigadeContracts = [],
+  workJournal = [],
+  history = [],
   user,
   C,
   card,
@@ -43,9 +45,32 @@ export default function ProjectMaterialsTransferPanel({
   btnR,
   normalizeUnit,
   convertUnits,
+  fmtMeasure,
   showPreview,
   buildM15Content,
 }) {
+  const toNum = (v) => {
+    if (v === null || v === undefined || v === '') return 0;
+    const n = Number(String(v).replace(',', '.').replace(/\s+/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const materialKey = (v) => (v || '').trim().toLowerCase();
+  const fmtQty = (qty, unit) => {
+    if (fmtMeasure) return fmtMeasure(qty, unit);
+    const n = Math.round(toNum(qty) * 1000) / 1000;
+    return n.toLocaleString('ru-RU') + (unit ? ' ' + unit : '');
+  };
+  const parseJournalMaterials = (raw) => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  };
+
   const availableMaterials = [
     ...warehouseMain.filter(m => m.location === newTransfer.fromLocation || (!m.location && newTransfer.fromLocation === 'Основной склад')),
     ...materials.filter(m => m.project === newTransfer.fromLocation),
@@ -54,6 +79,43 @@ export default function ProjectMaterialsTransferPanel({
   const selectedStock = newTransfer.fromLocation === 'Основной склад'
     ? warehouseMain.find(m => m.name === newTransfer.materialName)
     : materials.find(m => m.name === newTransfer.materialName && m.project === newTransfer.fromLocation);
+  const selectedQty = toNum(newTransfer.quantity);
+  const selectedStockQty = toNum(selectedStock?.quantity);
+  const stockAfterTransfer = selectedStockQty - selectedQty;
+  const hasStockOverrun = !!newTransfer.materialName && selectedQty > selectedStockQty;
+
+  const personMaterialBalance = (personName, materialName) => {
+    const nameKey = materialKey(materialName);
+    if (!personName || !nameKey) return {issued: 0, pending: 0, used: 0, returned: 0, balance: 0};
+    let issued = 0;
+    let pending = 0;
+    let used = 0;
+    let returned = 0;
+
+    transfers
+      .filter(t => t.toPerson === personName && materialKey(t.materialName) === nameKey)
+      .forEach(t => {
+        if (t.signed) issued += toNum(t.quantity);
+        else pending += toNum(t.quantity);
+      });
+
+    (workJournal || [])
+      .filter(w => w.project === projectName && w.status !== 'Отклонено' && ((w.masterName || w.master_name || '') === personName))
+      .forEach(w => {
+        parseJournalMaterials(w.materialsUsed !== undefined ? w.materialsUsed : w.materials_used)
+          .filter(m => materialKey(m.name) === nameKey)
+          .forEach(m => { used += toNum(m.quantity); });
+      });
+
+    (history || [])
+      .filter(h => h.project === projectName && h.type === 'возврат от мастера' && ((h.issuedBy || h.issued_by || '') === personName) && materialKey(h.material) === nameKey)
+      .forEach(h => { returned += toNum(h.quantity); });
+
+    return {issued, pending, used, returned, balance: Math.max(0, issued - used - returned)};
+  };
+
+  const selectedPersonBalance = personMaterialBalance(newTransfer.toPerson, newTransfer.materialName);
+  const canSaveTransfer = !!newTransfer.materialName && selectedQty > 0 && !!newTransfer.toPerson && !hasStockOverrun;
 
   const matchingRequest = (() => {
     const matName = (newTransfer.materialName || '').toLowerCase().trim();
@@ -98,6 +160,12 @@ export default function ProjectMaterialsTransferPanel({
 
   const saveTransfer = async () => {
     if (!newTransfer.materialName || !newTransfer.quantity || !newTransfer.toPerson) return;
+    if (!canSaveTransfer) {
+      alert(hasStockOverrun
+        ? 'Нельзя выдать больше остатка на складе.'
+        : 'Укажите материал, получателя и количество больше нуля.');
+      return;
+    }
 
     const data = {...newTransfer, projectName, createdBy: user.name};
     const res = await fetch(API + '/material-transfers', {
@@ -132,7 +200,7 @@ export default function ProjectMaterialsTransferPanel({
       alert('Ошибка: ' + (data.detail || data.error || 'не удалось подписать передачу'));
       return;
     }
-    setMaterialTransfers(prev => prev.map(mt => mt.id === transferId ? {...mt, signed: true} : mt));
+    setMaterialTransfers(prev => prev.map(mt => mt.id === transferId ? {...mt, signed: true, signedAt: new Date().toISOString()} : mt));
   };
 
   const deleteTransfer = async (transfer) => {
@@ -188,6 +256,20 @@ export default function ProjectMaterialsTransferPanel({
 
             {newTransfer.materialName && (
               <>
+                <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px', gridColumn: 'span 2'}}>
+                  {[
+                    ['На складе', fmtQty(selectedStockQty, newTransfer.unit), C.text],
+                    ['Передаём', selectedQty > 0 ? fmtQty(selectedQty, newTransfer.unit) : 'не указано', selectedQty > 0 ? C.warning : C.textMuted],
+                    ['Останется', fmtQty(Math.max(0, stockAfterTransfer), newTransfer.unit), hasStockOverrun ? C.danger : C.success],
+                    ['У получателя', fmtQty(selectedPersonBalance.balance, newTransfer.unit), C.accent],
+                  ].map(([label, value, color]) => (
+                    <div key={label} style={{padding: '10px 12px', border: '1.5px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
+                      <p style={{margin: '0 0 4px', fontSize: '10px', color: C.textSec, textTransform: 'uppercase', letterSpacing: 0}}>{label}</p>
+                      <b style={{fontSize: '13px', color, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis'}}>{value}</b>
+                    </div>
+                  ))}
+                </div>
+
                 <div style={{display: 'flex', gap: '6px', gridColumn: 'span 2', alignItems: 'center'}}>
                   <b style={{fontSize: '12px', color: C.text, flex: 1}}>Передаём: {newTransfer.materialName}</b>
                   <input
@@ -197,13 +279,26 @@ export default function ProjectMaterialsTransferPanel({
                     inputMode="decimal"
                     value={newTransfer.quantity}
                     onChange={e => setNewTransfer({...newTransfer, quantity: e.target.value})}
+                    max={selectedStockQty}
                     style={{...inp, marginBottom: 0, width: '120px'}}
                   />
                   <span style={{fontSize: '12px', color: C.textSec}}>{newTransfer.unit}</span>
-                  <span style={{fontSize: '11px', color: C.warning}}>
-                    Остаток: {selectedStock?.quantity || 0} {newTransfer.unit}
+                  <span style={{fontSize: '11px', color: hasStockOverrun ? C.danger : C.warning}}>
+                    Остаток: {fmtQty(selectedStockQty, newTransfer.unit)}
                   </span>
                 </div>
+
+                {newTransfer.toPerson && (
+                  <div style={{gridColumn: 'span 2', padding: '9px 12px', backgroundColor: C.bg, border: '1.5px solid ' + C.border, borderRadius: '8px', color: C.textSec, fontSize: '12px'}}>
+                    У {newTransfer.toPerson}: подписано {fmtQty(selectedPersonBalance.issued, newTransfer.unit)}, ожидает подписи {fmtQty(selectedPersonBalance.pending, newTransfer.unit)}, списано {fmtQty(selectedPersonBalance.used, newTransfer.unit)}, возвращено {fmtQty(selectedPersonBalance.returned, newTransfer.unit)}.
+                  </div>
+                )}
+
+                {hasStockOverrun && (
+                  <div style={{gridColumn: 'span 2', padding: '10px 12px', backgroundColor: C.dangerLight, border: '1.5px solid ' + C.dangerBorder, borderRadius: '8px', color: C.danger, fontSize: '12px', fontWeight: 700}}>
+                    Нельзя выдать больше остатка: на складе {fmtQty(selectedStockQty, newTransfer.unit)}, указано {fmtQty(selectedQty, newTransfer.unit)}.
+                  </div>
+                )}
 
                 {matchingRequest && normalizeUnit(matchingRequest.unit) !== normalizeUnit(newTransfer.unit) && (() => {
                   const conv = convertUnits(newTransfer.materialName, matchingRequest.quantity, matchingRequest.unit, newTransfer.unit);
@@ -260,7 +355,7 @@ export default function ProjectMaterialsTransferPanel({
             <input placeholder="Примечание" value={newTransfer.notes} onChange={e => setNewTransfer({...newTransfer, notes: e.target.value})} style={{...inp, marginBottom: 0}}/>
           </div>
           <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
-            <button onClick={saveTransfer} style={btnO}><Check size={14}/>Передать</button>
+            <button onClick={saveTransfer} disabled={!canSaveTransfer} style={{...btnO, opacity: canSaveTransfer ? 1 : 0.55, cursor: canSaveTransfer ? 'pointer' : 'not-allowed'}}><Check size={14}/>Передать</button>
             <button onClick={() => setShowTransferForm(false)} style={btnG}><X size={14}/>Отмена</button>
           </div>
         </div>
@@ -269,20 +364,30 @@ export default function ProjectMaterialsTransferPanel({
       <table style={tbl}>
         <thead>
           <tr>
-            <th style={tblH}>Материал</th>
-            <th style={tblH}>Кол-во</th>
-            <th style={tblH}>Кому</th>
-            <th style={tblH}>Дата</th>
-            <th style={tblH}>Статус</th>
-            <th style={tblH}></th>
+              <th style={tblH}>Материал</th>
+              <th style={tblH}>Кол-во</th>
+              <th style={tblH}>Источник</th>
+              <th style={tblH}>Кому</th>
+              <th style={tblH}>Баланс</th>
+              <th style={tblH}>Дата</th>
+              <th style={tblH}>Статус</th>
+              <th style={tblH}></th>
           </tr>
         </thead>
         <tbody>
-          {transfers.map(t => (
+          {transfers.map(t => {
+            const balance = personMaterialBalance(t.toPerson, t.materialName);
+            return (
             <tr key={t.id}>
               <td style={tblC}>{t.materialName}</td>
-              <td style={tblC}>{t.quantity} {t.unit}</td>
+              <td style={tblC}>{fmtQty(t.quantity, t.unit)}</td>
+              <td style={tblC}>{t.fromLocation || 'Основной склад'}</td>
               <td style={tblC}>{t.toPerson}<br/><span style={{fontSize: '11px', color: C.textSec}}>{t.toPersonRole}</span></td>
+              <td style={tblC}>
+                <b style={{color: C.accent, fontSize: '12px'}}>{fmtQty(balance.balance, t.unit)}</b>
+                <br/>
+                <span style={{fontSize: '10px', color: C.textSec}}>подписано {fmtQty(balance.issued, t.unit)} · списано {fmtQty(balance.used, t.unit)}</span>
+              </td>
               <td style={tblC}>{t.transferDate}</td>
               <td style={tblC}>{t.signed ? <span style={{color: C.success, fontSize: '12px'}}>✅ Подписано</span> : <span style={{color: C.warning, fontSize: '12px'}}>⏳ Ожидает подписи</span>}</td>
               <td style={tblC}>
@@ -297,11 +402,12 @@ export default function ProjectMaterialsTransferPanel({
 	                    <Trash2 size={11}/>
 	                  </button>
 	                ) : (
-	                  <span style={{marginLeft: '6px', color: C.textMuted, fontSize: '10px'}} title="Подписанную передачу нельзя удалить, нужен возврат">закрыто</span>
-	                )}
+		                  <span style={{marginLeft: '6px', color: C.textMuted, fontSize: '10px'}} title="Подписанную передачу нельзя удалить, нужен возврат">закрыто</span>
+		                )}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
 

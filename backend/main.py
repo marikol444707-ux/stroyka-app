@@ -334,6 +334,11 @@ def require_project_access(user: dict, project_name: str):
     if not has_project_access(user, project_name):
         raise HTTPException(status_code=403, detail="Нет доступа к объекту")
 
+def require_project_or_warehouse_access(user: dict, project_name: str):
+    if can_see_all_company_data(user) or user.get("role") in ("кладовщик", "снабженец"):
+        return
+    require_project_access(user, project_name)
+
 def hidden_work_all_signed(signed_customer="", signed_supervisor="", signed_contractor="", signed_subcontractor="") -> bool:
     return all(str(v or "").strip() for v in (
         signed_customer, signed_supervisor, signed_contractor, signed_subcontractor
@@ -11220,8 +11225,13 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
     from_location = data.get("fromLocation", "Основной склад")
     material_name = data.get("materialName", "")
     qty = float(data.get("quantity", 0) or 0)
+    project_name = data.get("projectName", "")
     if not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите материал и количество больше 0")
+    if project_name:
+        require_project_or_warehouse_access(_current_user, project_name)
+    if from_location and from_location != "Основной склад":
+        require_project_or_warehouse_access(_current_user, from_location)
 
     conn = get_db()
     conn.autocommit = False
@@ -11246,15 +11256,16 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
                 raise HTTPException(status_code=400, detail="На складе «"+from_location+"» только "+str(stock_qty)+", запрошено "+str(qty))
             cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
 
+        created_by = _current_user.get("name", "") or data.get("createdBy", "")
         cur.execute("INSERT INTO material_transfers (project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,notes,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (data.get("projectName",""), from_location, data.get("toPerson",""), data.get("toPersonRole",""), material_name, qty, data.get("unit","шт"), data.get("transferDate") or None, data.get("notes",""), data.get("createdBy","")))
+            (project_name, from_location, data.get("toPerson",""), data.get("toPersonRole",""), material_name, qty, data.get("unit","шт"), data.get("transferDate") or None, data.get("notes",""), created_by))
         new_id = cur.fetchone()[0]
 
         cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-            (material_name, "расход", qty, data.get("transferDate") or None, from_location, data.get("createdBy",""), __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+            (material_name, "расход", qty, data.get("transferDate") or None, from_location, created_by, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
         conn.commit()
-        _run_project_ai_control_safely(data.get("projectName",""), "material_transfer:create")
+        _run_project_ai_control_safely(project_name, "material_transfer:create")
         return {"id": new_id, "ok": True}
     except HTTPException:
         conn.rollback()
@@ -11270,9 +11281,19 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
 def sign_material_transfer(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name FROM material_transfers WHERE id=%s", (id,))
+    cur.execute("SELECT project_name,to_person,signed FROM material_transfers WHERE id=%s", (id,))
     row = cur.fetchone()
-    project_name = row[0] if row else ""
+    if not row:
+        cur.close(); conn.close()
+        return {"ok": True}
+    project_name, to_person, signed = row
+    require_project_or_warehouse_access(_current_user, project_name)
+    if (_current_user.get("role") or "") in ("мастер", "субподрядчик") and (to_person or "") != (_current_user.get("name") or ""):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Можно подтвердить только свою передачу материала")
+    if signed:
+        cur.close(); conn.close()
+        return {"ok": True}
     cur.execute("UPDATE material_transfers SET signed=TRUE,signed_at=NOW() WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
@@ -11340,6 +11361,7 @@ def delete_material_transfer(id: int, _current_user: dict = Depends(require_role
             return {"ok": True}
 
         project_name, from_location, to_person, material_name, qty, unit, signed = row
+        require_project_or_warehouse_access(_current_user, project_name or from_location or "")
         qty = float(qty or 0)
         if signed:
             raise HTTPException(status_code=400, detail="Подписанную передачу нельзя удалить. Оформите возврат материала отдельной операцией.")

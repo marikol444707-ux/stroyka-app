@@ -12321,6 +12321,8 @@ function App() {
                         supplyRequests={supplyRequests}
                         staff={staff}
                         brigadeContracts={brigadeContracts}
+                        workJournal={workJournal}
+                        history={history}
                         user={user}
                         C={C}
                         card={card}
@@ -12335,6 +12337,7 @@ function App() {
                         btnR={btnR}
                         normalizeUnit={_normalizeUnit}
                         convertUnits={convertUnits}
+                        fmtMeasure={fmtMeasure}
                         showPreview={showPreview}
                         buildM15Content={buildM15Content}
                       />
