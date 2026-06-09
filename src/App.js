@@ -887,6 +887,7 @@ function App() {
   const [showBrigadePayModal, setShowBrigadePayModal] = useState(false);
   const [newBrigadePayment, setNewBrigadePayment] = useState({amount:'',paidBy:'',paidDate:'',note:''});
   const [allBrigadeItems, setAllBrigadeItems] = useState([]);
+  const [allBrigadePayments, setAllBrigadePayments] = useState([]);
   const [projectDocuments, setProjectDocuments] = useState([]);
   const [newProjectDoc, setNewProjectDoc] = useState({side:'customer',docType:'Договор',number:'',docDate:'',counterparty:'',signStatus:'Не подписан',scanUrl:'',amount:'',notes:''});
   const [showDocForm, setShowDocForm] = useState(false);
@@ -1582,6 +1583,10 @@ function App() {
       if (isInternalRole || isFinanceRole) try {
         const abi = await get('/brigade-contract-items-all');
         setAllBrigadeItems(Array.isArray(abi)?abi:[]);
+      } catch(e) {}
+      if (isInternalRole || isFinanceRole) try {
+        const abp = await get('/brigade-payments');
+        setAllBrigadePayments(Array.isArray(abp)?abp:[]);
       } catch(e) {}
       if (isInternalRole || isFinanceRole || role==='заказчик') try {
         const pdocs = await get('/project-documents');
@@ -13683,22 +13688,69 @@ function App() {
                   ...(contracts||[]).map(c=>({...c,_kind:'contract',_rowKey:'contract-'+c.id,projectName:c.project})),
                   ...(brigadeContracts||[]).map(bc=>({...bc,_kind:'brigade',_rowKey:'brigade-'+bc.id,masterId:bc.contractorId,masterName:bc.brigadeName,contractType:bc.contractorType,contractNumber:bc.contractNumber||('БР-'+bc.id),project:bc.projectName,projectName:bc.projectName,startDate:bc.signedAt||'',endDate:''})),
                 ];
+                const hasClosingDoc = (row, performer, docNeed='') => {
+                  const pn = row.project||row.projectName||'';
+                  const nameKey = normalizePersonKey(performer.fullName||row.masterName||row.brigadeName);
+                  return (projectDocuments||[]).some(d=>{
+                    if(pn && d.projectName!==pn) return false;
+                    const rawHay = [d.counterparty,d.docType,d.number,d.notes].filter(Boolean).join(' ');
+                    const hay = normalizePersonKey(rawHay);
+                    if(docNeed==='self-employed-receipt' && !/чек|нпд|самозан|закрыва/i.test(rawHay)) return false;
+                    if(docNeed && docNeed!=='self-employed-receipt' && !hay.includes(normalizePersonKey(docNeed))) return false;
+                    return !nameKey || hay.includes(nameKey) || nameKey.includes(normalizePersonKey(d.counterparty));
+                  });
+                };
+                const rowFinance = (row, performer) => {
+                  const isBrigade = row._kind==='brigade';
+                  const type = String(row.contractType||row.contractorType||performer.contractType||'').toLowerCase();
+                  if(isBrigade){
+                    const done = Number(row.doneAmount||0);
+                    const paid = (allBrigadePayments||[]).filter(p=>Number(p.contractId)===Number(row.id)).reduce((s,p)=>s+Number(p.amount||0),0) || Number(row.paidAmount||0);
+                    const retention = Math.round(done*0.05);
+                    const payable = Math.max(0, done-retention);
+                    const owe = Math.max(0, payable-paid);
+                    const missingDocs = [];
+                    if(done>0 && !row.actScanUrl) missingDocs.push('скан подписанного акта');
+                    if(paid>0 && type.includes('самозан') && !hasClosingDoc(row,performer,'self-employed-receipt')) missingDocs.push('чек НПД');
+                    return {accrued:done, paid, retention, payable, owe, missingDocs};
+                  }
+                  const acts=(interimActs||[]).filter(a=>
+                    (Number(a.contractId||0)===Number(row.id)) ||
+                    (Number(a.masterId||0)===Number(row.masterId||0) && (!row.project || a.project===row.project)) ||
+                    (normalizePersonKey(a.masterName)===normalizePersonKey(row.masterName) && (!row.project || a.project===row.project))
+                  );
+                  const accrued=acts.reduce((s,a)=>s+Number(a.totalAmount||0),0);
+                  const paid=acts.reduce((s,a)=>s+Number(a.paidAmount||0),0);
+                  const retention=Math.round(accrued*0.05);
+                  const payable=Math.max(0, accrued-retention);
+                  const owe=Math.max(0, payable-paid);
+                  const missingDocs=[];
+                  if(acts.some(a=>Number(a.totalAmount||0)>0&&!a.scanUrl)) missingDocs.push('скан подписанного акта');
+                  if(paid>0 && type.includes('самозан') && !hasClosingDoc(row,performer,'self-employed-receipt')) missingDocs.push('чек НПД');
+                  return {accrued, paid, retention, payable, owe, missingDocs, actsCount:acts.length};
+                };
                 const visible=sourceRows.filter(row=>{const performer=resolveContractPerformer(row);return matchSearch(listSearch,row.contractNumber,row.project,row.projectName,row.masterName,row.brigadeName,performer.fullName,performer.inn);});
                 if(visible.length===0) return(<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Договоров и расчётов с исполнителями нет</p>);
                 const groups={};
                 visible.forEach(row=>{
                   const performer=resolveContractPerformer(row);
+                  const finance=rowFinance(row, performer);
                   const key=normalizePersonKey(performer.fullName||row.masterName||row.brigadeName)||row._rowKey;
-                  if(!groups[key]) groups[key]={key,name:performer.fullName||row.masterName||row.brigadeName||'Исполнитель',performer,rows:[],projects:new Set(),types:new Set(),total:0,warnings:new Set()};
-                  groups[key].rows.push({...row,performer});
+                  if(!groups[key]) groups[key]={key,name:performer.fullName||row.masterName||row.brigadeName||'Исполнитель',performer,rows:[],projects:new Set(),types:new Set(),total:0,paid:0,retention:0,payable:0,owe:0,warnings:new Set(),missingDocs:new Set()};
+                  groups[key].rows.push({...row,performer,finance});
                   if(row.project||row.projectName) groups[key].projects.add(row.project||row.projectName);
                   if(row.contractType||row.contractorType) groups[key].types.add(row.contractType||row.contractorType);
-                  groups[key].total += Number(row.totalAmount||row.doneAmount||0);
+                  groups[key].total += finance.accrued;
+                  groups[key].paid += finance.paid;
+                  groups[key].retention += finance.retention;
+                  groups[key].payable += finance.payable;
+                  groups[key].owe += finance.owe;
                   const warning=contractRequisitesWarning(performer,row.contractType||row.contractorType);
                   if(warning) groups[key].warnings.add(warning);
+                  (finance.missingDocs||[]).forEach(d=>groups[key].missingDocs.add(d));
                 });
                 return Object.values(groups).sort((a,b)=>a.name.localeCompare(b.name,'ru')).map(g=>(
-                  <div key={g.key} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'3px solid '+(g.warnings.size?C.warning:C.accent)}}>
+                  <div key={g.key} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'3px solid '+(g.warnings.size||g.missingDocs.size?C.warning:C.accent)}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
                       <div>
                         <b style={{color:C.text,fontSize:'14px'}}>📁 {g.name}</b>
@@ -13706,16 +13758,29 @@ function App() {
                         {g.performer.inn&&<p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>ИНН: {g.performer.inn}{g.performer.bankName?' · '+g.performer.bankName:''}</p>}
                       </div>
                       <div style={{textAlign:'right'}}>
-                        {g.total>0&&<b style={{color:C.success,fontSize:'14px'}}>{Math.round(g.total).toLocaleString('ru-RU')+' ₽'}</b>}
+                        {g.total>0&&<b style={{color:C.success,fontSize:'14px'}}>{Math.round(g.total).toLocaleString('ru-RU')+' ₽ начислено'}</b>}
+                        {g.owe>0&&<p style={{color:C.danger,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>к выплате: {Math.round(g.owe).toLocaleString('ru-RU')} ₽</p>}
                         {g.warnings.size>0&&<p style={{color:C.warning,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>⚠️ реквизиты не полные</p>}
+                        {g.missingDocs.size>0&&<p style={{color:C.warning,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>⚠️ закрывающие не полные</p>}
+                        {!g.warnings.size&&!g.missingDocs.size&&<p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>документы в порядке</p>}
                       </div>
                     </div>
+                    {(g.total>0||g.paid>0)&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'8px',marginBottom:'8px'}}>
+                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Начислено</p><b style={{color:C.text,fontSize:'12px'}}>{Math.round(g.total).toLocaleString('ru-RU')} ₽</b></div>
+                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Удержание 5%</p><b style={{color:C.warning,fontSize:'12px'}}>{Math.round(g.retention).toLocaleString('ru-RU')} ₽</b></div>
+                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Можно выплатить</p><b style={{color:C.accent,fontSize:'12px'}}>{Math.round(g.payable).toLocaleString('ru-RU')} ₽</b></div>
+                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Оплачено</p><b style={{color:C.success,fontSize:'12px'}}>{Math.round(g.paid).toLocaleString('ru-RU')} ₽</b></div>
+                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Остаток к выплате</p><b style={{color:g.owe>0?C.danger:C.success,fontSize:'12px'}}>{g.owe>0?Math.round(g.owe).toLocaleString('ru-RU')+' ₽':'закрыто'}</b></div>
+                    </div>}
                     {g.warnings.size>0&&<div style={{padding:'8px 10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,color:C.warning,fontSize:'11px',marginBottom:'8px'}}>{Array.from(g.warnings)[0]}</div>}
+                    {g.missingDocs.size>0&&<div style={{padding:'8px 10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,color:C.warning,fontSize:'11px',marginBottom:'8px'}}>Не хватает закрывающих: {Array.from(g.missingDocs).join(', ')}</div>}
                     {g.rows.sort((a,b)=>String(a.project||'').localeCompare(String(b.project||''),'ru')).map(row=>{const isBrigade=row._kind==='brigade';const items=isBrigade?(allBrigadeItems||[]).filter(it=>Number(it.contractId)===Number(row.id)):[];return(
                       <div key={row._rowKey} style={{padding:'8px 0',borderTop:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
                         <div>
                           <b style={{color:C.text,fontSize:'12px'}}>{isBrigade?'Расчёт/договор бригады № ':'Договор № '}{row.contractNumber}</b>
                           <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(row.project||row.projectName||'без объекта')+' · '+(row.contractType||row.contractorType||'')}{isBrigade&&row.status?' · '+row.status:''}</p>
+                          {(row.finance.accrued>0||row.finance.paid>0)&&<p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>начислено {Math.round(row.finance.accrued).toLocaleString('ru-RU')} ₽ · удержание {Math.round(row.finance.retention).toLocaleString('ru-RU')} ₽ · можно выплатить {Math.round(row.finance.payable).toLocaleString('ru-RU')} ₽ · оплачено {Math.round(row.finance.paid).toLocaleString('ru-RU')} ₽ · остаток {Math.round(row.finance.owe).toLocaleString('ru-RU')} ₽</p>}
+                          {row.finance.missingDocs?.length>0&&<p style={{color:C.warning,margin:'2px 0 0',fontSize:'10px',fontWeight:'700'}}>⚠️ Не хватает: {row.finance.missingDocs.join(', ')}</p>}
                           {!isBrigade&&<p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>{(row.startDate||'')+' — '+(row.endDate||'')}</p>}
                         </div>
                         <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
