@@ -4446,15 +4446,18 @@ function App() {
     const invoiceRows = warehouseInvoiceItems(inv);
     const items = invoiceRows.items || [];
     const place = inv?.location === 'Основной склад' ? '' : (inv?.project || inv?.location || '');
-    if (!place) {
-      return items.map((item, index)=>({
-        index,
-        name:item.name||'',
-        status:'Основной склад',
-        severity:'neutral',
-        detail:'Без привязки к объектной смете',
-        planText:'—',
-        beforeText:'—',
+	    if (!place) {
+	      return items.map((item, index)=>({
+	        index,
+	        name:item.name||'',
+	        quantity:toNum(item.quantity),
+	        unit:item.unit||'',
+	        lineSum:Number(item.total||0) || Number(item.quantity||0) * Number(item.price||0),
+	        status:'Основной склад',
+	        severity:'neutral',
+	        detail:'Без привязки к объектной смете',
+	        planText:'—',
+	        beforeText:'—',
         afterText:'—',
         overText:'—',
       }));
@@ -4477,21 +4480,32 @@ function App() {
       const qty = Number(m.qty||0);
       const unit = m.unit || item.unit || '';
       const lineSum = Number(item.total||0) || Number(item.quantity||0) * Number(item.price||0);
-      if (!item?.name) {
-        return {index, name:'', status:'Не заполнено', severity:'neutral', detail:'', planText:'—', beforeText:'—', afterText:'—', overText:'—'};
-      }
+	      if (!item?.name) {
+	        return {index, name:'', quantity:0, unit, lineSum:0, status:'Не заполнено', severity:'neutral', detail:'', planText:'—', beforeText:'—', afterText:'—', overText:'—'};
+	      }
       const row = m.key ? rowsByKey.get(m.key) : null;
       const alreadySeen = seenQtyByKey[m.key] || 0;
       seenQtyByKey[m.key] = alreadySeen + qty;
 
       if (!row || Number(row.planQty||0) <= 0) {
-        return {
-          index,
-          name:item.name||'',
-          status:'Вне сметы',
-          severity:'danger',
-          detail:'Материал есть в накладной, но не найден в активной смете объекта',
-          planText:'нет в смете',
+	        return {
+	          index,
+	          name:item.name||'',
+	          projectName:place,
+	          canonicalName:item.name||'',
+	          quantity:qty,
+	          incomingQty:qty,
+	          unit,
+	          rowUnit:unit,
+	          lineSum,
+	          shortageQty:0,
+	          overQty:qty,
+	          priceOverSum:0,
+	          unitMismatch:false,
+	          status:'Вне сметы',
+	          severity:'danger',
+	          detail:'Материал есть в накладной, но не найден в активной смете объекта',
+	          planText:'нет в смете',
           beforeText:'—',
           afterText:fmtMeasure(qty, unit),
           overText:fmtMeasure(qty, unit),
@@ -4517,12 +4531,25 @@ function App() {
       const severity = unitMismatch ? 'warning' : overQty > 0 ? 'danger' : priceOver ? 'warning' : 'success';
       const status = unitMismatch ? 'Ед. не совпала' : overQty > 0 ? 'Сверх сметы' : priceOver ? 'Цена выше плана' : 'По смете';
 
-      return {
-        index,
-        name:item.name||'',
-        canonicalName:row.name,
-        status,
-        severity,
+	      return {
+	        index,
+	        name:item.name||'',
+	        projectName:place,
+	        canonicalName:row.name,
+	        quantity:qty,
+	        incomingQty:qty,
+	        unit,
+	        rowUnit,
+	        lineSum,
+	        planQty:Number(row.planQty||0),
+	        beforeQty,
+	        afterQty,
+	        shortageQty,
+	        overQty,
+	        priceOverSum,
+	        unitMismatch,
+	        status,
+	        severity,
         detail:unitMismatch
           ? 'В смете '+(rowUnit||'—')+', в накладной '+(unit||'—')
           : overQty > 0
@@ -4548,8 +4575,20 @@ function App() {
     });
   };
   const materialNameKey = materialNameLookupKey;
-  const materialControlSupplyMarker = (projectName, row) => 'MATERIAL_CONTROL_REQUEST:'+[materialNameKey(projectName), materialNameKey(row?.name), _normalizeUnit(row?.unit||'')].join('|');
-  const materialControlRequestItems = (req) => parseSupplyItems(req).map(it=>({...it, materialName:it.materialName||it.name||'', quantity:toNum(it.quantity), unit:it.unit||req.unit||'шт'}));
+	  const materialControlSupplyMarker = (projectName, row) => 'MATERIAL_CONTROL_REQUEST:'+[materialNameKey(projectName), materialNameKey(row?.name), _normalizeUnit(row?.unit||'')].join('|');
+	  const invoiceControlProjectName = (inv, ctrl = {}) => ctrl.projectName || inv?.project || (inv?.location && inv.location !== 'Основной склад' ? inv.location : '');
+	  const invoiceControlMaterialName = (ctrl = {}, item = {}) => ctrl.canonicalName || ctrl.name || item.name || '';
+	  const invoiceControlUnit = (ctrl = {}, item = {}) => ctrl.rowUnit || ctrl.unit || item.unit || 'шт';
+	  const invoiceControlLineKey = (projectName, inv, ctrl, item = {}) => [
+	    materialNameKey(projectName),
+	    String(inv?.id || inv?.number || inv?.date || 'draft'),
+	    String(ctrl?.index ?? ''),
+	    materialNameKey(invoiceControlMaterialName(ctrl, item)),
+	    _normalizeUnit(invoiceControlUnit(ctrl, item) || ''),
+	  ].join('|');
+	  const invoiceControlSupplyMarker = (projectName, inv, ctrl, item) => 'INVOICE_CONTROL_REQUEST:'+invoiceControlLineKey(projectName, inv, ctrl, item);
+	  const invoiceControlReviewMarker = (projectName, inv, ctrl, item) => 'INVOICE_MATERIAL_REVIEW:'+invoiceControlLineKey(projectName, inv, ctrl, item);
+	  const materialControlRequestItems = (req) => parseSupplyItems(req).map(it=>({...it, materialName:it.materialName||it.name||'', quantity:toNum(it.quantity), unit:it.unit||req.unit||'шт'}));
   const materialControlSupplyRequestExists = (projectName, row) => {
     const marker = materialControlSupplyMarker(projectName, row);
     const rowKey = materialNameKey(row?.name);
@@ -4560,8 +4599,19 @@ function App() {
       return materialControlRequestItems(req).some(it=>materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name)===rowKey && (!unitKey || _normalizeUnit(it.unit||'')===unitKey));
     });
   };
-  const canCreateSupplyRequestFromControl = () => ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бухгалтер'].includes(user?.role);
-  const createSupplyRequestFromMaterialControl = async (projectName, row) => {
+	  const canCreateSupplyRequestFromControl = () => ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бухгалтер'].includes(user?.role);
+	  const invoiceControlSupplyRequestExists = (inv, ctrl, item = {}) => {
+	    const projectName = invoiceControlProjectName(inv, ctrl);
+	    const marker = invoiceControlSupplyMarker(projectName, inv, ctrl, item);
+	    const rowKey = materialNameKey(invoiceControlMaterialName(ctrl, item));
+	    const unitKey = _normalizeUnit(invoiceControlUnit(ctrl, item) || '');
+	    return (supplyRequests||[]).some(req=>{
+	      if ((req.project||'')!==projectName || !isActiveSupplyRequestStatus(req.status)) return false;
+	      if (String(req.notes||'').includes(marker)) return true;
+	      return materialControlRequestItems(req).some(it=>materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name)===rowKey && (!unitKey || _normalizeUnit(it.unit||'')===unitKey));
+	    });
+	  };
+	  const createSupplyRequestFromMaterialControl = async (projectName, row) => {
     if (!projectName || !row?.name || toNum(row.toBuy)<=0) return;
     if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
     if (materialControlSupplyRequestExists(projectName, row) && !window.confirm('По этой позиции уже есть активная заявка. Создать ещё одну?')) return;
@@ -4605,10 +4655,170 @@ function App() {
       alert(data.detail || 'Не удалось создать заявку снабжения');
       return;
     }
-    notify('Создана заявка снабжения: '+row.name+' — '+fmtMeasure(qty, unit), 'supply');
-    await loadAll();
-  };
-  const renderMaterialSupplyAction = (projectName, row) => {
+	    notify('Создана заявка снабжения: '+row.name+' — '+fmtMeasure(qty, unit), 'supply');
+	    await loadAll();
+	  };
+	  const createSupplyRequestFromInvoiceControl = async (inv, ctrl, item = {}) => {
+	    const projectName = invoiceControlProjectName(inv, ctrl);
+	    const materialName = invoiceControlMaterialName(ctrl, item);
+	    const qty = toNum(ctrl?.shortageQty);
+	    const unit = invoiceControlUnit(ctrl, item);
+	    if (!projectName || !materialName || qty<=0) return;
+	    if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
+	    if (invoiceControlSupplyRequestExists(inv, ctrl, item)) { notify('По этой позиции уже есть активная заявка снабжения', 'supply'); return; }
+	    const marker = invoiceControlSupplyMarker(projectName, inv, ctrl, item);
+	    const notes = [
+	      'Создано из сметного контроля накладной: остаток к закупке после прихода.',
+	      marker,
+	      'Объект: '+projectName,
+	      'Накладная: №'+(inv?.number||inv?.id||'')+' от '+(inv?.date||''),
+	      'Материал: '+materialName,
+	      'План по смете: '+(ctrl.planText||'—'),
+	      'До накладной: '+(ctrl.beforeText||'—'),
+	      'По накладной: '+(ctrl.incomingText||fmtMeasure(ctrl.incomingQty, unit)),
+	      'После накладной: '+(ctrl.afterText||'—'),
+	      'Докупить: '+fmtMeasure(qty, unit),
+	    ].join('\n');
+	    const res = await fetch(API+'/supply-requests', {
+	      method:'POST',
+	      headers:{'Content-Type':'application/json'},
+	      body:JSON.stringify({
+	        materialName,
+	        quantity: qty,
+	        unit,
+	        items:[{materialName,quantity:qty,unit}],
+	        project: projectName,
+	        createdBy: user.name,
+	        date: new Date().toISOString().split('T')[0],
+	        notes,
+	        category: '',
+	        urgency: qty > toNum(ctrl.planQty) * 0.25 ? 'срочная' : 'обычная',
+	        requestedByRole: user.role,
+	        requestedById: user.id,
+	        selectedSuppliers: [],
+	      })
+	    });
+	    const data = await res.json().catch(()=>({}));
+	    if (!res.ok) {
+	      alert(data.detail || 'Не удалось создать заявку снабжения');
+	      return;
+	    }
+	    notify('Создана заявка из накладной: '+materialName+' — '+fmtMeasure(qty, unit), 'supply');
+	    await loadAll();
+	  };
+	  const canCreateInvoiceControlReviewTask = () => ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','снабженец','кладовщик'].includes(user?.role);
+	  const invoiceControlNeedsReview = (ctrl = {}) => ctrl.status==='Вне сметы' || toNum(ctrl.overQty)>0 || toNum(ctrl.priceOverSum)>1 || !!ctrl.unitMismatch;
+	  const invoiceControlReviewTaskExists = (inv, ctrl, item = {}) => {
+	    const projectName = invoiceControlProjectName(inv, ctrl);
+	    return !!aiTaskByMarker(invoiceControlReviewMarker(projectName, inv, ctrl, item));
+	  };
+	  const invoiceControlReviewReason = (ctrl = {}) => {
+	    if (ctrl.status==='Вне сметы') return 'материал есть в накладной, но не найден в активной смете объекта';
+	    if (ctrl.unitMismatch) return 'единица измерения в накладной отличается от единицы в смете';
+	    if (toNum(ctrl.overQty)>0) return 'после этой накладной материал выходит сверх сметного плана';
+	    if (toNum(ctrl.priceOverSum)>1) return 'цена строки выше сметного ориентира';
+	    return 'строка требует проверки';
+	  };
+	  const createInvoiceControlReviewTask = async (inv, ctrl, item = {}) => {
+	    const projectName = invoiceControlProjectName(inv, ctrl);
+	    const materialName = invoiceControlMaterialName(ctrl, item);
+	    const unit = invoiceControlUnit(ctrl, item);
+	    if (!projectName || !materialName || !invoiceControlNeedsReview(ctrl)) return;
+	    if (!canCreateInvoiceControlReviewTask()) { alert('У вашей роли нет права создать задачу по сметному контролю'); return; }
+	    const marker = invoiceControlReviewMarker(projectName, inv, ctrl, item);
+	    const existingTask = aiTaskByMarker(marker);
+	    if (existingTask) { notify('Задача по этой строке уже есть в ИИ-контроле', 'ai'); return; }
+	    const reason = invoiceControlReviewReason(ctrl);
+	    const payload = {
+	      type:'invoice_material_review',
+	      marker,
+	      dedupeKey:marker,
+	      projectName,
+	      invoiceId:inv?.id||null,
+	      invoiceNumber:inv?.number||'',
+	      invoiceDate:inv?.date||'',
+	      supplierName:inv?.supplierName||'',
+	      materialName,
+	      originalMaterialName:ctrl.name||item.name||'',
+	      status:ctrl.status||'',
+	      reason,
+	      quantity:toNum(ctrl.incomingQty||ctrl.quantity),
+	      unit,
+	      lineSum:toNum(ctrl.lineSum),
+	      planText:ctrl.planText||'',
+	      beforeText:ctrl.beforeText||'',
+	      afterText:ctrl.afterText||'',
+	      shortageText:ctrl.shortageText||'',
+	      overText:ctrl.overText||'',
+	      priceOverText:ctrl.priceOverText||'',
+	    };
+	    const description = [
+	      'Накладная создала сметное замечание по материалу.',
+	      'Причина: '+reason+'.',
+	      'Объект: '+projectName+'.',
+	      'Накладная: №'+(inv?.number||inv?.id||'')+' от '+(inv?.date||'')+', поставщик: '+(inv?.supplierName||'—')+'.',
+	      'Материал: '+materialName+(ctrl.name && ctrl.name!==materialName ? ' (в накладной: '+ctrl.name+')' : '')+'.',
+	      'Количество по накладной: '+fmtMeasure(payload.quantity, unit)+'. Сумма строки: '+(payload.lineSum ? payload.lineSum.toLocaleString('ru-RU')+' ₽' : '—')+'.',
+	      'План: '+(ctrl.planText||'—')+'. До: '+(ctrl.beforeText||'—')+'. После: '+(ctrl.afterText||'—')+'.',
+	      'Докупить: '+(ctrl.shortageText||'—')+'. Сверх: '+(ctrl.overText||'—')+'. Цена: '+(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+'.',
+	      'Что сделать: сметчику/директору решить, привязать материал к смете через alias, оформить допматериал/допработу или подтвердить закупку вне сметы. После решения бухгалтер видит основание расхода.',
+	    ].join('\n');
+	    const res = await fetch(API+'/ai-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+	      projectName,
+	      title:(ctrl.status==='Вне сметы'?'Материал вне сметы: ':'Проверить материал накладной: ')+materialName,
+	      description,
+	      assignedRole:hasActiveEstimator() ? 'сметчик' : 'директор',
+	      status:'Новое',
+	      actionLabel:'Разобрать накладную',
+	      actionPayload:JSON.stringify(payload),
+	    })});
+	    const data = await res.json().catch(()=>({}));
+	    if (!res.ok) {
+	      alert(data.detail || 'Не удалось создать задачу');
+	      return;
+	    }
+	    setAiTasks(prev=>{
+	      const list = prev||[];
+	      if (data?.id && list.some(t=>Number(t.id)===Number(data.id))) return list.map(t=>Number(t.id)===Number(data.id)?data:t);
+	      return [data,...list];
+	    });
+	    notify('Создана задача по накладной: '+materialName, 'ai');
+	  };
+	  const renderInvoiceControlActions = (inv, ctrl, item = {}) => {
+	    if (!ctrl?.name) return null;
+	    const actions = [];
+	    if (toNum(ctrl.shortageQty)>0 && canCreateSupplyRequestFromControl()) {
+	      const exists = invoiceControlSupplyRequestExists(inv, ctrl, item);
+	      actions.push(
+	        <button
+	          key="supply"
+	          onClick={e=>{e.stopPropagation(); if (!exists) createSupplyRequestFromInvoiceControl(inv, ctrl, item);}}
+	          disabled={exists}
+	          style={{...(exists?btnG:btnO),padding:'3px 7px',fontSize:'10px',opacity:exists?0.75:1}}
+	          title={exists?'По этой позиции уже есть активная заявка':'Создать заявку снабжения на остаток к закупке'}
+	        >
+	          {exists?'Заявка есть':'Заявка'}
+	        </button>
+	      );
+	    }
+	    if (invoiceControlNeedsReview(ctrl) && canCreateInvoiceControlReviewTask()) {
+	      const exists = invoiceControlReviewTaskExists(inv, ctrl, item);
+	      actions.push(
+	        <button
+	          key="review"
+	          onClick={e=>{e.stopPropagation(); if (!exists) createInvoiceControlReviewTask(inv, ctrl, item);}}
+	          disabled={exists}
+	          style={{...(exists?btnG:btnB),padding:'3px 7px',fontSize:'10px',opacity:exists?0.75:1}}
+	          title={exists?'Задача уже есть в ИИ-контроле':'Создать задачу сметчику/директору на разбор строки'}
+	        >
+	          {exists?'Задача есть':'Разбор'}
+	        </button>
+	      );
+	    }
+	    if (!actions.length) return null;
+	    return <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>{actions}</div>;
+	  };
+	  const renderMaterialSupplyAction = (projectName, row) => {
     if (!row || toNum(row.toBuy)<=0 || !canCreateSupplyRequestFromControl()) return null;
     const exists = materialControlSupplyRequestExists(projectName, row);
     return (
@@ -12863,10 +13073,11 @@ function App() {
                 fileSrc={fileSrc}
                 setShowPhotoModal={setShowPhotoModal}
                 setSverkaModal={setSverkaModal}
-                warehouseInvoiceItems={warehouseInvoiceItems}
-                isSupplyDeliveryInvoice={isSupplyDeliveryInvoice}
-                warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
-                showPreview={showPreview}
+	                warehouseInvoiceItems={warehouseInvoiceItems}
+	                isSupplyDeliveryInvoice={isSupplyDeliveryInvoice}
+	                warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
+	                renderInvoiceControlActions={renderInvoiceControlActions}
+	                showPreview={showPreview}
                 buildInvoiceContent={buildInvoiceContent}
                 setShowQRModal={setShowQRModal}
                 C={C}

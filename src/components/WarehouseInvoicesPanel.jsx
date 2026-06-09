@@ -18,6 +18,7 @@ export default function WarehouseInvoicesPanel({
   warehouseInvoiceItems,
   isSupplyDeliveryInvoice,
   warehouseInvoiceEstimateControl,
+  renderInvoiceControlActions,
   showPreview,
   buildInvoiceContent,
   setShowQRModal,
@@ -302,8 +303,8 @@ export default function WarehouseInvoicesPanel({
               <details style={{marginTop:'10px'}}>
                 <summary style={{cursor:'pointer',color:C.accent,fontSize:'12px',fontWeight:'600',padding:'4px 0'}}>📋 Показать материалы ({items.length})</summary>
                 <div style={{marginTop:'8px',overflowX:'auto'}}>
-                  <table style={{...tbl,fontSize:'11px',minWidth:'1120px'}}>
-                    <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План</th><th style={tblH}>До</th><th style={tblH}>Накладная</th><th style={tblH}>После</th><th style={tblH}>Докупить / сверх</th><th style={tblH}>Цена</th></tr></thead>
+	                  <table style={{...tbl,fontSize:'11px',minWidth:'1260px'}}>
+	                    <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План</th><th style={tblH}>До</th><th style={tblH}>Накладная</th><th style={tblH}>После</th><th style={tblH}>Докупить / сверх</th><th style={tblH}>Цена</th><th style={tblH}>Действие</th></tr></thead>
                     <tbody>
                       {items.map((item, index) => {
                         const rowSum = Number(item.total || 0) || Number((item.quantity || 0) * (item.price || 0));
@@ -322,10 +323,11 @@ export default function WarehouseInvoicesPanel({
                             <td style={{...tblC,color:ctrl.overText && ctrl.overText !== '—' ? C.danger : ctrl.shortageText && ctrl.shortageText !== '—' ? C.warning : C.success}}>
                               {ctrl.overText && ctrl.overText !== '—' ? 'сверх '+ctrl.overText : ctrl.shortageText && ctrl.shortageText !== '—' ? 'докупить '+ctrl.shortageText : 'закрыто'}
                             </td>
-                            <td style={{...tblC,color:ctrl.priceOverText && ctrl.priceOverText !== '—' ? C.warning : C.textSec}}>
-                              {(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+(ctrl.priceOverText && ctrl.priceOverText !== '—' ? ' · +'+ctrl.priceOverText : '')}
-                            </td>
-                          </tr>
+	                            <td style={{...tblC,color:ctrl.priceOverText && ctrl.priceOverText !== '—' ? C.warning : C.textSec}}>
+	                              {(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+(ctrl.priceOverText && ctrl.priceOverText !== '—' ? ' · +'+ctrl.priceOverText : '')}
+	                            </td>
+	                            <td style={tblC}>{renderInvoiceControlActions ? (renderInvoiceControlActions(inv, ctrl, item) || <span style={{color:C.textMuted}}>—</span>) : <span style={{color:C.textMuted}}>—</span>}</td>
+	                          </tr>
                         );
                       })}
                     </tbody>

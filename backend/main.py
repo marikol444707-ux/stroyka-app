@@ -7618,7 +7618,7 @@ def list_ai_tasks(project_name: str = None, current_user: dict = Depends(require
     return [dict(r) for r in rows]
 
 @app.post("/ai-tasks")
-def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "мастер", "субподрядчик"))):
+def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "мастер", "субподрядчик", "снабженец", "кладовщик"))):
     payload = data.dict()
     if not payload.get("projectName"):
         raise HTTPException(status_code=400, detail="projectName required")
