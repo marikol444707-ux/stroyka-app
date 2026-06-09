@@ -218,7 +218,11 @@ export default function WarehouseInvoicesPanel({
               <div style={{display:'grid',gap:'6px'}}>
                 {draftEstimateControl.filter(row => row.name).map(row => (
 	                  <div key={row.index} style={{display:'grid',gridTemplateColumns:'minmax(160px,1fr) auto minmax(180px,auto)',gap:'8px',alignItems:'center',fontSize:'11px',color:C.text}}>
-	                    <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.name}>{row.name}</span>
+                    <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.name}>
+                      {row.name}
+                      {row.canonicalName && row.canonicalName !== row.name ? ' → ' + row.canonicalName : ''}
+                      {row.planSourceCount ? ' · ' + row.planSourceCount + ' строк сметы' : ''}
+                    </span>
                     {renderControlBadge(row)}
                     <span style={{color:C.textSec,textAlign:'right'}}>
                       {'План '+row.planText+' · накл. '+(row.incomingText||'—')+' · после '+row.afterText+(row.shortageText && row.shortageText !== '—' ? ' · докупить '+row.shortageText : '')+(row.overText && row.overText !== '—' ? ' · сверх '+row.overText : '')+(row.priceOverText && row.priceOverText !== '—' ? ' · дороже '+row.priceOverText : '')}
@@ -311,7 +315,13 @@ export default function WarehouseInvoicesPanel({
                         const ctrl = estimateControl[index] || {};
                         return (
                           <tr key={index}>
-                            <td style={tblC}>{item.name || ''}</td>
+                            <td style={tblC}>
+                              <b style={{fontSize:'11px'}}>{item.name || ''}</b>
+                              {ctrl.canonicalName && ctrl.canonicalName !== item.name && <p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Смета: {ctrl.canonicalName}</p>}
+                              {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
+                              {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}
+                              {ctrl.workRefs?.length > 0 && <p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {ctrl.workRefs.slice(0,2).join('; ')}{ctrl.workRefs.length > 2 ? '…' : ''}</p>}
+                            </td>
                             <td style={tblC}>{item.unit || ''}</td>
                             <td style={tblC}>{item.quantity || 0}</td>
                             <td style={tblC}>{rowSum.toLocaleString('ru-RU')+' ₽'}</td>

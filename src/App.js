@@ -2812,14 +2812,25 @@ function App() {
     (invoiceRows.items||[]).forEach((item,i) => {
       const rowSum=Number(item.total||0)||Number(item.quantity||0)*Number(item.price||0);
       const ctrl = estimateControlRows[i] || {};
+      const sourceText = ctrl.planSourceCount ? '; сметных строк: '+ctrl.planSourceCount : '';
+      const sectionsText = (ctrl.sectionsList||[]).length ? '; разделы: '+(ctrl.sectionsList||[]).slice(0,3).join(', ') : '';
       const ctrlText = ctrl.status
-        ? ctrl.status+(ctrl.incomingText?'; накладная: '+ctrl.incomingText:'')+(ctrl.shortageText&&ctrl.shortageText!=='—'?'; докупить: '+ctrl.shortageText:'')+(ctrl.overText&&ctrl.overText!=='—'?'; сверх: '+ctrl.overText:'')+(ctrl.priceOverText&&ctrl.priceOverText!=='—'?'; дороже плана: '+ctrl.priceOverText:'')
+        ? ctrl.status+sourceText+sectionsText+(ctrl.incomingText?'; накладная: '+ctrl.incomingText:'')+(ctrl.shortageText&&ctrl.shortageText!=='—'?'; докупить: '+ctrl.shortageText:'')+(ctrl.overText&&ctrl.overText!=='—'?'; сверх: '+ctrl.overText:'')+(ctrl.priceOverText&&ctrl.priceOverText!=='—'?'; дороже плана: '+ctrl.priceOverText:'')
         : '—';
       html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+rowSum.toLocaleString()+'</td><td>'+(ctrl.planText||'—')+'</td><td>'+(ctrl.beforeText||'—')+'</td><td>'+(ctrl.afterText||'—')+'</td><td>'+ctrlText+'</td></tr>';
     });
     html += '<tr><td colspan="9">Итого без НДС:</td><td>'+vatCalc.base.toLocaleString()+' руб.</td></tr>';
     if (inv.vat==='С НДС 22%') html += '<tr><td colspan="9">НДС 22%:</td><td>'+vatCalc.vat.toLocaleString()+' руб.</td></tr><tr><td colspan="9"><b>Итого с НДС:</b></td><td><b>'+vatCalc.total.toLocaleString()+' руб.</b></td></tr>';
     html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Поставщик</div></div><div class="sig"><div class="sig-line">Принял: '+inv.acceptedBy+'</div></div></div>';
+    const grouped = estimateControlRows.filter(r=>(r.planDetails||[]).length>1);
+    if (grouped.length>0) {
+      html += '<h3 style="font-size:13px;margin:18px 0 6px">Расшифровка сметных групп накладной</h3>';
+      html += '<table><tr><th>Материал накладной</th><th>Материал сметы</th><th>Пакет/раздел</th><th>Работа</th><th>Кол-во по строке</th><th>Сумма</th></tr>';
+      grouped.forEach(ctrl=>(ctrl.planDetails||[]).forEach((d,idx)=>{
+        html += '<tr><td>'+(idx===0?(ctrl.name||''):'')+'</td><td>'+(idx===0?(ctrl.canonicalName||''):'')+'</td><td>'+((d.packageName||'Основная')+' / '+(d.sectionName||''))+'</td><td>'+(d.workName||'—')+'</td><td>'+Number(d.qty||0).toLocaleString('ru-RU')+' '+(d.unit||ctrl.rowUnit||'')+'</td><td>'+Math.round(Number(d.sum||0)).toLocaleString('ru-RU')+' ₽</td></tr>';
+      }));
+      html += '</table>';
+    }
     return html;
   };
 
@@ -4615,6 +4626,10 @@ function App() {
 	        name:item.name||'',
 	        projectName:place,
 	        canonicalName:row.name,
+	        planSourceCount: row.planSourceCount || (row.planDetails||[]).length,
+	        planDetails: row.planDetails || [],
+	        sectionsList: row.sections || [],
+	        workRefs: row.workRefs || [],
 	        quantity:qty,
 	        incomingQty:qty,
 	        unit,
@@ -4700,16 +4715,20 @@ function App() {
     if (qty <= 0) { alert('Количество должно быть больше 0'); return; }
     const unit = row.unit || 'шт';
     const marker = materialControlSupplyMarker(projectName, row);
+    const planSourceCount = row.planSourceCount || (row.planDetails||[]).length;
     const notes = [
       'Создано из контроля материалов: строка `Докупить`.',
       marker,
       'Объект: '+projectName,
       'Материал: '+row.name,
+      planSourceCount ? 'Сметных строк: '+planSourceCount : '',
+      (row.sections||[]).length ? 'Разделы: '+(row.sections||[]).slice(0,5).join('; ') : '',
+      (row.workRefs||[]).length ? 'Работы: '+(row.workRefs||[]).slice(0,5).join('; ') : '',
       'План по смете: '+fmtMeasure(row.planQty, unit),
       'Поставлено/перемещено: '+fmtMeasure(row.supplied, unit),
       'В заявках и пути: '+fmtMeasure(toNum(row.requested)+toNum(row.inTransit), unit),
       'Расчётная нехватка: '+fmtMeasure(row.toBuy, unit),
-    ].join('\n');
+    ].filter(Boolean).join('\n');
     const res = await fetch(API+'/supply-requests', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -4746,18 +4765,22 @@ function App() {
 	    if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
 	    if (invoiceControlSupplyRequestExists(inv, ctrl, item)) { notify('По этой позиции уже есть активная заявка снабжения', 'supply'); return; }
 	    const marker = invoiceControlSupplyMarker(projectName, inv, ctrl, item);
+	    const planSourceCount = ctrl.planSourceCount || (ctrl.planDetails||[]).length;
 	    const notes = [
 	      'Создано из сметного контроля накладной: остаток к закупке после прихода.',
 	      marker,
 	      'Объект: '+projectName,
 	      'Накладная: №'+(inv?.number||inv?.id||'')+' от '+(inv?.date||''),
 	      'Материал: '+materialName,
+	      planSourceCount ? 'Сметных строк: '+planSourceCount : '',
+	      (ctrl.sectionsList||[]).length ? 'Разделы: '+(ctrl.sectionsList||[]).slice(0,5).join('; ') : '',
+	      (ctrl.workRefs||[]).length ? 'Работы: '+(ctrl.workRefs||[]).slice(0,5).join('; ') : '',
 	      'План по смете: '+(ctrl.planText||'—'),
 	      'До накладной: '+(ctrl.beforeText||'—'),
 	      'По накладной: '+(ctrl.incomingText||fmtMeasure(ctrl.incomingQty, unit)),
 	      'После накладной: '+(ctrl.afterText||'—'),
 	      'Докупить: '+fmtMeasure(qty, unit),
-	    ].join('\n');
+	    ].filter(Boolean).join('\n');
 	    const res = await fetch(API+'/supply-requests', {
 	      method:'POST',
 	      headers:{'Content-Type':'application/json'},
@@ -4830,6 +4853,9 @@ function App() {
 	      shortageText:ctrl.shortageText||'',
 	      overText:ctrl.overText||'',
 	      priceOverText:ctrl.priceOverText||'',
+	      planSourceCount:ctrl.planSourceCount||0,
+	      sections:(ctrl.sectionsList||[]).slice(0,8),
+	      works:(ctrl.workRefs||[]).slice(0,8),
 	    };
 	    const description = [
 	      'Накладная создала сметное замечание по материалу.',
@@ -4837,11 +4863,12 @@ function App() {
 	      'Объект: '+projectName+'.',
 	      'Накладная: №'+(inv?.number||inv?.id||'')+' от '+(inv?.date||'')+', поставщик: '+(inv?.supplierName||'—')+'.',
 	      'Материал: '+materialName+(ctrl.name && ctrl.name!==materialName ? ' (в накладной: '+ctrl.name+')' : '')+'.',
+	      payload.planSourceCount ? 'Сметная группа: '+payload.planSourceCount+' строк; разделы: '+(payload.sections.join('; ')||'—')+'; работы: '+(payload.works.join('; ')||'—')+'.' : '',
 	      'Количество по накладной: '+fmtMeasure(payload.quantity, unit)+'. Сумма строки: '+(payload.lineSum ? payload.lineSum.toLocaleString('ru-RU')+' ₽' : '—')+'.',
 	      'План: '+(ctrl.planText||'—')+'. До: '+(ctrl.beforeText||'—')+'. После: '+(ctrl.afterText||'—')+'.',
 	      'Докупить: '+(ctrl.shortageText||'—')+'. Сверх: '+(ctrl.overText||'—')+'. Цена: '+(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+'.',
 	      'Что сделать: сметчику/директору решить, привязать материал к смете через alias, оформить допматериал/допработу или подтвердить закупку вне сметы. После решения бухгалтер видит основание расхода.',
-	    ].join('\n');
+	    ].filter(Boolean).join('\n');
 	    const res = await fetch(API+'/ai-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
 	      projectName,
 	      title:(ctrl.status==='Вне сметы'?'Материал вне сметы: ':'Проверить материал накладной: ')+materialName,
@@ -7285,7 +7312,7 @@ function App() {
       {s.rows.length===0?<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Нет сметных материалов и движений по объекту.</p>:<div style={{overflowX:'auto'}}>
         <table style={{...tbl,fontSize:'11px',minWidth:'1420px'}}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>План</th><th style={tblH}>В заявках</th><th style={tblH}>В пути</th><th style={tblH}>Накладные</th><th style={tblH}>Поставки</th><th style={tblH}>Перемещено</th><th style={tblH}>Всего получено</th><th style={tblH}>Выдано</th><th style={tblH}>Списано</th><th style={tblH}>У мастеров</th><th style={tblH}>Остаток</th><th style={tblH}>Расчёт</th><th style={tblH}>Расх.</th><th style={tblH}>Докупить</th><th style={tblH}>Статус</th></tr></thead><tbody>
           {s.rows.slice(0,limit).map(r=>{const st=materialControlStatus(r);return(<tr key={r.key}>
-            <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.workRefs?.length>0&&<p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {r.workRefs.slice(0,2).join('; ')}{r.workRefs.length>2?'…':''}</p>}{r.aliases?.length>0&&<p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Синонимы: {r.aliases.slice(0,2).join(', ')}{r.aliases.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}{renderMaterialAliasControls(projectName,r)}</td>
+            <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b>{r.planSourceCount>1&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {r.planSourceCount} строк сметы</p>}{r.sections.length>0&&<p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{r.sections.slice(0,2).join(', ')}{r.sections.length>2?'…':''}</p>}{r.workRefs?.length>0&&<p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {r.workRefs.slice(0,2).join('; ')}{r.workRefs.length>2?'…':''}</p>}{r.aliases?.length>0&&<p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Синонимы: {r.aliases.slice(0,2).join(', ')}{r.aliases.length>2?'…':''}</p>}{r.unitMismatch&&<p style={{color:C.warning,fontSize:'10px',margin:'2px 0 0'}}>⚠️ Разные единицы измерения</p>}{renderMaterialAliasControls(projectName,r)}</td>
             <td style={tblC}>{r.planQty>0?fmtMeasure(r.planQty,r.unit):'—'}</td>
             <td style={{...tblC,color:r.requested>0?C.info:C.textMuted}}>{fmtMeasure(r.requested,r.unit)}</td>
             <td style={{...tblC,color:r.inTransit>0?C.warning:C.textMuted}}>{fmtMeasure(r.inTransit,r.unit)}</td>
@@ -8676,6 +8703,9 @@ function App() {
     const projectName = supplyNoteValue(lines,'Объект') || req.project || '';
     const materialName = supplyNoteValue(lines,'Материал') || req.materialName || '';
     const facts = materialControl ? [
+      ['Сметных строк', supplyNoteValue(lines,'Сметных строк')],
+      ['Разделы', supplyNoteValue(lines,'Разделы')],
+      ['Работы', supplyNoteValue(lines,'Работы')],
       ['План', supplyNoteValue(lines,'План по смете')],
       ['Поставлено', supplyNoteValue(lines,'Поставлено/перемещено')],
       ['Заявки/путь', supplyNoteValue(lines,'В заявках и пути')],
@@ -13959,7 +13989,7 @@ function App() {
               <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
                 {projects.map(p=>(<button key={p.id} onClick={()=>setAccountingDocProject(p.name)} style={{...accountingDocProject===p.name?btnO:btnG,fontSize:'12px',padding:'6px 12px'}}>{p.name}</button>))}
               </div>
-              {accountingDocProject&&(()=>{const proj=projects.find(pr=>pr.name===accountingDocProject);if(!proj) return null;const pd=projectPlanDone(proj);const budget=Number(proj.budget||0);const ownExp=(ownExpenses||[]).filter(e=>e.projectName===accountingDocProject).reduce((s,e)=>s+Number(e.amount||0),0);const accExp=(accountablePayments||[]).filter(a=>a.projectName===accountingDocProject).reduce((s,a)=>s+Number(a.amount||0),0);const supExp=(supplierInvoices||[]).filter(i=>i.projectName===accountingDocProject).reduce((s,i)=>s+Number(i.paidAmount||0),0);const brigExp=(brigadeContracts||[]).filter(b=>b.projectName===accountingDocProject).reduce((s,b)=>s+Number(b.paidAmount||0),0);const factCost=ownExp+accExp+supExp+brigExp;const margin=pd.done-factCost;const matCtrl=materialControlSummaryForProject(accountingDocProject);const matRiskRows=matCtrl.outsideRows.length+matCtrl.stockMismatchRows.length;return(<div>
+              {accountingDocProject&&(()=>{const proj=projects.find(pr=>pr.name===accountingDocProject);if(!proj) return null;const pd=projectPlanDone(proj);const budget=Number(proj.budget||0);const ownExp=(ownExpenses||[]).filter(e=>e.projectName===accountingDocProject).reduce((s,e)=>s+Number(e.amount||0),0);const accExp=(accountablePayments||[]).filter(a=>a.projectName===accountingDocProject).reduce((s,a)=>s+Number(a.amount||0),0);const supExp=(supplierInvoices||[]).filter(i=>i.projectName===accountingDocProject).reduce((s,i)=>s+Number(i.paidAmount||0),0);const brigExp=(brigadeContracts||[]).filter(b=>b.projectName===accountingDocProject).reduce((s,b)=>s+Number(b.paidAmount||0),0);const factCost=ownExp+accExp+supExp+brigExp;const margin=pd.done-factCost;const matCtrl=materialControlSummaryForProject(accountingDocProject);const matRiskRows=matCtrl.outsideRows.length+matCtrl.stockMismatchRows.length;const invoiceIssueRows=(invoices||[]).filter(inv=>(inv.project||inv.location)===accountingDocProject).flatMap(inv=>warehouseInvoiceEstimateControl(inv).filter(ctrl=>['danger','warning'].includes(ctrl.severity)).map(ctrl=>({inv,ctrl}))).slice(0,12);return(<div>
                 <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
                   {['Паспорт','КС-2','КС-3','ЖПР','М-29','АОСК','КС-11','КС-14','ИГД','📦 Пакет','📋 НДС','М-2','М-8','📦 Потребность','🔥 Свар','🧱 Бет','⚙️ Монт','🛡 АКЗ','❄️ Изол','⛓ Свай'].map(doc=>(<button key={doc} onClick={()=>{const p=proj;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showKS2(p);if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');if(doc==='М-29'){const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildM29Content(p.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-29 — '+p.name);}if(doc==='АОСК') showPreview(buildAOSKContent(p.name),'АОСК — '+p.name);if(doc==='КС-11') showPreview(buildKS11Content(p),'КС-11 — '+p.name);if(doc==='КС-14') showPreview(buildKS14Content(p),'КС-14 — '+p.name);if(doc==='ИГД') showPreview(buildIGDContent(p.name),'ИГД — '+p.name);if(doc==='📦 Пакет') showPreview(buildExecPackageContent(p),'Пакет исполнительной — '+p.name);if(doc==='📋 НДС'){const today=new Date();const qStart=new Date(today.getFullYear(),Math.floor(today.getMonth()/3)*3,1);showPreview(buildVATBookContent(qStart.toISOString().split('T')[0],today.toISOString().split('T')[0]),'Книга НДС — текущий квартал');}if(doc==='М-2'){const supName=prompt('Поставщик (название):','');if(!supName)return;const recName=prompt('Кому выдаётся доверенность (ФИО):','');const recPass=prompt('Паспорт получателя (серия, номер):','');const sup=(suppliers||[]).find(s=>s.name===supName)||{name:supName};showPreview(buildM2Content(sup,[],p.name,recName||'',recPass||''),'М-2 Доверенность');}if(doc==='М-8'){const today=new Date();const monthStart=new Date(today.getFullYear(),today.getMonth(),1);showPreview(buildM8Content(p.name,'',monthStart.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-8 Лимитно-заборная — '+p.name);}if(doc==='📦 Потребность') showPreview(buildMaterialRequirementContent(p.name),'Потребность материалов — '+p.name);if(doc==='🔥 Свар') showPreview(buildSpecJournalContent(p.name,'welding'),'Журнал сварочных работ — '+p.name);if(doc==='🧱 Бет') showPreview(buildSpecJournalContent(p.name,'concrete'),'Журнал бетонных работ — '+p.name);if(doc==='⚙️ Монт') showPreview(buildSpecJournalContent(p.name,'assembly'),'Журнал монтажа — '+p.name);if(doc==='🛡 АКЗ') showPreview(buildSpecJournalContent(p.name,'anticorrosion'),'Журнал антикоррозийной защиты — '+p.name);if(doc==='❄️ Изол') showPreview(buildSpecJournalContent(p.name,'insulation'),'Журнал изоляционных работ — '+p.name);if(doc==='⛓ Свай') showPreview(buildSpecJournalContent(p.name,'piling'),'Журнал свайных работ — '+p.name);}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
                 </div>
@@ -13982,6 +14012,24 @@ function App() {
                     <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Вне сметы/расх.</p><b style={{color:matRiskRows?C.danger:C.success,fontSize:'14px'}}>{matRiskRows}</b></div>
                   </div>
                   <p style={{color:C.textMuted,fontSize:'10px',margin:'8px 0 0',lineHeight:1.4}}>Счета поставщиков нужно сверять с ведомостью потребности: материал должен быть в смете или в утверждённом изменении, а в печатной ведомости видно, к какой работе относится ресурс.</p>
+                  {invoiceIssueRows.length>0&&(
+                    <div style={{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid '+C.border}}>
+                      <b style={{color:C.warning,fontSize:'12px',display:'block',marginBottom:'6px'}}>Накладные требуют проверки перед оплатой</b>
+                      {invoiceIssueRows.map(({inv,ctrl},idx)=>(
+                        <div key={(inv.id||'inv')+'-'+idx} style={{display:'grid',gridTemplateColumns:'minmax(180px,1fr) minmax(160px,1fr) auto',gap:'8px',alignItems:'center',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
+                          <div>
+                            <b style={{color:C.text,fontSize:'11px'}}>№ {inv.number||inv.id} · {inv.date||''}</b>
+                            <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{inv.supplierName||'—'}</p>
+                          </div>
+                          <div>
+                            <b style={{color:C.text,fontSize:'11px'}}>{ctrl.canonicalName||ctrl.name}</b>
+                            <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ctrl.planSourceCount?'сметных строк: '+ctrl.planSourceCount+' · ':''}{ctrl.sectionsList?.slice(0,2).join(' · ')}</p>
+                          </div>
+                          <span style={badge(ctrl.severity==='danger'?C.danger:C.warning,ctrl.severity==='danger'?C.dangerLight:C.warningLight,ctrl.severity==='danger'?C.dangerBorder:C.warningBorder)}>{ctrl.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Акты по проекту:</b>
