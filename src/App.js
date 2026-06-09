@@ -6783,6 +6783,80 @@ function App() {
     if (diff>0) return {label:'перерасход '+fmtMeasure(diff,m.unit), color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     return {label:'экономия '+fmtMeasure(Math.abs(diff),m.unit), color:C.info, bg:C.infoLight, border:C.infoBorder};
   };
+  const materialWriteoffRows = (projectName, usedMaterials=[]) => {
+    const stockByName = materialAvailabilityMapForWork(projectName);
+    return (usedMaterials||[])
+      .filter(m=>m?.name)
+      .map(m=>{
+        const key = materialNameKey(m.name);
+        const stock = stockByName[key] || null;
+        const qty = toNum(m.quantity);
+        const normQty = toNum(m.normQuantity);
+        const unit = m.unit || stock?.unit || 'шт';
+        const available = toNum(stock?.quantity);
+        const tolerance = normQty>0 ? Math.max(0.001, normQty*0.1) : 0;
+        const overNormQty = normQty>0 ? Math.max(0, qty - normQty) : 0;
+        const overNorm = normQty>0 && overNormQty > tolerance;
+        const overStock = qty > available + 0.0001;
+        const noNorm = qty>0 && normQty<=0;
+        const restAfter = Math.max(0, available - qty);
+        return {
+          ...m,
+          key,
+          qty,
+          unit,
+          stock,
+          available,
+          normQty,
+          overNorm,
+          overNormQty,
+          overStock,
+          noNorm,
+          restAfter,
+        };
+      });
+  };
+  const materialWriteoffBlockMessage = (projectName, usedMaterials=[]) => {
+    const rows = materialWriteoffRows(projectName, usedMaterials);
+    const bad = rows.filter(r=>!r.stock || r.overStock);
+    if (!bad.length) return '';
+    return bad.map(r=>{
+      if (!r.stock) return isPersonalMaterialRole()
+        ? 'Материал «'+r.name+'» не выдан вам или получение не подтверждено.'
+        : 'Материал «'+r.name+'» не найден на складе объекта «'+projectName+'».';
+      return 'Недостаточно материала «'+r.name+'»: выбрано '+fmtMeasure(r.qty,r.unit)+', доступно '+fmtMeasure(r.available,r.stock.unit||r.unit)+'.';
+    }).join('\n');
+  };
+  const confirmMaterialNormOverrun = (projectName, workName, usedMaterials=[]) => {
+    const rows = materialWriteoffRows(projectName, usedMaterials).filter(r=>r.overNorm);
+    if (!rows.length) return true;
+    const lines = rows.slice(0,6).map(r=>'• '+r.name+': списать '+fmtMeasure(r.qty,r.unit)+', норма '+fmtMeasure(r.normQty,r.unit)+', перерасход '+fmtMeasure(r.overNormQty,r.unit));
+    return window.confirm('По работе «'+workName+'» есть перерасход материала выше нормы.\n\n'+lines.join('\n')+'\n\nОтправить всё равно? Прораб увидит перерасход в контроле норм.');
+  };
+  const renderMaterialWriteoffStatus = (projectName, usedMaterials=[]) => {
+    const rows = materialWriteoffRows(projectName, usedMaterials).filter(r=>r.qty>0 || r.normQty>0);
+    if (!rows.length) return null;
+    return (
+      <div style={{display:'grid',gap:'5px',margin:'7px 0'}}>
+        {rows.map(r=>{
+          const tone = r.overStock ? 'danger' : r.overNorm || r.noNorm ? 'warning' : 'success';
+          const color = tone==='danger' ? C.danger : tone==='warning' ? C.warning : C.success;
+          const bg = tone==='danger' ? C.dangerLight : tone==='warning' ? C.warningLight : C.successLight;
+          const borderColor = tone==='danger' ? C.dangerBorder : tone==='warning' ? C.warningBorder : C.successBorder;
+          const sourceLabel = isPersonalMaterialRole() ? 'выдано мне' : 'на объекте';
+          const label = r.overStock ? 'не хватает' : r.overNorm ? 'перерасход нормы' : r.noNorm ? 'без нормы' : 'в норме';
+          return (
+            <div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(0,1.3fr) repeat(3,auto)',gap:'6px 10px',alignItems:'center',padding:'6px 8px',borderRadius:'8px',border:'1px solid '+borderColor,backgroundColor:bg,fontSize:'10px'}}>
+              <b style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:isMobile?'normal':'nowrap'}}>{r.name}</b>
+              <span style={{color:C.textSec}}>{sourceLabel+': '}<b style={{color:C.text}}>{r.stock?fmtMeasure(r.available,r.stock.unit||r.unit):'нет'}</b></span>
+              <span style={{color:C.textSec}}>норма: <b style={{color:C.text}}>{r.normQty>0?fmtMeasure(r.normQty,r.unit):'—'}</b></span>
+              <span style={{color}}>списать: <b>{fmtMeasure(r.qty,r.unit)}</b> · {label}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
   const upsertSelectedWorkMaterial = (itemId, material, quantity='') => {
     const key = materialNameKey(material.name);
     setSelectedWorks(prev=>{
@@ -7847,18 +7921,9 @@ function App() {
     for (const m of usedMats) {
       if (toNum(m.quantity)<=0) { alert('Укажите количество материала «'+m.name+'» или снимите галочку.'); return; }
     }
-    const stockByName = materialAvailabilityMapForWork(project.name);
-    const usageByName = {};
-    usedMats.forEach(m=>{
-      const key = materialNameKey(m.name);
-      if (!usageByName[key]) usageByName[key] = {...m, quantity:0};
-      usageByName[key].quantity += toNum(m.quantity);
-    });
-    for (const m of Object.values(usageByName)) {
-      const stock = stockByName[materialNameKey(m.name)];
-      if (!stock) { alert(isPersonalMaterialRole()?'Материал «'+m.name+'» не выдан вам или получение не подтверждено.':'Материал «'+m.name+'» не найден на складе объекта «'+project.name+'».'); return; }
-      if (m.quantity > stock.quantity + 0.0001) { alert('Недостаточно материала «'+m.name+'»: выбрано '+fmtMeasure(m.quantity,m.unit)+', доступно '+fmtMeasure(stock.quantity,stock.unit)+'.'); return; }
-    }
+    const blockMessage = materialWriteoffBlockMessage(project.name, usedMats);
+    if (blockMessage) { alert(blockMessage); return; }
+    if (!confirmMaterialNormOverrun(project.name, mi.name, usedMats)) return;
     const newSections = est.sections.map((s,si)=>si===mi.sectionIdx?{...s,items:s.items.map((it,ii)=>ii===mi.itemIdx?{...it,doneQuantity:raw}:it)}:s);
     const updated = {...est, sections:newSections, _workJournalMaterials:{[workKey]:usedMats}};
     const res = await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
@@ -7891,7 +7956,6 @@ function App() {
       return item && workData.quantity && toNum(workData.quantity)>0;
     });
     if (!selectedEntries.length) { alert('Введите количество хотя бы для одной работы'); return; }
-    const stockByName = materialAvailabilityMapForWork(project.name);
     const plannedUsage = {};
     for (const [itemId, workData] of selectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
@@ -7905,10 +7969,11 @@ function App() {
         plannedUsage[key].quantity += qty;
       }
     }
-    for (const u of Object.values(plannedUsage)) {
-      const stock = stockByName[materialNameKey(u.name)];
-      if (!stock) { alert(isPersonalMaterialRole()?'Материал «'+u.name+'» не выдан вам или получение не подтверждено.':'Материал «'+u.name+'» не найден на складе объекта «'+project.name+'». Сначала примите или переместите материал на объект.'); return; }
-      if (u.quantity > stock.quantity + 0.0001) { alert('Недостаточно материала «'+u.name+'»: выбрано '+fmtMeasure(u.quantity,u.unit)+', доступно '+fmtMeasure(stock.quantity,stock.unit)+'.'); return; }
+    const blockMessage = materialWriteoffBlockMessage(project.name, Object.values(plannedUsage));
+    if (blockMessage) { alert(blockMessage); return; }
+    for (const [itemId, workData] of selectedEntries) {
+      const item = pricelistItems.find(i=>i.id===Number(itemId));
+      if (item && !confirmMaterialNormOverrun(project.name, item.name, workData.materials||[])) return;
     }
     for (const [itemId,workData] of selectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
@@ -9049,6 +9114,7 @@ function App() {
                       {suggestions.length>0&&<div style={{display:'flex',gap:'5px',flexWrap:'wrap',marginBottom:'6px'}}>
                         {suggestions.slice(0,6).map(r=>{const key=materialNameKey(r.name);const checked=!!usedMap[key];const available=availMap[key];const unit=available?.unit||r.unit||'шт';const hasStock=toNum(available?.quantity)>0;const st=materialControlStatus(r);const norm=materialNormForWork(proj.name,mi.name,mi.section,delta,mi.unit,{name:r.name,unit},estimateWorkParams[wKey]||{});return(<button type='button' key={key} disabled={!hasStock} onClick={()=>checked?removeEstimateWorkMaterial(wKey,r.name):upsertEstimateWorkMaterial(wKey,{name:r.name,unit,autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||'')} style={{padding:'4px 7px',borderRadius:'7px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>{(checked?'✓ ':'')+r.name+(norm?' · норма '+fmtMeasure(norm.quantity,unit):(hasStock?' · '+fmtMeasure(available.quantity,available.unit):''))}</button>);})}
                       </div>}
+                      {renderMaterialWriteoffStatus(proj.name, used)}
                       {projMats.length>0?<div style={{maxHeight:'155px',overflowY:'auto',display:'grid',gap:'5px'}}>
                         {projMats.map(m=>{const key=materialNameKey(m.name);const checked=!!usedMap[key];const selected=usedMap[key]||{};const hint=materialHintForProject(proj.name,m.name);const stock=toNum(m.quantity);const norm=materialNormForWork(proj.name,mi.name,mi.section,delta,mi.unit,m,estimateWorkParams[wKey]||{});const normStatus=checked?materialNormStatus(selected):null;const over=checked&&toNum(selected.quantity)>stock;return(<div key={m.id} style={{display:'grid',gridTemplateColumns:'18px minmax(0,1fr) auto',gap:'6px',alignItems:'center',fontSize:'11px',padding:'5px 6px',border:'1px solid '+(over?C.dangerBorder:checked?C.accentBorder:C.border),borderRadius:'7px'}}>
                           <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertEstimateWorkMaterial(wKey,{name:m.name,unit:m.unit||'шт',autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||''):removeEstimateWorkMaterial(wKey,m.name)} style={{width:'14px',height:'14px',accentColor:C.accent}}/>
@@ -9111,6 +9177,7 @@ function App() {
                                 </button>);
                               })}
                             </div>}
+                            {renderMaterialWriteoffStatus(proj.name, used)}
                             {projMats.length>0&&<div style={{maxHeight:'190px',overflowY:'auto',display:'grid',gap:'6px'}}>
                               {projMats.map(m=>{
                                 const key=materialNameKey(m.name);
