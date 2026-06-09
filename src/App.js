@@ -1888,7 +1888,7 @@ function App() {
         if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
         else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:Number(item.price||0),minQuantity:0,project:newInvoice.location,category:item.category||''})});
       }
-      await fetch(API+'/warehouse-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({material:item.name,type:'приход',quantity:Number(item.quantity),date:newInvoice.date||new Date().toISOString().split('T')[0],project:newInvoice.location==='Основной склад'?'Основной склад':newInvoice.project,issuedBy:newInvoice.acceptedBy||user.name,dateTime:new Date().toLocaleString('ru-RU')})});
+      await fetch(API+'/warehouse-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({material:item.name,type:'приход',quantity:Number(item.quantity),date:newInvoice.date||new Date().toISOString().split('T')[0],project:newInvoice.location==='Основной склад'?'Основной склад':newInvoice.location,issuedBy:newInvoice.acceptedBy||user.name,dateTime:new Date().toLocaleString('ru-RU')})});
     }
     const photoUrl = newInvoice.photos && newInvoice.photos.length>0 ? newInvoice.photos[0] : '';
     const inv = {id:Date.now(),number:newInvoice.number,date:newInvoice.date,supplierId:Number(supplierId)||0,supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',acceptedBy:newInvoice.acceptedBy||user.name,location:newInvoice.location,project:newInvoice.project,vat:newInvoice.vat,photoUrl,photos:newInvoice.photos||[],items:validItems,totalBase:vatCalc.base,totalVat:vatCalc.vat,totalWithVat:vatCalc.total,status:'Принята',addedBy:user.name};
@@ -2745,17 +2745,17 @@ function App() {
       const color = estimateControlIssues.length ? '#b91c1c' : '#047857';
       html += '<p style="font-size:11px;color:'+color+';margin:6px 0"><b>Сметный контроль:</b> '+(estimateControlIssues.length ? 'есть замечания: '+estimateControlIssues.length : 'все строки сопоставлены со сметой')+'</p>';
     }
-    html += '<table><tr><th>N</th><th>Наименование товара</th><th>Категория</th><th>Кол-во</th><th>Ед.</th><th>Цена</th><th>Сумма</th><th>Сметный контроль</th></tr>';
+    html += '<table><tr><th>N</th><th>Наименование товара</th><th>Категория</th><th>Кол-во</th><th>Ед.</th><th>Сумма</th><th>План</th><th>До</th><th>После</th><th>Сметный контроль</th></tr>';
     (invoiceRows.items||[]).forEach((item,i) => {
       const rowSum=Number(item.total||0)||Number(item.quantity||0)*Number(item.price||0);
       const ctrl = estimateControlRows[i] || {};
       const ctrlText = ctrl.status
-        ? ctrl.status+'; план: '+(ctrl.planText||'—')+'; после: '+(ctrl.afterText||'—')+(ctrl.overText&&ctrl.overText!=='—'?'; сверх: '+ctrl.overText:'')+(ctrl.priceOverText&&ctrl.priceOverText!=='—'?'; дороже плана: '+ctrl.priceOverText:'')
+        ? ctrl.status+(ctrl.incomingText?'; накладная: '+ctrl.incomingText:'')+(ctrl.shortageText&&ctrl.shortageText!=='—'?'; докупить: '+ctrl.shortageText:'')+(ctrl.overText&&ctrl.overText!=='—'?'; сверх: '+ctrl.overText:'')+(ctrl.priceOverText&&ctrl.priceOverText!=='—'?'; дороже плана: '+ctrl.priceOverText:'')
         : '—';
-      html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+Number(item.price||0).toLocaleString()+'</td><td>'+rowSum.toLocaleString()+'</td><td>'+ctrlText+'</td></tr>';
+      html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+rowSum.toLocaleString()+'</td><td>'+(ctrl.planText||'—')+'</td><td>'+(ctrl.beforeText||'—')+'</td><td>'+(ctrl.afterText||'—')+'</td><td>'+ctrlText+'</td></tr>';
     });
-    html += '<tr><td colspan="7">Итого без НДС:</td><td>'+vatCalc.base.toLocaleString()+' руб.</td></tr>';
-    if (inv.vat==='С НДС 22%') html += '<tr><td colspan="7">НДС 22%:</td><td>'+vatCalc.vat.toLocaleString()+' руб.</td></tr><tr><td colspan="7"><b>Итого с НДС:</b></td><td><b>'+vatCalc.total.toLocaleString()+' руб.</b></td></tr>';
+    html += '<tr><td colspan="9">Итого без НДС:</td><td>'+vatCalc.base.toLocaleString()+' руб.</td></tr>';
+    if (inv.vat==='С НДС 22%') html += '<tr><td colspan="9">НДС 22%:</td><td>'+vatCalc.vat.toLocaleString()+' руб.</td></tr><tr><td colspan="9"><b>Итого с НДС:</b></td><td><b>'+vatCalc.total.toLocaleString()+' руб.</b></td></tr>';
     html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Поставщик</div></div><div class="sig"><div class="sig-line">Принял: '+inv.acceptedBy+'</div></div></div>';
     return html;
   };
@@ -4206,7 +4206,7 @@ function App() {
       const key = keyOf(meta.name);
       if (!key) return null;
       const cleanUnit = materialUnit(meta.unit || unit);
-      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
       if (rawName && keyOf(rawName)!==key && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
       if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
       if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
@@ -4255,9 +4255,22 @@ function App() {
         if (!r) return;
         const qty = Number(it.quantity||0);
         const price = Number(it.price||0);
+        const converted = materialQty(qty, it.unit || r.unit);
         addQty(r, 'invoiceReceived', qty, it.unit);
         addQty(r, 'received', qty, it.unit);
-        r.receivedSum += Number(it.total||qty*price||0);
+        const total = Number(it.total||qty*price||0);
+        r.receivedSum += total;
+        r.invoiceDetails.push({
+          id: inv.id,
+          number: inv.number || '',
+          date: inv.date || '',
+          supplierName: inv.supplierName || '',
+          qty: converted.qty,
+          unit: converted.unit || it.unit || r.unit,
+          sourceUnit: it.unit || '',
+          sourceQty: qty,
+          total,
+        });
       });
     });
     const acceptedDeliveryKeys = new Set();
@@ -4267,9 +4280,21 @@ function App() {
         const r = ensure(d.materialName, d.unit);
         if (!r) return;
         const qty = Number(d.receivedQuantity||0);
+        const converted = materialQty(qty, d.unit || r.unit);
         addQty(r, 'supplyReceived', qty, d.unit);
         addQty(r, 'received', qty, d.unit);
-        r.receivedSum += Number(d.totalPrice||0) || qty * Number(d.pricePerUnit||0);
+        const total = Number(d.totalPrice||0) || qty * Number(d.pricePerUnit||0);
+        r.receivedSum += total;
+        r.supplyDetails.push({
+          id: d.id,
+          requestId: d.requestId,
+          status: d.status || '',
+          supplierName: d.supplierName || '',
+          qty: converted.qty,
+          unit: converted.unit || d.unit || r.unit,
+          total,
+          date: d.receivedAt || d.deliveryDate || d.plannedDate || '',
+        });
         acceptedDeliveryKeys.add(r.key);
       });
     (supplyHistory||[])
@@ -4278,19 +4303,34 @@ function App() {
         const r = ensure(h.materialName, h.unit);
         if (!r || acceptedDeliveryKeys.has(r.key)) return;
         const qty = Number(h.quantity||0);
+        const converted = materialQty(qty, h.unit || r.unit);
         addQty(r, 'supplyReceived', qty, h.unit);
         addQty(r, 'received', qty, h.unit);
-        r.receivedSum += Number(h.totalPrice||0) || qty * Number(h.pricePerUnit||0);
+        const total = Number(h.totalPrice||0) || qty * Number(h.pricePerUnit||0);
+        r.receivedSum += total;
+        r.supplyDetails.push({
+          id: h.id,
+          status: h.status || '',
+          supplierName: h.supplierName || '',
+          qty: converted.qty,
+          unit: converted.unit || h.unit || r.unit,
+          total,
+          date: h.date || h.createdAt || '',
+        });
       });
     (warehouseMovements||[]).forEach(m=>{
       const qty = Number(m.quantity||0);
       if ((m.toLocation||'')===projectName) {
         const r = ensure(m.materialName, m.unit);
         addQty(r, 'movedIn', qty, m.unit);
+        const converted = materialQty(qty, m.unit || r?.unit);
+        if (r) r.movementDetails.push({id:m.id, type:'in', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||''});
       }
       if ((m.fromLocation||'')===projectName) {
         const r = ensure(m.materialName, m.unit);
         addQty(r, 'movedOut', qty, m.unit);
+        const converted = materialQty(qty, m.unit || r?.unit);
+        if (r) r.movementDetails.push({id:m.id, type:'out', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||''});
       }
     });
     (materialTransfers||[]).filter(t=>t.projectName===projectName).forEach(t=>{
@@ -4468,6 +4508,8 @@ function App() {
       const afterQty = suppliedBeforeInvoice + alreadySeen + qty;
       const overQty = Math.max(0, afterQty - Number(row.planQty||0));
       const shortageQty = Math.max(0, Number(row.planQty||0) - afterQty);
+      const beforeQty = suppliedBeforeInvoice + alreadySeen;
+      const coveredByLineQty = Math.min(qty, Math.max(0, Number(row.planQty||0) - beforeQty));
       const planUnitPrice = Number(row.planQty||0) > 0 ? Number(row.planSum||0) / Number(row.planQty||1) : 0;
       const invoiceUnitPrice = qty > 0 ? lineSum / qty : Number(item.price||0);
       const priceOverSum = planUnitPrice > 0 ? Math.max(0, lineSum - planUnitPrice * qty) : 0;
@@ -4491,8 +4533,11 @@ function App() {
                 ? 'Поставка закрывает часть сметной потребности'
                 : 'Поставка закрывает сметную потребность',
         planText:fmtMeasure(row.planQty, rowUnit),
-        beforeText:fmtMeasure(suppliedBeforeInvoice + alreadySeen, rowUnit),
+        incomingText:fmtMeasure(qty, rowUnit),
+        coveredByLineText:fmtMeasure(coveredByLineQty, rowUnit),
+        beforeText:fmtMeasure(beforeQty, rowUnit),
         afterText:fmtMeasure(afterQty, rowUnit),
+        shortageText:shortageQty > 0 ? fmtMeasure(shortageQty, rowUnit) : '—',
         overText:overQty > 0 ? fmtMeasure(overQty, rowUnit) : '—',
         lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
         planPriceText:planUnitPrice > 0 ? Math.round(planUnitPrice).toLocaleString('ru-RU')+' ₽/'+(rowUnit||'ед.') : '—',

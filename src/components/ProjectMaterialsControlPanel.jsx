@@ -86,6 +86,18 @@ export default function ProjectMaterialsControlPanel({
     zIndex: 2,
     backgroundColor: C.bg
   };
+  const sourceLine = (label, details = [], color = C.textSec) => {
+    if (!details.length) return null;
+    const shown = details.slice(0, 3).map(d => {
+      const title = d.number ? '№' + d.number : d.supplierName || d.status || d.to || d.from || 'запись';
+      return title + ' · ' + fmtMeasure(d.qty || 0, d.unit || '') + (d.date ? ' · ' + String(d.date).slice(0, 10) : '');
+    }).join('; ');
+    return (
+      <p style={{color, fontSize: '10px', margin: '2px 0 0'}}>
+        {label}: {shown}{details.length > 3 ? ' +' + (details.length - 3) : ''}
+      </p>
+    );
+  };
 
   return (
     <div style={{
@@ -194,6 +206,9 @@ export default function ProjectMaterialsControlPanel({
                       <b style={{fontSize: '12px'}}>{r.name}</b>
                       {r.sections.length > 0 && <p style={{color: C.textMuted, fontSize: '10px', margin: '2px 0 0'}}>{r.sections.slice(0, 2).join(', ')}{r.sections.length > 2 ? '…' : ''}</p>}
                       {r.aliases?.length > 0 && <p style={{color: C.info, fontSize: '10px', margin: '2px 0 0'}}>Синонимы: {r.aliases.slice(0, 2).join(', ')}{r.aliases.length > 2 ? '…' : ''}</p>}
+                      {sourceLine('Накладные', r.invoiceDetails, C.success)}
+                      {sourceLine('Поставки', r.supplyDetails, C.info)}
+                      {sourceLine('Перемещения', r.movementDetails, C.textSec)}
                       {r.unitMismatch && <p style={{color: C.warning, fontSize: '10px', margin: '2px 0 0'}}>⚠️ Разные единицы измерения</p>}
                       {renderMaterialAliasControls(projectName, r)}
                     </td>

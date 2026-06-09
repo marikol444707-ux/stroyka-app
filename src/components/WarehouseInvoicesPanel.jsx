@@ -46,6 +46,15 @@ export default function WarehouseInvoicesPanel({
     if (row.severity === 'success') return {color:C.success, bg:C.successLight, border:C.successBorder};
     return {color:C.textSec, bg:C.bg, border:C.border};
   };
+  const invoiceControlSummary = (rows = []) => {
+    const filled = rows.filter(row => row.name);
+    return {
+      ok: filled.filter(row => row.severity === 'success').length,
+      outside: filled.filter(row => row.status === 'Вне сметы').length,
+      over: filled.filter(row => row.overText && row.overText !== '—').length,
+      price: filled.filter(row => row.priceOverText && row.priceOverText !== '—').length,
+    };
+  };
   const renderControlBadge = (row) => {
     const tone = controlTone(row);
     return (
@@ -207,11 +216,11 @@ export default function WarehouseInvoicesPanel({
               </div>
               <div style={{display:'grid',gap:'6px'}}>
                 {draftEstimateControl.filter(row => row.name).map(row => (
-                  <div key={row.index} style={{display:'grid',gridTemplateColumns:'minmax(160px,1fr) auto minmax(180px,auto)',gap:'8px',alignItems:'center',fontSize:'11px',color:C.text}}>
-                    <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.name}>{row.name}</span>
+	                  <div key={row.index} style={{display:'grid',gridTemplateColumns:'minmax(160px,1fr) auto minmax(180px,auto)',gap:'8px',alignItems:'center',fontSize:'11px',color:C.text}}>
+	                    <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.name}>{row.name}</span>
                     {renderControlBadge(row)}
                     <span style={{color:C.textSec,textAlign:'right'}}>
-                      {'План '+row.planText+' · после '+row.afterText+(row.overText && row.overText !== '—' ? ' · сверх '+row.overText : '')+(row.priceOverText && row.priceOverText !== '—' ? ' · дороже '+row.priceOverText : '')}
+                      {'План '+row.planText+' · накл. '+(row.incomingText||'—')+' · после '+row.afterText+(row.shortageText && row.shortageText !== '—' ? ' · докупить '+row.shortageText : '')+(row.overText && row.overText !== '—' ? ' · сверх '+row.overText : '')+(row.priceOverText && row.priceOverText !== '—' ? ' · дороже '+row.priceOverText : '')}
                     </span>
                   </div>
                 ))}
@@ -271,7 +280,14 @@ export default function WarehouseInvoicesPanel({
                 {invoiceRows.reconstructed && <p style={{color:C.warning,margin:'2px 0 0',fontSize:'11px'}}>Строки восстановлены из {invoiceRows.source}</p>}
                 {inv.location !== 'Основной склад' && estimateControl.length > 0 && (
                   <p style={{color:estimateIssues.length?C.warning:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'800'}}>
-                    {'Сметный контроль: '+(estimateIssues.length ? 'замечаний '+estimateIssues.length : 'без замечаний')}
+                    {(() => {
+                      const sum = invoiceControlSummary(estimateControl);
+                      return 'Сметный контроль: ' + (estimateIssues.length ? 'замечаний ' + estimateIssues.length : 'без замечаний') +
+                        ' · по смете ' + sum.ok +
+                        (sum.outside ? ' · вне сметы ' + sum.outside : '') +
+                        (sum.over ? ' · сверх плана ' + sum.over : '') +
+                        (sum.price ? ' · цена выше ' + sum.price : '');
+                    })()}
                   </p>
                 )}
               </div>
@@ -282,12 +298,12 @@ export default function WarehouseInvoicesPanel({
               </div>
             </div>
 
-            {items.length > 0 && (
+            {items.length > 0 ? (
               <details style={{marginTop:'10px'}}>
                 <summary style={{cursor:'pointer',color:C.accent,fontSize:'12px',fontWeight:'600',padding:'4px 0'}}>📋 Показать материалы ({items.length})</summary>
                 <div style={{marginTop:'8px',overflowX:'auto'}}>
-                  <table style={{...tbl,fontSize:'11px'}}>
-                    <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План / после</th><th style={tblH}>Цена по смете</th></tr></thead>
+                  <table style={{...tbl,fontSize:'11px',minWidth:'1120px'}}>
+                    <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План</th><th style={tblH}>До</th><th style={tblH}>Накладная</th><th style={tblH}>После</th><th style={tblH}>Докупить / сверх</th><th style={tblH}>Цена</th></tr></thead>
                     <tbody>
                       {items.map((item, index) => {
                         const rowSum = Number(item.total || 0) || Number((item.quantity || 0) * (item.price || 0));
@@ -297,11 +313,14 @@ export default function WarehouseInvoicesPanel({
                             <td style={tblC}>{item.name || ''}</td>
                             <td style={tblC}>{item.unit || ''}</td>
                             <td style={tblC}>{item.quantity || 0}</td>
-                            <td style={tblC}>{Number(item.price || 0).toLocaleString('ru-RU')+' ₽'}</td>
                             <td style={tblC}>{rowSum.toLocaleString('ru-RU')+' ₽'}</td>
                             <td style={tblC}>{renderControlBadge(ctrl)}</td>
-                            <td style={{...tblC,color:ctrl.severity==='danger'?C.danger:C.textSec}}>
-                              {'План '+(ctrl.planText||'—')+' · после '+(ctrl.afterText||'—')+(ctrl.overText && ctrl.overText !== '—' ? ' · сверх '+ctrl.overText : '')}
+                            <td style={tblC}>{ctrl.planText || '—'}</td>
+                            <td style={tblC}>{ctrl.beforeText || '—'}</td>
+                            <td style={{...tblC,color:C.info}}>{ctrl.incomingText || item.quantity + ' ' + (item.unit || '')}</td>
+                            <td style={{...tblC,color:ctrl.severity==='danger'?C.danger:C.text}}>{ctrl.afterText || '—'}</td>
+                            <td style={{...tblC,color:ctrl.overText && ctrl.overText !== '—' ? C.danger : ctrl.shortageText && ctrl.shortageText !== '—' ? C.warning : C.success}}>
+                              {ctrl.overText && ctrl.overText !== '—' ? 'сверх '+ctrl.overText : ctrl.shortageText && ctrl.shortageText !== '—' ? 'докупить '+ctrl.shortageText : 'закрыто'}
                             </td>
                             <td style={{...tblC,color:ctrl.priceOverText && ctrl.priceOverText !== '—' ? C.warning : C.textSec}}>
                               {(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+(ctrl.priceOverText && ctrl.priceOverText !== '—' ? ' · +'+ctrl.priceOverText : '')}
@@ -313,6 +332,10 @@ export default function WarehouseInvoicesPanel({
                   </table>
                 </div>
               </details>
+            ) : (
+              <div style={{marginTop:'10px',padding:'10px 12px',borderRadius:'10px',border:'1.5px solid '+C.warningBorder,backgroundColor:C.warningLight,color:C.warning,fontSize:'12px',fontWeight:'700'}}>
+                В этой накладной нет сохранённых строк материалов. Для старых записей можно видеть только общую сумму, но списание и сметный контроль по строкам будут неполными.
+              </div>
             )}
 
             {(inv.photos || []).length > 0 && (
