@@ -4269,7 +4269,7 @@ function App() {
       const key = keyOf(meta.name);
       if (!key) return null;
       const cleanUnit = materialUnit(meta.unit || unit);
-      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planDetails:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
       if (rawName && keyOf(rawName)!==key && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
       if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
       if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
@@ -4305,11 +4305,26 @@ function App() {
       if (isEstimateMaterialItem(it, s.name)) {
         const r = ensure(it.name, it.unit);
         if (!r) return;
+        const converted = materialQty(it.quantity, it.unit || r.unit);
+        const planSum = estimateItemMaterialSum(it);
         addQty(r, 'planQty', it.quantity, it.unit);
-        r.planSum += estimateItemMaterialSum(it);
+        r.planSum += planSum;
         const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
         if (sectionLabel && !r.sections.includes(sectionLabel)) r.sections.push(sectionLabel);
         if (it.parentWorkName && !r.workRefs.includes(it.parentWorkName)) r.workRefs.push(it.parentWorkName);
+        r.planDetails.push({
+          estimateId: est.id,
+          estimateName: est.name || '',
+          packageName: estimatePackage(est),
+          sectionName: s.name || '',
+          materialName: it.name || '',
+          workName: it.parentWorkName || '',
+          qty: converted.qty,
+          unit: converted.unit || it.unit || r.unit,
+          sourceQty: Number(it.quantity || 0),
+          sourceUnit: it.unit || '',
+          sum: planSum,
+        });
       }
     })));
     (invoices||[]).filter(inv=>!isSupplyDeliveryInvoice(inv) && ((inv.project||inv.location)===projectName || inv.location===projectName)).forEach(inv=>{
@@ -4459,6 +4474,7 @@ function App() {
       const stockDiff = (r.stock||0) - expectedStock;
       return {
         ...r,
+        planSourceCount: (r.planDetails || []).length,
         movedNet,
         supplied,
         holders,
@@ -7605,7 +7621,7 @@ function App() {
     const rows=materialReconciliationRows(projectName);
     const normRows=estimateWorkNormRequirementRows(projectName);
     const normCtrl=materialNormControlSummaryForProject(projectName);
-    let html='<style>.mr-tbl{border-collapse:collapse;width:100%;font-size:10.5px;margin:8px 0}.mr-tbl th,.mr-tbl td{border:1px solid #333;padding:5px 6px}.mr-tbl th{background:#f3f4f6}.mr-need{background:#fef3c7;font-weight:700}.mr-over{background:#dbeafe}.mr-out{background:#fee2e2}.mr-ok{background:#dcfce7}</style>';
+    let html='<style>.mr-tbl{border-collapse:collapse;width:100%;font-size:10.5px;margin:8px 0}.mr-tbl th,.mr-tbl td{border:1px solid #333;padding:5px 6px}.mr-tbl th{background:#f3f4f6}.mr-need{background:#fef3c7;font-weight:700}.mr-over{background:#dbeafe}.mr-out{background:#fee2e2}.mr-ok{background:#dcfce7}.mr-muted{font-size:9px;color:#666;font-weight:400}</style>';
     html+='<h2 style="text-align:center;margin:6px 0">ВЕДОМОСТЬ ПОТРЕБНОСТИ МАТЕРИАЛОВ</h2>';
     html+='<p style="text-align:center;font-size:11px;color:#444">по смете объекта (план / заявки / в пути / накладные / поставки / перемещения / выдано / списано / остаток)</p>';
     html+='<p style="font-size:12px"><b>Объект:</b> '+projectName+' · <b>Подрядчик:</b> '+orgName+'</p>';
@@ -7613,10 +7629,18 @@ function App() {
     if (rows.length===0) html+='<p style="text-align:center;color:#888;font-size:11px;padding:14px">Материалов в смете нет</p>';
 	    else {
 		      html+='<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Работа-основание</th><th>Раздел</th><th>Ед.</th><th>План</th><th>В заявках</th><th>В пути</th><th>Накладные</th><th>Поставки</th><th>Перемещено</th><th>Всего получено</th><th>Выдано</th><th>Списано</th><th>У мастеров</th><th>Остаток склада</th><th>Расчётный остаток</th><th>Расхождение</th><th>Докупить</th><th>Статус</th></tr>';
-	      rows.forEach((r,i)=>{const cls=r.stockMismatch?'mr-out':r.issued>0&&r.usedWithoutIssue>0?'mr-out':r.isOutsideEstimate?'mr-out':r.toBuy>0?'mr-need':r.over>0?'mr-over':'mr-ok';const status=r.stockMismatch?'расхождение склада '+r.stockDiff.toLocaleString('ru-RU'):r.issued>0&&r.usedWithoutIssue>0?'списано сверх выдачи '+r.usedWithoutIssue.toLocaleString('ru-RU'):r.isOutsideEstimate?'вне сметы '+r.coveredWithPipeline.toLocaleString('ru-RU'):r.toBuy>0?'докупить '+r.toBuy.toLocaleString('ru-RU'):r.shortage>0?'закрывается заявками/поставками':r.masterBalance>0?'у мастеров '+r.masterBalance.toLocaleString('ru-RU'):r.over>0?'сверх '+r.over.toLocaleString('ru-RU'):'закрыто';const workCell=(r.workRefs||[]).slice(0,3).join('; ');html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+(r.unitMismatch?' ⚠ ед.изм.':'')+'</td><td>'+workCell+'</td><td>'+(r.sections||[]).join(', ')+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+r.requested.toLocaleString('ru-RU')+'</td><td>'+r.inTransit.toLocaleString('ru-RU')+'</td><td>'+r.invoiceReceived.toLocaleString('ru-RU')+'</td><td>'+r.supplyReceived.toLocaleString('ru-RU')+'</td><td>'+r.movedNet.toLocaleString('ru-RU')+'</td><td>'+r.supplied.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+r.used.toLocaleString('ru-RU')+'</td><td>'+r.masterBalance.toLocaleString('ru-RU')+'</td><td>'+r.stock.toLocaleString('ru-RU')+'</td><td>'+r.expectedStock.toLocaleString('ru-RU')+'</td><td>'+r.stockDiff.toLocaleString('ru-RU')+'</td><td>'+r.toBuy.toLocaleString('ru-RU')+'</td><td>'+status+'</td></tr>';});
+	      rows.forEach((r,i)=>{const cls=r.stockMismatch?'mr-out':r.issued>0&&r.usedWithoutIssue>0?'mr-out':r.isOutsideEstimate?'mr-out':r.toBuy>0?'mr-need':r.over>0?'mr-over':'mr-ok';const status=r.stockMismatch?'расхождение склада '+r.stockDiff.toLocaleString('ru-RU'):r.issued>0&&r.usedWithoutIssue>0?'списано сверх выдачи '+r.usedWithoutIssue.toLocaleString('ru-RU'):r.isOutsideEstimate?'вне сметы '+r.coveredWithPipeline.toLocaleString('ru-RU'):r.toBuy>0?'докупить '+r.toBuy.toLocaleString('ru-RU'):r.shortage>0?'закрывается заявками/поставками':r.masterBalance>0?'у мастеров '+r.masterBalance.toLocaleString('ru-RU'):r.over>0?'сверх '+r.over.toLocaleString('ru-RU'):'закрыто';const workCell=(r.workRefs||[]).slice(0,3).join('; ');const sourceCount=(r.planDetails||[]).length;html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+(r.unitMismatch?' ⚠ ед.изм.':'')+(sourceCount?'<br><span class="mr-muted">строк сметы: '+sourceCount+'</span>':'')+'</td><td>'+workCell+'</td><td>'+(r.sections||[]).join(', ')+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+r.requested.toLocaleString('ru-RU')+'</td><td>'+r.inTransit.toLocaleString('ru-RU')+'</td><td>'+r.invoiceReceived.toLocaleString('ru-RU')+'</td><td>'+r.supplyReceived.toLocaleString('ru-RU')+'</td><td>'+r.movedNet.toLocaleString('ru-RU')+'</td><td>'+r.supplied.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+r.used.toLocaleString('ru-RU')+'</td><td>'+r.masterBalance.toLocaleString('ru-RU')+'</td><td>'+r.stock.toLocaleString('ru-RU')+'</td><td>'+r.expectedStock.toLocaleString('ru-RU')+'</td><td>'+r.stockDiff.toLocaleString('ru-RU')+'</td><td>'+r.toBuy.toLocaleString('ru-RU')+'</td><td>'+status+'</td></tr>';});
       const totalSum=rows.reduce((s,r)=>s+(r.planSum||0),0);
       html+='<tr style="background:#f3f4f6"><td colspan="5"><b>ИТОГО плановая стоимость материалов:</b></td><td colspan="15"><b>'+Math.round(totalSum).toLocaleString('ru-RU')+' ₽</b></td></tr>';
 	      html+='</table>';
+	      const groupedRows=rows.filter(r=>(r.planDetails||[]).length>1);
+	      if (groupedRows.length>0) {
+	        html+='<h3 style="font-size:13px;margin:18px 0 6px">Расшифровка сгруппированных материалов</h3>';
+	        html+='<p style="font-size:10px;color:#666;margin:0 0 6px">Одинаковые материалы объединены для снабжения и склада, но ниже видно, из каких строк сметы сложилось общее количество.</p>';
+	        html+='<table class="mr-tbl"><tr><th>Материал</th><th>Пакет</th><th>Раздел</th><th>Работа-основание</th><th>Строка материала</th><th>Количество</th><th>Сумма</th></tr>';
+	        groupedRows.forEach(r=>(r.planDetails||[]).forEach((d,idx)=>{html+='<tr><td>'+(idx===0?'<b>'+r.name+'</b><br><span class="mr-muted">итого '+r.planQty.toLocaleString('ru-RU')+' '+r.unit+'</span>':'')+'</td><td>'+(d.packageName||'Основная')+'</td><td>'+(d.sectionName||'')+'</td><td>'+(d.workName||'')+'</td><td>'+(d.materialName||r.name)+'</td><td>'+Number(d.qty||0).toLocaleString('ru-RU')+' '+(d.unit||r.unit||'')+'</td><td>'+Math.round(Number(d.sum||0)).toLocaleString('ru-RU')+' ₽</td></tr>';}));
+	        html+='</table>';
+	      }
 	    }
 	    if (normRows.length>0) {
 	      html+='<h3 style="font-size:13px;margin:18px 0 6px">Нормативная потребность по работам</h3>';

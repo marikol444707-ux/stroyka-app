@@ -1,5 +1,5 @@
 import React from 'react';
-import { Printer } from 'lucide-react';
+import { ChevronDown, ChevronRight, Printer } from 'lucide-react';
 
 const MetricCard = ({C, label, value, active, color, bg, border}) => (
   <div style={{
@@ -42,6 +42,8 @@ export default function ProjectMaterialsControlPanel({
 }) {
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState('all');
+  const [expandedRows, setExpandedRows] = React.useState({});
+  const toggleExpandedRow = (key) => setExpandedRows(prev => ({...prev, [key]: !prev[key]}));
   const planRows = rows.filter(r => r.planQty > 0);
   const toBuyRows = rows.filter(r => r.toBuy > 0);
   const pipelineRows = rows.filter(r => r.requested > 0 || r.inTransit > 0);
@@ -200,11 +202,37 @@ export default function ProjectMaterialsControlPanel({
             <tbody>
               {visibleRows.map(r => {
                 const st = materialControlStatus(r);
+                const planDetails = r.planDetails || [];
+                const isExpanded = !!expandedRows[r.key];
                 return (
-                  <tr key={r.key}>
+                  <React.Fragment key={r.key}>
+                  <tr>
                     <td style={tblC}>
                       <b style={{fontSize: '12px'}}>{r.name}</b>
                       {r.sections.length > 0 && <p style={{color: C.textMuted, fontSize: '10px', margin: '2px 0 0'}}>{r.sections.slice(0, 2).join(', ')}{r.sections.length > 2 ? '…' : ''}</p>}
+                      {planDetails.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => toggleExpandedRow(r.key)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            marginTop: '4px',
+                            padding: '3px 7px',
+                            borderRadius: '999px',
+                            border: '1px solid ' + C.border,
+                            backgroundColor: C.bg,
+                            color: C.textSec,
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {isExpanded ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}
+                          {planDetails.length} строк сметы
+                        </button>
+                      )}
                       {r.aliases?.length > 0 && <p style={{color: C.info, fontSize: '10px', margin: '2px 0 0'}}>Синонимы: {r.aliases.slice(0, 2).join(', ')}{r.aliases.length > 2 ? '…' : ''}</p>}
                       {sourceLine('Накладные', r.invoiceDetails, C.success)}
                       {sourceLine('Поставки', r.supplyDetails, C.info)}
@@ -258,9 +286,63 @@ export default function ProjectMaterialsControlPanel({
 	                        >
 	                          Выдать
 	                        </button>
-	                      )}
+                      )}
 	                    </td>
                   </tr>
+                  {isExpanded && planDetails.length > 0 && (
+                    <tr>
+                      <td colSpan={16} style={{...tblC, padding: '10px 14px', backgroundColor: C.bg}}>
+                        <div style={{
+                          border: '1px solid ' + C.border,
+                          borderRadius: '10px',
+                          overflow: 'hidden',
+                          backgroundColor: C.bgWhite
+                        }}>
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '8px',
+                            flexWrap: 'wrap',
+                            padding: '8px 10px',
+                            borderBottom: '1px solid ' + C.border
+                          }}>
+                            <b style={{color: C.text, fontSize: '12px'}}>Расшифровка общего количества</b>
+                            <span style={{color: C.textSec, fontSize: '11px'}}>
+                              {fmtMeasure(r.planQty, r.unit)} · {Math.round(r.planSum || 0).toLocaleString('ru-RU')} ₽
+                            </span>
+                          </div>
+                          <div style={{overflowX: 'auto'}}>
+                            <table style={{...tbl, fontSize: '10px', minWidth: '900px'}}>
+                              <thead>
+                                <tr>
+                                  <th style={tblH}>Пакет</th>
+                                  <th style={tblH}>Раздел</th>
+                                  <th style={tblH}>Работа-основание</th>
+                                  <th style={tblH}>Строка материала</th>
+                                  <th style={tblH}>Количество</th>
+                                  <th style={tblH}>Сумма</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {planDetails.map((d, idx) => (
+                                  <tr key={(d.estimateId || 'e') + '-' + idx}>
+                                    <td style={tblC}>{d.packageName || 'Основная'}</td>
+                                    <td style={tblC}>{d.sectionName || '—'}</td>
+                                    <td style={tblC}>{d.workName || '—'}</td>
+                                    <td style={tblC}>{d.materialName || r.name}</td>
+                                    <td style={{...tblC, fontWeight: '700'}}>{fmtMeasure(d.qty || 0, d.unit || r.unit)}</td>
+                                    <td style={tblC}>{Math.round(d.sum || 0).toLocaleString('ru-RU')} ₽</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
