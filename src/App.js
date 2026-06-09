@@ -1432,7 +1432,7 @@ function App() {
     if (user) {
       mobileLoadedScopesRef.current.clear();
       if (isMobile) loadMobileInitial();
-      else loadAll();
+      else refreshData();
       if (['мастер','субподрядчик'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
       const saved = localStorage.getItem('companyName'); if (saved) setCompanyName(saved);
       const keys = ['masterRatings','activityLog','notifications','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
@@ -1523,7 +1523,10 @@ function App() {
       setSupplierCatalog(Array.isArray(scat)?scat:[]);
     });
     if (['projects','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
-      const [ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
+      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
+        role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
+        role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
+        (isWarehouseRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/rooms') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/room-works') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/room-windows') : Promise.resolve([]),
@@ -1545,6 +1548,9 @@ function App() {
         canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/measurement-room-drafts') : Promise.resolve([]),
       ]);
+      setProjects(Array.isArray(p)?p:[]);
+      setWorkJournal(Array.isArray(wj)?wj:[]);
+      setMaterialTransfers(Array.isArray(mt)?mt:[]);
       setRooms(Array.isArray(ro)?ro:[]); setRoomWorks(Array.isArray(rw)?rw:[]);
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
@@ -1625,7 +1631,7 @@ function App() {
       setPdConsents(Array.isArray(pdc)?pdc:[]);
     });
     if (page === 'accounting') return loadMobileScopeOnce('mobile:accounting', async () => {
-      const [pp,acp,oe,me,ct,ia,expR,supI,cd,sp,s,pw,u] = await Promise.all([
+      const [pp,acp,oe,me,ct,ia,expR,supI,cd,sp,s,pw,u,bc] = await Promise.all([
         isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
         isFinanceRole ? getApi('/accountable-payments') : Promise.resolve([]),
         isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
@@ -1639,6 +1645,7 @@ function App() {
         (isInternalRole || isFinanceRole) ? getApi('/staff') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/piecework') : Promise.resolve([]),
         role === 'system_owner' ? Promise.resolve([]) : getApi('/users'),
+        (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
       ]);
       setProjectPayments(Array.isArray(pp)?pp:[]); setAccountablePayments(Array.isArray(acp)?acp:[]);
       setOwnExpenses(Array.isArray(oe)?oe:[]); setManualExpenses(Array.isArray(me)?me:[]);
@@ -1646,6 +1653,7 @@ function App() {
       setExpenseReports(Array.isArray(expR)?expR:[]); setSupplierInvoices(Array.isArray(supI)?supI:[]);
       setCompanyDocuments(Array.isArray(cd)?cd:[]); setSalaryPayments(Array.isArray(sp)?sp:[]);
       setStaff(Array.isArray(s)?s:[]); setPiecework(Array.isArray(pw)?pw:[]); setUsers(Array.isArray(u)?u:[]);
+      setBrigadeContracts(Array.isArray(bc)?bc:[]);
     });
     if (page === 'history') return loadMobileScopeOnce('mobile:history', async () => {
       const [wj,h,mt] = await Promise.all([
@@ -1860,6 +1868,40 @@ function App() {
     } catch(e) {}
   };
 
+  const mobileScopeForPage = (page) => {
+    if (page === 'dashboard') return 'mobile:dashboard';
+    if (['projects','works','documents','cable'].includes(page)) return 'mobile:projects-docs';
+    if (page === 'estimates') return 'mobile:estimates';
+    if (['warehouse','materials'].includes(page)) return 'mobile:warehouse';
+    if (['supply','suppliers'].includes(page)) return 'mobile:supply';
+    if (['personnel','users'].includes(page)) return 'mobile:people';
+    if (page === 'accounting') return 'mobile:accounting';
+    if (page === 'history') return 'mobile:history';
+    if (page === 'myexpenses') return 'mobile:myexpenses';
+    if (page === 'clients') return 'mobile:clients';
+    if (page === 'pricelists') return 'mobile:pricelists';
+    if (page === 'crm') return 'mobile:crm';
+    if (page === 'analytics') return 'mobile:analytics';
+    if (page === 'settings') return 'mobile:settings';
+    if (page === 'companychat') return 'mobile:chat';
+    return '';
+  };
+
+  const refreshData = async (page = activePage) => {
+    if (!isMobile) {
+      await loadAll();
+      return;
+    }
+    mobileLoadedScopesRef.current.delete('full');
+    const scope = mobileScopeForPage(page);
+    if (scope) mobileLoadedScopesRef.current.delete(scope);
+    if (page === 'dashboard') {
+      mobileLoadedScopesRef.current.delete('mobile:init');
+      await loadMobileInitial();
+    }
+    await loadMobilePageData(page);
+  };
+
   // Счётчик непрочитанных сообщений чата для текущего пользователя
   const unreadMessagesCount = (companyMessages||[]).filter(m=>{
     const rb = m.readBy||[];
@@ -2057,7 +2099,7 @@ function App() {
     const totalPaid = updated.filter(p=>p.actId===actId).reduce((s,p)=>s+p.amount,0);
     const newStatus = totalPaid>=(act.totalAmount||0)?'Оплачен':'Частично оплачен';
     await fetch(API+'/interim-acts/'+actId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:totalPaid})});
-    await loadAll();
+    await refreshData();
     setNewPayment({amount:'',paymentType:'Наличный расчёт',paidBy:'',date:'',notes:''});
     setShowPayActModal(null);
   };
@@ -2085,7 +2127,7 @@ function App() {
     setBrigadePayments(Array.isArray(pays)?pays:[]);
     setNewBrigadePayment({amount:'',paidBy:'',paidDate:'',note:''});
     setShowBrigadePayModal(false);
-    await loadAll();
+    await refreshData();
   };
   const deleteBrigadePayment = async (id) => {
     if (!window.confirm('Удалить эту оплату?')) return;
@@ -2094,7 +2136,7 @@ function App() {
       const pays = await fetch(API+'/brigade-payments?contract_id='+selectedBrigadeContract.id).then(r=>r.json());
       setBrigadePayments(Array.isArray(pays)?pays:[]);
     }
-    await loadAll();
+    await refreshData();
   };
 
   // Выплата зарплаты сотруднику за месяц (фиксируется в salary_payments)
@@ -2136,7 +2178,7 @@ function App() {
     await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...inv,project:newInvoice.location!=='Основной склад'?newInvoice.location:''})});
     notify('Накладная №'+newInvoice.number+' принята','invoice');
     addActivity('Принята накладная №'+newInvoice.number);
-    await loadAll();
+    await refreshData();
     setNewInvoice({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}]});
     setShowForm(false);
     alert('Накладная принята!');
@@ -2170,7 +2212,7 @@ function App() {
       }
     }
     notify('Перемещение выполнено','material');
-    await loadAll();
+    await refreshData();
     setNewMovement({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
   };
 
@@ -3152,7 +3194,7 @@ function App() {
 	    const data = await res.json().catch(()=>({}));
 	    if (!res.ok || !data.ok) return alert('Ошибка: '+(data.detail||data.error||'не удалось вернуть материал'));
 	    notify('Материал возвращён на склад объекта: '+materialRow.name+' · '+fmtMeasure(qty, materialRow.unit), 'material');
-	    await loadAll();
+	    await refreshData();
 	  };
 
 	  const handleLogout = () => {
@@ -3220,7 +3262,7 @@ function App() {
     const res = await fetch(API+'/master-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...profileData,userId:user.id})});
     setMasterProfile(await res.json()); setShowProfileForm(false);
     await fetch(API+'/pd-consents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,signedAt:new Date().toLocaleString('ru-RU'),scanUrl:'',uploadedBy:user.name})});
-    await loadAll();
+    await refreshData();
   };
 
   const canAccess = (p) => user && (ROLES[user.role]||[]).includes(p);
@@ -3279,16 +3321,16 @@ function App() {
     const res = await fetch(API+'/ai-control/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName,reason:'manual'})});
     const data = await res.json().catch(()=>({}));
     if (!res.ok) { alert(data.detail || 'Не удалось запустить ИИ-контроль'); return; }
-    await loadAll();
+    await refreshData();
     alert('ИИ-контроль обновлён: замечаний новых '+(data.created||0)+', задач новых '+(data.tasksCreated||0)+', обновлено '+((data.updated||0)+(data.tasksUpdated||0))+', закрыто '+(data.closed||0));
   };
   const updateAiFinding = async (id, patch) => {
     await fetch(API+'/ai-findings/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-    await loadAll();
+    await refreshData();
   };
   const updateAiTask = async (id, patch) => {
     await fetch(API+'/ai-tasks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-    await loadAll();
+    await refreshData();
   };
   const patchAiTaskSilent = async (id, patch) => {
     const res = await fetch(API+'/ai-tasks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
@@ -3916,7 +3958,7 @@ function App() {
       return;
     }
     notify('Оформлено изменение к смете: '+row.itemName,'unexpected');
-    await loadAll();
+    await refreshData();
     setActiveProjectTab('Изменения к смете');
     setActiveTabGroup('work');
     setShowForm(false);
@@ -4335,7 +4377,7 @@ function App() {
       alert(data.detail || 'Не удалось включить изменения в смету');
       return;
     }
-    await loadAll();
+    await refreshData();
     const next = data.estimate || null;
     if (next) {
       setSelectedEstimate(next);
@@ -5011,7 +5053,7 @@ function App() {
       return;
     }
 	    notify('Создана заявка снабжения: '+row.name+' — '+fmtMeasure(qty, unit), 'supply');
-	    await loadAll();
+	    await refreshData();
 	  };
 	  const createSupplyRequestFromInvoiceControl = async (inv, ctrl, item = {}) => {
 	    const projectName = invoiceControlProjectName(inv, ctrl);
@@ -5063,7 +5105,7 @@ function App() {
 	      return;
 	    }
 	    notify('Создана заявка из накладной: '+materialName+' — '+fmtMeasure(qty, unit), 'supply');
-	    await loadAll();
+	    await refreshData();
 	  };
 	  const canCreateInvoiceControlReviewTask = () => ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','снабженец','кладовщик'].includes(user?.role);
 	  const invoiceControlNeedsReview = (ctrl = {}) => ctrl.status==='Вне сметы' || toNum(ctrl.overQty)>0 || toNum(ctrl.priceOverSum)>1 || !!ctrl.unitMismatch;
@@ -5852,7 +5894,7 @@ function App() {
     const data = await res.json().catch(()=>({}));
     if (!res.ok) { alert(data.detail || 'Не удалось сохранить поправку'); return; }
     setMaterialNormNotice({tone:'success',title:'Поправка нормы сохранена',text:'Поправка применится к объекту '+row.projectName+' и этой смете. Базовый справочник не изменён.'});
-    await loadAll();
+    await refreshData();
   };
   const updateEstimateFromNormCoverage = async (row, updater, successTitle, successText) => {
     if (!canEditMaterialNorms() || !row?.estimateId) return;
@@ -7103,7 +7145,7 @@ function App() {
     setSupplyRequests(prev=>data?.id?[data,...(prev||[]).filter(r=>Number(r.id)!==Number(data.id))]:(prev||[]));
     notify('Создана заявка снабжения: '+cleanName+' — '+fmtMeasure(qty,unit), 'supply');
     setMaterialNormNotice({tone:'success',title:'Заявка создана',text:'Потребность отправлена в снабжение. В смете строка пока не менялась: её можно добавить отдельно кнопкой «Материал».'});
-    await loadAll();
+    await refreshData();
   };
   const createBatchSupplyRequestFromNormCoverage = async (rows=[]) => {
     if (!canCreateSupplyRequestFromNorm()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
@@ -7148,7 +7190,7 @@ function App() {
     setSupplyRequests(prev=>data?.id?[data,...(prev||[]).filter(r=>Number(r.id)!==Number(data.id))]:(prev||[]));
     notify('Создана пакетная заявка снабжения: '+items.length+' позиций', 'supply');
     setMaterialNormNotice({tone:'success',title:'Пакетная заявка создана',text:'В снабжение отправлено '+items.length+' позиций по '+fresh.length+' строкам норм. Уже заявленные строки пропущены.'});
-    await loadAll();
+    await refreshData();
   };
   const autoFillNormMaterialsForWork = (projectName, workName, sectionName, workQty, workUnit, currentMaterials=[], params={}) => {
     if (!projectName || toNum(workQty)<=0) return currentMaterials || [];
@@ -7241,7 +7283,7 @@ function App() {
       return;
     }
     resetMaterialNormForm();
-    await loadAll();
+    await refreshData();
   };
   const disableMaterialNorm = async (id) => {
     if (!canEditMaterialNorms() || !id) return;
@@ -7251,7 +7293,7 @@ function App() {
       alert('Не удалось отключить норму');
       return;
     }
-    await loadAll();
+    await refreshData();
   };
   const activeMaterialNormSuggestions = () => [
     ...(materialNormPreviewSuggestions||[]),
@@ -7291,7 +7333,7 @@ function App() {
         });
       } else {
         setMaterialNormPreviewSuggestions([]);
-        await loadAll();
+        await refreshData();
         setMaterialNormNotice({
           tone:'success',
           title:'AI-проверка норм',
@@ -7313,7 +7355,7 @@ function App() {
       alert(data.detail || 'Не удалось принять предложение');
       return;
     }
-    await loadAll();
+    await refreshData();
   };
   const acceptMaterialNormSuggestionAsOverride = async (id) => {
     if (!canEditMaterialNorms() || !id) return;
@@ -7325,7 +7367,7 @@ function App() {
       return;
     }
     setMaterialNormNotice({tone:'success',title:'Поправка объекта сохранена',text:'Базовая норма не изменена. Поправка будет применяться при расчётах по этому объекту.'});
-    await loadAll();
+    await refreshData();
   };
   const createEstimateFromNormSuggestions = async (withSupplyRequest=false) => {
     if (!canEditMaterialNorms()) return;
@@ -7364,7 +7406,7 @@ function App() {
         title:data.supplyRequest?.id?'Черновик сметы и заявка созданы':'Черновик сметы создан',
         text:'Строк: '+(data.items||0)+', с ценой '+(data.priced||0)+', без цены '+(data.missingPrice||0)+', сумма '+Number(data.total||0).toLocaleString('ru-RU')+' ₽. '+(data.supplyRequest?.id?'Заявка снабжения #'+data.supplyRequest.id+' создана в статусе «Новая». ':'')+'Черновик не меняет активную смету.'
       });
-      await loadAll();
+      await refreshData();
       navigateTo('estimates');
     } catch(e) {
       alert(e.message || 'Не удалось сформировать черновик сметы');
@@ -7379,7 +7421,7 @@ function App() {
       alert('Не удалось отклонить предложение');
       return;
     }
-    await loadAll();
+    await refreshData();
   };
   const createTaskFromMaterialNormSuggestion = async (id) => {
     if (!canEditMaterialNorms() || !id) return;
@@ -7389,7 +7431,7 @@ function App() {
       alert(data.detail || 'Не удалось создать поручение');
       return;
     }
-    await loadAll();
+    await refreshData();
     alert('Поручение создано в ИИ-контроле объекта');
   };
   const materialNormStatus = (m) => {
@@ -8410,7 +8452,7 @@ function App() {
         await readApiResult(await fetch(API+'/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}));
         notify('Создан проект: '+newProject.name,'project');
       }
-      await loadAll(); addActivity((editingItem?'Обновил':'Создал')+' проект: '+newProject.name);
+      await refreshData(); addActivity((editingItem?'Обновил':'Создал')+' проект: '+newProject.name);
       if (!editingItem && newProject.clientEmail && newProject.clientPassword) {
         await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newProject.client||newProject.name,email:newProject.clientEmail,password:newProject.clientPassword,role:'заказчик',projectName:newProject.name})}));
         alert('Заказчик создан! Логин: '+newProject.clientEmail+' Пароль: '+newProject.clientPassword);
@@ -8437,36 +8479,36 @@ function App() {
     const proj = projects.find(p=>p.name===projectName);
     if(proj && proj.progress!==pct){
       await fetch(API+'/projects/'+proj.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...proj,progress:pct})});
-      await loadAll();
+      await refreshData();
     }
   };
 
   const editProject = (p) => { setEditingItem(p); setNewProject({...p}); setShowForm(true); };
-  const addTask = async (p) => { if (!newTask) return; await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:[...(p.tasks||[]),newTask]})}); await loadAll(); setNewTask(''); };
-  const removeTask = async (p,i) => { await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:p.tasks.filter((_,idx)=>idx!==i)})}); await loadAll(); };
+  const addTask = async (p) => { if (!newTask) return; await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:[...(p.tasks||[]),newTask]})}); await refreshData(); setNewTask(''); };
+  const removeTask = async (p,i) => { await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:p.tasks.filter((_,idx)=>idx!==i)})}); await refreshData(); };
 
   const saveClient = async () => {
     if (!newClient.name) return;
     if (editingItem) await fetch(API+'/clients/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newClient)});
     else await fetch(API+'/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newClient)});
-    await loadAll(); setNewClient({name:'',phone:'',email:'',status:'Активный',notes:''}); setEditingItem(null); setShowForm(false);
+    await refreshData(); setNewClient({name:'',phone:'',email:'',status:'Активный',notes:''}); setEditingItem(null); setShowForm(false);
   };
 
-  const deleteClient = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/clients/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteClient = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/clients/'+id,{method:'DELETE'}); await refreshData(); } };
 
-  const deleteMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/materials/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/materials/'+id,{method:'DELETE'}); await refreshData(); } };
 
-  const deleteMainMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/warehouse-main/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteMainMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/warehouse-main/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const saveTool = async () => {
     if (!newTool.name) return;
     const data = {...newTool,cost:Number(newTool.cost),masterId:newTool.masterId?Number(newTool.masterId):null};
     if (editingItem) await fetch(API+'/tools/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     else await fetch(API+'/tools',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    await loadAll(); setNewTool({name:'',inventoryNumber:'',cost:'',status:'На складе',location:'Основной склад',project:'',masterId:'',masterName:'',issueType:'',notes:''}); setEditingItem(null); setShowForm(false);
+    await refreshData(); setNewTool({name:'',inventoryNumber:'',cost:'',status:'На складе',location:'Основной склад',project:'',masterId:'',masterName:'',issueType:'',notes:''}); setEditingItem(null); setShowForm(false);
   };
 
-  const deleteTool = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/tools/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteTool = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/tools/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const issueTool = async (tool) => {
     const {masterName, project, issueType} = issueToolData;
@@ -8474,14 +8516,14 @@ function App() {
     const updated = {...tool,status:issueType==='В счёт зарплаты'?'У мастера (куплен)':'У мастера',location:'У мастера',masterName,project,issueType};
     await fetch(API+'/tools/'+tool.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
     await fetch(API+'/tool-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({toolId:tool.id,toolName:tool.name,action:'Выдача',fromLocation:tool.location,toLocation:'У мастера — '+masterName,masterName,project,issueType,condition:'Исправен',date:new Date().toISOString().split('T')[0],createdBy:user.name})});
-    await loadAll(); setShowIssueToolModal(null); setIssueToolData({masterName:'',project:'',issueType:'Временно'});
+    await refreshData(); setShowIssueToolModal(null); setIssueToolData({masterName:'',project:'',issueType:'Временно'});
   };
 
   const returnTool = async (tool) => {
     const updated = {...tool,status:returnToolCondition==='Исправен'?'На складе':'На ремонте',location:'Основной склад',masterName:'',project:'',issueType:''};
     await fetch(API+'/tools/'+tool.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
     await fetch(API+'/tool-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({toolId:tool.id,toolName:tool.name,action:'Возврат',fromLocation:'У мастера — '+tool.masterName,toLocation:'Основной склад',masterName:tool.masterName,project:tool.project,condition:returnToolCondition,date:new Date().toISOString().split('T')[0],createdBy:user.name})});
-    await loadAll(); setShowReturnToolModal(null); setReturnToolCondition('Исправен');
+    await refreshData(); setShowReturnToolModal(null); setReturnToolCondition('Исправен');
   };
 
   const saveStaff = async () => {
@@ -8532,7 +8574,7 @@ function App() {
         }
       }
     }
-    await loadAll(); setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:''}); setEditingItem(null); setShowForm(false);
+    await refreshData(); setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:''}); setEditingItem(null); setShowForm(false);
   };
 
   const resetStaffAccessPassword = async (accessUser, staffRow) => {
@@ -8550,7 +8592,7 @@ function App() {
         projectName:accessUser.projectName||accessUser.project_name||staffRow.project||'',
         active:true
       })}));
-      await loadAll();
+      await refreshData();
       alert('Пароль обновлён: '+(accessUser.email||staffRow.name));
     } catch(e) {
       alert('Не удалось обновить пароль: '+(e.message||e));
@@ -8566,22 +8608,22 @@ function App() {
     if(!role) return;
     try {
       await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:staffRow.name,email,password,role,projectName:staffRow.project||''})}));
-      await loadAll();
+      await refreshData();
       alert('Доступ выдан: '+email);
     } catch(e) {
       alert('Не удалось выдать доступ: '+(e.message||e));
     }
   };
 
-  const deleteStaff = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/staff/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteStaff = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/staff/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const addPiecework = async () => {
     if (!newPiecework.staffId||!newPiecework.description||!newPiecework.quantity||!newPiecework.pricePerUnit) return;
     await fetch(API+'/piecework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newPiecework,total:Number(newPiecework.quantity)*Number(newPiecework.pricePerUnit),date:new Date().toISOString().split('T')[0]})});
-    await loadAll(); setNewPiecework({staffId:'',description:'',unit:'м2',quantity:'',pricePerUnit:'',project:''});
+    await refreshData(); setNewPiecework({staffId:'',description:'',unit:'м2',quantity:'',pricePerUnit:'',project:''});
   };
 
-  const deletePiecework = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/piecework/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deletePiecework = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/piecework/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const submitEstimateWorkDone = async (mi, displayQty) => {
     const project = projects.find(p=>p.id===Number(masterProjectId));
@@ -8623,7 +8665,7 @@ function App() {
     setEstimateDoneDrafts(prev=>{const next={...prev};delete next[workKey];return next;});
     setEstimateWorkMaterials(prev=>{const next={...prev};delete next[workKey];return next;});
     setEstimateWorkParams(prev=>{const next={...prev};delete next[workKey];return next;});
-    await loadAll();
+    await refreshData();
     notify('Работа отправлена в ЖПР: '+mi.name,'work');
     alert('Работа отправлена на проверку. Материалы списаны по выбранным нормам/количествам.');
   };
@@ -8680,7 +8722,7 @@ function App() {
     }
     if (!hasWork) { alert('Введите количество хотя бы для одной работы'); return; }
     notify(user.name+' отправил работы','work');
-    await loadAll(); setSelectedWorks({}); setMasterProjectId(''); setPricelistItems([]);
+    await refreshData(); setSelectedWorks({}); setMasterProjectId(''); setPricelistItems([]);
     alert('Работы отправлены на проверку!');
   };
 
@@ -8725,7 +8767,7 @@ function App() {
         })});
       }
     } catch(_){}
-    await loadAll();
+    await refreshData();
     await updateProjectProgress(e.project||"");
     setConfirmingEntry(null); setConfirmAcceptedQty(''); setConfirmComment('');
     const msg = (accepted<planQty)?('Принято '+accepted+' из '+planQty+' '+(e.unit||'')+' · '+e.description):'Работа подтверждена: '+e.description;
@@ -8734,7 +8776,7 @@ function App() {
 
   const rejectJ = async (e,c) => {
     await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',confirmedBy:user.name,comment:c||''})});
-    await loadAll(); setRejectingEntry(null); setRejectComment('');
+    await refreshData(); setRejectingEntry(null); setRejectComment('');
   };
 
   const generateTempPassword = () => {
@@ -8768,7 +8810,7 @@ function App() {
         }
       }
     }
-    await loadAll(); setNewUser({name:'',email:'',password:'',role:'прораб',companyName:'',inn:'',projectId:'',projectName:'',active:true}); setEditingItem(null); setShowForm(false);
+    await refreshData(); setNewUser({name:'',email:'',password:'',role:'прораб',companyName:'',inn:'',projectId:'',projectName:'',active:true}); setEditingItem(null); setShowForm(false);
   };
 
   const toggleUserActive = async (u, nextActive) => {
@@ -8780,14 +8822,14 @@ function App() {
     } else {
       await fetch(API+'/users/'+u.id,{method:'DELETE'});
     }
-    await loadAll();
+    await refreshData();
   };
 
   const deleteUser = async (u) => {
     await toggleUserActive(u, false);
   };
 
-  const createInvite = async () => { await fetch(API+'/invite-codes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:newInviteRole})}); await loadAll(); };
+  const createInvite = async () => { await fetch(API+'/invite-codes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:newInviteRole})}); await refreshData(); };
 
   // Создать пригласительную ссылку для поставщика и показать её для копирования
   const createSupplierInvite = async () => {
@@ -8804,30 +8846,30 @@ function App() {
     if (data.code) {
       const link = window.location.origin + '/?invite=' + data.code;
       setGeneratedInviteLink({code:data.code, link, presetName:body.presetName, expiresAt:data.expires_at});
-      await loadAll();
+      await refreshData();
     } else {
       alert('Не удалось создать ссылку');
     }
   };
 
-  const deleteInvite = async (id) => { await fetch(API+'/invite-codes/'+id,{method:'DELETE'}); await loadAll(); };
+  const deleteInvite = async (id) => { await fetch(API+'/invite-codes/'+id,{method:'DELETE'}); await refreshData(); };
 
   const savePricelist = async () => {
     if (!newPricelist.name) return;
     if (editingItem) await fetch(API+'/pricelists/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newPricelist)});
     else await fetch(API+'/pricelists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newPricelist)});
-    await loadAll(); setNewPricelist({name:'',description:'',forWho:'',coefficient:1.0}); setEditingItem(null); setShowForm(false);
+    await refreshData(); setNewPricelist({name:'',description:'',forWho:'',coefficient:1.0}); setEditingItem(null); setShowForm(false);
   };
 
   const deletePricelist = async (id) => {
     if (window.confirm('Удалить прайс-лист?')) {
       await fetch(API+'/pricelists/'+id,{method:'DELETE'});
-      await loadAll();
+      await refreshData();
       if (selectedPricelist&&selectedPricelist.id===id) { setSelectedPricelist(null); setPricelistItems([]); }
     }
   };
 
-  const copyPricelist = async (pl) => { const name=prompt('Название копии:','Копия — '+pl.name); if (!name) return; await fetch(API+'/pricelists/'+pl.id+'/copy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})}); await loadAll(); };
+  const copyPricelist = async (pl) => { const name=prompt('Название копии:','Копия — '+pl.name); if (!name) return; await fetch(API+'/pricelists/'+pl.id+'/copy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})}); await refreshData(); };
 
   const savePlItem = async () => {
     if (!newPlItem.name||!newPlItem.price) return;
@@ -8864,10 +8906,10 @@ function App() {
     if (!newSupplier.name) return;
     if (editingItem&&editingItem.id) await fetch(API+'/suppliers/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newSupplier)});
     else await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newSupplier)});
-    await loadAll(); setNewSupplier({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'}); setEditingItem(null); setShowForm(false);
+    await refreshData(); setNewSupplier({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'}); setEditingItem(null); setShowForm(false);
   };
 
-  const deleteSupplier = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/suppliers/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteSupplier = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/suppliers/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const saveRequest = async () => {
     const validItems = newRequest.items.filter(i=>i.materialName&&i.quantity);
@@ -8876,10 +8918,10 @@ function App() {
       await fetch(API+'/supply-requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.materialName,quantity:Number(item.quantity),unit:item.unit,project:newRequest.project,createdBy:user.name,date:new Date().toISOString().split('T')[0],notes:newRequest.notes,selectedSuppliers:newRequest.selectedSuppliers,category:newRequest.category||''})});
     }
     notify('Новая заявка на материалы','supply');
-    await loadAll(); setNewRequest({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',notes:'',selectedSuppliers:[],category:''}); setShowForm(false);
+    await refreshData(); setNewRequest({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',notes:'',selectedSuppliers:[],category:''}); setShowForm(false);
   };
 
-  const cancelRequest = async (id) => { await fetch(API+'/supply-requests/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отменена'})}); await loadAll(); };
+  const cancelRequest = async (id) => { await fetch(API+'/supply-requests/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отменена'})}); await refreshData(); };
 
   // === Helpers для раздела «🛒 Снабжение» (Сн.1) ===
   const createSupplyReq = async () => {
@@ -8931,7 +8973,7 @@ function App() {
     } else {
       notify(msg+' — утверждена директором', 'supply');
     }
-    await loadAll();
+    await refreshData();
     setNewSupplyReq({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',urgency:'обычная',notes:'',category:''});
     setShowSupplyForm(false);
   };
@@ -8964,7 +9006,7 @@ function App() {
       })
     });
     if (!r.ok) { let e=''; try{e=(await r.json()).detail||'';}catch(_){} alert('Не удалось сохранить шаблон'+(e?': '+e:'')); return; }
-    await loadAll();
+    await refreshData();
     alert('Шаблон «'+name.trim()+'» сохранён');
   };
 
@@ -8979,7 +9021,7 @@ function App() {
   const deleteSupplyTemplate = async (tplId) => {
     if (!window.confirm('Удалить шаблон?')) return;
     await fetch(API+'/supply-request-templates/'+tplId, {method:'DELETE'});
-    await loadAll();
+    await refreshData();
   };
 
   // Парсер items из supply_request: возвращает массив [{materialName, quantity, unit}]
@@ -9165,7 +9207,7 @@ function App() {
       body: JSON.stringify({action:'confirm_prorab', userId:user.id, userName:user.name})
     });
     notify('Заявка подтверждена прорабом — ждёт директора','supply');
-    await loadAll();
+    await refreshData();
   };
 
   const approveSupplyAsDirector = async (id) => {
@@ -9174,7 +9216,7 @@ function App() {
       body: JSON.stringify({action:'approve_director', userId:user.id, userName:user.name})
     });
     notify('Заявка утверждена директором','supply');
-    await loadAll();
+    await refreshData();
   };
 
   const rejectSupply = async (id) => {
@@ -9186,7 +9228,7 @@ function App() {
     setSupplyRejectId(null);
     setSupplyRejectReason('');
     notify('Заявка отклонена','supply');
-    await loadAll();
+    await refreshData();
   };
 
   const cancelSupply = async (id) => {
@@ -9195,7 +9237,7 @@ function App() {
       method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({action:'cancel'})
     });
-    await loadAll();
+    await refreshData();
   };
 
   const loadSupplyStockCheck = async (id) => {
@@ -9257,7 +9299,7 @@ function App() {
     setShowRequestKpModal(null);
     setSelectedSupplierIds([]);
     setSuggestedSuppliers(null);
-    await loadAll();
+    await refreshData();
   };
 
   const selectSupplierOffer = async (offerId) => {
@@ -9267,7 +9309,7 @@ function App() {
       body: JSON.stringify({action:'select'})
     });
     notify('КП утверждено директором','supply');
-    await loadAll();
+    await refreshData();
   };
 
   const rejectSupplierOffer = async (offerId) => {
@@ -9276,7 +9318,7 @@ function App() {
       method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({action:'reject'})
     });
-    await loadAll();
+    await refreshData();
   };
 
   // Сн.3: AI сравнение КП по заявке
@@ -9311,7 +9353,7 @@ function App() {
     notify('Счёт выставлен — ждёт оплаты бухгалтером','supply');
     setInvoicingOfferId(null);
     setNewOfferInvoice({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:'',vatAmount:'',description:'',fileUrl:''});
-    await loadAll();
+    await refreshData();
   };
 
   // Сн.4: поставщик отгружает выигранное КП
@@ -9336,7 +9378,7 @@ function App() {
     notify('Поставка отгружена — ждёт приёмки','delivery');
     setShippingOfferId(null);
     setShipmentForm({shippedQuantity:'',waybillNumber:'',waybillDate:new Date().toISOString().split('T')[0],vehicleNumber:'',driverName:'',documentUrl:'',photoUrl:''});
-    await loadAll();
+    await refreshData();
   };
 
   const receiveSupplyDelivery = async (delivery) => {
@@ -9357,7 +9399,7 @@ function App() {
     notify((data.claimId?'Приёмка с претензией':'Поставка принята')+(data.invoiceId?' · создана накладная #'+data.invoiceId:''),'delivery');
     setReceivingDeliveryId(null);
     setReceiveForm({receivedQuantity:'',qualityStatus:'Принято',qualityNotes:'',photoUrl:'',claimDescription:''});
-    await loadAll();
+    await refreshData();
   };
 
   const runDeliveryAiCheck = async (delivery, parsedItems=[]) => {
@@ -9379,7 +9421,7 @@ function App() {
     if (!newOffer.supplierId||!newOffer.pricePerUnit||!newOffer.deliveryDays) { alert('Заполните все поля включая срок поставки'); return; }
     const req = supplyRequests.find(r=>r.id===requestId);
     await fetch(API+'/supplier-offers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId,supplierId:Number(newOffer.supplierId),pricePerUnit:Number(newOffer.pricePerUnit),totalPrice:Number(newOffer.pricePerUnit)*(req?req.quantity:1),deliveryDays:Number(newOffer.deliveryDays),notes:newOffer.notes})});
-    await loadAll(); setNewOffer({supplierId:'',pricePerUnit:'',deliveryDays:'',notes:''});
+    await refreshData(); setNewOffer({supplierId:'',pricePerUnit:'',deliveryDays:'',notes:''});
   };
 
   const approveOffer = async (offer) => {
@@ -9387,11 +9429,11 @@ function App() {
     await fetch(API+'/supply-requests/'+offer.requestId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено'})});
     const req = supplyRequests.find(r=>r.id===offer.requestId);
     await fetch(API+'/supply-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({supplierId:offer.supplierId,materialName:req?req.materialName:'',quantity:req?req.quantity:0,unit:req?req.unit:'',pricePerUnit:offer.pricePerUnit,totalPrice:offer.totalPrice,project:req?req.project:'',date:new Date().toISOString().split('T')[0],status:'Ожидает поставки'})});
-    notify('КП утверждено','supply'); await loadAll();
+    notify('КП утверждено','supply'); await refreshData();
   };
 
-  const deleteContract = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/contracts/'+id,{method:'DELETE'}); await loadAll(); } };
-  const deleteInterimAct = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/interim-acts/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteContract = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/contracts/'+id,{method:'DELETE'}); await refreshData(); } };
+  const deleteInterimAct = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/interim-acts/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const toggleDay = async (staffId,day) => {
     await fetch(API+'/timesheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({staffId,day})});
@@ -9408,7 +9450,7 @@ function App() {
       contractType: newContract.contractType || performer.contractType || 'ГПХ',
     };
     await fetch(API+'/contracts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    await loadAll(); setNewContract({masterId:'',masterName:'',contractType:'ГПХ',contractNumber:'',project:'',startDate:'',endDate:''}); setShowForm(false);
+    await refreshData(); setNewContract({masterId:'',masterName:'',contractType:'ГПХ',contractNumber:'',project:'',startDate:'',endDate:''}); setShowForm(false);
   };
 
   const createInterimAct = async () => {
@@ -9418,7 +9460,7 @@ function App() {
     const contract = contracts.find(c=>c.masterId===Number(newAct.masterId)&&c.project===newAct.project);
     await fetch(API+'/interim-acts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newAct,masterId:Number(newAct.masterId),contractId:contract?contract.id:null,totalAmount:total,paidAmount:0})});
     notify('Акт создан: '+newAct.masterName,'act');
-    await loadAll(); setNewAct({masterId:'',masterName:'',project:'',periodStart:'',periodEnd:''}); setShowForm(false);
+    await refreshData(); setNewAct({masterId:'',masterName:'',project:'',periodStart:'',periodEnd:''}); setShowForm(false);
   };
 
   const saveRoom = async () => {
@@ -9430,10 +9472,10 @@ function App() {
       if(newRoom.roomType&&!['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое'].includes(newRoom.roomType)){const updated=[...new Set([...customRoomTypes,newRoom.roomType])];setCustomRoomTypes(updated);localStorage.setItem('customRoomTypes',JSON.stringify(updated));}
       await fetch(API+'/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     }
-    await loadAll(); setNewRoom({project:'',name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',notes:''}); setEditingItem(null); setShowRoomForm(false);
+    await refreshData(); setNewRoom({project:'',name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',notes:''}); setEditingItem(null); setShowRoomForm(false);
   };
 
-  const deleteRoom = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/rooms/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteRoom = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/rooms/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const saveWindow = async (roomId) => {
     if (!newWindow.width||!newWindow.height) return;
@@ -9528,28 +9570,28 @@ function App() {
     if (!newWarehouse.name) return;
     if (editingItem) await fetch(API+'/warehouses/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(newWarehouse)});
     else await fetch(API+'/warehouses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newWarehouse)});
-    await loadAll(); setNewWarehouse({name:'',city:'',address:'',notes:''}); setEditingItem(null); setShowForm(false);
+    await refreshData(); setNewWarehouse({name:'',city:'',address:'',notes:''}); setEditingItem(null); setShowForm(false);
   };
 
-  const deleteWarehouse = async (id) => { if (window.confirm('Удалить склад?')) { await fetch(API+'/warehouses/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteWarehouse = async (id) => { if (window.confirm('Удалить склад?')) { await fetch(API+'/warehouses/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const saveCompanyRequisites = async () => {
     await fetch(API+'/company-requisites',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(companyReqForm)});
-    await loadAll(); alert('Реквизиты сохранены!');
+    await refreshData(); alert('Реквизиты сохранены!');
   };
 
   const saveProjectStage = async (projectId, projectName) => {
     if (!newStage.name) return;
     await fetch(API+'/project-stages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newStage,projectId,projectName,progress:Number(newStage.progress)||0})});
-    await loadAll(); setNewStage({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
+    await refreshData(); setNewStage({name:'',status:'Не начат',startDate:'',endDate:'',progress:0,responsible:'',notes:''});
   };
 
   const updateStage = async (stage) => {
     await fetch(API+'/project-stages/'+stage.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(stage)});
-    await loadAll();
+    await refreshData();
   };
 
-  const deleteStage = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/project-stages/'+id,{method:'DELETE'}); await loadAll(); } };
+  const deleteStage = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/project-stages/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const saveChecklist = async (projectId, projectName) => {
     if (!newChecklist.name) return;
@@ -9561,7 +9603,7 @@ function App() {
         await fetch(API+'/checklist-items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({checklistId:cl.id,name:items[i],checked:false,orderNum:i})});
       }
     }
-    await loadAll(); setNewChecklist({name:'',template:''});
+    await refreshData(); setNewChecklist({name:'',template:''});
   };
 
   const toggleChecklistItem = async (item) => {
@@ -9572,7 +9614,7 @@ function App() {
   const savePrescription = async (projectName) => {
     if (!newPrescription.violation) return;
     await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newPrescription,projectName,issuedBy:user.name,issuedByRole:user.role})});
-    await loadAll(); setNewPrescription({number:'',violation:'',deadline:'',responsible:'',photoUrl:''});
+    await refreshData(); setNewPrescription({number:'',violation:'',deadline:'',responsible:'',photoUrl:''});
   };
 
   const saveUnexpectedWork = async (projectName) => {
@@ -9596,7 +9638,7 @@ function App() {
       addedByRole:user.role
     })});
     notify('Новое изменение к смете: '+newUnexpected.description,'unexpected');
-    await loadAll(); setNewUnexpected(EMPTY_ESTIMATE_CHANGE);
+    await refreshData(); setNewUnexpected(EMPTY_ESTIMATE_CHANGE);
   };
 
   const approveUnexpectedWork = async (work, price) => {
@@ -9604,7 +9646,7 @@ function App() {
     const total = qty * Number(price);
     const status = work.changeType==='Исключение объёма' ? 'Утверждено' : 'Утверждено отдельной допработой';
     await fetch(API+'/unexpected-works/'+work.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,price:Number(price),total,approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});
-    await loadAll();
+    await refreshData();
   };
 
   const navigateTo = (p) => {
@@ -9919,7 +9961,7 @@ function App() {
                         else{await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});}
                       }
                       alert('Отправлено на проверку прорабу!');
-                      await loadAll();
+                      await refreshData();
                       await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
@@ -10194,7 +10236,7 @@ function App() {
                 <button onClick={()=>showPreview(PD_CONSENT_TEXT({fullName:masterProfile?.fullName||user.name,passport:masterProfile?.passport||'',inn:masterProfile?.inn||''}),'Согласие на ПД')} style={btnB}><Eye size={14}/>Просмотр</button>
                 <button onClick={()=>doPrint(PD_CONSENT_TEXT({fullName:masterProfile?.fullName||user.name,passport:masterProfile?.passport||'',inn:masterProfile?.inn||''}))} style={btnO}><Printer size={14}/>Распечатать</button>
               </div>
-              {(()=>{const consent=pdConsents.find(c=>c.userId===user.id);if(consent?.scanUrl) return(<div style={{backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,padding:'10px',borderRadius:'8px',display:'flex',alignItems:'center',gap:'10px'}}><CheckCircle size={16} color={C.success}/><span style={{color:C.success,fontSize:'13px'}}>Скан загружен</span></div>);return(<label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить скан<input type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'pd-consents'});await fetch(API+'/pd-consents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,signedAt:new Date().toLocaleString('ru-RU'),scanUrl:url,uploadedBy:user.name})});await loadAll();}}}/></label>);})()}
+              {(()=>{const consent=pdConsents.find(c=>c.userId===user.id);if(consent?.scanUrl) return(<div style={{backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,padding:'10px',borderRadius:'8px',display:'flex',alignItems:'center',gap:'10px'}}><CheckCircle size={16} color={C.success}/><span style={{color:C.success,fontSize:'13px'}}>Скан загружен</span></div>);return(<label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить скан<input type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'pd-consents'});await fetch(API+'/pd-consents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,signedAt:new Date().toLocaleString('ru-RU'),scanUrl:url,uploadedBy:user.name})});await refreshData();}}}/></label>);})()}
             </div>
             <div style={{...card,padding:'20px',marginBottom:'15px'}}>
               <h4 style={{color:C.text,marginBottom:'10px',fontSize:'14px',fontWeight:'600'}}>📄 Мой договор</h4>
@@ -10702,7 +10744,7 @@ function App() {
                             body: JSON.stringify(body)
                           });
                           setRespondingOfferId(null);
-                          await loadAll();
+                          await refreshData();
                           notify('КП отправлено директору','supply');
                         }} style={btnO}><Check size={14}/>Отправить КП</button>
                         <button onClick={()=>setRespondingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
@@ -10963,7 +11005,7 @@ function App() {
                 if (res.ok) {
                   localStorage.setItem('supplierReq_'+user.id,JSON.stringify(supplierRequisites));
                   alert('Реквизиты сохранены!');
-                  await loadAll();
+                  await refreshData();
                 } else {
                   alert('Ошибка сохранения');
                 }
@@ -11077,7 +11119,7 @@ function App() {
                   const priority=document.getElementById('pres_priority_tn').value;
                   const deadline=document.getElementById('pres_date_tn').value;
                   await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,violation:desc,priority,deadline,issuedBy:user.name,issuedByRole:'Технадзор',status:'Открыто',photoUrl:prescriptionPhoto})});
-                  await loadAll();
+                  await refreshData();
                   document.getElementById('pres_desc_tn').value='';
                   setPrescriptionPhoto('');
                   alert('Предписание выдано!');
@@ -11125,7 +11167,7 @@ function App() {
                     <button onClick={async()=>{
                       if(!newSupervisorAct.description){alert('Опишите предмет осмотра');return;}
                       await fetch(API+'/supervisor-acts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,actType:newSupervisorAct.actType,description:newSupervisorAct.description,findings:newSupervisorAct.findings,recommendations:newSupervisorAct.recommendations,issuedBy:user.name,issuedByRole:'Технадзор',photoUrl:supervisorActPhoto,date:newSupervisorAct.date||new Date().toISOString().split('T')[0]})});
-                      await loadAll();
+                      await refreshData();
                       setNewSupervisorAct({actType:'Осмотр',description:'',findings:'',recommendations:'',date:''});
                       setSupervisorActPhoto('');
                       setShowForm(false);
@@ -11304,8 +11346,8 @@ function App() {
                         <p style={{color:'#78350f',margin:'4px 0',fontSize:'12px'}}>{(u.quantity||0)+' '+u.unit+(u.price>0?' · '+u.price.toLocaleString('ru-RU')+' ₽/'+u.unit:'')+(u.total>0?' · итого '+u.total.toLocaleString('ru-RU')+' ₽':'')}</p>
                         <p style={{color:'#92400e',margin:'0 0 8px',fontSize:'11px'}}>{'Запросил: '+u.addedBy+(u.reason?' · Причина: '+u.reason:'')}</p>
                         <div style={{display:'flex',gap:'6px'}}>
-                          <button onClick={async()=>{if(!window.confirm('Согласовать изменение «'+u.description+'» на '+(u.total||0).toLocaleString('ru-RU')+' ₽?')) return;await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено отдельной допработой',price:u.price,total:u.total,approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();alert('Согласовано. Подрядчик может приступать.');}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Согласовать</button>
-                          <button onClick={async()=>{if(!window.confirm('Отказать в выполнении «'+u.description+'»?')) return;await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><X size={11}/>Отказать</button>
+                          <button onClick={async()=>{if(!window.confirm('Согласовать изменение «'+u.description+'» на '+(u.total||0).toLocaleString('ru-RU')+' ₽?')) return;await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено отдельной допработой',price:u.price,total:u.total,approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await refreshData();alert('Согласовано. Подрядчик может приступать.');}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Согласовать</button>
+                          <button onClick={async()=>{if(!window.confirm('Отказать в выполнении «'+u.description+'»?')) return;await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnR,padding:'5px 10px',fontSize:'11px'}}><X size={11}/>Отказать</button>
                         </div>
                       </div>))}
                     </div>}
@@ -11376,7 +11418,7 @@ function App() {
                   const t=document.getElementById('client_remark').value;
                   if(!t.trim()) return;
                   await fetch(API+'/prescriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:myProject.name,violation:t,priority:'Замечание заказчика',issuedBy:user.name,issuedByRole:'Заказчик',status:'Открыто'})});
-                  await loadAll();
+                  await refreshData();
                   document.getElementById('client_remark').value='';
                   alert('Замечание передано подрядчику');
                 }} style={btnO}><Plus size={14}/>Отправить</button>
@@ -11702,7 +11744,7 @@ function App() {
                   canManage={isLeadership()}
                   onToggle={async()=>{if(isOpen){setExpandedProject(null);}else{setExpandedProject(p.id);setActiveProjectTab('Общее');if(user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&!projectAiSummaries[p.name]){try{const r=await fetch(API+'/project-ai-summary/'+encodeURIComponent(p.name));const d=await r.json();if(d&&d.exists)setProjectAiSummaries(prev=>({...prev,[p.name]:d}));}catch(e){}}}}}
                   onEdit={()=>editProject(p)}
-                  onArchiveToggle={async()=>{if(p.archived){if(!window.confirm('Вернуть объект «'+p.name+'» из архива в работу?'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:false,archivedAt:''})});await loadAll();}else{if(!window.confirm('Закрыть объект «'+p.name+'» и отправить в архив?\n\nВсе документы, переписка и акты сохранятся и будут доступны в архиве для просмотра.'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:true,archivedAt:new Date().toISOString(),status:'Завершён'})});await loadAll();}}}
+                  onArchiveToggle={async()=>{if(p.archived){if(!window.confirm('Вернуть объект «'+p.name+'» из архива в работу?'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:false,archivedAt:''})});await refreshData();}else{if(!window.confirm('Закрыть объект «'+p.name+'» и отправить в архив?\n\nВсе документы, переписка и акты сохранятся и будут доступны в архиве для просмотра.'))return;await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archived:true,archivedAt:new Date().toISOString(),status:'Завершён'})});await refreshData();}}}
                 />
                 {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
                   <div style={{borderBottom:'1.5px solid '+C.border,backgroundColor:C.bg,padding:'18px 16px 10px'}}>
@@ -11905,7 +11947,7 @@ function App() {
                         await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
                       }
                       alert('Отправлено на проверку прорабу!');
-                      await loadAll();
+                      await refreshData();
                       await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
@@ -12058,16 +12100,16 @@ function App() {
                         await fetch(API+'/project-measurements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newMeasurementDoc,projectName:p.name,roomsCreated:Number(newMeasurementDoc.roomsCreated||0),uploadedBy:user.name})});
                         setNewMeasurementDoc({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
                         setShowMeasurementForm(false);
-                        await loadAll();
+                        await refreshData();
                       };
                       const updateMeasurement = async (doc, patch) => {
                         await fetch(API+'/project-measurements/'+doc.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-                        await loadAll();
+                        await refreshData();
                       };
                       const deleteMeasurement = async (doc) => {
                         if (!window.confirm('Удалить исходник «'+(doc.title||doc.docType||'обмер')+'»?')) return;
                         await fetch(API+'/project-measurements/'+doc.id,{method:'DELETE'});
-                        await loadAll();
+                        await refreshData();
                       };
                       const generateRoomDrafts = async (doc) => {
                         setMeasurementDraftLoadingId(doc.id);
@@ -12078,16 +12120,16 @@ function App() {
                           else if (!data.created) alert('ИИ не нашёл помещений. Добавьте текст в комментарий или загрузите более читаемый скан.');
                         } finally {
                           setMeasurementDraftLoadingId(null);
-                          await loadAll();
+                          await refreshData();
                         }
                       };
                       const acceptRoomDraft = async (draft) => {
                         await fetch(API+'/measurement-room-drafts/'+draft.id+'/accept',{method:'POST'});
-                        await loadAll();
+                        await refreshData();
                       };
                       const rejectRoomDraft = async (draft) => {
                         await fetch(API+'/measurement-room-drafts/'+draft.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено'})});
-                        await loadAll();
+                        await refreshData();
                       };
                       return (<div>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'14px'}}>
@@ -12229,7 +12271,7 @@ function App() {
                         await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
                       }
                       alert('Отправлено на проверку прорабу!');
-                      await loadAll();
+                      await refreshData();
                       await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
@@ -12262,7 +12304,7 @@ function App() {
                         await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
                       }
                       alert('Отправлено на проверку прорабу!');
-                      await loadAll();
+                      await refreshData();
                       await updateProjectProgress(selectedBrigadeContract?.projectName||'');
                     }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
@@ -12632,7 +12674,7 @@ function App() {
                           <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>Утверждённых изменений: {approvedAll.length} на сумму {Math.round(sumDS).toLocaleString('ru-RU')+' ₽'}. Если их не включили в новую смету, они идут в КС отдельными разделами.</p>
                         </div>
                       </div>);})()}
-                      {ESTIMATE_CHANGE_VISIBLE_STATUSES.map(status=>{ const items=unexpectedWorksList.filter(u=>u.projectName===p.name&&u.status===status); if(items.length===0) return null; return(<div key={status} style={{marginBottom:'16px'}}><b style={{color:isApprovedEstimateChangeStatus(status)?C.success:status==='Отклонено'?C.danger:status==='Включено в новую смету'?C.info:C.warning,fontSize:'12px',display:'block',marginBottom:'8px'}}>{status==='Ожидает согласования'?'⏳':isApprovedEstimateChangeStatus(status)?'✅':status==='Включено в новую смету'?'📐':'❌'} {status} ({items.length})</b>{items.map((u,idx)=>{const dsNum=isApprovedEstimateChangeStatus(status)?(()=>{const arr=(unexpectedWorksList||[]).filter(x=>x.projectName===p.name&&isApprovedEstimateChangeStatus(x.status));return arr.length-arr.findIndex(x=>x.id===u.id);})():null;return(<div key={u.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}><div style={{flex:1,minWidth:'200px'}}>{dsNum&&<b style={{fontSize:'11px',color:C.info,display:'block'}}>ДС № {dsNum} к договору подряда</b>}<span style={{display:'inline-block',padding:'2px 7px',borderRadius:'9px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px',marginBottom:'4px'}}>{u.changeType||'Работа вне сметы'}</span><b style={{fontSize:'13px',color:C.text,display:'block'}}>{u.description}</b>{u.estimateItemName&&<p style={{color:C.info,margin:'2px 0',fontSize:'11px'}}>{'Строка сметы: '+(u.sectionName?u.sectionName+' / ':'')+u.estimateItemName}</p>}<p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{fmtMeasure(u.deltaQuantity||u.quantity,u.unit)+(u.price>0?' · '+u.price.toLocaleString()+' ₽/'+u.unit:'')+(u.total>0?' · Итого: '+u.total.toLocaleString()+' ₽':'')}</p><p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{'Добавил: '+u.addedBy+(u.approvedAt?' · Утв.: '+u.approvedAt:'')+(u.reason?' · Причина: '+u.reason:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>{isApprovedEstimateChangeStatus(u.status)&&<button onClick={()=>showPreview(buildSupplementaryAgreementContent(u,p),'Доп.соглашение № '+dsNum+' к договору подряда — '+p.name)} style={{...btnB,padding:'4px 8px',fontSize:'11px'}} title='Печать доп.соглашения'><Eye size={11}/>🖨️ ДС</button>}{isLeadership()&&u.status==='Ожидает согласования'&&(<><input placeholder="Цена ₽" type="number" step="any" inputMode="decimal" defaultValue={u.price||''} style={{width:'90px',padding:'4px 8px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} onChange={e=>e.target.dataset.price=e.target.value}/><button onClick={e=>{approveUnexpectedWork(u,e.target.previousSibling.dataset.price||u.price||0);}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><Check size={11}/>Утвердить</button><button onClick={async()=>{await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><X size={11}/>Откл.</button></>)}</div></div></div>);})}</div>);})}
+                      {ESTIMATE_CHANGE_VISIBLE_STATUSES.map(status=>{ const items=unexpectedWorksList.filter(u=>u.projectName===p.name&&u.status===status); if(items.length===0) return null; return(<div key={status} style={{marginBottom:'16px'}}><b style={{color:isApprovedEstimateChangeStatus(status)?C.success:status==='Отклонено'?C.danger:status==='Включено в новую смету'?C.info:C.warning,fontSize:'12px',display:'block',marginBottom:'8px'}}>{status==='Ожидает согласования'?'⏳':isApprovedEstimateChangeStatus(status)?'✅':status==='Включено в новую смету'?'📐':'❌'} {status} ({items.length})</b>{items.map((u,idx)=>{const dsNum=isApprovedEstimateChangeStatus(status)?(()=>{const arr=(unexpectedWorksList||[]).filter(x=>x.projectName===p.name&&isApprovedEstimateChangeStatus(x.status));return arr.length-arr.findIndex(x=>x.id===u.id);})():null;return(<div key={u.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}><div style={{flex:1,minWidth:'200px'}}>{dsNum&&<b style={{fontSize:'11px',color:C.info,display:'block'}}>ДС № {dsNum} к договору подряда</b>}<span style={{display:'inline-block',padding:'2px 7px',borderRadius:'9px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px',marginBottom:'4px'}}>{u.changeType||'Работа вне сметы'}</span><b style={{fontSize:'13px',color:C.text,display:'block'}}>{u.description}</b>{u.estimateItemName&&<p style={{color:C.info,margin:'2px 0',fontSize:'11px'}}>{'Строка сметы: '+(u.sectionName?u.sectionName+' / ':'')+u.estimateItemName}</p>}<p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{fmtMeasure(u.deltaQuantity||u.quantity,u.unit)+(u.price>0?' · '+u.price.toLocaleString()+' ₽/'+u.unit:'')+(u.total>0?' · Итого: '+u.total.toLocaleString()+' ₽':'')}</p><p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{'Добавил: '+u.addedBy+(u.approvedAt?' · Утв.: '+u.approvedAt:'')+(u.reason?' · Причина: '+u.reason:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>{isApprovedEstimateChangeStatus(u.status)&&<button onClick={()=>showPreview(buildSupplementaryAgreementContent(u,p),'Доп.соглашение № '+dsNum+' к договору подряда — '+p.name)} style={{...btnB,padding:'4px 8px',fontSize:'11px'}} title='Печать доп.соглашения'><Eye size={11}/>🖨️ ДС</button>}{isLeadership()&&u.status==='Ожидает согласования'&&(<><input placeholder="Цена ₽" type="number" step="any" inputMode="decimal" defaultValue={u.price||''} style={{width:'90px',padding:'4px 8px',border:'1.5px solid '+C.border,borderRadius:'6px',fontSize:'12px'}} onChange={e=>e.target.dataset.price=e.target.value}/><button onClick={e=>{approveUnexpectedWork(u,e.target.previousSibling.dataset.price||u.price||0);}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><Check size={11}/>Утвердить</button><button onClick={async()=>{await fetch(API+'/unexpected-works/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}><X size={11}/>Откл.</button></>)}</div></div></div>);})}</div>);})}
                       {unexpectedWorksList.filter(u=>u.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Изменений к смете нет</p>}
                   </div>)}
 
@@ -13035,7 +13077,7 @@ function App() {
                         <button onClick={async()=>{
                           if(!(newInspOrder&&newInspOrder.description)){alert('Опишите замечание');return;}
                           await fetch(API+'/inspection-orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:p.name,body:newInspOrder.body||'ГСН',inspector:newInspOrder.inspector||'',description:newInspOrder.description,recommendations:newInspOrder.recommendations||'',deadline:newInspOrder.deadline||null,date:newInspOrder.date||new Date().toISOString().split('T')[0],status:'Открыто'})});
-                          await loadAll();
+                          await refreshData();
                           setNewInspOrder(null); setShowForm(false);
                         }} style={btnO}><Check size={14}/>Сохранить</button>
                         <button onClick={()=>{setShowForm(false);setNewInspOrder(null);}} style={btnG}>Отмена</button>
@@ -13058,8 +13100,8 @@ function App() {
                           </div>
                           <div style={{display:'flex',gap:'4px',alignItems:'flex-start'}}>
                             <span style={badge(o.status==='Закрыто'?C.success:C.danger,o.status==='Закрыто'?C.successLight:C.dangerLight,o.status==='Закрыто'?C.successBorder:C.dangerBorder)}>{o.status||'Открыто'}</span>
-                            {o.status!=='Закрыто'&&<button onClick={async()=>{const resp=prompt('Опишите как устранили / ответ органу:');if(!resp) return;await fetch(API+'/inspection-orders/'+o.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Закрыто',response:resp,responseDate:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Закрыть</button>}
-                            <button onClick={async()=>{if(!window.confirm('Удалить замечание?')) return;await fetch(API+'/inspection-orders/'+o.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
+                            {o.status!=='Закрыто'&&<button onClick={async()=>{const resp=prompt('Опишите как устранили / ответ органу:');if(!resp) return;await fetch(API+'/inspection-orders/'+o.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Закрыто',response:resp,responseDate:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Закрыть</button>}
+                            <button onClick={async()=>{if(!window.confirm('Удалить замечание?')) return;await fetch(API+'/inspection-orders/'+o.id,{method:'DELETE'});await refreshData();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
                           </div>
                         </div>
                       </div>))}
@@ -13086,7 +13128,7 @@ function App() {
                         <div style={{display:'flex',gap:'8px'}}>
                           <button onClick={async()=>{
                             await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({warrantyStartDate:warrantyEditForm.warrantyStartDate||null,warrantyEndDate:warrantyEditForm.warrantyEndDate||null,warrantyContact:warrantyEditForm.warrantyContact||''})});
-                            await loadAll(); setWarrantyEditForm(null);
+                            await refreshData(); setWarrantyEditForm(null);
                           }} style={btnO}><Check size={14}/>Сохранить</button>
                           <button onClick={()=>setWarrantyEditForm(null)} style={btnG}>Отмена</button>
                         </div>
@@ -13110,7 +13152,7 @@ function App() {
                         <button onClick={async()=>{
                           if(!newWarrantyDefect.description){alert('Опишите дефект');return;}
                           await fetch(API+'/warranty-defects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newWarrantyDefect,projectName:p.name,status:'Открыт'})});
-                          await loadAll(); setNewWarrantyDefect(null);
+                          await refreshData(); setNewWarrantyDefect(null);
                         }} style={btnO}><Check size={14}/>Сохранить</button>
                         <button onClick={()=>setNewWarrantyDefect(null)} style={btnG}>Отмена</button>
                       </div>
@@ -13131,8 +13173,8 @@ function App() {
                           </div>
                           <div style={{display:'flex',gap:'4px',alignItems:'flex-start'}}>
                             <span style={badge(d.status==='Закрыт'?C.success:d.severity==='Критический'?C.danger:C.warning,d.status==='Закрыт'?C.successLight:d.severity==='Критический'?C.dangerLight:C.warningLight,d.status==='Закрыт'?C.successBorder:d.severity==='Критический'?C.dangerBorder:C.warningBorder)}>{d.status||'Открыт'}</span>
-                            {d.status!=='Закрыт'&&<button onClick={async()=>{const notes=prompt('Опишите как устранили:');if(!notes) return;await fetch(API+'/warranty-defects/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Закрыт',fixNotes:notes,fixedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Устранено</button>}
-                            <button onClick={async()=>{if(!window.confirm('Удалить дефект?')) return;await fetch(API+'/warranty-defects/'+d.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
+                            {d.status!=='Закрыт'&&<button onClick={async()=>{const notes=prompt('Опишите как устранили:');if(!notes) return;await fetch(API+'/warranty-defects/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Закрыт',fixNotes:notes,fixedAt:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Устранено</button>}
+                            <button onClick={async()=>{if(!window.confirm('Удалить дефект?')) return;await fetch(API+'/warranty-defects/'+d.id,{method:'DELETE'});await refreshData();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
                           </div>
                         </div>
                       </div>))}
@@ -13586,7 +13628,7 @@ function App() {
                   <input type="date" value={newInventory.date} onChange={e=>setNewInventory({...newInventory,date:e.target.value})} style={{...inp,marginBottom:0}}/>
                 </div>
                 <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-                  <button onClick={async()=>{if(!newInventory.project||!newInventory.date) return;const res=await fetch(API+'/inventory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newInventory,createdBy:user.name})});const inv=await res.json();await loadAll();setSelectedInventory(inv);setShowForm(false);}} style={btnO}><Check size={14}/>Создать</button>
+                  <button onClick={async()=>{if(!newInventory.project||!newInventory.date) return;const res=await fetch(API+'/inventory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newInventory,createdBy:user.name})});const inv=await res.json();await refreshData();setSelectedInventory(inv);setShowForm(false);}} style={btnO}><Check size={14}/>Создать</button>
                   <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
                 </div>
               </div>)}
@@ -13951,7 +13993,7 @@ function App() {
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
                 <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>💸 Платежи по объектам</b>
                 <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
-                  <button onClick={()=>{const projOpts=(projects||[]).map(p=>p.name);const pn=window.prompt('Объект (из списка: '+projOpts.slice(0,5).join(', ')+(projOpts.length>5?'…':'')+'):','');if(!pn) return;const amount=prompt('Сумма поступления (₽):');if(!amount||toNum(amount)<=0) return;const note=prompt('Примечание (договор/счёт):','');fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:pn,amount:toNum(amount),note:note||'',date:new Date().toISOString().split('T')[0],paidBy:user.name})}).then(()=>loadAll());}} style={btnO}><Plus size={14}/>Поступление</button>
+                  <button onClick={()=>{const projOpts=(projects||[]).map(p=>p.name);const pn=window.prompt('Объект (из списка: '+projOpts.slice(0,5).join(', ')+(projOpts.length>5?'…':'')+'):','');if(!pn) return;const amount=prompt('Сумма поступления (₽):');if(!amount||toNum(amount)<=0) return;const note=prompt('Примечание (договор/счёт):','');fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:pn,amount:toNum(amount),note:note||'',date:new Date().toISOString().split('T')[0],paidBy:user.name})}).then(()=>refreshData());}} style={btnO}><Plus size={14}/>Поступление</button>
                   <button onClick={()=>setShowReimburseModal(true)} style={{...btnGr,position:'relative'}}><DollarSign size={14}/>Возместить сотруднику{(()=>{const n=(ownExpenses||[]).filter(e=>e.status==='Ожидает').length;return n>0?<span style={{position:'absolute',top:'-6px',right:'-6px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 6px',fontSize:'10px',fontWeight:'700'}}>{n}</span>:null;})()}</button>
                 </div>
               </div>
@@ -14252,7 +14294,7 @@ function App() {
                     <button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={13}/></button>
                     {isFinanceRole()&&(act.scanUrl
                       ? <a href={fileSrc(act.scanUrl)} target='_blank' rel='noreferrer' style={{...btnB,padding:'4px 8px',fontSize:'11px',textDecoration:'none'}} title='Подписанный акт (скан)'>📎</a>
-                      : <label style={{...btnG,padding:'4px 8px',fontSize:'11px',cursor:'pointer',margin:0}} title='Загрузить скан подписанного акта'>📎<input type='file' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(!f)return;const url=await uploadPhoto(f,{projectName:act.projectName,context:'interim-acts'});if(url){await fetch(API+'/interim-acts/'+act.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({scanUrl:url})});await loadAll();}}}/></label>)}
+                      : <label style={{...btnG,padding:'4px 8px',fontSize:'11px',cursor:'pointer',margin:0}} title='Загрузить скан подписанного акта'>📎<input type='file' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(!f)return;const url=await uploadPhoto(f,{projectName:act.projectName,context:'interim-acts'});if(url){await fetch(API+'/interim-acts/'+act.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({scanUrl:url})});await refreshData();}}}/></label>)}
                     {isFinanceRole()&&(act.scanUrl
                       ? <button onClick={()=>setShowPayActModal(act)} style={btnO}><DollarSign size={13}/>Оплата</button>
                       : <button onClick={()=>alert('Оплата заблокирована: сначала загрузите скан подписанного бумажного акта (кнопка 📎).')} style={{...btnG,opacity:0.6}} title='Нет скана подписанного акта'><DollarSign size={13}/>Оплата 🔒</button>)}
@@ -14474,7 +14516,7 @@ function App() {
                     if(!newExpenseReport.employeeName||!newExpenseReport.purpose||!newExpenseReport.issuedAmount){alert('Заполните: кому, назначение, выдано');return;}
                     const issued=Number(newExpenseReport.issuedAmount)||0;const spent=Number(newExpenseReport.spentAmount||0);
                     await fetch(API+'/expense-reports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newExpenseReport,issuedAmount:issued,spentAmount:spent,totalAmount:spent||issued,balance:issued-spent,status:'На утверждении'})});
-                    await loadAll(); setNewExpenseReport(null);
+                    await refreshData(); setNewExpenseReport(null);
                   }} style={btnO}><Check size={14}/>Сохранить</button>
                   <button onClick={()=>setNewExpenseReport(null)} style={btnG}>Отмена</button>
                 </div>
@@ -14489,8 +14531,8 @@ function App() {
                     </div>
                     <div style={{display:'flex',gap:'4px'}}>
                       <span style={badge(r.status==='Утверждён'?C.success:r.status==='Отклонён'?C.danger:C.warning,r.status==='Утверждён'?C.successLight:r.status==='Отклонён'?C.dangerLight:C.warningLight,r.status==='Утверждён'?C.successBorder:r.status==='Отклонён'?C.dangerBorder:C.warningBorder)}>{r.status}</span>
-                      {r.status==='На утверждении'&&<><button onClick={async()=>{await fetch(API+'/expense-reports/'+r.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button><button onClick={async()=>{await fetch(API+'/expense-reports/'+r.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await loadAll();}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}>✕</button></>}
-                      <button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/expense-reports/'+r.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
+                      {r.status==='На утверждении'&&<><button onClick={async()=>{await fetch(API+'/expense-reports/'+r.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button><button onClick={async()=>{await fetch(API+'/expense-reports/'+r.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}>✕</button></>}
+                      <button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/expense-reports/'+r.id,{method:'DELETE'});await refreshData();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
                     </div>
                   </div>
                 </div>))}
