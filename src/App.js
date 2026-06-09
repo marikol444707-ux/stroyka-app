@@ -788,6 +788,7 @@ const tblC = {padding:'8px 12px',borderBottom:'1px solid '+C.border,color:C.text
 function App() {
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const [isCompactHeader, setIsCompactHeader] = useState(typeof window !== 'undefined' && window.innerWidth < 1180);
+  const mobileLoadedScopesRef = useRef(new Set());
   const [darkMode, setDarkMode] = useState(typeof window !== 'undefined' && localStorage.getItem('darkMode')==='1');
   useEffect(() => {
     if (typeof document !== 'undefined') document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
@@ -1429,7 +1430,9 @@ function App() {
 
   useEffect(() => {
     if (user) {
-      loadAll();
+      mobileLoadedScopesRef.current.clear();
+      if (isMobile) loadMobileInitial();
+      else loadAll();
       if (['мастер','субподрядчик'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
       const saved = localStorage.getItem('companyName'); if (saved) setCompanyName(saved);
       const keys = ['masterRatings','activityLog','notifications','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
@@ -1447,6 +1450,259 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  const roleFlags = () => {
+    const role = user?.role || '';
+    const isLeadershipRole = ['директор','зам_директора'].includes(role);
+    const isFinanceRole = ['директор','зам_директора','бухгалтер'].includes(role);
+    const isWarehouseRole = ['директор','зам_директора','кладовщик','снабженец','прораб','главный_инженер'].includes(role);
+    const isSupplyRole = ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','поставщик','бухгалтер'].includes(role);
+    const canSeeSupplierInvoices = ['директор','зам_директора','бухгалтер','снабженец','кладовщик','прораб','поставщик'].includes(role);
+    const isProjectRole = role && !['поставщик','system_owner'].includes(role);
+    const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
+    const canSeeProjectDocs = isProjectRole || ['технадзор','заказчик'].includes(role);
+    return {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isProjectRole,isInternalRole,canSeeProjectDocs};
+  };
+
+  const getApi = (path, fallback = []) => fetch(API + path)
+    .then(r => r.ok ? r.json() : fallback)
+    .catch(() => fallback);
+
+  const loadMobileScopeOnce = async (scope, loader) => {
+    if (mobileLoadedScopesRef.current.has('full') || mobileLoadedScopesRef.current.has(scope)) return;
+    mobileLoadedScopesRef.current.add(scope);
+    try { await loader(); }
+    catch(e) { mobileLoadedScopesRef.current.delete(scope); }
+  };
+
+  const loadMobileInitial = async () => loadMobileScopeOnce('mobile:init', async () => {
+    const {role,isLeadershipRole,isFinanceRole,isSupplyRole,isWarehouseRole,isInternalRole,canSeeProjectDocs} = roleFlags();
+    const [
+      p,u,msgs,sr,ait,oe,pp,wm,wj
+    ] = await Promise.all([
+      role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
+      role === 'system_owner' ? Promise.resolve([]) : getApi('/users'),
+      getApi('/messages'),
+      isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
+      canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
+      isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
+      isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
+      (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-main') : Promise.resolve([]),
+      role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
+    ]);
+    setProjects(Array.isArray(p)?p:[]);
+    setUsers(Array.isArray(u)?u:[]);
+    setCompanyMessages(Array.isArray(msgs)?msgs:[]);
+    setSupplyRequests(Array.isArray(sr)?sr:[]);
+    setAiTasks(Array.isArray(ait)?ait:[]);
+    setOwnExpenses(Array.isArray(oe)?oe:[]);
+    setProjectPayments(Array.isArray(pp)?pp:[]);
+    setWarehouseMain(Array.isArray(wm)?wm:[]);
+    setWorkJournal(Array.isArray(wj)?wj:[]);
+    if (isLeadershipRole) {
+      const ic = await getApi('/invite-codes');
+      setInviteCodes(Array.isArray(ic)?ic:[]);
+    }
+  });
+
+  const loadMobilePageData = async (page = activePage) => {
+    if (!user || !isMobile) return;
+    const {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isInternalRole,canSeeProjectDocs} = roleFlags();
+    if (page === 'dashboard') return loadMobileScopeOnce('mobile:dashboard', async () => {
+      const [aif,ait,sh,sd,scat] = await Promise.all([
+        canSeeProjectDocs ? getApi('/ai-findings') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
+        (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/supply-history') : Promise.resolve([]),
+        isSupplyRole ? getApi('/supply-deliveries') : Promise.resolve([]),
+        (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? getApi('/supplier-catalog') : Promise.resolve([]),
+      ]);
+      setAiFindings(Array.isArray(aif)?aif:[]);
+      setAiTasks(Array.isArray(ait)?ait:[]);
+      setSupplyHistory(Array.isArray(sh)?sh:[]);
+      setSupplyDeliveries(Array.isArray(sd)?sd:[]);
+      setSupplierCatalog(Array.isArray(scat)?scat:[]);
+    });
+    if (['projects','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
+      const [ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
+        canSeeProjectDocs ? getApi('/rooms') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/room-works') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/room-windows') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/room-doors') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/project-stages') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/project-checklists') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/prescriptions') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/unexpected-works') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/estimates') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/hidden-works-acts') : Promise.resolve([]),
+        (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
+        (canSeeProjectDocs || isWarehouseRole) ? getApi('/cable-journal') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/supervisor-acts') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/inspection-orders') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/warranty-defects') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole || role==='заказчик') ? getApi('/project-documents') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole || role==='заказчик') ? getApi('/project-letters') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/measurement-room-drafts') : Promise.resolve([]),
+      ]);
+      setRooms(Array.isArray(ro)?ro:[]); setRoomWorks(Array.isArray(rw)?rw:[]);
+      setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
+      setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]); setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
+      setEstimatesList(Array.isArray(est)?est:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]);
+      setHiddenActs(Array.isArray(hwa)?hwa:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
+      setCableJournal(Array.isArray(cbj)?cbj:[]); setSupervisorActs(Array.isArray(sva)?sva:[]);
+      setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
+      setProjectDocuments(Array.isArray(pdocs)?pdocs:[]); setProjectLetters(Array.isArray(plet)?plet:[]);
+      setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]); setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
+    });
+    if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
+      const [est,pl,mn,ma,mno,mns,bc,abi,abp] = await Promise.all([
+        canSeeProjectDocs ? getApi('/estimates') : Promise.resolve([]),
+        (isInternalRole || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/material-norms') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/material-aliases') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/material-norms/overrides') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/material-norm-suggestions') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/brigade-payments') : Promise.resolve([]),
+      ]);
+      setEstimatesList(Array.isArray(est)?est:[]); setPricelists(Array.isArray(pl)?pl:[]);
+      setMaterialNorms(Array.isArray(mn)?mn:[]); setMaterialAliases(Array.isArray(ma)?ma:[]);
+      setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
+      setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
+      setAllBrigadePayments(Array.isArray(abp)?abp:[]);
+    });
+    if (['warehouse','materials'].includes(page)) return loadMobileScopeOnce('mobile:warehouse', async () => {
+      const [m,winv,wm,wmov,h,wh,mt,mij,cbj] = await Promise.all([
+        role === 'поставщик' ? Promise.resolve([]) : getApi('/materials'),
+        (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-invoices') : Promise.resolve([]),
+        (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-main') : Promise.resolve([]),
+        (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-movements') : Promise.resolve([]),
+        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
+        (isWarehouseRole || isSupplyRole || isFinanceRole) ? getApi('/warehouses') : Promise.resolve([]),
+        (isWarehouseRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
+        (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
+        (canSeeProjectDocs || isWarehouseRole) ? getApi('/cable-journal') : Promise.resolve([]),
+      ]);
+      setMaterials(Array.isArray(m)?m:[]); setInvoices(Array.isArray(winv)?winv:[]);
+      setWarehouseMain(Array.isArray(wm)?wm:[]); setWarehouseMovements(Array.isArray(wmov)?wmov:[]);
+      setHistory(Array.isArray(h)?h:[]); setWarehouses(Array.isArray(wh)?wh:[]);
+      setMaterialTransfers(Array.isArray(mt)?mt:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
+      setCableJournal(Array.isArray(cbj)?cbj:[]);
+    });
+    if (['supply','suppliers'].includes(page)) return loadMobileScopeOnce('mobile:supply', async () => {
+      const [sup,sr,so,sh,sd,sc,supI,scat,stpl] = await Promise.all([
+        (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/suppliers') : Promise.resolve([]),
+        isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
+        isSupplyRole ? getApi('/supplier-offers') : Promise.resolve([]),
+        (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/supply-history') : Promise.resolve([]),
+        isSupplyRole ? getApi('/supply-deliveries') : Promise.resolve([]),
+        isSupplyRole ? getApi('/supply-claims') : Promise.resolve([]),
+        canSeeSupplierInvoices ? getApi('/supplier-invoices') : Promise.resolve([]),
+        (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? getApi('/supplier-catalog') : Promise.resolve([]),
+        isSupplyRole ? getApi('/supply-request-templates') : Promise.resolve([]),
+      ]);
+      setSuppliers(Array.isArray(sup)?sup:[]); setSupplyRequests(Array.isArray(sr)?sr:[]);
+      setSupplierOffers(Array.isArray(so)?so:[]); setSupplyHistory(Array.isArray(sh)?sh:[]);
+      setSupplyDeliveries(Array.isArray(sd)?sd:[]); setSupplyClaims(Array.isArray(sc)?sc:[]);
+      setSupplierInvoices(Array.isArray(supI)?supI:[]); setSupplierCatalog(Array.isArray(scat)?scat:[]);
+      setSupplyTemplates(Array.isArray(stpl)?stpl:[]);
+    });
+    if (['personnel','users'].includes(page)) return loadMobileScopeOnce('mobile:people', async () => {
+      const [s,pw,u,mp,ts,pdc] = await Promise.all([
+        (isInternalRole || isFinanceRole) ? getApi('/staff') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/piecework') : Promise.resolve([]),
+        role === 'system_owner' ? Promise.resolve([]) : getApi('/users'),
+        (isInternalRole || isFinanceRole) ? getApi('/master-profiles') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/timesheet') : Promise.resolve([]),
+        (isLeadershipRole || isFinanceRole) ? getApi('/pd-consents') : Promise.resolve([]),
+      ]);
+      setStaff(Array.isArray(s)?s:[]); setPiecework(Array.isArray(pw)?pw:[]);
+      setUsers(Array.isArray(u)?u:[]); setMasterProfiles(Array.isArray(mp)?mp:[]);
+      if (Array.isArray(ts)) setTimesheet(Object.fromEntries(ts.map(t=>[t.staffId+'-'+t.day, true])));
+      setPdConsents(Array.isArray(pdc)?pdc:[]);
+    });
+    if (page === 'accounting') return loadMobileScopeOnce('mobile:accounting', async () => {
+      const [pp,acp,oe,me,ct,ia,expR,supI,cd,sp,s,pw,u] = await Promise.all([
+        isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
+        isFinanceRole ? getApi('/accountable-payments') : Promise.resolve([]),
+        isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
+        isFinanceRole ? getApi('/expenses') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/contracts') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/interim-acts') : Promise.resolve([]),
+        isFinanceRole ? getApi('/expense-reports') : Promise.resolve([]),
+        canSeeSupplierInvoices ? getApi('/supplier-invoices') : Promise.resolve([]),
+        isFinanceRole ? getApi('/company-documents') : Promise.resolve([]),
+        isFinanceRole ? getApi('/salary-payments') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/staff') : Promise.resolve([]),
+        (isInternalRole || isFinanceRole) ? getApi('/piecework') : Promise.resolve([]),
+        role === 'system_owner' ? Promise.resolve([]) : getApi('/users'),
+      ]);
+      setProjectPayments(Array.isArray(pp)?pp:[]); setAccountablePayments(Array.isArray(acp)?acp:[]);
+      setOwnExpenses(Array.isArray(oe)?oe:[]); setManualExpenses(Array.isArray(me)?me:[]);
+      setContracts(Array.isArray(ct)?ct:[]); setInterimActs(Array.isArray(ia)?ia:[]);
+      setExpenseReports(Array.isArray(expR)?expR:[]); setSupplierInvoices(Array.isArray(supI)?supI:[]);
+      setCompanyDocuments(Array.isArray(cd)?cd:[]); setSalaryPayments(Array.isArray(sp)?sp:[]);
+      setStaff(Array.isArray(s)?s:[]); setPiecework(Array.isArray(pw)?pw:[]); setUsers(Array.isArray(u)?u:[]);
+    });
+    if (page === 'history') return loadMobileScopeOnce('mobile:history', async () => {
+      const [wj,h,mt] = await Promise.all([
+        role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
+        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
+        (isWarehouseRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
+      ]);
+      setWorkJournal(Array.isArray(wj)?wj:[]);
+      setHistory(Array.isArray(h)?h:[]);
+      setMaterialTransfers(Array.isArray(mt)?mt:[]);
+    });
+    if (page === 'myexpenses') return loadMobileScopeOnce('mobile:myexpenses', async () => {
+      const oe = isInternalRole ? await getApi('/own-expenses') : [];
+      setOwnExpenses(Array.isArray(oe)?oe:[]);
+    });
+    if (page === 'clients') return loadMobileScopeOnce('mobile:clients', async () => {
+      const c = (isLeadershipRole || role === 'менеджер_crm') ? await getApi('/clients') : [];
+      setClients(Array.isArray(c)?c:[]);
+    });
+    if (page === 'pricelists') return loadMobileScopeOnce('mobile:pricelists', async () => {
+      const pl = (isInternalRole || role === 'технадзор') ? await getApi('/pricelists') : [];
+      setPricelists(Array.isArray(pl)?pl:[]);
+    });
+    if (page === 'crm') return loadMobileScopeOnce('mobile:crm', async () => {
+      const ls = (isLeadershipRole || role === 'менеджер_crm') ? await getApi('/crm-leads') : [];
+      setLeads(Array.isArray(ls)?ls:[]);
+    });
+    if (page === 'analytics') return loadMobileScopeOnce('mobile:analytics', async () => {
+      const [pp,me,wj,est] = await Promise.all([
+        isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
+        isFinanceRole ? getApi('/expenses') : Promise.resolve([]),
+        role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
+        canSeeProjectDocs ? getApi('/estimates') : Promise.resolve([]),
+      ]);
+      setProjectPayments(Array.isArray(pp)?pp:[]);
+      setManualExpenses(Array.isArray(me)?me:[]);
+      setWorkJournal(Array.isArray(wj)?wj:[]);
+      setEstimatesList(Array.isArray(est)?est:[]);
+    });
+    if (page === 'settings') return loadMobileScopeOnce('mobile:settings', async () => {
+      const [cr,cd] = await Promise.all([
+        role === 'поставщик' ? Promise.resolve({}) : getApi('/company-requisites', {}),
+        isFinanceRole ? getApi('/company-documents') : Promise.resolve([]),
+      ]);
+      setCompanyRequisites(cr || {});
+      setCompanyDocuments(Array.isArray(cd)?cd:[]);
+    });
+    if (page === 'companychat') return loadMobileScopeOnce('mobile:chat', async () => {
+      const msgs = await getApi('/messages');
+      setCompanyMessages(Array.isArray(msgs)?msgs:[]);
+    });
+  };
+
+  useEffect(() => {
+    if (user && isMobile) loadMobilePageData(activePage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isMobile, activePage]);
 
   const loadAll = async () => {
     try {
@@ -1600,6 +1856,7 @@ function App() {
         const mdrafts = await get('/measurement-room-drafts');
         setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
       } catch(e) {}
+      mobileLoadedScopesRef.current.add('full');
     } catch(e) {}
   };
 
