@@ -8278,6 +8278,44 @@ function App() {
     await loadAll(); setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:''}); setEditingItem(null); setShowForm(false);
   };
 
+  const resetStaffAccessPassword = async (accessUser, staffRow) => {
+    const password = prompt('Новый пароль для '+(accessUser.email||staffRow.name)+':');
+    if (!password) return;
+    const cleanPassword = password.trim();
+    if (cleanPassword.length < 5) { alert('Пароль минимум 5 символов'); return; }
+    try {
+      await readApiResult(await fetch(API+'/users/'+accessUser.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        name:accessUser.name||staffRow.name,
+        email:(accessUser.email||'').trim().toLowerCase(),
+        password:cleanPassword,
+        role:accessUser.role||'мастер',
+        projectId:accessUser.projectId||accessUser.project_id||'',
+        projectName:accessUser.projectName||accessUser.project_name||staffRow.project||'',
+        active:true
+      })}));
+      await loadAll();
+      alert('Пароль обновлён: '+(accessUser.email||staffRow.name));
+    } catch(e) {
+      alert('Не удалось обновить пароль: '+(e.message||e));
+    }
+  };
+
+  const createStaffAccessFromPrompt = async (staffRow) => {
+    const email = (prompt('Email для входа:')||'').trim().toLowerCase();
+    if(!email) return;
+    const password = (prompt('Пароль:')||'').trim();
+    if(!password) return;
+    const role = (prompt('Системная роль (директор/зам_директора/бухгалтер/прораб/мастер/субподрядчик/кладовщик/снабженец):','мастер')||'').trim();
+    if(!role) return;
+    try {
+      await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:staffRow.name,email,password,role,projectName:staffRow.project||''})}));
+      await loadAll();
+      alert('Доступ выдан: '+email);
+    } catch(e) {
+      alert('Не удалось выдать доступ: '+(e.message||e));
+    }
+  };
+
   const deleteStaff = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/staff/'+id,{method:'DELETE'}); await loadAll(); } };
 
   const addPiecework = async () => {
@@ -14416,7 +14454,7 @@ function App() {
                     <td style={tblC}>{s.project||'—'}</td>
                     <td style={tblC}>{s.payType==='сдельно'?'Сдельно':'Оклад: '+(s.salary||0).toLocaleString()+' ₽'}</td>
                     <td style={{...tblC,fontWeight:'600',color:C.success}}>{calcSalary(s).toLocaleString()+' ₽'}</td>
-                    <td style={tblC} onClick={e=>e.stopPropagation()}>{hasAccess?<span style={{padding:'2px 8px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'11px',fontWeight:'600'}}>✅ {hasAccess.email||'есть'}</span>:<button onClick={()=>{const email=prompt('Email для входа:');if(!email) return;const password=prompt('Пароль:');if(!password) return;const role=prompt('Системная роль (директор/зам_директора/бухгалтер/прораб/мастер/субподрядчик/кладовщик/снабженец):','мастер');if(!role) return;fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:s.name,email,password,role,projectName:s.project||''})}).then(()=>loadAll()).then(()=>alert('Доступ выдан: '+email));}} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}>🔐 Выдать</button>}</td>
+                    <td style={tblC} onClick={e=>e.stopPropagation()}>{hasAccess?<div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}}><span style={{padding:'2px 8px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'11px',fontWeight:'600'}}>✅ {hasAccess.email||'есть'}</span><button onClick={()=>resetStaffAccessPassword(hasAccess,s)} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}>🔑 Пароль</button></div>:<button onClick={()=>createStaffAccessFromPrompt(s)} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}>🔐 Выдать</button>}</td>
                     <td style={tblC} onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{setEditingItem(s);setNewStaff({...s,salary:String(s.salary||''),email:'',password:'',systemRole:''});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td>
                   </tr>
                   {isExp&&(<tr><td colSpan='8' style={{padding:'14px 18px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}>
