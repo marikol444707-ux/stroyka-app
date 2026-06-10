@@ -33,6 +33,18 @@ export default function ProjectBrigadeCalculationTable({
     });
   };
 
+  // Ручная цена бригаде/мастеру по конкретной строке — сохраняется поверх коэффициента
+  const updatePriceBrigade = async (item, index, rawValue) => {
+    const priceBrigade = toNum(rawValue);
+    const updated = {...item, priceBrigade};
+    setBrigadeContractItems(prev => prev.map((it, i) => i === index ? updated : it));
+    await fetch(API + '/brigade-contract-items/' + item.id, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(updated),
+    });
+  };
+
   const deleteItem = async (item, index) => {
     await fetch(API + '/brigade-contract-items/' + item.id, {method: 'DELETE'});
     setBrigadeContractItems(prev => prev.filter((_, i) => i !== index));
@@ -92,7 +104,17 @@ export default function ProjectBrigadeCalculationTable({
                 </span>
               </td>
               <td style={{...tblC, display: showFinance ? '' : 'none'}}>{Number(item.priceSmeta || 0).toLocaleString('ru-RU') + ' ₽'}</td>
-              <td style={tblC}>{Number(item.priceBrigade || 0).toLocaleString('ru-RU') + ' ₽'}</td>
+              <td style={tblC}>
+                <input
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  value={item.priceBrigade ? String(toNum(item.priceBrigade)) : ''}
+                  onChange={e => updatePriceBrigade(item, index, e.target.value)}
+                  title="Цену можно задать вручную по строке — сохранится поверх коэффициента"
+                  style={{...inp, marginBottom: 0, width: '80px', fontSize: '12px', padding: '4px 6px'}}
+                />
+              </td>
               <td style={{...tblC, fontWeight: '600', color: C.accent}}>{toPay.toLocaleString('ru-RU') + ' ₽'}</td>
               <td style={{...tblC, fontWeight: '600', color: C.success, display: showFinance ? '' : 'none'}}>{economy.toLocaleString('ru-RU') + ' ₽'}</td>
               <td style={tblC}>
