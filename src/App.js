@@ -842,7 +842,15 @@ function App() {
   const [regCode, setRegCode] = useState('');
   const [regInviteInfo, setRegInviteInfo] = useState(null); // {role, presetName, presetCategory, supplierId}
   const [regSupplierData, setRegSupplierData] = useState({companyName:'',inn:'',kpp:'',ogrn:'',phone:'',legalAddress:'',bank:'',bik:'',account:'',directorName:'',category:'',specialization:''});
-  const [loginError, setLoginError] = useState('');
+  const [loginError, setLoginError] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && sessionStorage.getItem('authExpiredNotice')) {
+        sessionStorage.removeItem('authExpiredNotice');
+        return 'Сессия истекла, войдите снова';
+      }
+    } catch (e) {}
+    return '';
+  });
   const [activePage, setActivePage] = useState('dashboard');
   const [activeProjectTab, setActiveProjectTab] = useState('Общее');
   const [activeTabGroup, setActiveTabGroup] = useState(null);
