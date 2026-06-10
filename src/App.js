@@ -234,7 +234,7 @@ const inferEstimateUnit = (it={}, sectionName='') => {
   const explicitType = estimateTextKey(it.itemType || it.type);
   const itemType = ESTIMATE_ITEM_TYPE_BY_ID[explicitType] ? explicitType : '';
   const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
-  if (it.isImported && !estimateUnitLooksUnknown(current)) return current;
+  if (it.isImported && current && !['1','ед','единица'].includes(estimateTextKey(current).replace(/\s+/g,''))) return current;
   const currentBaseUnit = _normalizeUnit(normalizeMeasure(1, current).unit || current || '');
   const looksAreaWork = itemType !== 'material' && estimateTextHasAny(text, ['поверхност','фасад','стен','перегород','потолк','потолоч','обои','облицов','окраск','штукатур','шпатлев','шпаклев','грунтов','плитк','керамогранит','гранит','линолеум','покрытие пола','полы','пола','гкл','гипсокартон','сетка']);
   const looksLinearWork = estimateTextHasAny(text, ['кабель','провод','труба','трубопровод','лоток','короб','уголок','уголк','угол','плинтус','наличник','профиль маяч','маяк','подоконник','погон']);

@@ -8802,16 +8802,16 @@ async def parse_smeta(file: UploadFile = File(...)):
                         elif not seen_cost_unit:
                             columns["cost_unit"] = idx
                             seen_cost_unit = True
-                    elif "коэффициент" in compact and "сметн" not in compact:
-                        if idx <= columns.get("quantity_final", 6):
-                            columns["quantity_coeff"] = idx
-                        elif "cost_coeff" not in columns:
-                            columns["cost_coeff"] = idx
                     elif "всего" in compact:
                         if "учет" in compact and "коэффициент" in compact:
                             columns["quantity_final"] = idx
                         elif idx > columns.get("quantity_final", 6) and "cost_total" not in columns:
                             columns["cost_total"] = idx
+                    elif "коэффициент" in compact and "сметн" not in compact:
+                        if idx < columns.get("quantity_final", 6):
+                            columns["quantity_coeff"] = idx
+                        elif "cost_coeff" not in columns:
+                            columns["cost_coeff"] = idx
                     elif "индекс" in compact:
                         columns["cost_index"] = idx
 
@@ -8867,8 +8867,8 @@ async def parse_smeta(file: UploadFile = File(...)):
         def _infer_lsr_unit(unit_value, name_value, item_type):
             raw = str(unit_value or "").strip()
             compact = raw.lower().replace(" ", "")
-            if raw and compact not in ("1", "ед", "ед.", "шт", "шт."):
-                return raw
+            if raw and compact not in ("1", "ед", "ед.", "единица"):
+                return _normalize_lsr_unit_text(raw)
             name_key = _lsr_text_key(name_value)
             if item_type == "material":
                 if any(w in name_key for w in ("смесь", "штукатурная", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "затирка", "цемент", "пескобетон", "сухая смесь")):
@@ -8973,6 +8973,9 @@ async def parse_smeta(file: UploadFile = File(...)):
             text = re.sub(r"\s+", " ", text)
             text = text.replace("м²", "м2").replace("М²", "м2").replace("м³", "м3").replace("М³", "м3")
             compact = text.lower().replace(" ", "").replace(".", "")
+            single_unit = re.match(r"^1\s*(шт\.?|м2|м3|м|кг|т|л)$", text.lower())
+            if single_unit:
+                return _normalize_lsr_unit_text(single_unit.group(1))
             if not re.match(r"^\d", compact):
                 if compact.startswith("маш"):
                     return "маш-ч"
