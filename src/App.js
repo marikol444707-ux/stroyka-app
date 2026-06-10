@@ -11340,6 +11340,7 @@ function App() {
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
           {menuItems.map(m=>(<div key={m.id} onClick={()=>{setActivePage(m.id);setShowMobileMenu(false);}} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'12px 8px',borderRadius:'12px',cursor:'pointer',backgroundColor:activePage===m.id?'rgba(249,115,22,0.15)':'rgba(30,41,59,0.6)',border:'1px solid rgba(148,163,184,0.12)'}}><span style={{fontSize:'24px',marginBottom:'4px'}}>{m.icon}</span><span style={{fontSize:'11px',color:activePage===m.id?'#f97316':'#94a3b8',fontWeight:activePage===m.id?'700':'400',textAlign:'center',lineHeight:'1.3'}}>{m.label}</span></div>))}
         </div>
+        <div onClick={()=>{setShowMobileMenu(false);handleLogout();}} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'8px',marginTop:'12px',padding:'14px',borderRadius:'12px',cursor:'pointer',backgroundColor:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)'}}><LogOut size={18} color='#ef4444'/><span style={{fontSize:'14px',color:'#ef4444',fontWeight:'600'}}>Выйти</span></div>
       </div>)}
       
       
