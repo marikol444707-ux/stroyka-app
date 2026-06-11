@@ -3576,6 +3576,7 @@ def get_materials(current_user: dict = Depends(get_current_user)):
 
 @app.post("/materials")
 def create_material(m: MaterialModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+    require_project_or_warehouse_access(_current_user, m.project or "")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,unit,quantity,price,min_quantity as \"minQuantity\",project,category",
@@ -3587,14 +3588,21 @@ def create_material(m: MaterialModel, _current_user: dict = Depends(require_role
 @app.put("/materials/{id}")
 def update_material(id: int, m: MaterialModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT project FROM materials WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Материал не найден")
+    require_project_or_warehouse_access(_current_user, row.get("project") or "")
+    require_project_or_warehouse_access(_current_user, m.project or "")
     cur.execute("UPDATE materials SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,project=%s,category=%s WHERE id=%s",
                 (m.name,m.unit,m.quantity,m.price,m.minQuantity,m.project,m.category,id))
     conn.close()
     return {"ok": True}
 
 @app.delete("/materials/{id}")
-def delete_material(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def delete_material(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM materials WHERE id=%s", (id,))
@@ -3632,7 +3640,7 @@ def update_warehouse_main(id: int, m: WarehouseMainModel, _current_user: dict = 
     return {"ok": True}
 
 @app.delete("/warehouse-main/{id}")
-def delete_warehouse_main(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def delete_warehouse_main(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM warehouse_main WHERE id=%s", (id,))
@@ -4485,7 +4493,11 @@ def get_supply_requests(current_user: dict = Depends(get_current_user)):
 def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     import json as _json
     from datetime import datetime
-    role = (r.requestedByRole or "").strip()
+    role = (_current_user.get("role") or "").strip()
+    created_by = _current_user.get("name") or r.createdBy or ""
+    requested_by_id = _current_user.get("id")
+    if r.project:
+        require_project_or_warehouse_access(_current_user, r.project)
     if role in ("директор", "зам_директора"):
         initial_status = "Утверждена"
     elif role == "прораб":
@@ -4493,11 +4505,11 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     else:
         initial_status = "Новая"
     now = datetime.now()
-    prorab_id = r.requestedById if role == "прораб" else None
-    prorab_name = r.createdBy if role == "прораб" else None
+    prorab_id = requested_by_id if role == "прораб" else None
+    prorab_name = created_by if role == "прораб" else None
     prorab_at = now if role == "прораб" else None
-    director_id = r.requestedById if role in ("директор", "зам_директора") else None
-    director_name = r.createdBy if role in ("директор", "зам_директора") else None
+    director_id = requested_by_id if role in ("директор", "зам_директора") else None
+    director_name = created_by if role in ("директор", "зам_директора") else None
     director_at = now if role in ("директор", "зам_директора") else None
     # Нормализация items: если items пустой но есть materialName — упаковываем как single-item
     items = [it for it in (r.items or []) if (it or {}).get("materialName") and float((it or {}).get("quantity") or 0) > 0]
@@ -4525,8 +4537,8 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
         "prorab_id,prorab_name,prorab_confirmed_at,"
         "director_id,director_name,director_approved_at,items_json) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (agg_name, agg_qty, agg_unit, r.project, r.createdBy, r.date, r.notes,
-         r.selectedSuppliers, initial_status, role, r.requestedById, r.urgency, r.category,
+        (agg_name, agg_qty, agg_unit, r.project, created_by, r.date, r.notes,
+         r.selectedSuppliers, initial_status, role, requested_by_id, r.urgency, r.category,
          prorab_id, prorab_name, prorab_at,
          director_id, director_name, director_at, items_json))
     new_id = cur.fetchone()['id']
@@ -4542,14 +4554,30 @@ def update_supply_request(id: int, data: dict, _current_user: dict = Depends(req
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     action = data.get('action')
     now = datetime.now()
+    role = _current_user.get("role") or ""
+    user_id = _current_user.get("id")
+    user_name = _current_user.get("name") or ""
+    cur.execute("SELECT project FROM supply_requests WHERE id=%s", (id,))
+    req = cur.fetchone()
+    if not req:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    if req.get("project"):
+        require_project_or_warehouse_access(_current_user, req.get("project"))
     if action == 'confirm_prorab':
+        if role not in (*LEADERSHIP_ROLES, "прораб", "главный_инженер"):
+            conn.close()
+            raise HTTPException(status_code=403, detail="Подтвердить заявку может прораб, главный инженер или руководство")
         cur.execute(
             "UPDATE supply_requests SET status=%s, prorab_id=%s, prorab_name=%s, prorab_confirmed_at=%s WHERE id=%s",
-            ('Подтверждена прорабом', data.get('userId'), data.get('userName'), now, id))
+            ('Подтверждена прорабом', user_id, user_name, now, id))
     elif action == 'approve_director':
+        if role not in LEADERSHIP_ROLES:
+            conn.close()
+            raise HTTPException(status_code=403, detail="Утвердить заявку может только директор или замдиректора")
         cur.execute(
             "UPDATE supply_requests SET status=%s, director_id=%s, director_name=%s, director_approved_at=%s WHERE id=%s",
-            ('Утверждена', data.get('userId'), data.get('userName'), now, id))
+            ('Утверждена', user_id, user_name, now, id))
     elif action == 'reject':
         cur.execute(
             "UPDATE supply_requests SET status=%s, reject_reason=%s WHERE id=%s",
@@ -9592,6 +9620,9 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FIN
     smeta_type = data.get("smetaType") or "Заказчик"
     work_package = data.get("workPackage") or data.get("work_package") or "Основная"
     project_name = data.get("projectName","")
+    if status == "Активная" and _current_user.get("role") not in LEADERSHIP_ROLES:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора. Сохраните смету черновиком.")
     if status == "Активная" and project_name:
         cur.execute("""UPDATE estimates SET status='Архив'
                        WHERE project_name=%s
@@ -9607,7 +9638,7 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FIN
     return {"id":row[0],"ok":True}
 
 @app.put("/estimates/{id}")
-def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик"))):
+def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     import json as j
     from datetime import date as _date
     conn = get_db()
@@ -9664,6 +9695,9 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     new_status = data.get("status") or prev[4] or "Черновик"
     new_smeta_type = data.get("smetaType") or prev[3] or "Заказчик"
     new_work_package = data.get("workPackage") or data.get("work_package") or prev[5] or "Основная"
+    if new_status == "Активная" and _current_user.get("role") not in LEADERSHIP_ROLES:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора")
     if new_status == "Активная" and project_name:
         cur.execute("""UPDATE estimates SET status='Архив'
                        WHERE id<>%s
@@ -9818,6 +9852,8 @@ def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(re
     status = data.get("status") or "Черновик"
     if status not in ("Активная", "Архив", "Черновик"):
         raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
+    if status in ("Активная", "Архив") and _current_user.get("role") not in LEADERSHIP_ROLES:
+        raise HTTPException(status_code=403, detail="Активировать или архивировать смету может только директор или замдиректора")
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT project_name, COALESCE(smeta_type,'Заказчик'), COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (id,))
@@ -9841,7 +9877,7 @@ def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(re
     return {"ok": True, "status": status}
 
 @app.post("/estimates/{id}/include-changes")
-def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     """Создать новую активную версию сметы с утверждёнными изменениями без задвоения КС."""
     import copy
     import json as j
@@ -10113,7 +10149,7 @@ def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(r
     return {"id":r[0],"estimateId":r[1],"versionLabel":r[2] or "","sections":sections,"total":float(r[4] or 0),"comment":r[5] or "","createdBy":r[6] or "","createdAt":str(r[7])}
 
 @app.delete("/estimates/{id}")
-def delete_estimate(id: int, hard: bool = False, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
+def delete_estimate(id: int, hard: bool = False, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     require_row_project_access(cur, "estimates", id, current_user, "project_name")

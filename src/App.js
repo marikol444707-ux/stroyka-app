@@ -2671,12 +2671,15 @@ function App() {
     const name = normalizePersonKey(st.name);
     return (users||[]).find(u=>normalizePersonKey(u.name)===name) || null;
   };
+  const staffAccessRoles = Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner'].includes(r));
   const upsertStaffAccess = async ({staffRow={}, fullName, email, password, role, projectName, assignedProjects=[]}) => {
     const cleanEmail = String(email||'').trim().toLowerCase();
     const cleanPassword = String(password||'').trim();
-    if (!cleanEmail || !cleanPassword || !role) throw new Error('Нужны системная роль, email и пароль');
-    if (cleanPassword.length < 5) throw new Error('Пароль минимум 5 символов');
+    if (!cleanEmail || !role) throw new Error('Нужны системная роль и email');
+    if (!staffAccessRoles.includes(role)) throw new Error('Недопустимая системная роль: '+role);
     const existing = (users||[]).find(u=>String(u.email||'').trim().toLowerCase()===cleanEmail);
+    if (!existing && !cleanPassword) throw new Error('Для нового пользователя нужен пароль');
+    if (cleanPassword && cleanPassword.length < 5) throw new Error('Пароль минимум 5 символов');
     const project = projectName || staffRow.project || existing?.projectName || existing?.project_name || '';
     const projectRow = (projects||[]).find(p=>String(p.name||'')===String(project||''));
     const payload = {
@@ -2688,6 +2691,7 @@ function App() {
       projectName: project,
       active: true
     };
+    if (!cleanPassword) delete payload.password;
     let accessUser = existing || null;
     if (existing?.id) {
       await readApiResult(await fetch(API+'/users/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
@@ -8655,18 +8659,25 @@ function App() {
     const hasEmail = !!accessEmail;
     const hasPassword = !!accessPassword;
     const hasRole = !!newStaff.systemRole;
-    if ((hasEmail || hasPassword || hasRole) && !(hasEmail && hasPassword && hasRole)) {
-      alert('Для выдачи доступа нужны ВСЕ три поля: системная роль + email + пароль. Сейчас заполнено не всё — заполните или очистите все три.');
+    const existingAccess = accessEmail
+      ? (users||[]).find(u=>String(u.email||'').trim().toLowerCase()===accessEmail)
+      : findUserForStaff(editingItem || newStaff);
+    if ((hasEmail || hasPassword || hasRole) && !(hasEmail && hasRole && (hasPassword || existingAccess?.id))) {
+      alert('Для нового доступа нужны системная роль + email + пароль. Для уже созданного доступа пароль можно оставить пустым.');
+      return;
+    }
+    if (hasRole && !staffAccessRoles.includes(newStaff.systemRole)) {
+      alert('Недопустимая системная роль: '+newStaff.systemRole);
       return;
     }
     const data = {...newStaff,name:fullName,salary:Number(newStaff.salary)||0,role:newStaff.role||newStaff.systemRole||''};
     if (editingItem) await fetch(API+'/staff/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     else await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    if (hasEmail && hasPassword && hasRole) {
+    if (hasEmail && hasRole && (hasPassword || existingAccess?.id)) {
       const ap = Array.isArray(newStaff.assignedProjects)?newStaff.assignedProjects:[];
       try {
         const result = await upsertStaffAccess({staffRow:newStaff, fullName, email:accessEmail, password:accessPassword, role:newStaff.systemRole, projectName:newStaff.project||'', assignedProjects:ap});
-        if (result.updatedExisting) alert('Пользователь с email '+accessEmail+' уже существует — пароль, роль и назначенные объекты обновлены. Сотрудник сохранён.');
+        if (result.updatedExisting) alert('Пользователь с email '+accessEmail+' уже существует — роль, объект и пароль при вводе обновлены. Сотрудник сохранён.');
       } catch(e) {
         alert('Сотрудник сохранён, но доступ создать/обновить не удалось: '+(e.message||e));
       }
@@ -8694,6 +8705,10 @@ function App() {
     if(!password) return;
     const role = (prompt('Системная роль (директор/зам_директора/бухгалтер/прораб/мастер/субподрядчик/кладовщик/снабженец):','мастер')||'').trim();
     if(!role) return;
+    if(!staffAccessRoles.includes(role)) {
+      alert('Недопустимая роль. Используйте одну из: '+staffAccessRoles.join(', '));
+      return;
+    }
     try {
       const result = await upsertStaffAccess({staffRow, fullName:staffRow.name, email, password, role, projectName:staffRow.project||'', assignedProjects:staffRow.assignedProjects||[]});
       await refreshData();
