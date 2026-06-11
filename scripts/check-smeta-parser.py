@@ -54,6 +54,80 @@ def _num(value):
         return 0.0
 
 
+def _norm_text(value):
+    return str(value or "").lower().replace("ё", "е").replace("\xa0", " ").strip()
+
+
+def _find_items(items, needle):
+    needle = _norm_text(needle)
+    return [item for item in items if needle in _norm_text(item.get("name"))]
+
+
+def _assert_close(errors, file_name, label, actual, expected, tolerance=0.01):
+    if abs(_num(actual) - float(expected)) > tolerance:
+        errors.append(f"{file_name}: {label} expected={expected} actual={actual}")
+
+
+def _assert_regression_item(errors, file_name, items, needle, *, item_type=None,
+                            unit=None, quantity=None, total_min=None):
+    hits = _find_items(items, needle)
+    if not hits:
+        errors.append(f"{file_name}: regression item not found: {needle}")
+        return
+    item = hits[0]
+    if item_type and item.get("type") != item_type:
+        errors.append(
+            f"{file_name}: {needle} type expected={item_type} actual={item.get('type')}"
+        )
+    if unit and item.get("unit") != unit:
+        errors.append(
+            f"{file_name}: {needle} unit expected={unit} actual={item.get('unit')}"
+        )
+    if quantity is not None:
+        _assert_close(errors, file_name, f"{needle} quantity", item.get("quantity"), quantity)
+    if total_min is not None and _num(item.get("total")) < float(total_min):
+        errors.append(
+            f"{file_name}: {needle} total too low expected>={total_min} actual={item.get('total')}"
+        )
+
+
+def _check_known_regressions(file_name, items, errors):
+    """Закрепляет реальные ошибки импорта, которые уже ломали рабочую смету."""
+    if file_name == "Общестрой на 102 121 191,67.xlsx":
+        _assert_regression_item(
+            errors, file_name, items,
+            "Отбивка штукатурки с поверхностей: стен и потолков кирпичных",
+            item_type="work", unit="м2", quantity=7210, total_min=1,
+        )
+        _assert_regression_item(
+            errors, file_name, items,
+            "Грунтование водно-дисперсионной грунтовкой",
+            item_type="work", unit="м2", quantity=1846, total_min=1,
+        )
+        _assert_regression_item(
+            errors, file_name, items,
+            "Грунтовка акриловая НОРТЕКС-ГРУНТ",
+            item_type="material", unit="кг", total_min=1,
+        )
+    elif file_name == "Электрика на 12 208 784,66.xlsx":
+        _assert_regression_item(
+            errors, file_name, items,
+            "Втулки В22",
+            item_type="material", unit="шт", quantity=1072.99, total_min=1,
+        )
+        _assert_regression_item(
+            errors, file_name, items,
+            "Светильник в подвесных потолках",
+            item_type="work", unit="шт", quantity=915, total_min=1,
+        )
+    elif file_name == "Отопление 8166 593,50.1.xlsx":
+        _assert_regression_item(
+            errors, file_name, items,
+            "Демонтаж: радиаторов весом до 80 кг",
+            item_type="work", unit="шт", quantity=133, total_min=1,
+        )
+
+
 async def _check_file(parse_smeta, path):
     data = await parse_smeta(FakeUpload(path))
     if data.get("error"):
@@ -90,6 +164,8 @@ async def _check_file(parse_smeta, path):
         errors.append(
             f"{Path(path).name}: zero work total in {str(sample.get('name'))[:80]}"
         )
+
+    _check_known_regressions(Path(path).name, items, errors)
 
     print(
         f"OK {Path(path).name}: items={len(items)} "
