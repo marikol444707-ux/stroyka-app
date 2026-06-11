@@ -1,7 +1,7 @@
 import React from 'react';
 import { Bot, Check, Eye, X } from 'lucide-react';
 import { API } from '../api';
-import { formLabelStyle, formSectionStyle, modalBodyStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, statusPillStyle, twoColumnGridStyle } from '../utils/modalStyles';
+import { aiActionButtonStyle, borderedBlockStyle, closeButtonStyle, footerActionsStyle, formLabelStyle, formSectionStyle, installGridStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, sectionHintStyle, sectionTitleStyle, statusPillStyle, summaryValueStyle, textareaStyle, twoColumnGridStyle, twoColumnGridTightStyle } from '../utils/modalStyles';
 
 export default function ProjectCableJournalEditModal({
   cable,
@@ -30,6 +30,7 @@ export default function ProjectCableJournalEditModal({
     .filter(Boolean);
   const labelStyle = formLabelStyle(C);
   const sectionStyle = formSectionStyle();
+  const summaryValue = summaryValueStyle(C);
   const cableType = cableTypeOf(cable);
 
   const suggestByAI = async () => {
@@ -95,7 +96,7 @@ export default function ProjectCableJournalEditModal({
             <span style={statusPillStyle(C, cable.installedAt ? 'success' : 'warning')}>
               {cable.installedAt ? 'Проложен' : 'На складе'}
             </span>
-            <button onClick={() => setEditingCable(null)} style={{...btnG, padding: '5px 10px'}}>
+            <button onClick={() => setEditingCable(null)} style={closeButtonStyle(btnG)}>
               <X size={14}/>
             </button>
           </div>
@@ -110,13 +111,13 @@ export default function ProjectCableJournalEditModal({
           )}
 
           <div style={modalSummaryGridStyle(C)}>
-            <div><p style={labelStyle}>Марка кабеля</p><b style={{fontSize: '13px', color: C.text}}>{cable.cableBrand || '—'}</b></div>
-            <div><p style={labelStyle}>Тип системы</p><b style={{fontSize: '13px', color: C.text}}>{cableType}</b></div>
-            <div><p style={labelStyle}>Сечение жилы</p><b style={{fontSize: '13px', color: C.text}}>{cable.crossSection ? cable.crossSection + ' мм²' : '—'}</b></div>
-            <div><p style={labelStyle}>Кол-во жил</p><b style={{fontSize: '13px', color: C.text}}>{cable.coresCount || '—'}</b></div>
-            <div><p style={labelStyle}>Длина с барабана</p><b style={{fontSize: '13px', color: C.text}}>{(cable.lengthReceived || 0) + ' м'}</b></div>
-            <div><p style={labelStyle}>Поставщик</p><b style={{fontSize: '13px', color: C.text}}>{cable.supplier || '—'}</b></div>
-            <div><p style={labelStyle}>Дата приёмки</p><b style={{fontSize: '13px', color: C.text}}>{cable.receivedAt || '—'}</b></div>
+            <div><p style={labelStyle}>Марка кабеля</p><b style={summaryValue}>{cable.cableBrand || '—'}</b></div>
+            <div><p style={labelStyle}>Тип системы</p><b style={summaryValue}>{cableType}</b></div>
+            <div><p style={labelStyle}>Сечение жилы</p><b style={summaryValue}>{cable.crossSection ? cable.crossSection + ' мм²' : '—'}</b></div>
+            <div><p style={labelStyle}>Кол-во жил</p><b style={summaryValue}>{cable.coresCount || '—'}</b></div>
+            <div><p style={labelStyle}>Длина с барабана</p><b style={summaryValue}>{(cable.lengthReceived || 0) + ' м'}</b></div>
+            <div><p style={labelStyle}>Поставщик</p><b style={summaryValue}>{cable.supplier || '—'}</b></div>
+            <div><p style={labelStyle}>Дата приёмки</p><b style={summaryValue}>{cable.receivedAt || '—'}</b></div>
           </div>
 
           <div style={twoColumnGridStyle()}>
@@ -141,9 +142,9 @@ export default function ProjectCableJournalEditModal({
             </div>
           </div>
 
-          <div style={{padding: '12px', backgroundColor: C.bg, borderRadius: '10px', border: '1.5px solid ' + C.border, marginBottom: '14px'}}>
-            <b style={{color: C.text, fontSize: '13px', display: 'block', marginBottom: '10px'}}>🔌 Замеры сопротивления изоляции (мегаомметр)</b>
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
+          <div style={borderedBlockStyle(C)}>
+            <b style={sectionTitleStyle(C)}>🔌 Замеры сопротивления изоляции (мегаомметр)</b>
+            <div style={twoColumnGridTightStyle()}>
               <div>
                 <label style={labelStyle}>R изоляции ДО прокладки, МΩ</label>
                 <input type="number" inputMode="decimal" step="0.1" value={cable.insulationBefore || ''} onChange={event => updateCable('insulationBefore', event.target.value)} placeholder="напр. 500" style={inp}/>
@@ -153,16 +154,16 @@ export default function ProjectCableJournalEditModal({
                 <input type="number" inputMode="decimal" step="0.1" value={cable.insulationAfter || ''} onChange={event => updateCable('insulationAfter', event.target.value)} placeholder="напр. 480" style={inp}/>
               </div>
             </div>
-            <p style={{color: C.textMuted, fontSize: '11px', margin: '8px 0 0'}}>По ПУЭ для большинства силовых кабелей мин. R изоляции = 0.5 МΩ. AI-подсказка ниже даст точное значение для этой марки.</p>
+            <p style={sectionHintStyle(C)}>По ПУЭ для большинства силовых кабелей мин. R изоляции = 0.5 МΩ. AI-подсказка ниже даст точное значение для этой марки.</p>
           </div>
 
-          <div style={{padding: '12px', backgroundColor: C.bg, borderRadius: '10px', border: '1.5px solid ' + C.border, marginBottom: '14px'}}>
-            <b style={{color: C.text, fontSize: '13px', display: 'block', marginBottom: '10px'}}>🔧 Монтаж</b>
+          <div style={borderedBlockStyle(C)}>
+            <b style={sectionTitleStyle(C)}>🔧 Монтаж</b>
             <div style={sectionStyle}>
               <label style={labelStyle}>Место прокладки (объект, этаж, помещение)</label>
-              <textarea value={cable.installationLocation || ''} onChange={event => updateCable('installationLocation', event.target.value)} placeholder="напр. этаж 2, эл.щитовая → коридор → квартиры 21-25" style={{...inp, minHeight: '50px', resize: 'vertical'}}/>
+              <textarea value={cable.installationLocation || ''} onChange={event => updateCable('installationLocation', event.target.value)} placeholder="напр. этаж 2, эл.щитовая → коридор → квартиры 21-25" style={textareaStyle(inp, '50px')}/>
             </div>
-            <div style={{display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px'}}>
+            <div style={installGridStyle()}>
               <div>
                 <label style={labelStyle}>Способ прокладки</label>
                 <select value={cable.installationMethod || ''} onChange={event => updateCable('installationMethod', event.target.value)} style={inp}>
@@ -197,16 +198,16 @@ export default function ProjectCableJournalEditModal({
           </div>
           <div style={sectionStyle}>
             <label style={labelStyle}>Применимые нормативы (ГОСТ/СП/ПУЭ){cable.aiFilled ? ' 🤖' : ''}</label>
-            <textarea value={cable.normatives || ''} onChange={event => updateCable('normatives', event.target.value)} placeholder="Напр.: ПУЭ 7-е изд., ГОСТ Р 53769 (кабели силовые), СП 76.13330" style={{...inp, minHeight: '80px', resize: 'vertical'}}/>
+            <textarea value={cable.normatives || ''} onChange={event => updateCable('normatives', event.target.value)} placeholder="Напр.: ПУЭ 7-е изд., ГОСТ Р 53769 (кабели силовые), СП 76.13330" style={textareaStyle(inp, '80px')}/>
           </div>
         </div>
 
-        <div style={{padding: '14px 20px', borderTop: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', gap: '8px', justifyContent: 'space-between', flexWrap: 'wrap'}}>
+        <div style={modalFooterStyle(C)}>
           <button onClick={() => showPreview(buildCableJournalContent([cable], cable.projectName, cable.receivedAt, cable.installedAt || cable.receivedAt), 'Запись кабеля')} style={btnB}>
             <Eye size={14}/>🖨️ Печать
           </button>
-          <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
-            <button disabled={!!cable.__aiLoading} onClick={suggestByAI} style={{...btnB, backgroundColor: '#10b981', color: 'white', borderColor: '#059669', opacity: cable.__aiLoading ? 0.6 : 1, cursor: cable.__aiLoading ? 'not-allowed' : 'pointer'}}>
+          <div style={footerActionsStyle()}>
+            <button disabled={!!cable.__aiLoading} onClick={suggestByAI} style={aiActionButtonStyle(btnB, !!cable.__aiLoading)}>
               <Bot size={14}/>{cable.__aiLoading ? 'AI работает…' : '🤖 AI-подсказка нормативов и R изоляции'}
             </button>
             <button onClick={() => setEditingCable(null)} style={btnG}>Отмена</button>

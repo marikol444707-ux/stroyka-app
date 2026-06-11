@@ -1,7 +1,7 @@
 import React from 'react';
 import { Bot, Check, Eye, X } from 'lucide-react';
 import { API } from '../api';
-import { formLabelStyle, formSectionStyle, modalBodyStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, statusPillStyle, threeColumnGridStyle, twoColumnGridStyle } from '../utils/modalStyles';
+import { aiActionButtonStyle, closeButtonStyle, footerActionsStyle, formLabelStyle, formSectionStyle, infoPanelStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, smallIconButtonStyle, statusPillStyle, summaryValueStyle, textareaStyle, threeColumnGridStyle, twoColumnGridStyle } from '../utils/modalStyles';
 
 export default function ProjectWorkJournalEditModal({
   journal,
@@ -34,6 +34,7 @@ export default function ProjectWorkJournalEditModal({
     .filter(Boolean);
   const labelStyle = formLabelStyle(C);
   const sectionStyle = formSectionStyle();
+  const summaryValue = summaryValueStyle(C);
 
   const fillByAI = async () => {
     setEditingJournal(prev => ({...prev, __aiLoading: true}));
@@ -110,7 +111,7 @@ export default function ProjectWorkJournalEditModal({
             <span style={statusPillStyle(C, journal.status === 'Подтверждено' ? 'success' : journal.status === 'Отклонено' ? 'danger' : 'warning')}>
               {journal.status || '—'}
             </span>
-            <button onClick={() => setEditingJournal(null)} style={{...btnG, padding: '5px 10px'}}>
+            <button onClick={() => setEditingJournal(null)} style={closeButtonStyle(btnG)}>
               <X size={14}/>
             </button>
           </div>
@@ -125,12 +126,12 @@ export default function ProjectWorkJournalEditModal({
           )}
 
           <div style={modalSummaryGridStyle(C)}>
-            <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize: '13px', color: C.text}}>{journal.sectionName || '—'}</b></div>
-            <div><p style={labelStyle}>Работа</p><b style={{fontSize: '13px', color: C.text}}>{journal.description}</b></div>
-            <div><p style={labelStyle}>Исполнитель</p><b style={{fontSize: '13px', color: C.text}}>{journal.masterName || '—'}</b></div>
-            <div><p style={labelStyle}>Объём</p><b style={{fontSize: '13px', color: C.text}}>{fmtMeasure(journal.quantity, journal.unit)}</b></div>
+            <div><p style={labelStyle}>Раздел сметы</p><b style={summaryValue}>{journal.sectionName || '—'}</b></div>
+            <div><p style={labelStyle}>Работа</p><b style={summaryValue}>{journal.description}</b></div>
+            <div><p style={labelStyle}>Исполнитель</p><b style={summaryValue}>{journal.masterName || '—'}</b></div>
+            <div><p style={labelStyle}>Объём</p><b style={summaryValue}>{fmtMeasure(journal.quantity, journal.unit)}</b></div>
             <div><p style={labelStyle}>Сумма</p><b style={{fontSize: '14px', color: C.accent}}>{Number(journal.total || 0).toLocaleString('ru-RU') + ' ₽'}</b></div>
-            <div><p style={labelStyle}>Дата</p><b style={{fontSize: '13px', color: C.text}}>{journal.date || '—'}</b></div>
+            <div><p style={labelStyle}>Дата</p><b style={summaryValue}>{journal.date || '—'}</b></div>
           </div>
 
           <div style={twoColumnGridStyle()}>
@@ -157,7 +158,7 @@ export default function ProjectWorkJournalEditModal({
               <div style={{display: 'flex', gap: '4px'}}>
                 <input value={journal.weather || ''} onChange={event => updateJournal('weather', event.target.value)} placeholder="напр. +12°C, без осадков, ветер 3 м/с" style={{...inp, marginBottom: 0, flex: 1}}/>
                 {todayWeather && (
-                  <button onClick={() => updateJournal('weather', (todayWeather.condition || '') + ', ' + (todayWeather.temperature || '') + '°C, ветер ' + (todayWeather.windSpeed || '') + ' м/с')} title="Подтянуть из журнала погоды" style={{...btnG, padding: '5px 10px', fontSize: '11px'}}>📡</button>
+                  <button onClick={() => updateJournal('weather', (todayWeather.condition || '') + ', ' + (todayWeather.temperature || '') + '°C, ветер ' + (todayWeather.windSpeed || '') + ' м/с')} title="Подтянуть из журнала погоды" style={smallIconButtonStyle(btnG)}>📡</button>
                 )}
               </div>
             </div>
@@ -175,32 +176,32 @@ export default function ProjectWorkJournalEditModal({
 
           <div style={sectionStyle}>
             <label style={labelStyle}>Применимые нормативы (СНиП/СП/ГОСТ){journal.aiFilled ? ' 🤖' : ''}</label>
-            <textarea value={journal.normatives || ''} onChange={event => updateJournal('normatives', event.target.value)} placeholder="Напр.: СП 71.13330.2017, ГОСТ 30693-2000" style={{...inp, minHeight: '60px', resize: 'vertical'}}/>
+            <textarea value={journal.normatives || ''} onChange={event => updateJournal('normatives', event.target.value)} placeholder="Напр.: СП 71.13330.2017, ГОСТ 30693-2000" style={textareaStyle(inp, '60px')}/>
           </div>
           <div style={sectionStyle}>
             <label style={labelStyle}>Проектная документация (разделы, листы){journal.aiFilled ? ' 🤖' : ''}</label>
-            <textarea value={journal.projectDocs || ''} onChange={event => updateJournal('projectDocs', event.target.value)} placeholder="Напр.: раздел КЖ, лист 12; раздел АР, узел 4" style={{...inp, minHeight: '60px', resize: 'vertical'}}/>
+            <textarea value={journal.projectDocs || ''} onChange={event => updateJournal('projectDocs', event.target.value)} placeholder="Напр.: раздел КЖ, лист 12; раздел АР, узел 4" style={textareaStyle(inp, '60px')}/>
           </div>
           <div style={sectionStyle}>
             <label style={labelStyle}>Использованные материалы</label>
-            <div style={{padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1.5px solid ' + C.border, fontSize: '12px', color: C.textSec, whiteSpace: 'pre-wrap'}}>
+            <div style={infoPanelStyle(C, {padding: '10px', whiteSpace: 'pre-wrap'})}>
               {journal.materialsUsed ? (typeof journal.materialsUsed === 'string' ? journal.materialsUsed : JSON.stringify(journal.materialsUsed)) : '(не указаны)'}
             </div>
           </div>
           <div style={sectionStyle}>
             <label style={labelStyle}>Комментарий / заключение</label>
-            <textarea value={journal.comment || ''} onChange={event => updateJournal('comment', event.target.value)} placeholder="Замечания, особенности производства работ, ссылки на акты" style={{...inp, minHeight: '70px', resize: 'vertical'}}/>
+            <textarea value={journal.comment || ''} onChange={event => updateJournal('comment', event.target.value)} placeholder="Замечания, особенности производства работ, ссылки на акты" style={textareaStyle(inp)}/>
           </div>
 
           {journal.hiddenWork && (
-            <div style={{padding: '10px 12px', backgroundColor: C.bg, border: '1.5px solid ' + C.border, borderRadius: '8px', fontSize: '12px', color: C.textSec, marginBottom: '10px'}}>
+            <div style={infoPanelStyle(C, {marginBottom: '10px'})}>
               🔒 По этой записи доступна печатная форма АОСР. Проверьте реквизиты и распечатайте акт для исполнительной документации.
             </div>
           )}
         </div>
 
-        <div style={{padding: '14px 20px', borderTop: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', gap: '8px', justifyContent: 'space-between', flexWrap: 'wrap'}}>
-          <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+        <div style={modalFooterStyle(C)}>
+          <div style={footerActionsStyle()}>
             <button onClick={() => showPreview(buildWorkJournalContent([journal], journal.project, journal.date, journal.date), 'Запись журнала')} style={btnB}>
               <Eye size={14}/>🖨️ Печать
             </button>
@@ -208,8 +209,8 @@ export default function ProjectWorkJournalEditModal({
               <button onClick={openHiddenAct} style={{...btnB, backgroundColor: '#10b981', color: 'white', borderColor: '#059669'}}>🔒 АОСР / печать</button>
             )}
           </div>
-          <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
-            <button disabled={!!journal.__aiLoading} onClick={fillByAI} style={{...btnB, backgroundColor: '#10b981', color: 'white', borderColor: '#059669', opacity: journal.__aiLoading ? 0.6 : 1, cursor: journal.__aiLoading ? 'not-allowed' : 'pointer'}}>
+          <div style={footerActionsStyle()}>
+            <button disabled={!!journal.__aiLoading} onClick={fillByAI} style={aiActionButtonStyle(btnB, !!journal.__aiLoading)}>
               <Bot size={14}/>{journal.__aiLoading ? 'AI работает…' : (journal.aiFilled ? '🤖 Перезаполнить AI' : '🤖 Заполнить через AI')}
             </button>
             <button onClick={() => setEditingJournal(null)} style={btnG}>Отмена</button>

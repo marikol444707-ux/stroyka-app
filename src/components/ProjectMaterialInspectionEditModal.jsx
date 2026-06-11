@@ -1,7 +1,7 @@
 import React from 'react';
 import { Bot, Check, Eye, X } from 'lucide-react';
 import { API } from '../api';
-import { formLabelStyle, formSectionStyle, modalBodyStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, statusPillStyle, twoColumnGridStyle } from '../utils/modalStyles';
+import { aiActionButtonStyle, checkboxInputStyle, checkboxLabelStyle, checkboxRowStyle, closeButtonStyle, footerActionsStyle, formLabelStyle, formSectionStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, statusPillStyle, summaryValueStyle, textareaStyle, twoColumnGridStyle } from '../utils/modalStyles';
 
 export default function ProjectMaterialInspectionEditModal({
   inspection,
@@ -24,6 +24,7 @@ export default function ProjectMaterialInspectionEditModal({
   const updateInspection = (key, value) => setEditingInspection({...inspection, [key]: value});
   const labelStyle = formLabelStyle(C);
   const sectionStyle = formSectionStyle();
+  const summaryValue = summaryValueStyle(C);
 
   const suggestByAI = async () => {
     setEditingInspection(prev => ({...prev, __aiLoading: true}));
@@ -86,7 +87,7 @@ export default function ProjectMaterialInspectionEditModal({
             <span style={statusPillStyle(C, inspection.inspected ? 'success' : 'warning')}>
               {inspection.inspected ? 'Проверено' : 'Ждёт проверки'}
             </span>
-            <button onClick={() => setEditingInspection(null)} style={{...btnG, padding: '5px 10px'}}>
+            <button onClick={() => setEditingInspection(null)} style={closeButtonStyle(btnG)}>
               <X size={14}/>
             </button>
           </div>
@@ -101,10 +102,10 @@ export default function ProjectMaterialInspectionEditModal({
           )}
 
           <div style={modalSummaryGridStyle(C)}>
-            <div><p style={labelStyle}>Материал</p><b style={{fontSize: '13px', color: C.text}}>{inspection.materialName || '—'}</b></div>
-            <div><p style={labelStyle}>Количество</p><b style={{fontSize: '13px', color: C.text}}>{(inspection.quantity || 0) + ' ' + (inspection.unit || '')}</b></div>
-            <div><p style={labelStyle}>Поставщик</p><b style={{fontSize: '13px', color: C.text}}>{inspection.supplier || '—'}</b></div>
-            <div><p style={labelStyle}>Дата приёмки</p><b style={{fontSize: '13px', color: C.text}}>{inspection.receivedAt || '—'}</b></div>
+            <div><p style={labelStyle}>Материал</p><b style={summaryValue}>{inspection.materialName || '—'}</b></div>
+            <div><p style={labelStyle}>Количество</p><b style={summaryValue}>{(inspection.quantity || 0) + ' ' + (inspection.unit || '')}</b></div>
+            <div><p style={labelStyle}>Поставщик</p><b style={summaryValue}>{inspection.supplier || '—'}</b></div>
+            <div><p style={labelStyle}>Дата приёмки</p><b style={summaryValue}>{inspection.receivedAt || '—'}</b></div>
           </div>
 
           <div style={twoColumnGridStyle()}>
@@ -155,20 +156,20 @@ export default function ProjectMaterialInspectionEditModal({
           </div>
           <div style={sectionStyle}>
             <label style={labelStyle}>Замечания / комментарий</label>
-            <textarea value={inspection.remarks || ''} onChange={event => updateInspection('remarks', event.target.value)} placeholder="Замечания по качеству, упаковке, документам" style={{...inp, minHeight: '70px', resize: 'vertical'}}/>
+            <textarea value={inspection.remarks || ''} onChange={event => updateInspection('remarks', event.target.value)} placeholder="Замечания по качеству, упаковке, документам" style={textareaStyle(inp)}/>
           </div>
-          <div style={{padding: '10px 12px', backgroundColor: C.bg, borderRadius: '8px', border: '1.5px solid ' + C.border, display: 'flex', alignItems: 'center', gap: '10px'}}>
-            <input type="checkbox" id="mi-checked" checked={!!inspection.inspected} onChange={event => updateInspection('inspected', event.target.checked)} style={{width: '18px', height: '18px', cursor: 'pointer'}}/>
-            <label htmlFor="mi-checked" style={{fontSize: '13px', color: C.text, cursor: 'pointer', fontWeight: '600'}}>Входной контроль завершён — материал можно выдавать на работы</label>
+          <div style={checkboxRowStyle(C)}>
+            <input type="checkbox" id="mi-checked" checked={!!inspection.inspected} onChange={event => updateInspection('inspected', event.target.checked)} style={checkboxInputStyle()}/>
+            <label htmlFor="mi-checked" style={checkboxLabelStyle(C)}>Входной контроль завершён — материал можно выдавать на работы</label>
           </div>
         </div>
 
-        <div style={{padding: '14px 20px', borderTop: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', gap: '8px', justifyContent: 'space-between', flexWrap: 'wrap'}}>
+        <div style={modalFooterStyle(C)}>
           <button onClick={() => showPreview(buildMaterialInspectionContent([inspection], inspection.projectName, inspection.receivedAt, inspection.receivedAt), 'Запись входного контроля')} style={btnB}>
             <Eye size={14}/>🖨️ Печать
           </button>
-          <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
-            <button disabled={!!inspection.__aiLoading} onClick={suggestByAI} style={{...btnB, backgroundColor: '#10b981', color: 'white', borderColor: '#059669', opacity: inspection.__aiLoading ? 0.6 : 1, cursor: inspection.__aiLoading ? 'not-allowed' : 'pointer'}}>
+          <div style={footerActionsStyle()}>
+            <button disabled={!!inspection.__aiLoading} onClick={suggestByAI} style={aiActionButtonStyle(btnB, !!inspection.__aiLoading)}>
               <Bot size={14}/>{inspection.__aiLoading ? 'AI работает…' : '🤖 AI-подсказка нормативов'}
             </button>
             <button onClick={() => setEditingInspection(null)} style={btnG}>Отмена</button>

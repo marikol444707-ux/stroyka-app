@@ -316,10 +316,7 @@ def can_see_all_company_data(user: dict) -> bool:
 def visible_project_names(user: dict) -> Optional[List[str]]:
     if can_see_all_company_data(user):
         return None
-    names = user_project_names(user)
-    if user.get("role") == "прораб" and not names:
-        return None
-    return names
+    return user_project_names(user)
 
 def can_see_system_tasks(user: dict) -> bool:
     return user.get("role") in LEADERSHIP_ROLES or user.get("role") == "system_owner"
@@ -2244,7 +2241,8 @@ def init_db():
             contract_number VARCHAR(100),
             project VARCHAR(255),
             start_date VARCHAR(50),
-            end_date VARCHAR(50)
+            end_date VARCHAR(50),
+            status VARCHAR(100) DEFAULT 'Активен'
         );
         CREATE TABLE IF NOT EXISTS interim_acts (
             id SERIAL PRIMARY KEY,
@@ -2683,6 +2681,7 @@ def init_db():
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS card_number VARCHAR(20);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS signature_url VARCHAR(255);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS notes TEXT;
+        ALTER TABLE contracts ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Активен';
         ALTER TABLE pricelist_items ADD COLUMN IF NOT EXISTS item_type VARCHAR(20);
         ALTER TABLE pricelists ALTER COLUMN name TYPE TEXT;
         ALTER TABLE pricelist_items ALTER COLUMN name TYPE TEXT;
@@ -5123,8 +5122,15 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
         (id, 'Утверждено'))
     offer = cur.fetchone()
     if not offer:
-        conn.close()
+        cur.close(); conn.close()
         return {"error": "Утверждённое КП не найдено"}
+    if _current_user.get("role") == "поставщик":
+        supplier_id = current_supplier_id(cur, _current_user)
+        if not supplier_id or supplier_id != offer['supplier_id']:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="нет доступа к КП")
+    else:
+        require_project_access(_current_user, offer['project_name'] or "")
     invoice_number = data.get('invoiceNumber') or ''
     invoice_date = data.get('invoiceDate') or None
     amount = float(data.get('amount') or offer['total_price'] or 0)
@@ -5142,7 +5148,8 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
          'На утверждении', offer['id'], offer['request_id'],
          offer['payment_terms'], offer['material_name']))
     new_id = cur.fetchone()['id']
-    conn.close()
+    conn.commit()
+    cur.close(); conn.close()
     return {"ok": True, "id": new_id}
 
 DELIVERY_SELECT = """
@@ -6422,7 +6429,7 @@ def get_contracts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES)))
     if _current_user.get("role") in ("мастер", "субподрядчик"):
         where.append("(master_id=%s OR master_name=%s)")
         params.extend([_current_user.get("id"), _current_user.get("name") or ""])
-    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\" FROM contracts"
+    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\",status FROM contracts"
     if where:
         q += " WHERE " + " AND ".join(where)
     q += " ORDER BY id DESC"
@@ -6448,7 +6455,9 @@ def create_contract(c: ContractModel, _current_user: dict = Depends(require_role
 def delete_contract(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM contracts WHERE id=%s", (id,))
+    require_row_project_access(cur, "contracts", id, _current_user, "project")
+    cur.execute("UPDATE contracts SET status='Аннулирован' WHERE id=%s", (id,))
+    conn.commit()
     conn.close()
     return {"ok": True}
 
@@ -6484,6 +6493,7 @@ def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require
     cur.execute("INSERT INTO interim_acts (master_id,master_name,project,period_start,period_end,total_amount,paid_amount,contract_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
                 (a.masterId,a.masterName,a.project,a.periodStart,a.periodEnd,a.totalAmount,a.paidAmount,a.contractId))
     row = cur.fetchone()
+    conn.commit()
     conn.close()
     return dict(row)
 
@@ -6498,6 +6508,7 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
         cur.execute("UPDATE interim_acts SET paid_amount=%s WHERE id=%s", (data['paidAmount'],id))
     if 'scanUrl' in data:
         cur.execute("UPDATE interim_acts SET scan_url=%s WHERE id=%s", (data['scanUrl'],id))
+    conn.commit()
     conn.close()
     return {"ok": True}
 
@@ -6505,7 +6516,9 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
 def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM interim_acts WHERE id=%s", (id,))
+    require_row_project_access(cur, "interim_acts", id, _current_user, "project")
+    cur.execute("UPDATE interim_acts SET status='Аннулирован' WHERE id=%s", (id,))
+    conn.commit()
     conn.close()
     return {"ok": True}
 
@@ -10392,7 +10405,7 @@ def delete_project_document(id: int, _current_user: dict = Depends(require_roles
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "project_documents", id, _current_user)
-    cur.execute("DELETE FROM project_documents WHERE id=%s",(id,))
+    cur.execute("UPDATE project_documents SET sign_status='Аннулирован' WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
@@ -10488,8 +10501,8 @@ def delete_project_measurement(id: int, _current_user: dict = Depends(require_ro
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "project_measurements", id, _current_user)
-    cur.execute("DELETE FROM measurement_room_drafts WHERE measurement_id=%s", (id,))
-    cur.execute("DELETE FROM project_measurements WHERE id=%s", (id,))
+    cur.execute("UPDATE measurement_room_drafts SET status='Отменён' WHERE measurement_id=%s", (id,))
+    cur.execute("UPDATE project_measurements SET status='Отменён' WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
@@ -10997,18 +11010,7 @@ def delete_brigade_contract(id: int, _current_user: dict = Depends(require_roles
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "brigade_contracts", id, _current_user)
-    cur.execute("""DELETE FROM project_payments pp
-                   USING brigade_payments bp, brigade_contracts bc
-                   WHERE bp.contract_id=bc.id
-                     AND bc.id=%s
-                     AND pp.project_name=bc.project_name
-                     AND pp.amount=bp.amount
-                     AND COALESCE(pp.note,'')='Оплата бригаде ' || COALESCE(bc.brigade_name,'')
-                     AND pp.date IS NOT DISTINCT FROM bp.paid_date
-                     AND COALESCE(pp.added_by,'')=COALESCE(bp.paid_by,'')""", (id,))
-    cur.execute("DELETE FROM brigade_payments WHERE contract_id=%s", (id,))
-    cur.execute("DELETE FROM brigade_contract_items WHERE contract_id=%s", (id,))
-    cur.execute("DELETE FROM brigade_contracts WHERE id=%s",(id,))
+    cur.execute("UPDATE brigade_contracts SET status='Аннулирован' WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
@@ -14183,7 +14185,12 @@ def list_supplier_invoices(project_name: str = None, status: str = None, current
     cur = conn.cursor()
     cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount, offer_id, request_id, payment_terms, material_name"
     where, params = [], []
-    if project_name: where.append("project_name=%s"); params.append(project_name)
+    if project_name:
+        allowed_projects = visible_project_names(current_user)
+        if allowed_projects is not None and project_name not in allowed_projects:
+            cur.close(); conn.close()
+            return []
+        where.append("project_name=%s"); params.append(project_name)
     if status: where.append("status=%s"); params.append(status)
     if role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
@@ -14220,11 +14227,31 @@ def list_supplier_invoices(project_name: str = None, status: str = None, current
 def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "поставщик"))):
     conn = get_db()
     cur = conn.cursor()
+    project_name = data.get("projectName", "")
+    if _current_user.get("role") == "поставщик":
+        supplier_id = current_supplier_id(cur, _current_user)
+        if not supplier_id:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="поставщик не найден")
+        if not project_name:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="объект обязателен")
+        cur.execute("""SELECT 1
+                       FROM supplier_offers o
+                       JOIN supply_requests r ON r.id=o.request_id
+                       WHERE o.supplier_id=%s AND r.project=%s
+                       LIMIT 1""", (supplier_id, project_name))
+        if not cur.fetchone():
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="нет заявки поставщика по этому объекту")
+        data["supplierId"] = supplier_id
+    else:
+        require_project_access(_current_user, project_name)
     cur.execute("""INSERT INTO supplier_invoices
                    (supplier_id, supplier_name, project_name, invoice_number, invoice_date,
                     amount, vat_amount, description, file_url, photo_url, status)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (data.get("supplierId"), data.get("supplierName",""), data.get("projectName",""),
+                (data.get("supplierId"), data.get("supplierName",""), project_name,
                  data.get("invoiceNumber",""), data.get("invoiceDate") or None,
                  float(data.get("amount",0)), float(data.get("vatAmount",0)),
                  data.get("description",""), data.get("fileUrl",""), data.get("photoUrl",""),
@@ -14238,6 +14265,7 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
 def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
     fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
                   ('paidAt','paid_at'),('paidBy','paid_by'),('paidNote','paid_note'),
                   ('description','description'),('amount','amount'),('vatAmount','vat_amount'),
@@ -14266,7 +14294,8 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
 def delete_supplier_invoice(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM supplier_invoices WHERE id=%s", (id,))
+    require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
+    cur.execute("UPDATE supplier_invoices SET status='Аннулирован' WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
@@ -15203,17 +15232,20 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
               photos, certificates, city, ai_filled,
               paid_status, paid_amount, paid_at, paid_by, paid_note,
               created_at"""
-    allowed_projects = user_project_names(current_user)
+    allowed_projects = visible_project_names(current_user)
     role = current_user.get("role")
     if role not in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик", "прораб", "стройконтроль", "технадзор", "заказчик"):
         cur.close(); conn.close()
         return []
     if project_name:
-        if allowed_projects and project_name not in allowed_projects and role not in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"):
+        if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
             return []
         cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name=%s ORDER BY id DESC", (project_name,))
-    elif allowed_projects and role not in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"):
+    elif allowed_projects is not None:
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
         cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     else:
         cur.execute(f"SELECT {cols} FROM hidden_works_acts ORDER BY id DESC")
@@ -15243,9 +15275,10 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
     return result
 
 @app.put("/hidden-works-acts/{act_id}")
-def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
     # Снапшот текущего состояния перед изменением (версионирование)
     try:
         cur.execute("SELECT row_to_json(t) FROM hidden_works_acts t WHERE id=%s", (act_id,))
@@ -15289,6 +15322,7 @@ def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(
     """Отметить оплату в карточке АОСР без влияния на финансы объекта."""
     conn = get_db()
     cur = conn.cursor()
+    require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
     cur.execute("SELECT project_name, act_number, total FROM hidden_works_acts WHERE id=%s", (act_id,))
     row = cur.fetchone()
     if not row:
@@ -15315,7 +15349,8 @@ def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(
 def delete_hidden_works_act(act_id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM hidden_works_acts WHERE id=%s", (act_id,))
+    require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
+    cur.execute("UPDATE hidden_works_acts SET status='Аннулирован' WHERE id=%s", (act_id,))
     conn.commit(); cur.close(); conn.close()
     return {"ok": True}
 
