@@ -10113,7 +10113,7 @@ def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(r
     return {"id":r[0],"estimateId":r[1],"versionLabel":r[2] or "","sections":sections,"total":float(r[4] or 0),"comment":r[5] or "","createdBy":r[6] or "","createdAt":str(r[7])}
 
 @app.delete("/estimates/{id}")
-def delete_estimate(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
+def delete_estimate(id: int, hard: bool = False, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     require_row_project_access(cur, "estimates", id, current_user, "project_name")
@@ -10122,6 +10122,25 @@ def delete_estimate(id: int, current_user: dict = Depends(require_roles(*LEADERS
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
+    if hard:
+        if current_user.get("role") not in LEADERSHIP_ROLES:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Физически удалить смету может только директор или замдиректора")
+        cur.execute("DELETE FROM estimate_chat_messages WHERE estimate_id=%s", (id,))
+        cur.execute("DELETE FROM estimate_versions WHERE estimate_id=%s", (id,))
+        cur.execute("UPDATE unexpected_works SET estimate_id=NULL WHERE estimate_id=%s", (id,))
+        cur.execute("UPDATE unexpected_works SET included_in_estimate_id=NULL WHERE included_in_estimate_id=%s", (id,))
+        cur.execute("UPDATE work_journal SET estimate_id=NULL WHERE estimate_id=%s", (id,))
+        cur.execute("UPDATE hidden_works_acts SET estimate_id=NULL WHERE estimate_id=%s", (id,))
+        cur.execute("UPDATE material_norm_overrides SET estimate_id=NULL WHERE estimate_id=%s", (id,))
+        cur.execute("DELETE FROM estimates WHERE id=%s", (id,))
+        conn.commit()
+        cur.close(); conn.close()
+        log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
+                  action="delete", entity_type="estimate", entity_id=id,
+                  description="Смета физически удалена вручную",
+                  project_name=row.get("project_name") or "")
+        return {"ok": True, "deleted": True}
     cur.execute("UPDATE estimates SET status='Архив' WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()

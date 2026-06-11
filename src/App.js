@@ -4381,6 +4381,19 @@ function App() {
       await queueEstimateNormReviewTask(updated, 'Смета активирована', nextEstimates);
     }
   };
+  const deleteEstimateRemote = async (est) => {
+    if (!est?.id) return;
+    const title = est.name || 'смету';
+    if (!window.confirm('Удалить смету "' + title + '" безвозвратно? Журналы и акты останутся, но ссылка на эту смету будет снята.')) return;
+    const res = await fetch(API + '/estimates/' + est.id + '?hard=true', {method: 'DELETE'});
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || 'Не удалось удалить смету');
+      return;
+    }
+    setEstimatesList(prev => (prev || []).filter(e => e.id !== est.id));
+    setSelectedEstimate(prev => prev && prev.id === est.id ? null : prev);
+  };
   const projectPlanDone = (p) => {
     const active = activeEstimatesForProject(p, 'Заказчик');
     if(active.length===0) return {plan:0,done:0};
@@ -15393,7 +15406,7 @@ function App() {
                     <div style={{padding:'8px 12px'}}>
                       {sorted.map(est=>{const st=estimateStatusView(est,sorted);const isUsed=active?.id===est.id;const diffBase=(active&&active.id!==est.id)?active:sorted.find(other=>other.id!==est.id);return(<div key={est.id} onClick={()=>setSelectedEstimate(est)} style={{padding:'10px 8px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',cursor:'pointer',opacity:isArchivedEstimate(est)?0.72:1}}>
                         <div style={{flex:1,minWidth:0}}><b style={{color:C.text,fontSize:'13px'}}>{isUsed?'✓ ':''}{est.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'4px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span><span style={badge(C.textSec,C.bgGray,C.border)}>{estimateDisplayVersion(est,sorted)}</span>{est.versionCount>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'история '+est.versionCount}</span>}{est.createdAt&&<span style={{color:C.textMuted,fontSize:'11px',alignSelf:'center'}}>{String(est.createdAt).slice(0,10)}</span>}</div></div>
-                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b>{diffBase&&<button onClick={e=>{e.stopPropagation();showPreview(buildEstimateDiffContent(diffBase,est),'Сопоставительная ведомость');}} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><FileText size={11}/>Ведомость</button>}{est.status!=='Активная'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Активная');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><CheckCircle size={11}/>Активной</button>}{est.status!=='Архив'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Архив');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}><Archive size={11}/></button>}<ChevronRight size={16} color={C.textMuted}/></div>
+                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b>{diffBase&&<button onClick={e=>{e.stopPropagation();showPreview(buildEstimateDiffContent(diffBase,est),'Сопоставительная ведомость');}} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><FileText size={11}/>Ведомость</button>}{est.status!=='Активная'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Активная');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><CheckCircle size={11}/>Активной</button>}{est.status!=='Архив'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Архив');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}} title="В архив"><Archive size={11}/></button>}{isLeadership()&&<button onClick={e=>{e.stopPropagation();deleteEstimateRemote(est);}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}} title="Удалить смету"><Trash2 size={11}/></button>}<ChevronRight size={16} color={C.textMuted}/></div>
                       </div>);})}
                     </div>
                   </div>);})}
