@@ -57,6 +57,7 @@ export default function ProjectMaterialsControlPanel({
   const movedRows = rows.filter(r => r.movedNet !== 0);
   const masterBalanceRows = rows.filter(r => r.masterBalance > 0);
   const stockMismatchRows = rows.filter(r => r.stockMismatch);
+  const invalidPlanRows = rows.filter(r => r.invalidPlanCount > 0);
   const overRows = normCtrl.overRows || [];
   const withoutNormRows = normCtrl.withoutNormRows || [];
   const normProblemRows = [
@@ -67,6 +68,7 @@ export default function ProjectMaterialsControlPanel({
   const filterOptions = [
     {id: 'all', label: 'Все', rows},
     {id: 'toBuy', label: 'Докупить', rows: toBuyRows},
+    {id: 'invalid', label: 'Проверить смету', rows: invalidPlanRows},
     {id: 'pipeline', label: 'В заявках/пути', rows: pipelineRows},
     {id: 'outside', label: 'Вне сметы', rows: outsideRows},
     {id: 'stock', label: 'Остатки/расх.', rows: rows.filter(r => r.stock > 0 || r.stockMismatch || r.masterBalance > 0)}
@@ -142,6 +144,7 @@ export default function ProjectMaterialsControlPanel({
         <MetricCard C={C} label="У мастеров" value={masterBalanceRows.length} active={masterBalanceRows.length > 0} color={C.info} bg={C.infoLight} border={C.infoBorder}/>
         <MetricCard C={C} label="В заявках/пути" value={pipelineRows.length} active={pipelineRows.length > 0} color={C.info} bg={C.infoLight} border={C.infoBorder}/>
         <MetricCard C={C} label="Докупить" value={toBuyRows.length} active color={toBuyRows.length ? C.warning : C.success} bg={toBuyRows.length ? C.warningLight : C.successLight} border={toBuyRows.length ? C.warningBorder : C.successBorder}/>
+        <MetricCard C={C} label="Проверить смету" value={invalidPlanRows.length} active={invalidPlanRows.length > 0} color={C.warning} bg={C.warningLight} border={C.warningBorder}/>
         <MetricCard C={C} label="Вне сметы" value={outsideRows.length} active={outsideRows.length > 0} color={C.danger} bg={C.dangerLight} border={C.dangerBorder}/>
         <MetricCard C={C} label="По нормам работ" value={normRows.length} active={normRows.length > 0} color={C.info} bg={C.infoLight} border={C.infoBorder}/>
         <MetricCard C={C} label="Перерасход норм" value={overRows.length} active={overRows.length > 0} color={C.danger} bg={C.dangerLight} border={C.dangerBorder}/>
@@ -217,6 +220,8 @@ export default function ProjectMaterialsControlPanel({
               {displayedRows.map(r => {
                 const st = materialControlStatus(r);
                 const planDetails = r.planDetails || [];
+                const invalidPlanDetails = r.invalidPlanDetails || [];
+                const sourceDetails = [...planDetails, ...invalidPlanDetails];
                 const isExpanded = !!expandedRows[r.key];
                 return (
                   <React.Fragment key={r.key}>
@@ -224,7 +229,7 @@ export default function ProjectMaterialsControlPanel({
                     <td style={tblC}>
                       <b style={{fontSize: '12px'}}>{r.name}</b>
                       {r.sections.length > 0 && <p style={{color: C.textMuted, fontSize: '10px', margin: '2px 0 0'}}>{r.sections.slice(0, 2).join(', ')}{r.sections.length > 2 ? '…' : ''}</p>}
-                      {planDetails.length > 0 && (
+                      {sourceDetails.length > 0 && (
                         <button
                           type="button"
                           onClick={() => toggleExpandedRow(r.key)}
@@ -244,9 +249,10 @@ export default function ProjectMaterialsControlPanel({
                           }}
                         >
                           {isExpanded ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}
-                          {planDetails.length} строк сметы
+                          {sourceDetails.length} строк сметы
                         </button>
                       )}
+                      {invalidPlanDetails.length > 0 && <p style={{color: C.warning, fontSize: '10px', margin: '3px 0 0'}}>⚠️ {invalidPlanDetails.length} строк не участвуют в закупке до проверки сметы</p>}
                       {r.aliases?.length > 0 && <p style={{color: C.info, fontSize: '10px', margin: '2px 0 0'}}>Синонимы: {r.aliases.slice(0, 2).join(', ')}{r.aliases.length > 2 ? '…' : ''}</p>}
                       {sourceLine('Накладные', r.invoiceDetails, C.success)}
                       {sourceLine('Поставки', r.supplyDetails, C.info)}
@@ -278,9 +284,9 @@ export default function ProjectMaterialsControlPanel({
                     <td style={{...tblC, fontWeight: '700', color: r.toBuy > 0 ? C.warning : C.success}}>{fmtMeasure(r.toBuy, r.unit)}</td>
                     <td style={tblC}>
 	                      <span style={badge(st.color, st.bg, st.border)}>
-	                        {st.label}
-	                        {r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
-	                      </span>
+		                        {st.label}
+		                        {r.invalidPlanCount > 0 ? ' · ' + r.invalidPlanCount : r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
+		                      </span>
 	                      {renderMaterialSupplyAction(projectName, r)}
 	                      {onIssueMaterial && r.stock > 0 && (
 	                        <button
@@ -303,7 +309,7 @@ export default function ProjectMaterialsControlPanel({
                       )}
 	                    </td>
                   </tr>
-                  {isExpanded && planDetails.length > 0 && (
+                  {isExpanded && sourceDetails.length > 0 && (
                     <tr>
                       <td colSpan={16} style={{...tblC, padding: '10px 14px', backgroundColor: C.bg}}>
                         <div style={{
@@ -339,16 +345,18 @@ export default function ProjectMaterialsControlPanel({
                                 </tr>
                               </thead>
                               <tbody>
-                                {planDetails.map((d, idx) => (
-                                  <tr key={(d.estimateId || 'e') + '-' + idx}>
-                                    <td style={tblC}>{d.packageName || 'Основная'}</td>
-                                    <td style={tblC}>{d.sectionName || '—'}</td>
-                                    <td style={tblC}>{d.workName || '—'}</td>
-                                    <td style={tblC}>{d.materialName || r.name}</td>
-                                    <td style={{...tblC, fontWeight: '700'}}>{fmtMeasure(d.qty || 0, d.unit || r.unit)}</td>
-                                    <td style={tblC}>{Math.round(d.sum || 0).toLocaleString('ru-RU')} ₽</td>
-                                  </tr>
-                                ))}
+	                              {sourceDetails.map((d, idx) => {
+                                    const invalid = !!d.reason;
+                                    return (
+	                                  <tr key={(d.estimateId || 'e') + '-' + idx} style={invalid ? {backgroundColor: C.warningLight} : undefined}>
+	                                    <td style={tblC}>{d.packageName || 'Основная'}</td>
+	                                    <td style={tblC}>{d.sectionName || '—'}</td>
+	                                    <td style={tblC}>{d.workName || '—'}</td>
+	                                    <td style={tblC}>{d.materialName || r.name}{invalid && <p style={{color: C.warning, fontSize: '10px', margin: '3px 0 0'}}>⚠️ {d.reason}</p>}</td>
+	                                    <td style={{...tblC, fontWeight: '700'}}>{fmtMeasure(d.qty || 0, d.unit || r.unit)}</td>
+	                                    <td style={tblC}>{Math.round(d.sum || 0).toLocaleString('ru-RU')} ₽</td>
+	                                  </tr>
+	                                );})}
                               </tbody>
                             </table>
                           </div>

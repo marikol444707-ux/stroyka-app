@@ -526,6 +526,19 @@ const fmtMeasure = (qty, unit) => {
   const qStr = Math.abs(q - Math.round(q)) < 0.001 ? String(Math.round(q)) : q.toLocaleString('ru-RU', {maximumFractionDigits: 3});
   return qStr + ' ' + (n.unit||'');
 };
+const estimateMaterialPlanIssue = (it={}, sectionName='') => {
+  if (!isEstimateMaterialItem(it, sectionName)) return '';
+  const qty = toNum(it.quantity);
+  const unit = _normalizeUnit(it.unit || '');
+  if (!Number.isFinite(qty)) return 'Количество материала не является числом';
+  if (qty <= 0) return 'Количество материала не задано или меньше нуля';
+  // Старые импортированные сметы могли сохранить ресурс уже умноженным несколько раз.
+  // Такие строки нельзя превращать в заявку, пока сметчик не пересчитает/переимпортирует смету.
+  if (Math.abs(qty) > 10000000) return 'Подозрительно большое количество. Проверь импорт сметы и исходную единицу измерения';
+  if ((unit === 'шт' || unit === 'компл') && Math.abs(qty) > 1000000) return 'Подозрительно большое штучное количество. Проверь ресурсную строку сметы';
+  if (!unit || unit === '1') return 'Не распознана единица измерения материала';
+  return '';
+};
 const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
 
 const requestPushPermission = async () => {
@@ -4645,7 +4658,7 @@ function App() {
       const key = keyOf(meta.name);
       if (!key) return null;
       const cleanUnit = materialUnit(meta.unit || unit);
-      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planDetails:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planDetails:[],invalidPlanDetails:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
       if (rawName && keyOf(rawName)!==key && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
       if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
       if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
@@ -4683,11 +4696,29 @@ function App() {
         if (!r) return;
         const converted = materialQty(it.quantity, it.unit || r.unit);
         const planSum = estimateItemMaterialSum(it);
-        addQty(r, 'planQty', it.quantity, it.unit);
-        r.planSum += planSum;
         const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
         if (sectionLabel && !r.sections.includes(sectionLabel)) r.sections.push(sectionLabel);
         if (it.parentWorkName && !r.workRefs.includes(it.parentWorkName)) r.workRefs.push(it.parentWorkName);
+        const planIssue = estimateMaterialPlanIssue(it, s.name);
+        if (planIssue) {
+          r.invalidPlanDetails.push({
+            estimateId: est.id,
+            estimateName: est.name || '',
+            packageName: estimatePackage(est),
+            sectionName: s.name || '',
+            materialName: it.name || '',
+            workName: it.parentWorkName || '',
+            qty: converted.qty,
+            unit: converted.unit || it.unit || r.unit,
+            sourceQty: Number(it.quantity || 0),
+            sourceUnit: it.unit || '',
+            sum: planSum,
+            reason: planIssue,
+          });
+          return;
+        }
+        addQty(r, 'planQty', it.quantity, it.unit);
+        r.planSum += planSum;
         r.planDetails.push({
           estimateId: est.id,
           estimateName: est.name || '',
@@ -4850,7 +4881,8 @@ function App() {
       const stockDiff = (r.stock||0) - expectedStock;
       return {
         ...r,
-        planSourceCount: (r.planDetails || []).length,
+	        planSourceCount: (r.planDetails || []).length,
+	        invalidPlanCount: (r.invalidPlanDetails || []).length,
         movedNet,
         supplied,
         holders,
@@ -4883,11 +4915,13 @@ function App() {
     const stockMismatchRows = rows.filter(r=>r.stockMismatch);
     const masterBalanceRows = rows.filter(r=>r.masterBalance>0);
     const usedWithoutIssueRows = rows.filter(r=>r.issued>0 && r.usedWithoutIssue>0);
+    const invalidPlanRows = rows.filter(r=>r.invalidPlanCount>0);
     const planSum = rows.reduce((s,r)=>s+Number(r.planSum||0),0);
     const suppliedSum = rows.reduce((s,r)=>s+Number(r.receivedSum||0),0);
-    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, planSum, suppliedSum};
+    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, invalidPlanRows, planSum, suppliedSum};
   };
   const materialControlStatus = (r) => {
+    if (r.invalidPlanCount>0) return {label:'Проверить смету', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.stockMismatch) return {label:'Расхождение склада', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.issued>0 && r.usedWithoutIssue>0) return {label:'Списано сверх выдачи', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.isOutsideEstimate) return {label:'Вне сметы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
@@ -8021,7 +8055,7 @@ function App() {
     if (rows.length===0) html+='<p style="text-align:center;color:#888;font-size:11px;padding:14px">Материалов в смете нет</p>';
 	    else {
 		      html+='<table class="mr-tbl"><tr><th>№</th><th>Материал</th><th>Работа-основание</th><th>Раздел</th><th>Ед.</th><th>План</th><th>В заявках</th><th>В пути</th><th>Накладные</th><th>Поставки</th><th>Перемещено</th><th>Всего получено</th><th>Выдано</th><th>Списано</th><th>У мастеров</th><th>Остаток склада</th><th>Расчётный остаток</th><th>Расхождение</th><th>Докупить</th><th>Статус</th></tr>';
-	      rows.forEach((r,i)=>{const cls=r.stockMismatch?'mr-out':r.issued>0&&r.usedWithoutIssue>0?'mr-out':r.isOutsideEstimate?'mr-out':r.toBuy>0?'mr-need':r.over>0?'mr-over':'mr-ok';const status=r.stockMismatch?'расхождение склада '+r.stockDiff.toLocaleString('ru-RU'):r.issued>0&&r.usedWithoutIssue>0?'списано сверх выдачи '+r.usedWithoutIssue.toLocaleString('ru-RU'):r.isOutsideEstimate?'вне сметы '+r.coveredWithPipeline.toLocaleString('ru-RU'):r.toBuy>0?'докупить '+r.toBuy.toLocaleString('ru-RU'):r.shortage>0?'закрывается заявками/поставками':r.masterBalance>0?'у мастеров '+r.masterBalance.toLocaleString('ru-RU'):r.over>0?'сверх '+r.over.toLocaleString('ru-RU'):'закрыто';const workCell=(r.workRefs||[]).slice(0,3).join('; ');const sourceCount=(r.planDetails||[]).length;html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+(r.unitMismatch?' ⚠ ед.изм.':'')+(sourceCount?'<br><span class="mr-muted">строк сметы: '+sourceCount+'</span>':'')+'</td><td>'+workCell+'</td><td>'+(r.sections||[]).join(', ')+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+r.requested.toLocaleString('ru-RU')+'</td><td>'+r.inTransit.toLocaleString('ru-RU')+'</td><td>'+r.invoiceReceived.toLocaleString('ru-RU')+'</td><td>'+r.supplyReceived.toLocaleString('ru-RU')+'</td><td>'+r.movedNet.toLocaleString('ru-RU')+'</td><td>'+r.supplied.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+r.used.toLocaleString('ru-RU')+'</td><td>'+r.masterBalance.toLocaleString('ru-RU')+'</td><td>'+r.stock.toLocaleString('ru-RU')+'</td><td>'+r.expectedStock.toLocaleString('ru-RU')+'</td><td>'+r.stockDiff.toLocaleString('ru-RU')+'</td><td>'+r.toBuy.toLocaleString('ru-RU')+'</td><td>'+status+'</td></tr>';});
+		      rows.forEach((r,i)=>{const invalid=(r.invalidPlanCount||0)>0;const cls=invalid?'mr-need':r.stockMismatch?'mr-out':r.issued>0&&r.usedWithoutIssue>0?'mr-out':r.isOutsideEstimate?'mr-out':r.toBuy>0?'mr-need':r.over>0?'mr-over':'mr-ok';const status=invalid?'проверить смету: '+r.invalidPlanCount+' строк':r.stockMismatch?'расхождение склада '+r.stockDiff.toLocaleString('ru-RU'):r.issued>0&&r.usedWithoutIssue>0?'списано сверх выдачи '+r.usedWithoutIssue.toLocaleString('ru-RU'):r.isOutsideEstimate?'вне сметы '+r.coveredWithPipeline.toLocaleString('ru-RU'):r.toBuy>0?'докупить '+r.toBuy.toLocaleString('ru-RU'):r.shortage>0?'закрывается заявками/поставками':r.masterBalance>0?'у мастеров '+r.masterBalance.toLocaleString('ru-RU'):r.over>0?'сверх '+r.over.toLocaleString('ru-RU'):'закрыто';const workCell=(r.workRefs||[]).slice(0,3).join('; ');const sourceCount=(r.planDetails||[]).length;html+='<tr class="'+cls+'"><td>'+(i+1)+'</td><td>'+r.name+(r.unitMismatch?' ⚠ ед.изм.':'')+(sourceCount?'<br><span class="mr-muted">строк сметы: '+sourceCount+'</span>':'')+(invalid?'<br><span class="mr-muted">невалидных строк: '+r.invalidPlanCount+'</span>':'')+'</td><td>'+workCell+'</td><td>'+(r.sections||[]).join(', ')+'</td><td>'+r.unit+'</td><td>'+r.planQty.toLocaleString('ru-RU')+'</td><td>'+r.requested.toLocaleString('ru-RU')+'</td><td>'+r.inTransit.toLocaleString('ru-RU')+'</td><td>'+r.invoiceReceived.toLocaleString('ru-RU')+'</td><td>'+r.supplyReceived.toLocaleString('ru-RU')+'</td><td>'+r.movedNet.toLocaleString('ru-RU')+'</td><td>'+r.supplied.toLocaleString('ru-RU')+'</td><td>'+r.issued.toLocaleString('ru-RU')+'</td><td>'+r.used.toLocaleString('ru-RU')+'</td><td>'+r.masterBalance.toLocaleString('ru-RU')+'</td><td>'+r.stock.toLocaleString('ru-RU')+'</td><td>'+r.expectedStock.toLocaleString('ru-RU')+'</td><td>'+r.stockDiff.toLocaleString('ru-RU')+'</td><td>'+r.toBuy.toLocaleString('ru-RU')+'</td><td>'+status+'</td></tr>';});
       const totalSum=rows.reduce((s,r)=>s+(r.planSum||0),0);
       html+='<tr style="background:#f3f4f6"><td colspan="5"><b>ИТОГО плановая стоимость материалов:</b></td><td colspan="15"><b>'+Math.round(totalSum).toLocaleString('ru-RU')+' ₽</b></td></tr>';
 	      html+='</table>';
@@ -8031,9 +8065,17 @@ function App() {
 	        html+='<p style="font-size:10px;color:#666;margin:0 0 6px">Одинаковые материалы объединены для снабжения и склада, но ниже видно, из каких строк сметы сложилось общее количество.</p>';
 	        html+='<table class="mr-tbl"><tr><th>Материал</th><th>Пакет</th><th>Раздел</th><th>Работа-основание</th><th>Строка материала</th><th>Количество</th><th>Сумма</th></tr>';
 	        groupedRows.forEach(r=>(r.planDetails||[]).forEach((d,idx)=>{html+='<tr><td>'+(idx===0?'<b>'+r.name+'</b><br><span class="mr-muted">итого '+r.planQty.toLocaleString('ru-RU')+' '+r.unit+'</span>':'')+'</td><td>'+(d.packageName||'Основная')+'</td><td>'+(d.sectionName||'')+'</td><td>'+(d.workName||'')+'</td><td>'+(d.materialName||r.name)+'</td><td>'+Number(d.qty||0).toLocaleString('ru-RU')+' '+(d.unit||r.unit||'')+'</td><td>'+Math.round(Number(d.sum||0)).toLocaleString('ru-RU')+' ₽</td></tr>';}));
-	        html+='</table>';
-	      }
-	    }
+		        html+='</table>';
+		      }
+		      const invalidRows=rows.filter(r=>(r.invalidPlanDetails||[]).length>0);
+		      if (invalidRows.length>0) {
+		        html+='<h3 style="font-size:13px;margin:18px 0 6px">Строки сметы, исключённые из автоматической закупки</h3>';
+		        html+='<p style="font-size:10px;color:#666;margin:0 0 6px">Эти строки требуют проверки сметчиком: система не создаёт по ним заявки, чтобы не закупить ошибочное количество.</p>';
+		        html+='<table class="mr-tbl"><tr><th>Материал</th><th>Пакет</th><th>Раздел</th><th>Работа-основание</th><th>Количество</th><th>Сумма</th><th>Причина</th></tr>';
+		        invalidRows.forEach(r=>(r.invalidPlanDetails||[]).forEach(d=>{html+='<tr class="mr-need"><td>'+r.name+'</td><td>'+(d.packageName||'Основная')+'</td><td>'+(d.sectionName||'')+'</td><td>'+(d.workName||'')+'</td><td>'+Number(d.qty||0).toLocaleString('ru-RU')+' '+(d.unit||r.unit||'')+'</td><td>'+Math.round(Number(d.sum||0)).toLocaleString('ru-RU')+' ₽</td><td>'+(d.reason||'Проверить строку')+'</td></tr>';}));
+		        html+='</table>';
+		      }
+		    }
 	    if (normRows.length>0) {
 	      html+='<h3 style="font-size:13px;margin:18px 0 6px">Нормативная потребность по работам</h3>';
 	      html+='<p style="font-size:10px;color:#666;margin:0 0 6px">Это подсказка для сметчика/снабжения: материалы рассчитаны из строк типа «Работа» по типовым нормам. Они не списываются и не попадают в закупку автоматически, пока не заведены строками типа «Материал».</p>';
