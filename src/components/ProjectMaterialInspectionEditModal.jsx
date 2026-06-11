@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Check, Eye, X } from 'lucide-react';
 import { API } from '../api';
+import { formLabelStyle, formSectionStyle, modalBodyStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, statusPillStyle, twoColumnGridStyle } from '../utils/modalStyles';
 
 export default function ProjectMaterialInspectionEditModal({
   inspection,
@@ -21,8 +22,8 @@ export default function ProjectMaterialInspectionEditModal({
   if (!inspection) return null;
 
   const updateInspection = (key, value) => setEditingInspection({...inspection, [key]: value});
-  const labelStyle = {fontSize: '11px', color: C.textSec, fontWeight: '600', marginBottom: '4px', display: 'block'};
-  const sectionStyle = {marginBottom: '14px'};
+  const labelStyle = formLabelStyle(C);
+  const sectionStyle = formSectionStyle();
 
   const suggestByAI = async () => {
     setEditingInspection(prev => ({...prev, __aiLoading: true}));
@@ -74,22 +75,15 @@ export default function ProjectMaterialInspectionEditModal({
   };
 
   return (
-    <div onClick={() => setEditingInspection(null)} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-      <div onClick={event => event.stopPropagation()} style={{...card, padding: 0, width: 'min(820px,100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden'}}>
-        <div style={{padding: '16px 20px', borderBottom: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px'}}>
+    <div onClick={() => setEditingInspection(null)} style={modalOverlayStyle()}>
+      <div onClick={event => event.stopPropagation()} style={modalShellStyle(card, 'min(820px,100%)')}>
+        <div style={modalHeaderStyle(C)}>
           <div>
             <b style={{color: C.text, fontSize: '16px', display: 'block'}}>📦 Входной контроль материала</b>
             <span style={{fontSize: '12px', color: C.textSec}}>{(inspection.materialName || '—') + ' · ' + (inspection.quantity || 0) + ' ' + (inspection.unit || '') + ' · ' + (inspection.supplier || '—')}</span>
           </div>
           <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-            <span style={{
-              padding: '4px 10px',
-              borderRadius: '12px',
-              fontSize: '12px',
-              fontWeight: '600',
-              backgroundColor: inspection.inspected ? C.successLight : C.warningLight,
-              color: inspection.inspected ? C.success : C.warning,
-            }}>
+            <span style={statusPillStyle(C, inspection.inspected ? 'success' : 'warning')}>
               {inspection.inspected ? 'Проверено' : 'Ждёт проверки'}
             </span>
             <button onClick={() => setEditingInspection(null)} style={{...btnG, padding: '5px 10px'}}>
@@ -98,7 +92,7 @@ export default function ProjectMaterialInspectionEditModal({
           </div>
         </div>
 
-        <div style={{flex: 1, overflowY: 'auto', padding: '18px 20px'}}>
+        <div style={modalBodyStyle()}>
           {inspection.aiFilled && (
             <div style={aiNotice}>
               <span style={aiNoticeIcon}>🤖</span>
@@ -106,14 +100,14 @@ export default function ProjectMaterialInspectionEditModal({
             </div>
           )}
 
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '10px', marginBottom: '18px', padding: '12px', backgroundColor: C.bg, borderRadius: '10px', border: '1.5px solid ' + C.border}}>
+          <div style={modalSummaryGridStyle(C)}>
             <div><p style={labelStyle}>Материал</p><b style={{fontSize: '13px', color: C.text}}>{inspection.materialName || '—'}</b></div>
             <div><p style={labelStyle}>Количество</p><b style={{fontSize: '13px', color: C.text}}>{(inspection.quantity || 0) + ' ' + (inspection.unit || '')}</b></div>
             <div><p style={labelStyle}>Поставщик</p><b style={{fontSize: '13px', color: C.text}}>{inspection.supplier || '—'}</b></div>
             <div><p style={labelStyle}>Дата приёмки</p><b style={{fontSize: '13px', color: C.text}}>{inspection.receivedAt || '—'}</b></div>
           </div>
 
-          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px'}}>
+          <div style={twoColumnGridStyle()}>
             <div>
               <label style={labelStyle}>№ партии (на упаковке/паспорте)</label>
               <input value={inspection.batchNumber || ''} onChange={event => updateInspection('batchNumber', event.target.value)} placeholder="напр. №147" style={inp}/>
@@ -124,7 +118,7 @@ export default function ProjectMaterialInspectionEditModal({
             </div>
           </div>
 
-          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px'}}>
+          <div style={twoColumnGridStyle()}>
             <div>
               <label style={labelStyle}>Сертификат соответствия №</label>
               <input value={inspection.certificateNumber || ''} onChange={event => updateInspection('certificateNumber', event.target.value)} placeholder="напр. РОСС RU.AB12.H00000" style={inp}/>
@@ -135,7 +129,7 @@ export default function ProjectMaterialInspectionEditModal({
             </div>
           </div>
 
-          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px'}}>
+          <div style={twoColumnGridStyle()}>
             <div>
               <label style={labelStyle}>Результат визуального осмотра</label>
               <select value={inspection.visualInspectionResult || ''} onChange={event => updateInspection('visualInspectionResult', event.target.value)} style={inp}>

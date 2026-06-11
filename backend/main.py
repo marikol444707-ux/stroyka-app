@@ -4598,20 +4598,35 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT id, project, material_name FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT id, project, material_name, status FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
         req = cur.fetchone()
         if not req:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Заявка не найдена")
         if req.get("project"):
             require_project_access(_current_user, req.get("project"))
+        current_status = req.get("status") or ""
+        if current_status == "Отменена с откатом":
+            conn.rollback()
+            return {"ok": True, "cancelled": True, "alreadyRolledBack": True}
+        if current_status == "Отменена" and not rollback_received:
+            conn.rollback()
+            return {"ok": True, "cancelled": True, "alreadyCancelled": True}
 
         cur.execute("SELECT * FROM supply_deliveries WHERE request_id=%s FOR UPDATE", (id,))
         deliveries = cur.fetchall()
         received_deliveries = [d for d in deliveries if float(d.get("received_quantity") or 0) > 0]
+        if rollback_received and (_current_user.get("role") not in LEADERSHIP_ROLES):
+            conn.rollback()
+            raise HTTPException(status_code=403, detail="Откат принятой поставки доступен только директору или замдиректора")
         if received_deliveries and not rollback_received:
             conn.rollback()
-            raise HTTPException(status_code=400, detail="По заявке уже есть принятая поставка. Для удаления с откатом склада используйте rollback_received=true.")
+            raise HTTPException(status_code=400, detail="По заявке уже есть принятая поставка. Можно только отменить без удаления истории или выполнить откат руководителем.")
+
+        if not rollback_received:
+            cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ("Отменена", id))
+            conn.commit()
+            return {"ok": True, "cancelled": True, "deliveriesKept": len(deliveries)}
 
         restored = 0
         if rollback_received:
@@ -4640,19 +4655,9 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
                             (name, "откат поставки (удаление заявки)", qty, datetime.now().date().isoformat(), project, _current_user.get("name") or "", datetime.now().strftime("%d.%m.%Y, %H:%M")))
                 restored += 1
 
-        delivery_ids = [d.get("id") for d in deliveries if d.get("id")]
-        if delivery_ids:
-            cur.execute("DELETE FROM material_inspection_journal WHERE delivery_id = ANY(%s)", (delivery_ids,))
-            cur.execute("DELETE FROM cable_journal WHERE delivery_id = ANY(%s)", (delivery_ids,))
-            cur.execute("DELETE FROM supply_history WHERE delivery_id = ANY(%s)", (delivery_ids,))
-            cur.execute("DELETE FROM supply_claims WHERE delivery_id = ANY(%s)", (delivery_ids,))
-        cur.execute("DELETE FROM supply_claims WHERE request_id=%s", (id,))
-        cur.execute("DELETE FROM supplier_invoices WHERE request_id=%s", (id,))
-        cur.execute("DELETE FROM supply_deliveries WHERE request_id=%s", (id,))
-        cur.execute("DELETE FROM supplier_offers WHERE request_id=%s", (id,))
-        cur.execute("DELETE FROM supply_requests WHERE id=%s", (id,))
+        cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ("Отменена с откатом", id))
         conn.commit()
-        return {"ok": True, "deliveriesDeleted": len(deliveries), "materialsRolledBack": restored}
+        return {"ok": True, "cancelled": True, "deliveriesKept": len(deliveries), "materialsRolledBack": restored}
     except HTTPException:
         conn.rollback()
         raise
@@ -6069,9 +6074,20 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "work_journal", id, _current_user, "project")
-    cur.execute("SELECT project FROM work_journal WHERE id=%s", (id,))
+    cur.execute("SELECT project, master_id, master_name FROM work_journal WHERE id=%s", (id,))
     project_row = cur.fetchone()
     project_name = project_row[0] if project_row else ""
+    role = _current_user.get("role")
+    if role in ("мастер", "субподрядчик"):
+        master_id = project_row[1] if project_row else None
+        master_name = project_row[2] if project_row else ""
+        if str(master_id or "") != str(_current_user.get("id") or "") and (master_name or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Мастер может менять только свои записи ЖПР")
+        protected_keys = {"status", "confirmedBy", "confirmedAt", "qualityStatus"}
+        if protected_keys.intersection(data.keys()):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Подтверждение и контроль ЖПР доступны прорабу, главному инженеру или руководству")
     # Динамически обновляем только переданные поля. Старая логика (status/confirmedBy/...) продолжает работать.
     fields_map = [
         ('status', 'status'),
@@ -11866,24 +11882,21 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
     return {"id": invoice_id, "ok": True, "inspectionsAdded": inspections_added, "cablesAdded": cables_added}
 
 @app.delete("/warehouse-invoices/{id}")
-def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "кладовщик", "снабженец"))):
     conn = get_db()
     cur = conn.cursor()
-    if _current_user.get("role") == "прораб":
-        cur.execute("SELECT COALESCE(project,''), COALESCE(location,'') FROM warehouse_invoices WHERE id=%s", (id,))
-        row = cur.fetchone()
-        if not row:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Накладная не найдена")
-        target_project = row[0] or (row[1] if row[1] != "Основной склад" else "")
-        if target_project:
-            require_project_access(_current_user, target_project)
-    cur.execute("DELETE FROM material_inspection_journal WHERE invoice_id=%s", (id,))
-    cur.execute("DELETE FROM cable_journal WHERE invoice_id=%s", (id,))
-    cur.execute("DELETE FROM warehouse_invoices WHERE id=%s",(id,))
+    cur.execute("SELECT COALESCE(project,''), COALESCE(location,''), COALESCE(status,'') FROM warehouse_invoices WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Накладная не найдена")
+    target_project = row[0] or (row[1] if row[1] != "Основной склад" else "")
+    if target_project:
+        require_project_or_warehouse_access(_current_user, target_project)
+    cur.execute("UPDATE warehouse_invoices SET status=%s WHERE id=%s", ("Аннулирована", id))
     conn.commit()
     cur.close(); conn.close()
-    return {"ok":True}
+    return {"ok": True, "annulled": True}
 
 def _norm_list(value):
     if isinstance(value, list):

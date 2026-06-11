@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Check, Eye, X } from 'lucide-react';
 import { API } from '../api';
+import { formLabelStyle, formSectionStyle, modalBodyStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, statusPillStyle, twoColumnGridStyle } from '../utils/modalStyles';
 
 export default function ProjectCableJournalEditModal({
   cable,
@@ -27,8 +28,8 @@ export default function ProjectCableJournalEditModal({
     .filter(user => ['прораб', 'главный_инженер', 'зам_директора'].includes(user.role))
     .map(user => user.name)
     .filter(Boolean);
-  const labelStyle = {fontSize: '11px', color: C.textSec, fontWeight: '600', marginBottom: '4px', display: 'block'};
-  const sectionStyle = {marginBottom: '14px'};
+  const labelStyle = formLabelStyle(C);
+  const sectionStyle = formSectionStyle();
   const cableType = cableTypeOf(cable);
 
   const suggestByAI = async () => {
@@ -83,22 +84,15 @@ export default function ProjectCableJournalEditModal({
   };
 
   return (
-    <div onClick={() => setEditingCable(null)} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-      <div onClick={event => event.stopPropagation()} style={{...card, padding: 0, width: 'min(900px,100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden'}}>
-        <div style={{padding: '16px 20px', borderBottom: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px'}}>
+    <div onClick={() => setEditingCable(null)} style={modalOverlayStyle()}>
+      <div onClick={event => event.stopPropagation()} style={modalShellStyle(card)}>
+        <div style={modalHeaderStyle(C)}>
           <div>
             <b style={{color: C.text, fontSize: '16px', display: 'block'}}>⚡ Запись журнала кабельной продукции</b>
             <span style={{fontSize: '12px', color: C.textSec}}>{cableType + ' · ' + (cable.cableBrand || '—') + ' · ' + (cable.crossSection ? cable.crossSection + ' мм² × ' + (cable.coresCount || '?') + ' жил' : '—') + ' · ' + (cable.lengthReceived || 0) + ' м'}</span>
           </div>
           <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-            <span style={{
-              padding: '4px 10px',
-              borderRadius: '12px',
-              fontSize: '12px',
-              fontWeight: '600',
-              backgroundColor: cable.installedAt ? C.successLight : C.warningLight,
-              color: cable.installedAt ? C.success : C.warning,
-            }}>
+            <span style={statusPillStyle(C, cable.installedAt ? 'success' : 'warning')}>
               {cable.installedAt ? 'Проложен' : 'На складе'}
             </span>
             <button onClick={() => setEditingCable(null)} style={{...btnG, padding: '5px 10px'}}>
@@ -107,7 +101,7 @@ export default function ProjectCableJournalEditModal({
           </div>
         </div>
 
-        <div style={{flex: 1, overflowY: 'auto', padding: '18px 20px'}}>
+        <div style={modalBodyStyle()}>
           {cable.aiFilled && (
             <div style={aiNotice}>
               <span style={aiNoticeIcon}>🤖</span>
@@ -115,7 +109,7 @@ export default function ProjectCableJournalEditModal({
             </div>
           )}
 
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '10px', marginBottom: '18px', padding: '12px', backgroundColor: C.bg, borderRadius: '10px', border: '1.5px solid ' + C.border}}>
+          <div style={modalSummaryGridStyle(C)}>
             <div><p style={labelStyle}>Марка кабеля</p><b style={{fontSize: '13px', color: C.text}}>{cable.cableBrand || '—'}</b></div>
             <div><p style={labelStyle}>Тип системы</p><b style={{fontSize: '13px', color: C.text}}>{cableType}</b></div>
             <div><p style={labelStyle}>Сечение жилы</p><b style={{fontSize: '13px', color: C.text}}>{cable.crossSection ? cable.crossSection + ' мм²' : '—'}</b></div>
@@ -125,7 +119,7 @@ export default function ProjectCableJournalEditModal({
             <div><p style={labelStyle}>Дата приёмки</p><b style={{fontSize: '13px', color: C.text}}>{cable.receivedAt || '—'}</b></div>
           </div>
 
-          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px'}}>
+          <div style={twoColumnGridStyle()}>
             <div>
               <label style={labelStyle}>№ барабана / бухты</label>
               <input value={cable.drumNumber || ''} onChange={event => updateCable('drumNumber', event.target.value)} placeholder="напр. барабан №47" style={inp}/>
@@ -136,7 +130,7 @@ export default function ProjectCableJournalEditModal({
             </div>
           </div>
 
-          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px'}}>
+          <div style={twoColumnGridStyle()}>
             <div>
               <label style={labelStyle}>Сертификат соответствия №</label>
               <input value={cable.certificateNumber || ''} onChange={event => updateCable('certificateNumber', event.target.value)} style={inp}/>

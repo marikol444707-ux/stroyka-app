@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Check, Eye, X } from 'lucide-react';
 import { API } from '../api';
+import { formLabelStyle, formSectionStyle, modalBodyStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, statusPillStyle, threeColumnGridStyle, twoColumnGridStyle } from '../utils/modalStyles';
 
 export default function ProjectWorkJournalEditModal({
   journal,
@@ -31,8 +32,8 @@ export default function ProjectWorkJournalEditModal({
     .filter(user => ['прораб', 'главный_инженер', 'зам_директора'].includes(user.role))
     .map(user => user.name)
     .filter(Boolean);
-  const labelStyle = {fontSize: '11px', color: C.textSec, fontWeight: '600', marginBottom: '4px', display: 'block'};
-  const sectionStyle = {marginBottom: '14px'};
+  const labelStyle = formLabelStyle(C);
+  const sectionStyle = formSectionStyle();
 
   const fillByAI = async () => {
     setEditingJournal(prev => ({...prev, __aiLoading: true}));
@@ -98,22 +99,15 @@ export default function ProjectWorkJournalEditModal({
   };
 
   return (
-    <div onClick={() => setEditingJournal(null)} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-      <div onClick={event => event.stopPropagation()} style={{...card, padding: 0, width: 'min(900px,100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden'}}>
-        <div style={{padding: '16px 20px', borderBottom: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px'}}>
+    <div onClick={() => setEditingJournal(null)} style={modalOverlayStyle()}>
+      <div onClick={event => event.stopPropagation()} style={modalShellStyle(card)}>
+        <div style={modalHeaderStyle(C)}>
           <div>
             <b style={{color: C.text, fontSize: '16px', display: 'block'}}>📖 Запись журнала производства работ</b>
             <span style={{fontSize: '12px', color: C.textSec}}>{(journal.project || '—') + ' · ' + (journal.date || '—') + ' · ' + (journal.masterName || '—')}</span>
           </div>
           <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-            <span style={{
-              padding: '4px 10px',
-              borderRadius: '12px',
-              fontSize: '12px',
-              fontWeight: '600',
-              backgroundColor: journal.status === 'Подтверждено' ? C.successLight : journal.status === 'Отклонено' ? C.dangerLight : C.warningLight,
-              color: journal.status === 'Подтверждено' ? C.success : journal.status === 'Отклонено' ? C.danger : C.warning,
-            }}>
+            <span style={statusPillStyle(C, journal.status === 'Подтверждено' ? 'success' : journal.status === 'Отклонено' ? 'danger' : 'warning')}>
               {journal.status || '—'}
             </span>
             <button onClick={() => setEditingJournal(null)} style={{...btnG, padding: '5px 10px'}}>
@@ -122,7 +116,7 @@ export default function ProjectWorkJournalEditModal({
           </div>
         </div>
 
-        <div style={{flex: 1, overflowY: 'auto', padding: '18px 20px'}}>
+        <div style={modalBodyStyle()}>
           {journal.aiFilled && (
             <div style={aiNotice}>
               <span style={aiNoticeIcon}>🤖</span>
@@ -130,7 +124,7 @@ export default function ProjectWorkJournalEditModal({
             </div>
           )}
 
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '10px', marginBottom: '18px', padding: '12px', backgroundColor: C.bg, borderRadius: '10px', border: '1.5px solid ' + C.border}}>
+          <div style={modalSummaryGridStyle(C)}>
             <div><p style={labelStyle}>Раздел сметы</p><b style={{fontSize: '13px', color: C.text}}>{journal.sectionName || '—'}</b></div>
             <div><p style={labelStyle}>Работа</p><b style={{fontSize: '13px', color: C.text}}>{journal.description}</b></div>
             <div><p style={labelStyle}>Исполнитель</p><b style={{fontSize: '13px', color: C.text}}>{journal.masterName || '—'}</b></div>
@@ -139,7 +133,7 @@ export default function ProjectWorkJournalEditModal({
             <div><p style={labelStyle}>Дата</p><b style={{fontSize: '13px', color: C.text}}>{journal.date || '—'}</b></div>
           </div>
 
-          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px'}}>
+          <div style={twoColumnGridStyle()}>
             <div>
               <label style={labelStyle}>Ответственный ИТР (прораб)</label>
               <input list="jrnl-itr-list" value={journal.responsibleItr || ''} onChange={event => updateJournal('responsibleItr', event.target.value)} placeholder="ФИО прораба или инженера" style={inp}/>
@@ -155,7 +149,7 @@ export default function ProjectWorkJournalEditModal({
             </div>
           </div>
 
-          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: '10px', marginBottom: '14px'}}>
+          <div style={threeColumnGridStyle()}>
             <div><label style={labelStyle}>Начало работы</label><input type="time" value={journal.timeStart || ''} onChange={event => updateJournal('timeStart', event.target.value)} style={inp}/></div>
             <div><label style={labelStyle}>Окончание</label><input type="time" value={journal.timeEnd || ''} onChange={event => updateJournal('timeEnd', event.target.value)} style={inp}/></div>
             <div>

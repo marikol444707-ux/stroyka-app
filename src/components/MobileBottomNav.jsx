@@ -9,10 +9,19 @@ const MOBILE_NAV_ITEMS = [
   {id:'more',icon:<ChevronUp size={20}/>,label:'Ещё'},
 ];
 
-export default function MobileBottomNav({activePage, isMobile, unreadMessagesCount, setActivePage, setShowMobileMenu, setShowQuickActions, setShowChatPanel}) {
+export default function MobileBottomNav({activePage, isMobile, unreadMessagesCount, menuItems = [], navigateTo, setActivePage, setShowMobileMenu, setShowQuickActions, setShowChatPanel}) {
+  const allowedMenuIds = new Set((menuItems || []).map(item => item.id));
+  const visibleItems = MOBILE_NAV_ITEMS.filter(item => item.id === 'more' || item.id === 'companychat' || allowedMenuIds.has(item.id));
+  const goToPage = (pageId) => {
+    if (typeof navigateTo === 'function') {
+      navigateTo(pageId);
+    } else {
+      setActivePage(pageId);
+    }
+  };
   return (
     <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:activePage==='dashboard'?'rgba(15,23,42,0.95)':'white',borderTop:activePage==='dashboard'?'1px solid rgba(148,163,184,0.18)':'1.5px solid #e5e7eb',display:isMobile?'flex':'none',justifyContent:'space-around',padding:'8px 0 12px',zIndex:200,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)'}}>
-      {MOBILE_NAV_ITEMS.map(item=>(
+      {visibleItems.map(item=>(
         <div key={item.id} onClick={()=>{
           if(item.id==='more'){
             setShowMobileMenu(s=>!s);
@@ -22,7 +31,7 @@ export default function MobileBottomNav({activePage, isMobile, unreadMessagesCou
             setShowMobileMenu(false);
             setShowQuickActions(false);
           } else {
-            setActivePage(item.id);
+            goToPage(item.id);
             setShowMobileMenu(false);
             setShowQuickActions(false);
           }
