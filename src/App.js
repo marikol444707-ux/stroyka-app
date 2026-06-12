@@ -56,6 +56,7 @@ import EstimateImportSettings from './components/EstimateImportSettings';
 import EstimateTemplatesList from './components/EstimateTemplatesList';
 import EstimateListEmptyStates from './components/EstimateListEmptyStates';
 import EstimateListSummaryBar from './components/EstimateListSummaryBar';
+import EstimateProjectGroupCard from './components/EstimateProjectGroupCard';
 import EstimateCreateActions from './components/EstimateCreateActions';
 import EstimateImportUploadButton from './components/EstimateImportUploadButton';
 import EstimateSelectedStatusActions from './components/EstimateSelectedStatusActions';
@@ -15471,7 +15472,7 @@ function App() {
 	                </>);})()}
                 <EstimateTotalCard C={C} card={card} total={(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0)} />
               </div>):(<div>
-                {(()=>{const normal=(estimatesList||[]).filter(e=>!isGlobalEstimateTemplate(e)||e.status==='Активная');const templates=(estimatesList||[]).filter(e=>isGlobalEstimateTemplate(e)&&e.status!=='Активная');const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});return(<>
+                {(()=>{const normal=(estimatesList||[]).filter(e=>!isGlobalEstimateTemplate(e)||e.status==='Активная');const templates=(estimatesList||[]).filter(e=>isGlobalEstimateTemplate(e)&&e.status!=='Активная');const groups={};normal.forEach(e=>{if(!showArchivedEstimates&&isArchivedEstimate(e)) return;const k=estimateGroupKey(e);if(!groups[k]) groups[k]=[];groups[k].push(e);});const grouped=Object.entries(groups).sort((a,b)=>{const aa=activeEstimateFromList(a[1]);const bb=activeEstimateFromList(b[1]);return (estimateUpdatedTs(bb)||Number(bb?.id||0))-(estimateUpdatedTs(aa)||Number(aa?.id||0));});const projectGroups={};grouped.forEach(([key,items])=>{const active=activeEstimateFromList(items);const projectName=active?.projectName||items[0]?.projectName||'Без объекта';if(!projectGroups[projectName])projectGroups[projectName]=[];projectGroups[projectName].push([key,items]);});const groupedByProject=Object.entries(projectGroups).sort((a,b)=>{const aa=a[1].map(([,items])=>activeEstimateFromList(items)).filter(Boolean);const bb=b[1].map(([,items])=>activeEstimateFromList(items)).filter(Boolean);const at=Math.max(0,...aa.map(e=>estimateUpdatedTs(e)||Number(e.id||0)));const bt=Math.max(0,...bb.map(e=>estimateUpdatedTs(e)||Number(e.id||0)));return bt-at||a[0].localeCompare(b[0],'ru');});return(<>
                   <EstimateListSummaryBar
                     C={C}
                     card={card}
@@ -15484,18 +15485,36 @@ function App() {
                     showArchivedEstimates={showArchivedEstimates}
                     setShowArchivedEstimates={setShowArchivedEstimates}
                   />
-                  {grouped.map(([key,items])=>{const sorted=[...items].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));const active=activeEstimateFromList(sorted);const projectName=active?.projectName||sorted[0]?.projectName||'Без проекта';const kind=estimateKind(active||sorted[0]);const pkg=estimatePackage(active||sorted[0]);const archivedCount=sorted.filter(isArchivedEstimate).length;const draftCount=sorted.filter(e=>(e.status||'Черновик')==='Черновик').length;const activeCount=sorted.filter(e=>e.status==='Активная').length;const last=sorted[0];const prevForActive=active?sorted.find(e=>e.id!==active.id):null;const diff=active&&prevForActive?estimateTotal(active)-estimateTotal(prevForActive):0;return(<div key={key} style={{...card,marginBottom:'12px'}}>
-                    <div style={{padding:'12px 14px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
-                      <div style={{minWidth:'260px',flex:1}}><b style={{color:C.text,fontSize:'13px'}}>{estimateTypeIcon(kind)+' '+projectName}</b><p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>{kind+' · 📁 '+pkg+' · '+sorted.length+' верс. · активных '+activeCount+' · архив '+archivedCount+(draftCount?' · черновиков '+draftCount:'')}</p>{active&&<p style={{color:C.textMuted,margin:'3px 0 0',fontSize:'11px'}}>Сейчас в расчётах: {estimateDisplayVersion(active,sorted)} · {active.name}{last?.id!==active.id?' · последняя загруженная: '+estimateDisplayVersion(last,sorted):''}</p>}<p style={{color:C.textMuted,margin:'3px 0 0',fontSize:'11px'}}>Цепочка: {estimateVersionChain(sorted)}</p></div>
-                      <div style={{textAlign:'right'}}><b style={{color:C.success,fontSize:'14px'}}>{active?Math.round(estimateTotal(active)).toLocaleString('ru-RU')+' ₽':'—'}</b>{prevForActive&&<p style={{color:diff>=0?C.warning:C.success,margin:'3px 0 0',fontSize:'11px'}}>{diff>=0?'+':''}{Math.round(diff).toLocaleString('ru-RU')+' ₽ к прошлой'}</p>}</div>
-                    </div>
-                    <div style={{padding:'8px 12px'}}>
-                      {sorted.map(est=>{const st=estimateStatusView(est,sorted);const isUsed=active?.id===est.id;const diffBase=(active&&active.id!==est.id)?active:sorted.find(other=>other.id!==est.id);return(<div key={est.id} onClick={()=>setSelectedEstimate(est)} style={{padding:'10px 8px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',cursor:'pointer',opacity:isArchivedEstimate(est)?0.72:1}}>
-                        <div style={{flex:1,minWidth:0}}><b style={{color:C.text,fontSize:'13px'}}>{isUsed?'✓ ':''}{est.name}</b><div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'4px'}}><span style={badge(st.color,st.bg,st.border)}>{st.label}</span><span style={badge(C.textSec,C.bgGray,C.border)}>{estimateDisplayVersion(est,sorted)}</span>{est.versionCount>0&&<span style={badge(C.info,C.infoLight,C.infoBorder)}>{'история '+est.versionCount}</span>}{est.createdAt&&<span style={{color:C.textMuted,fontSize:'11px',alignSelf:'center'}}>{String(est.createdAt).slice(0,10)}</span>}</div></div>
-                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}><b style={{color:C.success,fontSize:'13px'}}>{Math.round(estimateTotal(est)).toLocaleString('ru-RU')+' ₽'}</b>{diffBase&&<button onClick={e=>{e.stopPropagation();showPreview(buildEstimateDiffContent(diffBase,est),'Сопоставительная ведомость');}} style={{...btnB,padding:'4px 8px',fontSize:'11px'}}><FileText size={11}/>Ведомость</button>}{est.status!=='Активная'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Активная');}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}><CheckCircle size={11}/>Активной</button>}{est.status!=='Архив'&&<button onClick={e=>{e.stopPropagation();setEstimateStatusRemote(est,'Архив');}} style={{...btnG,padding:'4px 8px',fontSize:'11px'}} title="В архив"><Archive size={11}/></button>}{isLeadership()&&<button onClick={e=>{e.stopPropagation();deleteEstimateRemote(est);}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}} title="Удалить смету"><Trash2 size={11}/></button>}<ChevronRight size={16} color={C.textMuted}/></div>
-                      </div>);})}
-                    </div>
-                  </div>);})}
+                  {groupedByProject.map(([projectName,projectEstimateGroups])=>(
+                    <EstimateProjectGroupCard
+                      key={projectName}
+                      C={C}
+                      card={card}
+                      badge={badge}
+                      btnB={btnB}
+                      btnG={btnG}
+                      btnGr={btnGr}
+                      btnR={btnR}
+                      projectName={projectName}
+                      groups={projectEstimateGroups}
+                      setSelectedEstimate={setSelectedEstimate}
+                      estimateTypeIcon={estimateTypeIcon}
+                      estimateKind={estimateKind}
+                      estimatePackage={estimatePackage}
+                      estimateUpdatedTs={estimateUpdatedTs}
+                      activeEstimateFromList={activeEstimateFromList}
+                      estimateTotal={estimateTotal}
+                      estimateStatusView={estimateStatusView}
+                      estimateDisplayVersion={estimateDisplayVersion}
+                      estimateVersionChain={estimateVersionChain}
+                      isArchivedEstimate={isArchivedEstimate}
+                      setEstimateStatusRemote={setEstimateStatusRemote}
+                      deleteEstimateRemote={deleteEstimateRemote}
+                      showPreview={showPreview}
+                      buildEstimateDiffContent={buildEstimateDiffContent}
+                      isLeadership={isLeadership}
+                    />
+                  ))}
                   <EstimateTemplatesList
                     C={C}
                     card={card}
@@ -15509,7 +15528,7 @@ function App() {
                     card={card}
                     normalCount={normal.length}
                     templatesCount={templates.length}
-                    groupedCount={grouped.length}
+                    groupedCount={groupedByProject.length}
                   />
                 </>);})()}
               </div>)}
