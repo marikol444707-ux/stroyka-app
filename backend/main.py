@@ -3734,9 +3734,18 @@ def create_warehouse_history(h: WarehouseHistoryModel, _current_user: dict = Dep
 def delete_warehouse_history(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM warehouse_history WHERE id=%s", (id,))
-    conn.close()
-    return {"ok": True}
+    cur.execute("SELECT project FROM warehouse_history WHERE id=%s", (id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Запись движения склада не найдена")
+    project_name = row[0] if not isinstance(row, dict) else row.get("project")
+    if project_name:
+        require_project_or_warehouse_access(_current_user, project_name)
+    raise HTTPException(
+        status_code=409,
+        detail="Удаление записей движения склада запрещено: в warehouse_history нет полей статуса/сторно, физическое удаление нарушает аудит склада",
+    )
 
 STAFF_COLUMNS = """id, name, role, phone, salary, project, pay_type as "payType",
     last_name as "lastName", first_name as "firstName", middle_name as "middleName",
@@ -3914,12 +3923,17 @@ def get_piecework(current_user: dict = Depends(get_current_user)):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     allowed_projects = visible_project_names(current_user)
     cols = "id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\",work_journal_id as \"workJournalId\""
+    active_clause = """NOT EXISTS (
+        SELECT 1 FROM work_journal wj
+        WHERE wj.id = piecework.work_journal_id
+          AND COALESCE(wj.status,'') = 'Отклонено'
+    )"""
     if allowed_projects is None:
-        cur.execute(f"SELECT {cols} FROM piecework ORDER BY id DESC")
+        cur.execute(f"SELECT {cols} FROM piecework WHERE {active_clause} ORDER BY id DESC")
     elif not allowed_projects:
-        cur.execute(f"SELECT {cols} FROM piecework WHERE staff_id=%s ORDER BY id DESC", (str(current_user.get("id")),))
+        cur.execute(f"SELECT {cols} FROM piecework WHERE {active_clause} AND staff_id=%s ORDER BY id DESC", (str(current_user.get("id")),))
     else:
-        cur.execute(f"SELECT {cols} FROM piecework WHERE project = ANY(%s) OR staff_id=%s ORDER BY id DESC", (allowed_projects, str(current_user.get("id"))))
+        cur.execute(f"SELECT {cols} FROM piecework WHERE {active_clause} AND (project = ANY(%s) OR staff_id=%s) ORDER BY id DESC", (allowed_projects, str(current_user.get("id"))))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -6255,12 +6269,15 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         require_row_project_access(cur, "work_journal", id, _current_user, "project")
-        cur.execute("SELECT project, master_id, master_name, date, materials_used FROM work_journal WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT project, master_id, master_name, date, status, comment, materials_used FROM work_journal WHERE id=%s FOR UPDATE", (id,))
         work = cur.fetchone()
         if not work:
             conn.rollback()
-            cur.close(); conn.close()
             raise HTTPException(status_code=404, detail="Запись журнала не найдена")
+        cancellation_marker = "Аннулировано без физического удаления"
+        if cancellation_marker in (work.get("comment") or ""):
+            conn.rollback()
+            return {"ok": True, "cancelled": True, "alreadyCancelled": True, "materialsRestored": 0}
         used = []
         raw_used = work.get("materials_used")
         if raw_used:
@@ -6291,10 +6308,19 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
                             (name, unit, qty, 0, 0, project_name, "Возврат"))
             cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                         (name, "возврат (удаление работы)", qty, str(work.get("date") or ""), project_name, master_name, datetime.now().strftime("%d.%m.%Y, %H:%M")))
-        cur.execute("DELETE FROM piecework WHERE work_journal_id=%s", (id,))
-        cur.execute("DELETE FROM work_journal WHERE id=%s", (id,))
+        cur.execute("SELECT COUNT(*) AS cnt FROM piecework WHERE work_journal_id=%s", (id,))
+        piecework_row = cur.fetchone()
+        piecework_count = int((piecework_row.get("cnt") if isinstance(piecework_row, dict) else piecework_row[0]) or 0)
+        actor_name = _current_user.get("name") or ""
+        cancelled_at = datetime.now().strftime("%d.%m.%Y, %H:%M")
+        old_comment = work.get("comment") or ""
+        cancel_note = cancellation_marker + " " + cancelled_at
+        if actor_name:
+            cancel_note += " (" + actor_name + ")"
+        new_comment = (old_comment + "\n" + cancel_note).strip() if old_comment else cancel_note
+        cur.execute("UPDATE work_journal SET status=%s, comment=%s WHERE id=%s", ("Отклонено", new_comment, id))
         conn.commit()
-        return {"ok": True, "materialsRestored": len(used)}
+        return {"ok": True, "cancelled": True, "materialsRestored": len(used), "pieceworkPreserved": piecework_count}
     except HTTPException:
         conn.rollback()
         raise
@@ -14283,12 +14309,34 @@ def update_expense_report(id: int, data: dict, _current_user: dict = Depends(req
 
 @app.delete("/expense-reports/{id}")
 def delete_expense_report(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+    from datetime import date
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM expense_reports WHERE id=%s", (id,))
+    cur.execute("SELECT project_name, status, purpose FROM expense_reports WHERE id=%s FOR UPDATE", (id,))
+    row = cur.fetchone()
+    if not row:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Авансовый отчет не найден")
+    project_name, status, purpose = row
+    if project_name:
+        require_project_access(_current_user, project_name)
+    if (status or "") == "Аннулирован":
+        conn.rollback()
+        cur.close(); conn.close()
+        return {"ok": True, "cancelled": True, "alreadyCancelled": True}
+    actor_name = _current_user.get("name") or ""
+    cancel_note = "Аннулировано без физического удаления " + date.today().isoformat()
+    if actor_name:
+        cancel_note += " (" + actor_name + ")"
+    new_purpose = ((purpose or "") + "\n" + cancel_note).strip() if purpose else cancel_note
+    cur.execute("""UPDATE expense_reports
+                   SET status=%s, purpose=%s, approved_by=%s, approved_at=%s
+                   WHERE id=%s""",
+                ("Аннулирован", new_purpose, actor_name, date.today(), id))
     conn.commit()
     cur.close(); conn.close()
-    return {"ok": True}
+    return {"ok": True, "cancelled": True}
 
 @app.get("/supplier-invoices")
 def list_supplier_invoices(project_name: str = None, status: str = None, limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
@@ -14768,12 +14816,40 @@ def create_project_payment(data: dict, _current_user: dict = Depends(require_rol
 
 @app.delete("/project-payments/{id}")
 def delete_project_payment(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+    from datetime import date
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("DELETE FROM project_payments WHERE id=%s", (id,))
+    cur.execute("SELECT project_name, amount, note, date, added_by FROM project_payments WHERE id=%s FOR UPDATE", (id,))
+    row = cur.fetchone()
+    if not row:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Платеж по объекту не найден")
+    project_name, amount, note, pay_date, added_by = row
+    if project_name:
+        require_project_access(_current_user, project_name)
+    amount = amount or 0
+    reversal_note = "Сторно платежа #" + str(id)
+    if note:
+        reversal_note += ": " + str(note)
+    cur.execute("""SELECT id FROM project_payments
+                   WHERE project_name=%s AND amount=%s AND COALESCE(note,'')=%s
+                   ORDER BY id DESC LIMIT 1""",
+                (project_name, -amount, reversal_note))
+    existing = cur.fetchone()
+    if existing:
+        conn.rollback()
+        cur.close(); conn.close()
+        existing_id = existing[0] if not isinstance(existing, dict) else existing.get("id")
+        return {"ok": True, "reversed": True, "alreadyReversed": True, "reversalId": existing_id}
+    actor_name = _current_user.get("name") or added_by or ""
+    cur.execute("""INSERT INTO project_payments (project_name,amount,note,date,added_by)
+                   VALUES (%s,%s,%s,%s,%s) RETURNING id""",
+                (project_name, -amount, reversal_note, date.today().isoformat(), actor_name))
+    reversal_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
-    return {"ok": True}
+    return {"ok": True, "reversed": True, "reversalId": reversal_id}
 
 def send_vk_notification(vk_user_id: int, message: str):
     import requests
