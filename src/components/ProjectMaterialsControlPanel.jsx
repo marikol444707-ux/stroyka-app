@@ -46,6 +46,9 @@ export default function ProjectMaterialsControlPanel({
   const masterBalanceRows = rows.filter(r => r.masterBalance > 0);
   const stockMismatchRows = rows.filter(r => r.stockMismatch);
   const invalidPlanRows = rows.filter(r => r.invalidPlanCount > 0);
+  const rowNormRows = rows.filter(r => r.normPlanQty > 0);
+  const normOverEstimateRows = rows.filter(r => r.normOverEstimateQty > 0);
+  const usedOverControlRows = rows.filter(r => r.usedOverControlQty > 0);
   const overRows = normCtrl.overRows || [];
   const withoutNormRows = normCtrl.withoutNormRows || [];
   const normProblemRows = [
@@ -56,6 +59,7 @@ export default function ProjectMaterialsControlPanel({
   const filterOptions = [
     {id: 'all', label: 'Все', rows},
     {id: 'toBuy', label: 'Докупить', rows: toBuyRows},
+    {id: 'normGap', label: 'Нормы/расход', rows: rows.filter(r => r.normOverEstimateQty > 0 || r.usedOverControlQty > 0 || (r.normPlanQty > 0 && r.planQty <= 0))},
     {id: 'invalid', label: 'Проверить смету', rows: invalidPlanRows},
     {id: 'pipeline', label: 'В заявках/пути', rows: pipelineRows},
     {id: 'outside', label: 'Вне сметы', rows: outsideRows},
@@ -102,8 +106,10 @@ export default function ProjectMaterialsControlPanel({
     {label: 'В заявках/пути', value: pipelineRows.length, active: pipelineRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
     {label: 'Докупить', value: toBuyRows.length, active: true, color: toBuyRows.length ? C.warning : C.success, bg: toBuyRows.length ? C.warningLight : C.successLight, border: toBuyRows.length ? C.warningBorder : C.successBorder},
     {label: 'Проверить смету', value: invalidPlanRows.length, active: invalidPlanRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
+    {label: 'Норма выше сметы', value: normOverEstimateRows.length, active: normOverEstimateRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
+    {label: 'Расход сверх', value: usedOverControlRows.length, active: usedOverControlRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
     {label: 'Вне сметы', value: outsideRows.length, active: outsideRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
-    {label: 'По нормам работ', value: normRows.length, active: normRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
+    {label: 'По нормам работ', value: rowNormRows.length || normRows.length, active: (rowNormRows.length || normRows.length) > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
     {label: 'Перерасход норм', value: overRows.length, active: overRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
     {label: 'Списано без нормы', value: withoutNormRows.length, active: withoutNormRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
     {label: 'Расхождения', value: stockMismatchRows.length, active: stockMismatchRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder}
@@ -205,7 +211,28 @@ export default function ProjectMaterialsControlPanel({
                       {r.unitMismatch && <p style={{color: C.warning, fontSize: '10px', margin: '2px 0 0'}}>⚠️ Разные единицы измерения</p>}
                       {renderMaterialAliasControls(projectName, r)}
                     </td>
-                    <td style={tblC}>{r.planQty > 0 ? fmtMeasure(r.planQty, r.unit) : '—'}</td>
+                    <td style={tblC}>
+                      {r.planQty > 0 ? (
+                        <b>{fmtMeasure(r.planQty, r.unit)}</b>
+                      ) : (
+                        <span style={{color: C.textMuted}}>—</span>
+                      )}
+                      {r.normPlanQty > 0 && (
+                        <p style={{margin: '3px 0 0', color: C.info, fontSize: '10px'}}>
+                          Норма: {fmtMeasure(r.normPlanQty, r.unit)}
+                        </p>
+                      )}
+                      {r.controlPlanQty > 0 && r.controlPlanQty !== r.planQty && (
+                        <p style={{margin: '3px 0 0', color: r.normOverEstimateQty > 0 ? C.warning : C.textMuted, fontSize: '10px'}}>
+                          Контроль: {fmtMeasure(r.controlPlanQty, r.unit)}
+                        </p>
+                      )}
+                      {r.normOverEstimateQty > 0 && (
+                        <p style={{margin: '3px 0 0', color: C.warning, fontSize: '10px'}}>
+                          +{fmtMeasure(r.normOverEstimateQty, r.unit)} к смете
+                        </p>
+                      )}
+                    </td>
                     <td style={{...tblC, color: r.requested > 0 ? C.info : C.textMuted}}>{fmtMeasure(r.requested, r.unit)}</td>
                     <td style={{...tblC, color: r.inTransit > 0 ? C.warning : C.textMuted}}>{fmtMeasure(r.inTransit, r.unit)}</td>
                     <td style={{...tblC, color: r.invoiceReceived > 0 ? C.success : C.textMuted}}>{fmtMeasure(r.invoiceReceived, r.unit)}</td>
@@ -213,7 +240,19 @@ export default function ProjectMaterialsControlPanel({
                     <td style={{...tblC, color: r.movedNet !== 0 ? C.info : C.textMuted}}>{fmtMeasure(r.movedNet, r.unit)}</td>
                     <td style={{...tblC, color: r.supplied >= r.planQty && r.planQty > 0 ? C.success : C.text}}>{fmtMeasure(r.supplied, r.unit)}</td>
                     <td style={tblC}>{fmtMeasure(r.issued, r.unit)}</td>
-                    <td style={tblC}>{fmtMeasure(r.used, r.unit)}</td>
+                    <td style={tblC}>
+                      {fmtMeasure(r.used, r.unit)}
+                      {r.controlPlanQty > 0 && (
+                        <p style={{margin: '2px 0 0', color: r.usedOverControlQty > 0 ? C.danger : C.textMuted, fontSize: '10px'}}>
+                          {r.spendPct || 0}% от контроля
+                        </p>
+                      )}
+                      {r.usedOverControlQty > 0 && (
+                        <p style={{margin: '2px 0 0', color: C.danger, fontSize: '10px', fontWeight: '700'}}>
+                          сверх {fmtMeasure(r.usedOverControlQty, r.unit)}
+                        </p>
+                      )}
+                    </td>
 	                    <td style={{...tblC, color: r.masterBalance > 0 ? C.info : C.textMuted}}>
 	                      <b>{fmtMeasure(r.masterBalance, r.unit)}</b>
 	                      {r.pendingAtMasters > 0 && <p style={{margin: '2px 0 0', color: C.warning, fontSize: '10px'}}>Ждёт подписи: {fmtMeasure(r.pendingAtMasters, r.unit)}</p>}
@@ -230,7 +269,7 @@ export default function ProjectMaterialsControlPanel({
                     <td style={tblC}>
 	                      <span style={badge(st.color, st.bg, st.border)}>
 		                        {st.label}
-		                        {r.invalidPlanCount > 0 ? ' · ' + r.invalidPlanCount : r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
+		                        {r.invalidPlanCount > 0 ? ' · ' + r.invalidPlanCount : r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.usedOverControlQty > 0 ? ' · ' + fmtMeasure(r.usedOverControlQty, r.unit) : r.normOverEstimateQty > 0 ? ' · +' + fmtMeasure(r.normOverEstimateQty, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
 		                      </span>
 	                      {renderMaterialSupplyAction(projectName, r)}
 	                      {onIssueMaterial && r.stock > 0 && (

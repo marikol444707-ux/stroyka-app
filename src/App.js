@@ -4675,7 +4675,7 @@ function App() {
       const key = keyOf(meta.name);
       if (!key) return null;
       const cleanUnit = materialUnit(meta.unit || unit);
-      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planDetails:[],invalidPlanDetails:[],planQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planDetails:[],invalidPlanDetails:[],normDetails:[],normSections:[],normWorks:[],normSources:[],planQty:0,normPlanQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
       if (rawName && keyOf(rawName)!==key && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
       if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
       if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
@@ -4880,10 +4880,28 @@ function App() {
         const r = ensure(d.materialName, d.unit);
         addQty(r, 'inTransit', d.shippedQuantity || d.plannedQuantity, d.unit);
     });
+    estimateWorkNormRequirementRows(projectName).forEach(n=>{
+      const r = ensure(n.name, n.unit);
+      if (!r) return;
+      addQty(r, 'normPlanQty', n.planQty, n.unit);
+      (n.sections||[]).forEach(s=>{ if (s && !r.normSections.includes(s)) r.normSections.push(s); });
+      (n.normSources||[]).forEach(src=>{ if (src && !r.normSources.includes(src)) r.normSources.push(src); });
+      (n.works||[]).forEach(w=>{
+        const workName = w?.name || '';
+        if (workName && !r.workRefs.includes(workName)) r.workRefs.push(workName);
+        if (workName && !r.normWorks.some(x=>x.name===workName && x.section===w.section)) r.normWorks.push(w);
+      });
+      r.normDetails.push(n);
+    });
     return Object.values(rows).map(r=>{
       const movedNet = r.movedIn + r.issuedFromMain - r.movedOut;
       const supplied = r.received + movedNet;
-      const toBuy = r.planQty>0 ? Math.max(0, (r.planQty||0) - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
+      const estimatePlanQty = Number(r.planQty||0);
+      const normPlanQty = Number(r.normPlanQty||0);
+      const controlPlanQty = Math.max(estimatePlanQty, normPlanQty);
+      const normOverEstimateQty = estimatePlanQty>0 ? Math.max(0, normPlanQty - estimatePlanQty) : normPlanQty;
+      const estimateOverNormQty = normPlanQty>0 ? Math.max(0, estimatePlanQty - normPlanQty) : 0;
+      const toBuy = controlPlanQty>0 ? Math.max(0, controlPlanQty - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
       const coveredWithPipeline = supplied + (r.requested||0) + (r.inTransit||0);
       const hasMaterialActivity = coveredWithPipeline>0 || (r.stock||0)>0 || (r.issued||0)>0 || (r.used||0)>0;
       const holders = Object.values(r.holders||{}).map(h=>({
@@ -4909,12 +4927,21 @@ function App() {
         expectedStock,
         stockDiff,
         stockMismatch: Math.abs(stockDiff)>0.0001,
-        shortage: Math.max(0, (r.planQty||0) - supplied),
+        estimatePlanQty,
+        normPlanQty,
+        controlPlanQty,
+        normSourceCount: (r.normDetails || []).length,
+        normOverEstimateQty,
+        estimateOverNormQty,
+        usedOverControlQty: controlPlanQty>0 ? Math.max(0, (r.used||0) - controlPlanQty) : 0,
+        usedOverNormQty: normPlanQty>0 ? Math.max(0, (r.used||0) - normPlanQty) : 0,
+        spendPct: controlPlanQty>0 ? Math.min(999, Math.round((r.used||0)/controlPlanQty*100)) : 0,
+        shortage: Math.max(0, controlPlanQty - supplied),
         toBuy,
         coveredWithPipeline,
-        over: r.planQty>0 ? Math.max(0, supplied - r.planQty) : coveredWithPipeline,
-        isOutsideEstimate: !r.planQty && hasMaterialActivity,
-        coveragePct: r.planQty>0 ? Math.min(999, Math.round(supplied/r.planQty*100)) : 0,
+        over: controlPlanQty>0 ? Math.max(0, supplied - controlPlanQty) : coveredWithPipeline,
+        isOutsideEstimate: !estimatePlanQty && !normPlanQty && hasMaterialActivity,
+        coveragePct: controlPlanQty>0 ? Math.min(999, Math.round(supplied/controlPlanQty*100)) : 0,
       };
     }).sort((a,b)=>(b.toBuy-a.toBuy)||(b.shortage-a.shortage)||(b.isOutsideEstimate-a.isOutsideEstimate)||a.name.localeCompare(b.name,'ru'));
   };
@@ -4933,15 +4960,20 @@ function App() {
     const masterBalanceRows = rows.filter(r=>r.masterBalance>0);
     const usedWithoutIssueRows = rows.filter(r=>r.issued>0 && r.usedWithoutIssue>0);
     const invalidPlanRows = rows.filter(r=>r.invalidPlanCount>0);
+    const normRows = rows.filter(r=>r.normPlanQty>0);
+    const normOverEstimateRows = rows.filter(r=>r.normOverEstimateQty>0);
+    const usedOverControlRows = rows.filter(r=>r.usedOverControlQty>0);
     const planSum = rows.reduce((s,r)=>s+Number(r.planSum||0),0);
     const suppliedSum = rows.reduce((s,r)=>s+Number(r.receivedSum||0),0);
-    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, invalidPlanRows, planSum, suppliedSum};
+    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, invalidPlanRows, normRows, normOverEstimateRows, usedOverControlRows, planSum, suppliedSum};
   };
   const materialControlStatus = (r) => {
     if (r.invalidPlanCount>0) return {label:'Проверить смету', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.stockMismatch) return {label:'Расхождение склада', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.issued>0 && r.usedWithoutIssue>0) return {label:'Списано сверх выдачи', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
+    if (r.usedOverControlQty>0) return {label:'Расход сверх нормы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.isOutsideEstimate) return {label:'Вне сметы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
+    if (r.normOverEstimateQty>0) return {label:'Норма выше сметы', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.toBuy>0) return {label:'Докупить', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.shortage>0) return {label:'Закрывается', color:C.info, bg:C.infoLight, border:C.infoBorder};
     if (r.masterBalance>0) return {label:'У мастеров', color:C.info, bg:C.infoLight, border:C.infoBorder};
@@ -4993,7 +5025,7 @@ function App() {
       const alreadySeen = seenQtyByKey[m.key] || 0;
       seenQtyByKey[m.key] = alreadySeen + qty;
 
-      if (!row || Number(row.planQty||0) <= 0) {
+      if (!row || Number(row.controlPlanQty||row.planQty||0) <= 0) {
 	        return {
 	          index,
 	          name:item.name||'',
@@ -5010,8 +5042,8 @@ function App() {
 	          unitMismatch:false,
 	          status:'Вне сметы',
 	          severity:'danger',
-	          detail:'Материал есть в накладной, но не найден в активной смете объекта',
-	          planText:'нет в смете',
+	          detail:'Материал есть в накладной, но не найден в активной смете и нормах объекта',
+	          planText:'нет в смете/нормах',
           beforeText:'—',
           afterText:fmtMeasure(qty, unit),
           overText:fmtMeasure(qty, unit),
@@ -5026,10 +5058,11 @@ function App() {
       const invoiceQty = Number(invoiceQtyByKey[m.key]||0);
       const suppliedBeforeInvoice = inv?.id ? Math.max(0, Number(row.supplied||0) - invoiceQty) : Number(row.supplied||0);
       const afterQty = suppliedBeforeInvoice + alreadySeen + qty;
-      const overQty = Math.max(0, afterQty - Number(row.planQty||0));
-      const shortageQty = Math.max(0, Number(row.planQty||0) - afterQty);
+      const controlPlanQty = Number(row.controlPlanQty||row.planQty||0);
+      const overQty = Math.max(0, afterQty - controlPlanQty);
+      const shortageQty = Math.max(0, controlPlanQty - afterQty);
       const beforeQty = suppliedBeforeInvoice + alreadySeen;
-      const coveredByLineQty = Math.min(qty, Math.max(0, Number(row.planQty||0) - beforeQty));
+      const coveredByLineQty = Math.min(qty, Math.max(0, controlPlanQty - beforeQty));
       const planUnitPrice = Number(row.planQty||0) > 0 ? Number(row.planSum||0) / Number(row.planQty||1) : 0;
       const invoiceUnitPrice = qty > 0 ? lineSum / qty : Number(item.price||0);
       const priceOverSum = planUnitPrice > 0 ? Math.max(0, lineSum - planUnitPrice * qty) : 0;
@@ -5051,7 +5084,9 @@ function App() {
 	        unit,
 	        rowUnit,
 	        lineSum,
-	        planQty:Number(row.planQty||0),
+	        planQty:controlPlanQty,
+	        estimatePlanQty:Number(row.planQty||0),
+	        normPlanQty:Number(row.normPlanQty||0),
 	        beforeQty,
 	        afterQty,
 	        shortageQty,
@@ -5069,7 +5104,9 @@ function App() {
               : shortageQty > 0
                 ? 'Поставка закрывает часть сметной потребности'
                 : 'Поставка закрывает сметную потребность',
-        planText:fmtMeasure(row.planQty, rowUnit),
+        planText:fmtMeasure(controlPlanQty, rowUnit),
+        estimatePlanText:Number(row.planQty||0)>0 ? fmtMeasure(row.planQty, rowUnit) : '—',
+        normPlanText:Number(row.normPlanQty||0)>0 ? fmtMeasure(row.normPlanQty, rowUnit) : '—',
         incomingText:fmtMeasure(qty, rowUnit),
         coveredByLineText:fmtMeasure(coveredByLineQty, rowUnit),
         beforeText:fmtMeasure(beforeQty, rowUnit),
@@ -5141,6 +5178,8 @@ function App() {
       (row.sections||[]).length ? 'Разделы: '+(row.sections||[]).slice(0,5).join('; ') : '',
       (row.workRefs||[]).length ? 'Работы: '+(row.workRefs||[]).slice(0,5).join('; ') : '',
       'План по смете: '+fmtMeasure(row.planQty, unit),
+      row.normPlanQty ? 'Норма по работам: '+fmtMeasure(row.normPlanQty, unit) : '',
+      row.controlPlanQty ? 'Контрольная потребность: '+fmtMeasure(row.controlPlanQty, unit) : '',
       'Поставлено/перемещено: '+fmtMeasure(row.supplied, unit),
       'В заявках и пути: '+fmtMeasure(toNum(row.requested)+toNum(row.inTransit), unit),
       'Расчётная нехватка: '+fmtMeasure(row.toBuy, unit),
@@ -5158,7 +5197,7 @@ function App() {
         date: new Date().toISOString().split('T')[0],
         notes,
         category: '',
-        urgency: row.toBuy > row.planQty * 0.25 ? 'срочная' : 'обычная',
+        urgency: row.toBuy > toNum(row.controlPlanQty || row.planQty) * 0.25 ? 'срочная' : 'обычная',
         requestedByRole: user.role,
         requestedById: user.id,
         selectedSuppliers: [],
