@@ -11761,6 +11761,121 @@ function App() {
     finally { e.target.value=''; }
   };
 
+  const handleEstimateAiAnalysis = async () => {
+    let plMap={};
+    const proj=projects.find(p=>p.id===Number(selectedEstimate.projectId));
+    if(proj&&proj.pricelistId){
+      try{
+        const pli=await fetch(API+'/pricelists/'+proj.pricelistId+'/items').then(r=>r.json());
+        (pli||[]).forEach(p=>{const k=(p.name||'').toLowerCase().trim();if(k) plMap[k]=Number(p.price||0);});
+      }catch(e){}
+    }
+    const allItems=(selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>{
+      const work=Number(i.priceWork||0);
+      const mat=Number(i.priceMaterial||0);
+      const qty=Number(i.quantity||0);
+      const sum=estimateItemTotal(i);
+      let plPrice=0,diff=0;
+      if(Object.keys(plMap).length){
+        const k=(i.name||'').toLowerCase().trim();
+        plPrice=plMap[k]||0;
+        if(!plPrice){const f=Object.keys(plMap).find(pk=>pk.length>5&&(k.includes(pk)||pk.includes(k)));if(f) plPrice=plMap[f];}
+        const unitPrice=qty>0 ? sum/qty : (work+mat);
+        if(plPrice&&unitPrice>0){diff=Math.round((unitPrice/plPrice-1)*100);}
+      }
+      return {section:s.name,name:i.name,unit:i.unit,qty,work,mat,sum,plPrice,diff};
+    }));
+    const total=allItems.reduce((s,i)=>s+i.sum,0);
+    const top5=[...allItems].sort((a,b)=>b.sum-a.sum).slice(0,5);
+    const bySection={};
+    allItems.forEach(i=>{bySection[i.section]=(bySection[i.section]||0)+i.sum;});
+    const shares=Object.entries(bySection).map(([n,s])=>({name:n,sum:s,share:total>0?Math.round(s/total*100):0})).sort((a,b)=>b.sum-a.sum);
+    const fmt=(n)=>Number(n||0).toLocaleString('ru-RU');
+    const prompt='Ты эксперт по строительным сметам. Анализируешь смету "'+selectedEstimate.name+'" на '+fmt(total)+' ₽.\n\n'
+      +'РАЗДЕЛЫ ('+shares.length+'):\n'+shares.map(s=>'• '+s.name+': '+fmt(s.sum)+' ₽ ('+s.share+'%)').join('\n')+'\n\n'
+      +'ТОП-5 ДОРОГИХ ПОЗИЦИЙ:\n'+top5.map((i,n)=>(n+1)+'. ['+i.section+'] '+i.name+': '+i.qty+' '+i.unit+', '+fmt(i.sum)+' ₽ ('+(total>0?Math.round(i.sum/total*100):0)+'%)'+(i.plPrice?', прайс '+fmt(i.plPrice)+'₽ → '+(i.diff>0?'+':'')+i.diff+'%':'')).join('\n')+'\n\n'
+      +'ВСЕ ПОЗИЦИИ:\n'+allItems.map(i=>'- ['+i.section+'] '+i.name+' | '+i.qty+' '+i.unit+' | '+fmt(i.sum)+'₽'+(i.plPrice?' (прайс '+fmt(i.plPrice)+'₽, '+(i.diff>0?'+':'')+i.diff+'%)':'')).join('\n')+'\n\n'
+      +'ОТВЕТЬ СТРОГО В ФОРМАТЕ JSON (без markdown, без ```, только сырой JSON):\n'
+      +'{\n'
+      +'  "top": [{"name":"название позиции","section":"раздел","sum":число,"share":процент,"why":"почему дорого"}],\n'
+      +'  "sections": [{"name":"полное название раздела","sum":число,"share":процент,"summary":"что в разделе","note":"на что обратить внимание или норма"}],\n'
+      +'  "risks": [{"where":"конкретная позиция или раздел","problem":"что не так","impact":число_или_0}],\n'
+      +'  "actions": [{"do":"конкретное действие","target":"что/где менять","savings":число_или_0}]\n'
+      +'}\n\n'
+      +'ПРАВИЛА:\n'
+      +'• top — 5 позиций из ТОП-5 выше, цифры из данных точно.\n'
+      +'• sections — ОБЯЗАТЕЛЬНО по КАЖДОМУ из '+shares.length+' разделов (не пропускай ни один). Для каждого: summary одной фразой (например "штукатурка, шпатлёвка, окраска"), note — что важного увидел (отклонения, странные объёмы) или просто "норма".\n'
+      +'• risks — позиции с отклонением от прайса >20%, странные объёмы, возможные дубли, забытые сопутствующие работы. Минимум 0, максимум 7. Если ничего — [].\n'
+      +'• actions — 3-6 КОНКРЕТНЫХ шагов с привязкой к позиции или разделу. НЕ "найти поставщиков", а "заменить X на Y в позиции Z". savings — оценка экономии в рублях или 0.\n'
+      +'• Все числа — без пробелов, без "руб", только цифры. 1260000 а не "1 260 000 руб".\n'
+      +'• Только валидный JSON. Никакого текста до или после.';
+    setShowAiChat(true);
+    setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name}]);
+    setAiLoading(true);
+    try{
+      const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],jsonOnly:true})});
+      const data=await res.json();
+      const raw=(data.response||data.error||'').trim();
+      let parsed=null;
+      try{
+        const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+        const start=clean.indexOf('{'),end=clean.lastIndexOf('}');
+        if(start>=0&&end>start) parsed=JSON.parse(clean.slice(start,end+1));
+      }catch(e){}
+      let out;
+      if(parsed&&(parsed.top||parsed.sections||parsed.risks||parsed.actions)){
+        const lines=[];
+        lines.push('💰 Общая сумма: '+fmt(total)+' ₽');
+        lines.push('');
+        if(Array.isArray(parsed.top)&&parsed.top.length){
+          lines.push('🔝 ТОП ДОРОГИХ ПОЗИЦИЙ');
+          parsed.top.forEach((t,n)=>{lines.push((n+1)+'. '+(t.name||'?')+(t.section?' ['+t.section+']':''));lines.push('   '+fmt(t.sum)+' ₽'+(t.share?' ('+t.share+'%)':'')+(t.why?' — '+t.why:''));});
+          lines.push('');
+        }
+        if(Array.isArray(parsed.sections)&&parsed.sections.length){
+          lines.push('📊 ПО РАЗДЕЛАМ');
+          parsed.sections.forEach((s,n)=>{
+            lines.push((n+1)+'. '+(s.name||'?')+' — '+fmt(s.sum)+' ₽'+(s.share?' ('+s.share+'%)':''));
+            if(s.summary) lines.push('   '+s.summary);
+            if(s.note&&s.note.toLowerCase()!=='норма') lines.push('   ⚡ '+s.note);
+          });
+          lines.push('');
+        }
+        if(Array.isArray(parsed.risks)&&parsed.risks.length){
+          lines.push('⚠️ РИСКИ');
+          parsed.risks.forEach((r,n)=>{lines.push((n+1)+'. '+(r.where||'?')+': '+(r.problem||'')+(r.impact?' (~'+fmt(r.impact)+' ₽)':''));});
+          lines.push('');
+        }else{
+          lines.push('✅ Явных рисков не выявлено');
+          lines.push('');
+        }
+        if(Array.isArray(parsed.actions)&&parsed.actions.length){
+          lines.push('🎯 ЧТО СДЕЛАТЬ');
+          parsed.actions.forEach((a,n)=>{lines.push((n+1)+'. '+(a.do||'?')+(a.target?' → '+a.target:'')+(a.savings?' (экономия ~'+fmt(a.savings)+' ₽)':''));});
+        }
+        out=lines.join('\n');
+      }else{
+        out=raw||'Ошибка: пустой ответ от ИИ';
+      }
+      setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name},{role:'assistant',content:out}]);
+    }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
+    setAiLoading(false);
+  };
+
+  const handleDetectEstimateHiddenWorks = async () => {
+    if(!selectedEstimate||!selectedEstimate.id) return;
+    if(!window.confirm('ИИ пройдёт по позициям сметы и отметит 🔒 работы, по которым нужно подготовить АОСР. Уже отмеченные вручную останутся. Продолжить?')) return;
+    try{
+      const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/ai-detect-hidden',{method:'POST'});
+      const data=await res.json();
+      if(!res.ok||!data.ok){alert('Не удалось: '+(data.detail||'ошибка'));return;}
+      const updated={...selectedEstimate,sections:data.sections};
+      setSelectedEstimate(updated);
+      setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
+      alert('🔒 Отмечено работ для АОСР: '+data.count+(data.method==='ai'?' (определил ИИ)':' (по ключевым словам — ИИ был недоступен)'));
+    }catch(e){alert('Ошибка соединения');}
+  };
+
   const menuItems = allMenuItems.filter(item=>canAccess(item.id));
 
   return (
@@ -15320,119 +15435,8 @@ function App() {
                     setDistributeBrigades(existing.length?existing.map(bc=>({name:bc.brigadeName,contractorType:bc.contractorType,pricelistId:bc.pricelistId||''})):[]);
                     setShowDistribute(true);
                   }} style={{...btnO,backgroundColor:'#16a34a'}}><Users size={14}/>👷 Распределить</button>
-                  <button onClick={async()=>{
-                    let plMap={};
-                    const proj=projects.find(p=>p.id===Number(selectedEstimate.projectId));
-                    if(proj&&proj.pricelistId){
-                      try{
-                        const pli=await fetch(API+'/pricelists/'+proj.pricelistId+'/items').then(r=>r.json());
-                        (pli||[]).forEach(p=>{const k=(p.name||'').toLowerCase().trim();if(k) plMap[k]=Number(p.price||0);});
-                      }catch(e){}
-                    }
-                    const allItems=(selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>{
-                      const work=Number(i.priceWork||0);
-                      const mat=Number(i.priceMaterial||0);
-                      const qty=Number(i.quantity||0);
-                      const sum=estimateItemTotal(i);
-                      let plPrice=0,diff=0;
-                      if(Object.keys(plMap).length){
-                        const k=(i.name||'').toLowerCase().trim();
-                        plPrice=plMap[k]||0;
-                        if(!plPrice){const f=Object.keys(plMap).find(pk=>pk.length>5&&(k.includes(pk)||pk.includes(k)));if(f) plPrice=plMap[f];}
-                        const unitPrice=qty>0 ? sum/qty : (work+mat);
-                        if(plPrice&&unitPrice>0){diff=Math.round((unitPrice/plPrice-1)*100);}
-                      }
-                      return {section:s.name,name:i.name,unit:i.unit,qty,work,mat,sum,plPrice,diff};
-                    }));
-                    const total=allItems.reduce((s,i)=>s+i.sum,0);
-                    const top5=[...allItems].sort((a,b)=>b.sum-a.sum).slice(0,5);
-                    const bySection={};
-                    allItems.forEach(i=>{bySection[i.section]=(bySection[i.section]||0)+i.sum;});
-                    const shares=Object.entries(bySection).map(([n,s])=>({name:n,sum:s,share:total>0?Math.round(s/total*100):0})).sort((a,b)=>b.sum-a.sum);
-                    const fmt=(n)=>Number(n||0).toLocaleString('ru-RU');
-                    const prompt='Ты эксперт по строительным сметам. Анализируешь смету "'+selectedEstimate.name+'" на '+fmt(total)+' ₽.\n\n'
-                      +'РАЗДЕЛЫ ('+shares.length+'):\n'+shares.map(s=>'• '+s.name+': '+fmt(s.sum)+' ₽ ('+s.share+'%)').join('\n')+'\n\n'
-                      +'ТОП-5 ДОРОГИХ ПОЗИЦИЙ:\n'+top5.map((i,n)=>(n+1)+'. ['+i.section+'] '+i.name+': '+i.qty+' '+i.unit+', '+fmt(i.sum)+' ₽ ('+(total>0?Math.round(i.sum/total*100):0)+'%)'+(i.plPrice?', прайс '+fmt(i.plPrice)+'₽ → '+(i.diff>0?'+':'')+i.diff+'%':'')).join('\n')+'\n\n'
-                      +'ВСЕ ПОЗИЦИИ:\n'+allItems.map(i=>'- ['+i.section+'] '+i.name+' | '+i.qty+' '+i.unit+' | '+fmt(i.sum)+'₽'+(i.plPrice?' (прайс '+fmt(i.plPrice)+'₽, '+(i.diff>0?'+':'')+i.diff+'%)':'')).join('\n')+'\n\n'
-                      +'ОТВЕТЬ СТРОГО В ФОРМАТЕ JSON (без markdown, без ```, только сырой JSON):\n'
-                      +'{\n'
-                      +'  "top": [{"name":"название позиции","section":"раздел","sum":число,"share":процент,"why":"почему дорого"}],\n'
-                      +'  "sections": [{"name":"полное название раздела","sum":число,"share":процент,"summary":"что в разделе","note":"на что обратить внимание или норма"}],\n'
-                      +'  "risks": [{"where":"конкретная позиция или раздел","problem":"что не так","impact":число_или_0}],\n'
-                      +'  "actions": [{"do":"конкретное действие","target":"что/где менять","savings":число_или_0}]\n'
-                      +'}\n\n'
-                      +'ПРАВИЛА:\n'
-                      +'• top — 5 позиций из ТОП-5 выше, цифры из данных точно.\n'
-                      +'• sections — ОБЯЗАТЕЛЬНО по КАЖДОМУ из '+shares.length+' разделов (не пропускай ни один). Для каждого: summary одной фразой (например "штукатурка, шпатлёвка, окраска"), note — что важного увидел (отклонения, странные объёмы) или просто "норма".\n'
-                      +'• risks — позиции с отклонением от прайса >20%, странные объёмы, возможные дубли, забытые сопутствующие работы. Минимум 0, максимум 7. Если ничего — [].\n'
-                      +'• actions — 3-6 КОНКРЕТНЫХ шагов с привязкой к позиции или разделу. НЕ "найти поставщиков", а "заменить X на Y в позиции Z". savings — оценка экономии в рублях или 0.\n'
-                      +'• Все числа — без пробелов, без "руб", только цифры. 1260000 а не "1 260 000 руб".\n'
-                      +'• Только валидный JSON. Никакого текста до или после.';
-                    setShowAiChat(true);
-                    setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name}]);
-                    setAiLoading(true);
-                    try{
-                      const res=await fetch(API+'/ai-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:prompt}],jsonOnly:true})});
-                      const data=await res.json();
-                      const raw=(data.response||data.error||'').trim();
-                      let parsed=null;
-                      try{
-                        const clean=raw.replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
-                        const start=clean.indexOf('{'),end=clean.lastIndexOf('}');
-                        if(start>=0&&end>start) parsed=JSON.parse(clean.slice(start,end+1));
-                      }catch(e){}
-                      let out;
-                      if(parsed&&(parsed.top||parsed.sections||parsed.risks||parsed.actions)){
-                        const lines=[];
-                        lines.push('💰 Общая сумма: '+fmt(total)+' ₽');
-                        lines.push('');
-                        if(Array.isArray(parsed.top)&&parsed.top.length){
-                          lines.push('🔝 ТОП ДОРОГИХ ПОЗИЦИЙ');
-                          parsed.top.forEach((t,n)=>{lines.push((n+1)+'. '+(t.name||'?')+(t.section?' ['+t.section+']':''));lines.push('   '+fmt(t.sum)+' ₽'+(t.share?' ('+t.share+'%)':'')+(t.why?' — '+t.why:''));});
-                          lines.push('');
-                        }
-                        if(Array.isArray(parsed.sections)&&parsed.sections.length){
-                          lines.push('📊 ПО РАЗДЕЛАМ');
-                          parsed.sections.forEach((s,n)=>{
-                            lines.push((n+1)+'. '+(s.name||'?')+' — '+fmt(s.sum)+' ₽'+(s.share?' ('+s.share+'%)':''));
-                            if(s.summary) lines.push('   '+s.summary);
-                            if(s.note&&s.note.toLowerCase()!=='норма') lines.push('   ⚡ '+s.note);
-                          });
-                          lines.push('');
-                        }
-                        if(Array.isArray(parsed.risks)&&parsed.risks.length){
-                          lines.push('⚠️ РИСКИ');
-                          parsed.risks.forEach((r,n)=>{lines.push((n+1)+'. '+(r.where||'?')+': '+(r.problem||'')+(r.impact?' (~'+fmt(r.impact)+' ₽)':''));});
-                          lines.push('');
-                        }else{
-                          lines.push('✅ Явных рисков не выявлено');
-                          lines.push('');
-                        }
-                        if(Array.isArray(parsed.actions)&&parsed.actions.length){
-                          lines.push('🎯 ЧТО СДЕЛАТЬ');
-                          parsed.actions.forEach((a,n)=>{lines.push((n+1)+'. '+(a.do||'?')+(a.target?' → '+a.target:'')+(a.savings?' (экономия ~'+fmt(a.savings)+' ₽)':''));});
-                        }
-                        out=lines.join('\n');
-                      }else{
-                        out=raw||'Ошибка: пустой ответ от ИИ';
-                      }
-                      setAiMessages([{role:'user',content:'Анализ сметы: '+selectedEstimate.name},{role:'assistant',content:out}]);
-                    }catch(e){setAiMessages(prev=>[...prev,{role:'assistant',content:'Ошибка соединения'}]);}
-                    setAiLoading(false);
-                  }} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>ИИ Анализ</button>
-                  <button onClick={async()=>{
-                    if(!selectedEstimate||!selectedEstimate.id) return;
-                    if(!window.confirm('ИИ пройдёт по позициям сметы и отметит 🔒 работы, по которым нужно подготовить АОСР. Уже отмеченные вручную останутся. Продолжить?')) return;
-                    try{
-                      const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/ai-detect-hidden',{method:'POST'});
-                      const data=await res.json();
-                      if(!res.ok||!data.ok){alert('Не удалось: '+(data.detail||'ошибка'));return;}
-                      const updated={...selectedEstimate,sections:data.sections};
-                      setSelectedEstimate(updated);
-                      setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
-                      alert('🔒 Отмечено работ для АОСР: '+data.count+(data.method==='ai'?' (определил ИИ)':' (по ключевым словам — ИИ был недоступен)'));
-                    }catch(e){alert('Ошибка соединения');}
-                  }} style={btnB}><Bot size={14}/>Найти работы для АОСР</button>
+                  <button onClick={handleEstimateAiAnalysis} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>ИИ Анализ</button>
+                  <button onClick={handleDetectEstimateHiddenWorks} style={btnB}><Bot size={14}/>Найти работы для АОСР</button>
                 </div>
                 <EstimateAddSectionForm
                   card={card}
