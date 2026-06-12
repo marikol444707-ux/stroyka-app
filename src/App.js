@@ -4842,7 +4842,7 @@ function App() {
         if (r) r.movementDetails.push({id:m.id, type:'out', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||''});
       }
     });
-    (materialTransfers||[]).filter(t=>t.projectName===projectName).forEach(t=>{
+    (materialTransfers||[]).filter(t=>t.projectName===projectName && (t.status||'Активна')!=='Аннулирована').forEach(t=>{
       const r = ensure(t.materialName, t.unit);
       if ((t.fromLocation||'')==='Основной склад') addQty(r, 'issuedFromMain', t.quantity, t.unit);
       addQty(r, 'issued', t.quantity, t.unit);
@@ -5487,7 +5487,7 @@ function App() {
   const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id) => {
     const byName = {};
     (materialTransfers||[])
-      .filter(t=>t.projectName===projectName && t.toPerson===personName && t.signed)
+      .filter(t=>t.projectName===projectName && t.toPerson===personName && t.signed && (t.status||'Активна')!=='Аннулирована')
       .forEach(t=>{
         const key = materialNameKey(t.materialName);
         if (!key) return;
@@ -5497,7 +5497,7 @@ function App() {
         byName[key].transfers.push(t);
       });
     (materialTransfers||[])
-      .filter(t=>t.projectName===projectName && t.toPerson===personName && !t.signed)
+      .filter(t=>t.projectName===projectName && t.toPerson===personName && !t.signed && (t.status||'Активна')!=='Аннулирована')
       .forEach(t=>{
         const key = materialNameKey(t.materialName);
         if (!key) return;
@@ -7389,7 +7389,7 @@ function App() {
         normSource: match.norm.normSource
       };
       if (m.autoNorm || m.quantity==='' || m.quantity===undefined || m.quantity===null) {
-        return {...m, ...patch, quantity: match.norm.quantity, autoNorm: true};
+        return {...m, ...patch, quantity: capMaterialWriteoffQty(projectName, m.name, match.norm.quantity), autoNorm: true};
       }
       return {...m, ...patch, autoNorm: false};
     });
@@ -7399,7 +7399,7 @@ function App() {
       .forEach(x=>next.push({
         name:x.material.name,
         unit:x.norm.unit || x.material.unit || 'шт',
-        quantity:x.norm.quantity,
+        quantity:capMaterialWriteoffQty(projectName, x.material.name, x.norm.quantity),
         autoNorm:true,
         normQuantity:x.norm.normQuantity,
         normSource:x.norm.normSource
@@ -7653,6 +7653,17 @@ function App() {
         };
       });
   };
+  const materialWriteoffAvailableQty = (projectName, materialName) => {
+    const stock = materialAvailabilityMapForWork(projectName)[materialNameKey(materialName)];
+    return stock ? toNum(stock.quantity) : 0;
+  };
+  const capMaterialWriteoffQty = (projectName, materialName, quantity) => {
+    const qty = toNum(quantity);
+    if (qty <= 0) return quantity || '';
+    const available = materialWriteoffAvailableQty(projectName, materialName);
+    if (available > 0 && qty > available) return Math.round(available * 1000) / 1000;
+    return qty;
+  };
   const materialWriteoffBlockMessage = (projectName, usedMaterials=[]) => {
     const rows = materialWriteoffRows(projectName, usedMaterials);
     const bad = rows.filter(r=>!r.stock || r.overStock);
@@ -7688,7 +7699,7 @@ function App() {
           const color = tone==='danger' ? C.danger : tone==='warning' ? C.warning : C.success;
           const bg = tone==='danger' ? C.dangerLight : tone==='warning' ? C.warningLight : C.successLight;
           const borderColor = tone==='danger' ? C.dangerBorder : tone==='warning' ? C.warningBorder : C.successBorder;
-          const sourceLabel = isPersonalMaterialRole() ? 'выдано мне' : 'на объекте';
+          const sourceLabel = isPersonalMaterialRole() ? 'подтверждено к списанию' : 'на объекте';
           const label = r.overStock ? 'не хватает' : r.overNorm ? 'перерасход нормы' : r.noNorm ? 'без нормы' : 'в норме';
           return (
             <div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(0,1.3fr) repeat(3,auto)',gap:'6px 10px',alignItems:'center',padding:'6px 8px',borderRadius:'8px',border:'1px solid '+borderColor,backgroundColor:bg,fontSize:'10px'}}>
@@ -10021,12 +10032,12 @@ function App() {
                         <span style={{fontSize:'10px',color:C.textSec}}>{delta>0?'новый объём: '+fmtMeasure(delta,mi.unit):'сначала укажите новый объём'}</span>
                       </div>
                       {suggestions.length>0&&<div style={{display:'flex',gap:'5px',flexWrap:'wrap',marginBottom:'6px'}}>
-                        {suggestions.slice(0,6).map(r=>{const key=materialNameKey(r.name);const checked=!!usedMap[key];const available=availMap[key];const unit=available?.unit||r.unit||'шт';const hasStock=toNum(available?.quantity)>0;const st=materialControlStatus(r);const norm=materialNormForWork(proj.name,mi.name,mi.section,delta,mi.unit,{name:r.name,unit},estimateWorkParams[wKey]||{});return(<button type='button' key={key} disabled={!hasStock} onClick={()=>checked?removeEstimateWorkMaterial(wKey,r.name):upsertEstimateWorkMaterial(wKey,{name:r.name,unit,autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||'')} style={{padding:'4px 7px',borderRadius:'7px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>{(checked?'✓ ':'')+r.name+(norm?' · норма '+fmtMeasure(norm.quantity,unit):(hasStock?' · '+fmtMeasure(available.quantity,available.unit):''))}</button>);})}
+                        {suggestions.slice(0,6).map(r=>{const key=materialNameKey(r.name);const checked=!!usedMap[key];const available=availMap[key];const unit=available?.unit||r.unit||'шт';const hasStock=toNum(available?.quantity)>0;const st=materialControlStatus(r);const norm=materialNormForWork(proj.name,mi.name,mi.section,delta,mi.unit,{name:r.name,unit},estimateWorkParams[wKey]||{});const writeQty=norm?capMaterialWriteoffQty(proj.name,r.name,norm.quantity):'';return(<button type='button' key={key} disabled={!hasStock} onClick={()=>checked?removeEstimateWorkMaterial(wKey,r.name):upsertEstimateWorkMaterial(wKey,{name:r.name,unit,autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},writeQty)} style={{padding:'4px 7px',borderRadius:'7px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>{(checked?'✓ ':'')+r.name+(norm?' · норма '+fmtMeasure(norm.quantity,unit)+(writeQty&&toNum(writeQty)<toNum(norm.quantity)?' · доступно '+fmtMeasure(writeQty,unit):''):(hasStock?' · '+fmtMeasure(available.quantity,available.unit):''))}</button>);})}
                       </div>}
                       {renderMaterialWriteoffStatus(proj.name, used)}
                       {projMats.length>0?<div style={{maxHeight:'155px',overflowY:'auto',display:'grid',gap:'5px'}}>
                         {projMats.map(m=>{const key=materialNameKey(m.name);const checked=!!usedMap[key];const selected=usedMap[key]||{};const hint=materialHintForProject(proj.name,m.name);const stock=toNum(m.quantity);const norm=materialNormForWork(proj.name,mi.name,mi.section,delta,mi.unit,m,estimateWorkParams[wKey]||{});const normStatus=checked?materialNormStatus(selected):null;const over=checked&&toNum(selected.quantity)>stock;return(<div key={m.id} style={{display:'grid',gridTemplateColumns:'18px minmax(0,1fr) auto',gap:'6px',alignItems:'center',fontSize:'11px',padding:'5px 6px',border:'1px solid '+(over?C.dangerBorder:checked?C.accentBorder:C.border),borderRadius:'7px'}}>
-                          <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertEstimateWorkMaterial(wKey,{name:m.name,unit:m.unit||'шт',autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||''):removeEstimateWorkMaterial(wKey,m.name)} style={{width:'14px',height:'14px',accentColor:C.accent}}/>
+                          <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertEstimateWorkMaterial(wKey,{name:m.name,unit:m.unit||'шт',autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?capMaterialWriteoffQty(proj.name,m.name,norm.quantity):''):removeEstimateWorkMaterial(wKey,m.name)} style={{width:'14px',height:'14px',accentColor:C.accent}}/>
                           <span style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}<span style={{color:over?C.danger:C.textSec}}>{' · доступно '+fmtMeasure(stock,m.unit)}{hint?.used>0?' · списано '+fmtMeasure(hint.used,hint.unit):''}{norm?' · норма '+fmtMeasure(norm.quantity,norm.unit):''}</span>{normStatus&&<span style={{marginLeft:'5px',padding:'1px 5px',borderRadius:'7px',fontSize:'9px',fontWeight:'700',backgroundColor:normStatus.bg,color:normStatus.color,border:'1px solid '+normStatus.border}}>{normStatus.label}</span>}</span>
                           {checked&&<input type='number' step='any' inputMode='decimal' placeholder='кол-во' value={selected.quantity||''} onChange={e=>updateEstimateWorkMaterialQty(wKey,m.name,e.target.value)} style={{width:'76px',padding:'4px 6px',border:'1.5px solid '+(over?C.danger:C.border),borderRadius:'6px',fontSize:'11px',backgroundColor:C.bgWhite,color:C.text}}/>}
                         </div>);})}
@@ -10081,8 +10092,9 @@ function App() {
                                 const st=materialControlStatus(r);
                                 const unit=available?.unit||r.unit||'шт';
                                 const norm=materialNormForWork(proj.name,item.name,cat,toNum(selectedWorks[item.id]?.quantity),item.unit,{name:r.name,unit},selectedWorks[item.id]||{});
-                                return(<button type="button" key={'sug-'+key} disabled={!hasStock} onClick={()=>checked?removeSelectedWorkMaterial(item.id,r.name):upsertSelectedWorkMaterial(item.id,{name:r.name,unit,autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||'')} style={{padding:'5px 8px',borderRadius:'8px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>
-                                  {(checked?'✓ ':'')+r.name+' · '+(norm?'норма '+fmtMeasure(norm.quantity,unit):(hasStock?'доступно '+fmtMeasure(available.quantity,available.unit):isPersonalMaterialRole()?'не выдано мне':'нет на объекте'))}
+                                const writeQty=norm?capMaterialWriteoffQty(proj.name,r.name,norm.quantity):'';
+                                return(<button type="button" key={'sug-'+key} disabled={!hasStock} onClick={()=>checked?removeSelectedWorkMaterial(item.id,r.name):upsertSelectedWorkMaterial(item.id,{name:r.name,unit,autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},writeQty)} style={{padding:'5px 8px',borderRadius:'8px',border:'1px solid '+(checked?C.accentBorder:st.border),backgroundColor:checked?C.accentLight:st.bg,color:hasStock?(checked?C.accent:st.color):C.textMuted,cursor:hasStock?'pointer':'not-allowed',fontSize:'10px',fontWeight:'600'}}>
+                                  {(checked?'✓ ':'')+r.name+' · '+(norm?'норма '+fmtMeasure(norm.quantity,unit)+(writeQty&&toNum(writeQty)<toNum(norm.quantity)?' · доступно '+fmtMeasure(writeQty,unit):''):(hasStock?'доступно '+fmtMeasure(available.quantity,available.unit):isPersonalMaterialRole()?'не выдано мне':'нет на объекте'))}
                                 </button>);
                               })}
                             </div>}
@@ -10099,7 +10111,7 @@ function App() {
                                 const over=checked&&toNum(selected.quantity)>stock;
                                 const status=hint?materialControlStatus(hint):null;
                                 return(<div key={m.id} style={{display:'grid',gridTemplateColumns:'18px minmax(0,1fr) auto',alignItems:'center',gap:'8px',padding:'7px 8px',backgroundColor:checked?C.bgWhite:'transparent',border:'1px solid '+(over?C.dangerBorder:checked?C.accentBorder:C.border),borderRadius:'8px',fontSize:'11px'}}>
-                                  <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertSelectedWorkMaterial(item.id,{name:m.name,unit:m.unit||'шт',autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?.quantity||''):removeSelectedWorkMaterial(item.id,m.name)} style={{width:'14px',height:'14px',cursor:'pointer',accentColor:C.accent}}/>
+                                  <input type='checkbox' checked={checked} onChange={e=>e.target.checked?upsertSelectedWorkMaterial(item.id,{name:m.name,unit:m.unit||'шт',autoNorm:!!norm,normQuantity:norm?.normQuantity||'',normSource:norm?.normSource||''},norm?capMaterialWriteoffQty(proj.name,m.name,norm.quantity):''):removeSelectedWorkMaterial(item.id,m.name)} style={{width:'14px',height:'14px',cursor:'pointer',accentColor:C.accent}}/>
                                   <div style={{minWidth:0}}>
                                     <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
                                       <b style={{color:C.text,overflow:'hidden',textOverflow:'ellipsis'}}>{m.name}</b>

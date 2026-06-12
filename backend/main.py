@@ -6103,6 +6103,7 @@ def _personal_material_balance(cur, project: str, person_id, person_name: str, m
     cur.execute("""SELECT COALESCE(SUM(quantity),0)
                    FROM material_transfers
                    WHERE project_name=%s AND to_person=%s AND signed=TRUE
+                     AND COALESCE(status,'Активна') <> 'Аннулирована'
                      AND LOWER(TRIM(material_name))=LOWER(TRIM(%s))""",
                 (project, person_name or "", material_name or ""))
     issued_row = cur.fetchone()
