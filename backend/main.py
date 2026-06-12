@@ -310,6 +310,28 @@ def current_supplier_id(cur, user: dict):
     except Exception:
         return row[0]
 
+def supplier_is_selected(selected_suppliers, supplier_id: int) -> bool:
+    if not supplier_id:
+        return False
+    if isinstance(selected_suppliers, (list, tuple, set)):
+        return any(str(x) == str(supplier_id) for x in selected_suppliers)
+    return str(supplier_id) in re.findall(r"\d+", str(selected_suppliers or ""))
+
+def limit_offset_sql(limit: Optional[int] = None, offset: int = 0):
+    if limit is None:
+        return "", []
+    try:
+        limit_value = int(limit)
+    except Exception:
+        limit_value = 100
+    try:
+        offset_value = int(offset or 0)
+    except Exception:
+        offset_value = 0
+    limit_value = max(1, min(limit_value, 500))
+    offset_value = max(0, min(offset_value, 100000))
+    return " LIMIT %s OFFSET %s", [limit_value, offset_value]
+
 def can_see_all_company_data(user: dict) -> bool:
     return user.get("role") in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик")
 
@@ -4459,18 +4481,19 @@ SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,proj
                  "FROM supply_requests")
 
 @app.get("/supply-requests")
-def get_supply_requests(current_user: dict = Depends(get_current_user)):
+def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     role = current_user.get("role")
+    page_sql, page_params = limit_offset_sql(limit, offset)
     if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
-        cur.execute(SUPPLY_SELECT + " ORDER BY id DESC")
+        cur.execute(SUPPLY_SELECT + " ORDER BY id DESC" + page_sql, page_params)
     elif role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
         if not supplier_id:
             cur.close(); conn.close()
             return []
-        cur.execute(SUPPLY_SELECT + " WHERE selected_suppliers::text LIKE %s ORDER BY id DESC", ('%"'+str(supplier_id)+'"%',))
+        cur.execute(SUPPLY_SELECT + " WHERE selected_suppliers::text LIKE %s ORDER BY id DESC" + page_sql, ['%"'+str(supplier_id)+'"%'] + page_params)
     elif role == "прораб":
         projects = user_project_names(current_user)
         clauses = ["requested_by_id=%s", "created_by=%s"]
@@ -4478,10 +4501,10 @@ def get_supply_requests(current_user: dict = Depends(get_current_user)):
         if projects:
             clauses.append("project = ANY(%s)")
             params.append(projects)
-        cur.execute(SUPPLY_SELECT + " WHERE (" + " OR ".join(clauses) + ") ORDER BY id DESC", params)
+        cur.execute(SUPPLY_SELECT + " WHERE (" + " OR ".join(clauses) + ") ORDER BY id DESC" + page_sql, params + page_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute(SUPPLY_SELECT + " WHERE (requested_by_id=%s OR created_by=%s) ORDER BY id DESC",
-                    (current_user.get("id"), current_user.get("name") or ""))
+        cur.execute(SUPPLY_SELECT + " WHERE (requested_by_id=%s OR created_by=%s) ORDER BY id DESC" + page_sql,
+                    [current_user.get("id"), current_user.get("name") or ""] + page_params)
     else:
         cur.close(); conn.close()
         return []
@@ -4829,8 +4852,30 @@ def get_supplier_offers(current_user: dict = Depends(get_current_user)):
 def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, project, selected_suppliers FROM supply_requests WHERE id=%s", (o.requestId,))
+    req = cur.fetchone()
+    if not req:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    supplier_id = o.supplierId
+    role = _current_user.get("role")
+    if role == "поставщик":
+        own_supplier_id = current_supplier_id(cur, _current_user)
+        if not own_supplier_id:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Поставщик не найден")
+        if not supplier_is_selected(req.get("selected_suppliers"), own_supplier_id):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к заявке")
+        supplier_id = own_supplier_id
+    else:
+        if role not in SUPPLY_INTERNAL_ROLES:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Недостаточно прав для создания КП")
+        if req.get("project"):
+            require_project_or_warehouse_access(_current_user, req.get("project") or "")
     cur.execute("INSERT INTO supplier_offers (request_id,supplier_id,price_per_unit,total_price,delivery_days,notes) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-                (o.requestId,o.supplierId,o.pricePerUnit,o.totalPrice,o.deliveryDays,o.notes))
+                (o.requestId,supplier_id,o.pricePerUnit,o.totalPrice,o.deliveryDays,o.notes))
     new_id = cur.fetchone()['id']
     cur.execute(OFFERS_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
@@ -4843,6 +4888,31 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     action = data.get('action')
+    cur.execute("""
+        SELECT o.id, o.supplier_id, o.request_id, r.project
+        FROM supplier_offers o
+        LEFT JOIN supply_requests r ON r.id=o.request_id
+        WHERE o.id=%s
+    """, (id,))
+    offer_access = cur.fetchone()
+    if not offer_access:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="КП не найдено")
+    role = _current_user.get("role")
+    if role == "поставщик":
+        supplier_id = current_supplier_id(cur, _current_user)
+        if not supplier_id or supplier_id != offer_access.get("supplier_id"):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к КП")
+        if action != 'respond':
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Поставщик может только ответить на своё КП")
+    else:
+        if role not in SUPPLY_INTERNAL_ROLES:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Недостаточно прав для изменения КП")
+        if offer_access.get("project"):
+            require_project_or_warehouse_access(_current_user, offer_access.get("project") or "")
     if action == 'respond':
         # Поставщик отвечает на КП: цена, срок, условия, НДС, PDF, комментарий
         import json as _json
@@ -4911,7 +4981,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
     return dict(row) if row else {"ok": True}
 
 @app.post("/supply-requests/{id}/request-kp")
-def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
     """Директор отправляет запрос КП нескольким поставщикам.
        data: {supplierIds: [1,2,3], aiRecommendedIds: [1,2]}"""
     supplier_ids = data.get('supplierIds') or []
@@ -4921,8 +4991,13 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     # Получаем количество из заявки для preview total
-    cur.execute("SELECT quantity FROM supply_requests WHERE id=%s", (id,))
+    cur.execute("SELECT quantity, project FROM supply_requests WHERE id=%s", (id,))
     req = cur.fetchone()
+    if not req:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Заявка не найдена")
+    if req.get('project'):
+        require_project_or_warehouse_access(_current_user, req.get('project') or "")
     qty = float(req['quantity']) if req else 0
     created = []
     for sid in supplier_ids:
@@ -5550,27 +5625,28 @@ def _backfill_cable_journal(cur, project_names=None):
     return repaired
 
 @app.get("/supply-deliveries")
-def list_supply_deliveries(current_user: dict = Depends(get_current_user)):
+def list_supply_deliveries(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     role = current_user.get("role")
+    page_sql, page_params = limit_offset_sql(limit, offset)
     if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
-        cur.execute(DELIVERY_SELECT + " ORDER BY d.id DESC")
+        cur.execute(DELIVERY_SELECT + " ORDER BY d.id DESC" + page_sql, page_params)
     elif role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
         if not supplier_id:
             cur.close(); conn.close()
             return []
-        cur.execute(DELIVERY_SELECT + " WHERE d.supplier_id=%s ORDER BY d.id DESC", (supplier_id,))
+        cur.execute(DELIVERY_SELECT + " WHERE d.supplier_id=%s ORDER BY d.id DESC" + page_sql, [supplier_id] + page_params)
     elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute(DELIVERY_SELECT + " WHERE d.project = ANY(%s) ORDER BY d.id DESC", (projects,))
+        cur.execute(DELIVERY_SELECT + " WHERE d.project = ANY(%s) ORDER BY d.id DESC" + page_sql, [projects] + page_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute(DELIVERY_SELECT + " WHERE d.request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY d.id DESC",
-                    (current_user.get("id"), current_user.get("name") or ""))
+        cur.execute(DELIVERY_SELECT + " WHERE d.request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY d.id DESC" + page_sql,
+                    [current_user.get("id"), current_user.get("name") or ""] + page_params)
     else:
         cur.close(); conn.close()
         return []
@@ -5625,6 +5701,18 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
     if not offer:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Утверждённое КП не найдено")
+    role = _current_user.get("role")
+    if role == "поставщик":
+        supplier_id = current_supplier_id(cur, _current_user)
+        if not supplier_id or supplier_id != offer.get('supplier_id'):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к КП")
+    else:
+        if role not in SUPPLY_INTERNAL_ROLES:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Недостаточно прав для отгрузки")
+        if offer.get('project'):
+            require_project_or_warehouse_access(_current_user, offer.get('project') or "")
     cur.execute("SELECT id, status, paid_amount, amount FROM supplier_invoices WHERE offer_id=%s ORDER BY id DESC LIMIT 1", (id,))
     inv = cur.fetchone()
     terms = (offer.get('payment_terms') or '').lower()
@@ -5692,6 +5780,8 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
     if not delivery:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Поставка не найдена")
+    if delivery.get('project'):
+        require_project_or_warehouse_access(_current_user, delivery.get('project') or "")
     if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
         try:
             _create_delivery_quality_records(cur, delivery)
@@ -5844,7 +5934,28 @@ def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(
 @app.put("/supply-claims/{id}")
 def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, supplier_id, project FROM supply_claims WHERE id=%s", (id,))
+    claim = cur.fetchone()
+    if not claim:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Претензия не найдена")
+    role = _current_user.get("role")
+    if role == "поставщик":
+        supplier_id = current_supplier_id(cur, _current_user)
+        if not supplier_id or supplier_id != claim.get("supplier_id"):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к претензии")
+        protected_keys = {"status", "resolvedAt"}
+        if protected_keys.intersection(data.keys()):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Закрытие претензии доступно только внутренним ролям")
+    else:
+        if role not in SUPPLY_INTERNAL_ROLES:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Недостаточно прав для изменения претензии")
+        if claim.get("project"):
+            require_project_or_warehouse_access(_current_user, claim.get("project") or "")
     fields_map = [('status','status'),('resolution','resolution'),('resolvedAt','resolved_at')]
     sets, vals = [], []
     for js_key, db_col in fields_map:
@@ -5862,27 +5973,28 @@ def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(requi
     return {"ok": True}
 
 @app.get("/supply-history")
-def get_supply_history(current_user: dict = Depends(get_current_user)):
+def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     role = current_user.get("role")
+    page_sql, page_params = limit_offset_sql(limit, offset)
     if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
-        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history ORDER BY id DESC")
+        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history ORDER BY id DESC" + page_sql, page_params)
     elif role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
         if not supplier_id:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE supplier_id=%s ORDER BY id DESC", (supplier_id,))
+        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE supplier_id=%s ORDER BY id DESC" + page_sql, [supplier_id] + page_params)
     elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE project = ANY(%s) ORDER BY id DESC", (projects,))
+        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE project = ANY(%s) ORDER BY id DESC" + page_sql, [projects] + page_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY id DESC",
-                    (current_user.get("id"), current_user.get("name") or ""))
+        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY id DESC" + page_sql,
+                    [current_user.get("id"), current_user.get("name") or ""] + page_params)
     else:
         cur.close(); conn.close()
         return []
@@ -5911,7 +6023,7 @@ def update_supply_history(id: int, data: dict, _current_user: dict = Depends(req
     return {"ok": True}
 
 @app.get("/work-journal")
-def get_work_journal(current_user: dict = Depends(get_current_user)):
+def get_work_journal(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     select_sql = """SELECT id,master_id as "masterId",master_name as "masterName",project,description,unit,quantity,
@@ -5927,20 +6039,21 @@ def get_work_journal(current_user: dict = Depends(get_current_user)):
                           unexpected_work_id as "unexpectedWorkId"
                    FROM work_journal"""
     role = current_user.get("role")
+    page_sql, page_params = limit_offset_sql(limit, offset)
     if can_see_all_company_data(current_user) or role in ("прораб", "стройконтроль", "технадзор"):
         projects = user_project_names(current_user)
         if role in ("прораб", "стройконтроль", "технадзор") and projects:
-            cur.execute(select_sql + " WHERE project = ANY(%s) ORDER BY id DESC", (projects,))
+            cur.execute(select_sql + " WHERE project = ANY(%s) ORDER BY id DESC" + page_sql, [projects] + page_params)
         else:
-            cur.execute(select_sql + " ORDER BY id DESC")
+            cur.execute(select_sql + " ORDER BY id DESC" + page_sql, page_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute(select_sql + " WHERE master_id=%s OR master_name=%s ORDER BY id DESC", (current_user.get("id"), current_user.get("name") or ""))
+        cur.execute(select_sql + " WHERE master_id=%s OR master_name=%s ORDER BY id DESC" + page_sql, [current_user.get("id"), current_user.get("name") or ""] + page_params)
     elif role == "заказчик":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute(select_sql + " WHERE project = ANY(%s) AND status='Подтверждено' ORDER BY id DESC", (projects,))
+        cur.execute(select_sql + " WHERE project = ANY(%s) AND status='Подтверждено' ORDER BY id DESC" + page_sql, [projects] + page_params)
     else:
         cur.close(); conn.close()
         return []
@@ -14178,7 +14291,7 @@ def delete_expense_report(id: int, _current_user: dict = Depends(require_roles(*
     return {"ok": True}
 
 @app.get("/supplier-invoices")
-def list_supplier_invoices(project_name: str = None, status: str = None, current_user: dict = Depends(get_current_user)):
+def list_supplier_invoices(project_name: str = None, status: str = None, limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
     role = current_user.get("role")
     if role not in SUPPLIER_INVOICE_VIEW_ROLES:
         return []
@@ -14208,6 +14321,9 @@ def list_supplier_invoices(project_name: str = None, status: str = None, current
     q = f"SELECT {cols} FROM supplier_invoices"
     if where: q += " WHERE " + " AND ".join(where)
     q += " ORDER BY id DESC"
+    page_sql, page_params = limit_offset_sql(limit, offset)
+    q += page_sql
+    params += page_params
     cur.execute(q, params)
     rows = cur.fetchall()
     cur.close(); conn.close()
