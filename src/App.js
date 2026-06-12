@@ -50,11 +50,10 @@ import MaterialNormsHeader from './components/MaterialNormsHeader';
 import EstimateImportView from './components/EstimateImportView';
 import MaterialNormCoverageSummaryBadges from './components/MaterialNormCoverageSummaryBadges';
 import MaterialNormCoverageHeader from './components/MaterialNormCoverageHeader';
-import EstimateSelectedTitleBadges from './components/EstimateSelectedTitleBadges';
 import EstimateCreateFormFields from './components/EstimateCreateFormFields';
 import EstimatesListView from './components/EstimatesListView';
 import EstimateCreateActions from './components/EstimateCreateActions';
-import EstimateSelectedStatusActions from './components/EstimateSelectedStatusActions';
+import EstimateSelectedToolbar from './components/EstimateSelectedToolbar';
 import EstimateAddSectionForm from './components/EstimateAddSectionForm';
 import EstimateTotalCard from './components/EstimateTotalCard';
 import EstimateSectionHeader from './components/EstimateSectionHeader';
@@ -112,7 +111,7 @@ import DashboardProductionSummaryPanel from './components/DashboardProductionSum
 import DashboardActivityPanel from './components/DashboardActivityPanel';
 import ConfirmWorkAcceptanceModal from './components/ConfirmWorkAcceptanceModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
-import { LayoutDashboard, FolderKanban, Users, Package, Truck, DollarSign, UserCheck, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Package, Truck, DollarSign, UserCheck, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
 installAuthFetch();
 const loadStoredUser = () => {
@@ -11876,6 +11875,78 @@ function App() {
     }catch(e){alert('Ошибка соединения');}
   };
 
+  const handlePreviewSelectedEstimate = () => {
+    if(!selectedEstimate) return;
+    const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);
+    const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Тип</th><th>Основание</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="9"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>{const meta=estimateItemTypeMeta(normalizeEstimateItemType(it,s.name));const basis=estimateMeasurementBasisMeta(estimateMeasurementBasisOf(it,s.name));return `<tr><td>${i+1}</td><td>${meta.label}</td><td>${basis.label}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`;})]).join('')+'<tr><td colspan="8"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';
+    showPreview(html,'Смета');
+  };
+
+  const handleShowSelectedEstimateDiff = () => {
+    const base=estimateDiffBaseFor(selectedEstimate);
+    if(base) showPreview(buildEstimateDiffContent(base,selectedEstimate),'Сопоставительная ведомость');
+  };
+
+  const handleExportSelectedEstimate = () => {
+    if(!selectedEstimate) return;
+    exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Тип:estimateItemTypeMeta(normalizeEstimateItemType(i,s.name)).label,Основание:estimateMeasurementBasisMeta(estimateMeasurementBasisOf(i,s.name)).label,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name);
+  };
+
+  const handleToggleSelectedEstimateTemplate = async () => {
+    if(!selectedEstimate?.id) return;
+    const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/toggle-template',{method:'PUT'});
+    const data=await res.json();
+    setEstimatesList(prev=>prev.map(e=>e.id===selectedEstimate.id?{...e,isTemplate:data.isTemplate}:e));
+    setSelectedEstimate(prev=>({...prev,isTemplate:data.isTemplate}));
+    alert(data.isTemplate?'Смета помечена как шаблон — её можно использовать при создании новых смет':'Смета больше не шаблон');
+  };
+
+  const handleOpenSelectedEstimateHistory = async () => {
+    if(!selectedEstimate?.id) return;
+    try{
+      const versions=await fetch(API+'/estimates/'+selectedEstimate.id+'/versions').then(r=>r.json());
+      setEstimateVersions(Array.isArray(versions)?versions:[]);
+      setSelectedVersionsToCompare([]);
+      setShowVersionHistory(true);
+    }catch(e){alert('Не удалось загрузить историю');}
+  };
+
+  const handleNormalizeSelectedEstimateImport = async () => {
+    if(!selectedEstimate?.id) return;
+    const normalizedSections=normalizeEstimateImportSections(selectedEstimate.sections||[]);
+    const updated={...selectedEstimate,sections:normalizedSections};
+    setSelectedEstimate(updated);
+    setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
+    await persistEstimate(updated);
+    const qualityWarnings=estimateQualityRows(updated).map(row=>({
+      type:'качество',
+      where:(row.sectionName||'')+' / '+(row.itemName||''),
+      message:row.status+': '+row.message,
+      severity:row.severity==='critical'?'критично':row.severity==='info'?'совет':'внимание'
+    }));
+    setImportValidationWarnings(qualityWarnings);
+    await queueEstimateQualityReviewTask(updated,'Нормализация импорта сметы');
+    alert('Импорт нормализован. Осталось замечаний: '+qualityWarnings.length);
+  };
+
+  const handleOpenSelectedEstimateChat = async () => {
+    if(!selectedEstimate?.id) return;
+    setEstimateChatMessages([]);
+    setShowEstimateChat(true);
+    try{
+      const h=await fetch(API+'/estimates/'+selectedEstimate.id+'/chat-history').then(r=>r.json());
+      setEstimateChatMessages(Array.isArray(h)?h:[]);
+    }catch(e){setEstimateChatMessages([]);}
+  };
+
+  const handleOpenEstimateDistribute = () => {
+    if(!selectedEstimate) return;
+    setDistributeAssignments({});
+    const existing=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName);
+    setDistributeBrigades(existing.length?existing.map(bc=>({name:bc.brigadeName,contractorType:bc.contractorType,pricelistId:bc.pricelistId||''})) : []);
+    setShowDistribute(true);
+  };
+
   const menuItems = allMenuItems.filter(item=>canAccess(item.id));
 
   return (
@@ -15364,80 +15435,37 @@ function App() {
                   estimateIssues={estimateQualityRows(selectedEstimate)}
                   onJumpToIssue={jumpToEstimateIssue}
                 />
-                <div style={{display:'flex',gap:'8px',marginBottom:'15px',alignItems:'center',flexWrap:'wrap'}}>
-                  <button onClick={()=>setSelectedEstimate(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
-                  <EstimateSelectedTitleBadges
-                    C={C}
-                    badge={badge}
-                    selectedEstimate={selectedEstimate}
-                    estimatesList={estimatesList}
-                    sameEstimateGroup={sameEstimateGroup}
-                    estimateStatusView={estimateStatusView}
-                    estimateTypeIcon={estimateTypeIcon}
-                    estimateKind={estimateKind}
-                    estimatePackage={estimatePackage}
-                  />
-                  <EstimateSelectedStatusActions
-                    selectedEstimate={selectedEstimate}
-                    btnGr={btnGr}
-                    btnG={btnG}
-                    setEstimateStatusRemote={setEstimateStatusRemote}
-                  />
-                  {(()=>{const issueCount=estimateQualityRows(selectedEstimate).length;return(<button disabled={!issueCount} onClick={()=>issueCount&&setShowEstimateIssuesOnly(v=>!v)} style={issueCount?{...(showEstimateIssuesOnly?btnO:btnB),backgroundColor:showEstimateIssuesOnly?C.danger:C.bg,color:showEstimateIssuesOnly?'white':C.danger,borderColor:C.dangerBorder}:{...btnG,opacity:0.75,cursor:'default'}}>
-                    {issueCount?'⚠️ Проблемы: '+issueCount:'✅ Ошибок нет'}
-                  </button>);})()}
-	                  <button onClick={()=>{const total=(selectedEstimate.sections||[]).flatMap(s=>s.items||[]).reduce((sum,i)=>sum+estimateItemTotal(i),0);const html='<h2>'+selectedEstimate.name+'</h2><table><tr><th>N</th><th>Тип</th><th>Основание</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена работ</th><th>Материалы</th><th>Сумма</th></tr>'+(selectedEstimate.sections||[]).flatMap(s=>[`<tr><td colspan="9"><b>${s.name}</b></td></tr>`,...(s.items||[]).map((it,i)=>{const meta=estimateItemTypeMeta(normalizeEstimateItemType(it,s.name));const basis=estimateMeasurementBasisMeta(estimateMeasurementBasisOf(it,s.name));return `<tr><td>${i+1}</td><td>${meta.label}</td><td>${basis.label}</td><td>${it.name}</td><td>${it.unit}</td><td>${it.quantity}</td><td>${Number(it.priceWork||0).toLocaleString()}</td><td>${Math.round(estimateItemMaterialSum(it)).toLocaleString()}</td><td>${Math.round(estimateItemTotal(it)).toLocaleString()}</td></tr>`;})]).join('')+'<tr><td colspan="8"><b>ИТОГО:</b></td><td><b>'+Math.round(total).toLocaleString()+' ₽</b></td></tr></table>';showPreview(html,'Смета');}} style={btnB}><Eye size={14}/>Просмотр</button>
-                  {(()=>{const base=estimateDiffBaseFor(selectedEstimate);return base?<button onClick={()=>showPreview(buildEstimateDiffContent(base,selectedEstimate),'Сопоставительная ведомость')} style={btnB}><FileText size={14}/>Ведомость</button>:null;})()}
-	                  <button onClick={()=>exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Тип:estimateItemTypeMeta(normalizeEstimateItemType(i,s.name)).label,Основание:estimateMeasurementBasisMeta(estimateMeasurementBasisOf(i,s.name)).label,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name)} style={btnG}><Download size={14}/>Excel</button>
-                  <button onClick={async()=>{
-                    const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/toggle-template',{method:'PUT'});
-                    const data=await res.json();
-                    setEstimatesList(prev=>prev.map(e=>e.id===selectedEstimate.id?{...e,isTemplate:data.isTemplate}:e));
-                    setSelectedEstimate(prev=>({...prev,isTemplate:data.isTemplate}));
-                    alert(data.isTemplate?'Смета помечена как шаблон — её можно использовать при создании новых смет':'Смета больше не шаблон');
-                  }} style={selectedEstimate.isTemplate?{...btnO,backgroundColor:'#facc15',color:'#1f2937'}:btnG}>⭐ {selectedEstimate.isTemplate?'Шаблон':'В шаблон'}</button>
-                  <button onClick={async()=>{
-                    try{
-                      const versions=await fetch(API+'/estimates/'+selectedEstimate.id+'/versions').then(r=>r.json());
-                      setEstimateVersions(Array.isArray(versions)?versions:[]);
-                      setSelectedVersionsToCompare([]);
-                      setShowVersionHistory(true);
-                    }catch(e){alert('Не удалось загрузить историю');}
-                  }} style={btnG}>📜 История</button>
-                  <button onClick={async()=>{
-                    if(!selectedEstimate?.id) return;
-                    const normalizedSections=normalizeEstimateImportSections(selectedEstimate.sections||[]);
-                    const updated={...selectedEstimate,sections:normalizedSections};
-                    setSelectedEstimate(updated);
-                    setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
-                    await persistEstimate(updated);
-                    const qualityWarnings=estimateQualityRows(updated).map(row=>({
-                      type:'качество',
-                      where:(row.sectionName||'')+' / '+(row.itemName||''),
-                      message:row.status+': '+row.message,
-                      severity:row.severity==='critical'?'критично':row.severity==='info'?'совет':'внимание'
-                    }));
-                    setImportValidationWarnings(qualityWarnings);
-                    await queueEstimateQualityReviewTask(updated,'Нормализация импорта сметы');
-                    alert('Импорт нормализован. Осталось замечаний: '+qualityWarnings.length);
-                  }} style={btnGr}>🧹 Нормализовать импорт</button>
-                  <button onClick={async()=>{
-                    setEstimateChatMessages([]);
-                    setShowEstimateChat(true);
-                    try{
-                      const h=await fetch(API+'/estimates/'+selectedEstimate.id+'/chat-history').then(r=>r.json());
-                      setEstimateChatMessages(Array.isArray(h)?h:[]);
-                    }catch(e){setEstimateChatMessages([]);}
-                  }} style={{...btnB,backgroundColor:'#0ea5e9'}}><MessageSquare size={14}/>Чат</button>
-                  <button onClick={()=>{
-                    setDistributeAssignments({});
-                    const existing=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName);
-                    setDistributeBrigades(existing.length?existing.map(bc=>({name:bc.brigadeName,contractorType:bc.contractorType,pricelistId:bc.pricelistId||''})):[]);
-                    setShowDistribute(true);
-                  }} style={{...btnO,backgroundColor:'#16a34a'}}><Users size={14}/>👷 Распределить</button>
-                  <button onClick={handleEstimateAiAnalysis} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}><Bot size={14}/>ИИ Анализ</button>
-                  <button onClick={handleDetectEstimateHiddenWorks} style={btnB}><Bot size={14}/>Найти работы для АОСР</button>
-                </div>
+                <EstimateSelectedToolbar
+                  C={C}
+                  badge={badge}
+                  btnB={btnB}
+                  btnG={btnG}
+                  btnGr={btnGr}
+                  btnO={btnO}
+                  estimateKind={estimateKind}
+                  estimatePackage={estimatePackage}
+                  estimateStatusView={estimateStatusView}
+                  estimateTypeIcon={estimateTypeIcon}
+                  estimatesList={estimatesList}
+                  hasDiff={Boolean(estimateDiffBaseFor(selectedEstimate))}
+                  issueCount={estimateQualityRows(selectedEstimate).length}
+                  onAiAnalysis={handleEstimateAiAnalysis}
+                  onBack={()=>setSelectedEstimate(null)}
+                  onDetectHiddenWorks={handleDetectEstimateHiddenWorks}
+                  onExport={handleExportSelectedEstimate}
+                  onHistory={handleOpenSelectedEstimateHistory}
+                  onNormalize={handleNormalizeSelectedEstimateImport}
+                  onOpenChat={handleOpenSelectedEstimateChat}
+                  onOpenDistribute={handleOpenEstimateDistribute}
+                  onPreview={handlePreviewSelectedEstimate}
+                  onShowDiff={handleShowSelectedEstimateDiff}
+                  onToggleIssuesOnly={()=>estimateQualityRows(selectedEstimate).length&&setShowEstimateIssuesOnly(v=>!v)}
+                  onToggleTemplate={handleToggleSelectedEstimateTemplate}
+                  sameEstimateGroup={sameEstimateGroup}
+                  selectedEstimate={selectedEstimate}
+                  setEstimateStatusRemote={setEstimateStatusRemote}
+                  showEstimateIssuesOnly={showEstimateIssuesOnly}
+                />
                 <EstimateAddSectionForm
                   card={card}
                   inp={inp}
