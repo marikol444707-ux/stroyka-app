@@ -1,0 +1,201 @@
+import React from 'react';
+import { Eye, FileText } from 'lucide-react';
+
+const DOC_BUTTONS = ['Паспорт', 'КС-2', 'КС-3', 'ЖПР', 'М-29', 'АОСК', 'КС-11', 'КС-14', 'ИГД', '📦 Пакет', '📋 НДС', 'М-2', 'М-8', '📦 Потребность', '🔥 Свар', '🧱 Бет', '⚙️ Монт', '🛡 АКЗ', '❄️ Изол', '⛓ Свай'];
+
+export default function AccountingDocumentsPanel({
+  C,
+  card,
+  btnO,
+  btnG,
+  btnB,
+  accountingDocProject,
+  setAccountingDocProject,
+  projects,
+  projectPlanDone,
+  ownExpenses,
+  accountablePayments,
+  supplierInvoices,
+  brigadeContracts,
+  materialControlSummaryForProject,
+  invoices,
+  warehouseInvoiceEstimateControl,
+  badge,
+  showPreview,
+  buildPassportContent,
+  showKS2,
+  buildKS3Content,
+  buildJPRContent,
+  buildM29Content,
+  buildAOSKContent,
+  buildKS11Content,
+  buildKS14Content,
+  buildIGDContent,
+  buildExecPackageContent,
+  buildVATBookContent,
+  suppliers,
+  buildM2Content,
+  buildM8Content,
+  buildMaterialRequirementContent,
+  buildSpecJournalContent,
+  interimActs,
+  buildActContent,
+}) {
+  const selectedProject = accountingDocProject ? (projects || []).find(project => project.name === accountingDocProject) : null;
+
+  const handleDocAction = (doc, project) => {
+    if (doc === 'Паспорт') showPreview(buildPassportContent(project), 'Паспорт объекта');
+    if (doc === 'КС-2') showKS2(project);
+    if (doc === 'КС-3') showPreview(buildKS3Content(project), 'КС-3');
+    if (doc === 'ЖПР') showPreview(buildJPRContent(project.name), 'ЖПР');
+    if (doc === 'М-29') {
+      const today = new Date();
+      const monthAgo = new Date(today.getTime() - 30 * 24 * 3600 * 1000);
+      showPreview(buildM29Content(project.name, monthAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]), 'М-29 — ' + project.name);
+    }
+    if (doc === 'АОСК') showPreview(buildAOSKContent(project.name), 'АОСК — ' + project.name);
+    if (doc === 'КС-11') showPreview(buildKS11Content(project), 'КС-11 — ' + project.name);
+    if (doc === 'КС-14') showPreview(buildKS14Content(project), 'КС-14 — ' + project.name);
+    if (doc === 'ИГД') showPreview(buildIGDContent(project.name), 'ИГД — ' + project.name);
+    if (doc === '📦 Пакет') showPreview(buildExecPackageContent(project), 'Пакет исполнительной — ' + project.name);
+    if (doc === '📋 НДС') {
+      const today = new Date();
+      const qStart = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1);
+      showPreview(buildVATBookContent(qStart.toISOString().split('T')[0], today.toISOString().split('T')[0]), 'Книга НДС — текущий квартал');
+    }
+    if (doc === 'М-2') {
+      const supplierName = window.prompt('Поставщик (название):', '');
+      if (!supplierName) return;
+      const receiverName = window.prompt('Кому выдаётся доверенность (ФИО):', '');
+      const receiverPassport = window.prompt('Паспорт получателя (серия, номер):', '');
+      const supplier = (suppliers || []).find(item => item.name === supplierName) || { name: supplierName };
+      showPreview(buildM2Content(supplier, [], project.name, receiverName || '', receiverPassport || ''), 'М-2 Доверенность');
+    }
+    if (doc === 'М-8') {
+      const today = new Date();
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      showPreview(buildM8Content(project.name, '', monthStart.toISOString().split('T')[0], today.toISOString().split('T')[0]), 'М-8 Лимитно-заборная — ' + project.name);
+    }
+    if (doc === '📦 Потребность') showPreview(buildMaterialRequirementContent(project.name), 'Потребность материалов — ' + project.name);
+    if (doc === '🔥 Свар') showPreview(buildSpecJournalContent(project.name, 'welding'), 'Журнал сварочных работ — ' + project.name);
+    if (doc === '🧱 Бет') showPreview(buildSpecJournalContent(project.name, 'concrete'), 'Журнал бетонных работ — ' + project.name);
+    if (doc === '⚙️ Монт') showPreview(buildSpecJournalContent(project.name, 'assembly'), 'Журнал монтажа — ' + project.name);
+    if (doc === '🛡 АКЗ') showPreview(buildSpecJournalContent(project.name, 'anticorrosion'), 'Журнал антикоррозийной защиты — ' + project.name);
+    if (doc === '❄️ Изол') showPreview(buildSpecJournalContent(project.name, 'insulation'), 'Журнал изоляционных работ — ' + project.name);
+    if (doc === '⛓ Свай') showPreview(buildSpecJournalContent(project.name, 'piling'), 'Журнал свайных работ — ' + project.name);
+  };
+
+  const renderSelectedProject = () => {
+    if (!selectedProject) return null;
+
+    const planDone = projectPlanDone(selectedProject);
+    const budget = Number(selectedProject.budget || 0);
+    const ownExp = (ownExpenses || []).filter(expense => expense.projectName === accountingDocProject).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const accExp = (accountablePayments || []).filter(payment => payment.projectName === accountingDocProject).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const supExp = (supplierInvoices || []).filter(invoice => invoice.projectName === accountingDocProject).reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
+    const brigExp = (brigadeContracts || []).filter(contract => contract.projectName === accountingDocProject).reduce((sum, contract) => sum + Number(contract.paidAmount || 0), 0);
+    const factCost = ownExp + accExp + supExp + brigExp;
+    const margin = planDone.done - factCost;
+    const materialControl = materialControlSummaryForProject(accountingDocProject);
+    const materialRiskRows = materialControl.outsideRows.length + materialControl.stockMismatchRows.length;
+    const invoiceIssueRows = (invoices || [])
+      .filter(invoice => (invoice.project || invoice.location) === accountingDocProject)
+      .flatMap(invoice => warehouseInvoiceEstimateControl(invoice)
+        .filter(control => ['danger', 'warning'].includes(control.severity))
+        .map(control => ({ invoice, control })))
+      .slice(0, 12);
+
+    return (
+      <div>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
+          {DOC_BUTTONS.map(doc => (
+            <button
+              key={doc}
+              onClick={() => handleDocAction(doc, selectedProject)}
+              style={{ ...btnB, fontSize: '12px', padding: '7px 14px' }}
+            >
+              <FileText size={13} />
+              {doc}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.border }}>
+          <b style={{ color: C.text, fontSize: '13px', display: 'block', marginBottom: '10px' }}>💰 Себестоимость объекта (план vs факт)</b>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '10px' }}>
+            <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Бюджет (договор)</p><b style={{ color: C.text, fontSize: '14px' }}>{Math.round(budget).toLocaleString('ru-RU') + ' ₽'}</b></div>
+            <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Выполнено по смете</p><b style={{ color: C.accent, fontSize: '14px' }}>{Math.round(planDone.done).toLocaleString('ru-RU') + ' ₽'}</b></div>
+            <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Факт расходов</p><b style={{ color: C.warning, fontSize: '14px' }}>{Math.round(factCost).toLocaleString('ru-RU') + ' ₽'}</b></div>
+            <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Маржа</p><b style={{ color: margin >= 0 ? C.success : C.danger, fontSize: '14px' }}>{Math.round(margin).toLocaleString('ru-RU') + ' ₽'}</b></div>
+          </div>
+          <p style={{ color: C.textMuted, fontSize: '10px', margin: '8px 0 0', lineHeight: 1.4 }}>
+            Факт = свои расходы ({Math.round(ownExp).toLocaleString('ru-RU') + ' ₽'}) + подотчётные ({Math.round(accExp).toLocaleString('ru-RU') + ' ₽'}) + поставщики ({Math.round(supExp).toLocaleString('ru-RU') + ' ₽'}) + бригады ({Math.round(brigExp).toLocaleString('ru-RU') + ' ₽'})
+          </p>
+        </div>
+
+        <div style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + (materialControl.toBuyRows.length ? C.warningBorder : C.successBorder) }}>
+          <b style={{ color: C.text, fontSize: '13px', display: 'block', marginBottom: '10px' }}>📦 Материалы по смете: контроль для бухгалтерии</b>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: '10px' }}>
+            <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>План материалов</p><b style={{ color: C.text, fontSize: '14px' }}>{Math.round(materialControl.planSum || 0).toLocaleString('ru-RU') + ' ₽'}</b></div>
+            <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Получено/накладные</p><b style={{ color: C.success, fontSize: '14px' }}>{Math.round(materialControl.suppliedSum || 0).toLocaleString('ru-RU') + ' ₽'}</b></div>
+            <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Позиций к закупке</p><b style={{ color: materialControl.toBuyRows.length ? C.warning : C.success, fontSize: '14px' }}>{materialControl.toBuyRows.length}</b></div>
+            <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Вне сметы/расх.</p><b style={{ color: materialRiskRows ? C.danger : C.success, fontSize: '14px' }}>{materialRiskRows}</b></div>
+          </div>
+          <p style={{ color: C.textMuted, fontSize: '10px', margin: '8px 0 0', lineHeight: 1.4 }}>
+            Счета поставщиков нужно сверять с ведомостью потребности: материал должен быть в смете или в утверждённом изменении, а в печатной ведомости видно, к какой работе относится ресурс.
+          </p>
+          {invoiceIssueRows.length > 0 && (
+            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid ' + C.border }}>
+              <b style={{ color: C.warning, fontSize: '12px', display: 'block', marginBottom: '6px' }}>Накладные требуют проверки перед оплатой</b>
+              {invoiceIssueRows.map(({ invoice, control }, index) => (
+                <div key={(invoice.id || 'inv') + '-' + index} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,1fr) minmax(160px,1fr) auto', gap: '8px', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid ' + C.border }}>
+                  <div>
+                    <b style={{ color: C.text, fontSize: '11px' }}>№ {invoice.number || invoice.id} · {invoice.date || ''}</b>
+                    <p style={{ color: C.textMuted, fontSize: '10px', margin: '2px 0 0' }}>{invoice.supplierName || '—'}</p>
+                  </div>
+                  <div>
+                    <b style={{ color: C.text, fontSize: '11px' }}>{control.canonicalName || control.name}</b>
+                    <p style={{ color: C.textMuted, fontSize: '10px', margin: '2px 0 0' }}>{control.planSourceCount ? 'сметных строк: ' + control.planSourceCount + ' · ' : ''}{control.sectionsList?.slice(0, 2).join(' · ')}</p>
+                  </div>
+                  <span style={badge(control.severity === 'danger' ? C.danger : C.warning, control.severity === 'danger' ? C.dangerLight : C.warningLight, control.severity === 'danger' ? C.dangerBorder : C.warningBorder)}>{control.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <b style={{ color: C.text, fontSize: '13px', display: 'block', marginBottom: '10px' }}>Акты по проекту:</b>
+          {(interimActs || []).filter(act => act.project === accountingDocProject).map(act => (
+            <div key={act.id} style={{ ...card, padding: '12px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <b style={{ fontSize: '13px', color: C.text }}>{'Акт №' + act.id + ' · ' + act.masterName}</b>
+                <p style={{ color: C.textSec, margin: '2px 0', fontSize: '12px' }}>{(act.totalAmount || 0).toLocaleString() + ' ₽ · ' + act.periodStart + ' — ' + act.periodEnd}</p>
+              </div>
+              <button onClick={() => showPreview(buildActContent(act), 'Акт')} style={btnB}>
+                <Eye size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
+        {(projects || []).map(project => (
+          <button
+            key={project.id}
+            onClick={() => setAccountingDocProject(project.name)}
+            style={{ ...(accountingDocProject === project.name ? btnO : btnG), fontSize: '12px', padding: '6px 12px' }}
+          >
+            {project.name}
+          </button>
+        ))}
+      </div>
+      {accountingDocProject ? renderSelectedProject() : <p style={{ color: C.textMuted, textAlign: 'center', padding: '30px' }}>Выберите проект</p>}
+    </div>
+  );
+}

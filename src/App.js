@@ -1,18 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
 import { API, installAuthFetch } from './api';
 import { CRM_STAGES, DOOR_PURPOSES, DOOR_TYPES, ESTIMATE_CHANGE_APPROVED_STATUSES, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES, EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, REVEAL_MATERIALS, STAGE_STATUSES, SUPPLIER_CATEGORIES, SURFACES, TOOL_STATUSES, UNITS, VAT_OPTIONS, WEATHER_CONDITIONS, WINDOW_TYPES } from './constants/catalogs';
 import { ROLES, ROLE_GROUPS, ROLE_LABELS } from './constants/roles';
 import SystemStatusModal from './components/SystemStatusModal';
 import UsersPage from './components/UsersPage';
-import SupplyHeaderTabs from './components/SupplyHeaderTabs';
-import SupplyRequestForm from './components/SupplyRequestForm';
-import SupplyRequestsList from './components/SupplyRequestsList';
-import SupplyDeliveriesPanel from './components/SupplyDeliveriesPanel';
-import SupplyCatalogPanel from './components/SupplyCatalogPanel';
-import SupplySuppliersPanel from './components/SupplySuppliersPanel';
-import SupplySupplierInvoicesPanel from './components/SupplySupplierInvoicesPanel';
+import SupplyPage from './components/SupplyPage';
 import SuppliersPage from './components/SuppliersPage';
 import ProjectCardHeader from './components/ProjectCardHeader';
 import ProjectTabsNav from './components/ProjectTabsNav';
@@ -35,12 +30,8 @@ import ProjectHiddenWorksActEditModal from './components/ProjectHiddenWorksActEd
 import ProjectHiddenWorksActSignatureModal from './components/ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
-import WarehouseInvoicesPanel from './components/WarehouseInvoicesPanel';
-import WarehouseMainStockPanel from './components/WarehouseMainStockPanel';
-import WarehouseCompanyWarehousesPanel from './components/WarehouseCompanyWarehousesPanel';
-import WarehouseHistoryPanel from './components/WarehouseHistoryPanel';
-import WarehouseTabsNav from './components/WarehouseTabsNav';
-import WarehouseMaterialControlOverview from './components/WarehouseMaterialControlOverview';
+import WarehousePage from './components/WarehousePage';
+import AccountingPage from './components/AccountingPage';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
 import EstimatesListToolbar from './components/EstimatesListToolbar';
 import EstimateSearchResults from './components/EstimateSearchResults';
@@ -60,6 +51,11 @@ import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsPanel from './components/MaterialNormSuggestionsPanel';
 import MasterMaterialsPage from './components/MasterMaterialsPage';
+import MasterSupplyPage from './components/MasterSupplyPage';
+import MasterDocumentsPage from './components/MasterDocumentsPage';
+import MasterHistoryPage from './components/MasterHistoryPage';
+import MasterCablePage from './components/MasterCablePage';
+import PersonnelPage from './components/PersonnelPage';
 import WeatherPage from './components/WeatherPage';
 import ClientsPage from './components/ClientsPage';
 import PricelistsPage from './components/PricelistsPage';
@@ -111,7 +107,7 @@ import DashboardProductionSummaryPanel from './components/DashboardProductionSum
 import DashboardActivityPanel from './components/DashboardActivityPanel';
 import ConfirmWorkAcceptanceModal from './components/ConfirmWorkAcceptanceModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
-import { LayoutDashboard, FolderKanban, Package, Truck, DollarSign, UserCheck, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, ArrowLeft, Download, Upload, MapPin, CheckCircle, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, MessageSquare, ScrollText, BarChart3, Handshake, ChevronRight, Search, LogOut, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Briefcase, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
 installAuthFetch();
 const loadStoredUser = () => {
@@ -10148,58 +10144,25 @@ function App() {
             </div>
           </div>)}
 
-          {activePage==='history'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>📅 История работ по дням</h3>
-            <div style={{background:'linear-gradient(135deg,#f97316,#ea580c)',padding:'16px 20px',borderRadius:'12px',marginBottom:'14px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-              <div><p style={{color:'rgba(255,255,255,0.85)',fontSize:'11px',margin:0}}>Принято всего</p><b style={{color:'white',fontSize:'18px'}}>{Math.round(sumConfirmed).toLocaleString('ru-RU')+' ₽'}</b></div>
-              <div style={{textAlign:'right'}}><p style={{color:'rgba(255,255,255,0.85)',fontSize:'11px',margin:0}}>Зачислено к выплате</p><b style={{color:'white',fontSize:'18px'}}>{Math.round((piecework||[]).filter(pw=>Number(pw.staffId)===user.id).reduce((s,pw)=>s+Number(pw.total||0),0)).toLocaleString('ru-RU')+' ₽'}</b></div>
-            </div>
-            <div style={{position:'relative',marginBottom:'14px'}}>
-              <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-              <input placeholder='🔍 Поиск работы или объекта' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
-            </div>
-            {(()=>{
-              const filtered=myJournal.filter(w=>matchSearch(listSearch,w.description,w.project));
-              if(filtered.length===0) return(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>{myJournal.length===0?'Истории работ пока нет. Введите работу на странице «Работы» — после подтверждения прорабом она появится здесь.':'По запросу ничего не найдено'}</div>);
-              const byDate={};
-              filtered.forEach(w=>{const d=String(w.date||w.confirmedAt||'').split('T')[0]||'Без даты';if(!byDate[d]) byDate[d]={works:[],total:0};byDate[d].works.push(w);if(w.status==='Подтверждено') byDate[d].total+=Number(w.total||0);});
-              const dates=Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
-              const pwByWj=new Set((piecework||[]).filter(pw=>Number(pw.staffId)===user.id&&pw.workJournalId).map(pw=>Number(pw.workJournalId)));
-              return dates.map(date=>{const grp=byDate[date];const isOpen=expandedProject===date;const byProj={};grp.works.forEach(w=>{const pn=w.project||'Без объекта';if(!byProj[pn]) byProj[pn]=[];byProj[pn].push(w);});const projs=Object.keys(byProj).sort();
-                return(<div key={date} style={{...card,marginBottom:'10px'}}>
-                  <div style={{padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedProject(isOpen?null:date)}>
-                    <div>
-                      <b style={{color:C.text,fontSize:'14px'}}>📅 {date}</b>
-                      <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{grp.works.length+' работ · '+projs.length+(projs.length===1?' объект':' объекта/объектов')}</p>
-                    </div>
-                    <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                      <b style={{color:C.success,fontSize:'15px'}}>{Math.round(grp.total).toLocaleString('ru-RU')+' ₽'}</b>
-                      {isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
-                    </div>
-                  </div>
-                  {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border}}>
-                    {projs.map(pn=>(<div key={pn} style={{padding:'10px 16px',borderBottom:'1px solid '+C.border}}>
-                      <b style={{color:C.accent,fontSize:'12px',display:'block',marginBottom:'6px'}}>🏗 {pn}</b>
-                      {byProj[pn].map(w=>{const st=w.status||'На проверке';const stCol=st==='Подтверждено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Подтверждено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;const stIcon=st==='Подтверждено'?'✅':st==='Отклонено'?'❌':'⏳';const isPaid=pwByWj.has(Number(w.id));return(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px'}}>
-                        <div style={{flex:1,minWidth:0}}>
-                          <b style={{fontSize:'13px',color:C.text,display:'block'}}>{w.description}</b>
-                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{fmtMeasure(w.quantity,w.unit)}</p>
-                          <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginTop:'3px'}}>
-                            <span style={{padding:'2px 8px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:stBg,color:stCol}}>{stIcon+' '+st}</span>
-                            {st==='Подтверждено'&&(isPaid?<span style={{padding:'2px 8px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:C.successLight,color:C.success}}>💰 Зачислено в зарплату</span>:<span style={{padding:'2px 8px',borderRadius:'8px',fontSize:'10px',fontWeight:'600',backgroundColor:C.warningLight,color:C.warning}}>⏳ Ждёт зарплаты</span>)}
-                          </div>
-                          {w.comment&&st==='Отклонено'&&<p style={{color:C.danger,fontSize:'10px',margin:'4px 0 0'}}>Причина: {w.comment}</p>}
-                        </div>
-                        <div style={{textAlign:'right',flexShrink:0}}>
-                          <b style={{color:st==='Подтверждено'?C.success:C.textMuted,fontSize:'13px'}}>{Math.round(Number(w.total||0)).toLocaleString('ru-RU')+' ₽'}</b>
-                          {w.photoUrl&&<button onClick={()=>setShowPhotoModal(fileSrc(w.photoUrl))} style={{...btnG,padding:'2px 6px',fontSize:'10px',marginLeft:'4px',marginTop:'2px'}}>📷</button>}
-                        </div>
-                      </div>);})}
-                    </div>))}
-                  </div>)}
-                </div>);});
-            })()}
-          </div>)}
+          {activePage==='history'&&(
+            <MasterHistoryPage
+              C={{...C, inp}}
+              btnG={btnG}
+              card={card}
+              expandedProject={expandedProject}
+              fileSrc={fileSrc}
+              fmtMeasure={fmtMeasure}
+              listSearch={listSearch}
+              matchSearch={matchSearch}
+              myJournal={myJournal}
+              piecework={piecework}
+              setExpandedProject={setExpandedProject}
+              setListSearch={setListSearch}
+              setShowPhotoModal={setShowPhotoModal}
+              sumConfirmed={sumConfirmed}
+              user={user}
+            />
+          )}
 
 	          {activePage==='materials'&&(
             <MasterMaterialsPage
@@ -10218,270 +10181,119 @@ function App() {
             />
           )}
 
-          {activePage==='cable'&&(()=>{
-            const projectNames = new Set((projects||[]).map(p=>p.name));
-            const rows = (cableJournal||[]).filter(cb=>projectNames.size===0||projectNames.has(cb.projectName));
-            const groupOrder = ['Силовой кабель','СКС / интернет','Пожарная сигнализация','Слаботочка / сигнализация','Кабель'];
-            const rowsByType = rows.reduce((acc,cb)=>{const t=cableTypeOf(cb);acc[t]=acc[t]||[];acc[t].push(cb);return acc;},{});
-            const activeTypes = [...groupOrder.filter(t=>rowsByType[t]?.length), ...Object.keys(rowsByType).filter(t=>!groupOrder.includes(t))];
-            const updCable = (id,k,v)=>setCableJournal(prev=>prev.map(cb=>cb.id===id?{...cb,[k]:v}:cb));
-            const saveCable = async (cb) => {
-              const body = {
-                cableType:cableTypeOf(cb),
-                lengthInstalled:Number(cb.lengthInstalled)||0,
-                installationLocation:cb.installationLocation||'',
-                installationMethod:cb.installationMethod||'',
-                installedAt:cb.installedAt||'',
-                insulationBefore:Number(cb.insulationBefore)||0,
-                insulationAfter:Number(cb.insulationAfter)||0,
-                responsibleItr:cb.responsibleItr||user.name,
-              };
-              await fetch(API+'/cable-journal/'+cb.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-              setCableJournal(prev=>prev.map(x=>x.id===cb.id?{...x,...body}:x));
-              alert('Запись кабельного журнала сохранена');
-            };
-            return (<div>
-              <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>⚡ Кабель и слаботочка</h3>
-              <div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder}}>
-                <p style={{color:C.text,fontSize:'12px',margin:0}}>Заполняй фактический монтаж силового кабеля, СКС/интернета, слаботочки и пожарной сигнализации: помещение/трасса, способ прокладки, длину, дату и замеры. Эти данные попадут в журнал кабельной продукции по объекту.</p>
-              </div>
-              {rows.length===0&&<div style={{...card,padding:'28px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>Кабельных позиций пока нет.<br/>Они появляются автоматически из поставок и накладных: ВВГ/NYM/СИП, UTP/FTP/SFTP, КПС/КСВВ/КСПВ и пожарные FRLS/FRHF.</div>}
-              {activeTypes.map(type=>(<div key={type} style={{marginBottom:'16px'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',gap:'10px',flexWrap:'wrap'}}>
-                  <b style={{color:C.text,fontSize:'14px'}}>{type}</b>
-                  <span style={badge(C.accent,C.accentLight,C.accentBorder)}>{rowsByType[type].length+' поз.'}</span>
-                </div>
-                {rowsByType[type].map(cb=>(<div key={cb.id} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+(cb.installedAt?C.success:C.warning)}}>
-                <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start',flexWrap:'wrap',marginBottom:'10px'}}>
-                  <div style={{flex:'1 1 220px'}}>
-                    <b style={{color:C.text,fontSize:'14px'}}>{cb.cableBrand||'Кабель'}</b>
-                    <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{(cb.projectName||'—')+' · поступило '+(cb.lengthReceived||0)+' м'+(cb.supplier?' · '+cb.supplier:'')}</p>
-                    <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>{cableTypeOf(cb)+' · '+(cb.crossSection?('сечение '+cb.crossSection+' мм²'):'сечение не указано')}{cb.coresCount?' · '+cb.coresCount+' жил':''}</p>
-                  </div>
-                  <span style={badge(cb.installedAt?C.success:C.warning,cb.installedAt?C.successLight:C.warningLight,cb.installedAt?C.successBorder:C.warningBorder)}>{cb.installedAt?'Проложен':'К монтажу'}</span>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                  <input placeholder="Место: комната, трасса, щит" value={cb.installationLocation||''} onChange={e=>updCable(cb.id,'installationLocation',e.target.value)} style={{...inp,marginBottom:0}}/>
-                  <select value={cb.installationMethod||''} onChange={e=>updCable(cb.id,'installationMethod',e.target.value)} style={{...inp,marginBottom:0}}>
-                    <option value="">Способ прокладки</option>
-                    <option>Открыто</option><option>В кабель-канале</option><option>В трубе</option><option>По лотку</option><option>В слаботочном лотке</option><option>В гофре</option><option>В металлорукаве</option><option>На скобах</option><option>Под штукатуркой</option><option>В земле</option>
-                  </select>
-                  <input placeholder="Проложено, м" type="number" step="any" inputMode="decimal" value={cb.lengthInstalled||''} onChange={e=>updCable(cb.id,'lengthInstalled',e.target.value)} style={{...inp,marginBottom:0}}/>
-                  <input type="date" value={cb.installedAt||''} onChange={e=>updCable(cb.id,'installedAt',e.target.value)} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="R до прокладки, МΩ" type="number" step="0.1" inputMode="decimal" value={cb.insulationBefore||''} onChange={e=>updCable(cb.id,'insulationBefore',e.target.value)} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="R после прокладки, МΩ" type="number" step="0.1" inputMode="decimal" value={cb.insulationAfter||''} onChange={e=>updCable(cb.id,'insulationAfter',e.target.value)} style={{...inp,marginBottom:0}}/>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'10px',flexWrap:'wrap'}}>
-                  <button onClick={()=>saveCable(cb)} style={btnO}><Check size={14}/>Сохранить монтаж</button>
-                  <button onClick={()=>showPreview(buildCableJournalContent([cb],cb.projectName,cb.receivedAt,cb.installedAt||cb.receivedAt),'Запись кабеля')} style={btnB}><Eye size={14}/>Печать</button>
-                </div>
-                </div>))}
-              </div>))}
-            </div>);
-          })()}
+          {activePage==='cable'&&(
+            <MasterCablePage
+              API={API}
+              C={{...C, inp}}
+              btnB={btnB}
+              btnO={btnO}
+              buildCableJournalContent={buildCableJournalContent}
+              cableJournal={cableJournal}
+              cableTypeOf={cableTypeOf}
+              card={card}
+              projects={projects}
+              setCableJournal={setCableJournal}
+              showPreview={showPreview}
+              user={user}
+            />
+          )}
 
           {/* Страница «Мои траты» — список и кнопка добавить */}
-          {activePage==='myexpenses'&&(()=>{
-            const myExp = (ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);
-            const pending = myExp.filter(e=>e.status==='Ожидает');
-            const reimbursed = myExp.filter(e=>e.status==='Возмещено');
-            const rejected = myExp.filter(e=>e.status==='Отклонено');
-            return (<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px',flexWrap:'wrap',gap:'10px'}}>
-                <h3 style={{color:C.text,margin:0,fontSize:'18px',fontWeight:'700'}}>💸 Мои траты</h3>
-                <button onClick={()=>setShowOwnExpenseForm(true)} style={btnO}><Plus size={14}/>Новая трата</button>
-              </div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
-                <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
-                  <p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>⏳ Ждут</p>
-                  <b style={{color:C.warning,fontSize:'17px'}}>{pending.reduce((s,e)=>s+Number(e.amount||0),0).toLocaleString('ru-RU')+' ₽'}</b>
-                </div>
-                <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
-                  <p style={{color:C.success,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>✅ Возмещено</p>
-                  <b style={{color:C.success,fontSize:'17px'}}>{reimbursed.reduce((s,e)=>s+Number(e.amount||0),0).toLocaleString('ru-RU')+' ₽'}</b>
-                </div>
-                {rejected.length>0 && <div style={{...card,padding:'12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}>
-                  <p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>❌ Отклонено</p>
-                  <b style={{color:C.danger,fontSize:'17px'}}>{rejected.reduce((s,e)=>s+Number(e.amount||0),0).toLocaleString('ru-RU')+' ₽'}</b>
-                </div>}
-              </div>
-              {myExp.length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Трат пока нет.<br/>Нажмите «Новая трата» если потратил свои деньги на стройку.</div>}
-              {myExp.map(e=>{
-                const stC = e.status==='Возмещено'?C.success:e.status==='Отклонено'?C.danger:C.warning;
-                const stBg = e.status==='Возмещено'?C.successLight:e.status==='Отклонено'?C.dangerLight:C.warningLight;
-                const stBd = e.status==='Возмещено'?C.successBorder:e.status==='Отклонено'?C.dangerBorder:C.warningBorder;
-                return (<div key={e.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'4px solid '+stC}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                    <div style={{flex:'1 1 200px'}}>
-                      <b style={{color:C.text,fontSize:'14px'}}>{e.description}</b>
-                      <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{Number(e.amount||0).toLocaleString('ru-RU')+' ₽ · 🏗 '+(e.projectName||'—')}</p>
-                      <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{e.date||''}</p>
-                      {(()=>{const urls=(e.photoUrl||'').split(',').filter(Boolean);if(urls.length===0) return null;return (<div style={{display:'flex',gap:'4px',marginTop:'6px',flexWrap:'wrap'}}>{urls.map((u,i)=>(<img key={i} src={fileSrc(u)} alt='' onClick={()=>setShowPhotoModal(fileSrc(u))} style={{width:'48px',height:'48px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',border:'1px solid '+C.border}}/>))}</div>);})()}
-                    </div>
-                    <span style={badge(stC,stBg,stBd)}>{e.status||'Ожидает'}</span>
-                  </div>
-                </div>);
-              })}
-            </div>);
-          })()}
+          {activePage==='myexpenses'&&(
+            <MyExpensesPage
+              C={C}
+              EXPENSE_CATEGORIES={EXPENSE_CATEGORIES}
+              accountablePayments={accountablePayments}
+              btnO={btnO}
+              card={card}
+              fileSrc={fileSrc}
+              ownExpenses={ownExpenses}
+              setReportingPayment={setReportingPayment}
+              setShowOwnExpenseForm={setShowOwnExpenseForm}
+              setShowPhotoModal={setShowPhotoModal}
+              user={user}
+            />
+          )}
 
-          {activePage==='documents'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'20px',fontSize:'18px',fontWeight:'700'}}>Мои документы</h3>
-            <div style={{...card,padding:'20px',marginBottom:'15px'}}>
-              <h4 style={{color:C.text,marginBottom:'10px',fontSize:'14px',fontWeight:'600'}}>📋 Согласие на обработку ПД</h4>
-              <div style={{display:'flex',gap:'8px',marginBottom:'10px',flexWrap:'wrap'}}>
-                <button onClick={()=>showPreview(PD_CONSENT_TEXT({fullName:masterProfile?.fullName||user.name,passport:masterProfile?.passport||'',inn:masterProfile?.inn||''}),'Согласие на ПД')} style={btnB}><Eye size={14}/>Просмотр</button>
-                <button onClick={()=>doPrint(PD_CONSENT_TEXT({fullName:masterProfile?.fullName||user.name,passport:masterProfile?.passport||'',inn:masterProfile?.inn||''}))} style={btnO}><Printer size={14}/>Распечатать</button>
-              </div>
-              {(()=>{const consent=pdConsents.find(c=>c.userId===user.id);if(consent?.scanUrl) return(<div style={{backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,padding:'10px',borderRadius:'8px',display:'flex',alignItems:'center',gap:'10px'}}><CheckCircle size={16} color={C.success}/><span style={{color:C.success,fontSize:'13px'}}>Скан загружен</span></div>);return(<label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить скан<input type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'pd-consents'});await fetch(API+'/pd-consents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({userId:user.id,signedAt:new Date().toLocaleString('ru-RU'),scanUrl:url,uploadedBy:user.name})});await refreshData();}}}/></label>);})()}
-            </div>
-            <div style={{...card,padding:'20px',marginBottom:'15px'}}>
-              <h4 style={{color:C.text,marginBottom:'10px',fontSize:'14px',fontWeight:'600'}}>📄 Мой договор</h4>
-              {myContract?(<div><p style={{color:C.textSec,fontSize:'13px'}}>{'Договор № '+myContract.contractNumber+' · '+myContract.contractType+' · '+myContract.project}</p><button onClick={()=>{const mp=masterProfiles.find(p=>p.userId===user.id);if(mp) showPreview(buildContractContent(mp,myContract),'Договор');}} style={{...btnB,marginTop:'8px'}}><Eye size={14}/>Просмотр</button></div>):<p style={{color:C.textMuted,fontSize:'13px'}}>Договор не найден</p>}
-            </div>
-            <div style={{...card,padding:'20px'}}>
-              <h4 style={{color:C.text,marginBottom:'10px',fontSize:'14px',fontWeight:'600'}}>📋 Мои акты</h4>
-              {myActs.map(act=>{const totalAmt=act.totalAmount||0;const paidAmt=act.paidAmount||0;const toolDed=myTools.filter(t=>t.issueType==='В счёт зарплаты').reduce((s,t)=>s+t.cost,0);return(<div key={act.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}><div style={{display:'flex',justifyContent:'space-between'}}><div><b style={{fontSize:'13px',color:C.text}}>{'Акт №'+act.id}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{act.project+' · '+act.periodStart+' — '+act.periodEnd}</p><p style={{color:C.text,margin:'1px 0',fontSize:'12px'}}>{'Начислено: '+totalAmt.toLocaleString()+' ₽'}</p>{toolDed>0&&<p style={{color:C.danger,margin:'1px 0',fontSize:'12px'}}>{'Удержания: -'+toolDed.toLocaleString()+' ₽'}</p>}<p style={{color:C.success,margin:'1px 0',fontSize:'12px'}}>{'Оплачено: '+paidAmt.toLocaleString()+' ₽'}</p>{(totalAmt-toolDed-paidAmt)>0&&<p style={{color:C.danger,margin:'1px 0',fontSize:'12px',fontWeight:'600'}}>{'Остаток: '+(totalAmt-toolDed-paidAmt).toLocaleString()+' ₽'}</p>}</div><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={14}/></button></div></div>);})}
-              {myActs.length===0&&<p style={{color:C.textMuted,fontSize:'13px'}}>Актов нет</p>}
-            </div>
-          </div>)}
+          {activePage==='documents'&&(
+            <MasterDocumentsPage
+              API={API}
+              C={C}
+              btnB={btnB}
+              btnO={btnO}
+              buildActContent={buildActContent}
+              buildContractContent={buildContractContent}
+              card={card}
+              doPrint={doPrint}
+              fileSrc={fileSrc}
+              masterProfile={masterProfile}
+              masterProfiles={masterProfiles}
+              myActs={myActs}
+              myContract={myContract}
+              myTools={myTools}
+              pdConsents={pdConsents}
+              PD_CONSENT_TEXT={PD_CONSENT_TEXT}
+              refreshData={refreshData}
+              showPreview={showPreview}
+              uploadPhoto={uploadPhoto}
+              user={user}
+            />
+          )}
 
           {activePage==='supply'&&(()=>{
-            const myReqs = (supplyRequests||[]).filter(r=>r.createdBy===user.name||r.requestedById===user.id);
-            const pendingReqs = myReqs.filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом');
-            const approvedReqs = myReqs.filter(r=>r.status==='Утверждена');
-            const rejectedReqs = myReqs.filter(r=>r.status==='Отклонена');
-            return (<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px',flexWrap:'wrap',gap:'10px'}}>
-                <h3 style={{color:C.text,margin:0,fontSize:'18px',fontWeight:'700'}}>🛒 Заявки на материалы</h3>
-                <button onClick={()=>setShowSupplyForm(!showSupplyForm)} style={btnO}><Plus size={14}/>{showSupplyForm?'Закрыть форму':'Новая заявка'}</button>
-              </div>
-              {/* Сводка */}
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
-                <div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
-                  <p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>⏳ В работе</p>
-                  <b style={{color:C.warning,fontSize:'18px'}}>{pendingReqs.length}</b>
-                </div>
-                <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
-                  <p style={{color:C.success,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>✅ Утверждено</p>
-                  <b style={{color:C.success,fontSize:'18px'}}>{approvedReqs.length}</b>
-                </div>
-                {rejectedReqs.length>0 && <div style={{...card,padding:'12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}>
-                  <p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px',fontWeight:'600'}}>❌ Отклонено</p>
-                  <b style={{color:C.danger,fontSize:'18px'}}>{rejectedReqs.length}</b>
-                </div>}
-              </div>
-              {/* Форма — мультистрочная */}
-              {showSupplyForm && (<div style={{...card,padding:'18px',marginBottom:'14px'}}>
-                <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка</b>
-                {/* Сн.5: шаблоны заявок */}
-                {(supplyTemplates||[]).length>0 && (<div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
-                  <span style={{fontSize:'12px',color:C.textSec}}>📋 Шаблон:</span>
-                  <select defaultValue="" onChange={e=>{if(e.target.value){applySupplyTemplate(e.target.value);e.target.value='';}}} style={{...inp,marginBottom:0,fontSize:'13px',width:'auto',minWidth:'220px'}}>
-                    <option value="">— выбрать готовый набор —</option>
-                    {supplyTemplates.map(t=><option key={t.id} value={t.id}>{t.name+' ('+(t.items||[]).length+' поз.)'}</option>)}
-                  </select>
-                </div>)}
-                {(newSupplyReq.items||[]).map((it,idx)=>{
-                  const hint = priceHints[(it.materialName||'').trim()];
-                  return (<React.Fragment key={idx}>
-                  <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr auto',gap:'6px',marginBottom:'4px',alignItems:'center'}}>
-                  <input placeholder="Материал *" value={it.materialName} onBlur={e=>fetchPriceHint(e.target.value)} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],materialName:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
-                  <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={it.quantity} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],quantity:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
-                  <select value={it.unit} onChange={e=>{const items=[...newSupplyReq.items];items[idx]={...items[idx],unit:e.target.value};setNewSupplyReq({...newSupplyReq,items});}} style={{...inp,marginBottom:0,fontSize:'13px'}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                  {(newSupplyReq.items||[]).length>1
-                    ? <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:newSupplyReq.items.filter((_,i)=>i!==idx)})} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
-                    : <span style={{width:'30px'}}/>}
-                  </div>
-                  {hint && hint.stats && <div style={{fontSize:'11px',color:C.textSec,margin:'0 0 8px 2px'}}>
-                    💰 Раньше брали: от <b style={{color:C.success}}>{hint.stats.min.toLocaleString('ru-RU')} ₽</b> до {hint.stats.max.toLocaleString('ru-RU')} ₽, в среднем {hint.stats.avg.toLocaleString('ru-RU')} ₽
-                    {hint.catalog && hint.catalog[0] && <span> · мин. в каталоге: {hint.catalog[0].price.toLocaleString('ru-RU')} ₽ ({hint.catalog[0].supplierName})</span>}
-                  </div>}
-                  {hint && hint.stats===null && <div style={{fontSize:'11px',color:C.textMuted,margin:'0 0 8px 2px'}}>💡 По этому материалу истории цен пока нет</div>}
-                  {renderSupplyPlanningHint(it,idx)}
-                  </React.Fragment>);
-                })}
-                <button onClick={()=>setNewSupplyReq({...newSupplyReq,items:[...(newSupplyReq.items||[]),{materialName:'',quantity:'',unit:'шт'}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
-                <select value={newSupplyReq.project} onChange={e=>setNewSupplyReq({...newSupplyReq,project:e.target.value})} style={inp}>
-                  <option value="">Выберите объект *</option>
-                  {masterProjectOptions.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-                </select>
-                <select value={newSupplyReq.urgency} onChange={e=>setNewSupplyReq({...newSupplyReq,urgency:e.target.value})} style={inp}>
-                  <option value="низкая">🟢 Низкая срочность</option>
-                  <option value="обычная">🟡 Обычная срочность</option>
-                  <option value="срочная">🔴 Срочно</option>
-                </select>
-                <textarea placeholder="Комментарий — для каких работ, особенности" value={newSupplyReq.notes} onChange={e=>setNewSupplyReq({...newSupplyReq,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical'}}/>
-                <div style={{padding:'10px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
-                  ℹ️ После создания заявка попадёт прорабу. Когда он подтвердит — пойдёт директору. Можно добавить несколько позиций в одну заявку.
-                </div>
-                <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                  <button onClick={createSupplyReq} style={btnO}><Check size={14}/>Отправить</button>
-                  <button onClick={saveSupplyTemplate} style={btnG}><Plus size={14}/>Сохранить как шаблон</button>
-                  <button onClick={()=>setShowSupplyForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                </div>
-              </div>)}
-              {/* Список моих заявок */}
-              {myReqs.length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>
-                Заявок ещё нет. Нажмите «Новая заявка» если не хватает материала.
-              </div>}
-              {myReqs.map(req=>{
-                const stC = req.status==='Утверждена'?C.success:req.status==='Подтверждена прорабом'?C.info:req.status==='Отклонена'?C.danger:req.status==='Отменена'?C.textMuted:C.warning;
-                const stBg = req.status==='Утверждена'?C.successLight:req.status==='Подтверждена прорабом'?C.infoLight:req.status==='Отклонена'?C.dangerLight:req.status==='Отменена'?C.bg:C.warningLight;
-                const stBd = req.status==='Утверждена'?C.successBorder:req.status==='Подтверждена прорабом'?C.infoBorder:req.status==='Отклонена'?C.dangerBorder:req.status==='Отменена'?C.border:C.warningBorder;
-                return (<div key={req.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'4px solid '+stC}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                    <div style={{flex:'1 1 200px'}}>
-                      {(()=>{const items=parseSupplyItems(req); if (items.length<=1) {
-                        const it = items[0] || {materialName:req.materialName,quantity:req.quantity,unit:req.unit};
-                        return (<><b style={{color:C.text,fontSize:'14px'}}>{it.materialName}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{it.quantity+' '+it.unit+' · 🏗 '+(req.project||'—')}</p></>);
-                      } return (<>
-                        <b style={{color:C.text,fontSize:'14px'}}>📋 Заявка из {items.length} позиций <span style={{color:C.textSec,fontSize:'12px',fontWeight:'400'}}>· 🏗 {req.project||'—'}</span></b>
-                        <ol style={{margin:'4px 0 6px',paddingLeft:'20px',color:C.text,fontSize:'12px'}}>
-                          {items.map((it,i)=>(<li key={i} style={{marginBottom:'2px'}}>{it.materialName} <span style={{color:C.textSec}}>— {it.quantity} {it.unit}</span></li>))}
-                        </ol>
-                      </>);})()}
-                      <p style={{color:C.textMuted,margin:'0',fontSize:'11px'}}>{req.date||''}{req.urgency==='срочная'?' · 🔴 Срочно':req.urgency==='низкая'?' · 🟢 Не срочно':''}</p>
-	                      {renderSupplyRequestOrigin(req)}
-	                      {req.notes && !supplyRequestOrigin(req) && <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
-                      {req.status==='Подтверждена прорабом' && req.prorabName && <p style={{color:C.info,margin:'4px 0 0',fontSize:'11px'}}>👷 {req.prorabName} подтвердил — ждёт директора</p>}
-                      {req.status==='Утверждена' && req.directorName && <p style={{color:C.success,margin:'4px 0 0',fontSize:'11px'}}>✅ Утвердил: {req.directorName}</p>}
-                      {req.status==='Отклонена' && req.rejectReason && <p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>❌ Причина: {req.rejectReason}</p>}
-                    </div>
-                    <div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end'}}>
-                      <span style={badge(stC,stBg,stBd)}>{req.status}</span>
-                      {(req.status==='Новая'||req.status==='Подтверждена прорабом') && (
-                        <button onClick={()=>cancelSupply(req.id)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>Отменить</button>
-                      )}
-                    </div>
-                  </div>
-                </div>);
-              })}
-            </div>);
+            return (
+              <MasterSupplyPage
+                C={C}
+                card={card}
+                inp={inp}
+                btnO={btnO}
+                btnG={btnG}
+                btnR={btnR}
+                badge={badge}
+                role={user.role}
+                user={user}
+                showSupplyForm={showSupplyForm}
+                setShowSupplyForm={setShowSupplyForm}
+                supplyRequests={supplyRequests}
+                supplyTemplates={supplyTemplates}
+                applySupplyTemplate={applySupplyTemplate}
+                deleteSupplyTemplate={deleteSupplyTemplate}
+                newSupplyReq={newSupplyReq}
+                setNewSupplyReq={setNewSupplyReq}
+                priceHints={priceHints}
+                fetchPriceHint={fetchPriceHint}
+                UNITS={UNITS}
+                masterProjectOptions={masterProjectOptions}
+                renderSupplyPlanningHint={renderSupplyPlanningHint}
+                createSupplyReq={createSupplyReq}
+                saveSupplyTemplate={saveSupplyTemplate}
+                parseSupplyItems={parseSupplyItems}
+                renderSupplyRequestOrigin={renderSupplyRequestOrigin}
+                supplyRequestOrigin={supplyRequestOrigin}
+                cancelSupply={cancelSupply}
+                supplyCollapsedProjects={supplyCollapsedProjects}
+                setSupplyCollapsedProjects={setSupplyCollapsedProjects}
+              />
+            );
           })()}
 
-          {activePage==='companychat'&&(<div>
-            <h3 style={{color:C.text,marginBottom:'20px',fontSize:'18px',fontWeight:'700'}}>Общий чат</h3>
-            <div style={{...card,padding:'20px'}}>
-              <div style={{backgroundColor:C.bg,borderRadius:'12px',padding:'15px',minHeight:'300px',maxHeight:'400px',overflowY:'auto',marginBottom:'15px',display:'flex',flexDirection:'column',gap:'10px',border:'1.5px solid '+C.border}}>
-                {companyMessages.length===0&&<p style={{color:C.textMuted,textAlign:'center',margin:'auto'}}>Сообщений нет</p>}
-                {companyMessages.map(msg=>{const isMe=(msg.author_name||msg.author)===user.name;return(<div key={msg.id} style={{display:'flex',justifyContent:isMe?'flex-end':'flex-start'}}><div style={{maxWidth:'80%',backgroundColor:isMe?C.accent:C.bgWhite,color:isMe?'white':C.text,padding:'10px 14px',borderRadius:isMe?'16px 16px 4px 16px':'16px 16px 16px 4px',border:'1.5px solid '+(isMe?C.accent:C.border)}}>{!isMe&&<div style={{fontSize:'11px',fontWeight:'700',color:roleColor(msg.author_role||msg.role),marginBottom:'4px'}}>{msg.author_name||msg.author}</div>}{msg.text&&<p style={{margin:0,fontSize:'13px'}}>{msg.text}</p>}<div style={{fontSize:'10px',color:isMe?'rgba(255,255,255,0.7)':C.textMuted,marginTop:'4px',textAlign:'right'}}>{msg.created_at?new Date(msg.created_at).toLocaleTimeString('ru-RU'):''}</div></div></div>);})}
-              </div>
-              <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
-              <label style={{cursor:'pointer',padding:'8px',borderRadius:'8px',border:'1.5px solid '+C.border,display:'flex',alignItems:'center'}} title='Фото'>
-                🖼️<input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'company-chat'});sendCompanyChatMessage('[Фото] '+e.target.files[0].name,url);}}}/>
-              </label>
-              <label style={{cursor:'pointer',padding:'8px',borderRadius:'8px',border:'1.5px solid '+C.border,display:'flex',alignItems:'center'}} title='Видео'>
-                🎥<input type='file' accept='video/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'company-chat'});sendCompanyChatMessage('[Видео] '+e.target.files[0].name,url);}}}/>
-              </label>
-              <label style={{cursor:'pointer',padding:'8px',borderRadius:'8px',border:'1.5px solid '+C.border,display:'flex',alignItems:'center'}} title='Документ'>
-                📄<input type='file' accept='.pdf,.doc,.docx,.xls,.xlsx' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'company-chat'});sendCompanyChatMessage('[Документ] '+e.target.files[0].name,url);}}}/>
-              </label>
-              <input placeholder="Написать..." value={companyChatMessage} onChange={e=>setCompanyChatMessage(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendCompanyChatMessage(companyChatMessage,'')} style={{...inp,marginBottom:0,flex:1}}/>
-              <button onClick={()=>sendCompanyChatMessage(companyChatMessage,'')} style={btnO}>➤</button>
-            </div>
-            </div>
-          </div>)}
+          {activePage==='companychat'&&(
+            <CompanyChatPage
+              C={C}
+              card={card}
+              inp={inp}
+              btnO={btnO}
+              companyMessages={companyMessages}
+              user={user}
+              roleColor={roleColor}
+              fileSrc={fileSrc}
+              setShowPhotoModal={setShowPhotoModal}
+              companyChatMessage={companyChatMessage}
+              setCompanyChatMessage={setCompanyChatMessage}
+              uploadPhoto={uploadPhoto}
+              sendCompanyChatMessage={sendCompanyChatMessage}
+            />
+          )}
         </div>
 
         <div style={{position:'fixed',bottom:0,left:0,right:0,backgroundColor:'white',borderTop:'1.5px solid '+C.border,display:'flex',justifyContent:'flex-start',gap:'2px',padding:'10px 8px 14px',zIndex:100,boxShadow:'0 -4px 20px rgba(0,0,0,0.06)',overflowX:'auto'}}>
@@ -10494,54 +10306,29 @@ function App() {
 
   if (!user) {
     if (page==='register') {
-      const isSupplierInvite = regInviteInfo?.role === 'поставщик';
       return (
-        <div style={{display:'flex',justifyContent:'center',alignItems:'center',minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
-          <div style={{...card,padding:'30px',width:isSupplierInvite?'560px':'420px',maxWidth:'100%',boxShadow:'0 20px 60px rgba(0,0,0,0.08)',maxHeight:'95vh',overflowY:'auto'}}>
-            <div style={{textAlign:'center',marginBottom:'24px'}}>
-              <div style={{fontSize:'42px',marginBottom:'8px'}}>{isSupplierInvite?'🏭':'🏗️'}</div>
-              <h2 style={{margin:0,color:C.text,fontSize:'22px',fontWeight:'800'}}>СтройКа</h2>
-              <p style={{color:C.textSec,fontSize:'13px',margin:'8px 0 0'}}>
-                {isSupplierInvite ? 'Регистрация поставщика' : 'Регистрация по коду приглашения'}
-              </p>
-            </div>
-            {regInviteInfo && regInviteInfo.role && (
-              <div style={{padding:'10px 12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'14px',fontSize:'12px',color:C.text}}>
-                ✅ Приглашение действительно — роль: <b>{ROLE_LABELS[regInviteInfo.role]||regInviteInfo.role}</b>
-                {regInviteInfo.presetName && <><br/>📛 Компания: <b>{regInviteInfo.presetName}</b></>}
-                {regInviteInfo.presetCategory && <><br/>📂 Категория: <b>{regInviteInfo.presetCategory}</b></>}
-              </div>
-            )}
-            <input placeholder={isSupplierInvite?"ФИО контактного лица":"Ваше имя"} value={regName} onChange={e=>setRegName(e.target.value)} style={inp}/>
-            <input type="email" placeholder="Email" value={regEmail} onChange={e=>setRegEmail(e.target.value)} style={inp}/>
-            <input type="password" placeholder="Пароль (минимум 5 символов)" value={regPassword} onChange={e=>setRegPassword(e.target.value)} style={inp}/>
-            <input placeholder="КОД ПРИГЛАШЕНИЯ" value={regCode} onChange={e=>setRegCode(e.target.value.toUpperCase())} style={{...inp,letterSpacing:'4px',textAlign:'center',fontSize:'18px',fontWeight:'700'}}/>
-            {isSupplierInvite && (
-              <div style={{marginTop:'12px',padding:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.border,borderRadius:'10px'}}>
-                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>📋 Данные компании (можно заполнить позже в кабинете)</b>
-                <input placeholder="Название компании *" value={regSupplierData.companyName} onChange={e=>setRegSupplierData({...regSupplierData,companyName:e.target.value})} style={inp}/>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                  <input placeholder="ИНН" value={regSupplierData.inn} onChange={e=>setRegSupplierData({...regSupplierData,inn:e.target.value})} style={{...inp,marginBottom:'8px'}}/>
-                  <input placeholder="КПП" value={regSupplierData.kpp} onChange={e=>setRegSupplierData({...regSupplierData,kpp:e.target.value})} style={{...inp,marginBottom:'8px'}}/>
-                </div>
-                <input placeholder="ОГРН/ОГРНИП" value={regSupplierData.ogrn} onChange={e=>setRegSupplierData({...regSupplierData,ogrn:e.target.value})} style={inp}/>
-                <input placeholder="Юридический адрес" value={regSupplierData.legalAddress} onChange={e=>setRegSupplierData({...regSupplierData,legalAddress:e.target.value})} style={inp}/>
-                <input placeholder="Телефон" value={regSupplierData.phone} onChange={e=>setRegSupplierData({...regSupplierData,phone:e.target.value})} style={inp}/>
-                <input placeholder="Банк" value={regSupplierData.bank} onChange={e=>setRegSupplierData({...regSupplierData,bank:e.target.value})} style={inp}/>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:'8px'}}>
-                  <input placeholder="БИК" value={regSupplierData.bik} onChange={e=>setRegSupplierData({...regSupplierData,bik:e.target.value})} style={{...inp,marginBottom:'8px'}}/>
-                  <input placeholder="Расчётный счёт" value={regSupplierData.account} onChange={e=>setRegSupplierData({...regSupplierData,account:e.target.value})} style={{...inp,marginBottom:'8px'}}/>
-                </div>
-                <input placeholder="ФИО директора" value={regSupplierData.directorName} onChange={e=>setRegSupplierData({...regSupplierData,directorName:e.target.value})} style={inp}/>
-                <input placeholder="Специализация (что поставляете)" value={regSupplierData.specialization} onChange={e=>setRegSupplierData({...regSupplierData,specialization:e.target.value})} style={inp}/>
-                <p style={{color:C.textMuted,fontSize:'11px',margin:0}}>Договор поставки и прайс-лист загрузите в личном кабинете после регистрации.</p>
-              </div>
-            )}
-            {loginError&&<p style={{color:C.danger,fontSize:'13px',marginTop:'12px',marginBottom:'0'}}>{loginError}</p>}
-            <button onClick={handleRegister} style={{...btnO,width:'100%',padding:'13px',justifyContent:'center',fontSize:'15px',marginTop:'12px',marginBottom:'10px'}}>Зарегистрироваться</button>
-            <p style={{textAlign:'center',color:C.textSec,fontSize:'13px'}}>Уже есть аккаунт? <span onClick={()=>{setPage('login');setLoginError('');}} style={{color:C.accent,cursor:'pointer',fontWeight:'600'}}>Войти</span></p>
-          </div>
-        </div>
+        <RegisterPage
+          C={C}
+          ROLE_LABELS={ROLE_LABELS}
+          btnO={btnO}
+          card={card}
+          handleRegister={handleRegister}
+          inp={inp}
+          loginError={loginError}
+          regCode={regCode}
+          regEmail={regEmail}
+          regInviteInfo={regInviteInfo}
+          regName={regName}
+          regPassword={regPassword}
+          regSupplierData={regSupplierData}
+          setLoginError={setLoginError}
+          setPage={setPage}
+          setRegCode={setRegCode}
+          setRegEmail={setRegEmail}
+          setRegName={setRegName}
+          setRegPassword={setRegPassword}
+          setRegSupplierData={setRegSupplierData}
+        />
       );
     }
     return <LoginPage email={email} setEmail={setEmail} password={password} setPassword={setPassword} handleLogin={handleLogin} loginError={loginError} setLoginError={setLoginError} setPage={setPage}/>;
@@ -13669,600 +13456,215 @@ function App() {
             <ClientsPage C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} clients={clients} projects={projects} showForm={showForm} setShowForm={setShowForm} editingItem={editingItem} setEditingItem={setEditingItem} newClient={newClient} setNewClient={setNewClient} saveClient={saveClient} listSearch={listSearch} setListSearch={setListSearch} expandedClient={expandedClient} setExpandedClient={setExpandedClient} deleteClient={deleteClient} matchSearch={matchSearch}/>
           )}
 
-          {activePage==='warehouse'&&(<div>
-            <WarehouseTabsNav
+          {activePage==='warehouse'&&(
+            <WarehousePage
               warehouseTab={warehouseTab}
               setWarehouseTab={setWarehouseTab}
               setShowForm={setShowForm}
               btnO={btnO}
               btnG={btnG}
+              C={C}
+              badge={badge}
+              btnB={btnB}
+              buildMaterialRequirementContent={buildMaterialRequirementContent}
+              card={card}
+              exportToExcel={exportToExcel}
+              isFinanceRole={isFinanceRole}
+              isLeadership={isLeadership}
+              materialControlSummaryForProject={materialControlSummaryForProject}
+              materialReconciliationRows={materialReconciliationRows}
+              projects={projects}
+              setSelectedWarehouseProject={setSelectedWarehouseProject}
+              visibleActiveProjects={visibleActiveProjects}
+              showForm={showForm}
+              editingItem={editingItem}
+              setEditingItem={setEditingItem}
+              newWarehouse={newWarehouse}
+              setNewWarehouse={setNewWarehouse}
+              saveWarehouse={saveWarehouse}
+              deleteWarehouse={deleteWarehouse}
+              warehouses={warehouses}
+              inp={inp}
+              btnR={btnR}
+              btnGr={btnGr}
+              tbl={tbl}
+              tblH={tblH}
+              tblC={tblC}
+              selectedWarehouseProject={selectedWarehouseProject}
+              materials={materials}
+              openReceiveInvoice={openReceiveInvoice}
+              user={user}
+              setMaterialTransfers={setMaterialTransfers}
+              setNewTransfer={setNewTransfer}
+              setShowTransferForm={setShowTransferForm}
+              renderMaterialReconciliationPanel={renderMaterialReconciliationPanel}
+              deleteMaterial={deleteMaterial}
+              showTransferForm={showTransferForm}
+              newTransfer={newTransfer}
+              warehouseMain={warehouseMain}
+              supplyRequests={supplyRequests}
+              _normalizeUnit={_normalizeUnit}
+              convertUnits={convertUnits}
+              staff={staff}
+              setWarehouseMain={setWarehouseMain}
+              setMaterials={setMaterials}
+              notify={notify}
+              newInvoice={newInvoice}
+              setNewInvoice={setNewInvoice}
+              suppliers={suppliers}
+              estimatesList={estimatesList}
+              invoices={invoices}
+              saveInvoiceNew={saveInvoiceNew}
+              uploadPhoto={uploadPhoto}
+              fileSrc={fileSrc}
+              setShowPhotoModal={setShowPhotoModal}
+              setSverkaModal={setSverkaModal}
+              warehouseInvoiceItems={warehouseInvoiceItems}
+              isSupplyDeliveryInvoice={isSupplyDeliveryInvoice}
+              warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
+              renderInvoiceControlActions={renderInvoiceControlActions}
+              showPreview={showPreview}
+              buildInvoiceContent={buildInvoiceContent}
+              setShowQRModal={setShowQRModal}
+              VAT_OPTIONS={VAT_OPTIONS}
+              UNITS={UNITS}
+              MATERIAL_CATEGORIES={MATERIAL_CATEGORIES}
+              history={history}
+              listSearch={listSearch}
+              setListSearch={setListSearch}
+              matchSearch={matchSearch}
+              deleteMainMaterial={deleteMainMaterial}
+              warehouseMovements={warehouseMovements}
+              newMovement={newMovement}
+              setNewMovement={setNewMovement}
+              applyWarehouseMovement={applyWarehouseMovement}
+              buildMovementDoc={buildMovementDoc}
+              toolsTab={toolsTab}
+              setToolsTab={setToolsTab}
+              newTool={newTool}
+              setNewTool={setNewTool}
+              saveTool={saveTool}
+              deleteTool={deleteTool}
+              tools={tools}
+              toolHistory={toolHistory}
+              isProrab={isProrab}
+              setShowIssueToolModal={setShowIssueToolModal}
+              setShowReturnToolModal={setShowReturnToolModal}
+              TOOL_STATUSES={TOOL_STATUSES}
+              newInventory={newInventory}
+              setNewInventory={setNewInventory}
+              selectedInventory={selectedInventory}
+              setSelectedInventory={setSelectedInventory}
+              inventory={inventory}
+              buildInventoryDoc={buildInventoryDoc}
+              refreshData={refreshData}
             />
-
-            {warehouseTab==='control'&&(
-              <WarehouseMaterialControlOverview
-                C={C}
-                badge={badge}
-                btnB={btnB}
-                btnG={btnG}
-                buildMaterialRequirementContent={buildMaterialRequirementContent}
-                card={card}
-                exportToExcel={exportToExcel}
-                isFinanceRole={isFinanceRole}
-                isLeadership={isLeadership}
-                materialControlSummaryForProject={materialControlSummaryForProject}
-                materialReconciliationRows={materialReconciliationRows}
-                projects={projects}
-                setSelectedWarehouseProject={setSelectedWarehouseProject}
-                setWarehouseTab={setWarehouseTab}
-                showPreview={showPreview}
-                visibleActiveProjects={visibleActiveProjects}
-              />
-            )}
-
-            {warehouseTab==='warehouses'&&(
-              <WarehouseCompanyWarehousesPanel
-                warehouses={warehouses}
-                showForm={showForm}
-                setShowForm={setShowForm}
-                editingItem={editingItem}
-                setEditingItem={setEditingItem}
-                newWarehouse={newWarehouse}
-                setNewWarehouse={setNewWarehouse}
-                saveWarehouse={saveWarehouse}
-                deleteWarehouse={deleteWarehouse}
+          )}
+          {activePage==='supply'&&(()=>{
+            return (
+              <SupplyPage
                 C={C}
                 card={card}
                 inp={inp}
+                tblH={tblH}
+                tblC={tblC}
                 btnO={btnO}
                 btnG={btnG}
+                btnB={btnB}
+                btnGr={btnGr}
                 btnR={btnR}
-              />
-            )}
-
-            {warehouseTab==='objects'&&(<div>
-              {!selectedWarehouseProject?(<div>
-                <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Материалы по объектам</h3>
-                {visibleActiveProjects(projects).map(p=>{const mats=materials.filter(m=>m.project===p.name);const total=mats.reduce((s,m)=>s+m.price*m.quantity,0);return(<div key={p.id} style={{...card,padding:'16px',marginBottom:'10px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setSelectedWarehouseProject(p.name)}><div><b style={{color:C.text,fontSize:'14px'}}>{p.name}</b><p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{mats.length+' позиций · '+total.toLocaleString()+' ₽'}</p></div><ChevronRight size={18} color={C.textMuted}/></div>);})}
-              </div>):(<div>
-                <div style={{display:'flex',gap:'10px',alignItems:'center',marginBottom:'15px'}}>
-                  <button onClick={()=>setSelectedWarehouseProject(null)} style={btnG}><ArrowLeft size={14}/>Назад</button>
-                  <h3 style={{color:C.text,margin:0,fontSize:'15px',fontWeight:'700'}}>{selectedWarehouseProject}</h3>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                  <button onClick={()=>openReceiveInvoice(selectedWarehouseProject)} style={btnO}><Plus size={14}/>Принять материал</button>
-                  {(isLeadership()||user.role==='прораб'||user.role==='кладовщик') && (
-                    <button onClick={async()=>{
-                      const res = await fetch(API+'/material-transfers?project_name='+encodeURIComponent(selectedWarehouseProject));
-                      const data = await res.json();
-                      setMaterialTransfers(Array.isArray(data)?data:[]);
-                      setNewTransfer({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:selectedWarehouseProject,notes:'',transferDate:new Date().toISOString().split('T')[0]});
-                      setShowTransferForm(true);
-                    }} style={btnGr}><Truck size={14}/>Передать мастеру</button>
-                  )}
-                  <button onClick={()=>exportToExcel(materials.filter(m=>m.project===selectedWarehouseProject).map(m=>({Наименование:m.name,Единица:m.unit,Количество:m.quantity,Цена:m.price,Сумма:m.quantity*m.price,Проект:m.project})),'Склад_'+selectedWarehouseProject)} style={btnG}><Download size={14}/>Excel</button>
-                </div>
-                {renderMaterialReconciliationPanel(selectedWarehouseProject,{limit:25,title:'📊 Контроль материалов объекта'})}
-                <table style={tbl}><thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Кат.</th><th style={tblH}>Кол-во</th><th style={tblH}>Цена</th><th style={tblH}>Сумма</th><th style={tblH}></th></tr></thead><tbody>
-                  {materials.filter(m=>m.project===selectedWarehouseProject).map(m=>(<tr key={m.id} style={{backgroundColor:m.minQuantity&&m.quantity<m.minQuantity?C.dangerLight:'transparent'}}>
-                    <td style={tblC}><b style={{fontSize:'13px'}}>{m.name}</b>{m.minQuantity&&m.quantity<m.minQuantity&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),marginLeft:'6px',fontSize:'10px'}}>Мало!</span>}</td>
-                    <td style={{...tblC,fontSize:'11px',color:C.textSec}}>{m.category||'—'}</td>
-                    <td style={tblC}>{m.quantity+' '+m.unit}</td>
-                    <td style={tblC}>{m.price.toLocaleString()+' ₽'}</td>
-                    <td style={{...tblC,fontWeight:'600'}}>{(m.price*m.quantity).toLocaleString()+' ₽'}</td>
-                    <td style={tblC}><button onClick={()=>deleteMaterial(m.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
-                  </tr>))}
-                </tbody></table>
-              </div>)}
-              {/* Модалка «Передать материал» прямо на складе — без редиректа в проект */}
-              {showTransferForm && selectedWarehouseProject && (<div onClick={()=>setShowTransferForm(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:1600,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'min(560px,92vw)',maxHeight:'90vh',overflowY:'auto'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
-                    <b style={{color:C.text,fontSize:'16px'}}>🚚 Передать материал — {selectedWarehouseProject}</b>
-                    <button onClick={()=>setShowTransferForm(false)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
-                  </div>
-                  <select value={newTransfer.fromLocation} onChange={e=>setNewTransfer({...newTransfer,fromLocation:e.target.value,materialName:'',quantity:''})} style={inp}>
-                    <option value='Основной склад'>Основной склад</option>
-                    <option value={selectedWarehouseProject}>Склад объекта «{selectedWarehouseProject}»</option>
-                  </select>
-                  <p style={{fontSize:'12px',color:C.textSec,marginBottom:'6px'}}>Выберите материал:</p>
-                  <div style={{maxHeight:'180px',overflowY:'auto',border:'1.5px solid '+C.border,borderRadius:'8px',padding:'8px',marginBottom:'10px'}}>
-                    {[...warehouseMain.filter(m=>newTransfer.fromLocation==='Основной склад'),...materials.filter(m=>m.project===newTransfer.fromLocation&&newTransfer.fromLocation!=='Основной склад')].map((m,i)=>(<div key={i} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
-                      <input type='checkbox' checked={newTransfer.materialName===m.name} onChange={e=>setNewTransfer({...newTransfer,materialName:e.target.checked?m.name:'',unit:e.target.checked?m.unit:newTransfer.unit,quantity:''})} style={{width:'16px',height:'16px',cursor:'pointer'}}/>
-                      <span style={{flex:1,fontSize:'12px',color:C.text}}>{m.name}</span>
-                      <span style={{fontSize:'11px',color:C.textSec}}>Остаток: {m.quantity} {m.unit}</span>
-                    </div>))}
-                  </div>
-                  {newTransfer.materialName && (<>
-                    <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}>
-                      <b style={{fontSize:'13px',color:C.text,flex:1}}>{newTransfer.materialName}</b>
-                      <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={e=>setNewTransfer({...newTransfer,quantity:e.target.value})} style={{...inp,marginBottom:0,width:'120px'}}/>
-                      <span style={{fontSize:'12px',color:C.textSec}}>{newTransfer.unit}</span>
-                    </div>
-                    {/* Конверсия единиц: если заявка в других единицах */}
-                    {(()=>{
-                      const matName=(newTransfer.materialName||'').toLowerCase().trim();
-                      const matched=(supplyRequests||[]).find(r=>{
-                        if (r.project!==selectedWarehouseProject) return false;
-                        if (r.status==='Отменена'||r.status==='Отклонена') return false;
-                        const rn=(r.materialName||'').toLowerCase().trim();
-                        if (!matName||!rn) return false;
-                        return rn.includes(matName.split(' ')[0])||matName.includes(rn.split(' ')[0]);
-                      });
-                      if (!matched) return null;
-                      if (_normalizeUnit(matched.unit)===_normalizeUnit(newTransfer.unit)) return null;
-                      const conv=convertUnits(newTransfer.materialName,matched.quantity,matched.unit,newTransfer.unit);
-                      if (conv) {
-                        return (<div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px'}}>
-                          📐 <b style={{color:C.text}}>Заявка была на {matched.quantity} {matched.unit}</b>, склад в {newTransfer.unit}. Это ≈ <b style={{color:C.accent}}>{conv.qty.toFixed(2)} {newTransfer.unit}</b>.
-                          <p style={{margin:'4px 0 6px',color:C.textSec,fontSize:'11px'}}>{conv.note}</p>
-                          <button onClick={()=>setNewTransfer({...newTransfer,quantity:Number(conv.qty.toFixed(3))})} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>
-                            <Check size={11}/>Подставить {conv.qty.toFixed(2)} {newTransfer.unit}
-                          </button>
-                        </div>);
-                      }
-                      return (<div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
-                        ⚠️ Заявка в <b>{matched.quantity} {matched.unit}</b>, на складе в <b>{newTransfer.unit}</b>. Конверсия не задана — пересчитайте вручную.
-                      </div>);
-                    })()}
-                  </>)}
-                  <select value={newTransfer.toPerson} onChange={e=>{const s=staff.find(st=>st.name===e.target.value);setNewTransfer({...newTransfer,toPerson:e.target.value,toPersonRole:s?s.role:''});}} style={inp}>
-                    <option value=''>Кому передать *</option>
-                    {(()=>{
-                      const matName=(newTransfer.materialName||'').toLowerCase().trim();
-                      const requesters=new Map();
-                      (supplyRequests||[]).filter(r=>r.project===selectedWarehouseProject&&(r.status==='Утверждена'||r.status==='Подтверждена прорабом'||r.status==='Новая')).forEach(r=>{
-                        if (matName) {
-                          const rName=(r.materialName||'').toLowerCase();
-                          if (!rName.includes(matName.split(' ')[0])&&!matName.includes(rName.split(' ')[0]||'')) return;
-                        }
-                        if (r.createdBy&&!requesters.has(r.createdBy)) requesters.set(r.createdBy,{name:r.createdBy,role:r.requestedByRole||'',quantity:r.quantity,unit:r.unit});
-                      });
-                      const rn=new Set(requesters.keys());
-                      return (<>
-                        {requesters.size>0 && <optgroup label="📋 Заявляли этот материал">
-                          {Array.from(requesters.values()).map((r,i)=>(<option key={'wreq-'+i} value={r.name}>⭐ {r.name} ({r.role}) — просил {r.quantity} {r.unit}</option>))}
-                        </optgroup>}
-                        <optgroup label={requesters.size>0?'👥 Остальные':'👥 Мастера и прорабы'}>
-                          {staff.filter(s=>['мастер','прораб','бригадир','субподрядчик'].includes((s.role||'').toLowerCase())&&!rn.has(s.name)).map(s=><option key={s.id} value={s.name}>{s.name} ({s.role})</option>)}
-                        </optgroup>
-                      </>);
-                    })()}
-                  </select>
-                  <input type='date' value={newTransfer.transferDate} onChange={e=>setNewTransfer({...newTransfer,transferDate:e.target.value})} style={inp}/>
-                  <input placeholder='Примечание' value={newTransfer.notes} onChange={e=>setNewTransfer({...newTransfer,notes:e.target.value})} style={inp}/>
-                  <div style={{display:'flex',gap:'8px'}}>
-                    <button onClick={async()=>{
-                      if(!newTransfer.materialName||!newTransfer.quantity||!newTransfer.toPerson) { alert('Заполните: материал, количество, кому'); return; }
-                      const data={...newTransfer,projectName:selectedWarehouseProject,createdBy:user.name};
-                      const res=await fetch(API+'/material-transfers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-                      const saved=await res.json();
-                      if(!res.ok||!saved.ok){ alert('Ошибка: '+(saved.detail||saved.error||'не удалось списать со склада')); return; }
-                      setMaterialTransfers(prev=>[{...data,id:saved.id,signed:false},...prev]);
-                      const qty=Number(newTransfer.quantity);
-                      if(newTransfer.fromLocation==='Основной склад'){
-                        setWarehouseMain(prev=>prev.map(m=>m.name===newTransfer.materialName?{...m,quantity:Number(m.quantity||0)-qty}:m));
-                      } else {
-                        setMaterials(prev=>prev.map(m=>(m.name===newTransfer.materialName&&m.project===newTransfer.fromLocation)?{...m,quantity:Number(m.quantity||0)-qty}:m));
-                      }
-                      setShowTransferForm(false);
-                      setNewTransfer({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
-                      notify('Передал '+(saved.materialName||newTransfer.materialName)+' ('+newTransfer.quantity+' '+newTransfer.unit+') → '+newTransfer.toPerson,'material');
-                    }} style={btnO}><Check size={14}/>Передать</button>
-                    <button onClick={()=>setShowTransferForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                  </div>
-                </div>
-              </div>)}
-            </div>)}
-
-            {warehouseTab==='main'&&(
-              <WarehouseMainStockPanel
-                warehouseMain={warehouseMain}
+                badge={badge}
+                user={user}
+                isLeadership={isLeadership}
+                isFinanceRole={isFinanceRole}
+                showSupplyForm={showSupplyForm}
+                setShowSupplyForm={setShowSupplyForm}
+                showForm={showForm}
+                setShowForm={setShowForm}
+                supplyTab={supplyTab}
+                setSupplyTab={setSupplyTab}
+                supplyRequests={supplyRequests}
                 listSearch={listSearch}
                 setListSearch={setListSearch}
                 matchSearch={matchSearch}
-                openReceiveInvoice={openReceiveInvoice}
-                exportToExcel={exportToExcel}
-                deleteMainMaterial={deleteMainMaterial}
-                C={C}
-                inp={inp}
-                btnO={btnO}
-                btnG={btnG}
-                btnR={btnR}
-                tbl={tbl}
-                tblH={tblH}
-                tblC={tblC}
-                badge={badge}
-              />
-            )}
-
-            {warehouseTab==='move'&&(<div>
-              <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Перемещение материалов</h3>
-              <div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'15px'}}>
-                  <div>
-                    <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'5px'}}>Откуда:</label>
-                    <select value={newMovement.fromLocation} onChange={e=>setNewMovement({...newMovement,fromLocation:e.target.value,selectedMaterials:[]})} style={inp}>
-                      <option value="Основной склад">Основной склад</option>
-                      {visibleActiveProjects(projects).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'5px'}}>Куда:</label>
-                    <select value={newMovement.toLocation} onChange={e=>setNewMovement({...newMovement,toLocation:e.target.value})} style={inp}>
-                      <option value="">Выберите...</option>
-                      <option value="Основной склад">Основной склад</option>
-                      {visibleActiveProjects(projects).filter(p=>p.name!==newMovement.fromLocation).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Выберите материалы:</b>
-                {(newMovement.fromLocation==='Основной склад'?warehouseMain:materials.filter(m=>m.project===newMovement.fromLocation)).map(m=>{
-                  const sel=newMovement.selectedMaterials?.find(s=>s.name===m.name);
-                  return(<div key={m.id} style={{padding:'10px',borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+(sel?C.accent:C.border),backgroundColor:sel?C.accentLight:C.bgWhite,display:'flex',alignItems:'center',gap:'10px'}}>
-                    <input type="checkbox" checked={!!sel} onChange={e=>{if(e.target.checked) setNewMovement(prev=>({...prev,selectedMaterials:[...(prev.selectedMaterials||[]),{...m,quantity:''}]}));else setNewMovement(prev=>({...prev,selectedMaterials:(prev.selectedMaterials||[]).filter(s=>s.name!==m.name)}));}} style={{width:'16px',height:'16px',accentColor:C.accent}}/>
-                    <span style={{flex:1,fontSize:'13px',color:C.text}}>{m.name+' (есть: '+m.quantity+' '+m.unit+')'}</span>
-                    {sel&&<input placeholder="Кол-во" type="number" step="any" inputMode="decimal" value={sel.quantity} onChange={e=>setNewMovement(prev=>({...prev,selectedMaterials:prev.selectedMaterials.map(s=>s.name===m.name?{...s,quantity:e.target.value}:s)}))} style={{width:'100px',padding:'5px 8px',border:'1.5px solid '+C.accent,borderRadius:'6px',fontSize:'12px'}}/>}
-                  </div>);
-                })}
-                <input placeholder="Примечание" value={newMovement.notes} onChange={e=>setNewMovement({...newMovement,notes:e.target.value})} style={{...inp,marginTop:'10px'}}/>
-                <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
-                  <button onClick={async()=>{await applyWarehouseMovement();showPreview(buildMovementDoc(newMovement,(newMovement.selectedMaterials||[]).filter(s=>s.quantity)),'Накладная М-11');}} style={btnO}><Check size={14}/>Переместить и распечатать</button>
-                  <button onClick={applyWarehouseMovement} style={btnG}>Переместить</button>
-                </div>
-              </div>
-              <h3 style={{color:C.text,marginBottom:'10px',fontSize:'14px',fontWeight:'700'}}>История перемещений</h3>
-              <table style={tbl}><thead><tr><th style={tblH}>Материал</th><th style={tblH}>Откуда</th><th style={tblH}>Куда</th><th style={tblH}>Кол-во</th><th style={tblH}>Дата</th></tr></thead><tbody>
-                {warehouseMovements.slice(0,20).map((m,i)=>(<tr key={i}><td style={tblC}>{m.materialName}</td><td style={tblC}>{m.fromLocation}</td><td style={tblC}>{m.toLocation}</td><td style={tblC}>{m.quantity+' '+m.unit}</td><td style={tblC}>{m.date}</td></tr>))}
-              </tbody></table>
-            </div>)}
-
-            {warehouseTab==='invoices'&&(
-              <WarehouseInvoicesPanel
-                showForm={showForm}
-                setShowForm={setShowForm}
-                newInvoice={newInvoice}
-                setNewInvoice={setNewInvoice}
-                suppliers={suppliers}
-                projects={projects}
-                estimatesList={estimatesList}
-                invoices={invoices}
-                saveInvoiceNew={saveInvoiceNew}
-                uploadPhoto={uploadPhoto}
-                fileSrc={fileSrc}
-                setShowPhotoModal={setShowPhotoModal}
-                setSverkaModal={setSverkaModal}
-	                warehouseInvoiceItems={warehouseInvoiceItems}
-	                isSupplyDeliveryInvoice={isSupplyDeliveryInvoice}
-	                warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
-	                renderInvoiceControlActions={renderInvoiceControlActions}
-	                showPreview={showPreview}
-                buildInvoiceContent={buildInvoiceContent}
-                setShowQRModal={setShowQRModal}
-                C={C}
-                card={card}
-                inp={inp}
-                btnO={btnO}
-                btnG={btnG}
-                btnB={btnB}
-                btnR={btnR}
-                tbl={tbl}
-                tblH={tblH}
-                tblC={tblC}
-                VAT_OPTIONS={VAT_OPTIONS}
+                supplyTemplates={supplyTemplates}
+                applySupplyTemplate={applySupplyTemplate}
+                deleteSupplyTemplate={deleteSupplyTemplate}
+                newSupplyReq={newSupplyReq}
+                setNewSupplyReq={setNewSupplyReq}
+                priceHints={priceHints}
+                fetchPriceHint={fetchPriceHint}
                 UNITS={UNITS}
-                MATERIAL_CATEGORIES={MATERIAL_CATEGORIES}
+                projects={projects}
+                renderSupplyPlanningHint={renderSupplyPlanningHint}
+                createSupplyReq={createSupplyReq}
+                saveSupplyTemplate={saveSupplyTemplate}
+                supplyCollapsedProjects={supplyCollapsedProjects}
+                setSupplyCollapsedProjects={setSupplyCollapsedProjects}
+                parseSupplyItems={parseSupplyItems}
+                renderSupplyRequestOrigin={renderSupplyRequestOrigin}
+                supplyRequestOrigin={supplyRequestOrigin}
+                supplyExpandedId={supplyExpandedId}
+                setSupplyExpandedId={setSupplyExpandedId}
+                confirmSupplyAsProrab={confirmSupplyAsProrab}
+                approveSupplyAsDirector={approveSupplyAsDirector}
+                openRequestKpModal={openRequestKpModal}
+                loadSupplyStockCheck={loadSupplyStockCheck}
+                setSupplyRejectId={setSupplyRejectId}
+                supplyRejectId={supplyRejectId}
+                supplyRejectReason={supplyRejectReason}
+                setSupplyRejectReason={setSupplyRejectReason}
+                rejectSupply={rejectSupply}
+                cancelSupply={cancelSupply}
+                supplyStockCheck={supplyStockCheck}
+                askSupplyAi={askSupplyAi}
+                supplyAiLoading={supplyAiLoading}
+                supplyAiText={supplyAiText}
+                supplierOffers={supplierOffers}
+                compareResultByReq={compareResultByReq}
+                compareLoadingReqId={compareLoadingReqId}
+                runCompareKp={runCompareKp}
+                suppliers={suppliers}
+                fileSrc={fileSrc}
+                parseOfferItems={parseOfferItems}
+                selectSupplierOffer={selectSupplierOffer}
+                rejectSupplierOffer={rejectSupplierOffer}
+                supplierInvoices={supplierInvoices}
+                newSupplierInvoice={newSupplierInvoice}
+                setNewSupplierInvoice={setNewSupplierInvoice}
+                expandedProject={expandedProject}
+                setExpandedProject={setExpandedProject}
+                loadAll={loadAll}
+                toNum={toNum}
+                supplierCategories={SUPPLIER_CATEGORIES}
+                editingItem={editingItem}
+                setEditingItem={setEditingItem}
+                newSupplier={newSupplier}
+                setNewSupplier={setNewSupplier}
+                saveSupplier={saveSupplier}
+                deleteSupplier={deleteSupplier}
+                setSupplierInviteForm={setSupplierInviteForm}
+                setGeneratedInviteLink={setGeneratedInviteLink}
+                setShowSupplierInviteModal={setShowSupplierInviteModal}
+                supplierCatalog={supplierCatalog}
+                supplyClaims={supplyClaims}
+                supplyDeliveries={supplyDeliveries}
+                receivingDeliveryId={receivingDeliveryId}
+                setReceivingDeliveryId={setReceivingDeliveryId}
+                receiveForm={receiveForm}
+                setReceiveForm={setReceiveForm}
+                deliveryAiLoadingId={deliveryAiLoadingId}
+                setDeliveryAiLoadingId={setDeliveryAiLoadingId}
+                deliveryAiResultById={deliveryAiResultById}
+                setDeliveryAiResultById={setDeliveryAiResultById}
+                runDeliveryAiCheck={runDeliveryAiCheck}
+                receiveSupplyDelivery={receiveSupplyDelivery}
+                invoices={invoices}
+                showPreview={showPreview}
+                buildInvoiceContent={buildInvoiceContent}
+                uploadPhoto={uploadPhoto}
               />
-            )}
-
-            {warehouseTab==='history'&&(
-              <WarehouseHistoryPanel
-                history={history}
-                listSearch={listSearch}
-                matchSearch={matchSearch}
-                exportToExcel={exportToExcel}
-                C={C}
-                btnG={btnG}
-                tbl={tbl}
-                tblH={tblH}
-                tblC={tblC}
-                badge={badge}
-              />
-            )}
-
-            {warehouseTab==='tools'&&(<div>
-              <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                {['list','history'].map(t=>(<button key={t} onClick={()=>setToolsTab(t)} style={{...toolsTab===t?btnO:btnG,fontSize:'12px',padding:'6px 14px'}}>{{list:'Список',history:'История'}[t]}</button>))}
-                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewTool({name:'',inventoryNumber:'',cost:'',status:'На складе',location:'Основной склад',project:'',masterId:'',masterName:'',issueType:'',notes:''});}} style={btnO}><Plus size={14}/>Добавить</button>
-              </div>
-              {showForm&&(<div style={{...card,padding:'20px',marginBottom:'15px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <input placeholder="Название *" value={newTool.name} onChange={e=>setNewTool({...newTool,name:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Инв. №" value={newTool.inventoryNumber} onChange={e=>setNewTool({...newTool,inventoryNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder="Стоимость (₽)" type="number" step="any" inputMode="decimal" value={newTool.cost} onChange={e=>setNewTool({...newTool,cost:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newTool.status} onChange={e=>setNewTool({...newTool,status:e.target.value})} style={{...inp,marginBottom:0}}>{TOOL_STATUSES.map(s=><option key={s}>{s}</option>)}</select>
-                  <textarea placeholder="Примечание" value={newTool.notes} onChange={e=>setNewTool({...newTool,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',height:'60px',resize:'vertical'}}/>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={saveTool} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
-              </div>)}
-              {toolsTab==='list'&&(<table style={tbl}><thead><tr><th style={tblH}>Инструмент</th><th style={tblH}>Инв. №</th><th style={tblH}>Статус</th><th style={tblH}>У кого</th><th style={tblH}>Стоимость</th><th style={tblH}></th></tr></thead><tbody>
-                {tools.map(t=>(<tr key={t.id}><td style={tblC}><b style={{fontSize:'13px'}}>{t.name}</b>{t.notes&&<p style={{color:C.textMuted,margin:'1px 0',fontSize:'11px'}}>{t.notes}</p>}</td><td style={tblC}>{t.inventoryNumber||'—'}</td><td style={tblC}><span style={badge(t.status==='На складе'?C.success:t.status.includes('У мастера')?C.accent:t.status==='На ремонте'?C.warning:C.danger,t.status==='На складе'?C.successLight:t.status.includes('У мастера')?C.accentLight:t.status==='На ремонте'?C.warningLight:C.dangerLight,t.status==='На складе'?C.successBorder:t.status.includes('У мастера')?C.accentBorder:t.status==='На ремонте'?C.warningBorder:C.dangerBorder)}>{t.status}</span></td><td style={tblC}>{t.masterName?t.masterName+(t.project?' ('+t.project+')':''):'—'}</td><td style={tblC}>{t.cost?(t.cost.toLocaleString()+' ₽'):'—'}{t.issueType==='В счёт зарплаты'&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),marginLeft:'4px',fontSize:'10px'}}>Удержание</span>}</td><td style={tblC}><div style={{display:'flex',gap:'4px'}}>{t.status==='На складе'&&isProrab()&&<button onClick={()=>setShowIssueToolModal(t)} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>Выдать</button>}{t.status.includes('У мастера')&&isProrab()&&<button onClick={()=>setShowReturnToolModal(t)} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>Вернуть</button>}<button onClick={()=>{setEditingItem(t);setNewTool({...t,cost:String(t.cost)});setShowForm(true);}} style={{...btnG,padding:'4px 8px'}}><Edit2 size={11}/></button><button onClick={()=>deleteTool(t.id)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></div></td></tr>))}
-              </tbody></table>)}
-              {toolsTab==='history'&&(<table style={tbl}><thead><tr><th style={tblH}>Инструмент</th><th style={tblH}>Действие</th><th style={tblH}>Мастер</th><th style={tblH}>Объект</th><th style={tblH}>Состояние</th><th style={tblH}>Дата</th></tr></thead><tbody>
-                {toolHistory.map((h,i)=>(<tr key={i}><td style={tblC}>{h.toolName}</td><td style={tblC}><span style={badge(h.action==='Выдача'?C.accent:C.success,h.action==='Выдача'?C.accentLight:C.successLight,h.action==='Выдача'?C.accentBorder:C.successBorder)}>{h.action}</span></td><td style={tblC}>{h.masterName}</td><td style={tblC}>{h.project}</td><td style={tblC}>{h.condition}</td><td style={tblC}>{h.date}</td></tr>))}
-              </tbody></table>)}
-            </div>)}
-
-            {warehouseTab==='inventory'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Инвентаризация</b>
-                <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая</button>
-              </div>
-              {showForm&&(<div style={{...card,padding:'20px',marginBottom:'15px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <select value={newInventory.project} onChange={e=>setNewInventory({...newInventory,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <input type="date" value={newInventory.date} onChange={e=>setNewInventory({...newInventory,date:e.target.value})} style={{...inp,marginBottom:0}}/>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-                  <button onClick={async()=>{if(!newInventory.project||!newInventory.date) return;const res=await fetch(API+'/inventory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newInventory,createdBy:user.name})});const inv=await res.json();await refreshData();setSelectedInventory(inv);setShowForm(false);}} style={btnO}><Check size={14}/>Создать</button>
-                  <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
-                </div>
-              </div>)}
-              {selectedInventory&&(<div style={{...card,padding:'20px',marginBottom:'15px'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                  <b style={{color:C.text}}>{'Инвентаризация: '+selectedInventory.project}</b>
-                  <div style={{display:'flex',gap:'6px'}}>
-                    <button onClick={async()=>{const items=await fetch(API+'/inventory/'+selectedInventory.id+'/items').then(r=>r.json());showPreview(buildInventoryDoc(selectedInventory,items),'Акт инвентаризации');}} style={btnB}><Eye size={14}/>Акт</button>
-                    <button onClick={()=>setSelectedInventory(null)} style={btnG}><X size={14}/>Закрыть</button>
-                  </div>
-                </div>
-                <p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>Введите фактические остатки:</p>
-                {materials.filter(m=>m.project===selectedInventory.project).map(m=>(<div key={m.id} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr',gap:'8px',alignItems:'center',marginBottom:'8px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}>
-                  <span style={{fontSize:'13px',color:C.text}}>{m.name}</span>
-                  <span style={{fontSize:'12px',color:C.textSec}}>{'По учёту: '+m.quantity+' '+m.unit}</span>
-                  <input placeholder="Факт" type="number" step="any" inputMode="decimal" defaultValue={m.quantity} onBlur={async e=>{const actual=Number(e.target.value);await fetch(API+'/inventory/'+selectedInventory.id+'/items',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:m.name,unit:m.unit,expected:m.quantity,actual,difference:actual-m.quantity,price:m.price})});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                </div>))}
-              </div>)}
-              {inventory.map(inv=>(<div key={inv.id} style={{...card,padding:'14px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div><b style={{color:C.text,fontSize:'13px'}}>{'Инвентаризация: '+inv.project}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{inv.date}</p></div>
-                <div style={{display:'flex',gap:'6px'}}>
-                  <button onClick={()=>setSelectedInventory(inv)} style={btnG}><Edit2 size={13}/>Открыть</button>
-                  <button onClick={async()=>{const items=await fetch(API+'/inventory/'+inv.id+'/items').then(r=>r.json());showPreview(buildInventoryDoc(inv,items),'Акт инвентаризации');}} style={btnB}><Eye size={13}/>Акт</button>
-                </div>
-              </div>))}
-            </div>)}
-          </div>)}
-          {activePage==='supply'&&(()=>{
-            const role = user.role;
-            const canCreate = ['мастер','субподрядчик','прораб','директор','зам_директора','кладовщик','снабженец'].includes(role);
-            const canConfirmProrab = role==='прораб'||isLeadership();
-            const canApprove = isLeadership();
-            const canViewSuppliers = ['директор','зам_директора','прораб','кладовщик','снабженец','бухгалтер'].includes(role);
-            const canViewDeliveries = ['директор','зам_директора','прораб','кладовщик','снабженец','бухгалтер'].includes(role);
-            // вкладки в зависимости от роли
-            let tabs = [];
-            if (role==='мастер'||role==='субподрядчик') tabs=[{id:'mine',label:'📋 Мои заявки'}];
-            else if (role==='прораб') tabs=[{id:'inbox',label:'⏳ Ждут подтверждения'},{id:'all',label:'📋 Все заявки'},{id:'deliveries',label:'🚚 Поставки'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
-            else if (role==='бухгалтер') tabs=[{id:'invoices',label:'💳 Счета'},{id:'all',label:'📋 Все заявки'},{id:'deliveries',label:'🚚 Поставки'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
-            else if (isLeadership()) tabs=[{id:'inbox',label:'⏳ На утверждение'},{id:'all',label:'📋 Все заявки'},{id:'deliveries',label:'🚚 Поставки'},{id:'invoices',label:'💳 Счета'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
-            else tabs=[{id:'approved',label:'✅ Утверждённые'},{id:'all',label:'📋 Все'},{id:'deliveries',label:'🚚 Поставки'},{id:'invoices',label:'💳 Счета'},{id:'suppliers',label:'🚚 Поставщики'},{id:'catalog',label:'📦 Каталоги'}];
-            if (!canViewSuppliers) tabs = tabs.filter(t=>t.id!=='suppliers');
-            if (!canViewDeliveries) tabs = tabs.filter(t=>t.id!=='deliveries');
-            // фильтрация
-            let list = supplyRequests || [];
-            const curTab = tabs.find(t=>t.id===supplyTab) ? supplyTab : tabs[0].id;
-            if (role==='мастер'||role==='субподрядчик') {
-              list = list.filter(r=>r.createdBy===user.name||r.requestedById===user.id);
-            } else if (role==='прораб') {
-              if (curTab==='inbox') list = list.filter(r=>r.status==='Новая');
-            } else if (isLeadership()) {
-              if (curTab==='inbox') list = list.filter(r=>r.status==='Подтверждена прорабом'||r.status==='Новая');
-            } else {
-              if (curTab==='approved') list = list.filter(r=>r.status==='Утверждена');
-            }
-            // поиск
-            list = list.filter(r=>matchSearch(listSearch, r.materialName, r.project, r.createdBy));
-            // helpers для статуса
-            const statusColors = (st)=>{
-              if (st==='Утверждена') return [C.success,C.successLight,C.successBorder];
-              if (st==='Подтверждена прорабом') return [C.info||C.accent,C.infoLight||C.accentLight,C.infoBorder||C.accentBorder||C.border];
-              if (st==='Отклонена') return [C.danger,C.dangerLight,C.dangerBorder];
-              if (st==='Отменена') return [C.textMuted,C.bg,C.border];
-              return [C.warning,C.warningLight,C.warningBorder];
-            };
-            return (<div>
-              <SupplyHeaderTabs
-                C={C}
-                btnO={btnO}
-                btnG={btnG}
-                role={role}
-                isLeadership={isLeadership()}
-                canCreate={canCreate}
-                curTab={curTab}
-                tabs={tabs}
-                showSupplyForm={showSupplyForm}
-                setShowSupplyForm={setShowSupplyForm}
-                setSupplyTab={setSupplyTab}
-                setShowForm={setShowForm}
-              />
-              {/* Вкладка «Счета» — входящие счета от поставщиков (Ф5a.2: переехали из Бухгалтерии) */}
-              {curTab==='invoices' && (
-                <SupplySupplierInvoicesPanel
-                  C={C}
-                  card={card}
-                  inp={inp}
-                  btnO={btnO}
-                  btnG={btnG}
-                  btnGr={btnGr}
-                  btnR={btnR}
-                  badge={badge}
-                  user={user}
-                  suppliers={suppliers}
-                  projects={projects}
-                  supplierInvoices={supplierInvoices}
-                  newSupplierInvoice={newSupplierInvoice}
-                  setNewSupplierInvoice={setNewSupplierInvoice}
-                  listSearch={listSearch}
-                  setListSearch={setListSearch}
-                  expandedProject={expandedProject}
-                  setExpandedProject={setExpandedProject}
-                  canPay={isFinanceRole()}
-                  matchSearch={matchSearch}
-                  loadAll={loadAll}
-                  toNum={toNum}
-                />
-              )}
-              {/* Вкладка «Поставщики» — справочник поставщиков внутри снабжения */}
-              {curTab==='suppliers' && (
-                <SupplySuppliersPanel
-                  C={C}
-                  card={card}
-                  inp={inp}
-                  btnO={btnO}
-                  btnG={btnG}
-                  btnGr={btnGr}
-                  btnR={btnR}
-                  user={user}
-                  suppliers={suppliers}
-                  supplierCategories={SUPPLIER_CATEGORIES}
-                  showForm={showForm}
-                  setShowForm={setShowForm}
-                  editingItem={editingItem}
-                  setEditingItem={setEditingItem}
-                  newSupplier={newSupplier}
-                  setNewSupplier={setNewSupplier}
-                  saveSupplier={saveSupplier}
-                  deleteSupplier={deleteSupplier}
-                  listSearch={listSearch}
-                  setListSearch={setListSearch}
-                  matchSearch={matchSearch}
-                  setSupplierInviteForm={setSupplierInviteForm}
-                  setGeneratedInviteLink={setGeneratedInviteLink}
-                  setShowSupplierInviteModal={setShowSupplierInviteModal}
-                  loadAll={loadAll}
-                />
-              )}
-              {/* Вкладка «Каталоги» — прайсы поставщиков (просмотр) */}
-              {curTab==='catalog' && (
-                <SupplyCatalogPanel
-                  C={C}
-                  card={card}
-                  inp={inp}
-                  tblH={tblH}
-                  tblC={tblC}
-                  badge={badge}
-                  supplierCatalog={supplierCatalog}
-                  listSearch={listSearch}
-                  setListSearch={setListSearch}
-                />
-              )}
-              {curTab==='deliveries' && (
-                <SupplyDeliveriesPanel
-                  C={C}
-                  card={card}
-                  inp={inp}
-                  btnO={btnO}
-                  btnG={btnG}
-                  btnB={btnB}
-                  btnGr={btnGr}
-                  badge={badge}
-                  role={role}
-                  supplyClaims={supplyClaims}
-                  supplyDeliveries={supplyDeliveries}
-                  receivingDeliveryId={receivingDeliveryId}
-                  setReceivingDeliveryId={setReceivingDeliveryId}
-                  receiveForm={receiveForm}
-                  setReceiveForm={setReceiveForm}
-                  deliveryAiLoadingId={deliveryAiLoadingId}
-                  setDeliveryAiLoadingId={setDeliveryAiLoadingId}
-                  deliveryAiResultById={deliveryAiResultById}
-                  setDeliveryAiResultById={setDeliveryAiResultById}
-                  runDeliveryAiCheck={runDeliveryAiCheck}
-                  receiveSupplyDelivery={receiveSupplyDelivery}
-                  invoices={invoices}
-                  showPreview={showPreview}
-                  buildInvoiceContent={buildInvoiceContent}
-                  uploadPhoto={uploadPhoto}
-                />
-              )}
-              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && curTab!=='deliveries' && showSupplyForm && (
-                <SupplyRequestForm
-                  C={C}
-                  card={card}
-                  inp={inp}
-                  btnO={btnO}
-                  btnG={btnG}
-                  btnR={btnR}
-                  role={role}
-                  isLeadership={isLeadership()}
-                  supplyTemplates={supplyTemplates}
-                  applySupplyTemplate={applySupplyTemplate}
-                  deleteSupplyTemplate={deleteSupplyTemplate}
-                  newSupplyReq={newSupplyReq}
-                  setNewSupplyReq={setNewSupplyReq}
-                  priceHints={priceHints}
-                  fetchPriceHint={fetchPriceHint}
-                  UNITS={UNITS}
-                  projects={projects}
-                  renderSupplyPlanningHint={renderSupplyPlanningHint}
-                  createSupplyReq={createSupplyReq}
-                  saveSupplyTemplate={saveSupplyTemplate}
-                  setShowSupplyForm={setShowSupplyForm}
-                />
-              )}
-              {/* Поиск */}
-              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && curTab!=='deliveries' && <div style={{position:'relative',marginBottom:'12px'}}>
-                <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                <input placeholder='🔍 Поиск по материалу, объекту, автору' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
-              </div>}
-              {curTab!=='catalog' && curTab!=='invoices' && curTab!=='suppliers' && curTab!=='deliveries' && (
-                <SupplyRequestsList
-                  C={C}
-                  card={card}
-                  inp={inp}
-                  btnO={btnO}
-                  btnG={btnG}
-                  btnB={btnB}
-                  btnGr={btnGr}
-                  btnR={btnR}
-                  badge={badge}
-                  list={list}
-                  user={user}
-                  statusColors={statusColors}
-                  supplyCollapsedProjects={supplyCollapsedProjects}
-                  setSupplyCollapsedProjects={setSupplyCollapsedProjects}
-                  parseSupplyItems={parseSupplyItems}
-                  renderSupplyRequestOrigin={renderSupplyRequestOrigin}
-                  supplyRequestOrigin={supplyRequestOrigin}
-                  supplyExpandedId={supplyExpandedId}
-                  setSupplyExpandedId={setSupplyExpandedId}
-                  canConfirmProrab={canConfirmProrab}
-                  canApprove={canApprove}
-                  confirmSupplyAsProrab={confirmSupplyAsProrab}
-                  approveSupplyAsDirector={approveSupplyAsDirector}
-                  openRequestKpModal={openRequestKpModal}
-                  loadSupplyStockCheck={loadSupplyStockCheck}
-                  setSupplyRejectId={setSupplyRejectId}
-                  supplyRejectId={supplyRejectId}
-                  supplyRejectReason={supplyRejectReason}
-                  setSupplyRejectReason={setSupplyRejectReason}
-                  rejectSupply={rejectSupply}
-                  cancelSupply={cancelSupply}
-                  supplyStockCheck={supplyStockCheck}
-                  askSupplyAi={askSupplyAi}
-                  supplyAiLoading={supplyAiLoading}
-                  supplyAiText={supplyAiText}
-                  supplierOffers={supplierOffers}
-                  compareResultByReq={compareResultByReq}
-                  compareLoadingReqId={compareLoadingReqId}
-                  runCompareKp={runCompareKp}
-                  suppliers={suppliers}
-                  fileSrc={fileSrc}
-                  parseOfferItems={parseOfferItems}
-                  selectSupplierOffer={selectSupplierOffer}
-                  rejectSupplierOffer={rejectSupplierOffer}
-                />
-              )}
-            </div>);
+            );
           })()}
 
           {activePage==='suppliers'&&(
@@ -14325,923 +13727,198 @@ function App() {
             />
           )}
 
-          {activePage==='accounting'&&(<div>
-            <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['summary','contracts','acts','payments','documents','salary','expenses','audit'].filter(t=>t!=='audit'||isLeadership()).map(tab=>(<button key={tab} onClick={()=>{setAccountingTab(tab);setShowForm(false);if(tab==='audit'){fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{});}}} style={{...accountingTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 12px'}}>{{summary:'📊 Сводка',contracts:'🧾 Договоры',acts:'📄 Акты',payments:'💸 Платежи',documents:'🏗 По объектам',salary:'👥 Зарплата',expenses:'💼 Авансовые',audit:'📜 Аудит'}[tab]}</button>))}
-            </div>
-
-            {accountingTab==='summary'&&(<div>
-              <b style={{color:C.text,fontSize:'15px',fontWeight:'700',display:'block',marginBottom:'15px'}}>📊 Финансовая сводка по компании</b>
-              {(()=>{
-                const activeProj=projects.filter(pr=>pr.status==='В работе').length;
-                const totalBudget=projects.reduce((s,pr)=>s+Number(pr.budget||0),0);
-                const totalPayIn=(projectPayments||[]).reduce((s,p)=>s+projectPaymentInAmount(p),0);
-                const totalExpOut=(ownExpenses||[]).reduce((s,e)=>s+Number(e.amount||0),0);
-                const totalAccount=(accountablePayments||[]).reduce((s,a)=>s+Number(a.amount||0),0);
-                // Расходы по всем каналам (фактически оплачено). АОСР — документ скрытых работ, к деньгам не относится (оплата бригад идёт через «Расчёт с бригадой»).
-                const expSuppliers=(supplierInvoices||[]).reduce((s,i)=>s+Number(i.paidAmount||0),0);
-                const expBrigades=(brigadeContracts||[]).reduce((s,bc)=>s+Number(bc.paidAmount||0),0);
-                const expPiecework=(piecework||[]).reduce((s,p)=>s+Number(p.total||0),0);
-                const totalExpenses=totalExpOut+totalAccount+expSuppliers+expBrigades;
-                const netProfit=totalPayIn-totalExpenses;
-                const cards=[
-                  {label:'Активных проектов',val:activeProj+' из '+projects.length,color:C.accent},
-                  {label:'Общий бюджет',val:Math.round(totalBudget).toLocaleString('ru-RU')+' ₽',color:C.text},
-                  {label:'Поступило от заказчиков',val:Math.round(totalPayIn).toLocaleString('ru-RU')+' ₽',color:C.success},
-                  {label:'Оплачено поставщикам',val:Math.round(expSuppliers).toLocaleString('ru-RU')+' ₽',color:C.warning},
-                  {label:'Оплачено бригадам',val:Math.round(expBrigades).toLocaleString('ru-RU')+' ₽',color:C.warning},
-                  {label:'Возмещения сотрудникам',val:Math.round(totalExpOut).toLocaleString('ru-RU')+' ₽',color:C.warning},
-                  {label:'Подотчётные на руках',val:Math.round(totalAccount).toLocaleString('ru-RU')+' ₽',color:C.warning},
-                  ...(isLeadership()?[{label:'Всего расходов',val:Math.round(totalExpenses).toLocaleString('ru-RU')+' ₽',color:C.danger}]:[]),
-                  ...(isLeadership()?[{label:'Чистая прибыль',val:Math.round(netProfit).toLocaleString('ru-RU')+' ₽',color:netProfit>=0?C.success:C.danger}]:[]),
-                  {label:'Зарплата-сделка (начислено)',val:Math.round(expPiecework).toLocaleString('ru-RU')+' ₽',color:C.textSec},
-                ];
-                return(<div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'20px'}}>
-                    {cards.map(c=>(<div key={c.label} style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 6px'}}>{c.label}</p><b style={{color:c.color,fontSize:'18px'}}>{c.val}</b></div>))}
-                  </div>
-                </div>);
-              })()}
-            </div>)}
-
-            {accountingTab==='payments'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>💸 Платежи по объектам</b>
-                <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
-                  <button onClick={()=>{const projOpts=(projects||[]).map(p=>p.name);const pn=window.prompt('Объект (из списка: '+projOpts.slice(0,5).join(', ')+(projOpts.length>5?'…':'')+'):','');if(!pn) return;const amount=prompt('Сумма поступления (₽):');if(!amount||toNum(amount)<=0) return;const note=prompt('Примечание (договор/счёт):','');fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:pn,amount:toNum(amount),note:note||'',date:new Date().toISOString().split('T')[0],paidBy:user.name})}).then(()=>refreshData());}} style={btnO}><Plus size={14}/>Поступление</button>
-                  <button onClick={()=>setShowReimburseModal(true)} style={{...btnGr,position:'relative'}}><DollarSign size={14}/>Возместить сотруднику{(()=>{const n=(ownExpenses||[]).filter(e=>e.status==='Ожидает').length;return n>0?<span style={{position:'absolute',top:'-6px',right:'-6px',backgroundColor:'#ef4444',color:'white',borderRadius:'50%',padding:'1px 6px',fontSize:'10px',fontWeight:'700'}}>{n}</span>:null;})()}</button>
-                </div>
-              </div>
-              {(()=>{
-                // Группировка ВСЕХ движений по объектам
-                const allMovesByProject={};
-                (projectPayments||[]).forEach(p=>{const amount=projectPaymentInAmount(p);if(amount<=0) return;const pn=p.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].incoming.push({...p,_amountIn:amount});allMovesByProject[pn].totalIn+=amount;});
-                (ownExpenses||[]).filter(e=>e.status==='Возмещено').forEach(e=>{const pn=e.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].ownExp.push(e);allMovesByProject[pn].totalOut+=Number(e.amount||0);});
-                (accountablePayments||[]).forEach(a=>{const pn=a.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].accountable.push(a);allMovesByProject[pn].totalOut+=Number(a.amount||0);});
-                (supplierInvoices||[]).forEach(s=>{const pn=s.projectName||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};allMovesByProject[pn].supplierInv.push(s);const paid=Number(s.paidAmount||0);const total=Number(s.totalAmount||0);if(s.status==='Оплачен') allMovesByProject[pn].totalOut+=total;else{allMovesByProject[pn].totalOut+=paid;allMovesByProject[pn].supplyDebt+=Math.max(0,total-paid);}});
-                (interimActs||[]).forEach(act=>{const pn=act.project||'Без объекта';if(!allMovesByProject[pn]) allMovesByProject[pn]={incoming:[],ownExp:[],accountable:[],supplierInv:[],actsPaid:[],totalIn:0,totalOut:0,supplyDebt:0,actsDebt:0};const paid=Number(act.paidAmount||0);const total=Number(act.totalAmount||0);allMovesByProject[pn].actsPaid.push(act);allMovesByProject[pn].totalOut+=paid;if(paid<total) allMovesByProject[pn].actsDebt+=(total-paid);});
-                const projs=Object.keys(allMovesByProject).sort();
-                if(projs.length===0) return(<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Движений денег пока нет</div>);
-                // Общая сводка сверху
-                const sumIn=projs.reduce((s,pn)=>s+allMovesByProject[pn].totalIn,0);
-                const sumOut=projs.reduce((s,pn)=>s+allMovesByProject[pn].totalOut,0);
-                const sumSupplyDebt=projs.reduce((s,pn)=>s+allMovesByProject[pn].supplyDebt,0);
-                const sumActsDebt=projs.reduce((s,pn)=>s+allMovesByProject[pn].actsDebt,0);
-                return(<div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:'10px',marginBottom:'18px'}}>
-                    <div style={{...card,padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>Поступило от заказчиков</p><b style={{color:C.success,fontSize:'15px'}}>{Math.round(sumIn).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div style={{...card,padding:'12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>Расходов оплачено</p><b style={{color:C.danger,fontSize:'15px'}}>{Math.round(sumOut).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    {sumSupplyDebt>0&&<div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>⚠️ Долг поставщикам</p><b style={{color:C.warning,fontSize:'15px'}}>{Math.round(sumSupplyDebt).toLocaleString('ru-RU')+' ₽'}</b></div>}
-                    {sumActsDebt>0&&<div style={{...card,padding:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>⚠️ Долг по актам мастерам</p><b style={{color:C.warning,fontSize:'15px'}}>{Math.round(sumActsDebt).toLocaleString('ru-RU')+' ₽'}</b></div>}
-                  </div>
-                  <div style={{position:'relative',marginBottom:'12px'}}>
-                    <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                    <input placeholder='🔍 Поиск по объекту' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
-                  </div>
-                  {projs.filter(pn=>matchSearch(listSearch,pn)).map(pn=>{const g=allMovesByProject[pn];const isOpen=expandedProject==='pay-'+pn;const balance=g.totalIn-g.totalOut;return(<div key={pn} style={{...card,marginBottom:'8px',borderLeft:'3px solid '+(balance>=0?C.success:C.danger)}}>
-                    <div style={{padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',gap:'10px',flexWrap:'wrap'}} onClick={()=>setExpandedProject(isOpen?null:'pay-'+pn)}>
-                      <div>
-                        <b style={{color:C.text,fontSize:'13px'}}>🏗 {pn}</b>
-                        <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>Поступило: <b style={{color:C.success}}>{Math.round(g.totalIn).toLocaleString('ru-RU')} ₽</b> · Оплачено: <b style={{color:C.danger}}>{Math.round(g.totalOut).toLocaleString('ru-RU')} ₽</b>{g.supplyDebt>0&&<><span style={{color:C.warning}}> · ⚠️ долг постав. {Math.round(g.supplyDebt).toLocaleString('ru-RU')} ₽</span></>}{g.actsDebt>0&&<><span style={{color:C.warning}}> · ⚠️ долг мастерам {Math.round(g.actsDebt).toLocaleString('ru-RU')} ₽</span></>}</p>
-                      </div>
-                      <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
-                        <b style={{color:balance>=0?C.success:C.danger,fontSize:'15px'}}>{(balance>=0?'+':'')+Math.round(balance).toLocaleString('ru-RU')+' ₽'}</b>
-                        {isOpen?<ChevronUp size={14}/>:<ChevronDown size={14}/>}
-                      </div>
-                    </div>
-                    {isOpen&&(<div style={{borderTop:'1px solid '+C.border,padding:'10px 14px',fontSize:'11px'}}>
-                      {g.incoming.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.success,fontWeight:'600'}}>↘️ Поступления ({g.incoming.length}) — {Math.round(g.totalIn).toLocaleString('ru-RU')} ₽</summary>{g.incoming.map((p,i)=>(<div key={i} style={{padding:'4px 10px',color:C.textSec,display:'flex',justifyContent:'space-between',borderBottom:'1px dashed '+C.border}}><span>{(p.date||'—')+(p.note?' · '+p.note:'')+(p.paidBy?' · '+p.paidBy:'')}</span><b style={{color:C.success}}>{Math.round(Number(p._amountIn||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}</details>)}
-                      {g.supplierInv.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.info,fontWeight:'600'}}>📥 Счета поставщиков ({g.supplierInv.length})</summary>{g.supplierInv.map(s=>{const paid=Number(s.paidAmount||0);const total=Number(s.totalAmount||0);const owe=Math.max(0,total-paid);return(<div key={s.id} style={{padding:'4px 10px',display:'flex',justifyContent:'space-between',gap:'8px',borderBottom:'1px dashed '+C.border}}><span style={{color:C.textSec}}>{(s.supplierName||'—')+' · '+(s.invoiceNumber||'без №')+' · '+(s.date||'')}</span><span><b style={{color:C.text}}>{Math.round(total).toLocaleString('ru-RU')+' ₽'}</b>{paid>0&&<span style={{color:C.success,marginLeft:'4px'}}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}{owe>0&&<b style={{color:C.danger,marginLeft:'4px'}}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}</span></div>);})}</details>)}
-                      {g.actsPaid.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.accent,fontWeight:'600'}}>📄 Акты мастеров ({g.actsPaid.length})</summary>{g.actsPaid.map(a=>{const paid=Number(a.paidAmount||0);const total=Number(a.totalAmount||0);const owe=Math.max(0,total-paid);return(<div key={a.id} style={{padding:'4px 10px',display:'flex',justifyContent:'space-between',gap:'8px',borderBottom:'1px dashed '+C.border}}><span style={{color:C.textSec}}>{'№'+a.id+' · '+(a.masterName||'—')+' · '+(a.periodStart||'')+'—'+(a.periodEnd||'')}</span><span><b style={{color:C.text}}>{Math.round(total).toLocaleString('ru-RU')+' ₽'}</b>{paid>0&&<span style={{color:C.success,marginLeft:'4px'}}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}{owe>0&&<b style={{color:C.danger,marginLeft:'4px'}}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}</span></div>);})}</details>)}
-                      {g.accountable.length>0&&(<details style={{marginBottom:'6px'}}><summary style={{cursor:'pointer',padding:'4px 0',color:C.warning,fontWeight:'600'}}>💵 Подотчётные ({g.accountable.length})</summary>{g.accountable.map(a=>(<div key={a.id} style={{padding:'4px 10px',color:C.textSec,display:'flex',justifyContent:'space-between',borderBottom:'1px dashed '+C.border}}><span>{(a.givenTo||'—')+' · '+(a.date||'')+(a.purpose?' · '+a.purpose:'')}</span><b style={{color:C.warning}}>{Math.round(Number(a.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}</details>)}
-                      {g.ownExp.length>0&&(<details><summary style={{cursor:'pointer',padding:'4px 0',color:C.textSec,fontWeight:'600'}}>💸 Возмещения сотрудникам ({g.ownExp.length})</summary>{g.ownExp.map(e=>(<div key={e.id} style={{padding:'4px 10px',color:C.textSec,display:'flex',justifyContent:'space-between',borderBottom:'1px dashed '+C.border}}><span>{(e.employeeName||'—')+' · '+(e.description||'')+' · '+(e.date||'')}</span><b>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b></div>))}</details>)}
-                    </div>)}
-                  </div>);})}
-                </div>);
-              })()}
-            </div>)}
-
-            {accountingTab==='contracts'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Договоры</b>
-                {isFinanceRole()&&<button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новый договор</button>}
-              </div>
-              {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <select value={newContract.masterId} onChange={e=>{const val=e.target.value;const performer=resolveContractPerformer({...newContract,masterId:val});setNewContract({...newContract,masterId:val,masterName:performer.fullName,contractType:performer.contractType||newContract.contractType});}} style={{...inp,marginBottom:0}}>
-                    <option value="">Выберите исполнителя *</option>
-                    {/* Группировка по типу */}
-                    {(()=>{
-                      // Группировка staff по нормализованной роли, исключая Уволен/Архив
-                      const active=(staff||[]).filter(s=>s.status!=='Уволен'&&s.status!=='Архив'&&s.name);
-                      const norm=(r)=>String(r||'').toLowerCase().replace('_',' ').trim();
-                      const groups=[
-                        {label:'👷 Мастера и субподрядчики',match:r=>['мастер','субподрядчик','бригадир','рабочий','отделочник','электрик','сантехник','штукатур','маляр','плиточник','каменщик','монтажник'].some(k=>r.includes(k))},
-                        {label:'🔨 Прорабы и ИТР',match:r=>['прораб','инженер','начальник','мастер участка'].some(k=>r.includes(k))&&!['мастер участка'].includes(r)?true:['прораб','инженер','начальник'].some(k=>r.includes(k))},
-                        {label:'🏢 Юр.лица (ИП/ООО/Орг)',match:r=>['ип','ооо','организация','юр','зао','оао'].some(k=>r.includes(k))},
-                        {label:'👥 Прочие сотрудники',match:_=>true},
-                      ];
-                      const used=new Set();
-                      const result=[];
-                      for(const g of groups){
-                        const items=active.filter(s=>!used.has(s.id)&&g.match(norm(s.role)));
-                        items.forEach(s=>used.add(s.id));
-                        if(items.length>0) result.push(<optgroup key={g.label} label={g.label}>{items.map(s=><option key={s.id} value={s.id}>{s.name+(s.role?' · '+s.role:'')+(s.specialization?' · '+s.specialization:'')}</option>)}</optgroup>);
-                      }
-                      return result;
-                    })()}
-                  </select>
-                  <select value={newContract.contractType} onChange={e=>setNewContract({...newContract,contractType:e.target.value})} style={{...inp,marginBottom:0}}>{['ГПХ','ТД','Самозанятый','ИП','ООО','Подряд'].map(t=><option key={t}>{t}</option>)}</select>
-                  <input placeholder="Номер договора *" value={newContract.contractNumber} onChange={e=>setNewContract({...newContract,contractNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newContract.project} onChange={e=>setNewContract({...newContract,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Выберите объект *</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <input type="date" placeholder="Начало" value={newContract.startDate} onChange={e=>setNewContract({...newContract,startDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input type="date" placeholder="Конец" value={newContract.endDate} onChange={e=>setNewContract({...newContract,endDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                </div>
-                {newContract.masterId&&(()=>{const performer=resolveContractPerformer(newContract);const warning=contractRequisitesWarning(performer,newContract.contractType);return warning?(<div style={{marginTop:'10px',padding:'10px 12px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,color:C.warning,fontSize:'12px',fontWeight:'600'}}>⚠️ {warning}</div>):(<div style={{marginTop:'10px',padding:'10px 12px',borderRadius:'8px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,color:C.success,fontSize:'12px',fontWeight:'600'}}>✅ Реквизиты исполнителя заполнены для печати договора</div>);})()}
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={createContract} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
-              </div>)}
-              <div style={{position:'relative',marginBottom:'12px'}}>
-                <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                <input placeholder='🔍 Поиск договора (номер, мастер, объект)' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
-              </div>
-              {(()=>{
-                const sourceRows=[
-                  ...(contracts||[]).map(c=>({...c,_kind:'contract',_rowKey:'contract-'+c.id,projectName:c.project})),
-                  ...(brigadeContracts||[]).map(bc=>({...bc,_kind:'brigade',_rowKey:'brigade-'+bc.id,masterId:bc.contractorId,masterName:bc.brigadeName,contractType:bc.contractorType,contractNumber:bc.contractNumber||('БР-'+bc.id),project:bc.projectName,projectName:bc.projectName,startDate:bc.signedAt||'',endDate:''})),
-                ];
-                const hasClosingDoc = (row, performer, docNeed='') => {
-                  const pn = row.project||row.projectName||'';
-                  const nameKey = normalizePersonKey(performer.fullName||row.masterName||row.brigadeName);
-                  return (projectDocuments||[]).some(d=>{
-                    if(pn && d.projectName!==pn) return false;
-                    const rawHay = [d.counterparty,d.docType,d.number,d.notes].filter(Boolean).join(' ');
-                    const hay = normalizePersonKey(rawHay);
-                    if(docNeed==='self-employed-receipt' && !/чек|нпд|самозан|закрыва/i.test(rawHay)) return false;
-                    if(docNeed && docNeed!=='self-employed-receipt' && !hay.includes(normalizePersonKey(docNeed))) return false;
-                    return !nameKey || hay.includes(nameKey) || nameKey.includes(normalizePersonKey(d.counterparty));
-                  });
-                };
-                const rowFinance = (row, performer) => {
-                  const isBrigade = row._kind==='brigade';
-                  const type = String(row.contractType||row.contractorType||performer.contractType||'').toLowerCase();
-                  if(isBrigade){
-                    const done = Number(row.doneAmount||0);
-                    const paid = (allBrigadePayments||[]).filter(p=>Number(p.contractId)===Number(row.id)).reduce((s,p)=>s+Number(p.amount||0),0) || Number(row.paidAmount||0);
-                    const retention = Math.round(done*0.05);
-                    const payable = Math.max(0, done-retention);
-                    const owe = Math.max(0, payable-paid);
-                    const missingDocs = [];
-                    if(done>0 && !row.actScanUrl) missingDocs.push('скан подписанного акта');
-                    if(paid>0 && type.includes('самозан') && !hasClosingDoc(row,performer,'self-employed-receipt')) missingDocs.push('чек НПД');
-                    return {accrued:done, paid, retention, payable, owe, missingDocs};
-                  }
-                  const acts=(interimActs||[]).filter(a=>
-                    (Number(a.contractId||0)===Number(row.id)) ||
-                    (Number(a.masterId||0)===Number(row.masterId||0) && (!row.project || a.project===row.project)) ||
-                    (normalizePersonKey(a.masterName)===normalizePersonKey(row.masterName) && (!row.project || a.project===row.project))
-                  );
-                  const accrued=acts.reduce((s,a)=>s+Number(a.totalAmount||0),0);
-                  const paid=acts.reduce((s,a)=>s+Number(a.paidAmount||0),0);
-                  const retention=Math.round(accrued*0.05);
-                  const payable=Math.max(0, accrued-retention);
-                  const owe=Math.max(0, payable-paid);
-                  const missingDocs=[];
-                  if(acts.some(a=>Number(a.totalAmount||0)>0&&!a.scanUrl)) missingDocs.push('скан подписанного акта');
-                  if(paid>0 && type.includes('самозан') && !hasClosingDoc(row,performer,'self-employed-receipt')) missingDocs.push('чек НПД');
-                  return {accrued, paid, retention, payable, owe, missingDocs, actsCount:acts.length};
-                };
-                const visible=sourceRows.filter(row=>{const performer=resolveContractPerformer(row);return matchSearch(listSearch,row.contractNumber,row.project,row.projectName,row.masterName,row.brigadeName,performer.fullName,performer.inn);});
-                if(visible.length===0) return(<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Договоров и расчётов с исполнителями нет</p>);
-                const groups={};
-                visible.forEach(row=>{
-                  const performer=resolveContractPerformer(row);
-                  const finance=rowFinance(row, performer);
-                  const key=normalizePersonKey(performer.fullName||row.masterName||row.brigadeName)||row._rowKey;
-                  if(!groups[key]) groups[key]={key,name:performer.fullName||row.masterName||row.brigadeName||'Исполнитель',performer,rows:[],projects:new Set(),types:new Set(),total:0,paid:0,retention:0,payable:0,owe:0,warnings:new Set(),missingDocs:new Set()};
-                  groups[key].rows.push({...row,performer,finance});
-                  if(row.project||row.projectName) groups[key].projects.add(row.project||row.projectName);
-                  if(row.contractType||row.contractorType) groups[key].types.add(row.contractType||row.contractorType);
-                  groups[key].total += finance.accrued;
-                  groups[key].paid += finance.paid;
-                  groups[key].retention += finance.retention;
-                  groups[key].payable += finance.payable;
-                  groups[key].owe += finance.owe;
-                  const warning=contractRequisitesWarning(performer,row.contractType||row.contractorType);
-                  if(warning) groups[key].warnings.add(warning);
-                  (finance.missingDocs||[]).forEach(d=>groups[key].missingDocs.add(d));
-                });
-                return Object.values(groups).sort((a,b)=>a.name.localeCompare(b.name,'ru')).map(g=>(
-                  <div key={g.key} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'3px solid '+(g.warnings.size||g.missingDocs.size?C.warning:C.accent)}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
-                      <div>
-                        <b style={{color:C.text,fontSize:'14px'}}>📁 {g.name}</b>
-                        <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{Array.from(g.types).filter(Boolean).join(' · ')||'Исполнитель'} · {g.rows.length} док. · {Array.from(g.projects).join(', ')||'без объекта'}</p>
-                        {g.performer.inn&&<p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>ИНН: {g.performer.inn}{g.performer.bankName?' · '+g.performer.bankName:''}</p>}
-                      </div>
-                      <div style={{textAlign:'right'}}>
-                        {g.total>0&&<b style={{color:C.success,fontSize:'14px'}}>{Math.round(g.total).toLocaleString('ru-RU')+' ₽ начислено'}</b>}
-                        {g.owe>0&&<p style={{color:C.danger,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>к выплате: {Math.round(g.owe).toLocaleString('ru-RU')} ₽</p>}
-                        {g.warnings.size>0&&<p style={{color:C.warning,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>⚠️ реквизиты не полные</p>}
-                        {g.missingDocs.size>0&&<p style={{color:C.warning,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>⚠️ закрывающие не полные</p>}
-                        {!g.warnings.size&&!g.missingDocs.size&&<p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>документы в порядке</p>}
-                      </div>
-                    </div>
-                    {(g.total>0||g.paid>0)&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:'8px',marginBottom:'8px'}}>
-                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Начислено</p><b style={{color:C.text,fontSize:'12px'}}>{Math.round(g.total).toLocaleString('ru-RU')} ₽</b></div>
-                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Удержание 5%</p><b style={{color:C.warning,fontSize:'12px'}}>{Math.round(g.retention).toLocaleString('ru-RU')} ₽</b></div>
-                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Можно выплатить</p><b style={{color:C.accent,fontSize:'12px'}}>{Math.round(g.payable).toLocaleString('ru-RU')} ₽</b></div>
-                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Оплачено</p><b style={{color:C.success,fontSize:'12px'}}>{Math.round(g.paid).toLocaleString('ru-RU')} ₽</b></div>
-                      <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Остаток к выплате</p><b style={{color:g.owe>0?C.danger:C.success,fontSize:'12px'}}>{g.owe>0?Math.round(g.owe).toLocaleString('ru-RU')+' ₽':'закрыто'}</b></div>
-                    </div>}
-                    {g.warnings.size>0&&<div style={{padding:'8px 10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,color:C.warning,fontSize:'11px',marginBottom:'8px'}}>{Array.from(g.warnings)[0]}</div>}
-                    {g.missingDocs.size>0&&<div style={{padding:'8px 10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,color:C.warning,fontSize:'11px',marginBottom:'8px'}}>Не хватает закрывающих: {Array.from(g.missingDocs).join(', ')}</div>}
-                    {g.rows.sort((a,b)=>String(a.project||'').localeCompare(String(b.project||''),'ru')).map(row=>{const isBrigade=row._kind==='brigade';const items=isBrigade?(allBrigadeItems||[]).filter(it=>Number(it.contractId)===Number(row.id)):[];return(
-                      <div key={row._rowKey} style={{padding:'8px 0',borderTop:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
-                        <div>
-                          <b style={{color:C.text,fontSize:'12px'}}>{isBrigade?'Расчёт/договор бригады № ':'Договор № '}{row.contractNumber}</b>
-                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(row.project||row.projectName||'без объекта')+' · '+(row.contractType||row.contractorType||'')}{isBrigade&&row.status?' · '+row.status:''}</p>
-                          {(row.finance.accrued>0||row.finance.paid>0)&&<p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>начислено {Math.round(row.finance.accrued).toLocaleString('ru-RU')} ₽ · удержание {Math.round(row.finance.retention).toLocaleString('ru-RU')} ₽ · можно выплатить {Math.round(row.finance.payable).toLocaleString('ru-RU')} ₽ · оплачено {Math.round(row.finance.paid).toLocaleString('ru-RU')} ₽ · остаток {Math.round(row.finance.owe).toLocaleString('ru-RU')} ₽</p>}
-                          {row.finance.missingDocs?.length>0&&<p style={{color:C.warning,margin:'2px 0 0',fontSize:'10px',fontWeight:'700'}}>⚠️ Не хватает: {row.finance.missingDocs.join(', ')}</p>}
-                          {!isBrigade&&<p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>{(row.startDate||'')+' — '+(row.endDate||'')}</p>}
-                        </div>
-                        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
-                          <button onClick={()=>showPreview(buildContractContent(row.performer,row,items),'Договор')} style={btnB}><Eye size={13}/>Просмотр</button>
-                          {!isBrigade&&pdConsents.find(pd=>Number(pd.userId)===Number(row.masterId))&&<span style={badge(C.success,C.successLight,C.successBorder)}>ПД ✅</span>}
-                          {!isBrigade&&<button onClick={()=>deleteContract(row.id)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>}
-                        </div>
-                      </div>
-                    );})}
-                  </div>
-                ));
-              })()}
-            </div>)}
-
-            {accountingTab==='acts'&&(<div>
-              {/* Блок 1: Производство работ — главная группировка по ОБЪЕКТАМ */}
-              <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
-                  <b style={{color:C.text,fontSize:'14px'}}>🏗 Производство работ по объектам</b>
-                  <span style={{color:C.textSec,fontSize:'11px'}}>Открой объект → увидишь все акты по дням</span>
-                </div>
-                <div style={{position:'relative',marginBottom:'10px'}}>
-                  <Search size={13} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                  <input placeholder='🔍 Поиск работы, мастера, объекта' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'30px',fontSize:'12px',padding:'6px 8px 6px 30px'}}/>
-                </div>
-                {(()=>{
-                  const allWorks=[
-                    ...((workJournal||[]).filter(w=>w.status==='Подтверждено').map(w=>({...w,_kind:'journal'}))),
-                    ...((unexpectedWorksList||[]).filter(u=>isApprovedEstimateChangeStatus(u.status)).map(u=>({id:'unx-'+u.id,description:u.description,project:u.projectName,masterName:u.addedBy,total:u.total,quantity:u.deltaQuantity||u.quantity,unit:u.unit,date:u.approvedAt||u.createdAt,_kind:'estimate_change'}))),
-                  ].filter(w=>matchSearch(listSearch,w.description,w.masterName,w.project));
-                  if(allWorks.length===0) return(<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'12px'}}>Работ ещё нет. После подтверждения мастером и приёма прорабом — появятся здесь.</p>);
-                  // Главная группировка по проекту
-                  const byProj={};
-                  allWorks.forEach(w=>{const pn=w.project||'Без объекта';if(!byProj[pn]) byProj[pn]={works:[],total:0,unx:0};byProj[pn].works.push(w);byProj[pn].total+=Number(w.total||0);if(w._kind==='unexpected') byProj[pn].unx+=Number(w.total||0);});
-                  const projs=Object.keys(byProj).sort();
-                  return projs.map(pn=>{const grp=byProj[pn];const isOpenProj=expandedProject==='act-'+pn;
-                    // Внутри проекта группируем по дате
-                    const byDate={};grp.works.forEach(w=>{const d=String(w.date||w.confirmedAt||'').split('T')[0]||'Без даты';if(!byDate[d]) byDate[d]=[];byDate[d].push(w);});
-                    const dates=Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
-                    return(<div key={pn} style={{...card,marginBottom:'8px',backgroundColor:C.bgWhite,borderLeft:'3px solid '+C.accent}}>
-                      <div style={{padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',flexWrap:'wrap',gap:'8px'}} onClick={()=>setExpandedProject(isOpenProj?null:'act-'+pn)}>
-                        <div>
-                          <b style={{color:C.text,fontSize:'14px'}}>🏗 {pn}</b>
-                          <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{grp.works.length+' работ · '+dates.length+' дн.'+(grp.unx>0?' · 🆕 '+Math.round(grp.unx).toLocaleString('ru-RU')+' ₽ непредв.':'')}</p>
-                        </div>
-                        <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
-                          <b style={{color:C.success,fontSize:'15px'}}>{Math.round(grp.total).toLocaleString('ru-RU')+' ₽'}</b>
-                          {isOpenProj?<ChevronUp size={14} color={C.textMuted}/>:<ChevronDown size={14} color={C.textMuted}/>}
-                        </div>
-                      </div>
-                      {isOpenProj&&(<div style={{borderTop:'1px solid '+C.border}}>
-                        {dates.map(date=>{const dayWorks=byDate[date];const daySum=dayWorks.reduce((s,w)=>s+Number(w.total||0),0);const isOpenDate=expandedActDate===pn+'_'+date;
-                          const byMaster={};dayWorks.forEach(w=>{const mn=w.masterName||'—';if(!byMaster[mn]) byMaster[mn]=[];byMaster[mn].push(w);});
-                          const masters=Object.keys(byMaster).sort();
-                          return(<div key={date} style={{borderBottom:'1px solid '+C.border}}>
-                            <div style={{padding:'8px 14px 8px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}} onClick={()=>setExpandedActDate(isOpenDate?null:pn+'_'+date)}>
-                              <span style={{color:C.text,fontSize:'12px',fontWeight:'600'}}>📅 {date}</span>
-                              <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
-                                <span style={{color:C.textSec,fontSize:'11px'}}>{dayWorks.length+' · '+masters.length+' маст.'}</span>
-                                <b style={{color:C.success,fontSize:'12px'}}>{Math.round(daySum).toLocaleString('ru-RU')+' ₽'}</b>
-                                {isOpenDate?<ChevronUp size={12} color={C.textMuted}/>:<ChevronDown size={12} color={C.textMuted}/>}
-                              </div>
-                            </div>
-                            {isOpenDate&&(<div style={{padding:'0 14px 8px 34px',backgroundColor:C.bg}}>
-                              {masters.map(mn=>(<div key={mn} style={{marginBottom:'4px'}}>
-                                <span style={{color:C.accent,fontSize:'11px',fontWeight:'700'}}>👷 {mn}</span>
-                                {byMaster[mn].map(w=>(<div key={w.id} style={{padding:'4px 0 4px 12px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',fontSize:'11px',borderBottom:'1px dashed '+C.border}}>
-                                  <div style={{flex:1,minWidth:0}}>
-                                    <span style={{color:C.text}}>{w.description}</span>
-                                    {w._kind==='unexpected'&&<span style={{marginLeft:'4px',color:C.warning,fontSize:'10px'}}>🆕 непредв.</span>}
-                                    <span style={{color:C.textMuted,marginLeft:'4px'}}>{fmtMeasure(w.quantity,w.unit)}</span>
-                                  </div>
-                                  <b style={{color:C.text,whiteSpace:'nowrap'}}>{Math.round(Number(w.total||0)).toLocaleString('ru-RU')+' ₽'}</b>
-                                </div>))}
-                              </div>))}
-                            </div>)}
-                          </div>);})}
-                      </div>)}
-                    </div>);});
-                })()}
-              </div>
-
-              {/* Блок 2: Классические акты к оплате (interim_acts) */}
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'8px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📄 Акты к оплате</b>
-                {isFinanceRole()&&<button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Сформировать акт</button>}
-              </div>
-              {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <select value={newAct.masterId} onChange={e=>{const mp=masterProfiles.find(p=>p.userId===Number(e.target.value));const st=(staff||[]).find(s=>s.id===Number(e.target.value));setNewAct({...newAct,masterId:e.target.value,masterName:mp?mp.fullName:(st?st.name:'')});}} style={{...inp,marginBottom:0}}>
-                    <option value="">Выберите исполнителя *</option>
-                    {(()=>{const groups=[{label:'👷 Мастера и субподрядчики',roles:['мастер','субподрядчик','бригадир']},{label:'🏢 Юр.лица (ИП/ООО)',roles:['организация','ип','ооо']}];return groups.map(g=>{const items=(staff||[]).filter(s=>g.roles.includes(String(s.role||'').toLowerCase()));if(items.length===0) return null;return(<optgroup key={g.label} label={g.label}>{items.map(s=><option key={s.id} value={s.id}>{s.name+(s.specialization?' · '+s.specialization:'')}</option>)}</optgroup>);});})()}
-                  </select>
-                  <select value={newAct.project} onChange={e=>setNewAct({...newAct,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Объект *</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <input type="date" step="any" inputMode="decimal" placeholder="Период с *" value={newAct.periodStart} onChange={e=>setNewAct({...newAct,periodStart:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input type="date" step="any" inputMode="decimal" placeholder="Период по *" value={newAct.periodEnd} onChange={e=>setNewAct({...newAct,periodEnd:e.target.value})} style={{...inp,marginBottom:0}}/>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={createInterimAct} style={btnO}><Check size={14}/>Создать</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
-              </div>)}
-              {(interimActs||[]).filter(a=>matchSearch(listSearch,a.masterName,a.project)).map(act=>{const paidAmt=act.paidAmount||0;const totalAmt=act.totalAmount||0;const remaining=totalAmt-paidAmt;return(<div key={act.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(act.status==='Оплачен'?C.success:remaining>0&&paidAmt>0?C.warning:C.textSec)}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:'8px'}}>
-                  <div><b style={{color:C.text,fontSize:'13px'}}>{'Акт №'+act.id+' · '+act.masterName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{act.project+' · '+act.periodStart+' — '+act.periodEnd}</p><div style={{display:'flex',gap:'12px',marginTop:'4px',flexWrap:'wrap'}}><span style={{fontSize:'12px',color:C.text}}>{'Начислено: '+totalAmt.toLocaleString()+' ₽'}</span><span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+paidAmt.toLocaleString()+' ₽'}</span>{remaining>0&&<span style={{fontSize:'12px',color:C.danger,fontWeight:'700',padding:'2px 8px',borderRadius:'6px',backgroundColor:C.dangerLight}}>{'⚠️ Недоплата: '+remaining.toLocaleString()+' ₽'}</span>}</div></div>
-                  <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                    <span style={badge(act.status==='Оплачен'?C.success:act.status==='Частично оплачен'?C.warning:C.textSec,act.status==='Оплачен'?C.successLight:act.status==='Частично оплачен'?C.warningLight:C.bgGray,act.status==='Оплачен'?C.successBorder:act.status==='Частично оплачен'?C.warningBorder:C.border)}>{act.status||'Не оплачен'}</span>
-                    <button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={13}/></button>
-                    {isFinanceRole()&&(act.scanUrl
-                      ? <a href={fileSrc(act.scanUrl)} target='_blank' rel='noreferrer' style={{...btnB,padding:'4px 8px',fontSize:'11px',textDecoration:'none'}} title='Подписанный акт (скан)'>📎</a>
-                      : <label style={{...btnG,padding:'4px 8px',fontSize:'11px',cursor:'pointer',margin:0}} title='Загрузить скан подписанного акта'>📎<input type='file' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(!f)return;const url=await uploadPhoto(f,{projectName:act.projectName,context:'interim-acts'});if(url){await fetch(API+'/interim-acts/'+act.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({scanUrl:url})});await refreshData();}}}/></label>)}
-                    {isFinanceRole()&&(act.scanUrl
-                      ? <button onClick={()=>setShowPayActModal(act)} style={btnO}><DollarSign size={13}/>Оплата</button>
-                      : <button onClick={()=>alert('Оплата заблокирована: сначала загрузите скан подписанного бумажного акта (кнопка 📎).')} style={{...btnG,opacity:0.6}} title='Нет скана подписанного акта'><DollarSign size={13}/>Оплата 🔒</button>)}
-                    <button onClick={()=>deleteInterimAct(act.id)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
-                  </div>
-                </div>
-              </div>);})}
-              {interimActs.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'12px'}}>Актов к оплате пока нет. Сформируйте акт за период по мастеру — стянутся подтверждённые работы.</p>}
-
-              {/* Блок 3: Акты бригад (по нарядам) — выполнение из сметы, по цене бригаде */}
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'18px 0 12px',flexWrap:'wrap',gap:'8px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>👷 Акты бригад (выполнение по смете)</b>
-              </div>
-              {(()=>{
-                const bcs=(brigadeContracts||[]).filter(bc=>matchSearch(listSearch,bc.brigadeName,bc.projectName));
-                const withDone=bcs.filter(bc=>Number(bc.doneAmount||0)>0);
-                if(withDone.length===0) return(<p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'12px'}}>Выполненных работ по бригадам пока нет. Появятся, когда мастер отметит «Сделано» в смете объекта.</p>);
-                const byProj={};
-                withDone.forEach(bc=>{const pn=bc.projectName||'Без объекта';(byProj[pn]=byProj[pn]||[]).push(bc);});
-                return Object.keys(byProj).sort().map(pn=>(
-                  <div key={pn} style={{...card,padding:'12px 14px',marginBottom:'8px'}}>
-                    <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>🏗 {pn}</b>
-                    {byProj[pn].map(bc=>{const due=Math.round(Number(bc.doneAmount||0));const paid=Math.round(Number(bc.paidAmount||0));const owe=Math.max(0,due-paid);return(
-                      <div key={bc.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',padding:'8px 0',borderBottom:'1px solid '+C.border,flexWrap:'wrap'}}>
-                        <div style={{flex:1,minWidth:0}}>
-                          <b style={{fontSize:'12px',color:C.text}}>{bc.brigadeName}</b>
-                          <span style={{color:C.textSec,fontSize:'11px',marginLeft:'6px'}}>{bc.contractorType}</span>
-                          <div style={{display:'flex',gap:'10px',flexWrap:'wrap',marginTop:'2px'}}>
-                            <span style={{fontSize:'11px',color:C.accent}}>{'К оплате: '+due.toLocaleString('ru-RU')+' ₽'}</span>
-                            <span style={{fontSize:'11px',color:C.success}}>{'Оплачено: '+paid.toLocaleString('ru-RU')+' ₽'}</span>
-                            {owe>0&&<span style={{fontSize:'11px',color:C.danger,fontWeight:'700'}}>{'Остаток: '+owe.toLocaleString('ru-RU')+' ₽'}</span>}
-                            {due>0&&owe<=0&&<span style={{fontSize:'11px',color:C.success,fontWeight:'700'}}>✓ закрыто</span>}
-                          </div>
-                        </div>
-                        <button onClick={()=>showPreview(buildBrigadeActContent(bc),'Акт бригады — '+bc.brigadeName)} style={btnB}><Eye size={13}/>Акт</button>
-                      </div>
-                    );})}
-                  </div>
-                ));
-              })()}
-            </div>)}
-
-            {accountingTab==='documents'&&(<div>
-              <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                {projects.map(p=>(<button key={p.id} onClick={()=>setAccountingDocProject(p.name)} style={{...accountingDocProject===p.name?btnO:btnG,fontSize:'12px',padding:'6px 12px'}}>{p.name}</button>))}
-              </div>
-              {accountingDocProject&&(()=>{const proj=projects.find(pr=>pr.name===accountingDocProject);if(!proj) return null;const pd=projectPlanDone(proj);const budget=Number(proj.budget||0);const ownExp=(ownExpenses||[]).filter(e=>e.projectName===accountingDocProject).reduce((s,e)=>s+Number(e.amount||0),0);const accExp=(accountablePayments||[]).filter(a=>a.projectName===accountingDocProject).reduce((s,a)=>s+Number(a.amount||0),0);const supExp=(supplierInvoices||[]).filter(i=>i.projectName===accountingDocProject).reduce((s,i)=>s+Number(i.paidAmount||0),0);const brigExp=(brigadeContracts||[]).filter(b=>b.projectName===accountingDocProject).reduce((s,b)=>s+Number(b.paidAmount||0),0);const factCost=ownExp+accExp+supExp+brigExp;const margin=pd.done-factCost;const matCtrl=materialControlSummaryForProject(accountingDocProject);const matRiskRows=matCtrl.outsideRows.length+matCtrl.stockMismatchRows.length;const invoiceIssueRows=(invoices||[]).filter(inv=>(inv.project||inv.location)===accountingDocProject).flatMap(inv=>warehouseInvoiceEstimateControl(inv).filter(ctrl=>['danger','warning'].includes(ctrl.severity)).map(ctrl=>({inv,ctrl}))).slice(0,12);return(<div>
-                <div style={{display:'flex',gap:'8px',marginBottom:'15px',flexWrap:'wrap'}}>
-                  {['Паспорт','КС-2','КС-3','ЖПР','М-29','АОСК','КС-11','КС-14','ИГД','📦 Пакет','📋 НДС','М-2','М-8','📦 Потребность','🔥 Свар','🧱 Бет','⚙️ Монт','🛡 АКЗ','❄️ Изол','⛓ Свай'].map(doc=>(<button key={doc} onClick={()=>{const p=proj;if(doc==='Паспорт') showPreview(buildPassportContent(p),'Паспорт объекта');if(doc==='КС-2') showKS2(p);if(doc==='КС-3') showPreview(buildKS3Content(p),'КС-3');if(doc==='ЖПР') showPreview(buildJPRContent(p.name),'ЖПР');if(doc==='М-29'){const today=new Date();const monthAgo=new Date(today.getTime()-30*24*3600*1000);showPreview(buildM29Content(p.name,monthAgo.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-29 — '+p.name);}if(doc==='АОСК') showPreview(buildAOSKContent(p.name),'АОСК — '+p.name);if(doc==='КС-11') showPreview(buildKS11Content(p),'КС-11 — '+p.name);if(doc==='КС-14') showPreview(buildKS14Content(p),'КС-14 — '+p.name);if(doc==='ИГД') showPreview(buildIGDContent(p.name),'ИГД — '+p.name);if(doc==='📦 Пакет') showPreview(buildExecPackageContent(p),'Пакет исполнительной — '+p.name);if(doc==='📋 НДС'){const today=new Date();const qStart=new Date(today.getFullYear(),Math.floor(today.getMonth()/3)*3,1);showPreview(buildVATBookContent(qStart.toISOString().split('T')[0],today.toISOString().split('T')[0]),'Книга НДС — текущий квартал');}if(doc==='М-2'){const supName=prompt('Поставщик (название):','');if(!supName)return;const recName=prompt('Кому выдаётся доверенность (ФИО):','');const recPass=prompt('Паспорт получателя (серия, номер):','');const sup=(suppliers||[]).find(s=>s.name===supName)||{name:supName};showPreview(buildM2Content(sup,[],p.name,recName||'',recPass||''),'М-2 Доверенность');}if(doc==='М-8'){const today=new Date();const monthStart=new Date(today.getFullYear(),today.getMonth(),1);showPreview(buildM8Content(p.name,'',monthStart.toISOString().split('T')[0],today.toISOString().split('T')[0]),'М-8 Лимитно-заборная — '+p.name);}if(doc==='📦 Потребность') showPreview(buildMaterialRequirementContent(p.name),'Потребность материалов — '+p.name);if(doc==='🔥 Свар') showPreview(buildSpecJournalContent(p.name,'welding'),'Журнал сварочных работ — '+p.name);if(doc==='🧱 Бет') showPreview(buildSpecJournalContent(p.name,'concrete'),'Журнал бетонных работ — '+p.name);if(doc==='⚙️ Монт') showPreview(buildSpecJournalContent(p.name,'assembly'),'Журнал монтажа — '+p.name);if(doc==='🛡 АКЗ') showPreview(buildSpecJournalContent(p.name,'anticorrosion'),'Журнал антикоррозийной защиты — '+p.name);if(doc==='❄️ Изол') showPreview(buildSpecJournalContent(p.name,'insulation'),'Журнал изоляционных работ — '+p.name);if(doc==='⛓ Свай') showPreview(buildSpecJournalContent(p.name,'piling'),'Журнал свайных работ — '+p.name);}} style={{...btnB,fontSize:'12px',padding:'7px 14px'}}><FileText size={13}/>{doc}</button>))}
-                </div>
-                <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+C.border}}>
-                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>💰 Себестоимость объекта (план vs факт)</b>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px'}}>
-                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Бюджет (договор)</p><b style={{color:C.text,fontSize:'14px'}}>{Math.round(budget).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Выполнено по смете</p><b style={{color:C.accent,fontSize:'14px'}}>{Math.round(pd.done).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Факт расходов</p><b style={{color:C.warning,fontSize:'14px'}}>{Math.round(factCost).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Маржа</p><b style={{color:margin>=0?C.success:C.danger,fontSize:'14px'}}>{Math.round(margin).toLocaleString('ru-RU')+' ₽'}</b></div>
-                  </div>
-                  <p style={{color:C.textMuted,fontSize:'10px',margin:'8px 0 0',lineHeight:1.4}}>Факт = свои расходы ({Math.round(ownExp).toLocaleString('ru-RU')+' ₽'}) + подотчётные ({Math.round(accExp).toLocaleString('ru-RU')+' ₽'}) + поставщики ({Math.round(supExp).toLocaleString('ru-RU')+' ₽'}) + бригады ({Math.round(brigExp).toLocaleString('ru-RU')+' ₽'})</p>
-                </div>
-                <div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.bg,border:'1.5px solid '+(matCtrl.toBuyRows.length?C.warningBorder:C.successBorder)}}>
-                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>📦 Материалы по смете: контроль для бухгалтерии</b>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px'}}>
-                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>План материалов</p><b style={{color:C.text,fontSize:'14px'}}>{Math.round(matCtrl.planSum||0).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Получено/накладные</p><b style={{color:C.success,fontSize:'14px'}}>{Math.round(matCtrl.suppliedSum||0).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Позиций к закупке</p><b style={{color:matCtrl.toBuyRows.length?C.warning:C.success,fontSize:'14px'}}>{matCtrl.toBuyRows.length}</b></div>
-                    <div><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 4px'}}>Вне сметы/расх.</p><b style={{color:matRiskRows?C.danger:C.success,fontSize:'14px'}}>{matRiskRows}</b></div>
-                  </div>
-                  <p style={{color:C.textMuted,fontSize:'10px',margin:'8px 0 0',lineHeight:1.4}}>Счета поставщиков нужно сверять с ведомостью потребности: материал должен быть в смете или в утверждённом изменении, а в печатной ведомости видно, к какой работе относится ресурс.</p>
-                  {invoiceIssueRows.length>0&&(
-                    <div style={{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid '+C.border}}>
-                      <b style={{color:C.warning,fontSize:'12px',display:'block',marginBottom:'6px'}}>Накладные требуют проверки перед оплатой</b>
-                      {invoiceIssueRows.map(({inv,ctrl},idx)=>(
-                        <div key={(inv.id||'inv')+'-'+idx} style={{display:'grid',gridTemplateColumns:'minmax(180px,1fr) minmax(160px,1fr) auto',gap:'8px',alignItems:'center',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
-                          <div>
-                            <b style={{color:C.text,fontSize:'11px'}}>№ {inv.number||inv.id} · {inv.date||''}</b>
-                            <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{inv.supplierName||'—'}</p>
-                          </div>
-                          <div>
-                            <b style={{color:C.text,fontSize:'11px'}}>{ctrl.canonicalName||ctrl.name}</b>
-                            <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ctrl.planSourceCount?'сметных строк: '+ctrl.planSourceCount+' · ':''}{ctrl.sectionsList?.slice(0,2).join(' · ')}</p>
-                          </div>
-                          <span style={badge(ctrl.severity==='danger'?C.danger:C.warning,ctrl.severity==='danger'?C.dangerLight:C.warningLight,ctrl.severity==='danger'?C.dangerBorder:C.warningBorder)}>{ctrl.status}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Акты по проекту:</b>
-                  {interimActs.filter(a=>a.project===accountingDocProject).map(act=>(<div key={act.id} style={{...card,padding:'12px',marginBottom:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'13px',color:C.text}}>{'Акт №'+act.id+' · '+act.masterName}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(act.totalAmount||0).toLocaleString()+' ₽ · '+act.periodStart+' — '+act.periodEnd}</p></div><button onClick={()=>showPreview(buildActContent(act),'Акт')} style={btnB}><Eye size={13}/></button></div>))}
-                </div>
-              </div>);})()}
-              {!accountingDocProject&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Выберите проект</p>}
-            </div>)}
-
-            {accountingTab==='salary'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>👥 Зарплата по сотрудникам</b>
-                <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                  <button onClick={()=>{const d=new Date(salaryMonth+'-01');d.setMonth(d.getMonth()-1);setSalaryMonth(d.toISOString().slice(0,7));}} style={{...btnG,padding:'5px 10px'}}>‹</button>
-                  <input type='month' value={salaryMonth} onChange={e=>setSalaryMonth(e.target.value)} style={{...inp,marginBottom:0,width:'auto',padding:'5px 8px',fontSize:'12px'}}/>
-                  <button onClick={()=>{const d=new Date(salaryMonth+'-01');d.setMonth(d.getMonth()+1);setSalaryMonth(d.toISOString().slice(0,7));}} style={{...btnG,padding:'5px 10px'}}>›</button>
-                </div>
-              </div>
-              <div style={{...card,padding:'10px 14px',marginBottom:'12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,fontSize:'11px',color:C.info}}>
-                ℹ️ <b>Формулы:</b> Начислено = Оклад + Сдельные + Премия − Удержания. НДФЛ 13%. Страховые (от начислено): ПФР 22% + ФСС 2.9% + ОМС 5.1% + Травм 0.2% = <b>30.2%</b>. На руки = Начислено − НДФЛ.
-              </div>
-              <div style={{position:'relative',marginBottom:'12px'}}>
-                <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                <input placeholder='🔍 Поиск сотрудника' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'12px'}}/>
-              </div>
-              {(()=>{
-                const monthStr=salaryMonth;
-                const monthStart=monthStr+'-01';
-                const nextMonth=new Date(monthStart);nextMonth.setMonth(nextMonth.getMonth()+1);const nextStr=nextMonth.toISOString().slice(0,7)+'-01';
-                const edits=(salaryEdits||{})[monthStr]||{};
-                const extras=(payrollExtras||{})[monthStr]||[];
-                const buildRow=(st)=>{
-                  const pw=(piecework||[]).filter(p=>Number(p.staffId)===st.id&&p.date&&p.date>=monthStart&&p.date<nextStr);
-                  const pwSum=pw.reduce((s,p)=>s+Number(p.total||0),0);
-                  const salary=Number(st.salary||0);
-                  // Если есть сдельные — начисляем оклад + сдельные. Если нет оклада — только сдельные. Если нет ни того ни того — 0.
-                  const baseRaw=(st.payType==='Сдельная'?pwSum:(st.payType==='Оклад'?salary:salary+pwSum));
-                  const e=edits[st.id]||{};
-                  const bonus=Number(e.bonus||0);
-                  const toolHold=(tools||[]).filter(t=>t.masterName===st.name&&t.issueType==='В счёт зарплаты').reduce((s,t)=>s+Number(t.cost||0),0);
-                  const deductExtra=Number(e.deduct||0);
-                  const accrued=baseRaw+bonus-toolHold-deductExtra;
-                  const ndfl=Math.max(0,Math.round(accrued*0.13));
-                  const insurance=Math.max(0,Math.round((baseRaw+bonus)*0.302));
-                  const net=accrued-ndfl;
-                  return {id:st.id,name:st.name||(st.lastName||'')+' '+(st.firstName||''),role:st.role||'—',payType:st.payType||'—',employmentType:st.employmentType||'',salary,pwSum,base:baseRaw,bonus,toolHold,deductExtra,accrued,ndfl,insurance,net};
-                };
-                const allStaff=staff.filter(st=>st.status!=='Уволен'&&st.status!=='Архив').filter(st=>matchSearch(listSearch,st.name,st.role));
-                const staffRows=allStaff.filter(st=>['ТД','Оклад','Штат'].includes(st.employmentType)||st.payType==='Оклад'||(!st.employmentType&&['прораб','инженер','бухгалтер','снабженец','кладовщик','директор','менеджер'].some(k=>String(st.role||'').toLowerCase().includes(k)))).map(buildRow);
-                const sdelRows=allStaff.filter(st=>!staffRows.some(r=>r.id===st.id)).map(buildRow);
-                const sumOf=(rows,k)=>rows.reduce((s,r)=>s+(r[k]||0),0);
-                const allRows=[...staffRows,...sdelRows];
-                const grandAccrued=sumOf(allRows,'accrued');
-                const grandNdfl=sumOf(allRows,'ndfl');
-                const grandIns=sumOf(allRows,'insurance');
-                const grandNet=sumOf(allRows,'net');
-                const grandExtras=extras.reduce((s,e)=>s+Number(e.amount||0),0);
-                const grandTotalExpense=grandAccrued+grandIns+grandExtras;
-                const renderTable=(rows,title)=>(<div style={{marginBottom:'18px'}}>
-                  <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>{title} ({rows.length})</b>
-                  {rows.length===0?<p style={{color:C.textMuted,fontSize:'12px'}}>Нет</p>:(<div style={{...card,padding:0,overflow:'auto'}}>
-                    <table style={tbl}><thead><tr>
-                      <th style={tblH}>ФИО</th><th style={tblH}>Должность</th>
-                      <th style={tblH}>Оклад</th><th style={tblH}>Сдельные</th>
-                      <th style={tblH}>Премия</th><th style={tblH}>Удерж.</th>
-                      <th style={tblH}>Начисл.</th><th style={tblH}>НДФЛ</th>
-                      <th style={tblH}>Страх.30.2%</th><th style={tblH}>На руки</th>
-                      <th style={tblH}></th>
-                    </tr></thead><tbody>
-                      {rows.map(r=>(<tr key={r.id}>
-                        <td style={tblC}><b style={{fontSize:'12px'}}>{r.name}</b></td>
-                        <td style={tblC}>{r.role}</td>
-                        <td style={tblC}>{r.salary?Math.round(r.salary).toLocaleString('ru-RU'):'—'}</td>
-                        <td style={tblC}>{r.pwSum>0?Math.round(r.pwSum).toLocaleString('ru-RU'):'—'}</td>
-                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={r.bonus||''} onChange={e=>setSalaryEdit(monthStr,r.id,'bonus',toNum(e.target.value))} placeholder='0' style={{...inp,marginBottom:0,width:'80px',fontSize:'11px',padding:'3px 6px'}}/></td>
-                        <td style={{...tblC,color:r.toolHold>0?C.warning:undefined}}>{(r.toolHold>0?'-'+Math.round(r.toolHold).toLocaleString('ru-RU')+' (инстр.) ':'')}<input type='number' step='any' inputMode='decimal' value={r.deductExtra||''} onChange={e=>setSalaryEdit(monthStr,r.id,'deduct',toNum(e.target.value))} placeholder='0' style={{...inp,marginBottom:0,width:'70px',fontSize:'11px',padding:'3px 6px'}}/></td>
-                        <td style={{...tblC,fontWeight:'600'}}>{Math.round(r.accrued).toLocaleString('ru-RU')}</td>
-                        <td style={{...tblC,color:C.info}}>{Math.round(r.ndfl).toLocaleString('ru-RU')}</td>
-                        <td style={{...tblC,color:C.warning,fontSize:'11px'}}>{Math.round(r.insurance).toLocaleString('ru-RU')}</td>
-                        <td style={{...tblC,fontWeight:'700',color:C.success}}>{Math.round(r.net).toLocaleString('ru-RU')+' ₽'}</td>
-                        <td style={tblC}>{(()=>{const pay=(salaryPayments||[]).find(sp=>Number(sp.staffId)===Number(r.id)&&sp.month===monthStr);return pay?(<span style={{display:'inline-flex',alignItems:'center',gap:'4px'}}><span style={{color:C.success,fontSize:'11px',fontWeight:'700'}}>✓ {Math.round(Number(pay.amount||0)).toLocaleString('ru-RU')}</span><button onClick={async()=>{if(!window.confirm('Отменить выплату?'))return;await fetch(API+'/salary-payments/'+pay.id,{method:'DELETE'});const sp=await fetch(API+'/salary-payments').then(x=>x.json());setSalaryPayments(Array.isArray(sp)?sp:[]);}} style={{...btnR,padding:'2px 5px'}}><Trash2 size={10}/></button></span>):(<button onClick={()=>paySalary(r,monthStr)} style={{...btnO,padding:'3px 8px',fontSize:'10px'}}>Выплатить</button>);})()}</td>
-                      </tr>))}
-                    </tbody></table>
-                  </div>)}
-                </div>);
-                return(<div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:'10px',marginBottom:'14px'}}>
-                    <div style={{...card,padding:'12px',backgroundColor:C.bg}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Начислено</p><b style={{color:C.text,fontSize:'15px'}}>{Math.round(grandAccrued).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div style={{...card,padding:'12px',backgroundColor:C.infoLight}}><p style={{color:C.info,fontSize:'11px',margin:'0 0 4px'}}>НДФЛ 13%</p><b style={{color:C.info,fontSize:'14px'}}>{Math.round(grandNdfl).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div style={{...card,padding:'12px',backgroundColor:C.warningLight}}><p style={{color:C.warning,fontSize:'11px',margin:'0 0 4px'}}>Страх.взносы 30.2%</p><b style={{color:C.warning,fontSize:'14px'}}>{Math.round(grandIns).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div style={{...card,padding:'12px',backgroundColor:C.successLight}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>На руки</p><b style={{color:C.success,fontSize:'15px'}}>{Math.round(grandNet).toLocaleString('ru-RU')+' ₽'}</b></div>
-                    <div style={{...card,padding:'12px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>💰 Расход фирмы итого</p><b style={{color:C.danger,fontSize:'15px'}}>{Math.round(grandTotalExpense).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Нач. + Страх. + Прочие</p></div>
-                  </div>
-                  {renderTable(staffRows,'👔 Штатные (оклад/ТД)')}
-                  {renderTable(sdelRows,'👷 Сдельщики/субподряд')}
-                  <div style={{...card,padding:'14px',marginTop:'14px',backgroundColor:C.bg}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'6px'}}>
-                      <b style={{color:C.text,fontSize:'13px'}}>💼 Прочие затраты по фонду оплаты</b>
-                      <button onClick={()=>{const name=prompt('Название статьи затрат:','');if(!name) return;const amt=prompt('Сумма (₽):','0');if(amt===null) return;const next=[...extras,{id:Date.now(),name,amount:toNum(amt)}];setPayrollExtra(monthStr,next);}} style={btnO}><Plus size={14}/>Добавить</button>
-                    </div>
-                    {extras.length===0?<p style={{color:C.textMuted,fontSize:'12px'}}>Например: материальная помощь, отпускные, командировочные, корпоратив, обучение, спецодежда…</p>:extras.map(e=>(<div key={e.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}}>
-                      <span style={{color:C.text,fontSize:'12px'}}>{e.name}</span>
-                      <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                        <b style={{color:C.warning,fontSize:'13px'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
-                        <button onClick={()=>{const next=extras.filter(x=>x.id!==e.id);setPayrollExtra(monthStr,next);}} style={{...btnR,padding:'2px 6px',fontSize:'10px'}}><Trash2 size={10}/></button>
-                      </div>
-                    </div>))}
-                    {extras.length>0&&<div style={{padding:'6px 0',display:'flex',justifyContent:'space-between',marginTop:'6px',fontWeight:'700'}}><span>Итого прочих:</span><b style={{color:C.warning}}>{Math.round(grandExtras).toLocaleString('ru-RU')+' ₽'}</b></div>}
-                  </div>
-                </div>);
-              })()}
-            </div>)}
-
-            {accountingTab==='expenses'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'8px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>💼 Авансовые отчёты и командировочные</b>
-                <button onClick={()=>setNewExpenseReport({reportType:'Авансовый отчёт',employeeName:'',projectName:'',purpose:'',issuedAmount:'',spentAmount:'',balance:'',dateFrom:'',dateTo:''})} style={btnO}><Plus size={14}/>Новый отчёт</button>
-              </div>
-              {newExpenseReport&&(<div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                  <select value={newExpenseReport.reportType} onChange={e=>setNewExpenseReport({...newExpenseReport,reportType:e.target.value})} style={{...inp,marginBottom:0}}>{['Авансовый отчёт','Командировочные','Мелкий нал','Бензин/такси','Закупка материалов'].map(t=><option key={t}>{t}</option>)}</select>
-                  <select value={newExpenseReport.employeeName} onChange={e=>setNewExpenseReport({...newExpenseReport,employeeName:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Кому выдано *</option>{staff.map(st=><option key={st.id} value={st.name}>{st.name}</option>)}</select>
-                  <select value={newExpenseReport.projectName} onChange={e=>setNewExpenseReport({...newExpenseReport,projectName:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Объект (если по проекту)</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <input placeholder='Назначение *' value={newExpenseReport.purpose} onChange={e=>setNewExpenseReport({...newExpenseReport,purpose:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Выдано (₽) *' type='number' step='any' inputMode='decimal' value={newExpenseReport.issuedAmount} onChange={e=>setNewExpenseReport({...newExpenseReport,issuedAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Потрачено (₽)' type='number' step='any' inputMode='decimal' value={newExpenseReport.spentAmount} onChange={e=>setNewExpenseReport({...newExpenseReport,spentAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input type='date' value={newExpenseReport.dateFrom} onChange={e=>setNewExpenseReport({...newExpenseReport,dateFrom:e.target.value})} title='С' style={{...inp,marginBottom:0}}/>
-                  <input type='date' value={newExpenseReport.dateTo} onChange={e=>setNewExpenseReport({...newExpenseReport,dateTo:e.target.value})} title='По' style={{...inp,marginBottom:0}}/>
-                </div>
-                <div style={{display:'flex',gap:'8px'}}>
-                  <button onClick={async()=>{
-                    if(!newExpenseReport.employeeName||!newExpenseReport.purpose||!newExpenseReport.issuedAmount){alert('Заполните: кому, назначение, выдано');return;}
-                    const issued=Number(newExpenseReport.issuedAmount)||0;const spent=Number(newExpenseReport.spentAmount||0);
-                    await fetch(API+'/expense-reports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newExpenseReport,issuedAmount:issued,spentAmount:spent,totalAmount:spent||issued,balance:issued-spent,status:'На утверждении'})});
-                    await refreshData(); setNewExpenseReport(null);
-                  }} style={btnO}><Check size={14}/>Сохранить</button>
-                  <button onClick={()=>setNewExpenseReport(null)} style={btnG}>Отмена</button>
-                </div>
-              </div>)}
-              {expenseReports.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><p>Отчётов нет</p><p style={{fontSize:'11px'}}>Сотрудник съездил в командировку или потратил мелкий нал → добавьте отчёт для бухгалтерии.</p></div>:(<div>
-                {expenseReports.map(r=>(<div key={r.id} style={{...card,padding:'14px',marginBottom:'8px',borderLeft:'3px solid '+(r.status==='Утверждён'?C.success:r.status==='Отклонён'?C.danger:C.warning)}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                    <div style={{flex:1,minWidth:'200px'}}>
-                      <b style={{color:C.text,fontSize:'13px'}}>{r.reportType+' · '+r.employeeName}</b>
-                      <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(r.projectName?r.projectName+' · ':'')+r.purpose}</p>
-                      <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Выдано: {Math.round(r.issuedAmount).toLocaleString('ru-RU')+' ₽'} · Потрачено: {Math.round(r.spentAmount||0).toLocaleString('ru-RU')+' ₽'} · Остаток: <b style={{color:Math.round(r.balance)>0?C.success:C.danger}}>{Math.round(r.balance).toLocaleString('ru-RU')+' ₽'}</b></p>
-                    </div>
-                    <div style={{display:'flex',gap:'4px'}}>
-                      <span style={badge(r.status==='Утверждён'?C.success:r.status==='Отклонён'?C.danger:C.warning,r.status==='Утверждён'?C.successLight:r.status==='Отклонён'?C.dangerLight:C.warningLight,r.status==='Утверждён'?C.successBorder:r.status==='Отклонён'?C.dangerBorder:C.warningBorder)}>{r.status}</span>
-                      {r.status==='На утверждении'&&<><button onClick={async()=>{await fetch(API+'/expense-reports/'+r.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button><button onClick={async()=>{await fetch(API+'/expense-reports/'+r.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонён',approvedBy:user.name,approvedAt:new Date().toISOString().split('T')[0]})});await refreshData();}} style={{...btnR,padding:'4px 8px',fontSize:'11px'}}>✕</button></>}
-                      <button onClick={async()=>{if(!window.confirm('Удалить?')) return;await fetch(API+'/expense-reports/'+r.id,{method:'DELETE'});await refreshData();}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
-                    </div>
-                  </div>
-                </div>))}
-              </div>)}
-            </div>)}
-
-            {accountingTab==='audit'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',flexWrap:'wrap',gap:'10px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📜 Журнал действий пользователей (Audit log)</b>
-                <button onClick={()=>fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[]))} style={{...btnB,fontSize:'12px',padding:'7px 12px'}}>🔄 Обновить</button>
-              </div>
-              {auditLog.length===0?<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><p>Записей нет</p><p style={{fontSize:'11px'}}>Записи появляются по мере действий пользователей. Интеграция с endpoints — в Ф6.1.</p></div>:(<div style={{...card,padding:0,overflow:'auto'}}>
-                <table style={tbl}><thead><tr>
-                  <th style={tblH}>Время</th>
-                  <th style={tblH}>Пользователь</th>
-                  <th style={tblH}>Действие</th>
-                  <th style={tblH}>Объект изменения</th>
-                  <th style={tblH}>Проект</th>
-                  <th style={tblH}>Описание</th>
-                </tr></thead><tbody>
-                  {auditLog.slice(0,100).map(a=>(<tr key={a.id}>
-                    <td style={tblC}>{a.createdAt||'—'}</td>
-                    <td style={tblC}>{(a.userName||'—')+(a.userRole?' ('+a.userRole+')':'')}</td>
-                    <td style={tblC}><span style={{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'600',backgroundColor:C.bg,color:C.textSec}}>{a.action||'—'}</span></td>
-                    <td style={tblC}>{(a.entityType||'')+(a.entityId?' №'+a.entityId:'')}</td>
-                    <td style={tblC}>{a.projectName||'—'}</td>
-                    <td style={{...tblC,maxWidth:'300px',whiteSpace:'normal'}}>{a.description||''}</td>
-                  </tr>))}
-                </tbody></table>
-              </div>)}
-            </div>)}
-          </div>)}
-          {activePage==='personnel'&&(<div>
-            <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
-              {['staff','timesheet','piecework'].map(tab=>(<button key={tab} onClick={()=>{setPersonnelTab(tab);setShowForm(false);}} style={{...personnelTab===tab?btnO:btnG,fontSize:'12px',padding:'7px 14px'}}>{{staff:'👥 Сотрудники',timesheet:'📅 Табель',piecework:'💵 Сдельные'}[tab]}</button>))}
-            </div>
-
-            {personnelTab==='masters'&&(<div>
-              <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Мастера и субподрядчики</h3>
-              {ROLE_GROUPS.filter(g=>['рабочие','субподрядчики'].includes(g.key)).map(group=>{
-                const groupUsers=users.filter(u=>group.roles.includes(u.role));
-                if(groupUsers.length===0) return null;
-                return(<div key={group.key} style={{marginBottom:'20px'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px',padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}><div style={{width:'10px',height:'10px',borderRadius:'50%',backgroundColor:group.color}}/><b style={{color:C.text,fontSize:'13px'}}>{group.label}</b><span style={{color:C.textSec,fontSize:'12px'}}>{'('+groupUsers.length+')'}</span></div>
-                  {groupUsers.map(u=>{
-                    const profile=masterProfiles.find(p=>p.userId===u.id);
-                    const consent=pdConsents.find(c=>c.userId===u.id);
-                    const contract=contracts.find(c=>c.masterId===u.id);
-                    const myActs=interimActs.filter(a=>a.masterId===u.id);
-                    const totalEarned=myActs.reduce((s,a)=>s+(a.totalAmount||0),0);
-                    const totalPaid=myActs.reduce((s,a)=>s+(a.paidAmount||0),0);
-                    const rating=masterRatings[u.id]||0;
-                    const isOpen=expandedMaster===u.id;
-                    return(<div key={u.id} style={{...card,marginBottom:'10px',marginLeft:'12px'}}>
-                      <div style={{padding:'14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setExpandedMaster(isOpen?null:u.id)}>
-                        <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-                          <div style={{width:'42px',height:'42px',borderRadius:'12px',backgroundColor:roleColor(u.role),display:'flex',alignItems:'center',justifyContent:'center',fontSize:'16px',color:'white',fontWeight:'800',flexShrink:0}}>{u.name.charAt(0)}</div>
-                          <div>
-                            <b style={{color:C.text,fontSize:'14px'}}>{u.name}</b>
-                            <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{ROLE_LABELS[u.role]+(profile?' · '+profile.contractType+(profile.specialization?' · '+profile.specialization:''):'')}</p>
-                            <div style={{display:'flex',gap:'4px',marginTop:'3px'}}>{[1,2,3,4,5].map(s=>(<span key={s} style={{color:s<=rating?'#f59e0b':'#d1d5db',fontSize:'16px',cursor:'pointer'}} onClick={e=>{e.stopPropagation();ratemaster(u.id,s);}}>{s<=rating?'★':'☆'}</span>))}</div>
-                          </div>
-                        </div>
-                        <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-                          <div style={{textAlign:'right'}}>
-                            <p style={{color:C.success,margin:0,fontSize:'13px',fontWeight:'600'}}>{totalEarned.toLocaleString()+' ₽'}</p>
-                            {totalEarned-totalPaid>0&&<p style={{color:C.danger,margin:'2px 0 0',fontSize:'11px'}}>{'Долг: '+(totalEarned-totalPaid).toLocaleString()+' ₽'}</p>}
-                          </div>
-                          {isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
-                        </div>
-                      </div>
-                      {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'14px'}}>
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'15px'}}>
-                          <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}>
-                            <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Профиль</p>
-                            {profile?(<div><p style={{margin:'2px 0',fontSize:'12px',color:C.text}}>{'ФИО: '+profile.fullName}</p><p style={{margin:'2px 0',fontSize:'12px',color:C.text}}>{'ИНН: '+profile.inn}</p><p style={{margin:'2px 0',fontSize:'12px',color:C.text}}>{'Банк: '+profile.bankName}</p><p style={{margin:'2px 0',fontSize:'12px',color:C.text}}>{'Р/с: '+profile.bankAccount}</p></div>):<p style={{color:C.textMuted,fontSize:'12px'}}>Не заполнен</p>}
-                          </div>
-                          <div style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border}}>
-                            <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Документы</p>
-                            <div style={{display:'flex',flexDirection:'column',gap:'6px'}}>
-                              {consent?(<div style={{display:'flex',gap:'6px',alignItems:'center'}}><CheckCircle size={14} color={C.success}/><span style={{fontSize:'12px',color:C.success}}>ПД подписано</span>{consent.scanUrl&&<img src={fileSrc(consent.scanUrl)} alt="" onClick={()=>setShowPhotoModal(fileSrc(consent.scanUrl))} style={{width:'28px',height:'28px',borderRadius:'4px',objectFit:'cover',cursor:'pointer'}}/>}</div>):(<span style={{fontSize:'12px',color:C.warning}}>⚠️ ПД не подписано</span>)}
-                              {contract?(<div style={{display:'flex',gap:'6px',alignItems:'center'}}><CheckCircle size={14} color={C.success}/><span style={{fontSize:'12px',color:C.success}}>{'Договор № '+contract.contractNumber}</span></div>):(<span style={{fontSize:'12px',color:C.warning}}>⚠️ Договора нет</span>)}
-                            </div>
-                          </div>
-                        </div>
-                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'15px'}}>
-                          {profile&&contract&&(<button onClick={()=>showPreview(buildContractContent(profile,contract),'Договор')} style={btnB}><Eye size={13}/>Договор</button>)}
-                          {profile&&(<button onClick={()=>showPreview(PD_CONSENT_TEXT(profile),'Согласие на ПД')} style={btnG}><FileText size={13}/>Согласие ПД</button>)}
-                          {profile&&(<button onClick={()=>showPreview(buildPositionInstructionContent(u.role,profile.fullName),'Должностная инструкция')} style={btnG}><FileText size={13}/>Должн. инструкция</button>)}
-                        </div>
-                        <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Работы по проектам:</b>
-                        {[...new Set(workJournal.filter(j=>j.masterId===u.id).map(j=>j.project))].map(projectName=>{
-                          const pWorks=workJournal.filter(j=>j.masterId===u.id&&j.project===projectName);
-                          const pTotal=pWorks.reduce((s,w)=>s+(w.total||0),0);
-                          const isProjectOpen=expandedMasterProject===u.id+'-'+projectName;
-                          return(<div key={projectName} style={{marginBottom:'8px',borderRadius:'8px',border:'1.5px solid '+C.border,overflow:'hidden'}}>
-                            <div style={{padding:'10px 12px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',backgroundColor:C.bg}} onClick={()=>setExpandedMasterProject(isProjectOpen?null:u.id+'-'+projectName)}>
-                              <b style={{fontSize:'12px',color:C.text}}>{projectName}</b>
-                              <div style={{display:'flex',gap:'8px',alignItems:'center'}}><span style={{fontSize:'12px',color:C.success,fontWeight:'600'}}>{pTotal.toLocaleString()+' ₽'}</span>{isProjectOpen?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</div>
-                            </div>
-                            {isProjectOpen&&(<div style={{padding:'8px 12px'}}>
-                              {pWorks.map(w=>(<div key={w.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><span style={{fontSize:'12px',color:C.text}}>{w.description}</span><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{fmtMeasure(w.quantity,w.unit)+' · '+w.date}</p></div><b style={{fontSize:'12px',color:C.success}}>{(w.total||0).toLocaleString()+' ₽'}</b></div>))}
-                  </div>)}
-                          </div>);
-                        })}
-                  </div>)}
-                    </div>);
-                  })}
-                </div>);
-              })}
-            </div>)}
-
-            {personnelTab==='staff'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сотрудники компании</b>
-                <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад'});}} style={btnO}><Plus size={14}/>Добавить</button>
-              </div>
-              {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>👤 Основное</b>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',marginBottom:'10px'}}>
-                  <input placeholder='Фамилия *' value={newStaff.lastName} onChange={e=>setNewStaff({...newStaff,lastName:e.target.value,name:[e.target.value,newStaff.firstName,newStaff.middleName].filter(Boolean).join(' ')})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Имя *' value={newStaff.firstName} onChange={e=>setNewStaff({...newStaff,firstName:e.target.value,name:[newStaff.lastName,e.target.value,newStaff.middleName].filter(Boolean).join(' ')})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Отчество' value={newStaff.middleName} onChange={e=>setNewStaff({...newStaff,middleName:e.target.value,name:[newStaff.lastName,newStaff.firstName,e.target.value].filter(Boolean).join(' ')})} style={{...inp,marginBottom:0}}/>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'10px'}}>
-                  <input placeholder='Должность (напр. штукатур)' value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Специализация' value={newStaff.specialization} onChange={e=>setNewStaff({...newStaff,specialization:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <input placeholder='Телефон' value={newStaff.phone} onChange={e=>setNewStaff({...newStaff,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newStaff.project} onChange={e=>setNewStaff({...newStaff,project:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <select value={newStaff.payType} onChange={e=>setNewStaff({...newStaff,payType:e.target.value})} style={{...inp,marginBottom:0}}><option value='оклад'>Оклад</option><option value='сдельно'>Сдельно</option><option value='почасово'>Почасово</option></select>
-                  {newStaff.payType!=='сдельно'&&<input placeholder={newStaff.payType==='почасово'?'Ставка ₽/ч':'Оклад (₽)'} type='number' step='any' inputMode='decimal' value={newStaff.salary} onChange={e=>setNewStaff({...newStaff,salary:e.target.value})} style={{...inp,marginBottom:0}}/>}
-                  <select value={newStaff.status} onChange={e=>setNewStaff({...newStaff,status:e.target.value})} style={{...inp,marginBottom:0}}><option>Активен</option><option>Отпуск</option><option>Больничный</option><option>Уволен</option></select>
-                  <select value={newStaff.employmentType} onChange={e=>setNewStaff({...newStaff,employmentType:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Тип занятости</option><option>Трудовой договор</option><option>ГПХ</option><option>Самозанятый</option><option>ИП</option><option>ООО</option></select>
-                </div>
-
-                <div onClick={()=>setStaffExpandedSections(s=>({...s,access:!s.access}))} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <b style={{fontSize:'12px',color:C.text}}>🔐 Доступ в систему</b>
-                  <span style={{fontSize:'14px',color:C.textSec}}>{staffExpandedSections.access?'▾':'▸'}</span>
-                </div>
-                {staffExpandedSections.access&&(<div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
-                  <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Чтобы сотрудник мог входить в приложение — заполните все три поля. Если email уже есть, пароль, роль и объекты будут обновлены.</p>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                    <select value={newStaff.systemRole} onChange={e=>setNewStaff({...newStaff,systemRole:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Системная роль</option>{Object.keys(ROLE_LABELS).filter(r=>r!=='заказчик'&&r!=='поставщик').map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>
-                    <input type='email' placeholder='Email для входа' value={newStaff.email} onChange={e=>setNewStaff({...newStaff,email:e.target.value,emailWork:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input type='text' placeholder='Пароль' value={newStaff.password} onChange={e=>setNewStaff({...newStaff,password:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                  </div>
-                  {['прораб','технадзор','стройконтроль'].includes(newStaff.systemRole)&&(()=>{const ap=newStaff.assignedProjects||[];return(<div style={{marginTop:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
-                    <b style={{fontSize:'11px',color:C.text,display:'block',marginBottom:'6px'}}>📍 Назначить объекты (приказ директора)</b>
-                    <p style={{color:C.textMuted,fontSize:'10px',margin:'0 0 8px'}}>Прораб увидит только эти объекты. Если ничего не выбрано — все.</p>
-                    <div style={{maxHeight:'140px',overflowY:'auto',display:'flex',flexDirection:'column',gap:'4px'}}>{projects.filter(p=>p.status!=='Завершён').map(pr=>(<label key={pr.id} style={{display:'flex',alignItems:'center',gap:'6px',cursor:'pointer',padding:'4px 6px',borderRadius:'6px',backgroundColor:ap.includes(pr.name)?C.successLight:'transparent'}}><input type='checkbox' checked={ap.includes(pr.name)} onChange={()=>{const next=ap.includes(pr.name)?ap.filter(n=>n!==pr.name):[...ap,pr.name];setNewStaff({...newStaff,assignedProjects:next});}}/><span style={{fontSize:'12px',color:C.text}}>{pr.name}</span></label>))}</div>
-                  </div>);})()}
-                </div>)}
-
-                <div onClick={()=>setStaffExpandedSections(s=>({...s,docs:!s.docs}))} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <b style={{fontSize:'12px',color:C.text}}>📄 Документы</b>
-                  <span style={{fontSize:'14px',color:C.textSec}}>{staffExpandedSections.docs?'▾':'▸'}</span>
-                </div>
-                {staffExpandedSections.docs&&(<div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                    <input placeholder='Паспорт серия' value={newStaff.passportSeries} onChange={e=>setNewStaff({...newStaff,passportSeries:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Паспорт номер' value={newStaff.passportNumber} onChange={e=>setNewStaff({...newStaff,passportNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Кем выдан' value={newStaff.passportIssuedBy} onChange={e=>setNewStaff({...newStaff,passportIssuedBy:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                    <input type='date' placeholder='Дата выдачи' value={newStaff.passportIssuedDate} onChange={e=>setNewStaff({...newStaff,passportIssuedDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input type='date' placeholder='Дата рождения' value={newStaff.birthDate} onChange={e=>setNewStaff({...newStaff,birthDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='ИНН' value={newStaff.inn} onChange={e=>setNewStaff({...newStaff,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='СНИЛС' value={newStaff.snils} onChange={e=>setNewStaff({...newStaff,snils:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Гражданство' value={newStaff.citizenship} onChange={e=>setNewStaff({...newStaff,citizenship:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Адрес проживания' value={newStaff.address} onChange={e=>setNewStaff({...newStaff,address:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                  </div>
-                </div>)}
-
-                <div onClick={()=>setStaffExpandedSections(s=>({...s,finance:!s.finance}))} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <b style={{fontSize:'12px',color:C.text}}>💰 Финансы (для выплат)</b>
-                  <span style={{fontSize:'14px',color:C.textSec}}>{staffExpandedSections.finance?'▾':'▸'}</span>
-                </div>
-                {staffExpandedSections.finance&&(<div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                    <input placeholder='Расчётный счёт' value={newStaff.bankAccount} onChange={e=>setNewStaff({...newStaff,bankAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Банк' value={newStaff.bankName} onChange={e=>setNewStaff({...newStaff,bankName:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='БИК' value={newStaff.bankBik} onChange={e=>setNewStaff({...newStaff,bankBik:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Кор/счёт' value={newStaff.bankCorr} onChange={e=>setNewStaff({...newStaff,bankCorr:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    {(newStaff.employmentType==='ИП'||newStaff.employmentType==='ООО')&&<input placeholder='ОГРНИП / ОГРН' value={newStaff.ogrnip} onChange={e=>setNewStaff({...newStaff,ogrnip:e.target.value})} style={{...inp,marginBottom:0}}/>}
-                    <input placeholder='Номер карты' value={newStaff.cardNumber} onChange={e=>setNewStaff({...newStaff,cardNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  </div>
-                </div>)}
-
-                <div onClick={()=>setStaffExpandedSections(s=>({...s,extra:!s.extra}))} style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',cursor:'pointer',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <b style={{fontSize:'12px',color:C.text}}>📝 Дополнительно</b>
-                  <span style={{fontSize:'14px',color:C.textSec}}>{staffExpandedSections.extra?'▾':'▸'}</span>
-                </div>
-                {staffExpandedSections.extra&&(<div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                    <input placeholder='Email личный' value={newStaff.emailPersonal} onChange={e=>setNewStaff({...newStaff,emailPersonal:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Доп. телефон (родственник)' value={newStaff.phoneExtra} onChange={e=>setNewStaff({...newStaff,phoneExtra:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input type='date' placeholder='Дата приёма' value={newStaff.hiredDate} onChange={e=>setNewStaff({...newStaff,hiredDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input type='date' placeholder='Дата увольнения' value={newStaff.firedDate} onChange={e=>setNewStaff({...newStaff,firedDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Бригада/Подразделение' value={newStaff.brigade} onChange={e=>setNewStaff({...newStaff,brigade:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Категория/разряд' value={newStaff.category} onChange={e=>setNewStaff({...newStaff,category:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <textarea placeholder='Заметки' value={newStaff.notes} onChange={e=>setNewStaff({...newStaff,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',minHeight:'60px',fontFamily:'inherit'}}/>
-                  </div>
-                </div>)}
-
-                <div style={{display:'flex',gap:'8px',marginTop:'14px'}}>
-                  <button onClick={saveStaff} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button>
-                  <button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button>
-                </div>
-              </div>)}
-              <div style={{position:'relative',marginBottom:'12px'}}>
-                <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-                <input placeholder='🔍 Поиск сотрудника (ФИО, должность, объект)' value={listSearch} onChange={e=>setListSearch(e.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px'}}/>
-              </div>
-              <table style={tbl}><thead><tr><th style={tblH}></th><th style={tblH}>ФИО</th><th style={tblH}>Должность</th><th style={tblH}>Объект</th><th style={tblH}>Тип оплаты</th><th style={tblH}>Зарплата</th><th style={tblH}>Доступ</th><th style={tblH}></th></tr></thead><tbody>
-                {staff.filter(s=>matchSearch(listSearch,s.name,s.role,s.project,s.specialization)).map(s=>{const hasAccess=findUserForStaff(s);const isExp=expandedStaffId===s.id;return(<React.Fragment key={s.id}>
-                  <tr style={{cursor:'pointer',backgroundColor:isExp?C.bg:'transparent'}} onClick={()=>openStaffProfile(s)}>
-                    <td style={{...tblC,width:'24px',textAlign:'center'}}>{isExp?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</td>
-                    <td style={tblC}><b style={{fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.phone}</p></td>
-                    <td style={tblC}>{s.role}{s.specialization?' · '+s.specialization:''}</td>
-                    <td style={tblC}>{s.project||'—'}</td>
-                    <td style={tblC}>{s.payType==='сдельно'?'Сдельно':'Оклад: '+(s.salary||0).toLocaleString()+' ₽'}</td>
-                    <td style={{...tblC,fontWeight:'600',color:C.success}}>{calcSalary(s).toLocaleString()+' ₽'}</td>
-                    <td style={tblC} onClick={e=>e.stopPropagation()}>{hasAccess?<div style={{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}}><span style={{padding:'2px 8px',borderRadius:'10px',backgroundColor:C.successLight,color:C.success,fontSize:'11px',fontWeight:'600'}}>✅ {hasAccess.email||'есть'}</span><button onClick={()=>resetStaffAccessPassword(hasAccess,s)} style={{...btnG,padding:'3px 8px',fontSize:'11px'}}>🔑 Пароль</button></div>:<button onClick={()=>createStaffAccessFromPrompt(s)} style={{...btnB,padding:'3px 8px',fontSize:'11px'}}>🔐 Выдать</button>}</td>
-                    <td style={tblC} onClick={e=>e.stopPropagation()}><div style={{display:'flex',gap:'4px'}}><button onClick={()=>{const access=findUserForStaff(s);setEditingItem(s);setNewStaff({...s,salary:String(s.salary||''),email:access?.email||s.emailWork||s.emailPersonal||'',password:'',systemRole:access?.role||''});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button><button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></div></td>
-                  </tr>
-                  {isExp&&(<tr><td colSpan='8' style={{padding:'14px 18px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}>
-                    {staffProfileLoading?<p style={{color:C.textMuted,fontSize:'12px'}}>⏳ Загрузка профиля...</p>:staffProfile?(<div>
-                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px',marginBottom:'14px'}}>
-                        <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Тип занятости</p><b style={{fontSize:'12px',color:C.text}}>{s.employmentType||'не указан'}</b></div>
-                        <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Паспорт</p><b style={{fontSize:'12px',color:C.text}}>{s.passportSeries||s.passportNumber?(s.passportSeries+' '+s.passportNumber):'не заполнен'}</b></div>
-                        <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>ИНН</p><b style={{fontSize:'12px',color:C.text}}>{s.inn||'не заполнен'}</b></div>
-                        <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Банк</p><b style={{fontSize:'12px',color:C.text}}>{s.bankName||'не указан'}</b></div>
-                      </div>
-
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
-                        <div style={{...card,padding:'12px'}}>
-                          <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>📄 Договоры ({staffProfile.contracts.length})</b>
-                          {staffProfile.contracts.length===0?<p style={{color:C.textMuted,fontSize:'11px'}}>Договоров нет</p>:staffProfile.contracts.map(c=>(<div key={c.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'11px'}}><b>№{c.contractNumber}</b> · {c.project} · {c.status||'-'}</div>))}
-                        </div>
-                        <div style={{...card,padding:'12px'}}>
-                          <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>📋 Акты ({staffProfile.acts.length})</b>
-                          {staffProfile.acts.length===0?<p style={{color:C.textMuted,fontSize:'11px'}}>Актов нет</p>:staffProfile.acts.map(a=>(<div key={a.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between'}}><span>№{a.actNumber} · {a.project}</span><b style={{color:C.success}}>{a.totalAmount.toLocaleString()} ₽</b></div>))}
-                        </div>
-                        <div style={{...card,padding:'12px'}}>
-                          <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>✅ Согласия на ПД ({staffProfile.pdConsents.length})</b>
-                          {staffProfile.pdConsents.length===0?<p style={{color:C.warning,fontSize:'11px'}}>⚠️ Не подписано</p>:staffProfile.pdConsents.map(p=>(<div key={p.id} style={{padding:'6px 0',fontSize:'11px',color:C.success}}>✓ Подписано {p.signedAt}</div>))}
-                        </div>
-                        <div style={{...card,padding:'12px'}}>
-                          <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>🔒 Инструктажи ТБ ({staffProfile.tbJournal.length})</b>
-                          {staffProfile.tbJournal.length===0?<p style={{color:C.warning,fontSize:'11px'}}>⚠️ Инструктажей нет</p>:staffProfile.tbJournal.slice(0,5).map(t=>(<div key={t.id} style={{padding:'4px 0',fontSize:'11px'}}><b>{t.instructionType}</b> · {t.projectName} · {t.date}</div>))}
-                        </div>
-                      </div>
-
-                      <div style={{...card,padding:'12px',marginTop:'14px'}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
-                          <b style={{fontSize:'12px',color:C.text}}>📎 Прочие документы ({staffProfile.customDocuments.length})</b>
-                          <button onClick={()=>setShowStaffDocForm(true)} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}><Plus size={11}/>Добавить</button>
-                        </div>
-                        {showStaffDocForm&&(<div style={{marginBottom:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}>
-                          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'6px'}}>
-                            <select value={newStaffDoc.docType} onChange={e=>setNewStaffDoc({...newStaffDoc,docType:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>
-                              {['Трудовой договор','Договор ГПХ','Договор с самозанятым','Договор с ИП','Приказ','Должн. инструкция','Мед. книжка','Справка о статусе самозанятого','Чек НПД','Прочее'].map(t=><option key={t}>{t}</option>)}
-                            </select>
-                            <input placeholder='Название/Номер' value={newStaffDoc.title} onChange={e=>setNewStaffDoc({...newStaffDoc,title:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                          </div>
-                          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'6px'}}>
-                            <input type='file' accept='image/*,.pdf' onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:s.project,context:'staff-documents'});setNewStaffDoc({...newStaffDoc,fileUrl:url});}}} style={{fontSize:'11px'}}/>
-                            <input type='date' value={newStaffDoc.signedAt} onChange={e=>setNewStaffDoc({...newStaffDoc,signedAt:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                            <input type='date' placeholder='Истекает' value={newStaffDoc.expiresAt} onChange={e=>setNewStaffDoc({...newStaffDoc,expiresAt:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-                          </div>
-                          <div style={{display:'flex',gap:'6px'}}>
-                            <button onClick={()=>addStaffDoc(s.id)} style={{...btnO,fontSize:'11px',padding:'4px 10px'}}><Check size={11}/>Сохранить</button>
-                            <button onClick={()=>setShowStaffDocForm(false)} style={{...btnG,fontSize:'11px',padding:'4px 10px'}}><X size={11}/>Отмена</button>
-                          </div>
-                        </div>)}
-                        {staffProfile.customDocuments.map(d=>(<div key={d.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                          <div style={{flex:1}}><b>{d.docType}</b> · {d.title}{d.signedAt?' · подписан '+d.signedAt:''}{d.expiresAt?' · истекает '+d.expiresAt:''}</div>
-                          <div style={{display:'flex',gap:'4px'}}>
-                            {d.fileUrl&&<a href={fileSrc(d.fileUrl)} target='_blank' rel='noreferrer' style={{...btnB,padding:'2px 8px',fontSize:'10px',textDecoration:'none'}}>👁️</a>}
-                            <button onClick={async()=>{if(window.confirm('Удалить документ?')){await fetch(API+'/staff-documents/'+d.id,{method:'DELETE'});const data=await fetch(API+'/staff/'+s.id+'/profile').then(r=>r.json());setStaffProfile(data);}}} style={{...btnR,padding:'2px 7px'}}><Trash2 size={10}/></button>
-                          </div>
-                        </div>))}
-                        {staffProfile.customDocuments.length===0&&<p style={{color:C.textMuted,fontSize:'11px',padding:'4px'}}>Нет загруженных документов</p>}
-                      </div>
-
-                      {staffProfile.workJournal.length>0&&(<div style={{...card,padding:'12px',marginTop:'14px'}}>
-                        <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>💼 Последние работы ({staffProfile.workJournal.length})</b>
-                        {staffProfile.workJournal.slice(0,8).map((w,i)=>(<div key={i} style={{padding:'4px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between'}}><span>{w.project} · {w.description} · {w.quantity} {w.unit}</span><b style={{color:C.success}}>{w.total.toLocaleString()} ₽</b></div>))}
-                      </div>)}
-                    </div>):<p style={{color:C.textMuted,fontSize:'12px'}}>Не удалось загрузить профиль</p>}
-                  </td></tr>)}
-                </React.Fragment>);})}
-              </tbody></table>
-            </div>)}
-
-            {personnelTab==='timesheet'&&(<div>
-              <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Табель учёта</h3>
-              <div style={{overflowX:'auto'}}><table style={tbl}><thead><tr><th style={{...tblH,minWidth:'150px'}}>Сотрудник</th>{daysInMonth.map(d=><th key={d} style={{...tblH,textAlign:'center',padding:'6px 4px',minWidth:'28px'}}>{d}</th>)}<th style={tblH}>Дни</th><th style={tblH}>Итого</th></tr></thead><tbody>
-                {staff.map(s=>(<tr key={s.id}><td style={tblC}><b style={{fontSize:'12px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.role}</p></td>{daysInMonth.map(d=>(<td key={d} style={{...tblC,textAlign:'center',padding:'4px',cursor:'pointer'}} onClick={()=>toggleDay(s.id,d)}><div style={{width:'22px',height:'22px',borderRadius:'6px',backgroundColor:timesheet[s.id+'-'+d]?C.success:'transparent',border:'1.5px solid '+(timesheet[s.id+'-'+d]?C.success:C.border),display:'flex',alignItems:'center',justifyContent:'center',margin:'auto',fontSize:'10px',color:'white',fontWeight:'700'}}>{timesheet[s.id+'-'+d]?'✓':''}</div></td>))}<td style={{...tblC,fontWeight:'600'}}>{workedDays(s.id)}</td><td style={{...tblC,fontWeight:'700',color:C.success}}>{calcSalary(s).toLocaleString()+' ₽'}</td></tr>))}
-              </tbody></table></div>
-            </div>)}
-
-            {personnelTab==='piecework'&&(<div>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сдельные работы</b>
-                <button onClick={()=>setShowPiecework(!showPiecework)} style={btnO}><Plus size={14}/>Добавить</button>
-              </div>
-              {showPiecework&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                  <select value={newPiecework.staffId} onChange={e=>setNewPiecework({...newPiecework,staffId:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Сотрудник *</option>{staff.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
-                  <select value={newPiecework.project} onChange={e=>setNewPiecework({...newPiecework,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                  <input placeholder="Описание *" value={newPiecework.description} onChange={e=>setNewPiecework({...newPiecework,description:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                  <input placeholder="Количество *" type="number" step="any" inputMode="decimal" value={newPiecework.quantity} onChange={e=>setNewPiecework({...newPiecework,quantity:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <select value={newPiecework.unit} onChange={e=>setNewPiecework({...newPiecework,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                  <input placeholder="Цена за единицу *" type="number" step="any" inputMode="decimal" value={newPiecework.pricePerUnit} onChange={e=>setNewPiecework({...newPiecework,pricePerUnit:e.target.value})} style={{...inp,marginBottom:0}}/>
-                  <div style={{padding:'10px',backgroundColor:C.accentLight,borderRadius:'8px',border:'1.5px solid '+C.accentBorder,display:'flex',alignItems:'center',justifyContent:'center'}}><b style={{color:C.accent}}>{newPiecework.quantity&&newPiecework.pricePerUnit?(Number(newPiecework.quantity)*Number(newPiecework.pricePerUnit)).toLocaleString()+' ₽':'0 ₽'}</b></div>
-                </div>
-                <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={addPiecework} style={btnO}><Check size={14}/>Добавить</button><button onClick={()=>setShowPiecework(false)} style={btnG}><X size={14}/>Отмена</button></div>
-              </div>)}
-              {staff.map(s=>{
-                const sWorks=piecework.filter(p=>Number(p.staffId)===s.id);
-                const sTotal=sWorks.reduce((ss,p)=>ss+p.total,0);
-                if(sWorks.length===0) return null;
-                const isOpen=expandedPieceworkProject===s.id;
-                return(<div key={s.id} style={{...card,marginBottom:'10px'}}>
-                  <div style={{padding:'14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setExpandedPieceworkProject(isOpen?null:s.id)}>
-                    <div><b style={{color:C.text,fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{sWorks.length+' работ'}</p></div>
-                    <div style={{display:'flex',alignItems:'center',gap:'10px'}}><b style={{color:C.success,fontSize:'14px'}}>{sTotal.toLocaleString()+' ₽'}</b>{isOpen?<ChevronUp size={16}/>:<ChevronDown size={16}/>}</div>
-                  </div>
-                  {isOpen&&(<div style={{borderTop:'1.5px solid '+C.border,padding:'12px 14px'}}>
-                    {sWorks.map(w=>(<div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><b style={{fontSize:'12px',color:C.text}}>{w.description}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+' × '+w.pricePerUnit.toLocaleString()+' ₽ · '+w.date+(w.project?' · '+w.project:'')}</p></div><div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{fontSize:'12px',color:C.success}}>{w.total.toLocaleString()+' ₽'}</b><button onClick={()=>deletePiecework(w.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={10}/></button></div></div>))}
-                  </div>)}
-                </div>);
-              })}
-            </div>)}
-          </div>)}
+          {activePage==='accounting'&&(
+            <AccountingPage
+              accountingTab={accountingTab}
+              setAccountingTab={setAccountingTab}
+              setShowForm={setShowForm}
+              isLeadership={isLeadership()}
+              loadAuditLog={() => fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{})}
+              btnO={btnO}
+              btnG={btnG}
+              C={C}
+              card={card}
+              projects={projects}
+              projectPayments={projectPayments}
+              projectPaymentInAmount={projectPaymentInAmount}
+              ownExpenses={ownExpenses}
+              accountablePayments={accountablePayments}
+              supplierInvoices={supplierInvoices}
+              brigadeContracts={brigadeContracts}
+              piecework={piecework}
+              isFinanceRole={isFinanceRole}
+              inp={inp}
+              btnGr={btnGr}
+              matchSearch={matchSearch}
+              listSearch={listSearch}
+              setListSearch={setListSearch}
+              toNum={toNum}
+              user={user}
+              refreshData={refreshData}
+              setShowReimburseModal={setShowReimburseModal}
+              interimActs={interimActs}
+              expandedProject={expandedProject}
+              setExpandedProject={setExpandedProject}
+              btnB={btnB}
+              btnR={btnR}
+              badge={badge}
+              showForm={showForm}
+              newContract={newContract}
+              setNewContract={setNewContract}
+              resolveContractPerformer={resolveContractPerformer}
+              contractRequisitesWarning={contractRequisitesWarning}
+              createContract={createContract}
+              staff={staff}
+              contracts={contracts}
+              projectDocuments={projectDocuments}
+              normalizePersonKey={normalizePersonKey}
+              allBrigadePayments={allBrigadePayments}
+              pdConsents={pdConsents}
+              allBrigadeItems={allBrigadeItems}
+              showPreview={showPreview}
+              buildContractContent={buildContractContent}
+              deleteContract={deleteContract}
+              workJournal={workJournal}
+              unexpectedWorksList={unexpectedWorksList}
+              isApprovedEstimateChangeStatus={isApprovedEstimateChangeStatus}
+              expandedActDate={expandedActDate}
+              setExpandedActDate={setExpandedActDate}
+              fmtMeasure={fmtMeasure}
+              newAct={newAct}
+              setNewAct={setNewAct}
+              masterProfiles={masterProfiles}
+              createInterimAct={createInterimAct}
+              buildActContent={buildActContent}
+              fileSrc={fileSrc}
+              uploadPhoto={uploadPhoto}
+              setShowPayActModal={setShowPayActModal}
+              deleteInterimAct={deleteInterimAct}
+              buildBrigadeActContent={buildBrigadeActContent}
+              accountingDocProject={accountingDocProject}
+              setAccountingDocProject={setAccountingDocProject}
+              projectPlanDone={projectPlanDone}
+              materialControlSummaryForProject={materialControlSummaryForProject}
+              invoices={invoices}
+              warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
+              buildPassportContent={buildPassportContent}
+              showKS2={showKS2}
+              buildKS3Content={buildKS3Content}
+              buildJPRContent={buildJPRContent}
+              buildM29Content={buildM29Content}
+              buildAOSKContent={buildAOSKContent}
+              buildKS11Content={buildKS11Content}
+              buildKS14Content={buildKS14Content}
+              buildIGDContent={buildIGDContent}
+              buildExecPackageContent={buildExecPackageContent}
+              buildVATBookContent={buildVATBookContent}
+              suppliers={suppliers}
+              buildM2Content={buildM2Content}
+              buildM8Content={buildM8Content}
+              buildMaterialRequirementContent={buildMaterialRequirementContent}
+              buildSpecJournalContent={buildSpecJournalContent}
+              salaryMonth={salaryMonth}
+              setSalaryMonth={setSalaryMonth}
+              salaryEdits={salaryEdits}
+              payrollExtras={payrollExtras}
+              tools={tools}
+              setSalaryEdit={setSalaryEdit}
+              salaryPayments={salaryPayments}
+              setSalaryPayments={setSalaryPayments}
+              paySalary={paySalary}
+              setPayrollExtra={setPayrollExtra}
+              newExpenseReport={newExpenseReport}
+              setNewExpenseReport={setNewExpenseReport}
+              expenseReports={expenseReports}
+              auditLog={auditLog}
+              setAuditLog={setAuditLog}
+              tbl={tbl}
+              tblH={tblH}
+              tblC={tblC}
+            />
+          )}
+          {activePage==='personnel'&&(
+            <PersonnelPage
+              C={C}
+              ROLE_GROUPS={ROLE_GROUPS}
+              ROLE_LABELS={ROLE_LABELS}
+              PD_CONSENT_TEXT={PD_CONSENT_TEXT}
+              UNITS={UNITS}
+              API={API}
+              addPiecework={addPiecework}
+              addStaffDoc={addStaffDoc}
+              buildContractContent={buildContractContent}
+              buildPositionInstructionContent={buildPositionInstructionContent}
+              btnB={btnB}
+              btnG={btnG}
+              btnO={btnO}
+              btnR={btnR}
+              calcSalary={calcSalary}
+              card={card}
+              contracts={contracts}
+              createStaffAccessFromPrompt={createStaffAccessFromPrompt}
+              daysInMonth={daysInMonth}
+              deletePiecework={deletePiecework}
+              deleteStaff={deleteStaff}
+              editingItem={editingItem}
+              expandedMaster={expandedMaster}
+              expandedMasterProject={expandedMasterProject}
+              expandedPieceworkProject={expandedPieceworkProject}
+              expandedStaffId={expandedStaffId}
+              fileSrc={fileSrc}
+              findUserForStaff={findUserForStaff}
+              fmtMeasure={fmtMeasure}
+              inp={inp}
+              interimActs={interimActs}
+              listSearch={listSearch}
+              masterProfiles={masterProfiles}
+              masterRatings={masterRatings}
+              matchSearch={matchSearch}
+              newPiecework={newPiecework}
+              newStaff={newStaff}
+              newStaffDoc={newStaffDoc}
+              openStaffProfile={openStaffProfile}
+              pdConsents={pdConsents}
+              personnelTab={personnelTab}
+              piecework={piecework}
+              projects={projects}
+              ratemaster={ratemaster}
+              resetStaffAccessPassword={resetStaffAccessPassword}
+              roleColor={roleColor}
+              saveStaff={saveStaff}
+              setEditingItem={setEditingItem}
+              setExpandedMaster={setExpandedMaster}
+              setExpandedMasterProject={setExpandedMasterProject}
+              setExpandedPieceworkProject={setExpandedPieceworkProject}
+              setListSearch={setListSearch}
+              setNewPiecework={setNewPiecework}
+              setNewStaff={setNewStaff}
+              setNewStaffDoc={setNewStaffDoc}
+              setPersonnelTab={setPersonnelTab}
+              setShowForm={setShowForm}
+              setShowPhotoModal={setShowPhotoModal}
+              setShowPiecework={setShowPiecework}
+              setShowStaffDocForm={setShowStaffDocForm}
+              setStaffProfile={setStaffProfile}
+              setStaffExpandedSections={setStaffExpandedSections}
+              showForm={showForm}
+              showPiecework={showPiecework}
+              showPreview={showPreview}
+              showStaffDocForm={showStaffDocForm}
+              staff={staff}
+              staffExpandedSections={staffExpandedSections}
+              staffProfile={staffProfile}
+              staffProfileLoading={staffProfileLoading}
+              tbl={tbl}
+              tblC={tblC}
+              tblH={tblH}
+              timesheet={timesheet}
+              toggleDay={toggleDay}
+              uploadPhoto={uploadPhoto}
+              users={users}
+              workJournal={workJournal}
+              workedDays={workedDays}
+            />
+          )}
 
           {activePage==='pricelists'&&(
             <PricelistsPage API={API} C={C} PRICELISTS_DATA={PRICELISTS_DATA} UNITS={UNITS} buildPricelistContent={buildPricelistContent} btnB={btnB} btnG={btnG} btnGr={btnGr} btnO={btnO} btnR={btnR} card={card} copyPricelist={copyPricelist} deletePlItem={deletePlItem} deletePricelist={deletePricelist} editingPlItem={editingPlItem} exportToExcel={exportToExcel} inlineEditPl={inlineEditPl} inlineEditPlData={inlineEditPlData} inp={inp} listSearch={listSearch} loadAll={loadAll} loadPricelistItems={loadPricelistItems} matchSearch={matchSearch} newPlItem={newPlItem} newPricelist={newPricelist} pricelistItems={pricelistItems} pricelists={pricelists} saveInlinePlItem={saveInlinePlItem} savePlItem={savePlItem} savePricelist={savePricelist} selectedPricelist={selectedPricelist} setEditingItem={setEditingItem} setEditingPlItem={setEditingPlItem} setFromEstimateForm={setFromEstimateForm} setGeneratePricelistForm={setGeneratePricelistForm} setInlineEditPlData={setInlineEditPlData} setInlineEditPrice={setInlineEditPrice} setListSearch={setListSearch} setNewPlItem={setNewPlItem} setNewPricelist={setNewPricelist} setPricelistItems={setPricelistItems} setSelectedPricelist={setSelectedPricelist} setShowForm={setShowForm} setShowFromEstimate={setShowFromEstimate} setShowGeneratePricelist={setShowGeneratePricelist} showForm={showForm} showPreview={showPreview} startInlinePlEdit={startInlinePlEdit} cancelInlinePlEdit={cancelInlinePlEdit} tbl={tbl} tblC={tblC} tblH={tblH}/>
