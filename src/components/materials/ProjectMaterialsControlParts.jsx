@@ -24,8 +24,8 @@ export function MaterialsControlHeader({projectName, C, btnB, showPreview, build
   return (
     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '12px'}}>
       <div>
-        <b style={{color: C.text, fontSize: '14px'}}>📊 Материалы: смета ↔ поставки ↔ склад</b>
-        <p style={{color: C.textSec, fontSize: '11px', margin: '2px 0 0'}}>План берётся из активной сметы заказчика, цепочка — из заявок, поставок, накладных, перемещений, выдач и списаний.</p>
+        <b style={{color: C.text, fontSize: '14px'}}>📊 Материалы: смета ↔ нормы ↔ поставки ↔ склад</b>
+        <p style={{color: C.textSec, fontSize: '11px', margin: '2px 0 0'}}>Контрольная потребность берётся из активной сметы и норм расхода, цепочка — из заявок, поставок, накладных, перемещений, выдач и списаний.</p>
       </div>
       <button onClick={() => showPreview(buildMaterialRequirementContent(projectName), 'Потребность материалов — ' + projectName)} style={{...btnB, fontSize: '12px', padding: '6px 12px'}}>
         <Printer size={13}/>Печать
