@@ -1,7 +1,8 @@
 import React from 'react';
-import { Bot, Check, Eye, X } from 'lucide-react';
+import { Bot, Check, Eye } from 'lucide-react';
 import { API } from '../api';
-import { aiActionButtonStyle, borderedBlockStyle, closeButtonStyle, footerActionsStyle, formLabelStyle, formSectionStyle, installGridStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, sectionHintStyle, sectionTitleStyle, statusPillStyle, summaryValueStyle, textareaStyle, twoColumnGridStyle, twoColumnGridTightStyle } from '../utils/modalStyles';
+import { aiActionButtonStyle, borderedBlockStyle, footerActionsStyle, formLabelStyle, formSectionStyle, installGridStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, sectionHintStyle, sectionTitleStyle, summaryValueStyle, twoColumnGridStyle, twoColumnGridTightStyle } from '../utils/modalStyles';
+import { AiNotice, ModalHeaderActions, ModalTitleBlock, SummaryCell, TextareaField } from './common/ModalParts';
 
 export default function ProjectCableJournalEditModal({
   cable,
@@ -88,36 +89,33 @@ export default function ProjectCableJournalEditModal({
     <div onClick={() => setEditingCable(null)} style={modalOverlayStyle()}>
       <div onClick={event => event.stopPropagation()} style={modalShellStyle(card)}>
         <div style={modalHeaderStyle(C)}>
-          <div>
-            <b style={{color: C.text, fontSize: '16px', display: 'block'}}>⚡ Запись журнала кабельной продукции</b>
-            <span style={{fontSize: '12px', color: C.textSec}}>{cableType + ' · ' + (cable.cableBrand || '—') + ' · ' + (cable.crossSection ? cable.crossSection + ' мм² × ' + (cable.coresCount || '?') + ' жил' : '—') + ' · ' + (cable.lengthReceived || 0) + ' м'}</span>
-          </div>
-          <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-            <span style={statusPillStyle(C, cable.installedAt ? 'success' : 'warning')}>
-              {cable.installedAt ? 'Проложен' : 'На складе'}
-            </span>
-            <button onClick={() => setEditingCable(null)} style={closeButtonStyle(btnG)}>
-              <X size={14}/>
-            </button>
-          </div>
+          <ModalTitleBlock
+            title="⚡ Запись журнала кабельной продукции"
+            subtitle={cableType + ' · ' + (cable.cableBrand || '—') + ' · ' + (cable.crossSection ? cable.crossSection + ' мм² × ' + (cable.coresCount || '?') + ' жил' : '—') + ' · ' + (cable.lengthReceived || 0) + ' м'}
+            C={C}
+          />
+          <ModalHeaderActions
+            status={cable.installedAt ? 'Проложен' : 'На складе'}
+            statusVariant={cable.installedAt ? 'success' : 'warning'}
+            onClose={() => setEditingCable(null)}
+            C={C}
+            btnG={btnG}
+          />
         </div>
 
         <div style={modalBodyStyle()}>
-          {cable.aiFilled && (
-            <div style={aiNotice}>
-              <span style={aiNoticeIcon}>🤖</span>
-              <span style={aiNoticeText}><b>Нормативы и мин. R подсказаны AI.</b> Проверь и сохрани — при правке поля метка снимется.</span>
-            </div>
-          )}
+          <AiNotice show={cable.aiFilled} noticeStyle={aiNotice} iconStyle={aiNoticeIcon} textStyle={aiNoticeText}>
+            <b>Нормативы и мин. R подсказаны AI.</b> Проверь и сохрани — при правке поля метка снимется.
+          </AiNotice>
 
           <div style={modalSummaryGridStyle(C)}>
-            <div><p style={labelStyle}>Марка кабеля</p><b style={summaryValue}>{cable.cableBrand || '—'}</b></div>
-            <div><p style={labelStyle}>Тип системы</p><b style={summaryValue}>{cableType}</b></div>
-            <div><p style={labelStyle}>Сечение жилы</p><b style={summaryValue}>{cable.crossSection ? cable.crossSection + ' мм²' : '—'}</b></div>
-            <div><p style={labelStyle}>Кол-во жил</p><b style={summaryValue}>{cable.coresCount || '—'}</b></div>
-            <div><p style={labelStyle}>Длина с барабана</p><b style={summaryValue}>{(cable.lengthReceived || 0) + ' м'}</b></div>
-            <div><p style={labelStyle}>Поставщик</p><b style={summaryValue}>{cable.supplier || '—'}</b></div>
-            <div><p style={labelStyle}>Дата приёмки</p><b style={summaryValue}>{cable.receivedAt || '—'}</b></div>
+            <SummaryCell label="Марка кабеля" labelStyle={labelStyle} valueStyle={summaryValue}>{cable.cableBrand || '—'}</SummaryCell>
+            <SummaryCell label="Тип системы" labelStyle={labelStyle} valueStyle={summaryValue}>{cableType}</SummaryCell>
+            <SummaryCell label="Сечение жилы" labelStyle={labelStyle} valueStyle={summaryValue}>{cable.crossSection ? cable.crossSection + ' мм²' : '—'}</SummaryCell>
+            <SummaryCell label="Кол-во жил" labelStyle={labelStyle} valueStyle={summaryValue}>{cable.coresCount || '—'}</SummaryCell>
+            <SummaryCell label="Длина с барабана" labelStyle={labelStyle} valueStyle={summaryValue}>{(cable.lengthReceived || 0) + ' м'}</SummaryCell>
+            <SummaryCell label="Поставщик" labelStyle={labelStyle} valueStyle={summaryValue}>{cable.supplier || '—'}</SummaryCell>
+            <SummaryCell label="Дата приёмки" labelStyle={labelStyle} valueStyle={summaryValue}>{cable.receivedAt || '—'}</SummaryCell>
           </div>
 
           <div style={twoColumnGridStyle()}>
@@ -160,8 +158,15 @@ export default function ProjectCableJournalEditModal({
           <div style={borderedBlockStyle(C)}>
             <b style={sectionTitleStyle(C)}>🔧 Монтаж</b>
             <div style={sectionStyle}>
-              <label style={labelStyle}>Место прокладки (объект, этаж, помещение)</label>
-              <textarea value={cable.installationLocation || ''} onChange={event => updateCable('installationLocation', event.target.value)} placeholder="напр. этаж 2, эл.щитовая → коридор → квартиры 21-25" style={textareaStyle(inp, '50px')}/>
+              <TextareaField
+                label="Место прокладки (объект, этаж, помещение)"
+                value={cable.installationLocation}
+                onChange={value => updateCable('installationLocation', value)}
+                placeholder="напр. этаж 2, эл.щитовая → коридор → квартиры 21-25"
+                inputStyle={inp}
+                labelStyle={labelStyle}
+                minHeight="50px"
+              />
             </div>
             <div style={installGridStyle()}>
               <div>
@@ -197,8 +202,15 @@ export default function ProjectCableJournalEditModal({
             <datalist id="cable-itr-list">{responsibleNames.map(name => <option key={name} value={name}/>)}</datalist>
           </div>
           <div style={sectionStyle}>
-            <label style={labelStyle}>Применимые нормативы (ГОСТ/СП/ПУЭ){cable.aiFilled ? ' 🤖' : ''}</label>
-            <textarea value={cable.normatives || ''} onChange={event => updateCable('normatives', event.target.value)} placeholder="Напр.: ПУЭ 7-е изд., ГОСТ Р 53769 (кабели силовые), СП 76.13330" style={textareaStyle(inp, '80px')}/>
+            <TextareaField
+              label={'Применимые нормативы (ГОСТ/СП/ПУЭ)' + (cable.aiFilled ? ' 🤖' : '')}
+              value={cable.normatives}
+              onChange={value => updateCable('normatives', value)}
+              placeholder="Напр.: ПУЭ 7-е изд., ГОСТ Р 53769 (кабели силовые), СП 76.13330"
+              inputStyle={inp}
+              labelStyle={labelStyle}
+              minHeight="80px"
+            />
           </div>
         </div>
 

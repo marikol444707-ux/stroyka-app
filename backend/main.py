@@ -1939,6 +1939,7 @@ def init_db():
             author VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE project_letters ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Активно';
         CREATE TABLE IF NOT EXISTS estimates (
             id SERIAL PRIMARY KEY,
             project_id INT,
@@ -8531,9 +8532,9 @@ def get_prescriptions(current_user: dict = Depends(require_roles(*PROJECT_DOCUME
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url,fix_photo_url,fix_notes FROM prescriptions WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+        cur.execute("SELECT id,project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url,fix_photo_url,fix_notes FROM prescriptions WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC", (allowed_projects,))
     else:
-        cur.execute("SELECT id,project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url,fix_photo_url,fix_notes FROM prescriptions ORDER BY id DESC")
+        cur.execute("SELECT id,project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url,fix_photo_url,fix_notes FROM prescriptions WHERE COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"number":r[2],"issuedBy":r[3],"issuedByRole":r[4],"violation":r[5],"deadline":r[6],"responsible":r[7],"status":r[8],"photoUrl":r[9],"fixPhotoUrl":r[10],"fixNotes":r[11]} for r in rows]
@@ -8583,7 +8584,7 @@ def delete_prescription(id: int, current_user: dict = Depends(require_roles(*PRO
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "prescriptions", id, current_user, "project_name")
-    cur.execute("DELETE FROM prescriptions WHERE id=%s", (id,))
+    cur.execute("UPDATE prescriptions SET status='Аннулировано' WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
@@ -8631,9 +8632,9 @@ def get_unexpected_works(current_user: dict = Depends(require_roles(*PROJECT_DOC
         if role == "заказчик":
             cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) AND status = ANY(%s) ORDER BY id DESC", (allowed_projects, list(ESTIMATE_CHANGE_CUSTOMER_STATUSES)))
         else:
-            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC", (allowed_projects,))
     else:
-        cur.execute(f"SELECT {cols} FROM unexpected_works ORDER BY id DESC")
+        cur.execute(f"SELECT {cols} FROM unexpected_works WHERE COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"description":r[2],"unit":r[3],
@@ -8728,7 +8729,7 @@ def delete_unexpected_work(id: int, current_user: dict = Depends(require_roles(*
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "unexpected_works", id, current_user)
-    cur.execute("DELETE FROM unexpected_works WHERE id=%s", (id,))
+    cur.execute("UPDATE unexpected_works SET status='Аннулировано' WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
@@ -10781,7 +10782,7 @@ def get_project_letters(project_name: str = None, _current_user: dict = Depends(
         params = [project_name]
         if side_filter:
             params.append(side_filter)
-        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name=%s" + side_sql + " ORDER BY id DESC", tuple(params))
+        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name=%s AND COALESCE(status,'') <> 'Аннулировано'" + side_sql + " ORDER BY id DESC", tuple(params))
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
@@ -10789,12 +10790,12 @@ def get_project_letters(project_name: str = None, _current_user: dict = Depends(
         params = [allowed_projects]
         if side_filter:
             params.append(side_filter)
-        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name = ANY(%s)" + side_sql + " ORDER BY id DESC", tuple(params))
+        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано'" + side_sql + " ORDER BY id DESC", tuple(params))
     else:
         params = []
         if side_filter:
             params.append(side_filter)
-        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters" + (" WHERE side=%s" if side_filter else "") + " ORDER BY id DESC", tuple(params))
+        cur.execute("SELECT id,project_name,side,direction,subject,body,counterparty,letter_date,file_url,author,created_at FROM project_letters WHERE COALESCE(status,'') <> 'Аннулировано'" + (" AND side=%s" if side_filter else "") + " ORDER BY id DESC", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"side":r[2],"direction":r[3] or "","subject":r[4] or "","body":r[5] or "","counterparty":r[6] or "","letterDate":str(r[7]) if r[7] else "","fileUrl":r[8] or "","author":r[9] or "","createdAt":str(r[10])} for r in rows]
@@ -10817,7 +10818,7 @@ def delete_project_letter(id: int, _current_user: dict = Depends(require_roles(*
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "project_letters", id, _current_user)
-    cur.execute("DELETE FROM project_letters WHERE id=%s",(id,))
+    cur.execute("UPDATE project_letters SET status='Аннулировано' WHERE id=%s",(id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}
@@ -14033,15 +14034,15 @@ def list_inspection_orders(project_name: str = None, current_user: dict = Depend
     cols = "id, project_name, order_number, body, inspector, description, recommendations, deadline, status, photo_url, file_url, date, response, response_date, created_at"
     if project_name:
         require_project_access(current_user, project_name)
-        cur.execute(f"SELECT {cols} FROM inspection_orders WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        cur.execute(f"SELECT {cols} FROM inspection_orders WHERE project_name=%s AND COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC", (project_name,))
     elif visible_project_names(current_user) is not None:
         allowed_projects = visible_project_names(current_user)
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute(f"SELECT {cols} FROM inspection_orders WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+        cur.execute(f"SELECT {cols} FROM inspection_orders WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC", (allowed_projects,))
     else:
-        cur.execute(f"SELECT {cols} FROM inspection_orders ORDER BY id DESC")
+        cur.execute(f"SELECT {cols} FROM inspection_orders WHERE COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1] or "","orderNumber":r[2] or "","body":r[3] or "",
@@ -14461,7 +14462,7 @@ def delete_inspection_order(id: int, current_user: dict = Depends(require_roles(
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "inspection_orders", id, current_user, "project_name")
-    cur.execute("DELETE FROM inspection_orders WHERE id=%s", (id,))
+    cur.execute("UPDATE inspection_orders SET status='Аннулировано' WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}

@@ -1,7 +1,8 @@
 import React from 'react';
-import { Bot, Check, Eye, X } from 'lucide-react';
+import { Bot, Check, Eye } from 'lucide-react';
 import { API } from '../api';
-import { aiActionButtonStyle, checkboxInputStyle, checkboxLabelStyle, checkboxRowStyle, closeButtonStyle, footerActionsStyle, formLabelStyle, formSectionStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, statusPillStyle, summaryValueStyle, textareaStyle, twoColumnGridStyle } from '../utils/modalStyles';
+import { aiActionButtonStyle, checkboxInputStyle, checkboxLabelStyle, checkboxRowStyle, footerActionsStyle, formLabelStyle, formSectionStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, summaryValueStyle, twoColumnGridStyle } from '../utils/modalStyles';
+import { AiNotice, ModalHeaderActions, ModalTitleBlock, SummaryCell, TextareaField } from './common/ModalParts';
 
 export default function ProjectMaterialInspectionEditModal({
   inspection,
@@ -79,33 +80,30 @@ export default function ProjectMaterialInspectionEditModal({
     <div onClick={() => setEditingInspection(null)} style={modalOverlayStyle()}>
       <div onClick={event => event.stopPropagation()} style={modalShellStyle(card, 'min(820px,100%)')}>
         <div style={modalHeaderStyle(C)}>
-          <div>
-            <b style={{color: C.text, fontSize: '16px', display: 'block'}}>📦 Входной контроль материала</b>
-            <span style={{fontSize: '12px', color: C.textSec}}>{(inspection.materialName || '—') + ' · ' + (inspection.quantity || 0) + ' ' + (inspection.unit || '') + ' · ' + (inspection.supplier || '—')}</span>
-          </div>
-          <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-            <span style={statusPillStyle(C, inspection.inspected ? 'success' : 'warning')}>
-              {inspection.inspected ? 'Проверено' : 'Ждёт проверки'}
-            </span>
-            <button onClick={() => setEditingInspection(null)} style={closeButtonStyle(btnG)}>
-              <X size={14}/>
-            </button>
-          </div>
+          <ModalTitleBlock
+            title="📦 Входной контроль материала"
+            subtitle={(inspection.materialName || '—') + ' · ' + (inspection.quantity || 0) + ' ' + (inspection.unit || '') + ' · ' + (inspection.supplier || '—')}
+            C={C}
+          />
+          <ModalHeaderActions
+            status={inspection.inspected ? 'Проверено' : 'Ждёт проверки'}
+            statusVariant={inspection.inspected ? 'success' : 'warning'}
+            onClose={() => setEditingInspection(null)}
+            C={C}
+            btnG={btnG}
+          />
         </div>
 
         <div style={modalBodyStyle()}>
-          {inspection.aiFilled && (
-            <div style={aiNotice}>
-              <span style={aiNoticeIcon}>🤖</span>
-              <span style={aiNoticeText}><b>Поле «Нормативы» подсказано AI.</b> Проверь и сохрани — при правке метка снимется.</span>
-            </div>
-          )}
+          <AiNotice show={inspection.aiFilled} noticeStyle={aiNotice} iconStyle={aiNoticeIcon} textStyle={aiNoticeText}>
+            <b>Поле «Нормативы» подсказано AI.</b> Проверь и сохрани — при правке метка снимется.
+          </AiNotice>
 
           <div style={modalSummaryGridStyle(C)}>
-            <div><p style={labelStyle}>Материал</p><b style={summaryValue}>{inspection.materialName || '—'}</b></div>
-            <div><p style={labelStyle}>Количество</p><b style={summaryValue}>{(inspection.quantity || 0) + ' ' + (inspection.unit || '')}</b></div>
-            <div><p style={labelStyle}>Поставщик</p><b style={summaryValue}>{inspection.supplier || '—'}</b></div>
-            <div><p style={labelStyle}>Дата приёмки</p><b style={summaryValue}>{inspection.receivedAt || '—'}</b></div>
+            <SummaryCell label="Материал" labelStyle={labelStyle} valueStyle={summaryValue}>{inspection.materialName || '—'}</SummaryCell>
+            <SummaryCell label="Количество" labelStyle={labelStyle} valueStyle={summaryValue}>{(inspection.quantity || 0) + ' ' + (inspection.unit || '')}</SummaryCell>
+            <SummaryCell label="Поставщик" labelStyle={labelStyle} valueStyle={summaryValue}>{inspection.supplier || '—'}</SummaryCell>
+            <SummaryCell label="Дата приёмки" labelStyle={labelStyle} valueStyle={summaryValue}>{inspection.receivedAt || '—'}</SummaryCell>
           </div>
 
           <div style={twoColumnGridStyle()}>
@@ -155,8 +153,14 @@ export default function ProjectMaterialInspectionEditModal({
             <textarea value={inspection.normatives || ''} onChange={event => updateInspection('normatives', event.target.value)} placeholder="Напр.: ГОСТ 7473-2010 (бетон), ГОСТ 5781-82 (арматура)" style={{...inp, minHeight: '60px', resize: 'vertical'}}/>
           </div>
           <div style={sectionStyle}>
-            <label style={labelStyle}>Замечания / комментарий</label>
-            <textarea value={inspection.remarks || ''} onChange={event => updateInspection('remarks', event.target.value)} placeholder="Замечания по качеству, упаковке, документам" style={textareaStyle(inp)}/>
+            <TextareaField
+              label="Замечания / комментарий"
+              value={inspection.remarks}
+              onChange={value => updateInspection('remarks', value)}
+              placeholder="Замечания по качеству, упаковке, документам"
+              inputStyle={inp}
+              labelStyle={labelStyle}
+            />
           </div>
           <div style={checkboxRowStyle(C)}>
             <input type="checkbox" id="mi-checked" checked={!!inspection.inspected} onChange={event => updateInspection('inspected', event.target.checked)} style={checkboxInputStyle()}/>

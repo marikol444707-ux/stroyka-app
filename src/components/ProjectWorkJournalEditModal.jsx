@@ -1,7 +1,8 @@
 import React from 'react';
-import { Bot, Check, Eye, X } from 'lucide-react';
+import { Bot, Check, Eye } from 'lucide-react';
 import { API } from '../api';
-import { aiActionButtonStyle, closeButtonStyle, footerActionsStyle, formLabelStyle, formSectionStyle, infoPanelStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, smallIconButtonStyle, statusPillStyle, summaryValueStyle, textareaStyle, threeColumnGridStyle, twoColumnGridStyle } from '../utils/modalStyles';
+import { aiActionButtonStyle, footerActionsStyle, formLabelStyle, formSectionStyle, infoPanelStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, smallIconButtonStyle, summaryValueStyle, threeColumnGridStyle, twoColumnGridStyle } from '../utils/modalStyles';
+import { AiNotice, ModalHeaderActions, ModalTitleBlock, SummaryCell, TextareaField } from './common/ModalParts';
 
 export default function ProjectWorkJournalEditModal({
   journal,
@@ -103,35 +104,32 @@ export default function ProjectWorkJournalEditModal({
     <div onClick={() => setEditingJournal(null)} style={modalOverlayStyle()}>
       <div onClick={event => event.stopPropagation()} style={modalShellStyle(card)}>
         <div style={modalHeaderStyle(C)}>
-          <div>
-            <b style={{color: C.text, fontSize: '16px', display: 'block'}}>📖 Запись журнала производства работ</b>
-            <span style={{fontSize: '12px', color: C.textSec}}>{(journal.project || '—') + ' · ' + (journal.date || '—') + ' · ' + (journal.masterName || '—')}</span>
-          </div>
-          <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-            <span style={statusPillStyle(C, journal.status === 'Подтверждено' ? 'success' : journal.status === 'Отклонено' ? 'danger' : 'warning')}>
-              {journal.status || '—'}
-            </span>
-            <button onClick={() => setEditingJournal(null)} style={closeButtonStyle(btnG)}>
-              <X size={14}/>
-            </button>
-          </div>
+          <ModalTitleBlock
+            title="📖 Запись журнала производства работ"
+            subtitle={(journal.project || '—') + ' · ' + (journal.date || '—') + ' · ' + (journal.masterName || '—')}
+            C={C}
+          />
+          <ModalHeaderActions
+            status={journal.status || '—'}
+            statusVariant={journal.status === 'Подтверждено' ? 'success' : journal.status === 'Отклонено' ? 'danger' : 'warning'}
+            onClose={() => setEditingJournal(null)}
+            C={C}
+            btnG={btnG}
+          />
         </div>
 
         <div style={modalBodyStyle()}>
-          {journal.aiFilled && (
-            <div style={aiNotice}>
-              <span style={aiNoticeIcon}>🤖</span>
-              <span style={aiNoticeText}><b>Поля заполнены AI.</b> Проверь нормативы и проектные документы — при сохранении после правки метка снимется.</span>
-            </div>
-          )}
+          <AiNotice show={journal.aiFilled} noticeStyle={aiNotice} iconStyle={aiNoticeIcon} textStyle={aiNoticeText}>
+            <b>Поля заполнены AI.</b> Проверь нормативы и проектные документы — при сохранении после правки метка снимется.
+          </AiNotice>
 
           <div style={modalSummaryGridStyle(C)}>
-            <div><p style={labelStyle}>Раздел сметы</p><b style={summaryValue}>{journal.sectionName || '—'}</b></div>
-            <div><p style={labelStyle}>Работа</p><b style={summaryValue}>{journal.description}</b></div>
-            <div><p style={labelStyle}>Исполнитель</p><b style={summaryValue}>{journal.masterName || '—'}</b></div>
-            <div><p style={labelStyle}>Объём</p><b style={summaryValue}>{fmtMeasure(journal.quantity, journal.unit)}</b></div>
+            <SummaryCell label="Раздел сметы" labelStyle={labelStyle} valueStyle={summaryValue}>{journal.sectionName || '—'}</SummaryCell>
+            <SummaryCell label="Работа" labelStyle={labelStyle} valueStyle={summaryValue}>{journal.description}</SummaryCell>
+            <SummaryCell label="Исполнитель" labelStyle={labelStyle} valueStyle={summaryValue}>{journal.masterName || '—'}</SummaryCell>
+            <SummaryCell label="Объём" labelStyle={labelStyle} valueStyle={summaryValue}>{fmtMeasure(journal.quantity, journal.unit)}</SummaryCell>
             <div><p style={labelStyle}>Сумма</p><b style={{fontSize: '14px', color: C.accent}}>{Number(journal.total || 0).toLocaleString('ru-RU') + ' ₽'}</b></div>
-            <div><p style={labelStyle}>Дата</p><b style={summaryValue}>{journal.date || '—'}</b></div>
+            <SummaryCell label="Дата" labelStyle={labelStyle} valueStyle={summaryValue}>{journal.date || '—'}</SummaryCell>
           </div>
 
           <div style={twoColumnGridStyle()}>
@@ -175,12 +173,26 @@ export default function ProjectWorkJournalEditModal({
           </div>
 
           <div style={sectionStyle}>
-            <label style={labelStyle}>Применимые нормативы (СНиП/СП/ГОСТ){journal.aiFilled ? ' 🤖' : ''}</label>
-            <textarea value={journal.normatives || ''} onChange={event => updateJournal('normatives', event.target.value)} placeholder="Напр.: СП 71.13330.2017, ГОСТ 30693-2000" style={textareaStyle(inp, '60px')}/>
+            <TextareaField
+              label={'Применимые нормативы (СНиП/СП/ГОСТ)' + (journal.aiFilled ? ' 🤖' : '')}
+              value={journal.normatives}
+              onChange={value => updateJournal('normatives', value)}
+              placeholder="Напр.: СП 71.13330.2017, ГОСТ 30693-2000"
+              inputStyle={inp}
+              labelStyle={labelStyle}
+              minHeight="60px"
+            />
           </div>
           <div style={sectionStyle}>
-            <label style={labelStyle}>Проектная документация (разделы, листы){journal.aiFilled ? ' 🤖' : ''}</label>
-            <textarea value={journal.projectDocs || ''} onChange={event => updateJournal('projectDocs', event.target.value)} placeholder="Напр.: раздел КЖ, лист 12; раздел АР, узел 4" style={textareaStyle(inp, '60px')}/>
+            <TextareaField
+              label={'Проектная документация (разделы, листы)' + (journal.aiFilled ? ' 🤖' : '')}
+              value={journal.projectDocs}
+              onChange={value => updateJournal('projectDocs', value)}
+              placeholder="Напр.: раздел КЖ, лист 12; раздел АР, узел 4"
+              inputStyle={inp}
+              labelStyle={labelStyle}
+              minHeight="60px"
+            />
           </div>
           <div style={sectionStyle}>
             <label style={labelStyle}>Использованные материалы</label>
@@ -189,8 +201,14 @@ export default function ProjectWorkJournalEditModal({
             </div>
           </div>
           <div style={sectionStyle}>
-            <label style={labelStyle}>Комментарий / заключение</label>
-            <textarea value={journal.comment || ''} onChange={event => updateJournal('comment', event.target.value)} placeholder="Замечания, особенности производства работ, ссылки на акты" style={textareaStyle(inp)}/>
+            <TextareaField
+              label="Комментарий / заключение"
+              value={journal.comment}
+              onChange={value => updateJournal('comment', value)}
+              placeholder="Замечания, особенности производства работ, ссылки на акты"
+              inputStyle={inp}
+              labelStyle={labelStyle}
+            />
           </div>
 
           {journal.hiddenWork && (
