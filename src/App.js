@@ -2221,13 +2221,20 @@ function App() {
     }
     const photoUrl = newInvoice.photos && newInvoice.photos.length>0 ? newInvoice.photos[0] : '';
     const inv = {id:Date.now(),number:newInvoice.number,date:newInvoice.date,supplierId:Number(supplierId)||0,supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',acceptedBy:newInvoice.acceptedBy||user.name,location:newInvoice.location,project:newInvoice.project,vat:newInvoice.vat,photoUrl,photos:newInvoice.photos||[],items:validItems,totalBase:vatCalc.base,totalVat:vatCalc.vat,totalWithVat:vatCalc.total,status:'Принята',addedBy:user.name};
-    await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...inv,project:newInvoice.location!=='Основной склад'?newInvoice.location:''})});
-    notify('Накладная №'+newInvoice.number+' принята','invoice');
+    const savedInv = {...inv,project:newInvoice.location!=='Основной склад'?newInvoice.location:''};
+    await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(savedInv)});
+    let reviewTasksCreated = 0;
+    try {
+      reviewTasksCreated = await createInvoiceControlReviewTasksForInvoice(savedInv);
+    } catch (err) {
+      console.warn('invoice material review tasks failed', err);
+    }
+    notify('Накладная №'+newInvoice.number+' принята'+(reviewTasksCreated ? ' · задач ИИ-контроля: '+reviewTasksCreated : ''),'invoice');
     addActivity('Принята накладная №'+newInvoice.number);
     await refreshData();
     setNewInvoice({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}]});
     setShowForm(false);
-    alert('Накладная принята!');
+    alert('Накладная принята!'+(reviewTasksCreated ? '\nСоздано задач ИИ-контроля: '+reviewTasksCreated : ''));
   };
 
   const applyWarehouseMovement = async () => {
@@ -5284,7 +5291,7 @@ function App() {
 	    if (!canCreateInvoiceControlReviewTask()) { alert('У вашей роли нет права создать задачу по сметному контролю'); return; }
 	    const marker = invoiceControlReviewMarker(projectName, inv, ctrl, item);
 	    const existingTask = aiTaskByMarker(marker);
-	    if (existingTask) { notify('Задача по этой строке уже есть в ИИ-контроле', 'ai'); return; }
+	    if (existingTask) { notify('Задача по этой строке уже есть в ИИ-контроле', 'ai'); return existingTask; }
 	    const reason = invoiceControlReviewReason(ctrl);
 	    const payload = {
 	      type:'invoice_material_review',
@@ -5344,6 +5351,19 @@ function App() {
 	      return [data,...list];
 	    });
 	    notify('Создана задача по накладной: '+materialName, 'ai');
+	    return data;
+	  };
+	  const createInvoiceControlReviewTasksForInvoice = async (inv) => {
+	    if (!inv || invoiceControlProjectName(inv) === '' || !canCreateInvoiceControlReviewTask()) return 0;
+	    const rows = warehouseInvoiceEstimateControl(inv).filter(invoiceControlNeedsReview);
+	    let created = 0;
+	    for (const ctrl of rows) {
+	      const materialName = invoiceControlMaterialName(ctrl, ctrl);
+	      if (!materialName || invoiceControlReviewTaskExists(inv, ctrl, ctrl)) continue;
+	      const task = await createInvoiceControlReviewTask(inv, ctrl, ctrl);
+	      if (task?.id) created += 1;
+	    }
+	    return created;
 	  };
 	  const renderInvoiceControlActions = (inv, ctrl, item = {}) => {
 	    if (!ctrl?.name) return null;
