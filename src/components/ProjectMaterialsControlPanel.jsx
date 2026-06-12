@@ -1,24 +1,12 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, Printer } from 'lucide-react';
-
-const MetricCard = ({C, label, value, active, color, bg, border}) => (
-  <div style={{
-    padding: '10px',
-    backgroundColor: active ? bg : C.bg,
-    borderRadius: '8px',
-    border: '1px solid ' + (active ? border : C.border)
-  }}>
-    <p style={{
-      color: active ? color : C.textSec,
-      fontSize: '10px',
-      margin: '0 0 3px'
-    }}>{label}</p>
-    <b style={{
-      color: active ? color : C.text,
-      fontSize: '15px'
-    }}>{value}</b>
-  </div>
-);
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  MaterialsControlHeader,
+  MaterialsFilterBar,
+  MaterialsMetricsGrid,
+  ShowMoreButton,
+  SourceLine
+} from './materials/ProjectMaterialsControlParts';
 
 export default function ProjectMaterialsControlPanel({
   projectName,
@@ -104,18 +92,22 @@ export default function ProjectMaterialsControlPanel({
     zIndex: 2,
     backgroundColor: C.bg
   };
-  const sourceLine = (label, details = [], color = C.textSec) => {
-    if (!details.length) return null;
-    const shown = details.slice(0, 3).map(d => {
-      const title = d.number ? '№' + d.number : d.supplierName || d.status || d.to || d.from || 'запись';
-      return title + ' · ' + fmtMeasure(d.qty || 0, d.unit || '') + (d.date ? ' · ' + String(d.date).slice(0, 10) : '');
-    }).join('; ');
-    return (
-      <p style={{color, fontSize: '10px', margin: '2px 0 0'}}>
-        {label}: {shown}{details.length > 3 ? ' +' + (details.length - 3) : ''}
-      </p>
-    );
-  };
+  const metrics = [
+    {label: 'Позиций по смете', value: planRows.length, active: true, color: C.text, bg: C.bg, border: C.border},
+    {label: 'Поставлялось', value: suppliedRows.length, active: true, color: C.success, bg: C.successLight, border: C.successBorder},
+    {label: 'Накладные', value: invoiceRows.length, active: invoiceRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
+    {label: 'Поставки', value: deliveryRows.length, active: deliveryRows.length > 0, color: C.success, bg: C.successLight, border: C.successBorder},
+    {label: 'Перемещения', value: movedRows.length, active: movedRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
+    {label: 'У мастеров', value: masterBalanceRows.length, active: masterBalanceRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
+    {label: 'В заявках/пути', value: pipelineRows.length, active: pipelineRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
+    {label: 'Докупить', value: toBuyRows.length, active: true, color: toBuyRows.length ? C.warning : C.success, bg: toBuyRows.length ? C.warningLight : C.successLight, border: toBuyRows.length ? C.warningBorder : C.successBorder},
+    {label: 'Проверить смету', value: invalidPlanRows.length, active: invalidPlanRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
+    {label: 'Вне сметы', value: outsideRows.length, active: outsideRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
+    {label: 'По нормам работ', value: normRows.length, active: normRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
+    {label: 'Перерасход норм', value: overRows.length, active: overRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
+    {label: 'Списано без нормы', value: withoutNormRows.length, active: withoutNormRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
+    {label: 'Расхождения', value: stockMismatchRows.length, active: stockMismatchRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder}
+  ];
 
   return (
     <div style={{
@@ -125,75 +117,28 @@ export default function ProjectMaterialsControlPanel({
       backgroundColor: C.bgWhite,
       border: '1.5px solid ' + C.accentBorder
     }}>
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '12px'}}>
-        <div>
-          <b style={{color: C.text, fontSize: '14px'}}>📊 Материалы: смета ↔ поставки ↔ склад</b>
-          <p style={{color: C.textSec, fontSize: '11px', margin: '2px 0 0'}}>План берётся из активной сметы заказчика, цепочка — из заявок, поставок, накладных, перемещений, выдач и списаний.</p>
-        </div>
-        <button onClick={() => showPreview(buildMaterialRequirementContent(projectName), 'Потребность материалов — ' + projectName)} style={{...btnB, fontSize: '12px', padding: '6px 12px'}}>
-          <Printer size={13}/>Печать
-        </button>
-      </div>
+      <MaterialsControlHeader
+        projectName={projectName}
+        C={C}
+        btnB={btnB}
+        showPreview={showPreview}
+        buildMaterialRequirementContent={buildMaterialRequirementContent}
+      />
 
-      <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: '8px', marginBottom: '12px'}}>
-        <MetricCard C={C} label="Позиций по смете" value={planRows.length} active color={C.text} bg={C.bg} border={C.border}/>
-        <MetricCard C={C} label="Поставлялось" value={suppliedRows.length} active color={C.success} bg={C.successLight} border={C.successBorder}/>
-        <MetricCard C={C} label="Накладные" value={invoiceRows.length} active={invoiceRows.length > 0} color={C.info} bg={C.infoLight} border={C.infoBorder}/>
-        <MetricCard C={C} label="Поставки" value={deliveryRows.length} active={deliveryRows.length > 0} color={C.success} bg={C.successLight} border={C.successBorder}/>
-        <MetricCard C={C} label="Перемещения" value={movedRows.length} active={movedRows.length > 0} color={C.info} bg={C.infoLight} border={C.infoBorder}/>
-        <MetricCard C={C} label="У мастеров" value={masterBalanceRows.length} active={masterBalanceRows.length > 0} color={C.info} bg={C.infoLight} border={C.infoBorder}/>
-        <MetricCard C={C} label="В заявках/пути" value={pipelineRows.length} active={pipelineRows.length > 0} color={C.info} bg={C.infoLight} border={C.infoBorder}/>
-        <MetricCard C={C} label="Докупить" value={toBuyRows.length} active color={toBuyRows.length ? C.warning : C.success} bg={toBuyRows.length ? C.warningLight : C.successLight} border={toBuyRows.length ? C.warningBorder : C.successBorder}/>
-        <MetricCard C={C} label="Проверить смету" value={invalidPlanRows.length} active={invalidPlanRows.length > 0} color={C.warning} bg={C.warningLight} border={C.warningBorder}/>
-        <MetricCard C={C} label="Вне сметы" value={outsideRows.length} active={outsideRows.length > 0} color={C.danger} bg={C.dangerLight} border={C.dangerBorder}/>
-        <MetricCard C={C} label="По нормам работ" value={normRows.length} active={normRows.length > 0} color={C.info} bg={C.infoLight} border={C.infoBorder}/>
-        <MetricCard C={C} label="Перерасход норм" value={overRows.length} active={overRows.length > 0} color={C.danger} bg={C.dangerLight} border={C.dangerBorder}/>
-        <MetricCard C={C} label="Списано без нормы" value={withoutNormRows.length} active={withoutNormRows.length > 0} color={C.warning} bg={C.warningLight} border={C.warningBorder}/>
-        <MetricCard C={C} label="Расхождения" value={stockMismatchRows.length} active={stockMismatchRows.length > 0} color={C.danger} bg={C.dangerLight} border={C.dangerBorder}/>
-      </div>
+      <MaterialsMetricsGrid C={C} metrics={metrics}/>
 
       {rows.length === 0 ? (
         <p style={{color: C.textMuted, fontSize: '12px', textAlign: 'center', padding: '14px'}}>Нет сметных материалов и движений по объекту.</p>
       ) : (
         <>
-        <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '10px'}}>
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Поиск материала, раздела или работы..."
-            style={{
-              flex: '1 1 280px',
-              minWidth: 0,
-              padding: '10px 12px',
-              borderRadius: '8px',
-              border: '1.5px solid ' + C.border,
-              backgroundColor: C.bg,
-              color: C.text,
-              fontSize: '12px'
-            }}
-          />
-          <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
-            {filterOptions.map(opt => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setFilter(opt.id)}
-                style={{
-                  padding: '8px 10px',
-                  borderRadius: '999px',
-                  border: '1.5px solid ' + (filter === opt.id ? C.accentBorder : C.border),
-                  backgroundColor: filter === opt.id ? C.accentLight : C.bg,
-                  color: filter === opt.id ? C.accent : C.textSec,
-                  fontSize: '11px',
-                  fontWeight: '700',
-                  cursor: 'pointer'
-                }}
-              >
-                {opt.label}: {opt.rows.length}
-              </button>
-            ))}
-          </div>
-        </div>
+        <MaterialsFilterBar
+          query={query}
+          setQuery={setQuery}
+          filter={filter}
+          setFilter={setFilter}
+          filterOptions={filterOptions}
+          C={C}
+        />
         <div style={{overflow: 'auto', maxHeight: '68vh', border: '1px solid ' + C.border, borderRadius: '10px'}}>
           <table style={{...tbl, fontSize: '11px', minWidth: '1420px'}}>
             <thead>
@@ -254,9 +199,9 @@ export default function ProjectMaterialsControlPanel({
                       )}
                       {invalidPlanDetails.length > 0 && <p style={{color: C.warning, fontSize: '10px', margin: '3px 0 0'}}>⚠️ {invalidPlanDetails.length} строк не участвуют в закупке до проверки сметы</p>}
                       {r.aliases?.length > 0 && <p style={{color: C.info, fontSize: '10px', margin: '2px 0 0'}}>Синонимы: {r.aliases.slice(0, 2).join(', ')}{r.aliases.length > 2 ? '…' : ''}</p>}
-                      {sourceLine('Накладные', r.invoiceDetails, C.success)}
-                      {sourceLine('Поставки', r.supplyDetails, C.info)}
-                      {sourceLine('Перемещения', r.movementDetails, C.textSec)}
+                      <SourceLine label="Накладные" details={r.invoiceDetails} color={C.success} fmtMeasure={fmtMeasure}/>
+                      <SourceLine label="Поставки" details={r.supplyDetails} color={C.info} fmtMeasure={fmtMeasure}/>
+                      <SourceLine label="Перемещения" details={r.movementDetails} color={C.textSec} fmtMeasure={fmtMeasure}/>
                       {r.unitMismatch && <p style={{color: C.warning, fontSize: '10px', margin: '2px 0 0'}}>⚠️ Разные единицы измерения</p>}
                       {renderMaterialAliasControls(projectName, r)}
                     </td>
@@ -371,15 +316,9 @@ export default function ProjectMaterialsControlPanel({
           </table>
           {visibleRows.length === 0 && <p style={{color: C.textMuted, fontSize: '12px', textAlign: 'center', padding: '14px'}}>По фильтру ничего не найдено.</p>}
         </div>
-        {hiddenRows > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowAllRows(true)}
-            style={{...btnB, width: '100%', justifyContent: 'center', marginTop: '8px', fontSize: '12px'}}
-          >
-            Показать ещё {hiddenRows} материалов
-          </button>
-        )}
+        <ShowMoreButton hiddenRows={hiddenRows} onClick={() => setShowAllRows(true)} btnB={btnB}>
+          Показать ещё {hiddenRows} материалов
+        </ShowMoreButton>
         <p style={{color: C.textMuted, fontSize: '11px', margin: '8px 0 0'}}>
           Показано {displayedRows.length} из {visibleRows.length}{visibleRows.length !== rows.length ? ' найденных' : ''}. Заявку можно создать прямо в колонке «Статус».
         </p>
@@ -408,15 +347,9 @@ export default function ProjectMaterialsControlPanel({
                 ))}
               </tbody>
             </table>
-            {hiddenNormRows > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowAllNormRows(true)}
-                style={{...btnB, width: '100%', justifyContent: 'center', marginTop: '8px', fontSize: '12px'}}
-              >
-                Показать ещё {hiddenNormRows} строк норм
-              </button>
-            )}
+            <ShowMoreButton hiddenRows={hiddenNormRows} onClick={() => setShowAllNormRows(true)} btnB={btnB}>
+              Показать ещё {hiddenNormRows} строк норм
+            </ShowMoreButton>
           </div>
         </div>
       )}
@@ -455,15 +388,9 @@ export default function ProjectMaterialsControlPanel({
                 })}
               </tbody>
             </table>
-            {hiddenNormProblemRows > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowAllNormProblemRows(true)}
-                style={{...btnB, width: '100%', justifyContent: 'center', marginTop: '8px', fontSize: '12px'}}
-              >
-                Показать ещё {hiddenNormProblemRows} отклонений
-              </button>
-            )}
+            <ShowMoreButton hiddenRows={hiddenNormProblemRows} onClick={() => setShowAllNormProblemRows(true)} btnB={btnB}>
+              Показать ещё {hiddenNormProblemRows} отклонений
+            </ShowMoreButton>
           </div>
         </div>
       )}
