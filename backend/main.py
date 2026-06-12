@@ -1847,6 +1847,10 @@ def init_db():
             created_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Активна';
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(255);
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
         CREATE TABLE IF NOT EXISTS brigade_contracts (
             id SERIAL PRIMARY KEY,
             project_id INT,
@@ -11458,17 +11462,18 @@ def create_brigade_act(data: dict, current_user: dict = Depends(require_roles(*F
 def get_material_transfers(project_name: str = None, current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    active_filter = "COALESCE(status,'Активна') <> 'Аннулирована'"
     if project_name:
         require_project_access(current_user, project_name)
-        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name=%s AND "+active_filter+" ORDER BY id DESC", (project_name,))
     elif visible_project_names(current_user) is not None:
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name = ANY(%s) ORDER BY id DESC", (projects,))
+        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name = ANY(%s) AND "+active_filter+" ORDER BY id DESC", (projects,))
     else:
-        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers ORDER BY id DESC")
+        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE "+active_filter+" ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"materialName":r[5],"quantity":float(r[6] or 0),"unit":r[7],"transferDate":str(r[8]) if r[8] else "","signed":r[9],"signedAt":str(r[10]) if r[10] else "","notes":r[11] or "","createdBy":r[12] or "","createdAt":str(r[13])} for r in rows]
@@ -11534,13 +11539,16 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
 def sign_material_transfer(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name,to_person,signed FROM material_transfers WHERE id=%s", (id,))
+    cur.execute("SELECT project_name,to_person,signed,COALESCE(status,'Активна') FROM material_transfers WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         return {"ok": True}
-    project_name, to_person, signed = row
+    project_name, to_person, signed, status = row
     require_project_or_warehouse_access(_current_user, project_name)
+    if status == "Аннулирована":
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Аннулированную передачу нельзя подписать")
     if (_current_user.get("role") or "") in ("мастер", "субподрядчик") and (to_person or "") != (_current_user.get("name") or ""):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Можно подтвердить только свою передачу материала")
@@ -11606,16 +11614,19 @@ def delete_material_transfer(id: int, _current_user: dict = Depends(require_role
     conn.autocommit = False
     cur = conn.cursor()
     try:
-        cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed
+        cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed,COALESCE(status,'Активна')
                        FROM material_transfers WHERE id=%s FOR UPDATE""", (id,))
         row = cur.fetchone()
         if not row:
             conn.rollback()
             return {"ok": True}
 
-        project_name, from_location, to_person, material_name, qty, unit, signed = row
+        project_name, from_location, to_person, material_name, qty, unit, signed, status = row
         require_project_or_warehouse_access(_current_user, project_name or from_location or "")
         qty = float(qty or 0)
+        if status == "Аннулирована":
+            conn.rollback()
+            return {"ok": True}
         if signed:
             raise HTTPException(status_code=400, detail="Подписанную передачу нельзя удалить. Оформите возврат материала отдельной операцией.")
 
@@ -11630,7 +11641,10 @@ def delete_material_transfer(id: int, _current_user: dict = Depends(require_role
                 cur.execute("INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                     (material_name, unit or "шт", qty, 0, 0, from_location or project_name or "", "Возврат передачи"))
 
-        cur.execute("DELETE FROM material_transfers WHERE id=%s", (id,))
+        cur.execute(
+            "UPDATE material_transfers SET status=%s,cancelled_at=NOW(),cancelled_by=%s,cancel_reason=%s WHERE id=%s",
+            ("Аннулирована", _current_user.get("name",""), "Отмена неподписанной передачи", id),
+        )
         cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
             (material_name, "отмена передачи", qty, None, from_location or project_name or "", to_person or "", _current_user.get("name",""), __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         conn.commit()
