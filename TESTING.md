@@ -28,6 +28,30 @@
 4. Excel-файл с тестовой сметой LSR/Grand Smeta (если хотите проверить импорт)
 5. Любая фотография (jpg/png) — для тестов прикрепления
 
+### 0.2.1 Временный замдиректора для прогона роли
+
+Если нужно быстро проверить права роли `зам_директора` без ручного создания через интерфейс, на сервере есть готовая схема:
+
+1. Создать или обновить временного пользователя:
+
+```bash
+cd /var/www/stroyka-app && python3 scripts/manage-temp-user.py create --email qa.zamdir@stroyka26.pro --name "QA Зам директора" --password 'TempZam!2026' --role зам_директора --project 'Кисловодск Лицей 4'
+```
+
+2. Прогнать доступ этой роли по основным API:
+
+```bash
+cd /var/www/stroyka-app && SMOKE_EMAIL='qa.zamdir@stroyka26.pro' SMOKE_PASSWORD='TempZam!2026' bash scripts/role-smoke-check.sh
+```
+
+3. После проверки отключить временный доступ:
+
+```bash
+cd /var/www/stroyka-app && python3 scripts/manage-temp-user.py disable --email qa.zamdir@stroyka26.pro
+```
+
+Скрипт не удаляет историю пользователя, а только отключает вход. Это безопаснее для аудита.
+
 ### 0.3 Как фиксировать баги
 
 Когда что-то работает не так, запишите 4 вещи:
