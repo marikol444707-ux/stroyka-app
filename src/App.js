@@ -48,8 +48,7 @@ import EstimateImportValidationBanner from './components/EstimateImportValidatio
 import MaterialNormNotice from './components/MaterialNormNotice';
 import MaterialNormsHeader from './components/MaterialNormsHeader';
 import EstimateImportView from './components/EstimateImportView';
-import MaterialNormCoverageSummaryBadges from './components/MaterialNormCoverageSummaryBadges';
-import MaterialNormCoverageHeader from './components/MaterialNormCoverageHeader';
+import MaterialNormCoveragePanel from './components/MaterialNormCoveragePanel';
 import EstimateCreateFormFields from './components/EstimateCreateFormFields';
 import EstimatesListView from './components/EstimatesListView';
 import EstimateCreateActions from './components/EstimateCreateActions';
@@ -15662,66 +15661,44 @@ function App() {
                 materialNormNotice={materialNormNotice}
                 setMaterialNormNotice={setMaterialNormNotice}
               />
-	              {(()=>{const projectOptions=visibleActiveProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const coverageKey=['material-norm-coverage',selectedProject].join(':');const coverageLimit=isMobile?80:160;const visibleCoverageRows=mobileExpandedRenderLists[coverageKey]?displayRows:displayRows.slice(0,coverageLimit);const hiddenCoverageRows=displayRows.length-visibleCoverageRows.length;const okCount=rows.filter(r=>['Норма применена','Поправка объекта','Поправка сметы'].includes(r.status)).length;const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;const missingCount=rows.filter(r=>r.status==='Нет нормы').length;const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;const invalidQtyCount=rows.filter(r=>r.status==='Некорректное количество').length;const zeroQtyCount=rows.filter(r=>r.status==='Материал без количества').length;const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;return(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
-                <MaterialNormCoverageHeader
-                  C={C}
-                  inp={inp}
-                  btnB={btnB}
-                  btnG={btnG}
-                  btnO={btnO}
-                  btnState={btnState}
-                  isMobile={isMobile}
-                  projectOptions={projectOptions}
-                  selectedProject={selectedProject}
-                  setMaterialNormCoverageProject={setMaterialNormCoverageProject}
-                  rows={rows}
-                  showCreateBatchSupply={canCreateSupplyRequestFromNorm()}
-                  canCreateBatchSupply={rows.some(r=>materialNormCanCreateSupply(r)&&!materialNormSupplyRequestExists(r))}
-                  onPrint={()=>showPreview(buildMaterialNormCoverageContent(selectedProject),'Смета по нормам — '+selectedProject)}
-                  onExport={()=>exportToExcel(materialNormCoverageExportRows(rows),'Смета_по_нормам_'+selectedProject)}
-                  onCreateBatchSupply={()=>createBatchSupplyRequestFromNormCoverage(rows)}
-                />
-                <MaterialNormCoverageSummaryBadges
-                  C={C}
-                  badge={badge}
-                  okCount={okCount}
-                  skippedCount={skippedCount}
-                  missingCount={missingCount}
-                  unlinkedCount={unlinkedCount}
-                  invalidQtyCount={invalidQtyCount}
-                  zeroQtyCount={zeroQtyCount}
-                  infoCount={infoCount}
-                  totalRows={rows.length}
-                />
-	                {rows.length>0?<div style={{display:'grid',gap:'7px',maxHeight:'420px',overflowY:'auto',paddingRight:'2px'}}>
-	                  {visibleCoverageRows.map(r=>{const meta=materialNormCoverageMeta(r.status);return(<div key={r.key} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1.6fr) minmax(220px,1fr) 170px auto',gap:'10px',alignItems:'center',padding:'10px 11px',borderRadius:'9px',border:'1px solid '+C.border,backgroundColor:C.bg}}>
-                    <div style={{minWidth:0}}>
-                      <span style={badge(meta.color,meta.bg,meta.border)}>{r.status}</span>
-                      <b style={{display:'block',color:C.text,fontSize:'12px',marginTop:'5px',overflow:'hidden',textOverflow:'ellipsis'}}>{r.workName}</b>
-                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{r.packageName+' · '+r.sectionName+' · '+fmtMeasure(r.workQty,r.workUnit)}</p>
-                    </div>
-                    <div style={{minWidth:0}}>
-                      <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Материал / норма</span>
-                      <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px',overflow:'hidden',textOverflow:'ellipsis'}}>{r.materialName||'—'}</p>
-                      {r.requiredQty>0&&<p style={{color:C.success,margin:'2px 0 0',fontSize:'11px',fontWeight:'700'}}>{'Потребность: '+fmtMeasure(r.requiredQty,r.requiredUnit)}</p>}
-                    </div>
-                    <div>
-                      <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Смета</span>
-                      <p style={{color:r.status==='Некорректное количество'?C.danger:C.textSec,margin:'2px 0 0',fontSize:'12px'}}>{r.hasEstimateMaterial?fmtMeasure(r.materialQty,r.materialUnit):'—'}</p>
-                      <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px',lineHeight:1.35}}>{materialNormCoverageComment(r)}</p>
-                    </div>
-                    <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end',flexWrap:'wrap'}}>
-                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>addEstimateMaterialFromCoverage(r)} style={btnState(btnGr,false,{padding:'5px 8px',fontSize:'11px'})}><Plus size={11}/>Материал</button>}
-                      {materialNormCanCreateSupply(r)&&canCreateSupplyRequestFromNorm()&&(materialNormSupplyRequestExists(r)?<span style={badge(C.success,C.successLight,C.successBorder)}>Заявка уже есть</span>:<button onClick={()=>createSupplyRequestFromNormCoverage(r)} style={btnState(btnO,false,{padding:'5px 8px',fontSize:'11px'})}><ShoppingCart size={11}/>Заявка</button>)}
-                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>markEstimateWorkNoMaterialFromCoverage(r)} style={btnState(btnG,false,{padding:'5px 8px',fontSize:'11px'})}><Check size={11}/>Без материала</button>}
-                      {r.status==='Нет материала в смете'&&canEditMaterialNorms()&&<button onClick={()=>createMaterialNormCoverageTask(r)} style={btnState(btnB,false,{padding:'5px 8px',fontSize:'11px'})}><Bot size={11}/>Поручение</button>}
-                      {r.rule&&canEditMaterialNorms()&&<button onClick={()=>saveMaterialNormOverrideFromCoverage(r)} style={btnState(btnB,false,{padding:'5px 8px',fontSize:'11px'})}>Поправка</button>}
-	                    </div>
-	                  </div>);})}
-	                  {hiddenCoverageRows>0&&<button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[coverageKey]:true}))} style={{...btnB,width:'100%',justifyContent:'center',fontSize:'12px'}}>Показать ещё {hiddenCoverageRows} строк</button>}
-	                  {displayRows.length>0&&<p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Показано {visibleCoverageRows.length} из {displayRows.length}. Сначала обработайте строки без нормы и материалы без работы.</p>}
-	                </div>:<p style={{color:C.textMuted,fontSize:'12px',margin:'8px 0 0'}}>Выберите объект с активной сметой заказчика.</p>}
-              </div>);})()}
+	              {(()=>{const projectOptions=visibleActiveProjects(projects||[]);const selectedProject=materialNormCoverageProject||projectOptions[0]?.name||'';const rows=selectedProject?estimateNormCoverageRows(selectedProject):[];const displayRows=materialNormCoverageDisplayRows(rows);const coverageKey=['material-norm-coverage',selectedProject].join(':');const coverageLimit=isMobile?80:160;const visibleCoverageRows=mobileExpandedRenderLists[coverageKey]?displayRows:displayRows.slice(0,coverageLimit);const hiddenCoverageRows=displayRows.length-visibleCoverageRows.length;return(<MaterialNormCoveragePanel
+                C={C}
+                badge={badge}
+                btnB={btnB}
+                btnG={btnG}
+                btnGr={btnGr}
+                btnO={btnO}
+                btnState={btnState}
+                card={card}
+                inp={inp}
+                isMobile={isMobile}
+                projectOptions={projectOptions}
+                selectedProject={selectedProject}
+                setMaterialNormCoverageProject={setMaterialNormCoverageProject}
+                rows={rows}
+                displayRows={displayRows}
+                visibleCoverageRows={visibleCoverageRows}
+                hiddenCoverageRows={hiddenCoverageRows}
+                coverageKey={coverageKey}
+                setMobileExpandedRenderLists={setMobileExpandedRenderLists}
+                canEditMaterialNorms={canEditMaterialNorms}
+                canCreateSupplyRequestFromNorm={canCreateSupplyRequestFromNorm}
+                materialNormCanCreateSupply={materialNormCanCreateSupply}
+                materialNormSupplyRequestExists={materialNormSupplyRequestExists}
+                materialNormCoverageMeta={materialNormCoverageMeta}
+                materialNormCoverageComment={materialNormCoverageComment}
+                fmtMeasure={fmtMeasure}
+                buildMaterialNormCoverageContent={buildMaterialNormCoverageContent}
+                showPreview={showPreview}
+                exportToExcel={exportToExcel}
+                materialNormCoverageExportRows={materialNormCoverageExportRows}
+                createBatchSupplyRequestFromNormCoverage={createBatchSupplyRequestFromNormCoverage}
+                createSupplyRequestFromNormCoverage={createSupplyRequestFromNormCoverage}
+                addEstimateMaterialFromCoverage={addEstimateMaterialFromCoverage}
+                markEstimateWorkNoMaterialFromCoverage={markEstimateWorkNoMaterialFromCoverage}
+                createMaterialNormCoverageTask={createMaterialNormCoverageTask}
+                saveMaterialNormOverrideFromCoverage={saveMaterialNormOverrideFromCoverage}
+              />);})()}
               {activeMaterialNormSuggestions().length>0&&(<div style={{...card,padding:'14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
                 <MaterialNormSuggestionsHeader
                   C={C}
