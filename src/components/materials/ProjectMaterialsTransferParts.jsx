@@ -31,11 +31,20 @@ export function MaterialPicker({
           <div key={i} style={{display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', borderBottom: '1px solid ' + C.border}}>
             <input
               type="checkbox"
-              checked={newTransfer.materialName === m.name}
-              onChange={e => setNewTransfer({...newTransfer, materialName: e.target.checked ? m.name : '', unit: e.target.checked ? m.unit : newTransfer.unit, quantity: ''})}
+              checked={newTransfer.materialName === m.name && (newTransfer.workPackage || '') === ((m.workPackage || m.work_package || ''))}
+              onChange={e => setNewTransfer({
+                ...newTransfer,
+                materialName: e.target.checked ? m.name : '',
+                unit: e.target.checked ? m.unit : newTransfer.unit,
+                workPackage: e.target.checked ? (m.workPackage || m.work_package || '') : '',
+                quantity: ''
+              })}
               style={{width: '16px', height: '16px', cursor: 'pointer'}}
             />
-            <span style={{flex: 1, fontSize: '12px', color: C.text}}>{m.name}</span>
+            <span style={{flex: 1, fontSize: '12px', color: C.text}}>
+              {m.name}
+              {(m.workPackage || m.work_package) && <span style={{color: C.textSec}}> · 📁 {m.workPackage || m.work_package}</span>}
+            </span>
             <span style={{fontSize: '11px', color: C.textSec}}>Остаток: {m.quantity} {m.unit}</span>
           </div>
         ))}

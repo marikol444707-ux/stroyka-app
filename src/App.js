@@ -304,8 +304,25 @@ const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
   return 'manual';
 };
 const estimateMeasurementBasisOf = (it={}, sectionName='') => (it.measurementBasis && ESTIMATE_MEASUREMENT_BASE_BY_ID[it.measurementBasis]) ? it.measurementBasis : suggestEstimateMeasurementBasis(it, sectionName);
+const estimateItemLooksImported = (item={}) => {
+  if (item?.isImported) return true;
+  return [
+    'rawUnit','rawQuantity','unitFactor','quantityBase','quantityCoefficient','quantityFinal',
+    'baseUnitPrice','costCoefficient','baseTotal','costIndex','currentTotal','lineTotalSource',
+    'lineTotal','totalWork','totalMaterial','parentWorkKey','parentWorkName','resourceRole'
+  ].some(key => item?.[key] !== undefined && item?.[key] !== null && item?.[key] !== '');
+};
 const authoritativeImportedUnit = (item={}) => {
-  const candidates = [item.unit, item.rawUnit].map(v => String(v || '').trim()).filter(Boolean);
+  const current = String(item.unit || '').trim();
+  const raw = String(item.rawUnit || '').trim();
+  const currentInfo = estimateUnitScaleInfo(current);
+  const rawInfo = estimateUnitScaleInfo(raw);
+  const currentBase = _normalizeUnit(currentInfo.unit || current || '');
+  const rawBase = _normalizeUnit(rawInfo.unit || raw || '');
+  if (raw && rawInfo.factor > 1) return raw;
+  if (raw && estimateUnitLooksUnknown(current)) return raw;
+  if (raw && current && rawBase && currentBase && rawBase !== currentBase) return raw;
+  const candidates = [current, raw].filter(Boolean);
   return candidates.find(u => !estimateUnitLooksUnknown(u)) || candidates[0] || '';
 };
 const estimateUnitScaleInfo = (unit) => {
@@ -416,7 +433,7 @@ const normalizeImportedEstimateItem = (item={}, sectionName='') => {
   };
 };
 const normalizeEstimateWorkingItem = (item={}, sectionName='') => {
-  if (item?.isImported) return normalizeImportedEstimateItem(item, sectionName);
+  if (estimateItemLooksImported(item)) return normalizeImportedEstimateItem(item, sectionName);
   const itemType = normalizeEstimateItemType(item, sectionName);
   const inferredUnit = inferEstimateUnit({...item,itemType}, sectionName);
   return {
@@ -458,7 +475,12 @@ const normalizeEstimateImportSections = (sections=[]) => linkEstimateResourcesTo
   ...section,
   items: (section.items||[]).map(item => normalizeEstimateWorkingItem(item, section.name))
 })));
-const enrichEstimateMeasurementBasis = (sections=[]) => linkEstimateResourcesToWorks(sections);
+const enrichEstimateMeasurementBasis = (sections=[]) => normalizeEstimateImportSections(sections);
+const normalizeEstimateRecord = (estimate={}) => ({
+  ...estimate,
+  sections: normalizeEstimateImportSections(estimate.sections || []),
+});
+const normalizeEstimateList = (list=[]) => (Array.isArray(list) ? list.map(normalizeEstimateRecord) : []);
 const estimateImportedWorkTotal = (it, itemType) => {
   const priceWork = toNum(it?.priceWork);
   const totalWork = toNum(it?.totalWork);
@@ -1593,7 +1615,7 @@ function App() {
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
       setPrescriptionsList(Array.isArray(pres)?pres:[]); setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
-      setEstimatesList(Array.isArray(est)?est:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]);
+      setEstimatesList(normalizeEstimateList(est)); setBrigadeContracts(Array.isArray(bc)?bc:[]);
       setHiddenActs(Array.isArray(hwa)?hwa:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
       setCableJournal(Array.isArray(cbj)?cbj:[]); setSupervisorActs(Array.isArray(sva)?sva:[]);
       setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
@@ -1612,7 +1634,7 @@ function App() {
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-payments') : Promise.resolve([]),
       ]);
-      setEstimatesList(Array.isArray(est)?est:[]); setPricelists(Array.isArray(pl)?pl:[]);
+      setEstimatesList(normalizeEstimateList(est)); setPricelists(Array.isArray(pl)?pl:[]);
       setMaterialNorms(Array.isArray(mn)?mn:[]); setMaterialAliases(Array.isArray(ma)?ma:[]);
       setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
@@ -1729,7 +1751,7 @@ function App() {
       setProjectPayments(Array.isArray(pp)?pp:[]);
       setManualExpenses(Array.isArray(me)?me:[]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
-      setEstimatesList(Array.isArray(est)?est:[]);
+      setEstimatesList(normalizeEstimateList(est));
     });
     if (page === 'settings') return loadMobileScopeOnce('mobile:settings', async () => {
       const [cr,cd] = await Promise.all([
@@ -1833,7 +1855,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(Array.isArray(est)?est:[]);setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -2206,9 +2228,10 @@ function App() {
         if (existing) await fetch(API+'/warehouse-main/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
         else await fetch(API+'/warehouse-main',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:Number(item.price||0),minQuantity:0,category:item.category||''})});
       } else {
-        const existing = materials.find(m=>m.name.toLowerCase()===item.name.toLowerCase()&&m.project===newInvoice.location);
-        if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
-        else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:Number(item.price||0),minQuantity:0,project:newInvoice.location,category:item.category||''})});
+        const itemWorkPackage = item.workPackage || item.work_package || '';
+        const existing = materials.find(m=>m.name.toLowerCase()===item.name.toLowerCase()&&m.project===newInvoice.location&&(m.workPackage||m.work_package||'')===itemWorkPackage);
+        if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity),workPackage:itemWorkPackage})});
+        else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:Number(item.price||0),minQuantity:0,project:newInvoice.location,category:item.category||'',workPackage:itemWorkPackage})});
       }
       await fetch(API+'/warehouse-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({material:item.name,type:'приход',quantity:Number(item.quantity),date:newInvoice.date||new Date().toISOString().split('T')[0],project:newInvoice.location==='Основной склад'?'Основной склад':newInvoice.location,issuedBy:newInvoice.acceptedBy||user.name,dateTime:new Date().toLocaleString('ru-RU')})});
     }
@@ -2240,20 +2263,22 @@ function App() {
       if (newMovement.fromLocation==='Основной склад') {
         const mat = warehouseMain.find(m=>m.name===item.name);
         if (mat) await fetch(API+'/warehouse-main/'+mat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mat,quantity:Math.max(0,mat.quantity-Number(item.quantity))})});
-        const existing = materials.find(m=>m.name===item.name&&m.project===newMovement.toLocation);
-        if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
-        else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:item.price||0,minQuantity:0,project:newMovement.toLocation,category:item.category||''})});
+        const itemWorkPackage = item.workPackage || item.work_package || '';
+        const existing = materials.find(m=>m.name===item.name&&m.project===newMovement.toLocation&&(m.workPackage||m.work_package||'')===itemWorkPackage);
+        if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity),workPackage:itemWorkPackage})});
+        else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:item.price||0,minQuantity:0,project:newMovement.toLocation,category:item.category||'',workPackage:itemWorkPackage})});
       } else {
-        const mat = materials.find(m=>m.name===item.name&&m.project===newMovement.fromLocation);
-        if (mat) await fetch(API+'/materials/'+mat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mat,quantity:Math.max(0,mat.quantity-Number(item.quantity))})});
+        const itemWorkPackage = item.workPackage || item.work_package || '';
+        const mat = materials.find(m=>m.name===item.name&&m.project===newMovement.fromLocation&&(m.workPackage||m.work_package||'')===itemWorkPackage);
+        if (mat) await fetch(API+'/materials/'+mat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mat,quantity:Math.max(0,mat.quantity-Number(item.quantity)),workPackage:itemWorkPackage})});
         if (newMovement.toLocation==='Основной склад') {
           const existing = warehouseMain.find(m=>m.name===item.name);
           if (existing) await fetch(API+'/warehouse-main/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
           else await fetch(API+'/warehouse-main',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:mat?.price||0,minQuantity:0,category:mat?.category||''})});
         } else {
-          const existing = materials.find(m=>m.name===item.name&&m.project===newMovement.toLocation);
-          if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
-          else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:mat?.price||0,minQuantity:0,project:newMovement.toLocation,category:mat?.category||''})});
+          const existing = materials.find(m=>m.name===item.name&&m.project===newMovement.toLocation&&(m.workPackage||m.work_package||'')===itemWorkPackage);
+          if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity),workPackage:itemWorkPackage})});
+          else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:mat?.price||0,minQuantity:0,project:newMovement.toLocation,category:mat?.category||'',workPackage:itemWorkPackage})});
         }
       }
     }
@@ -3385,9 +3410,10 @@ function App() {
     if(['директор','зам_директора','бухгалтер','сметчик','главный_инженер'].includes(user.role)) return list||[];
     const projectNames = myAssignedProjects();
     const packageNames = myAssignedPackages();
+    const restrictPackages = ['мастер','субподрядчик','бригадир'].includes(user.role);
     return (list||[]).filter(est=>{
       const projectOk = projectNames.length===0 || projectNames.includes(est.projectName||est.project_name||est.project||'');
-      const packageOk = packageNames.length===0 || packageNames.includes(estimatePackage(est));
+      const packageOk = !restrictPackages || packageNames.length===0 || packageNames.includes(estimatePackage(est));
       return projectOk && packageOk;
     });
   };
@@ -4682,7 +4708,7 @@ function App() {
       </div>
     );
   };
-  const materialReconciliationRows = (projectName) => {
+  const materialReconciliationRows = (projectName, workPackage='') => {
     const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
     const keyOf = materialNameLookupKey;
     const rows = {};
@@ -4728,7 +4754,9 @@ function App() {
       !isArchivedEstimate(e) &&
       ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
     );
-    (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
+    (activeEstimates.length ? activeEstimates : fallbackEstimates)
+      .filter(est=>packageMatches(estimatePackage(est), workPackage))
+      .forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
       const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (isEstimateMaterialItem(it, s.name)) {
         const r = ensure(it.name, it.unit);
@@ -4857,7 +4885,7 @@ function App() {
         if (r) r.movementDetails.push({id:m.id, type:'out', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||''});
       }
     });
-    (materialTransfers||[]).filter(t=>t.projectName===projectName && (t.status||'Активна')!=='Аннулирована').forEach(t=>{
+    (materialTransfers||[]).filter(t=>t.projectName===projectName && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage)).forEach(t=>{
       const r = ensure(t.materialName, t.unit);
       if ((t.fromLocation||'')==='Основной склад') addQty(r, 'issuedFromMain', t.quantity, t.unit);
       addQty(r, 'issued', t.quantity, t.unit);
@@ -4865,7 +4893,7 @@ function App() {
       else addQty(r, 'issuedPending', t.quantity, t.unit);
       addHolderQty(r, t.toPerson, t.toPersonRole, t.signed ? 'issued' : 'pending', t.quantity, t.unit, t);
     });
-    (workJournal||[]).filter(w=>w.project===projectName&&w.status!=='Отклонено').forEach(w=>{
+    (workJournal||[]).filter(w=>w.project===projectName&&w.status!=='Отклонено' && packageMatches(w.workPackage || w.work_package, workPackage)).forEach(w=>{
       let mats = w.materialsUsed!==undefined ? w.materialsUsed : w.materials_used;
       if (typeof mats === 'string') { try { mats = JSON.parse(mats); } catch(_) { mats = []; } }
       if (!Array.isArray(mats)) return;
@@ -4876,7 +4904,7 @@ function App() {
       });
     });
     (history||[])
-      .filter(h=>h.project===projectName && h.type==='возврат от мастера')
+      .filter(h=>h.project===projectName && h.type==='возврат от мастера' && packageMatches(h.workPackage || h.work_package, workPackage))
       .forEach(h=>{
         const r = ensure(h.material, '');
         addQty(r, 'returnedFromMasters', h.quantity, r?.unit);
@@ -4902,7 +4930,7 @@ function App() {
         const r = ensure(d.materialName, d.unit);
         addQty(r, 'inTransit', d.shippedQuantity || d.plannedQuantity, d.unit);
     });
-    estimateWorkNormRequirementRows(projectName).forEach(n=>{
+    estimateWorkNormRequirementRows(projectName, workPackage).forEach(n=>{
       const r = ensure(n.name, n.unit);
       if (!r) return;
       addQty(r, 'normPlanQty', n.planQty, n.unit);
@@ -4915,7 +4943,16 @@ function App() {
       });
       r.normDetails.push(n);
     });
-    return Object.values(rows).map(r=>{
+    const materialRowMatchesPackage = (row) => {
+      if (!workPackage) return true;
+      const planPackages = (row.planDetails || []).map(d=>d.packageName).filter(Boolean);
+      const invalidPackages = (row.invalidPlanDetails || []).map(d=>d.packageName).filter(Boolean);
+      const normPackages = (row.normDetails || []).flatMap(d=>d.packageNames || []).filter(Boolean);
+      const transferPackages = (row.holders ? Object.values(row.holders) : [])
+        .flatMap(h=>(h.transfers || []).map(t=>t.workPackage || t.work_package).filter(Boolean));
+      return [...planPackages, ...invalidPackages, ...normPackages, ...transferPackages].includes(workPackage);
+    };
+    return Object.values(rows).filter(materialRowMatchesPackage).map(r=>{
       const movedNet = r.movedIn + r.issuedFromMain - r.movedOut;
       const supplied = r.received + movedNet;
       const estimatePlanQty = Number(r.planQty||0);
@@ -5499,14 +5536,20 @@ function App() {
       totalWithoutNormRecords: rows.reduce((s,r)=>s+r.withoutNormRecords,0),
     };
   };
-  const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id) => {
+  const packageMatches = (candidatePackage='', workPackage='') => {
+    const candidate = String(candidatePackage || '').trim();
+    const required = String(workPackage || '').trim();
+    if (!required) return true;
+    return !candidate || candidate === required;
+  };
+  const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id, workPackage='') => {
     const byName = {};
     const materialTransferKey = (name, workPackage='') => {
       const base = materialNameKey(name);
       return base ? base+'|'+(workPackage||'') : '';
     };
     (materialTransfers||[])
-      .filter(t=>t.projectName===projectName && t.toPerson===personName && t.signed && (t.status||'Активна')!=='Аннулирована')
+      .filter(t=>t.projectName===projectName && t.toPerson===personName && t.signed && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage))
       .forEach(t=>{
         const key = materialTransferKey(t.materialName, t.workPackage);
         if (!key) return;
@@ -5516,7 +5559,7 @@ function App() {
         byName[key].transfers.push(t);
       });
     (materialTransfers||[])
-      .filter(t=>t.projectName===projectName && t.toPerson===personName && !t.signed && (t.status||'Активна')!=='Аннулирована')
+      .filter(t=>t.projectName===projectName && t.toPerson===personName && !t.signed && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage))
       .forEach(t=>{
         const key = materialTransferKey(t.materialName, t.workPackage);
         if (!key) return;
@@ -5525,7 +5568,7 @@ function App() {
         byName[key].pendingTransfers.push(t);
       });
     (workJournal||[])
-      .filter(w=>w.project===projectName && w.status!=='Отклонено' && (Number(w.masterId||w.master_id)===Number(personId) || w.masterName===personName || w.master_name===personName))
+      .filter(w=>w.project===projectName && w.status!=='Отклонено' && packageMatches(w.workPackage || w.work_package, workPackage) && (Number(w.masterId||w.master_id)===Number(personId) || w.masterName===personName || w.master_name===personName))
       .forEach(w=>parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
         const key = materialTransferKey(m.name, m.workPackage || w.workPackage || w.work_package);
         const cur = byName[key] || byName[materialTransferKey(m.name, '')];
@@ -5535,7 +5578,7 @@ function App() {
 	        }
 	      }));
     (history||[])
-      .filter(h=>h.project===projectName && h.type==='возврат от мастера' && h.issuedBy===personName)
+      .filter(h=>h.project===projectName && h.type==='возврат от мастера' && h.issuedBy===personName && packageMatches(h.workPackage || h.work_package, workPackage))
       .forEach(h=>{
         const key = materialTransferKey(h.material, h.workPackage || h.work_package);
         const cur = byName[key] || byName[materialTransferKey(h.material, '')];
@@ -5546,13 +5589,13 @@ function App() {
       });
     return Object.values(byName).filter(r=>r.received>0 || r.pending>0).map(r=>({...r, quantity:Math.max(0,r.quantity)}));
   };
-  const materialRowsAvailableForWork = (projectName) => {
-    if (isPersonalMaterialRole()) return personalMaterialRowsForProject(projectName).filter(r=>toNum(r.quantity)>0);
-    return (materials||[]).filter(m=>m.project===projectName&&toNum(m.quantity)>0);
+  const materialRowsAvailableForWork = (projectName, workPackage='') => {
+    if (isPersonalMaterialRole()) return personalMaterialRowsForProject(projectName, user?.name, user?.id, workPackage).filter(r=>toNum(r.quantity)>0);
+    return (materials||[]).filter(m=>m.project===projectName&&toNum(m.quantity)>0&&packageMatches(m.workPackage || m.work_package, workPackage));
   };
-  const materialAvailabilityMapForWork = (projectName) => {
+  const materialAvailabilityMapForWork = (projectName, workPackage='') => {
     const byName = {};
-    materialRowsAvailableForWork(projectName).forEach(m=>{
+    materialRowsAvailableForWork(projectName, workPackage).forEach(m=>{
       const meta = canonicalMaterialMeta(projectName, m.name, m.unit);
       const key = materialNameKey(meta.name);
       if (!key) return;
@@ -5563,14 +5606,14 @@ function App() {
     });
     return byName;
   };
-  const materialHintForProject = (projectName, materialName) => {
+  const materialHintForProject = (projectName, materialName, workPackage='') => {
     const meta = canonicalMaterialMeta(projectName, materialName);
     const key = materialNameKey(meta.name);
     if (!key) return null;
-    return materialReconciliationRows(projectName).find(r=>materialNameKey(r.name)===key) || null;
+    return materialReconciliationRows(projectName, workPackage).find(r=>materialNameKey(r.name)===key) || null;
   };
-  const materialSuggestionsForWork = (projectName, workName, sectionName='') => {
-    const rows = materialReconciliationRows(projectName).filter(r=>toNum(r.stock)>0 || toNum(r.planQty)>0);
+  const materialSuggestionsForWork = (projectName, workName, sectionName='', workPackage='') => {
+    const rows = materialReconciliationRows(projectName, workPackage).filter(r=>toNum(r.stock)>0 || toNum(r.planQty)>0);
     const stop = new Set(['работ','работа','монтаж','установка','устройство','демонтаж','прочее','раздел']);
     const tokens = materialNameKey(workName+' '+sectionName).split(' ').filter(w=>w.length>3&&!stop.has(w));
     return rows.map(r=>{
@@ -5868,7 +5911,7 @@ function App() {
         return {ruleId:rule.ruleKey || rule.id,scope:rule.scope||'base',rule,name:materialTitleForNormRule(rule),quantity:roundNormQty(qty),unit:rule.materialUnit,normSource:label};
       }).filter(r=>r.quantity>0);
   };
-  const estimateWorkNormRequirementRows = (projectName) => {
+  const estimateWorkNormRequirementRows = (projectName, workPackage='') => {
     const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
     const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
     const fallbackEstimates = (estimatesList||[]).filter(e=>
@@ -5877,16 +5920,20 @@ function App() {
       ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
     );
     const rows = {};
-    (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
+    (activeEstimates.length ? activeEstimates : fallbackEstimates)
+      .filter(est=>packageMatches(estimatePackage(est), workPackage))
+      .forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
       if (!isEstimateWorkItem(it, s.name)) return;
       normRequirementsForWork(it.name, s.name, it.quantity, it.unit, {projectName, estimateId:est.id}).forEach(req=>{
         const key = req.ruleId+'|'+materialNameKey(req.name)+'|'+_normalizeUnit(req.unit);
-        if (!rows[key]) rows[key] = {key,name:req.name,unit:req.unit,planQty:0,works:[],sections:[],normSources:[]};
+        if (!rows[key]) rows[key] = {key,name:req.name,unit:req.unit,planQty:0,works:[],sections:[],normSources:[],packageNames:[]};
         rows[key].planQty += toNum(req.quantity);
+        const packageName = estimatePackage(est);
         const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
         if (sectionLabel && !rows[key].sections.includes(sectionLabel)) rows[key].sections.push(sectionLabel);
+        if (packageName && !rows[key].packageNames.includes(packageName)) rows[key].packageNames.push(packageName);
         if (req.normSource && !rows[key].normSources.includes(req.normSource)) rows[key].normSources.push(req.normSource);
-        rows[key].works.push({name:it.name,section:s.name,quantity:it.quantity,unit:it.unit,source:req.normSource});
+        rows[key].works.push({name:it.name,section:s.name,quantity:it.quantity,unit:it.unit,source:req.normSource,packageName});
       });
     })));
     return Object.values(rows).map(r=>({...r,planQty:roundNormQty(r.planQty)})).sort((a,b)=>b.planQty-a.planQty || a.name.localeCompare(b.name,'ru'));
@@ -8758,7 +8805,7 @@ function App() {
       if (!res.ok) return estimatesList||[];
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
-      if (list.length) setEstimatesList(list);
+      if (list.length) setEstimatesList(normalizeEstimateList(list));
       return list;
     } catch(e) {
       return estimatesList||[];
@@ -9049,9 +9096,6 @@ function App() {
       alert('Не удалось отправить работу: '+(er.detail||res.status));
       return;
     }
-    if (params.roomId) {
-      await fetch(API+'/room-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({roomId:Number(params.roomId),project:project.name,roomName:params.roomName||roomCheck?.room?.name||'',masterId:user.id,masterName:user.name,description:mi.name,surface:params.surface||'Стены',unit:mi.unit,quantity:deltaQty,pricePerUnit:toNum(mi.priceWork||mi.price||0),total:deltaQty*toNum(mi.priceWork||mi.price||0),date:new Date().toISOString().split('T')[0],photoUrl:''})});
-    }
     setEstimatesList(prev=>prev.map(e=>Number(e.id)===Number(est.id)?{...est,sections:newSections}:e));
     setEstimateDoneDrafts(prev=>{const next={...prev};delete next[workKey];return next;});
     setEstimateWorkMaterials(prev=>{const next={...prev};delete next[workKey];return next;});
@@ -9107,9 +9151,6 @@ function App() {
       const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>{const over=toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1;return {name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',workPackage:m.workPackage||'Прайс',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',autoNorm:!!m.autoNorm,overNorm:over,overNormReason:over?reason:''};});
       const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,customerPricePerUnit:ppu,customerTotal:total,executionPricePerUnit:ppu,executionTotal:total,executionPriceMode:'pricelist',date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats,workPackage:'Прайс',roomId:workData.roomId?Number(workData.roomId):null,roomName:workData.roomName||'',surface:workData.surface||'Стены',estimateItemName:item.name,estimateItemKey:'pricelist:'+item.id})});
       if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось отправить работу: '+(er.detail||'ошибка'));return;}
-      if (workData.roomId) {
-        await fetch(API+'/room-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({roomId:Number(workData.roomId),project:project.name,roomName:workData.roomName||'',masterId:user.id,masterName:user.name,description:item.name,surface:workData.surface||'Стены',unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],photoUrl:workData.photoUrl||''})});
-      }
     }
     if (!hasWork) { alert('Введите количество хотя бы для одной работы'); return; }
     notify(user.name+' отправил работы','work');

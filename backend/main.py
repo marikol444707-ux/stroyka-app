@@ -375,6 +375,18 @@ def require_project_access(user: dict, project_name: str):
     if not has_project_access(user, project_name):
         raise HTTPException(status_code=403, detail="Нет доступа к объекту")
 
+def require_estimate_access(cur, estimate_id: int, user: dict):
+    cur.execute("SELECT project_name, COALESCE(work_package,'Основная') AS work_package FROM estimates WHERE id=%s", (estimate_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    project_name = row.get("project_name") if isinstance(row, dict) else row[0]
+    work_package = row.get("work_package") if isinstance(row, dict) else row[1]
+    require_project_access(user, project_name or "")
+    if user.get("role") in ("мастер", "субподрядчик", "бригадир") and not has_package_access(user, work_package or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
+    return project_name or "", work_package or "Основная"
+
 def require_project_or_warehouse_access(user: dict, project_name: str):
     if can_see_all_company_data(user) or user.get("role") in ("кладовщик", "снабженец"):
         return
@@ -951,7 +963,13 @@ def _director_agent_tool_estimates(args):
                 qty = _director_agent_num(it.get("quantity"))
                 work = _director_agent_num(it.get("priceWork"))
                 mat = _director_agent_num(it.get("priceMaterial"))
-                total += (work + mat) if it.get("isImported") else qty * (work + mat)
+                if it.get("isImported"):
+                    total_work = _director_agent_num(it.get("totalWork") or it.get("workTotal") or it.get("workSum"))
+                    total_material = _director_agent_num(it.get("totalMaterial") or it.get("materialTotal") or it.get("materialSum"))
+                    line_total = _director_agent_num(it.get("lineTotal") or it.get("currentTotal") or it.get("total") or it.get("sum") or it.get("amount") or it.get("totalSum"))
+                    total += (total_work + total_material) or line_total or (qty * (work + mat))
+                else:
+                    total += qty * (work + mat)
         out.append({
             "id": r.get("id"),
             "name": r.get("name") or "",
@@ -1339,8 +1357,10 @@ def init_db():
             price FLOAT DEFAULT 0,
             min_quantity FLOAT DEFAULT 0,
             project VARCHAR(255),
-            category VARCHAR(255)
+            category VARCHAR(255),
+            work_package VARCHAR(255)
         );
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
         CREATE TABLE IF NOT EXISTS warehouse_history (
             id SERIAL PRIMARY KEY,
             material VARCHAR(255),
@@ -2349,8 +2369,14 @@ def init_db():
             date VARCHAR(50),
             status VARCHAR(100) DEFAULT 'На проверке',
             photo_url VARCHAR(255),
-            confirmed_by VARCHAR(255)
+            confirmed_by VARCHAR(255),
+            work_journal_id INT,
+            work_package VARCHAR(255),
+            estimate_item_key VARCHAR(255)
         );
+        ALTER TABLE room_works ADD COLUMN IF NOT EXISTS work_journal_id INT;
+        ALTER TABLE room_works ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
+        ALTER TABLE room_works ADD COLUMN IF NOT EXISTS estimate_item_key VARCHAR(255);
         CREATE TABLE IF NOT EXISTS tools (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -2874,6 +2900,7 @@ class MaterialModel(BaseModel):
     minQuantity: float = 0
     project: str = ""
     category: str = ""
+    workPackage: str = ""
 
 class WarehouseMainModel(BaseModel):
     name: str
@@ -3186,6 +3213,9 @@ class RoomWorkModel(BaseModel):
     total: float = 0
     date: str = ""
     photoUrl: str = ""
+    workJournalId: Optional[int] = None
+    workPackage: str = ""
+    estimateItemKey: str = ""
 
 class AiFindingModel(BaseModel):
     projectName: str = ""
@@ -3628,7 +3658,9 @@ def delete_client(id: int, _current_user: dict = Depends(require_roles(*LEADERSH
 def get_materials(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    base = "SELECT id,name,unit,quantity,price,min_quantity as \"minQuantity\",project,category FROM materials"
+    base = """SELECT id,name,unit,quantity,price,min_quantity as "minQuantity",
+                     project,category,COALESCE(work_package,'') as "workPackage"
+              FROM materials"""
     projects = user_project_names(current_user)
     role = current_user.get("role")
     if role in ("заказчик", "технадзор"):
@@ -3657,8 +3689,11 @@ def create_material(m: MaterialModel, _current_user: dict = Depends(require_role
     require_project_or_warehouse_access(_current_user, m.project or "")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,unit,quantity,price,min_quantity as \"minQuantity\",project,category",
-                (m.name,m.unit,m.quantity,m.price,m.minQuantity,m.project,m.category))
+    cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                   RETURNING id,name,unit,quantity,price,min_quantity as "minQuantity",
+                             project,category,COALESCE(work_package,'') as "workPackage" """,
+                (m.name,m.unit,m.quantity,m.price,m.minQuantity,m.project,m.category,m.workPackage or ""))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -3674,8 +3709,10 @@ def update_material(id: int, m: MaterialModel, _current_user: dict = Depends(req
         raise HTTPException(status_code=404, detail="Материал не найден")
     require_project_or_warehouse_access(_current_user, row.get("project") or "")
     require_project_or_warehouse_access(_current_user, m.project or "")
-    cur.execute("UPDATE materials SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,project=%s,category=%s WHERE id=%s",
-                (m.name,m.unit,m.quantity,m.price,m.minQuantity,m.project,m.category,id))
+    cur.execute("""UPDATE materials
+                   SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,project=%s,category=%s,work_package=%s
+                   WHERE id=%s""",
+                (m.name,m.unit,m.quantity,m.price,m.minQuantity,m.project,m.category,m.workPackage or "",id))
     conn.close()
     return {"ok": True}
 
@@ -5407,17 +5444,19 @@ def _detect_cable_info(name):
             section = float(m2.group(2).replace(",", "."))
     return {"isCable": is_cable, "cableType": cable_type, "cores": cores, "section": section}
 
-def _add_project_material(cur, name, unit, qty, price, project):
+def _add_project_material(cur, name, unit, qty, price, project, work_package=""):
     if not name or not project or qty <= 0:
         return
-    cur.execute("SELECT id FROM materials WHERE name=%s AND project=%s LIMIT 1", (name, project))
+    package_name = (work_package or "").strip()
+    cur.execute("SELECT id FROM materials WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s LIMIT 1", (name, project, package_name))
     existing = cur.fetchone()
     if existing:
         cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=%s, price=%s WHERE id=%s",
                     (qty, unit or "", price or 0, existing['id'] if isinstance(existing, dict) else existing[0]))
     else:
-        cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    (name, unit or "шт", qty, price or 0, 0, project, "Закупка"))
+        cur.execute("""INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (name, unit or "шт", qty, price or 0, 0, project, "Закупка", package_name))
     cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                 (name, "приход (поставка)", qty, __import__("datetime").date.today().isoformat(), project, "Снабжение", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
@@ -6253,16 +6292,19 @@ def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict
     cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
         (name, "расход (работа)", qty, date_value or None, project, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
-def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", exclude_id=None):
+def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_id=None):
     project = (project or "").strip()
     room_name = (room_name or "").strip()
     estimate_item_key = (estimate_item_key or "").strip()
     description = (description or "").strip()
+    work_package = (work_package or "").strip()
     if not project or (not room_id and not room_name) or (not estimate_item_key and not description):
         return None
 
     exclude_sql = " AND id<>%s" if exclude_id else ""
     exclude_params = [exclude_id] if exclude_id else []
+    package_sql = " AND COALESCE(work_package,'')=%s" if work_package else ""
+    package_params = [work_package] if work_package else []
 
     target_sql = "COALESCE(estimate_item_key,'')=%s" if estimate_item_key else "LOWER(TRIM(description))=LOWER(TRIM(%s))"
     target_value = estimate_item_key if estimate_item_key else description
@@ -6270,8 +6312,8 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
     if room_id:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM work_journal
                        WHERE project=%s AND room_id=%s AND {target_sql}
-                         AND COALESCE(status,'') <> 'Отклонено'{exclude_sql}
-                       LIMIT 1""", [project, room_id, target_value] + exclude_params)
+                         AND COALESCE(status,'') <> 'Отклонено'{package_sql}{exclude_sql}
+                       LIMIT 1""", [project, room_id, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
             return duplicate
@@ -6279,8 +6321,8 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
     if room_name:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM work_journal
                        WHERE project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
-                         AND COALESCE(status,'') <> 'Отклонено'{exclude_sql}
-                       LIMIT 1""", [project, room_name, target_value] + exclude_params)
+                         AND COALESCE(status,'') <> 'Отклонено'{package_sql}{exclude_sql}
+                       LIMIT 1""", [project, room_name, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
             return duplicate
@@ -6298,6 +6340,109 @@ def _raise_work_journal_duplicate(duplicate):
         status_code=409,
         detail="Эта работа уже заведена" + room_part + ". Запись ЖПР №" + str(row_id) + " (" + str(master_name or "исполнитель") + ")"
     )
+
+def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_work_journal_id=None):
+    project = (project or "").strip()
+    room_name = (room_name or "").strip()
+    estimate_item_key = (estimate_item_key or "").strip()
+    description = (description or "").strip()
+    work_package = (work_package or "").strip()
+    if not project or (not room_id and not room_name) or (not estimate_item_key and not description):
+        return None
+
+    target_sql = "COALESCE(estimate_item_key,'')=%s" if estimate_item_key else "LOWER(TRIM(description))=LOWER(TRIM(%s))"
+    target_value = estimate_item_key if estimate_item_key else description
+    package_sql = " AND COALESCE(work_package,'')=%s" if work_package else ""
+    package_params = [work_package] if work_package else []
+    exclude_sql = " AND COALESCE(work_journal_id,0)<>%s" if exclude_work_journal_id else ""
+    exclude_params = [exclude_work_journal_id] if exclude_work_journal_id else []
+
+    if room_id:
+        cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
+                        WHERE project=%s AND room_id=%s AND {target_sql}
+                          AND COALESCE(status,'') <> 'Отклонено'{package_sql}{exclude_sql}
+                        LIMIT 1""", [project, room_id, target_value] + package_params + exclude_params)
+        duplicate = cur.fetchone()
+        if duplicate:
+            return duplicate
+
+    if room_name:
+        cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
+                        WHERE project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
+                          AND COALESCE(status,'') <> 'Отклонено'{package_sql}{exclude_sql}
+                        LIMIT 1""", [project, room_name, target_value] + package_params + exclude_params)
+        duplicate = cur.fetchone()
+        if duplicate:
+            return duplicate
+    return None
+
+def _sync_room_work_from_journal(cur, work_row: dict):
+    if not work_row:
+        return
+    work_journal_id = work_row.get("id")
+    room_id = work_row.get("room_id")
+    room_name = (work_row.get("room_name") or "").strip()
+    project = (work_row.get("project") or "").strip()
+    description = (work_row.get("description") or "").strip()
+    estimate_item_key = (work_row.get("estimate_item_key") or "").strip()
+    work_package = (work_row.get("work_package") or "").strip()
+
+    if not room_id and not room_name:
+        if work_journal_id:
+            cur.execute("DELETE FROM room_works WHERE work_journal_id=%s", (work_journal_id,))
+        return
+
+    duplicate = _room_work_duplicate(
+        cur,
+        project,
+        room_id=room_id,
+        room_name=room_name,
+        estimate_item_key=estimate_item_key,
+        description=description,
+        work_package=work_package,
+        exclude_work_journal_id=work_journal_id,
+    )
+    if duplicate:
+        _raise_work_journal_duplicate(duplicate)
+
+    cur.execute("SELECT id FROM room_works WHERE work_journal_id=%s", (work_journal_id,))
+    existing = cur.fetchone()
+    payload = (
+        room_id,
+        project,
+        room_name,
+        work_row.get("master_id"),
+        work_row.get("master_name"),
+        description,
+        work_row.get("surface") or "",
+        work_row.get("unit") or "",
+        work_row.get("quantity") or 0,
+        work_row.get("price_per_unit") or 0,
+        work_row.get("total") or 0,
+        work_row.get("date") or "",
+        work_row.get("status") or "На проверке",
+        work_row.get("photo_url") or "",
+        work_row.get("confirmed_by") or "",
+        work_journal_id,
+        work_package,
+        estimate_item_key,
+    )
+    if existing:
+        cur.execute("""UPDATE room_works
+                       SET room_id=%s, project=%s, room_name=%s, master_id=%s, master_name=%s,
+                           description=%s, surface=%s, unit=%s, quantity=%s, price_per_unit=%s,
+                           total=%s, date=%s, status=%s, photo_url=%s, confirmed_by=%s,
+                           work_journal_id=%s, work_package=%s, estimate_item_key=%s
+                       WHERE work_journal_id=%s""", payload + (work_journal_id,))
+    else:
+        cur.execute("""INSERT INTO room_works
+                       (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,status,photo_url,confirmed_by,work_journal_id,work_package,estimate_item_key)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", payload)
+
+def _mark_room_work_rejected(cur, work_journal_id: int, confirmed_by: str = ""):
+    if not work_journal_id:
+        return
+    cur.execute("UPDATE room_works SET status='Отклонено', confirmed_by=%s WHERE work_journal_id=%s", (confirmed_by or "", work_journal_id))
 
 @app.post("/work-journal")
 def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
@@ -6317,6 +6462,7 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
             room_name=w.roomName,
             estimate_item_key=w.estimateItemKey,
             description=w.description,
+            work_package=w.workPackage,
         ))
         for m in used:
             if not m.get("workPackage") and not m.get("work_package"):
@@ -6345,6 +6491,7 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
                      w.workPackage,w.roomId,w.roomName,w.surface,w.estimateItemName,w.estimateItemKey,
                      customer_price,customer_total,execution_price,execution_total,execution_mode))
         row = cur.fetchone()
+        _sync_room_work_from_journal(cur, row)
         conn.commit()
         _run_project_ai_control_safely(w.project, "work_journal:create")
         return dict(row)
@@ -6363,7 +6510,7 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     require_row_project_access(cur, "work_journal", id, _current_user, "project")
-    cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description, estimate_item_key
+    cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description, estimate_item_key, work_package
                    FROM work_journal WHERE id=%s""", (id,))
     project_row = cur.fetchone()
     project_name = project_row.get("project") if project_row else ""
@@ -6430,10 +6577,17 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
             room_name=data.get("roomName", project_row.get("room_name") if project_row else ""),
             estimate_item_key=data.get("estimateItemKey", project_row.get("estimate_item_key") if project_row else ""),
             description=data.get("description", project_row.get("description") if project_row else ""),
+            work_package=data.get("workPackage", project_row.get("work_package") if project_row else ""),
             exclude_id=id,
         ))
     vals.append(id)
     cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    cur.execute("""SELECT id, master_id, master_name, project, description, surface, unit, quantity,
+                          price_per_unit, total, date, status, photo_url, confirmed_by,
+                          room_id, room_name, work_package, estimate_item_key
+                   FROM work_journal WHERE id=%s""", (id,))
+    updated_row = cur.fetchone()
+    _sync_room_work_from_journal(cur, updated_row)
     conn.commit()
     cur.close(); conn.close()
     _run_project_ai_control_safely(project_name, "work_journal:update")
@@ -6499,6 +6653,7 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
             cancel_note += " (" + actor_name + ")"
         new_comment = (old_comment + "\n" + cancel_note).strip() if old_comment else cancel_note
         cur.execute("UPDATE work_journal SET status=%s, comment=%s WHERE id=%s", ("Отклонено", new_comment, id))
+        _mark_room_work_rejected(cur, id, actor_name)
         conn.commit()
         return {"ok": True, "cancelled": True, "materialsRestored": len(used), "pieceworkPreserved": piecework_count}
     except HTTPException:
@@ -6606,7 +6761,7 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
-    require_row_project_access(cur, "estimates", id, _current_user, "project_name")
+    require_estimate_access(cur, id, _current_user)
     cur.execute("SELECT sections_json FROM estimates WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
@@ -6949,9 +7104,9 @@ def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\" FROM room_works WHERE project = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+        cur.execute("SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",work_journal_id as \"workJournalId\",work_package as \"workPackage\",estimate_item_key as \"estimateItemKey\" FROM room_works WHERE project = ANY(%s) ORDER BY id DESC", (allowed_projects,))
     else:
-        cur.execute("SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\" FROM room_works ORDER BY id DESC")
+        cur.execute("SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",work_journal_id as \"workJournalId\",work_package as \"workPackage\",estimate_item_key as \"estimateItemKey\" FROM room_works ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -6961,8 +7116,20 @@ def create_room_work(w: RoomWorkModel, _current_user: dict = Depends(require_rol
     require_project_access(_current_user, w.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO room_works (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (w.roomId,w.project,w.roomName,w.masterId,w.masterName,w.description,w.surface,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,w.photoUrl))
+    _raise_work_journal_duplicate(_room_work_duplicate(
+        cur,
+        w.project,
+        room_id=w.roomId,
+        room_name=w.roomName,
+        estimate_item_key=w.estimateItemKey,
+        description=w.description,
+        work_package=w.workPackage,
+        exclude_work_journal_id=w.workJournalId,
+    ))
+    cur.execute("""INSERT INTO room_works
+                   (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,photo_url,work_journal_id,work_package,estimate_item_key)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                (w.roomId,w.project,w.roomName,w.masterId,w.masterName,w.description,w.surface,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,w.photoUrl,w.workJournalId,w.workPackage,w.estimateItemKey))
     row = cur.fetchone()
     conn.close()
     _run_project_ai_control_safely(w.project, "room_work:create")
@@ -7403,7 +7570,14 @@ def _estimate_item_sum_backend(item: dict) -> float:
         return 0.0
     qty = _float_or_zero(item.get("quantity"))
     if item.get("isImported"):
-        return _float_or_zero(item.get("priceWork")) + _float_or_zero(item.get("priceMaterial"))
+        total_work = _float_or_zero(item.get("totalWork") or item.get("workTotal") or item.get("workSum"))
+        total_material = _float_or_zero(item.get("totalMaterial") or item.get("materialTotal") or item.get("materialSum"))
+        line_total = _float_or_zero(item.get("lineTotal") or item.get("currentTotal") or item.get("total") or item.get("sum") or item.get("amount") or item.get("totalSum"))
+        if total_work or total_material:
+            return total_work + total_material
+        if line_total:
+            return line_total
+        return qty * (_float_or_zero(item.get("priceWork")) + _float_or_zero(item.get("priceMaterial")))
     return qty * (_float_or_zero(item.get("priceWork")) + _float_or_zero(item.get("priceMaterial")))
 
 def _estimate_material_sum_backend(item: dict) -> float:
@@ -7412,7 +7586,13 @@ def _estimate_material_sum_backend(item: dict) -> float:
         return 0.0
     qty = _float_or_zero(item.get("quantity"))
     if item.get("isImported"):
-        return _float_or_zero(item.get("priceMaterial"))
+        total_material = _float_or_zero(item.get("totalMaterial") or item.get("materialTotal") or item.get("materialSum"))
+        line_total = _float_or_zero(item.get("lineTotal") or item.get("currentTotal") or item.get("total") or item.get("sum") or item.get("amount") or item.get("totalSum"))
+        if total_material:
+            return total_material
+        if raw in ("material", "материал", "materials", "материалы", "equipment", "оборудование", "delivery", "доставка", "transport") and line_total:
+            return line_total
+        return qty * _float_or_zero(item.get("priceMaterial"))
     return qty * _float_or_zero(item.get("priceMaterial"))
 
 def _material_control_key(name: str, unit: str = "") -> str:
@@ -9926,6 +10106,8 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
     cur = conn.cursor()
     allowed_projects = visible_project_names(current_user)
     role = current_user.get("role")
+    restrict_packages = role in ("мастер", "субподрядчик", "бригадир")
+    package_names = user_package_names(current_user) if restrict_packages else []
     base_cols = """e.id,e.project_id,e.project_name,e.name,e.version,e.sections_json,
                    COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.work_package,'Основная'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
@@ -9943,10 +10125,19 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
     elif allowed_projects is None:
         cur.execute(f"SELECT {base_cols} FROM estimates e ORDER BY e.id DESC")
     else:
-        cur.execute(f"""SELECT {base_cols} FROM estimates e
-                        WHERE e.project_name = ANY(%s)
-                           OR (COALESCE(e.is_template,FALSE)=TRUE AND COALESCE(e.project_name,'')='')
-                        ORDER BY e.id DESC""", (allowed_projects,))
+        query = f"""SELECT {base_cols} FROM estimates e
+                    WHERE e.project_name = ANY(%s)"""
+        params = [allowed_projects]
+        if package_names:
+            query += " AND COALESCE(e.work_package,'Основная') = ANY(%s)"
+            params.append(package_names)
+        query += """
+                       OR (COALESCE(e.is_template,FALSE)=TRUE AND COALESCE(e.project_name,'')='')"""
+        if package_names:
+            query += " AND COALESCE(e.work_package,'Основная') = ANY(%s)"
+            params.append(package_names)
+        query += " ORDER BY e.id DESC"
+        cur.execute(query, tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
@@ -10009,7 +10200,14 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     def _estimate_item_total(it):
         qty = _num(it.get("quantity"))
         if it.get("isImported"):
-            return _num(it.get("priceWork")) + _num(it.get("priceMaterial"))
+            total_work = _num(it.get("totalWork") or it.get("workTotal") or it.get("workSum"))
+            total_material = _num(it.get("totalMaterial") or it.get("materialTotal") or it.get("materialSum"))
+            line_total = _num(it.get("lineTotal") or it.get("currentTotal") or it.get("total") or it.get("sum") or it.get("amount") or it.get("totalSum"))
+            if total_work or total_material:
+                return total_work + total_material
+            if line_total:
+                return line_total
+            return qty * (_num(it.get("priceWork")) + _num(it.get("priceMaterial")))
         return qty * (_num(it.get("priceWork")) + _num(it.get("priceMaterial")))
 
     def _estimate_item_unit_price(it):
@@ -10356,8 +10554,16 @@ def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(r
 
     def _item_total(it):
         qty = _num(it.get("quantity"))
-        work = _num(it.get("priceWork")) if it.get("isImported") else qty * _num(it.get("priceWork"))
-        mat = _num(it.get("priceMaterial")) if it.get("isImported") else qty * _num(it.get("priceMaterial"))
+        if it.get("isImported"):
+            total_work = _num(it.get("totalWork") or it.get("workTotal") or it.get("workSum"))
+            total_material = _num(it.get("totalMaterial") or it.get("materialTotal") or it.get("materialSum"))
+            line_total = _num(it.get("lineTotal") or it.get("currentTotal") or it.get("total") or it.get("sum") or it.get("amount") or it.get("totalSum"))
+            if total_work or total_material:
+                return total_work + total_material
+            if line_total:
+                return line_total
+        work = qty * _num(it.get("priceWork"))
+        mat = qty * _num(it.get("priceMaterial"))
         return work + mat
 
     def _item_unit_price(it):
@@ -10521,7 +10727,7 @@ def reconcile_estimate_changes(id: int, data: dict, current_user: dict = Depends
 def toggle_estimate_template(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "сметчик", "главный_инженер"))):
     conn = get_db()
     cur = conn.cursor()
-    require_row_project_access(cur, "estimates", id, _current_user, "project_name")
+    require_estimate_access(cur, id, _current_user)
     cur.execute("UPDATE estimates SET is_template = NOT COALESCE(is_template,FALSE) WHERE id=%s RETURNING is_template", (id,))
     conn.commit()
     row = cur.fetchone()
@@ -10532,7 +10738,7 @@ def toggle_estimate_template(id: int, _current_user: dict = Depends(require_role
 def get_estimate_versions(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    require_row_project_access(cur, "estimates", id, _current_user, "project_name")
+    require_estimate_access(cur, id, _current_user)
     cur.execute("SELECT id, version_label, total, comment, created_by, created_at FROM estimate_versions WHERE estimate_id=%s ORDER BY id DESC", (id,))
     rows = cur.fetchall()
     cur.close(); conn.close()
@@ -10551,7 +10757,7 @@ def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(r
     if not r:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="version not found")
-    require_project_access(_current_user, r[8] or "")
+    require_estimate_access(cur, int(r[1]), _current_user)
     cur.close(); conn.close()
     try:
         sections = j.loads(r[3]) if r[3] else []
@@ -11744,10 +11950,12 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
                 raise HTTPException(status_code=400, detail="На основном складе только "+str(stock_qty)+", запрошено "+str(qty))
             cur.execute("UPDATE warehouse_main SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
         else:
-            cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (material_name, from_location))
+            cur.execute("""SELECT id, quantity FROM materials
+                           WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
+                           ORDER BY id DESC LIMIT 1 FOR UPDATE""", (material_name, from_location, work_package))
             row = cur.fetchone()
             if not row:
-                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»")
+                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «" + work_package + "»" if work_package else ""))
             stock_id, stock_qty = row[0], float(row[1] or 0)
             if stock_qty < qty:
                 raise HTTPException(status_code=400, detail="На складе «"+from_location+"» только "+str(stock_qty)+", запрошено "+str(qty))
@@ -11827,10 +12035,11 @@ def return_material_from_master(data: dict, current_user: dict = Depends(require
         if balance["available"] < qty:
             raise HTTPException(status_code=400, detail="У мастера «"+person_name+"» доступно к возврату "+str(round(balance["available"], 3))+" "+unit+" «"+material_name+"», запрошено "+str(qty))
 
-        cur.execute("UPDATE materials SET quantity=quantity+%s WHERE name=%s AND project=%s", (qty, material_name, project_name))
+        cur.execute("UPDATE materials SET quantity=quantity+%s WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s", (qty, material_name, project_name, work_package))
         if cur.rowcount == 0:
-            cur.execute("INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                (material_name, unit or "шт", qty, 0, 0, project_name, "Возврат от мастера"))
+            cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (material_name, unit or "шт", qty, 0, 0, project_name, "Возврат от мастера", work_package))
 
         return_date = data.get("date") or None
         cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
@@ -11876,10 +12085,11 @@ def delete_material_transfer(id: int, _current_user: dict = Depends(require_role
                 cur.execute("INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category) VALUES (%s,%s,%s,%s,%s,%s)",
                     (material_name, unit or "шт", qty, 0, 0, "Возврат передачи"))
         else:
-            cur.execute("UPDATE materials SET quantity=quantity+%s WHERE name=%s AND project=%s", (qty, material_name, from_location))
+            cur.execute("UPDATE materials SET quantity=quantity+%s WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s", (qty, material_name, from_location, work_package or ""))
             if cur.rowcount == 0:
-                cur.execute("INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    (material_name, unit or "шт", qty, 0, 0, from_location or project_name or "", "Возврат передачи"))
+                cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (material_name, unit or "шт", qty, 0, 0, from_location or project_name or "", "Возврат передачи", work_package or ""))
 
         cur.execute(
             "UPDATE material_transfers SET status=%s,cancelled_at=NOW(),cancelled_by=%s,cancel_reason=%s WHERE id=%s",
@@ -15887,12 +16097,7 @@ def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(requi
 def get_estimate_chat(estimate_id: int, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name FROM estimates WHERE id=%s", (estimate_id,))
-    est = cur.fetchone()
-    if not est:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Смета не найдена")
-    require_project_access(current_user, est[0] or "")
+    require_estimate_access(cur, estimate_id, current_user)
     cur.execute("SELECT id, role, content, created_at FROM estimate_chat_messages WHERE estimate_id=%s ORDER BY id ASC", (estimate_id,))
     rows = cur.fetchall()
     cur.close(); conn.close()
@@ -15910,12 +16115,7 @@ def estimate_chat(data: dict, current_user: dict = Depends(get_current_user)):
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name FROM estimates WHERE id=%s", (int(estimate_id),))
-    est = cur.fetchone()
-    if not est:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Смета не найдена")
-    require_project_access(current_user, est[0] or "")
+    require_estimate_access(cur, int(estimate_id), current_user)
     cur.execute("INSERT INTO estimate_chat_messages (estimate_id, role, content) VALUES (%s, %s, %s) RETURNING id, created_at",
                 (estimate_id, "user", user_message))
     user_row = cur.fetchone()
@@ -15960,12 +16160,7 @@ def estimate_chat(data: dict, current_user: dict = Depends(get_current_user)):
 def clear_estimate_chat(estimate_id: int, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name FROM estimates WHERE id=%s", (estimate_id,))
-    est = cur.fetchone()
-    if not est:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Смета не найдена")
-    require_project_access(current_user, est[0] or "")
+    require_estimate_access(cur, estimate_id, current_user)
     cur.execute("DELETE FROM estimate_chat_messages WHERE estimate_id=%s", (estimate_id,))
     conn.commit()
     cur.close(); conn.close()

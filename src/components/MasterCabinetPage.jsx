@@ -515,12 +515,12 @@ export default function MasterCabinetPage(props) {
                       const delta = Math.max(0, rawDraft - done);
                       const project = projects.find(projectRow => projectRow.id === Number(masterProjectId));
                       const roomCheck = project ? roomMeasurementCheck(project.name, params.roomId, params.surface || 'Стены', delta, item.unit, item.name) : null;
-                      const projectMaterials = project ? materialRowsAvailableForWork(project.name) : [];
-                      const availableMap = project ? materialAvailabilityMapForWork(project.name) : {};
+                      const projectMaterials = project ? materialRowsAvailableForWork(project.name, item.workPackage) : [];
+                      const availableMap = project ? materialAvailabilityMapForWork(project.name, item.workPackage) : {};
                       const usedMaterials = estimateWorkMaterials[workKey] || [];
                       const usedMap = {};
                       usedMaterials.forEach(material => { usedMap[materialNameKey(material.name)] = material; });
-                      const suggestions = project ? materialSuggestionsForWork(project.name, item.name, item.section) : [];
+                      const suggestions = project ? materialSuggestionsForWork(project.name, item.name, item.section, item.workPackage) : [];
                       const executionUnitPrice = Number(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit || item.contractorPricePerUnit || item.priceWork || item.price || 0);
                       const deltaEarning = Math.round(delta * executionUnitPrice);
                       return (
@@ -621,7 +621,7 @@ export default function MasterCabinetPage(props) {
                                     const key = materialNameKey(material.name);
                                     const checked = !!usedMap[key];
                                     const selected = usedMap[key] || {};
-                                    const hint = materialHintForProject(project.name, material.name);
+                                    const hint = materialHintForProject(project.name, material.name, item.workPackage);
                                     const stock = toNum(material.quantity);
                                     const norm = materialNormForWork(project.name, item.name, item.section, delta, item.unit, material, estimateWorkParams[workKey] || {});
                                     const normStatus = checked ? materialNormStatus(selected) : null;
@@ -742,13 +742,14 @@ export default function MasterCabinetPage(props) {
                                 <input placeholder="Комментарий" value={selectedWorks[item.id]?.comment || ''} onChange={e => setSelectedWorks(prev => ({ ...prev, [item.id]: { ...prev[item.id], comment: e.target.value } }))} style={inp} />
                                 <input type="file" accept="image/*" onChange={async e => { if (e.target.files[0]) { const url = await uploadPhoto(e.target.files[0], { projectName: project?.name, context: 'work-journal' }); setSelectedWorks(prev => ({ ...prev, [item.id]: { ...prev[item.id], photoUrl: url } })); } }} style={{ ...inp, padding: '8px' }} />
                                 {(() => {
-                                  const projectMaterials = project ? materialRowsAvailableForWork(project.name) : [];
-                                  const availableMap = project ? materialAvailabilityMapForWork(project.name) : {};
+                                  const scopedPackage = userAssignedPackages.length === 1 ? userAssignedPackages[0] : '';
+                                  const projectMaterials = project ? materialRowsAvailableForWork(project.name, scopedPackage) : [];
+                                  const availableMap = project ? materialAvailabilityMapForWork(project.name, scopedPackage) : {};
                                   const usedMaterials = selectedWorks[item.id]?.materials || [];
                                   const usedMap = {};
                                   usedMaterials.forEach(material => { usedMap[materialNameKey(material.name)] = material; });
                                   if (!project) return null;
-                                  const suggestions = materialSuggestionsForWork(project.name, item.name, category);
+                                  const suggestions = materialSuggestionsForWork(project.name, item.name, category, scopedPackage);
                                   if (!projectMaterials.length && !suggestions.length) {
                                     return (
                                       <div style={{ marginTop: '8px', padding: '10px', backgroundColor: C.warningLight, borderRadius: '8px', border: '1px solid ' + C.warningBorder, fontSize: '11px', color: C.warning }}>
@@ -794,7 +795,7 @@ export default function MasterCabinetPage(props) {
                                             const key = materialNameKey(material.name);
                                             const checked = !!usedMap[key];
                                             const selected = usedMap[key] || {};
-                                            const hint = materialHintForProject(project.name, material.name);
+                                            const hint = materialHintForProject(project.name, material.name, scopedPackage);
                                             const stock = toNum(material.quantity);
                                             const norm = materialNormForWork(project.name, item.name, category, toNum(selectedWorks[item.id]?.quantity), item.unit, material, selectedWorks[item.id] || {});
                                             const normStatus = checked ? materialNormStatus(selected) : null;

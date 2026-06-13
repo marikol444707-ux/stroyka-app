@@ -84,7 +84,11 @@ export default function ProjectMaterialsTransferPanel({
   const transfers = materialTransfers.filter(t => t.projectName === projectName);
   const selectedStock = newTransfer.fromLocation === 'Основной склад'
     ? warehouseMain.find(m => m.name === newTransfer.materialName)
-    : materials.find(m => m.name === newTransfer.materialName && m.project === newTransfer.fromLocation);
+    : materials.find(m =>
+        m.name === newTransfer.materialName &&
+        m.project === newTransfer.fromLocation &&
+        (m.workPackage || m.work_package || '') === (newTransfer.workPackage || '')
+      );
   const selectedQty = toNum(newTransfer.quantity);
   const selectedStockQty = toNum(selectedStock?.quantity);
   const hasStockOverrun = !!newTransfer.materialName && selectedQty > selectedStockQty;
@@ -196,7 +200,11 @@ export default function ProjectMaterialsTransferPanel({
     if (newTransfer.fromLocation === 'Основной склад') {
       setWarehouseMain(prev => prev.map(m => m.name === newTransfer.materialName ? {...m, quantity: Number(m.quantity || 0) - qty} : m));
     } else {
-      setMaterials(prev => prev.map(m => (m.name === newTransfer.materialName && m.project === newTransfer.fromLocation) ? {...m, quantity: Number(m.quantity || 0) - qty} : m));
+      setMaterials(prev => prev.map(m => (
+        m.name === newTransfer.materialName &&
+        m.project === newTransfer.fromLocation &&
+        (m.workPackage || m.work_package || '') === (newTransfer.workPackage || '')
+      ) ? {...m, quantity: Number(m.quantity || 0) - qty} : m));
     }
 
     setNewTransfer(emptyTransfer());
@@ -226,7 +234,11 @@ export default function ProjectMaterialsTransferPanel({
     if ((transfer.fromLocation || '') === 'Основной склад') {
       setWarehouseMain(prev => prev.map(m => m.name === transfer.materialName ? {...m, quantity: Number(m.quantity || 0) + qty} : m));
     } else {
-      setMaterials(prev => prev.map(m => (m.name === transfer.materialName && m.project === transfer.fromLocation) ? {...m, quantity: Number(m.quantity || 0) + qty} : m));
+      setMaterials(prev => prev.map(m => (
+        m.name === transfer.materialName &&
+        m.project === transfer.fromLocation &&
+        (m.workPackage || m.work_package || '') === (transfer.workPackage || '')
+      ) ? {...m, quantity: Number(m.quantity || 0) + qty} : m));
     }
   };
 

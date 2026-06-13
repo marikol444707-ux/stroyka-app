@@ -103,6 +103,7 @@ export default function WarehouseObjectsPanel({
                     materialName: '',
                     quantity: '',
                     unit: 'шт',
+                    workPackage: '',
                     toPerson: '',
                     toPersonRole: '',
                     fromLocation: selectedWarehouseProject,
@@ -121,6 +122,7 @@ export default function WarehouseObjectsPanel({
               onClick={() => exportToExcel(
                 projectMaterials(selectedWarehouseProject).map(material => ({
                   Наименование: material.name,
+                  Пакет: material.workPackage || material.work_package || '',
                   Единица: material.unit,
                   Количество: material.quantity,
                   Цена: material.price,
@@ -152,6 +154,11 @@ export default function WarehouseObjectsPanel({
                 <tr key={material.id} style={{ backgroundColor: material.minQuantity && material.quantity < material.minQuantity ? C.dangerLight : 'transparent' }}>
                   <td style={tblC}>
                     <b style={{ fontSize: '13px' }}>{material.name}</b>
+                    {(material.workPackage || material.work_package) && (
+                      <div style={{ fontSize: '10px', color: C.textSec, marginTop: '3px' }}>
+                        📁 {material.workPackage || material.work_package}
+                      </div>
+                    )}
                     {material.minQuantity && material.quantity < material.minQuantity && <span style={{ ...badge(C.danger, C.dangerLight, C.dangerBorder), marginLeft: '6px', fontSize: '10px' }}>Мало!</span>}
                   </td>
                   <td style={{ ...tblC, fontSize: '11px', color: C.textSec }}>{material.category || '—'}</td>
@@ -192,11 +199,20 @@ export default function WarehouseObjectsPanel({
                 <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', borderBottom: '1px solid ' + C.border }}>
                   <input
                     type='checkbox'
-                    checked={newTransfer.materialName === material.name}
-                    onChange={event => setNewTransfer({ ...newTransfer, materialName: event.target.checked ? material.name : '', unit: event.target.checked ? material.unit : newTransfer.unit, quantity: '' })}
+                    checked={newTransfer.materialName === material.name && (newTransfer.workPackage || '') === ((material.workPackage || material.work_package || ''))}
+                    onChange={event => setNewTransfer({
+                      ...newTransfer,
+                      materialName: event.target.checked ? material.name : '',
+                      unit: event.target.checked ? material.unit : newTransfer.unit,
+                      workPackage: event.target.checked ? (material.workPackage || material.work_package || '') : '',
+                      quantity: ''
+                    })}
                     style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                   />
-                  <span style={{ flex: 1, fontSize: '12px', color: C.text }}>{material.name}</span>
+                  <span style={{ flex: 1, fontSize: '12px', color: C.text }}>
+                    {material.name}
+                    {(material.workPackage || material.work_package) && <span style={{ color: C.textSec }}> · 📁 {material.workPackage || material.work_package}</span>}
+                  </span>
                   <span style={{ fontSize: '11px', color: C.textSec }}>Остаток: {material.quantity} {material.unit}</span>
                 </div>
               ))}
@@ -309,10 +325,14 @@ export default function WarehouseObjectsPanel({
                   if (newTransfer.fromLocation === 'Основной склад') {
                     setWarehouseMain(prev => prev.map(material => material.name === newTransfer.materialName ? { ...material, quantity: Number(material.quantity || 0) - quantity } : material));
                   } else {
-                    setMaterials(prev => prev.map(material => (material.name === newTransfer.materialName && material.project === newTransfer.fromLocation) ? { ...material, quantity: Number(material.quantity || 0) - quantity } : material));
+                    setMaterials(prev => prev.map(material => (
+                      material.name === newTransfer.materialName &&
+                      material.project === newTransfer.fromLocation &&
+                      (material.workPackage || material.work_package || '') === (newTransfer.workPackage || '')
+                    ) ? { ...material, quantity: Number(material.quantity || 0) - quantity } : material));
                   }
                   setShowTransferForm(false);
-                  setNewTransfer({ materialName: '', quantity: '', unit: 'шт', toPerson: '', toPersonRole: '', fromLocation: 'Основной склад', notes: '', transferDate: new Date().toISOString().split('T')[0] });
+                  setNewTransfer({ materialName: '', quantity: '', unit: 'шт', workPackage: '', toPerson: '', toPersonRole: '', fromLocation: 'Основной склад', notes: '', transferDate: new Date().toISOString().split('T')[0] });
                   notify('Передал ' + (saved.materialName || newTransfer.materialName) + ' (' + newTransfer.quantity + ' ' + newTransfer.unit + ') → ' + newTransfer.toPerson, 'material');
                 }}
                 style={btnO}

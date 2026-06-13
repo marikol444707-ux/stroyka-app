@@ -53,6 +53,11 @@ export default function ProjectMaterialsStockPanel({
               border: '1.5px solid ' + (low ? C.dangerBorder : C.border)
             }}>
               <b style={{color: C.text, fontSize: '12px', display: 'block'}}>{m.name}</b>
+              {(m.workPackage || m.work_package) && (
+                <span style={{fontSize: '10px', color: C.textSec, display: 'block', marginTop: '2px'}}>
+                  📁 {m.workPackage || m.work_package}
+                </span>
+              )}
               <div style={{display: 'flex', justifyContent: 'space-between', marginTop: '4px'}}>
                 <span style={{
                   fontSize: '11px',

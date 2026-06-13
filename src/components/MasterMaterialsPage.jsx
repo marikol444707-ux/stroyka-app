@@ -91,7 +91,11 @@ export default function MasterMaterialsPage({
                   <p style={{color:C.warning,fontSize:'11px',margin:'0 0 6px',fontWeight:'600'}}>⏳ Не подтверждено получение ({b.pendingTransfers.length} передач):</p>
                   {b.pendingTransfers.map(t=>(
                     <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0'}}>
-                      <span style={{fontSize:'12px',color:C.text}}>{fmtMeasure(t.quantity,t.unit)}</span>
+                      <span style={{fontSize:'12px',color:C.text}}>
+                        {fmtMeasure(t.quantity,t.unit)}
+                        {t.workPackage ? <span style={{color:C.textSec}}> · 📁 {t.workPackage}</span> : null}
+                        {t.fromLocation ? <span style={{color:C.textSec}}> · {t.fromLocation}</span> : null}
+                      </span>
                       <button onClick={()=>confirmMaterialReceipt(t.id)} style={{...btnGr,padding:'3px 8px',fontSize:'11px'}}><Check size={11}/>Подтвердить</button>
                     </div>
                   ))}
