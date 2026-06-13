@@ -2616,6 +2616,15 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE material_norm_suggestions ALTER COLUMN project_name TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN suggestion_type TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN status TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN severity TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN work_unit TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN material_unit TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN source TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN dedupe_key TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN created_by TYPE TEXT;
         CREATE INDEX IF NOT EXISTS idx_material_norm_suggestions_project ON material_norm_suggestions(project_name);
         CREATE INDEX IF NOT EXISTS idx_material_norm_suggestions_status ON material_norm_suggestions(status);
         CREATE INDEX IF NOT EXISTS idx_material_norm_suggestions_dedupe ON material_norm_suggestions(dedupe_key);
@@ -2835,6 +2844,9 @@ def init_db():
             created_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE staff_documents ADD COLUMN IF NOT EXISTS signed_at DATE;
+        ALTER TABLE staff_documents ADD COLUMN IF NOT EXISTS expires_at DATE;
+        ALTER TABLE staff_documents ADD COLUMN IF NOT EXISTS notes TEXT;
     """)
     seed_users = [
         ('Директор', 'admin@stroyka.ru', 'admin123', 'директор'),
