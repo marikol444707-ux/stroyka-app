@@ -244,15 +244,16 @@ export default function MasterCabinetPage(props) {
   const myConfirmed = myJournal.filter(work => work.status === 'Подтверждено');
   const myPending = myJournal.filter(work => !work.status || work.status === 'На проверке');
   const myRejected = myJournal.filter(work => work.status === 'Отклонено');
-  const sumConfirmed = myConfirmed.reduce((sum, work) => sum + Number(work.total || 0), 0);
-  const sumPending = myPending.reduce((sum, work) => sum + Number(work.total || 0), 0);
-  const sumRejected = myRejected.reduce((sum, work) => sum + Number(work.total || 0), 0);
+  const workExecutionTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? work.total ?? 0);
+  const sumConfirmed = myConfirmed.reduce((sum, work) => sum + workExecutionTotal(work), 0);
+  const sumPending = myPending.reduce((sum, work) => sum + workExecutionTotal(work), 0);
+  const sumRejected = myRejected.reduce((sum, work) => sum + workExecutionTotal(work), 0);
   const today = new Date().toISOString().split('T')[0];
   const monthAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().split('T')[0];
   const myToday = myConfirmed.filter(work => (work.confirmedAt || work.date || '').split('T')[0] === today);
   const myMonth = myConfirmed.filter(work => (work.confirmedAt || work.date || '') >= monthAgo);
-  const sumToday = myToday.reduce((sum, work) => sum + Number(work.total || 0), 0);
-  const sumMonth = myMonth.reduce((sum, work) => sum + Number(work.total || 0), 0);
+  const sumToday = myToday.reduce((sum, work) => sum + workExecutionTotal(work), 0);
+  const sumMonth = myMonth.reduce((sum, work) => sum + workExecutionTotal(work), 0);
   const myMaterialProjectNames = [...new Set(materialTransfers.filter(transfer => transfer.toPerson === user.name).map(transfer => transfer.projectName).filter(Boolean))];
   const myMaterialBalances = myMaterialProjectNames.flatMap(projectName => personalMaterialRowsForProject(projectName, user.name, user.id));
   const myPendingMaterialTransfers = materialTransfers.filter(transfer => transfer.toPerson === user.name && !transfer.signed);
@@ -262,6 +263,10 @@ export default function MasterCabinetPage(props) {
   const masterProjectOptions = selectableActiveProjects(projects);
   const selectedMasterProject = masterProjectOptions.find(project => project.id === Number(masterProjectId)) || projects.find(project => project.id === Number(masterProjectId));
   const projectRooms = masterProjectId ? rooms.filter(room => room.project === (selectedMasterProject?.name || '')) : [];
+  const userAssignedPackages = Array.isArray(user?.assignedPackages)
+    ? user.assignedPackages.filter(Boolean)
+    : (Array.isArray(user?.assigned_packages) ? user.assigned_packages.filter(Boolean) : []);
+  const estimatePackageName = (estimate) => estimate?.workPackage || estimate?.work_package || 'Основная';
   const myTools = tools.filter(tool => tool.masterName === (masterProfile?.fullName || user.name) && tool.status.includes('У мастера'));
 
   return (
@@ -486,8 +491,12 @@ export default function MasterCabinetPage(props) {
                 const projectEstimates = estimatesList.filter(estimate => estimate.projectName === projectName);
                 const myItems = [];
                 projectEstimates.forEach(estimate => (estimate.sections || []).forEach((section, sectionIndex) => (section.items || []).forEach((item, itemIndex) => {
-                  if (item.brigadeName && (item.brigadeName === user.name || (user.brigade && item.brigadeName === user.brigade))) {
-                    myItems.push({ estId: estimate.id, estName: estimate.name, sectionIdx: sectionIndex, itemIdx: itemIndex, section: section.name, ...item });
+                  const itemType = String(item.type || item.itemType || '').toLowerCase();
+                  if (itemType.includes('материал')) return;
+                  const packageAllowed = userAssignedPackages.length > 0 && userAssignedPackages.includes(estimatePackageName(estimate));
+                  const namedToMe = item.brigadeName && (item.brigadeName === user.name || (user.brigade && item.brigadeName === user.brigade));
+                  if (packageAllowed || namedToMe) {
+                    myItems.push({ estId: estimate.id, estName: estimate.name, workPackage: estimatePackageName(estimate), sectionIdx: sectionIndex, itemIdx: itemIndex, section: section.name, ...item });
                   }
                 })));
                 if (myItems.length === 0) return null;
@@ -512,6 +521,8 @@ export default function MasterCabinetPage(props) {
                       const usedMap = {};
                       usedMaterials.forEach(material => { usedMap[materialNameKey(material.name)] = material; });
                       const suggestions = project ? materialSuggestionsForWork(project.name, item.name, item.section) : [];
+                      const executionUnitPrice = Number(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit || item.contractorPricePerUnit || item.priceWork || item.price || 0);
+                      const deltaEarning = Math.round(delta * executionUnitPrice);
                       return (
                         <div key={index} style={{ padding: '10px', marginBottom: '6px', backgroundColor: C.bgWhite, borderRadius: '8px', border: '1px solid ' + C.border }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
@@ -555,7 +566,7 @@ export default function MasterCabinetPage(props) {
                                 style={{ ...inp, marginBottom: 0, width: '78px', fontSize: '12px', padding: '4px 6px' }}
                               />
                             )}
-                            <span style={{ fontSize: '11px', color: C.success, fontWeight: '600', whiteSpace: 'nowrap' }}>{Math.round(estimateItemDoneTotal(item)).toLocaleString('ru-RU') + ' ₽'}</span>
+                            <span style={{ fontSize: '11px', color: C.success, fontWeight: '600', whiteSpace: 'nowrap' }}>{(deltaEarning > 0 ? deltaEarning : Math.round(estimateItemDoneTotal(item))).toLocaleString('ru-RU') + ' ₽'}</span>
                             <button onClick={() => submitEstimateWorkDone(item, draft)} disabled={delta <= 0} style={{ ...(delta > 0 ? btnO : btnG), padding: '5px 9px', fontSize: '11px', opacity: delta > 0 ? 1 : 0.65 }}>
                               Отправить
                             </button>

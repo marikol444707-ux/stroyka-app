@@ -8,6 +8,7 @@ import AccountingDocumentsPanel from './AccountingDocumentsPanel';
 import AccountingSalaryPanel from './AccountingSalaryPanel';
 import AccountingActsPanel from './AccountingActsPanel';
 import AccountingContractsPanel from './AccountingContractsPanel';
+import AccountingPerformerClosingPanel from './AccountingPerformerClosingPanel';
 
 export default function AccountingPage(props) {
   const {
@@ -249,6 +250,32 @@ export default function AccountingPage(props) {
           deleteInterimAct={deleteInterimAct}
           brigadeContracts={brigadeContracts}
           buildBrigadeActContent={buildBrigadeActContent}
+        />
+      )}
+
+      {accountingTab === 'performerClosing' && (
+        <AccountingPerformerClosingPanel
+          C={C}
+          card={card}
+          inp={inp}
+          btnG={btnG}
+          btnB={btnB}
+          tbl={tbl}
+          tblH={tblH}
+          tblC={tblC}
+          workJournal={workJournal}
+          staff={staff}
+          accountablePayments={accountablePayments}
+          ownExpenses={ownExpenses}
+          projects={projects}
+          listSearch={listSearch}
+          setListSearch={setListSearch}
+          matchSearch={matchSearch}
+          showPreview={showPreview}
+          interimActs={interimActs}
+          contracts={contracts}
+          refreshData={refreshData}
+          btnO={btnO}
         />
       )}
 

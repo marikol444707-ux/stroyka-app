@@ -125,6 +125,8 @@ export default function EstimatesListView({
         normalCount={normal.length}
         templatesCount={templates.length}
         groupedCount={groupedByProject.length}
+        showArchivedEstimates={showArchivedEstimates}
+        setShowArchivedEstimates={setShowArchivedEstimates}
       />
     </>
   );

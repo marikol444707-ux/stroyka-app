@@ -28,6 +28,7 @@ export default function PersonnelPage({
   expandedMasterProject,
   expandedPieceworkProject,
   expandedStaffId,
+  estimatesList = [],
   fileSrc,
   findUserForStaff,
   fmtMeasure,
@@ -82,6 +83,19 @@ export default function PersonnelPage({
   workJournal,
   workedDays,
 }) {
+  const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? work.total ?? 0);
+  const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
+  const estimatePackage = (est) => est?.workPackage || est?.work_package || 'Основная';
+  const packageOptionsForProjects = (projectNames=[]) => {
+    const names = Array.isArray(projectNames) ? projectNames.filter(Boolean) : [];
+    const packages = (estimatesList||[])
+      .filter(est => names.length===0 || names.includes(est.projectName||est.project_name||est.project||''))
+      .map(estimatePackage)
+      .filter(Boolean);
+    return [...new Set(packages)].sort((a,b)=>a.localeCompare(b,'ru'));
+  };
+  const accessProjectRoles = ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
+  const packageAccessRoles = ['мастер','субподрядчик','бригадир','прораб','главный_инженер'];
   return (
     <div>
       <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
@@ -180,7 +194,7 @@ export default function PersonnelPage({
                           <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Работы по проектам:</b>
                           {[...new Set(workJournal.filter(j=>j.masterId===u.id).map(j=>j.project))].map(projectName=>{
                             const pWorks=workJournal.filter(j=>j.masterId===u.id&&j.project===projectName);
-                            const pTotal=pWorks.reduce((s,w)=>s+(w.total||0),0);
+                            const pTotal=pWorks.reduce((s,w)=>s+workPayTotal(w),0);
                             const isProjectOpen=expandedMasterProject===u.id+'-'+projectName;
                             return (
                               <div key={projectName} style={{marginBottom:'8px',borderRadius:'8px',border:'1.5px solid '+C.border,overflow:'hidden'}}>
@@ -199,7 +213,7 @@ export default function PersonnelPage({
                                           <span style={{fontSize:'12px',color:C.text}}>{w.description}</span>
                                           <p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{fmtMeasure(w.quantity,w.unit)+' · '+w.date}</p>
                                         </div>
-                                        <b style={{fontSize:'12px',color:C.success}}>{(w.total||0).toLocaleString()+' ₽'}</b>
+                                        <b style={{fontSize:'12px',color:C.success}}>{workPayTotal(w).toLocaleString()+' ₽'}</b>
                                       </div>
                                     ))}
                                   </div>
@@ -222,7 +236,7 @@ export default function PersonnelPage({
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
             <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сотрудники компании</b>
-            <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад'});}} style={btnO}><Plus size={14}/>Добавить</button>
+            <button onClick={()=>{setShowForm(!showForm);setEditingItem(null);setNewStaff(emptyStaffForm());}} style={btnO}><Plus size={14}/>Добавить</button>
           </div>
           {showForm&&(
             <div style={{...card,padding:'20px',marginBottom:'16px'}}>
@@ -255,10 +269,10 @@ export default function PersonnelPage({
                     <input type='email' placeholder='Email для входа' value={newStaff.email} onChange={e=>setNewStaff({...newStaff,email:e.target.value,emailWork:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input type='text' placeholder='Пароль' value={newStaff.password} onChange={e=>setNewStaff({...newStaff,password:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                   </div>
-                  {['прораб','технадзор','стройконтроль'].includes(newStaff.systemRole)&&(()=>{const ap=newStaff.assignedProjects||[];return(
+                  {accessProjectRoles.includes(newStaff.systemRole)&&(()=>{const ap=newStaff.assignedProjects||[];return(
                     <div style={{marginTop:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
                       <b style={{fontSize:'11px',color:C.text,display:'block',marginBottom:'6px'}}>📍 Назначить объекты (приказ директора)</b>
-                      <p style={{color:C.textMuted,fontSize:'10px',margin:'0 0 8px'}}>Прораб увидит только эти объекты. Если ничего не выбрано — все.</p>
+                      <p style={{color:C.textMuted,fontSize:'10px',margin:'0 0 8px'}}>Исполнитель увидит только назначенные объекты. Если ничего не выбрано — доступ не ограничен объектами.</p>
                       <div style={{maxHeight:'140px',overflowY:'auto',display:'flex',flexDirection:'column',gap:'4px'}}>
                         {projects.filter(p=>p.status!=='Завершён').map(pr=>(
                           <label key={pr.id} style={{display:'flex',alignItems:'center',gap:'6px',cursor:'pointer',padding:'4px 6px',borderRadius:'6px',backgroundColor:ap.includes(pr.name)?C.successLight:'transparent'}}>
@@ -267,6 +281,22 @@ export default function PersonnelPage({
                           </label>
                         ))}
                       </div>
+                    </div>
+                  );})()}
+                  {packageAccessRoles.includes(newStaff.systemRole)&&(()=>{const selectedProjects=newStaff.assignedProjects?.length?newStaff.assignedProjects:(newStaff.project?[newStaff.project]:[]);const packages=packageOptionsForProjects(selectedProjects);const apk=newStaff.assignedPackages||[];return(
+                    <div style={{marginTop:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
+                      <b style={{fontSize:'11px',color:C.text,display:'block',marginBottom:'6px'}}>📁 Пакеты работ и смет</b>
+                      <p style={{color:C.textMuted,fontSize:'10px',margin:'0 0 8px'}}>Для электрика выбираем «Электрика», для вентиляции — «Вентиляция». Так мастер не увидит чужие сметы и работы.</p>
+                      {packages.length===0?<p style={{color:C.textMuted,fontSize:'11px',margin:0}}>По выбранным объектам активных пакетов смет пока нет.</p>:(
+                        <div style={{maxHeight:'150px',overflowY:'auto',display:'flex',flexWrap:'wrap',gap:'6px'}}>
+                          {packages.map(pkg=>(
+                            <label key={pkg} style={{display:'flex',alignItems:'center',gap:'6px',cursor:'pointer',padding:'5px 8px',borderRadius:'999px',border:'1px solid '+(apk.includes(pkg)?C.info:C.border),backgroundColor:apk.includes(pkg)?C.infoLight:'transparent'}}>
+                              <input type='checkbox' checked={apk.includes(pkg)} onChange={()=>{const next=apk.includes(pkg)?apk.filter(n=>n!==pkg):[...apk,pkg];setNewStaff({...newStaff,assignedPackages:next});}}/>
+                              <span style={{fontSize:'11px',color:C.text}}>{pkg}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );})()}
                 </div>
@@ -370,7 +400,7 @@ export default function PersonnelPage({
                       </td>
                       <td style={tblC} onClick={e=>e.stopPropagation()}>
                         <div style={{display:'flex',gap:'4px'}}>
-                          <button onClick={()=>{const access=findUserForStaff(s);setEditingItem(s);setNewStaff({...s,salary:String(s.salary||''),email:access?.email||s.emailWork||s.emailPersonal||'',password:'',systemRole:access?.role||''});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button>
+                          <button onClick={()=>{const access=findUserForStaff(s);setEditingItem(s);setNewStaff({...emptyStaffForm(),...s,salary:String(s.salary||''),email:access?.email||s.emailWork||s.emailPersonal||'',password:'',systemRole:access?.role||'',assignedProjects:access?.assignedProjects||access?.assigned_projects||s.assignedProjects||[],assignedPackages:access?.assignedPackages||access?.assigned_packages||s.assignedPackages||[]});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button>
                           <button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button>
                         </div>
                       </td>
@@ -451,7 +481,7 @@ export default function PersonnelPage({
                               {staffProfile.workJournal.length>0&&(
                                 <div style={{...card,padding:'12px',marginTop:'14px'}}>
                                   <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>💼 Последние работы ({staffProfile.workJournal.length})</b>
-                                  {staffProfile.workJournal.slice(0,8).map((w,i)=>(<div key={i} style={{padding:'4px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between'}}><span>{w.project} · {w.description} · {w.quantity} {w.unit}</span><b style={{color:C.success}}>{w.total.toLocaleString()} ₽</b></div>))}
+                                  {staffProfile.workJournal.slice(0,8).map((w,i)=>(<div key={i} style={{padding:'4px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between'}}><span>{w.project} · {w.description} · {w.quantity} {w.unit}</span><b style={{color:C.success}}>{workPayTotal(w).toLocaleString()} ₽</b></div>))}
                                 </div>
                               )}
                             </div>

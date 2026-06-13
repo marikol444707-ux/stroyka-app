@@ -4,6 +4,7 @@ const ACCOUNTING_TAB_LABELS = {
   summary: '📊 Сводка',
   contracts: '🧾 Договоры',
   acts: '📄 Акты',
+  performerClosing: '📘 Закрытие',
   payments: '💸 Платежи',
   documents: '🏗 По объектам',
   salary: '👥 Зарплата',
@@ -20,7 +21,7 @@ export default function AccountingTabsNav({
   btnO,
   btnG,
 }) {
-  const tabs = ['summary', 'contracts', 'acts', 'payments', 'documents', 'salary', 'expenses', 'audit']
+  const tabs = ['summary', 'contracts', 'acts', 'performerClosing', 'payments', 'documents', 'salary', 'expenses', 'audit']
     .filter(tab => tab !== 'audit' || isLeadership);
 
   return (

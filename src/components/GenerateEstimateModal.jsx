@@ -1,5 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import { resolveEstimatePackage } from '../utils/estimatePackage';
 
 export default function GenerateEstimateModal({
   showGenerateEstimate,
@@ -74,7 +75,19 @@ export default function GenerateEstimateModal({
             <option value=''>Без прайс-листа</option>
             {pricelists.map(pl=><option key={pl.id} value={pl.id}>📋 {pl.name}</option>)}
           </select>
-          <input placeholder='Название сметы' value={generateForm.name} onChange={e=>setGenerateForm({...generateForm,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+          <input
+            placeholder='Название сметы'
+            value={generateForm.name}
+            onChange={e=>{
+              const next = {
+                ...generateForm,
+                name: e.target.value,
+                workPackage: resolveEstimatePackage(generateForm.workPackage, e.target.value, generateForm.description),
+              };
+              setGenerateForm({...next,version:nextEstimateVersionFor(next)});
+            }}
+            style={{...inp,marginBottom:0}}
+          />
           <input placeholder='Версия' value={generateForm.version||nextEstimateVersionFor(generateForm)} onChange={e=>setGenerateForm({...generateForm,version:e.target.value})} style={{...inp,marginBottom:0}}/>
           <input placeholder='Площадь (м²)' type='number' step='any' inputMode='decimal' value={generateForm.area} onChange={e=>setGenerateForm({...generateForm,area:e.target.value})} style={{...inp,marginBottom:0}}/>
           <select value={generateForm.smetaType||'Заказчик'} onChange={e=>{const next={...generateForm,smetaType:e.target.value};setGenerateForm({...next,version:nextEstimateVersionFor(next)});}} style={{...inp,marginBottom:0}}>

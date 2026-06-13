@@ -15,6 +15,8 @@ import ProjectMaterialsControlPanel from './components/ProjectMaterialsControlPa
 import ProjectMaterialsStockPanel from './components/ProjectMaterialsStockPanel';
 import ProjectMaterialsTransferPanel from './components/ProjectMaterialsTransferPanel';
 import ProjectFinancePanel from './components/ProjectFinancePanel';
+import ProjectEconomyPanel from './components/ProjectEconomyPanel';
+import ProjectObjectLinksPanel from './components/ProjectObjectLinksPanel';
 import ProjectDocumentsRegistryPanel from './components/ProjectDocumentsRegistryPanel';
 import ProjectLettersPanel from './components/ProjectLettersPanel';
 import ProjectBrigadeCalculationTab from './components/ProjectBrigadeCalculationTab';
@@ -22,6 +24,7 @@ import ProjectHiddenWorksActsPanel from './components/ProjectHiddenWorksActsPane
 import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
+import ProjectScheduleSummaryPanel from './components/ProjectScheduleSummaryPanel';
 import ProjectWorkJournalEditModal from './components/ProjectWorkJournalEditModal';
 import ProjectWorkJournalTableModal from './components/ProjectWorkJournalTableModal';
 import ProjectMaterialInspectionEditModal from './components/ProjectMaterialInspectionEditModal';
@@ -103,6 +106,7 @@ import DashboardProductionSummaryPanel from './components/DashboardProductionSum
 import DashboardActivityPanel from './components/DashboardActivityPanel';
 import ConfirmWorkAcceptanceModal from './components/ConfirmWorkAcceptanceModal';
 import SystemOwnerCabinet from './components/SystemOwnerCabinet';
+import { resolveEstimatePackage } from './utils/estimatePackage';
 import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollText, BarChart3, Handshake, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
 installAuthFetch();
@@ -1223,7 +1227,8 @@ function App() {
   const [newWarehouse, setNewWarehouse] = useState({name:'',city:'',address:'',notes:''});
   const [newMovement, setNewMovement] = useState({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
   const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}]});
-  const [newStaff, setNewStaff] = useState({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:''});
+  const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
+  const [newStaff, setNewStaff] = useState(emptyStaffForm());
   const [staffExpandedSections, setStaffExpandedSections] = useState({access:false,docs:false,finance:false,extra:false});
   const [expandedStaffId, setExpandedStaffId] = useState(null);
   const [staffProfile, setStaffProfile] = useState(null);
@@ -2521,11 +2526,13 @@ function App() {
     const profile = masterProfiles.find(p=>p.userId===act.masterId);
     const req = companyRequisites||{};
     const companyNameDoc = req.fullName||req.shortName||companyName||'_____';
-    const mw = workJournal.filter(j=>j.masterId===act.masterId&&j.project===act.project&&j.status==='Подтверждено');
+    const inPeriod = (d)=>{ if(!d)return false; const day=String(d).split('T')[0]; return day>=(act.periodStart||'0000-01-01') && day<=(act.periodEnd||'9999-12-31'); };
+    const workPayUnitPrice = (wk)=>Number(wk.executionPricePerUnit||wk.pricePerUnit||0) || (Number(wk.executionTotal||wk.total||0)/Math.max(1,Number(wk.quantity||0)));
+    const workPayTotal = (wk)=>Number(wk.executionTotal||wk.total||0);
+    const mw = workJournal.filter(j=>j.masterId===act.masterId&&j.project===act.project&&j.status==='Подтверждено'&&inPeriod(j.confirmedAt||j.date));
     const payments = actPayments.filter(p=>p.actId===act.id);
     const toolDeductions = tools.filter(t=>t.masterName===act.masterName&&t.issueType==='В счёт зарплаты').reduce((s,t)=>s+t.cost,0);
     // Возмещения "Моих трат" в рамках периода и объекта
-    const inPeriod = (d)=>{ if(!d)return false; const dt=new Date(d); const a=new Date(act.periodStart||0); const b=new Date(act.periodEnd||'2099-12-31'); return dt>=a && dt<=b; };
     const ownExpsReimbursed = (ownExpenses||[]).filter(e=>(e.employeeId===act.masterId||e.employeeName===act.masterName)&&e.projectName===act.project&&e.status==='Возмещено'&&inPeriod(e.date));
     const ownExpReimbSum = ownExpsReimbursed.reduce((s,e)=>s+Number(e.amount||0),0);
     // Подотчёт выданный мастеру по объекту в периоде
@@ -2536,7 +2543,7 @@ function App() {
     html += '<p>Объект: <b>'+act.project+'</b> | Период: '+act.periodStart+' — '+act.periodEnd+'</p>';
     if (profile) html += '<p>ИНН: '+profile.inn+' | '+profile.bankName+' | Р/с: '+profile.bankAccount+'</p>';
     html += '<table><tr><th>N</th><th>Работа</th><th>Помещение</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
-    mw.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+(wk.pricePerUnit||0).toLocaleString()+'</td><td>'+(wk.total||0).toLocaleString()+'</td></tr>'; });
+    mw.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+workPayUnitPrice(wk).toLocaleString()+'</td><td>'+workPayTotal(wk).toLocaleString()+'</td></tr>'; });
     const totalAmt=act.totalAmount||0; const paidAmt=act.paidAmount||0;
     html += '<tr><td colspan="6"><b>ИТОГО начислено:</b></td><td><b>'+totalAmt.toLocaleString()+' руб.</b></td></tr>';
     if (toolDeductions>0) html += '<tr><td colspan="6">Удержания (инструмент):</td><td style="color:red">-'+toolDeductions.toLocaleString()+' руб.</td></tr>';
@@ -2666,7 +2673,7 @@ function App() {
     return (users||[]).find(u=>normalizePersonKey(u.name)===name) || null;
   };
   const staffAccessRoles = Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner'].includes(r));
-  const upsertStaffAccess = async ({staffRow={}, fullName, email, password, role, projectName, assignedProjects=[]}) => {
+  const upsertStaffAccess = async ({staffRow={}, fullName, email, password, role, projectName, assignedProjects=[], assignedPackages=[]}) => {
     const cleanEmail = String(email||'').trim().toLowerCase();
     const cleanPassword = String(password||'').trim();
     if (!cleanEmail || !role) throw new Error('Нужны системная роль и email');
@@ -2683,6 +2690,8 @@ function App() {
       role,
       projectId: existing?.projectId || existing?.project_id || projectRow?.id || '',
       projectName: project,
+      assignedProjects: Array.isArray(assignedProjects) ? assignedProjects : [],
+      assignedPackages: Array.isArray(assignedPackages) ? assignedPackages : [],
       active: true
     };
     if (!cleanPassword) delete payload.password;
@@ -2694,8 +2703,9 @@ function App() {
       accessUser = await readApiResult(await fetch(API+'/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
     }
     const ap = Array.isArray(assignedProjects) ? assignedProjects : [];
-    if (accessUser?.id && (ap.length>0 || ['прораб','технадзор','стройконтроль'].includes(role))) {
-      await readApiResult(await fetch(API+'/users/'+accessUser.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap})}));
+    const apk = Array.isArray(assignedPackages) ? assignedPackages : [];
+    if (accessUser?.id && (ap.length>0 || apk.length>0 || ['прораб','технадзор','стройконтроль','мастер','субподрядчик'].includes(role))) {
+      await readApiResult(await fetch(API+'/users/'+accessUser.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap,assignedPackages:apk})}));
     }
     return {accessUser, updatedExisting: !!existing};
   };
@@ -3352,6 +3362,11 @@ function App() {
     const single = user.project_name || user.projectName;
     return single ? [single] : [];
   };
+  const myAssignedPackages = () => {
+    if(!user) return [];
+    const ap = user.assignedPackages || user.assigned_packages;
+    return Array.isArray(ap) ? ap.filter(Boolean) : [];
+  };
   const visibleProjects = (list) => {
     if(!user) return list||[];
     // Руководство и финансы видят все
@@ -3362,6 +3377,17 @@ function App() {
       if(mine.length>0) return (list||[]).filter(p=>mine.includes(p.name));
     }
     return list||[];
+  };
+  const visibleEstimatesForCurrentUser = (list) => {
+    if(!user) return list||[];
+    if(['директор','зам_директора','бухгалтер','сметчик','главный_инженер'].includes(user.role)) return list||[];
+    const projectNames = myAssignedProjects();
+    const packageNames = myAssignedPackages();
+    return (list||[]).filter(est=>{
+      const projectOk = projectNames.length===0 || projectNames.includes(est.projectName||est.project_name||est.project||'');
+      const packageOk = packageNames.length===0 || packageNames.includes(estimatePackage(est));
+      return projectOk && packageOk;
+    });
   };
   const selectableActiveProjects = (list=projects) => visibleProjects(list||[]).filter(p=>!p.archived&&p.status!=='Завершён');
   const visibleActiveProjects = (list=projects) => selectableActiveProjects(list||[]);
@@ -3854,7 +3880,7 @@ function App() {
   };
   const activeEstimatesForProject = (p, kind='Заказчик', sourceEstimates=null) => {
     const groups = {};
-    (sourceEstimates||estimatesList||[]).filter(e=>
+    visibleEstimatesForCurrentUser(sourceEstimates||estimatesList||[]).filter(e=>
       (e.projectName===p.name||Number(e.projectId)===Number(p.id)) &&
       estimateKind(e)===kind
     ).forEach(e=>{
@@ -7815,8 +7841,181 @@ function App() {
     const other=total-(cat.works||0)-(cat.materials||0)-(cat.unexpected||0);
     return {works:cat.works||0,materials:cat.materials||0,unexpected:cat.unexpected||0,other:other,total:total};
   };
-  const projectRealProgress = (p) => {
-    if(!p) return 0;
+  const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? work?.total ?? 0);
+  const workCustomerTotal = (work) => Number(work?.customerTotal ?? work?.customer_total ?? work?.total ?? 0);
+	  const projectEconomy = (p) => {
+	    if (!p) return null;
+	    const planDone = projectPlanDone(p);
+	    const activeEstimates = activeEstimatesForProject(p, 'Заказчик');
+    const packages = [...new Set(activeEstimates.map(est => estimatePackage(est)).filter(Boolean))];
+    const materialSummary = materialControlSummaryForProject(p.name);
+    const spent = projectBudgetSpent(p);
+    const projectWorks = (workJournal || []).filter(w => w.project === p.name);
+    const confirmedWorks = projectWorks.filter(w => w.status === 'Подтверждено');
+    const pendingWorks = projectWorks.filter(w => !w.status || w.status === 'На проверке' || w.status === 'Автоматически из сметы');
+    const executionConfirmed = confirmedWorks.reduce((sum, w) => sum + workExecutionTotal(w), 0);
+    const executionPending = pendingWorks.reduce((sum, w) => sum + workExecutionTotal(w), 0);
+    const confirmedCustomerFromJournal = confirmedWorks.reduce((sum, w) => sum + workCustomerTotal(w), 0);
+    const customerClosed = Math.max(Number(planDone.done || 0), confirmedCustomerFromJournal);
+    const legacyWorkCost = Math.max(0, Number(spent.works || 0) - executionConfirmed);
+    const otherCost = Number(spent.other || 0) + Number(spent.unexpected || 0);
+    const currentCost = executionConfirmed + legacyWorkCost + Number(spent.materials || 0) + otherCost;
+    const forecastCost = executionConfirmed + executionPending + legacyWorkCost + Number(spent.materials || 0) + otherCost;
+    const marginClosed = customerClosed - currentCost;
+    return {
+      customerPlan: Number(planDone.plan || 0),
+      customerClosed,
+      customerProgress: Number(planDone.plan || 0) > 0 ? (customerClosed / Number(planDone.plan || 0)) * 100 : 0,
+      activeEstimates: activeEstimates.length,
+      packages,
+      confirmedWorks: confirmedWorks.length,
+      pendingWorks: pendingWorks.length,
+      executionConfirmed,
+      executionPending,
+      legacyWorkCost,
+      materialPlan: Number(materialSummary?.planSum || 0),
+      materialRows: Number(materialSummary?.planRows?.length || 0),
+      materialCost: Number(spent.materials || 0),
+      otherCost,
+      marginClosed,
+      marginClosedPct: customerClosed > 0 ? (marginClosed / customerClosed) * 100 : 0,
+	      marginForecast: Number(planDone.plan || 0) - forecastCost,
+	    };
+	  };
+	  const projectObjectLinks = (p) => {
+	    if (!p) return [];
+	    const projectName = p.name || '';
+	    const projectId = Number(p.id);
+	    const rowProject = (row) => row?.projectName || row?.project_name || row?.project || row?.location || '';
+	    const projectRows = (list) => (list || []).filter(row => rowProject(row) === projectName || (projectId && Number(row?.projectId || row?.project_id) === projectId));
+	    const projectEstimates = visibleEstimatesForCurrentUser(estimatesList).filter(e => (e.projectName === projectName || e.project === projectName || (projectId && Number(e.projectId) === projectId)) && !isArchivedEstimate(e));
+	    const activeEstimateCount = activeEstimatesForProject(p, 'Заказчик').length;
+	    const projectRooms = (rooms || []).filter(r => r.project === projectName);
+	    const roomChecks = projectRooms.map(roomCompleteness);
+	    const missingRooms = roomChecks.filter(x => x.status === 'Не хватает данных').length;
+	    const measurementDocs = projectRows(projectMeasurements);
+	    const measurementDrafts = projectRows(measurementRoomDrafts).filter(d => d.status === 'Черновик ИИ');
+	    const projectWorks = (workJournal || []).filter(w => w.project === projectName);
+	    const pendingWorks = projectWorks.filter(w => !w.status || w.status === 'На проверке' || w.status === 'Автоматически из сметы').length;
+	    const hiddenCount = projectRows(hiddenActs).length;
+	    const inspections = projectRows(materialInspections);
+	    const inspectionPending = inspections.filter(mi => !mi.inspected).length;
+	    const cables = projectRows(cableJournal);
+	    const cablePending = cables.filter(cb => !cb.installedAt).length;
+	    const materialSummary = materialControlSummaryForProject(projectName);
+	    const materialIssues = (materialSummary.toBuyRows?.length || 0)
+	      + (materialSummary.outsideRows?.length || 0)
+	      + (materialSummary.mismatchRows?.length || 0)
+	      + (materialSummary.stockMismatchRows?.length || 0)
+	      + (materialSummary.usedOverControlRows?.length || 0);
+	    const docs = projectRows(projectDocuments);
+	    const letters = projectRows(projectLetters);
+	    const aiOpen = aiFindingsForProject(projectName).length;
+	    const aiTasksOpen = aiTasksForProject(projectName).length;
+	    const payments = projectRows(projectPayments);
+	    const objectExpenses = (ownExpenses || []).filter(e => rowProject(e) === projectName);
+	    const items = [
+	      {
+	        key: 'estimates',
+	        tab: 'Смета',
+	        icon: '📋',
+	        label: 'Сметы',
+	        count: projectEstimates.length,
+	        hint: activeEstimateCount + ' активных пакетов',
+	        status: projectEstimates.length ? 'перейти к сметам' : 'нужно загрузить смету',
+	        color: projectEstimates.length ? C.success : C.warning,
+	        bg: projectEstimates.length ? C.successLight : C.warningLight,
+	        border: projectEstimates.length ? C.successBorder : C.warningBorder,
+	      },
+	      {
+	        key: 'measurements',
+	        tab: 'Проект / Обмеры',
+	        icon: '📐',
+	        label: 'Обмеры',
+	        count: measurementDocs.length + projectRooms.length,
+	        hint: projectRooms.length + ' помещений, ' + measurementDocs.length + ' исходников',
+	        status: missingRooms ? 'неполных помещений: ' + missingRooms : (measurementDrafts.length ? 'черновиков ИИ: ' + measurementDrafts.length : 'обмеры без критики'),
+	        color: missingRooms ? C.warning : C.success,
+	        bg: missingRooms ? C.warningLight : C.bg,
+	        border: missingRooms ? C.warningBorder : C.border,
+	      },
+	      {
+	        key: 'journal',
+	        tab: 'Производство работ',
+	        icon: '📖',
+	        label: 'ЖПР',
+	        count: projectWorks.length,
+	        hint: pendingWorks ? pendingWorks + ' на проверке' : 'журнал работ',
+	        status: pendingWorks ? 'требуется подтверждение' : '',
+	        color: pendingWorks ? C.warning : C.accent,
+	        bg: pendingWorks ? C.warningLight : C.bg,
+	        border: pendingWorks ? C.warningBorder : C.border,
+	      },
+	      {
+	        key: 'materials',
+	        tab: 'Материалы',
+	        icon: '📦',
+	        label: 'Материалы',
+	        count: materialSummary.rows.length,
+	        hint: 'план ' + materialSummary.planRows.length + ', поставлено ' + materialSummary.suppliedRows.length,
+	        status: materialIssues ? 'вопросов: ' + materialIssues : 'сопоставление без критики',
+	        color: materialIssues ? C.warning : C.success,
+	        bg: materialIssues ? C.warningLight : C.bg,
+	        border: materialIssues ? C.warningBorder : C.border,
+	      },
+	      {
+	        key: 'journals',
+	        tab: 'Главный',
+	        icon: '📚',
+	        label: 'Журналы',
+	        count: hiddenCount + inspections.length + cables.length,
+	        hint: 'АОСР ' + hiddenCount + ', входной ' + inspections.length + ', кабель ' + cables.length,
+	        status: (inspectionPending || cablePending) ? 'ожидают проверки/монтажа: ' + (inspectionPending + cablePending) : '',
+	        color: (inspectionPending || cablePending) ? C.warning : C.accent,
+	        bg: (inspectionPending || cablePending) ? C.warningLight : C.bg,
+	        border: (inspectionPending || cablePending) ? C.warningBorder : C.border,
+	      },
+	      {
+	        key: 'documents',
+	        tab: '📁 Реестр',
+	        icon: '🗂',
+	        label: 'Документы',
+	        count: docs.length + letters.length,
+	        hint: 'реестр ' + docs.length + ', переписка ' + letters.length,
+	        color: C.info,
+	        bg: C.bg,
+	        border: C.border,
+	      },
+	      {
+	        key: 'ai',
+	        tab: 'ИИ-контроль',
+	        icon: '🤖',
+	        label: 'ИИ-контроль',
+	        count: aiOpen + aiTasksOpen,
+	        hint: aiOpen + ' замечаний, ' + aiTasksOpen + ' поручений',
+	        status: (aiOpen || aiTasksOpen) ? 'есть вопросы к решению' : 'открытых задач нет',
+	        color: (aiOpen || aiTasksOpen) ? C.warning : C.success,
+	        bg: (aiOpen || aiTasksOpen) ? C.warningLight : C.successLight,
+	        border: (aiOpen || aiTasksOpen) ? C.warningBorder : C.successBorder,
+	      },
+	    ];
+	    if (isFinanceRole()) {
+	      items.push({
+	        key: 'finance',
+	        tab: 'Финансы',
+	        icon: '💰',
+	        label: 'Финансы',
+	        count: payments.length + objectExpenses.length,
+	        hint: payments.length + ' оплат, ' + objectExpenses.length + ' расходов',
+	        color: C.success,
+	        bg: C.bg,
+	        border: C.border,
+	      });
+	    }
+	    return items;
+	  };
+	  const projectRealProgress = (p) => {
+	    if(!p) return 0;
     const {plan,done}=projectPlanDone(p);
     if(plan>0) { const pct=done/plan*100; return done>0&&pct<1?1:Math.round(pct); }
     // Если нет сметы, считаем по бюджету и фактическим тратам
@@ -8732,14 +8931,15 @@ function App() {
     else await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     if (hasEmail && hasRole && (hasPassword || existingAccess?.id)) {
       const ap = Array.isArray(newStaff.assignedProjects)?newStaff.assignedProjects:[];
+      const apk = Array.isArray(newStaff.assignedPackages)?newStaff.assignedPackages:[];
       try {
-        const result = await upsertStaffAccess({staffRow:newStaff, fullName, email:accessEmail, password:accessPassword, role:newStaff.systemRole, projectName:newStaff.project||'', assignedProjects:ap});
+        const result = await upsertStaffAccess({staffRow:newStaff, fullName, email:accessEmail, password:accessPassword, role:newStaff.systemRole, projectName:newStaff.project||'', assignedProjects:ap, assignedPackages:apk});
         if (result.updatedExisting) alert('Пользователь с email '+accessEmail+' уже существует — роль, объект и пароль при вводе обновлены. Сотрудник сохранён.');
       } catch(e) {
         alert('Сотрудник сохранён, но доступ создать/обновить не удалось: '+(e.message||e));
       }
     }
-    await refreshData(); setNewStaff({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:''}); setEditingItem(null); setShowForm(false);
+    await refreshData(); setNewStaff(emptyStaffForm()); setEditingItem(null); setShowForm(false);
   };
 
   const resetStaffAccessPassword = async (accessUser, staffRow) => {
@@ -8747,7 +8947,7 @@ function App() {
     if (!password) return;
     const cleanPassword = password.trim();
     try {
-      await upsertStaffAccess({staffRow, fullName:accessUser.name||staffRow.name, email:accessUser.email, password:cleanPassword, role:accessUser.role||'мастер', projectName:accessUser.projectName||accessUser.project_name||staffRow.project||'', assignedProjects:accessUser.assignedProjects||accessUser.assigned_projects||[]});
+      await upsertStaffAccess({staffRow, fullName:accessUser.name||staffRow.name, email:accessUser.email, password:cleanPassword, role:accessUser.role||'мастер', projectName:accessUser.projectName||accessUser.project_name||staffRow.project||'', assignedProjects:accessUser.assignedProjects||accessUser.assigned_projects||[], assignedPackages:accessUser.assignedPackages||accessUser.assigned_packages||[]});
       await refreshData();
       alert('Пароль обновлён: '+(accessUser.email||staffRow.name));
     } catch(e) {
@@ -8767,7 +8967,7 @@ function App() {
       return;
     }
     try {
-      const result = await upsertStaffAccess({staffRow, fullName:staffRow.name, email, password, role, projectName:staffRow.project||'', assignedProjects:staffRow.assignedProjects||[]});
+      const result = await upsertStaffAccess({staffRow, fullName:staffRow.name, email, password, role, projectName:staffRow.project||'', assignedProjects:staffRow.assignedProjects||[], assignedPackages:staffRow.assignedPackages||[]});
       await refreshData();
       alert(result.updatedExisting?'Доступ обновлён: '+email:'Доступ выдан: '+email);
     } catch(e) {
@@ -8811,7 +9011,30 @@ function App() {
     if (overReason === null) return;
     usedMats = applyMaterialOverNormReason(project.name, usedMats, overReason);
     const newSections = est.sections.map((s,si)=>si===mi.sectionIdx?{...s,items:s.items.map((it,ii)=>ii===mi.itemIdx?{...it,doneQuantity:raw}:it)}:s);
-    const updated = {...est, sections:newSections, _workJournalMaterials:{[workKey]:usedMats}};
+    const customerPricePerUnit = toNum(mi.pricePerUnit || mi.price || 0) || (toNum(mi.priceWork || 0) + toNum(mi.priceMaterial || 0));
+    const fixedExecutionPrice = toNum(mi.executionPricePerUnit || mi.internalPricePerUnit || mi.masterPricePerUnit || mi.contractorPricePerUnit || mi.executorPricePerUnit);
+    const executionCoeff = toNum(mi.executionCoefficient || mi.internalCoefficient || mi.masterCoefficient || mi.contractorCoefficient || mi.executorCoefficient);
+    const executionPricePerUnit = fixedExecutionPrice > 0 ? fixedExecutionPrice : (executionCoeff > 0 ? customerPricePerUnit * executionCoeff : customerPricePerUnit);
+    const executionPriceMode = fixedExecutionPrice > 0 ? 'fixed' : (executionCoeff > 0 ? 'coefficient' : 'customer_fallback');
+    const updated = {
+      ...est,
+      sections:newSections,
+      _workJournalMaterials:{[workKey]:usedMats},
+      _workJournalParams:{[workKey]:{
+        ...params,
+        roomId: params.roomId ? Number(params.roomId) : null,
+        roomName: params.roomName || roomCheck?.room?.name || '',
+        surface: params.surface || 'Стены',
+        workPackage: estimatePackage(est),
+        estimateItemName: mi.name,
+        estimateItemKey: workKey,
+        customerPricePerUnit,
+        customerTotal: deltaQty * customerPricePerUnit,
+        executionPricePerUnit,
+        executionTotal: deltaQty * executionPricePerUnit,
+        executionPriceMode,
+      }},
+    };
     const res = await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
     if (!res.ok) {
       const er = await res.json().catch(()=>({}));
@@ -8874,7 +9097,7 @@ function App() {
       const total = workQty*ppu;
       const reason = overrunReasons[itemId] || '';
       const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>{const over=toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1;return {name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',autoNorm:!!m.autoNorm,overNorm:over,overNormReason:over?reason:''};});
-      const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats})});
+      const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,customerPricePerUnit:ppu,customerTotal:total,executionPricePerUnit:ppu,executionTotal:total,executionPriceMode:'pricelist',date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats,workPackage:'Прайс',roomId:workData.roomId?Number(workData.roomId):null,roomName:workData.roomName||'',surface:workData.surface||'Стены',estimateItemName:item.name,estimateItemKey:'pricelist:'+item.id})});
       if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось списать материалы: '+(er.detail||'ошибка'));return;}
       if (workData.roomId) {
         await fetch(API+'/room-works',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({roomId:Number(workData.roomId),project:project.name,roomName:workData.roomName||'',masterId:user.id,masterName:user.name,description:item.name,surface:workData.surface||'Стены',unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,date:now.toISOString().split('T')[0],photoUrl:workData.photoUrl||''})});
@@ -8898,14 +9121,21 @@ function App() {
   const confirmJ = async (e, acceptedQty, comment) => {
     const planQty = toNum(e.quantity||0);
     const accepted = (acceptedQty===undefined||acceptedQty===null||acceptedQty==='')?planQty:toNum(acceptedQty);
-    const ppu = Number(e._ppu||e.pricePerUnit||0) || (Number(e.total||0)/Math.max(1, planQty));
+    const ppu = Number(e._ppu||e.executionPricePerUnit||e.pricePerUnit||0) || (Number(e.executionTotal||e.total||0)/Math.max(1, planQty));
+    const customerPpu = Number(e.customerPricePerUnit||0) || (Number(e.customerTotal||0)/Math.max(1, planQty));
     const newTotal = Math.round(accepted * ppu);
+    const newCustomerTotal = Math.round(accepted * customerPpu);
     const body = {
       status:'Подтверждено',
       confirmedBy:user.name,
       confirmedAt:new Date().toISOString().split('T')[0],
       quantity: accepted,
       total: newTotal,
+      pricePerUnit: ppu,
+      executionPricePerUnit: ppu,
+      executionTotal: newTotal,
+      customerPricePerUnit: customerPpu,
+      customerTotal: newCustomerTotal,
     };
     if(comment) body.comment = comment;
     await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -9615,8 +9845,9 @@ function App() {
 
   const createInterimAct = async () => {
     if (!newAct.masterId||!newAct.project||!newAct.periodStart||!newAct.periodEnd) return;
-    const mw = workJournal.filter(j=>j.masterId===Number(newAct.masterId)&&j.project===newAct.project&&j.status==='Подтверждено');
-    const total = mw.reduce((s,w)=>s+w.total,0);
+    const inActPeriod = (d)=>{ if(!d)return false; const day=String(d).split('T')[0]; return day>=newAct.periodStart && day<=newAct.periodEnd; };
+    const mw = workJournal.filter(j=>j.masterId===Number(newAct.masterId)&&j.project===newAct.project&&j.status==='Подтверждено'&&inActPeriod(j.confirmedAt||j.date));
+    const total = mw.reduce((s,w)=>s+Number(w.executionTotal||w.total||0),0);
     const contract = contracts.find(c=>c.masterId===Number(newAct.masterId)&&c.project===newAct.project);
     await fetch(API+'/interim-acts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newAct,masterId:Number(newAct.masterId),contractId:contract?contract.id:null,totalAmount:total,paidAmount:0})});
     notify('Акт создан: '+newAct.masterName,'act');
@@ -10763,10 +10994,10 @@ function App() {
         }, item.section);
         sections[item.section].items.push(importedItem);
       });
-      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const estDraft={projectId:newEstimate.projectId,projectName:projName,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная'};const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:newEstimate.version||nextEstimateVersionFor(estDraft),smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная',sections:enrichEstimateMeasurementBasis(Object.values(sections))};
+      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const resolvedWorkPackage=resolveEstimatePackage(newEstimate.workPackage,fileName,newEstimate.name);const estDraft={projectId:newEstimate.projectId,projectName:projName,smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage};const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:newEstimate.version||nextEstimateVersionFor(estDraft),smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage,status:newEstimate.status||'Активная',sections:enrichEstimateMeasurementBasis(Object.values(sections))};
       const saved=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)}));
       if(!saved?.id) throw new Error('Сервер не вернул id сохранённой сметы');
-      const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};
+      const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage,status:newEstimate.status||'Активная'};
       const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId)&&e.status==='Активная'));
       const nextEstimates=[...(estimatesList||[]).map(e=>(estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId];
       setEstimatesList(nextEstimates);
@@ -11220,7 +11451,7 @@ function App() {
               <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveProject} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
             </div>)}
             {visibleProjects((showArchive?projects.filter(pr=>pr.archived):projects.filter(pr=>!pr.archived))).map(p=>{
-              const cat=expByCategory(p.name);const _bs=projectBudgetSpent(p);const total=_bs.total;
+              const cat=expByCategory(p.name);const _bs=projectBudgetSpent(p);const total=_bs.total;const economy=projectEconomy(p);
               const isOpen=expandedProject===p.id;
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
               return(<div key={p.id} style={{...card,marginBottom:'12px',overflow:'visible'}}>
@@ -11249,11 +11480,13 @@ function App() {
                     />
                   </div>
                   <div style={{padding:isMobile?'12px':'20px',overflowX:'hidden'}}>
-                    {activeProjectTab==='Общее'&&(<div>
-                      {isFinanceRole()&&(<div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'1fr 1fr 1fr',gap:isMobile?'8px':'12px',marginBottom:'16px'}}>
-                        {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'14px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
-                      </div>)}
-                      {(()=>{const wj=(workJournal||[]).filter(w=>w.project===p.name);const pending=wj.filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы');const confirmed=wj.filter(w=>w.status==='Подтверждено');const rejected=wj.filter(w=>w.status==='Отклонено');const last7=wj.filter(w=>{if(!w.date) return false;const d=new Date(w.date);return (Date.now()-d.getTime())<7*24*3600*1000;});const sumConfirmed=confirmed.reduce((s,w)=>s+Number(w.total||0),0);return(<div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:pending.length>0?C.warningLight:C.bg,border:'1.5px solid '+(pending.length>0?C.warningBorder:C.border)}}>
+	                    {activeProjectTab==='Общее'&&(<div>
+		                      {isFinanceRole()&&(<div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'1fr 1fr 1fr',gap:isMobile?'8px':'12px',marginBottom:'16px'}}>
+		                        {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'14px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
+		                      </div>)}
+		                      {isFinanceRole()&&<ProjectEconomyPanel C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} economy={economy} isMobile={isMobile} onOpenFinance={()=>setActiveProjectTab('Финансы')} onOpenJournal={()=>setActiveProjectTab('Производство работ')} onOpenMaterials={()=>setActiveProjectTab('Материалы')} onOpenEstimate={()=>setActiveProjectTab('Смета')} />}
+		                      <ProjectObjectLinksPanel C={C} card={card} items={projectObjectLinks(p)} isMobile={isMobile} onOpen={(tab)=>tab&&setActiveProjectTab(tab)} />
+		                      {(()=>{const wj=(workJournal||[]).filter(w=>w.project===p.name);const pending=wj.filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы');const confirmed=wj.filter(w=>w.status==='Подтверждено');const rejected=wj.filter(w=>w.status==='Отклонено');const last7=wj.filter(w=>{if(!w.date) return false;const d=new Date(w.date);return (Date.now()-d.getTime())<7*24*3600*1000;});const sumConfirmed=confirmed.reduce((s,w)=>s+workExecutionTotal(w),0);return(<div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:pending.length>0?C.warningLight:C.bg,border:'1.5px solid '+(pending.length>0?C.warningBorder:C.border)}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
                           <b style={{color:C.text,fontSize:'13px'}}>👷 Работы от мастеров {pending.length>0&&<span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:C.warning,color:'white',fontSize:'11px',marginLeft:'4px'}}>{pending.length+' на проверке'}</span>}</b>
                           <button onClick={()=>setActiveProjectTab('Производство работ')} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>📜 Открыть журнал</button>
@@ -11263,7 +11496,7 @@ function App() {
                           <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Подтверждено</p><b style={{color:C.success,fontSize:'15px'}}>{confirmed.length}</b></div>
                           <div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>На проверке</p><b style={{color:C.warning,fontSize:'15px'}}>{pending.length}</b></div>
                           {rejected.length>0&&<div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Отклонено</p><b style={{color:C.danger,fontSize:'15px'}}>{rejected.length}</b></div>}
-                          {isFinanceRole()&&<div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,gridColumn:'span 2'}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>Сумма подтверждённых</p><b style={{color:C.accent,fontSize:'15px'}}>{Math.round(sumConfirmed).toLocaleString('ru-RU')+' ₽'}</b></div>}
+	                          {isFinanceRole()&&<div style={{padding:'8px',borderRadius:'8px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,gridColumn:'span 2'}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 2px'}}>К оплате исполнителям</p><b style={{color:C.accent,fontSize:'15px'}}>{Math.round(sumConfirmed).toLocaleString('ru-RU')+' ₽'}</b></div>}
                         </div>
                       </div>);})()}
                       <div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder}}>
@@ -11805,9 +12038,21 @@ function App() {
                       {projectStages.filter(s=>s.projectName===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Этапов нет — добавьте первый!</p>}
                   </div>)}
 
-                    {activeProjectTab==='График'&&(<div>
-                      <b style={{color:C.text,display:'block',marginBottom:'15px'}}>График Ганта</b>
-                      {(()=>{
+	                    {activeProjectTab==='График'&&(<div>
+	                      <ProjectScheduleSummaryPanel
+	                        C={C}
+	                        card={card}
+	                        project={p}
+	                        stages={projectStages}
+	                        workJournal={workJournal}
+	                        planDone={projectPlanDone(p)}
+	                        progress={projectRealProgress(p)}
+	                        isMobile={isMobile}
+	                        onOpenStages={()=>setActiveProjectTab('Этапы')}
+	                        onOpenJournal={()=>setActiveProjectTab('Производство работ')}
+	                      />
+	                      <b style={{color:C.text,display:'block',marginBottom:'15px'}}>График Ганта</b>
+	                      {(()=>{
                         const stages=projectStages.filter(s=>s.projectName===p.name&&s.startDate&&s.endDate);
                         if(stages.length===0) return <p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Добавьте этапы с датами во вкладке Этапы</p>;
                         const allDates=stages.flatMap(s=>[s.startDate,s.endDate]).filter(Boolean).sort();
@@ -11856,7 +12101,7 @@ function App() {
                       </div>
                       {estimateSearch&&estimateSearch.trim().length>=2&&(()=>{
                         const q=estimateSearch.toLowerCase().trim();
-                        const projEstimates=estimatesList.filter(e=>e.projectName===p.name);
+                        const projEstimates=visibleEstimatesForCurrentUser(estimatesList).filter(e=>e.projectName===p.name);
                         const results=[];
                         projEstimates.forEach(est=>{const sects=(est.sections||(typeof est.sectionsJson==='string'?(()=>{try{return JSON.parse(est.sectionsJson||'[]')}catch(_){return []}})():est.sectionsJson)||[]);sects.forEach(sec=>{(sec.items||[]).forEach(it=>{if(String(it.name||'').toLowerCase().includes(q)) results.push({estimate:est,section:sec,item:it});});});});
                         return(<div style={{...card,padding:'12px',marginBottom:'14px',backgroundColor:C.bg}}>
@@ -11871,7 +12116,7 @@ function App() {
                         </div>);
                       })()}
                       {(()=>{
-                        const projEstimates=estimatesList.filter(e=>e.projectName===p.name);
+                        const projEstimates=visibleEstimatesForCurrentUser(estimatesList).filter(e=>e.projectName===p.name);
                         if(projEstimates.length===0) return(<div style={{textAlign:'center',padding:'30px',color:C.textMuted}}><p>Смета не привязана</p><button onClick={()=>navigateTo('estimates')} style={btnO}>Перейти в Сметы</button></div>);
                         return projEstimates.map(est=>(<div key={est.id} style={{...card,padding:'14px',marginBottom:'10px'}}>
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -13193,6 +13438,7 @@ function App() {
               expandedMasterProject={expandedMasterProject}
               expandedPieceworkProject={expandedPieceworkProject}
               expandedStaffId={expandedStaffId}
+              estimatesList={estimatesList}
               fileSrc={fileSrc}
               findUserForStaff={findUserForStaff}
               fmtMeasure={fmtMeasure}
@@ -13466,8 +13712,9 @@ function App() {
                   const updateItem=(idx,field,val,saveNow=false)=>updateItemPatch(idx,{[field]:val},saveNow);
                   const persist=()=>persistEstimate(selectedEstimate);
                   const inpCell={padding:'6px 8px',border:'1px solid '+C.border,borderRadius:'6px',fontSize:'12px',width:'100%',minWidth:0,backgroundColor:C.bgWhite,color:C.text,outline:'none'};
-                  const estimateTbl={...tbl,minWidth:'1840px',tableLayout:'fixed'};
+                  const estimateTbl={...tbl,minWidth:'1980px',tableLayout:'fixed'};
                   const projBrigades=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName).map(bc=>bc.brigadeName).filter(Boolean);
+                  const canEditExecutionPrice=['директор','зам_директора'].includes(user?.role);
                   const markSectionBasis=()=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map(it=>isEstimateWorkItem(it,s.name)?{...it,measurementBasis:estimateMeasurementBasisOf(it,s.name)}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
 	                  const renderGroup=(title,emoji,list,groupTotal,accent)=>{
 	                    const mobileGroupLimit=showEstimateIssuesOnly?100:60;
@@ -13486,10 +13733,11 @@ function App() {
                       <th style={{...tblH,width:'120px'}}>✅ Сделано</th>
                       <th style={{...tblH,width:'130px'}}>📉 Осталось</th>
                       <th style={{...tblH,width:'140px'}}>Цена / сумма</th>
+                      <th style={{...tblH,width:'140px'}}>Исполнителю</th>
                       <th style={{...tblH,width:'180px'}}>Сумма</th>
                       <th style={{...tblH,width:'48px'}}></th>
                     </tr></thead><tbody>
-		                      {groupRows.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const importMeta=item.isImported?[item.unitFactor&&Number(item.unitFactor)>1?'ед. ×'+Number(item.unitFactor).toLocaleString('ru-RU'):'',item.quantityCoefficient!==undefined&&item.quantityCoefficient!==null&&item.quantityCoefficient!==''?'кф. объёма '+Number(item.quantityCoefficient).toLocaleString('ru-RU'):'',item.rawQuantity!==undefined&&item.rawQuantity!==null&&item.rawQuantity!==''?'исх. '+Number(item.rawQuantity).toLocaleString('ru-RU'):'',item.baseTotal?'база '+Number(item.baseTotal).toLocaleString('ru-RU'):'',item.costIndex?'инд. '+Number(item.costIndex).toLocaleString('ru-RU'):'',item.currentTotal?'тек. '+Number(item.currentTotal).toLocaleString('ru-RU'):'' ].filter(Boolean).join(' · '):'';const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
+		                      {groupRows.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const executionPrice=Number(item.executionPricePerUnit||item.internalPricePerUnit||item.masterPricePerUnit||0);const importMeta=item.isImported?[item.unitFactor&&Number(item.unitFactor)>1?'ед. ×'+Number(item.unitFactor).toLocaleString('ru-RU'):'',item.quantityCoefficient!==undefined&&item.quantityCoefficient!==null&&item.quantityCoefficient!==''?'кф. объёма '+Number(item.quantityCoefficient).toLocaleString('ru-RU'):'',item.rawQuantity!==undefined&&item.rawQuantity!==null&&item.rawQuantity!==''?'исх. '+Number(item.rawQuantity).toLocaleString('ru-RU'):'',item.baseTotal?'база '+Number(item.baseTotal).toLocaleString('ru-RU'):'',item.costIndex?'инд. '+Number(item.costIndex).toLocaleString('ru-RU'):'',item.currentTotal?'тек. '+Number(item.currentTotal).toLocaleString('ru-RU'):'' ].filter(Boolean).join(' · '):'';const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
 	                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'13px',width:'18px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
 	                        <td style={tblC}>{autoPill(meta.icon,meta.label)}</td>
                           <td style={tblC}>{autoPill(basisMeta.icon,isWork?basisMeta.label:'—',!isWork)}</td>
@@ -13499,6 +13747,7 @@ function App() {
 	                        <td style={tblC}><input disabled={!isWork} type='number' step='any' inputMode='decimal' value={isWork?(doneNorm.qty||''):''} onChange={e=>{const raw=denormalizeMeasure(e.target.value,item.unit);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+fmtMeasure(qty,item.unit)+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text,opacity:isWork?1:0.55}}/></td>
 	                        <td style={{...tblC,color:isWork?(qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted):C.textMuted,fontWeight:'600',fontSize:'11px'}}>{isWork&&qty>0?fmtMeasure(remain,item.unit):'—'}</td>
 	                        <td style={tblC}><input type='number' step='any' inputMode='decimal' title={item.isImported?'Для импортной строки это сумма строки из ЛСР/Гранд Сметы, а не цена за единицу':'Цена за единицу'} value={item[priceField]||''} onChange={e=>updateItem(item._idx,priceField,e.target.value)} onBlur={persist} style={inpCell}/>{item.isImported&&<div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>{importMeta||'сумма строки'}</div>}</td>
+                          <td style={tblC}>{isWork?<><input disabled={!canEditExecutionPrice} type='number' step='any' inputMode='decimal' title='Внутренняя цена исполнителю за единицу. Если пусто — используется fallback по цене заказчика до настройки пакета.' value={item.executionPricePerUnit||''} onChange={e=>updateItemPatch(item._idx,{executionPricePerUnit:e.target.value,executionPriceMode:e.target.value?'fixed':''})} onBlur={persist} placeholder='авто' style={{...inpCell,color:executionPrice>0?C.success:C.textMuted,opacity:canEditExecutionPrice?1:0.65}}/>{executionPrice>0&&<div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>внутр. цена</div>}</>:<span style={{color:C.textMuted}}>—</span>}</td>
                         <td style={{...tblC,fontWeight:'700',color:C.success,whiteSpace:'nowrap',fontSize:'14px'}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
                         <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
 	                      </tr>);})}

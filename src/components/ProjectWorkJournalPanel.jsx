@@ -29,9 +29,11 @@ export default function ProjectWorkJournalPanel({
   badge,
 }) {
   const projectName = project.name;
+  const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? work?.total ?? 0);
+  const workCustomerTotal = (work) => Number(work?.customerTotal ?? work?.customer_total ?? work?.total ?? 0);
   const projectWorks = workJournal.filter(item => item.project === projectName);
   const unexpectedWorks = projectWorks.filter(item => item.unexpectedWorkId);
-  const unexpectedTotal = unexpectedWorks.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const unexpectedTotal = unexpectedWorks.reduce((sum, item) => sum + workExecutionTotal(item), 0);
   const filteredWorks = projectWorks.filter(item => matchSearch(listSearch, item.description, item.masterName || item.master_name));
 
   const groupedByDate = {};
@@ -86,7 +88,11 @@ export default function ProjectWorkJournalPanel({
             {Object.keys(groupedByDate[date]).map(masterName => (
               <div key={masterName} style={{marginBottom: '8px'}}>
                 <p style={{color: C.accent, fontSize: '12px', fontWeight: '600', margin: '0 0 6px'}}>{'👷 ' + masterName}</p>
-                {groupedByDate[date][masterName].map(item => (
+                {groupedByDate[date][masterName].map(item => {
+                  const executionTotal = workExecutionTotal(item);
+                  const customerTotal = workCustomerTotal(item);
+                  const showCustomerTotal = Math.abs(customerTotal - executionTotal) > 1;
+                  return (
                   <div
                     key={item.id}
                     onClick={() => setEditingJournal(item)}
@@ -130,7 +136,10 @@ export default function ProjectWorkJournalPanel({
                     </div>
 
                     <div style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                      <b style={{color: C.success, fontSize: '12px'}}>{(item.total || 0).toLocaleString() + ' ₽'}</b>
+                      <div style={{textAlign: 'right'}}>
+                        <b style={{display: 'block', color: C.success, fontSize: '12px'}}>{executionTotal.toLocaleString('ru-RU') + ' ₽'}</b>
+                        {showCustomerTotal && <span style={{display: 'block', color: C.textMuted, fontSize: '10px'}}>заказч. {customerTotal.toLocaleString('ru-RU') + ' ₽'}</span>}
+                      </div>
                       {canConfirm && item.status === 'На проверке' && (
                         <>
                           <button onClick={() => openConfirmModal(item)} style={{...btnGr, padding: '3px 8px', fontSize: '11px'}} title="Принять (можно пересчитать)">
@@ -153,7 +162,8 @@ export default function ProjectWorkJournalPanel({
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ))}
           </div>

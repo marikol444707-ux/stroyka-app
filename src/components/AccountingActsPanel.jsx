@@ -53,6 +53,7 @@ export default function AccountingActsPanel({
   buildBrigadeActContent,
 }) {
   const filteredInterimActs = (interimActs || []).filter(act => matchSearch(listSearch, act.masterName, act.project));
+  const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? work.total ?? 0);
 
   const allWorks = [
     ...((workJournal || []).filter(work => work.status === 'Подтверждено').map(work => ({ ...work, _kind: 'journal' }))),
@@ -75,7 +76,7 @@ export default function AccountingActsPanel({
     const projectName = work.project || 'Без объекта';
     if (!acc[projectName]) acc[projectName] = { works: [], total: 0, estimateChangesTotal: 0 };
     acc[projectName].works.push(work);
-    acc[projectName].total += Number(work.total || 0);
+    acc[projectName].total += work._kind === 'journal' ? workPayTotal(work) : Number(work.total || 0);
     if (work._kind === 'estimate_change') acc[projectName].estimateChangesTotal += Number(work.total || 0);
     return acc;
   }, {});
@@ -141,7 +142,7 @@ export default function AccountingActsPanel({
                   <div style={{ borderTop: '1px solid ' + C.border }}>
                     {dates.map(date => {
                       const dayWorks = worksByDate[date];
-                      const daySum = dayWorks.reduce((sum, work) => sum + Number(work.total || 0), 0);
+                      const daySum = dayWorks.reduce((sum, work) => sum + (work._kind === 'journal' ? workPayTotal(work) : Number(work.total || 0)), 0);
                       const isDateOpen = expandedActDate === projectName + '_' + date;
                       const worksByMaster = dayWorks.reduce((acc, work) => {
                         const masterName = work.masterName || '—';
@@ -178,7 +179,7 @@ export default function AccountingActsPanel({
                                         {work._kind === 'estimate_change' && <span style={{ marginLeft: '4px', color: C.warning, fontSize: '10px' }}>🆕 непредв.</span>}
                                         <span style={{ color: C.textMuted, marginLeft: '4px' }}>{fmtMeasure(work.quantity, work.unit)}</span>
                                       </div>
-                                      <b style={{ color: C.text, whiteSpace: 'nowrap' }}>{Math.round(Number(work.total || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
+                                      <b style={{ color: C.text, whiteSpace: 'nowrap' }}>{Math.round(work._kind === 'journal' ? workPayTotal(work) : Number(work.total || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
                                     </div>
                                   ))}
                                 </div>

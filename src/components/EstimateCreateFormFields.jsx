@@ -1,4 +1,5 @@
 import React from 'react';
+import { resolveEstimatePackage } from '../utils/estimatePackage';
 
 export default function EstimateCreateFormFields({
   inp,
@@ -23,7 +24,20 @@ export default function EstimateCreateFormFields({
         <option value="">Выберите проект</option>
         {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
-      <input placeholder="Название сметы *" value={newEstimate.name} onChange={e=>setNewEstimate({...newEstimate,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+      <input
+        placeholder="Название сметы *"
+        value={newEstimate.name}
+        onChange={e=>{
+          const nextName = e.target.value;
+          const next = {
+            ...newEstimate,
+            name: nextName,
+            workPackage: resolveEstimatePackage(newEstimate.workPackage, nextName),
+          };
+          setNewEstimate({...next,version:nextEstimateVersionFor(next)});
+        }}
+        style={{...inp,marginBottom:0}}
+      />
       <input placeholder="Версия" value={newEstimate.version} onChange={e=>setNewEstimate({...newEstimate,version:e.target.value})} style={{...inp,marginBottom:0}}/>
       <select
         value={newEstimate.smetaType||'Заказчик'}
