@@ -151,7 +151,12 @@ export function TransferRecipientSelect({
       value={newTransfer.toPerson}
       onChange={e => {
         const selected = staff.find(st => st.name === e.target.value);
-        setNewTransfer({...newTransfer, toPerson: e.target.value, toPersonRole: selected ? selected.role : ''});
+        const selectedBrigade = brigadeContracts.find(bc => bc.projectName === projectName && bc.brigadeName === e.target.value);
+        setNewTransfer({
+          ...newTransfer,
+          toPerson: e.target.value,
+          toPersonRole: selected ? selected.role : selectedBrigade ? 'бригада' : '',
+        });
       }}
       style={{...inp, marginBottom: 0}}
     >
@@ -201,6 +206,8 @@ export function MaterialTransferForm({
   staff,
   brigadeContracts,
   workPackageOptions,
+  needsWorkPackage,
+  missingWorkPackage,
   canSaveTransfer,
   saveTransfer,
   setShowTransferForm,
@@ -254,14 +261,19 @@ export function MaterialTransferForm({
         <select
           value={newTransfer.workPackage || ''}
           onChange={e => setNewTransfer({...newTransfer, workPackage: e.target.value})}
-          style={{...inp, marginBottom: 0}}
+          style={{...inp, marginBottom: 0, borderColor: missingWorkPackage ? C.warning : inp.borderColor}}
         >
-          <option value="">Пакет работ: общий</option>
+          <option value="">{needsWorkPackage ? 'Пакет работ *' : 'Пакет работ: общий'}</option>
           {(workPackageOptions || []).map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
         </select>
         <input type="date" value={newTransfer.transferDate} onChange={e => setNewTransfer({...newTransfer, transferDate: e.target.value})} style={{...inp, marginBottom: 0}}/>
         <input placeholder="Примечание" value={newTransfer.notes} onChange={e => setNewTransfer({...newTransfer, notes: e.target.value})} style={{...inp, marginBottom: 0}}/>
       </div>
+      {missingWorkPackage && (
+        <div style={{marginTop: '10px', padding: '10px 12px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder, borderRadius: '8px', color: C.warning, fontSize: '12px', fontWeight: 700}}>
+          Для выдачи материала мастеру, бригаде или субподрядчику выберите пакет работ. Потом списание в ЖПР пройдет только в этом же пакете.
+        </div>
+      )}
       <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
         <button onClick={saveTransfer} disabled={!canSaveTransfer} style={{...btnO, opacity: canSaveTransfer ? 1 : 0.55, cursor: canSaveTransfer ? 'pointer' : 'not-allowed'}}><Check size={14}/>Передать</button>
         <button onClick={() => setShowTransferForm(false)} style={btnG}><X size={14}/>Отмена</button>

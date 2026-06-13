@@ -92,10 +92,13 @@ export default function ProjectMaterialsTransferPanel({
   const selectedQty = toNum(newTransfer.quantity);
   const selectedStockQty = toNum(selectedStock?.quantity);
   const hasStockOverrun = !!newTransfer.materialName && selectedQty > selectedStockQty;
+  const receiverRole = (newTransfer.toPersonRole || '').trim().toLowerCase();
+  const needsWorkPackage = !!projectName && ['мастер', 'бригада', 'бригадир', 'субподрядчик'].includes(receiverRole);
+  const missingWorkPackage = needsWorkPackage && !(newTransfer.workPackage || '').trim();
 
   const packageMatches = (rowPackage, targetPackage) => {
     if (!targetPackage) return true;
-    return !rowPackage || rowPackage === targetPackage;
+    return rowPackage === targetPackage;
   };
 
   const personMaterialBalance = (personName, materialName, workPackage = '') => {
@@ -129,7 +132,7 @@ export default function ProjectMaterialsTransferPanel({
   };
 
   const selectedPersonBalance = personMaterialBalance(newTransfer.toPerson, newTransfer.materialName, newTransfer.workPackage);
-  const canSaveTransfer = !!newTransfer.materialName && selectedQty > 0 && !!newTransfer.toPerson && !hasStockOverrun;
+  const canSaveTransfer = !!newTransfer.materialName && selectedQty > 0 && !!newTransfer.toPerson && !hasStockOverrun && !missingWorkPackage;
 
   const matchingRequest = (() => {
     const matName = (newTransfer.materialName || '').toLowerCase().trim();
@@ -177,6 +180,8 @@ export default function ProjectMaterialsTransferPanel({
     if (!canSaveTransfer) {
       alert(hasStockOverrun
         ? 'Нельзя выдать больше остатка на складе.'
+        : missingWorkPackage
+          ? 'Для выдачи мастеру, бригаде или субподрядчику выберите пакет работ.'
         : 'Укажите материал, получателя и количество больше нуля.');
       return;
     }
@@ -269,6 +274,8 @@ export default function ProjectMaterialsTransferPanel({
           staff={staff}
           brigadeContracts={brigadeContracts}
           workPackageOptions={workPackageOptions}
+          needsWorkPackage={needsWorkPackage}
+          missingWorkPackage={missingWorkPackage}
           canSaveTransfer={canSaveTransfer}
           saveTransfer={saveTransfer}
           setShowTransferForm={setShowTransferForm}

@@ -6229,7 +6229,7 @@ def _personal_material_balance(cur, project: str, person_id, person_name: str, m
     if not key:
         return {"issued": 0, "used": 0, "available": 0}
     package_name = (work_package or "").strip()
-    package_filter = " AND (COALESCE(work_package,'')='' OR work_package=%s)" if package_name else ""
+    package_filter = " AND COALESCE(work_package,'')=%s" if package_name else ""
     cur.execute("""SELECT COALESCE(SUM(quantity),0)
                    FROM material_transfers
                    WHERE project_name=%s AND to_person=%s AND signed=TRUE
@@ -6238,7 +6238,7 @@ def _personal_material_balance(cur, project: str, person_id, person_name: str, m
                 (project, person_name or "", material_name or "", package_name) if package_name else (project, person_name or "", material_name or ""))
     issued_row = cur.fetchone()
     issued = float((next(iter(issued_row.values())) if isinstance(issued_row, dict) else ((issued_row or [0])[0])) or 0)
-    package_journal_filter = " AND (COALESCE(work_package,'')='' OR work_package=%s)" if package_name else ""
+    package_journal_filter = " AND COALESCE(work_package,'')=%s" if package_name else ""
     if person_id:
         cur.execute("""SELECT materials_used FROM work_journal
                        WHERE project=%s
@@ -11941,8 +11941,11 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
     qty = float(data.get("quantity", 0) or 0)
     project_name = data.get("projectName", "")
     work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
+    to_person_role = (data.get("toPersonRole") or data.get("to_person_role") or "").strip().lower()
     if not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите материал и количество больше 0")
+    if project_name and to_person_role in ("мастер", "субподрядчик", "бригада", "бригадир") and not work_package:
+        raise HTTPException(status_code=400, detail="Для выдачи материала мастеру, бригаде или субподрядчику укажите пакет работ")
     if project_name:
         require_project_or_warehouse_access(_current_user, project_name)
     if from_location and from_location != "Основной склад":
