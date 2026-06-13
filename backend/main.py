@@ -1350,8 +1350,10 @@ def init_db():
             project VARCHAR(255),
             issued_to VARCHAR(255),
             issued_by VARCHAR(255),
+            work_package VARCHAR(255),
             date_time VARCHAR(100)
         );
+        ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
         CREATE TABLE IF NOT EXISTS staff (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -1860,6 +1862,7 @@ def init_db():
             from_location VARCHAR(255),
             to_person VARCHAR(255),
             to_person_role VARCHAR(100),
+            work_package VARCHAR(255),
             material_name VARCHAR(255),
             quantity FLOAT,
             unit VARCHAR(50) DEFAULT 'шт',
@@ -1874,6 +1877,7 @@ def init_db():
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(255);
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
         CREATE TABLE IF NOT EXISTS brigade_contracts (
             id SERIAL PRIMARY KEY,
             project_id INT,
@@ -2887,6 +2891,7 @@ class WarehouseHistoryModel(BaseModel):
     project: str = ""
     issuedTo: str = ""
     issuedBy: str = ""
+    workPackage: str = ""
     dateTime: str = ""
 
 class WarehouseMovementModel(BaseModel):
@@ -3759,11 +3764,11 @@ def get_warehouse_history(current_user: dict = Depends(get_current_user)):
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",date_time as \"dateTime\" FROM warehouse_history WHERE project = ANY(%s) ORDER BY id DESC", (projects,))
+        cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history WHERE project = ANY(%s) ORDER BY id DESC", (projects,))
     elif role in ("мастер", "субподрядчик"):
-        cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",date_time as \"dateTime\" FROM warehouse_history WHERE issued_by=%s ORDER BY id DESC", (current_user.get("name",""),))
+        cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history WHERE issued_by=%s ORDER BY id DESC", (current_user.get("name",""),))
     elif role in WAREHOUSE_ROLES or role in FINANCE_ROLES:
-        cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",date_time as \"dateTime\" FROM warehouse_history ORDER BY id DESC")
+        cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history ORDER BY id DESC")
     else:
         cur.close(); conn.close()
         return []
@@ -3775,8 +3780,8 @@ def get_warehouse_history(current_user: dict = Depends(get_current_user)):
 def create_warehouse_history(h: WarehouseHistoryModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (h.material,h.type,h.quantity,h.date,h.project,h.issuedTo,h.issuedBy,h.dateTime))
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        (h.material,h.type,h.quantity,h.date,h.project,h.issuedTo,h.issuedBy,h.workPackage,h.dateTime))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -6168,30 +6173,33 @@ def _parse_materials_used(raw):
     except Exception:
         return []
 
-def _personal_material_balance(cur, project: str, person_id, person_name: str, material_name: str):
+def _personal_material_balance(cur, project: str, person_id, person_name: str, material_name: str, work_package: str = ""):
     key = (material_name or "").strip().lower()
     if not key:
         return {"issued": 0, "used": 0, "available": 0}
+    package_name = (work_package or "").strip()
+    package_filter = " AND (COALESCE(work_package,'')='' OR work_package=%s)" if package_name else ""
     cur.execute("""SELECT COALESCE(SUM(quantity),0)
                    FROM material_transfers
                    WHERE project_name=%s AND to_person=%s AND signed=TRUE
                      AND COALESCE(status,'Активна') <> 'Аннулирована'
-                     AND LOWER(TRIM(material_name))=LOWER(TRIM(%s))""",
-                (project, person_name or "", material_name or ""))
+                     AND LOWER(TRIM(material_name))=LOWER(TRIM(%s))""" + package_filter,
+                (project, person_name or "", material_name or "", package_name) if package_name else (project, person_name or "", material_name or ""))
     issued_row = cur.fetchone()
     issued = float((next(iter(issued_row.values())) if isinstance(issued_row, dict) else ((issued_row or [0])[0])) or 0)
+    package_journal_filter = " AND (COALESCE(work_package,'')='' OR work_package=%s)" if package_name else ""
     if person_id:
         cur.execute("""SELECT materials_used FROM work_journal
                        WHERE project=%s
                          AND COALESCE(status,'') <> 'Отклонено'
-                         AND (master_id=%s OR master_name=%s)""",
-                    (project, person_id, person_name or ""))
+                         AND (master_id=%s OR master_name=%s)""" + package_journal_filter,
+                    (project, person_id, person_name or "", package_name) if package_name else (project, person_id, person_name or ""))
     else:
         cur.execute("""SELECT materials_used FROM work_journal
                        WHERE project=%s
                          AND COALESCE(status,'') <> 'Отклонено'
-                         AND master_name=%s""",
-                    (project, person_name or ""))
+                         AND master_name=%s""" + package_journal_filter,
+                    (project, person_name or "", package_name) if package_name else (project, person_name or ""))
     used = 0
     for row in cur.fetchall() or []:
         raw = row.get("materials_used") if isinstance(row, dict) else row[0]
@@ -6206,8 +6214,8 @@ def _personal_material_balance(cur, project: str, person_id, person_name: str, m
                    WHERE project=%s
                      AND issued_by=%s
                      AND type=%s
-                     AND LOWER(TRIM(material))=LOWER(TRIM(%s))""",
-                (project, person_name or "", "возврат от мастера", material_name or ""))
+                     AND LOWER(TRIM(material))=LOWER(TRIM(%s))""" + package_filter,
+                (project, person_name or "", "возврат от мастера", material_name or "", package_name) if package_name else (project, person_name or "", "возврат от мастера", material_name or ""))
     returned_row = cur.fetchone()
     returned = float((next(iter(returned_row.values())) if isinstance(returned_row, dict) else ((returned_row or [0])[0])) or 0)
     return {"issued": issued, "used": used, "returned": returned, "available": issued - used - returned}
@@ -6216,19 +6224,21 @@ def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict
     name = material.get("name") or ""
     qty = float(material.get("quantity") or 0)
     unit = material.get("unit") or ""
+    work_package = (material.get("workPackage") or material.get("work_package") or "").strip()
     role = actor.get("role") or ""
     actor_id = actor.get("id")
     actor_name = actor.get("name") or fallback_master_name or ""
     if not name or qty <= 0:
         return
     if role in ("мастер", "субподрядчик"):
-        balance = _personal_material_balance(cur, project, actor_id, actor_name, name)
+        balance = _personal_material_balance(cur, project, actor_id, actor_name, name, work_package)
+        package_part = (" по пакету «" + work_package + "»") if work_package else ""
         if balance["issued"] <= 0:
-            raise HTTPException(status_code=400, detail="Материал «"+name+"» не выдан мастеру «"+actor_name+"» или получение не подтверждено")
+            raise HTTPException(status_code=400, detail="Материал «"+name+"» не выдан мастеру «"+actor_name+"»"+package_part+" или получение не подтверждено")
         if balance["available"] < qty:
-            raise HTTPException(status_code=400, detail="У мастера «"+actor_name+"» доступно "+str(round(balance["available"], 3))+" "+unit+" «"+name+"», запрошено "+str(qty)+". Лишний материал нужно выдать или вернуть/уточнить списание")
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-            (name, "расход (работа мастера)", qty, date_value or None, project, actor_name, actor_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+            raise HTTPException(status_code=400, detail="У мастера «"+actor_name+"»"+package_part+" доступно "+str(round(balance["available"], 3))+" "+unit+" «"+name+"», запрошено "+str(qty)+". Лишний материал нужно выдать или вернуть/уточнить списание")
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (name, "расход (работа мастера)", qty, date_value or None, project, actor_name, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         return
 
     cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, project))
@@ -6240,8 +6250,8 @@ def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict
     if stock_qty < qty:
         raise HTTPException(status_code=400, detail="На складе «"+project+"» только "+str(stock_qty)+" "+unit+" «"+name+"», запрошено "+str(qty))
     cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, mat_id))
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (name, "расход (работа)", qty, date_value or None, project, actor_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (name, "расход (работа)", qty, date_value or None, project, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
 def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", exclude_id=None):
     project = (project or "").strip()
@@ -6309,6 +6319,8 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
             description=w.description,
         ))
         for m in used:
+            if not m.get("workPackage") and not m.get("work_package"):
+                m["workPackage"] = w.workPackage or ""
             _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
 
         import json as _json
@@ -6436,7 +6448,7 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         require_row_project_access(cur, "work_journal", id, _current_user, "project")
-        cur.execute("SELECT project, master_id, master_name, date, status, comment, materials_used FROM work_journal WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT project, master_id, master_name, date, status, comment, materials_used, work_package FROM work_journal WHERE id=%s FOR UPDATE", (id,))
         work = cur.fetchone()
         if not work:
             conn.rollback()
@@ -6461,10 +6473,11 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
             project_name = work.get("project") or ""
             master_name = work.get("master_name") or ""
             master_id = work.get("master_id")
-            personal_balance = _personal_material_balance(cur, project_name, master_id, master_name, name)
+            work_package = m.get("workPackage") or m.get("work_package") or work.get("work_package") or ""
+            personal_balance = _personal_material_balance(cur, project_name, master_id, master_name, name, work_package)
             if personal_balance["issued"] > 0:
-                cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (name, "отмена списания мастера", qty, str(work.get("date") or ""), project_name, master_name, _current_user.get("name") or "", datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (name, "отмена списания мастера", qty, str(work.get("date") or ""), project_name, master_name, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
                 continue
             cur.execute("SELECT id FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, project_name))
             mat = cur.fetchone()
@@ -6473,8 +6486,8 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
             else:
                 cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                             (name, unit, qty, 0, 0, project_name, "Возврат"))
-            cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                        (name, "возврат (удаление работы)", qty, str(work.get("date") or ""), project_name, master_name, datetime.now().strftime("%d.%m.%Y, %H:%M")))
+            cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (name, "возврат (удаление работы)", qty, str(work.get("date") or ""), project_name, master_name, work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
         cur.execute("SELECT COUNT(*) AS cnt FROM piecework WHERE work_journal_id=%s", (id,))
         piecework_row = cur.fetchone()
         piecework_count = int((piecework_row.get("cnt") if isinstance(piecework_row, dict) else piecework_row[0]) or 0)
@@ -10158,7 +10171,10 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     estimate_item_key=estimate_item_key,
                     description=it.get("name",""),
                 ))
+                work_package_for_journal = journal_params.get("workPackage") or new_work_package
                 for m in used_materials:
+                    if isinstance(m, dict) and not m.get("workPackage") and not m.get("work_package"):
+                        m["workPackage"] = work_package_for_journal
                     _apply_material_work_writeoff(cur, project_name, m, _current_user, today, brigade)
                 materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal
@@ -10171,7 +10187,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                      auto_journal_status,
                      "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id),
                      materials_json, id, s.get("name",""), bool(it.get("hiddenWork")), auto_confirmed_by, auto_confirmed_at,
-                     journal_params.get("workPackage") or new_work_package,
+                     work_package_for_journal,
                      room_id,
                      journal_params.get("roomName") or "",
                      journal_params.get("surface") or "",
@@ -11687,18 +11703,18 @@ def get_material_transfers(project_name: str = None, current_user: dict = Depend
     active_filter = "COALESCE(status,'Активна') <> 'Аннулирована'"
     if project_name:
         require_project_access(current_user, project_name)
-        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name=%s AND "+active_filter+" ORDER BY id DESC", (project_name,))
+        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name=%s AND "+active_filter+" ORDER BY id DESC", (project_name,))
     elif visible_project_names(current_user) is not None:
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name = ANY(%s) AND "+active_filter+" ORDER BY id DESC", (projects,))
+        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name = ANY(%s) AND "+active_filter+" ORDER BY id DESC", (projects,))
     else:
-        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE "+active_filter+" ORDER BY id DESC")
+        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE "+active_filter+" ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"materialName":r[5],"quantity":float(r[6] or 0),"unit":r[7],"transferDate":str(r[8]) if r[8] else "","signed":r[9],"signedAt":str(r[10]) if r[10] else "","notes":r[11] or "","createdBy":r[12] or "","createdAt":str(r[13])} for r in rows]
+    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14])} for r in rows]
 
 @app.post("/material-transfers")
 def create_material_transfer(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
@@ -11706,6 +11722,7 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
     material_name = data.get("materialName", "")
     qty = float(data.get("quantity", 0) or 0)
     project_name = data.get("projectName", "")
+    work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     if not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите материал и количество больше 0")
     if project_name:
@@ -11737,12 +11754,12 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
             cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
 
         created_by = _current_user.get("name", "") or data.get("createdBy", "")
-        cur.execute("INSERT INTO material_transfers (project_name,from_location,to_person,to_person_role,material_name,quantity,unit,transfer_date,notes,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (project_name, from_location, data.get("toPerson",""), data.get("toPersonRole",""), material_name, qty, data.get("unit","шт"), data.get("transferDate") or None, data.get("notes",""), created_by))
+        cur.execute("INSERT INTO material_transfers (project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,notes,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (project_name, from_location, data.get("toPerson",""), data.get("toPersonRole",""), work_package, material_name, qty, data.get("unit","шт"), data.get("transferDate") or None, data.get("notes",""), created_by))
         new_id = cur.fetchone()[0]
 
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-            (material_name, "расход", qty, data.get("transferDate") or None, from_location, created_by, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (material_name, "расход", qty, data.get("transferDate") or None, from_location, created_by, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
         conn.commit()
         _run_project_ai_control_safely(project_name, "material_transfer:create")
@@ -11789,6 +11806,7 @@ def return_material_from_master(data: dict, current_user: dict = Depends(require
     material_name = data.get("materialName", "")
     qty = float(data.get("quantity", 0) or 0)
     unit = data.get("unit", "шт")
+    work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     if not project_name or not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите объект, материал и количество больше 0")
     require_project_access(current_user, project_name)
@@ -11805,7 +11823,7 @@ def return_material_from_master(data: dict, current_user: dict = Depends(require
     conn.autocommit = False
     cur = conn.cursor()
     try:
-        balance = _personal_material_balance(cur, project_name, person_id, person_name, material_name)
+        balance = _personal_material_balance(cur, project_name, person_id, person_name, material_name, work_package)
         if balance["available"] < qty:
             raise HTTPException(status_code=400, detail="У мастера «"+person_name+"» доступно к возврату "+str(round(balance["available"], 3))+" "+unit+" «"+material_name+"», запрошено "+str(qty))
 
@@ -11815,8 +11833,8 @@ def return_material_from_master(data: dict, current_user: dict = Depends(require
                 (material_name, unit or "шт", qty, 0, 0, project_name, "Возврат от мастера"))
 
         return_date = data.get("date") or None
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (material_name, "возврат от мастера", qty, return_date, project_name, "Склад объекта", person_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (material_name, "возврат от мастера", qty, return_date, project_name, "Склад объекта", person_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         history_id = cur.fetchone()[0]
         conn.commit()
         _run_project_ai_control_safely(project_name, "material_transfer:return")
@@ -11836,14 +11854,14 @@ def delete_material_transfer(id: int, _current_user: dict = Depends(require_role
     conn.autocommit = False
     cur = conn.cursor()
     try:
-        cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed,COALESCE(status,'Активна')
+        cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed,COALESCE(status,'Активна'),work_package
                        FROM material_transfers WHERE id=%s FOR UPDATE""", (id,))
         row = cur.fetchone()
         if not row:
             conn.rollback()
             return {"ok": True}
 
-        project_name, from_location, to_person, material_name, qty, unit, signed, status = row
+        project_name, from_location, to_person, material_name, qty, unit, signed, status, work_package = row
         require_project_or_warehouse_access(_current_user, project_name or from_location or "")
         qty = float(qty or 0)
         if status == "Аннулирована":
@@ -11867,8 +11885,8 @@ def delete_material_transfer(id: int, _current_user: dict = Depends(require_role
             "UPDATE material_transfers SET status=%s,cancelled_at=NOW(),cancelled_by=%s,cancel_reason=%s WHERE id=%s",
             ("Аннулирована", _current_user.get("name",""), "Отмена неподписанной передачи", id),
         )
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-            (material_name, "отмена передачи", qty, None, from_location or project_name or "", to_person or "", _current_user.get("name",""), __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (material_name, "отмена передачи", qty, None, from_location or project_name or "", to_person or "", _current_user.get("name",""), work_package or "", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         conn.commit()
         _run_project_ai_control_safely(project_name or "", "material_transfer:delete")
         return {"ok": True}

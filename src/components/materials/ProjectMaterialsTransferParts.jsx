@@ -191,6 +191,7 @@ export function MaterialTransferForm({
   requesterOptions,
   staff,
   brigadeContracts,
+  workPackageOptions,
   canSaveTransfer,
   saveTransfer,
   setShowTransferForm,
@@ -241,6 +242,14 @@ export function MaterialTransferForm({
           projectName={projectName}
         />
 
+        <select
+          value={newTransfer.workPackage || ''}
+          onChange={e => setNewTransfer({...newTransfer, workPackage: e.target.value})}
+          style={{...inp, marginBottom: 0}}
+        >
+          <option value="">Пакет работ: общий</option>
+          {(workPackageOptions || []).map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
+        </select>
         <input type="date" value={newTransfer.transferDate} onChange={e => setNewTransfer({...newTransfer, transferDate: e.target.value})} style={{...inp, marginBottom: 0}}/>
         <input placeholder="Примечание" value={newTransfer.notes} onChange={e => setNewTransfer({...newTransfer, notes: e.target.value})} style={{...inp, marginBottom: 0}}/>
       </div>
@@ -284,10 +293,13 @@ export function TransfersTable({
       </thead>
       <tbody>
         {transfers.map(t => {
-          const balance = personMaterialBalance(t.toPerson, t.materialName);
+          const balance = personMaterialBalance(t.toPerson, t.materialName, t.workPackage || '');
           return (
             <tr key={t.id}>
-              <td style={tblC}>{t.materialName}</td>
+              <td style={tblC}>
+                {t.materialName}
+                {t.workPackage && <><br/><span style={{fontSize: '10px', color: C.textSec}}>Пакет: {t.workPackage}</span></>}
+              </td>
               <td style={tblC}>{fmtQty(t.quantity, t.unit)}</td>
               <td style={tblC}>{t.fromLocation || 'Основной склад'}</td>
               <td style={tblC}>{t.toPerson}<br/><span style={{fontSize: '11px', color: C.textSec}}>{t.toPersonRole}</span></td>

@@ -57,7 +57,9 @@ export default function MasterMaterialsPage({
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap',marginBottom:'10px'}}>
                 <div style={{flex:'1 1 200px'}}>
                   <b style={{color:C.text,fontSize:'14px'}}>{b.name}</b>
-                  <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{'🏗 '+(b.project||'—')+((b.transfers||[]).length>1?' · '+b.transfers.length+' подписанных передач':'')}</p>
+                  <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>
+                    {'🏗 '+(b.project||'—')+(b.workPackage?' · 📁 '+b.workPackage:'')+((b.transfers||[]).length>1?' · '+b.transfers.length+' подписанных передач':'')}
+                  </p>
                 </div>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'6px',marginBottom:'8px'}}>

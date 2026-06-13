@@ -979,7 +979,7 @@ function App() {
   }, [user, suppliers]);
   const [materialTransfers, setMaterialTransfers] = useState([]);
   const [showTransferForm, setShowTransferForm] = useState(false);
-  const [newTransfer, setNewTransfer] = useState({materialName:'',quantity:'',unit:'шт',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
+  const [newTransfer, setNewTransfer] = useState({materialName:'',quantity:'',unit:'шт',workPackage:'',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
   const [sverkaModal, setSverkaModal] = useState(null);
   const [showAiChat, setShowAiChat] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -3276,6 +3276,7 @@ function App() {
 	        materialName: materialRow.name,
 	        quantity: qty,
 	        unit: materialRow.unit,
+	        workPackage: materialRow.workPackage || '',
 	        date: new Date().toISOString().split('T')[0],
 	      })
 	    });
@@ -5500,12 +5501,16 @@ function App() {
   };
   const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id) => {
     const byName = {};
+    const materialTransferKey = (name, workPackage='') => {
+      const base = materialNameKey(name);
+      return base ? base+'|'+(workPackage||'') : '';
+    };
     (materialTransfers||[])
       .filter(t=>t.projectName===projectName && t.toPerson===personName && t.signed && (t.status||'Активна')!=='Аннулирована')
       .forEach(t=>{
-        const key = materialNameKey(t.materialName);
+        const key = materialTransferKey(t.materialName, t.workPackage);
         if (!key) return;
-        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, returned:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
+        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', workPackage:t.workPackage||'', quantity:0, received:0, used:0, returned:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
         byName[key].received += toNum(t.quantity);
         byName[key].quantity += toNum(t.quantity);
         byName[key].transfers.push(t);
@@ -5513,17 +5518,17 @@ function App() {
     (materialTransfers||[])
       .filter(t=>t.projectName===projectName && t.toPerson===personName && !t.signed && (t.status||'Активна')!=='Аннулирована')
       .forEach(t=>{
-        const key = materialNameKey(t.materialName);
+        const key = materialTransferKey(t.materialName, t.workPackage);
         if (!key) return;
-        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', quantity:0, received:0, used:0, returned:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
+        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', workPackage:t.workPackage||'', quantity:0, received:0, used:0, returned:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
         byName[key].pending += toNum(t.quantity);
         byName[key].pendingTransfers.push(t);
       });
     (workJournal||[])
       .filter(w=>w.project===projectName && w.status!=='Отклонено' && (Number(w.masterId||w.master_id)===Number(personId) || w.masterName===personName || w.master_name===personName))
       .forEach(w=>parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
-        const key = materialNameKey(m.name);
-        const cur = byName[key];
+        const key = materialTransferKey(m.name, m.workPackage || w.workPackage || w.work_package);
+        const cur = byName[key] || byName[materialTransferKey(m.name, '')];
 	        if (cur) {
 	          cur.used += toNum(m.quantity);
 	          cur.quantity -= toNum(m.quantity);
@@ -5532,8 +5537,8 @@ function App() {
     (history||[])
       .filter(h=>h.project===projectName && h.type==='возврат от мастера' && h.issuedBy===personName)
       .forEach(h=>{
-        const key = materialNameKey(h.material);
-        const cur = byName[key];
+        const key = materialTransferKey(h.material, h.workPackage || h.work_package);
+        const cur = byName[key] || byName[materialTransferKey(h.material, '')];
         if (cur) {
           cur.returned += toNum(h.quantity);
           cur.quantity -= toNum(h.quantity);
@@ -7399,6 +7404,7 @@ function App() {
       if (!match) return m;
       const patch = {
         unit: m.unit || match.norm.unit,
+        workPackage: m.workPackage || match.material.workPackage || '',
         normQuantity: match.norm.normQuantity,
         normSource: match.norm.normSource
       };
@@ -7413,6 +7419,7 @@ function App() {
       .forEach(x=>next.push({
         name:x.material.name,
         unit:x.norm.unit || x.material.unit || 'шт',
+        workPackage:x.material.workPackage || '',
         quantity:capMaterialWriteoffQty(projectName, x.material.name, x.norm.quantity),
         autoNorm:true,
         normQuantity:x.norm.normQuantity,
@@ -7733,7 +7740,7 @@ function App() {
       const cur = prev[itemId] || {};
       const list = Array.isArray(cur.materials) ? cur.materials : [];
       const exists = list.some(m=>materialNameKey(m.name)===key);
-      const row = {name:material.name, quantity, unit:material.unit||'шт', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||''};
+      const row = {name:material.name, quantity, unit:material.unit||'шт', workPackage:material.workPackage||'', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||''};
       const next = exists
         ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
         : [...list, row];
@@ -7762,7 +7769,7 @@ function App() {
     setEstimateWorkMaterials(prev=>{
       const list = Array.isArray(prev[workKey]) ? prev[workKey] : [];
       const exists = list.some(m=>materialNameKey(m.name)===key);
-      const row = {name:material.name, quantity, unit:material.unit||'шт', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||''};
+      const row = {name:material.name, quantity, unit:material.unit||'шт', workPackage:material.workPackage||'', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||''};
       const next = exists
         ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
         : [...list, row];
@@ -8099,7 +8106,7 @@ function App() {
     html += '<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
     html += '<table class="m15-tbl"><tr><th>Организация</th><td>'+orgName+'</td><th>Дата</th><td>'+fmtDate(transfer.transferDate||transfer.date)+'</td></tr>';
     html += '<tr><th>Отправитель</th><td>'+(transfer.fromLocation||'Основной склад')+'</td><th>Получатель</th><td>'+(transfer.toPerson||'')+' ('+(transfer.toPersonRole||'')+')</td></tr>';
-    html += '<tr><th>Объект</th><td colspan="3">'+(transfer.projectName||'')+'</td></tr></table>';
+    html += '<tr><th>Объект</th><td>'+(transfer.projectName||'')+'</td><th>Пакет работ</th><td>'+(transfer.workPackage||'общий')+'</td></tr></table>';
     html += '<table class="m15-tbl" style="margin-top:12px"><tr><th>№</th><th>Наименование материала</th><th>Ед.изм.</th><th>Количество</th><th>Примечание</th></tr>';
     html += '<tr><td>1</td><td>'+(transfer.materialName||'')+'</td><td>'+(transfer.unit||'')+'</td><td>'+(transfer.quantity||0)+'</td><td>'+(transfer.notes||'')+'</td></tr>';
     html += '</table>';
@@ -9002,7 +9009,7 @@ function App() {
     if (roomCheck?.over>0) { alert(roomMeasurementMessage(roomCheck)); return; }
     let usedMats = (estimateWorkMaterials[workKey]||[])
       .filter(m=>m.name)
-      .map(m=>({name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт', normQuantity:toNum(m.normQuantity), normSource:m.normSource||'', autoNorm:!!m.autoNorm, overNorm:toNum(m.normQuantity)>0 && toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
+      .map(m=>({name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт', workPackage:m.workPackage||estimatePackage(est), normQuantity:toNum(m.normQuantity), normSource:m.normSource||'', autoNorm:!!m.autoNorm, overNorm:toNum(m.normQuantity)>0 && toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
     for (const m of usedMats) {
       if (toNum(m.quantity)<=0) { alert('Укажите количество материала «'+m.name+'» или снимите галочку.'); return; }
     }
@@ -9097,7 +9104,7 @@ function App() {
       const workQty = toNum(workData.quantity);
       const total = workQty*ppu;
       const reason = overrunReasons[itemId] || '';
-      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>{const over=toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1;return {name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',autoNorm:!!m.autoNorm,overNorm:over,overNormReason:over?reason:''};});
+      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>{const over=toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1;return {name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',workPackage:m.workPackage||'Прайс',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',autoNorm:!!m.autoNorm,overNorm:over,overNormReason:over?reason:''};});
       const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,customerPricePerUnit:ppu,customerTotal:total,executionPricePerUnit:ppu,executionTotal:total,executionPriceMode:'pricelist',date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats,workPackage:'Прайс',roomId:workData.roomId?Number(workData.roomId):null,roomName:workData.roomName||'',surface:workData.surface||'Стены',estimateItemName:item.name,estimateItemKey:'pricelist:'+item.id})});
       if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось отправить работу: '+(er.detail||'ошибка'));return;}
       if (workData.roomId) {
@@ -12560,6 +12567,7 @@ function App() {
 	                            materialName: row.name || '',
 	                            quantity: '',
 	                            unit: row.unit || 'шт',
+	                            workPackage: row.packageName || row.workPackage || '',
 	                            toPerson: '',
 	                            toPersonRole: '',
 	                            fromLocation: p.name,
@@ -12595,6 +12603,7 @@ function App() {
                         brigadeContracts={brigadeContracts}
                         workJournal={workJournal}
                         history={history}
+                        workPackageOptions={[...new Set([...(activeEstimatesForProject(p,'Заказчик')||[]).map(estimatePackage), ...ESTIMATE_PACKAGES].filter(Boolean))]}
                         user={user}
                         C={C}
                         card={card}

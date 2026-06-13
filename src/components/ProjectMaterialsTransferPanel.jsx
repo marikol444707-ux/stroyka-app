@@ -10,6 +10,7 @@ const emptyTransfer = () => ({
   materialName: '',
   quantity: '',
   unit: 'шт',
+  workPackage: '',
   toPerson: '',
   toPersonRole: '',
   fromLocation: 'Основной склад',
@@ -35,6 +36,7 @@ export default function ProjectMaterialsTransferPanel({
   brigadeContracts = [],
   workJournal = [],
   history = [],
+  workPackageOptions = [],
   user,
   C,
   card,
@@ -87,7 +89,12 @@ export default function ProjectMaterialsTransferPanel({
   const selectedStockQty = toNum(selectedStock?.quantity);
   const hasStockOverrun = !!newTransfer.materialName && selectedQty > selectedStockQty;
 
-  const personMaterialBalance = (personName, materialName) => {
+  const packageMatches = (rowPackage, targetPackage) => {
+    if (!targetPackage) return true;
+    return !rowPackage || rowPackage === targetPackage;
+  };
+
+  const personMaterialBalance = (personName, materialName, workPackage = '') => {
     const nameKey = materialKey(materialName);
     if (!personName || !nameKey) return {issued: 0, pending: 0, used: 0, returned: 0, balance: 0};
     let issued = 0;
@@ -96,14 +103,14 @@ export default function ProjectMaterialsTransferPanel({
     let returned = 0;
 
     transfers
-      .filter(t => t.toPerson === personName && materialKey(t.materialName) === nameKey)
+      .filter(t => t.toPerson === personName && materialKey(t.materialName) === nameKey && packageMatches(t.workPackage, workPackage))
       .forEach(t => {
         if (t.signed) issued += toNum(t.quantity);
         else pending += toNum(t.quantity);
       });
 
     (workJournal || [])
-      .filter(w => w.project === projectName && w.status !== 'Отклонено' && ((w.masterName || w.master_name || '') === personName))
+      .filter(w => w.project === projectName && w.status !== 'Отклонено' && ((w.masterName || w.master_name || '') === personName) && packageMatches(w.workPackage || w.work_package, workPackage))
       .forEach(w => {
         parseJournalMaterials(w.materialsUsed !== undefined ? w.materialsUsed : w.materials_used)
           .filter(m => materialKey(m.name) === nameKey)
@@ -111,13 +118,13 @@ export default function ProjectMaterialsTransferPanel({
       });
 
     (history || [])
-      .filter(h => h.project === projectName && h.type === 'возврат от мастера' && ((h.issuedBy || h.issued_by || '') === personName) && materialKey(h.material) === nameKey)
+      .filter(h => h.project === projectName && h.type === 'возврат от мастера' && ((h.issuedBy || h.issued_by || '') === personName) && materialKey(h.material) === nameKey && packageMatches(h.workPackage || h.work_package, workPackage))
       .forEach(h => { returned += toNum(h.quantity); });
 
     return {issued, pending, used, returned, balance: Math.max(0, issued - used - returned)};
   };
 
-  const selectedPersonBalance = personMaterialBalance(newTransfer.toPerson, newTransfer.materialName);
+  const selectedPersonBalance = personMaterialBalance(newTransfer.toPerson, newTransfer.materialName, newTransfer.workPackage);
   const canSaveTransfer = !!newTransfer.materialName && selectedQty > 0 && !!newTransfer.toPerson && !hasStockOverrun;
 
   const matchingRequest = (() => {
@@ -249,6 +256,7 @@ export default function ProjectMaterialsTransferPanel({
           requesterOptions={requesterOptions}
           staff={staff}
           brigadeContracts={brigadeContracts}
+          workPackageOptions={workPackageOptions}
           canSaveTransfer={canSaveTransfer}
           saveTransfer={saveTransfer}
           setShowTransferForm={setShowTransferForm}
