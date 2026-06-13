@@ -6243,6 +6243,52 @@ def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict
     cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
         (name, "расход (работа)", qty, date_value or None, project, actor_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
+def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", exclude_id=None):
+    project = (project or "").strip()
+    room_name = (room_name or "").strip()
+    estimate_item_key = (estimate_item_key or "").strip()
+    description = (description or "").strip()
+    if not project or (not room_id and not room_name) or (not estimate_item_key and not description):
+        return None
+
+    exclude_sql = " AND id<>%s" if exclude_id else ""
+    exclude_params = [exclude_id] if exclude_id else []
+
+    target_sql = "COALESCE(estimate_item_key,'')=%s" if estimate_item_key else "LOWER(TRIM(description))=LOWER(TRIM(%s))"
+    target_value = estimate_item_key if estimate_item_key else description
+
+    if room_id:
+        cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM work_journal
+                       WHERE project=%s AND room_id=%s AND {target_sql}
+                         AND COALESCE(status,'') <> 'Отклонено'{exclude_sql}
+                       LIMIT 1""", [project, room_id, target_value] + exclude_params)
+        duplicate = cur.fetchone()
+        if duplicate:
+            return duplicate
+
+    if room_name:
+        cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM work_journal
+                       WHERE project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
+                         AND COALESCE(status,'') <> 'Отклонено'{exclude_sql}
+                       LIMIT 1""", [project, room_name, target_value] + exclude_params)
+        duplicate = cur.fetchone()
+        if duplicate:
+            return duplicate
+
+    return None
+
+def _raise_work_journal_duplicate(duplicate):
+    if not duplicate:
+        return
+    row_id = duplicate.get("id") if isinstance(duplicate, dict) else duplicate[0]
+    master_name = duplicate.get("master_name") if isinstance(duplicate, dict) else duplicate[1]
+    room_name = duplicate.get("room_name") if isinstance(duplicate, dict) and duplicate.get("room_name") else ""
+    room_part = (" в помещении «" + str(room_name) + "»") if room_name else " по выбранному помещению"
+    raise HTTPException(
+        status_code=409,
+        detail="Эта работа уже заведена" + room_part + ". Запись ЖПР №" + str(row_id) + " (" + str(master_name or "исполнитель") + ")"
+    )
+
 @app.post("/work-journal")
 def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     require_project_access(_current_user, w.project)
@@ -6254,29 +6300,14 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        duplicate_key = (w.estimateItemKey or "").strip()
-        if w.roomId and duplicate_key:
-            cur.execute("""SELECT id, master_name, status FROM work_journal
-                           WHERE project=%s AND room_id=%s AND estimate_item_key=%s
-                             AND COALESCE(status,'') <> 'Отклонено'
-                           LIMIT 1""", (w.project, w.roomId, duplicate_key))
-            duplicate = cur.fetchone()
-            if duplicate:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Эта работа уже заведена по выбранному помещению. Запись ЖПР №"+str(duplicate.get("id"))+" ("+str(duplicate.get("master_name") or "исполнитель")+")"
-                )
-        elif w.roomId and (w.description or "").strip():
-            cur.execute("""SELECT id, master_name, status FROM work_journal
-                           WHERE project=%s AND room_id=%s AND LOWER(TRIM(description))=LOWER(TRIM(%s))
-                             AND COALESCE(status,'') <> 'Отклонено'
-                           LIMIT 1""", (w.project, w.roomId, w.description))
-            duplicate = cur.fetchone()
-            if duplicate:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Эта работа уже заведена по выбранному помещению. Запись ЖПР №"+str(duplicate.get("id"))+" ("+str(duplicate.get("master_name") or "исполнитель")+")"
-                )
+        _raise_work_journal_duplicate(_work_journal_duplicate(
+            cur,
+            w.project,
+            room_id=w.roomId,
+            room_name=w.roomName,
+            estimate_item_key=w.estimateItemKey,
+            description=w.description,
+        ))
         for m in used:
             _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
 
@@ -6318,15 +6349,16 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
 @app.put("/work-journal/{id}")
 def update_work_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     require_row_project_access(cur, "work_journal", id, _current_user, "project")
-    cur.execute("SELECT project, master_id, master_name FROM work_journal WHERE id=%s", (id,))
+    cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description, estimate_item_key
+                   FROM work_journal WHERE id=%s""", (id,))
     project_row = cur.fetchone()
-    project_name = project_row[0] if project_row else ""
+    project_name = project_row.get("project") if project_row else ""
     role = _current_user.get("role")
     if role in ("мастер", "субподрядчик"):
-        master_id = project_row[1] if project_row else None
-        master_name = project_row[2] if project_row else ""
+        master_id = project_row.get("master_id") if project_row else None
+        master_name = project_row.get("master_name") if project_row else ""
         if str(master_id or "") != str(_current_user.get("id") or "") and (master_name or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Мастер может менять только свои записи ЖПР")
@@ -6378,6 +6410,16 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     if not sets:
         cur.close(); conn.close()
         return {"ok": True}
+    if any(k in data for k in ("roomId", "roomName", "estimateItemKey", "description")):
+        _raise_work_journal_duplicate(_work_journal_duplicate(
+            cur,
+            project_name,
+            room_id=data.get("roomId", project_row.get("room_id") if project_row else None),
+            room_name=data.get("roomName", project_row.get("room_name") if project_row else ""),
+            estimate_item_key=data.get("estimateItemKey", project_row.get("estimate_item_key") if project_row else ""),
+            description=data.get("description", project_row.get("description") if project_row else ""),
+            exclude_id=id,
+        ))
     vals.append(id)
     cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
     conn.commit()
@@ -10108,13 +10150,14 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 room_id = None
             estimate_item_key = journal_params.get("estimateItemKey") or journal_params.get("_estimateItemKey") or (str(id) + ":" + str(section_idx) + ":" + str(item_idx))
             try:
-                if room_id and estimate_item_key:
-                    cur.execute("""SELECT id FROM work_journal
-                                   WHERE project=%s AND room_id=%s AND estimate_item_key=%s
-                                     AND COALESCE(status,'') <> 'Отклонено'
-                                   LIMIT 1""", (project_name, room_id, estimate_item_key))
-                    if cur.fetchone():
-                        continue
+                _raise_work_journal_duplicate(_work_journal_duplicate(
+                    cur,
+                    project_name,
+                    room_id=room_id,
+                    room_name=journal_params.get("roomName") or "",
+                    estimate_item_key=estimate_item_key,
+                    description=it.get("name",""),
+                ))
                 for m in used_materials:
                     _apply_material_work_writeoff(cur, project_name, m, _current_user, today, brigade)
                 materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
