@@ -46,6 +46,14 @@ export default function ProjectScheduleSummaryPanel({
   const deadlineDelta = deadline && today ? daysBetween(today, deadline) : null;
   const projectWorks = (workJournal || []).filter(work => work.project === projectName);
   const workDate = (work) => parseDate(work.date || work.confirmedAt || work.createdAt);
+  const workDateMs = (work) => {
+    const date = workDate(work);
+    return date ? date.getTime() : 0;
+  };
+  const workAmount = (work) => Number(work.executionTotal || work.execution_total || work.total || work.amount || 0) || 0;
+  const workStatus = (work) => work.status || 'На проверке';
+  const rawWorkPackage = (work) => String(work.workPackage || work.work_package || work.package || '').trim();
+  const rawWorkRoom = (work) => String(work.roomName || work.room_name || work.room || work.zoneName || work.zone || '').trim();
   const recentBorder = today ? new Date(today.getTime() - 7 * 86400000) : null;
   const recentWorks = projectWorks.filter(work => {
     const date = workDate(work);
@@ -62,6 +70,39 @@ export default function ProjectScheduleSummaryPanel({
   const materialMismatchRows = (materialSummary?.mismatchRows || []).length + (materialSummary?.stockMismatchRows || []).length;
   const outsideMaterialRows = (materialSummary?.outsideRows || []).length;
   const materialBlockers = materialNeedRows + materialMismatchRows + outsideMaterialRows + pendingInvoices;
+  const worksWithoutPackage = projectWorks.filter(work => !rawWorkPackage(work)).length;
+  const worksWithoutRoom = projectWorks.filter(work => !rawWorkRoom(work)).length;
+
+  const buildWorkGroupRows = (keyGetter, fallbackLabel) => {
+    const grouped = new Map();
+    projectWorks.forEach(work => {
+      const key = keyGetter(work) || fallbackLabel;
+      const current = grouped.get(key) || {
+        key,
+        total: 0,
+        confirmed: 0,
+        pending: 0,
+        rejected: 0,
+        amount: 0,
+        lastMs: 0,
+      };
+      current.total += 1;
+      if (workStatus(work) === 'Подтверждено') current.confirmed += 1;
+      else if (workStatus(work) === 'Отклонено') current.rejected += 1;
+      else current.pending += 1;
+      current.amount += workAmount(work);
+      current.lastMs = Math.max(current.lastMs, workDateMs(work));
+      grouped.set(key, current);
+    });
+    return Array.from(grouped.values()).sort((a, b) => {
+      if (b.pending !== a.pending) return b.pending - a.pending;
+      if (b.lastMs !== a.lastMs) return b.lastMs - a.lastMs;
+      return b.total - a.total;
+    });
+  };
+
+  const packageRows = buildWorkGroupRows(rawWorkPackage, 'Без пакета');
+  const roomRows = buildWorkGroupRows(rawWorkRoom, 'Без помещения/зоны');
 
   const startDates = datedStages.map(stage => parseDate(stage.startDate)).filter(Boolean).sort((a, b) => a - b);
   const endDates = datedStages.map(stage => parseDate(stage.endDate)).filter(Boolean).sort((a, b) => b - a);
@@ -87,7 +128,52 @@ export default function ProjectScheduleSummaryPanel({
     materialNeedRows ? 'материалов докупить: ' + materialNeedRows : '',
     materialMismatchRows ? 'расхождений материалов: ' + materialMismatchRows : '',
     pendingInvoices ? 'поставки/счета в работе: ' + pendingInvoices : '',
+    worksWithoutPackage ? 'работ без пакета: ' + worksWithoutPackage : '',
+    worksWithoutRoom ? 'работ без помещения/зоны: ' + worksWithoutRoom : '',
   ].filter(Boolean);
+
+  const groupStatusLine = (row) => [
+    row.confirmed ? 'подтв. ' + row.confirmed : '',
+    row.pending ? 'на проверке ' + row.pending : '',
+    row.rejected ? 'откл. ' + row.rejected : '',
+    row.amount ? 'сумма ' + fmtMoney(row.amount) : '',
+  ].filter(Boolean).join(' · ');
+
+  const workGroupList = (title, rows, emptyText) => (
+    <div style={{padding: '12px', borderRadius: '10px', backgroundColor: C.bg, border: '1.5px solid ' + C.border, minWidth: 0}}>
+      <p style={{margin: '0 0 8px', color: C.textSec, fontSize: '11px'}}>{title}</p>
+      {rows.length ? (
+        <div style={{display: 'grid', gap: '8px'}}>
+          {rows.slice(0, 6).map(row => (
+            <div key={row.key} style={{display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: '8px', alignItems: 'center'}}>
+              <div style={{minWidth: 0}}>
+                <b style={{display: 'block', color: row.key.startsWith('Без ') ? C.warning : C.text, fontSize: '12px', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
+                  {row.key}
+                </b>
+                <span style={{display: 'block', color: C.textMuted, fontSize: '10px', lineHeight: 1.35}}>
+                  {groupStatusLine(row) || 'фактов: ' + row.total}
+                </span>
+              </div>
+              <span style={{
+                color: row.pending ? C.warning : C.success,
+                backgroundColor: row.pending ? C.warningLight : C.successLight,
+                border: '1px solid ' + (row.pending ? C.warningBorder : C.successBorder),
+                borderRadius: '999px',
+                padding: '3px 7px',
+                fontSize: '10px',
+                fontWeight: 800,
+                whiteSpace: 'nowrap',
+              }}>
+                {row.confirmed}/{row.total}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p style={{margin: 0, color: C.textMuted, fontSize: '12px'}}>{emptyText}</p>
+      )}
+    </div>
+  );
 
   const metric = (label, value, color, sub, options = {}) => (
     <div style={{
@@ -135,6 +221,11 @@ export default function ProjectScheduleSummaryPanel({
             {risks.length ? risks.slice(0, 4).join(' · ') : 'критичных отклонений не видно'}
           </b>
         </div>
+      </div>
+
+      <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginTop: '10px'}}>
+        {workGroupList('Пакеты работ по ЖПР', packageRows, 'в журнале пока нет работ по пакетам')}
+        {workGroupList('Помещения и зоны по ЖПР', roomRows, 'помещения/зоны в журнале пока не указаны')}
       </div>
     </div>
   );
