@@ -23,9 +23,12 @@ export default function ProjectScheduleSummaryPanel({
   workJournal = [],
   planDone = {plan: 0, done: 0},
   progress = 0,
+  materialSummary = null,
+  supplierInvoices = [],
   isMobile,
   onOpenStages,
   onOpenJournal,
+  onOpenMaterials,
 }) {
   if (!project) return null;
 
@@ -53,6 +56,12 @@ export default function ProjectScheduleSummaryPanel({
     .map(workDate)
     .filter(Boolean)
     .sort((a, b) => b.getTime() - a.getTime())[0];
+  const projectInvoices = (supplierInvoices || []).filter(invoice => (invoice.projectName || invoice.project) === projectName);
+  const pendingInvoices = projectInvoices.filter(invoice => ['На утверждении', 'Утверждён', 'Частично оплачен', ''].includes(invoice.status || '')).length;
+  const materialNeedRows = (materialSummary?.toBuyRows || []).length;
+  const materialMismatchRows = (materialSummary?.mismatchRows || []).length + (materialSummary?.stockMismatchRows || []).length;
+  const outsideMaterialRows = (materialSummary?.outsideRows || []).length;
+  const materialBlockers = materialNeedRows + materialMismatchRows + outsideMaterialRows + pendingInvoices;
 
   const startDates = datedStages.map(stage => parseDate(stage.startDate)).filter(Boolean).sort((a, b) => a - b);
   const endDates = datedStages.map(stage => parseDate(stage.endDate)).filter(Boolean).sort((a, b) => b - a);
@@ -75,6 +84,9 @@ export default function ProjectScheduleSummaryPanel({
     !recentWorks.length && projectWorks.length ? 'нет новых работ за 7 дней' : '',
     !projectStages.length ? 'нужно завести этапы' : '',
     lag >= 15 ? 'отставание от календаря: ' + lag + '%' : '',
+    materialNeedRows ? 'материалов докупить: ' + materialNeedRows : '',
+    materialMismatchRows ? 'расхождений материалов: ' + materialMismatchRows : '',
+    pendingInvoices ? 'поставки/счета в работе: ' + pendingInvoices : '',
   ].filter(Boolean);
 
   const metric = (label, value, color, sub, options = {}) => (
@@ -103,14 +115,16 @@ export default function ProjectScheduleSummaryPanel({
         <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
           <button onClick={onOpenStages} style={{padding: '6px 10px', borderRadius: '9px', border: '1.5px solid ' + C.border, background: C.bg, color: C.text, cursor: 'pointer', fontSize: '12px', fontWeight: 700}}>Этапы</button>
           <button onClick={onOpenJournal} style={{padding: '6px 10px', borderRadius: '9px', border: '1.5px solid ' + C.border, background: C.bg, color: C.text, cursor: 'pointer', fontSize: '12px', fontWeight: 700}}>ЖПР</button>
+          <button onClick={onOpenMaterials} style={{padding: '6px 10px', borderRadius: '9px', border: '1.5px solid ' + C.border, background: C.bg, color: C.text, cursor: 'pointer', fontSize: '12px', fontWeight: 700}}>Материалы</button>
         </div>
       </div>
 
-      <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,minmax(0,1fr))', gap: '10px', marginBottom: '10px'}}>
+      <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5,minmax(0,1fr))', gap: '10px', marginBottom: '10px'}}>
         {metric('Реальный прогресс', `${progress}%`, lag >= 15 ? C.warning : C.success, plannedProgress !== null ? `календарь: ${plannedProgress}%` : 'нет дат этапов')}
         {metric('Срок объекта', fmtDate(project.deadline), deadlineDelta !== null && deadlineDelta < 0 ? C.danger : C.info, deadlineText, {bg: deadlineDelta !== null && deadlineDelta < 0 ? C.dangerLight : C.bg, border: deadlineDelta !== null && deadlineDelta < 0 ? C.dangerBorder : C.border})}
         {metric('Этапы', stageText, overdueStages ? C.warning : C.accent, activeStages ? 'в работе: ' + activeStages : 'активных нет')}
         {metric('Активность ЖПР', recentWorks.length + ' за 7 дней', recentWorks.length ? C.success : C.warning, lastWorkDate ? 'последняя: ' + lastWorkDate.toLocaleDateString('ru-RU') : 'записей нет')}
+        {metric('Материалы', materialBlockers ? materialBlockers + ' сигналов' : 'без блокировок', materialBlockers ? C.warning : C.success, materialNeedRows ? 'докупить: ' + materialNeedRows : pendingInvoices ? 'поставки: ' + pendingInvoices : 'сверка спокойная', {bg: materialBlockers ? C.warningLight : C.successLight, border: materialBlockers ? C.warningBorder : C.successBorder})}
       </div>
 
       <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px'}}>

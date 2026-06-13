@@ -8562,7 +8562,7 @@ function App() {
   const projectPaymentSignedAmount = (pay) => {
     const amount = Number(pay?.amount||0);
     const note = String(pay?.note||'').trim().toLowerCase();
-    const outgoing = amount < 0 || note.startsWith('оплата счёта') || note.startsWith('оплата бригаде') || note.startsWith('возмещение');
+    const outgoing = amount < 0 || note.startsWith('оплата счёта') || note.startsWith('оплата бригаде') || note.startsWith('возмещение') || note.startsWith('выплата исполнителю');
     return outgoing ? -Math.abs(amount) : Math.max(0, amount);
   };
   const projectPaymentInAmount = (pay) => Math.max(0, projectPaymentSignedAmount(pay));
@@ -12100,9 +12100,12 @@ function App() {
 	                        workJournal={workJournal}
 	                        planDone={projectPlanDone(p)}
 	                        progress={projectRealProgress(p)}
+	                        materialSummary={materialControlSummaryForProject(p.name)}
+	                        supplierInvoices={supplierInvoices}
 	                        isMobile={isMobile}
 	                        onOpenStages={()=>setActiveProjectTab('Этапы')}
 	                        onOpenJournal={()=>setActiveProjectTab('Производство работ')}
+	                        onOpenMaterials={()=>setActiveProjectTab('Материалы')}
 	                      />
 	                      <b style={{color:C.text,display:'block',marginBottom:'15px'}}>График Ганта</b>
 	                      {(()=>{

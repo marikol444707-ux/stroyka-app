@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CheckCircle2, FileText, Printer, Save, Search } from 'lucide-react';
+import { CheckCircle2, CreditCard, FileText, Printer, Save, Search } from 'lucide-react';
 import { API } from '../api';
 
 const toNumber = value => Number(String(value ?? 0).replace(',', '.')) || 0;
@@ -39,6 +39,21 @@ const matchByPerson = (payment, performer) => {
   );
 };
 
+const paymentSignedAmount = payment => Number(payment?.amount || 0);
+const performerPaymentNote = ({ performerName, month, workPackage }) =>
+  'Выплата исполнителю: ' + performerName + ' · ' + month + (workPackage ? ' · ' + workPackage : '');
+
+const performerPaymentAmount = (payment, group, month) => {
+  const amount = paymentSignedAmount(payment);
+  if (amount >= 0) return 0;
+  if (safeText(payment.projectName || payment.project) !== group.project) return 0;
+  const note = safeText(payment.note);
+  if (!note.startsWith('Выплата исполнителю:')) return 0;
+  if (!note.includes(group.performerName) || !note.includes(month)) return 0;
+  if (group.workPackage && !note.includes(group.workPackage)) return 0;
+  return Math.abs(amount);
+};
+
 const buildPrintHtml = ({ month, rows, summary }) => {
   const title = 'Реестр закрытия исполнителей за ' + month;
   const body = rows.map((row, index) => (
@@ -60,6 +75,7 @@ const buildPrintHtml = ({ month, rows, summary }) => {
     '<p><b>Начислено:</b> ' + money(summary.accrued) +
     ' &nbsp; <b>Авансы:</b> ' + money(summary.advances) +
     ' &nbsp; <b>Удержание:</b> ' + money(summary.retention) +
+    ' &nbsp; <b>Выплачено:</b> ' + money(summary.paid) +
     ' &nbsp; <b>К выплате:</b> ' + money(summary.payable) + '</p>' +
     '<table><tr><th>N</th><th>Объект</th><th>Исполнитель</th><th>Пакет</th><th>Помещение</th><th>Работа</th><th>Объем</th><th>Цена исп.</th><th>Начислено</th><th>Заказчик</th></tr>' +
     (body || '<tr><td colspan="10" style="text-align:center;color:#777">Нет подтвержденных работ за период</td></tr>') +
@@ -92,6 +108,8 @@ export default function AccountingPerformerClosingPanel({
   contracts,
   refreshData,
   btnO,
+  projectPayments,
+  user,
 }) {
   const [month, setMonth] = useState(monthNow());
   const [projectFilter, setProjectFilter] = useState('');
@@ -174,14 +192,17 @@ export default function AccountingPerformerClosingPanel({
         .filter(expense => safeText(expense.status) === 'Возмещено')
         .filter(expense => matchByPerson(expense, performer))
         .reduce((sum, expense) => sum + toNumber(expense.amount), 0);
+      const paid = (projectPayments || [])
+        .reduce((sum, payment) => sum + performerPaymentAmount(payment, group, month), 0);
       group.advances = advances;
       group.reimbursements = reimbursements;
       group.retention = group.isContractor ? Math.round(group.accrued * 0.05) : 0;
-      group.payable = Math.max(0, group.accrued - group.advances - group.retention);
+      group.paid = paid;
+      group.payable = Math.max(0, group.accrued - group.advances - group.retention - group.paid);
       group.margin = group.customer - group.accrued;
     });
     return Object.values(byKey).sort((a, b) => b.accrued - a.accrued);
-  }, [rows, accountablePayments, ownExpenses, month, projectFilter]);
+  }, [rows, accountablePayments, ownExpenses, projectPayments, month, projectFilter]);
 
   const performerNames = useMemo(() => [...new Set((workJournal || []).map(work => safeText(work.masterName || work.master_name)).filter(Boolean))].sort(), [workJournal]);
   const projectNames = useMemo(() => [...new Set([...(projects || []).map(project => safeText(project.name)), ...(workJournal || []).map(work => safeText(work.project))].filter(Boolean))].sort(), [projects, workJournal]);
@@ -191,10 +212,11 @@ export default function AccountingPerformerClosingPanel({
     acc.customer += group.customer;
     acc.advances += group.advances;
     acc.retention += group.retention;
+    acc.paid += group.paid;
     acc.payable += group.payable;
     acc.margin += group.margin;
     return acc;
-  }, { accrued: 0, customer: 0, advances: 0, retention: 0, payable: 0, margin: 0 });
+  }, { accrued: 0, customer: 0, advances: 0, retention: 0, paid: 0, payable: 0, margin: 0 });
 
   const actGroups = useMemo(() => {
     const byKey = {};
@@ -277,6 +299,36 @@ export default function AccountingPerformerClosingPanel({
     }
   };
 
+  const payPerformerGroup = async group => {
+    if (!group?.project || group.payable <= 0) return;
+    const defaultAmount = Math.round(group.payable * 100) / 100;
+    const raw = window.prompt(
+      'Сумма выплаты исполнителю ' + group.performerName + ' за ' + month + ':',
+      String(defaultAmount)
+    );
+    if (!raw) return;
+    const amount = toNumber(raw);
+    if (amount <= 0) return;
+    if (amount > group.payable && !window.confirm('Сумма больше остатка к выплате. Всё равно провести?')) return;
+    try {
+      const response = await fetch(API + '/project-payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectName: group.project,
+          amount: -amount,
+          note: performerPaymentNote({ ...group, month }),
+          date: new Date().toISOString().split('T')[0],
+          paidBy: user?.name || '',
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await refreshData?.();
+    } catch (error) {
+      window.alert('Не удалось провести выплату: ' + (error?.message || error));
+    }
+  };
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
@@ -329,6 +381,7 @@ export default function AccountingPerformerClosingPanel({
         <div style={{ ...card, padding: '12px', backgroundColor: C.successLight }}><p style={{ color: C.success, margin: '0 0 4px', fontSize: '11px' }}>Начислено</p><b style={{ color: C.success }}>{money(summary.accrued)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.warningLight }}><p style={{ color: C.warning, margin: '0 0 4px', fontSize: '11px' }}>Авансы/подотчет</p><b style={{ color: C.warning }}>{money(summary.advances)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.warningLight }}><p style={{ color: C.warning, margin: '0 0 4px', fontSize: '11px' }}>Гарантийное удержание</p><b style={{ color: C.warning }}>{money(summary.retention)}</b></div>
+        <div style={{ ...card, padding: '12px', backgroundColor: C.bg }}><p style={{ color: C.textSec, margin: '0 0 4px', fontSize: '11px' }}>Уже выплачено</p><b style={{ color: C.text }}>{money(summary.paid)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.infoLight }}><p style={{ color: C.info, margin: '0 0 4px', fontSize: '11px' }}>К выплате</p><b style={{ color: C.info }}>{money(summary.payable)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: summary.margin >= 0 ? C.successLight : C.dangerLight }}><p style={{ color: summary.margin >= 0 ? C.success : C.danger, margin: '0 0 4px', fontSize: '11px' }}>Разница заказчик/исполнитель</p><b style={{ color: summary.margin >= 0 ? C.success : C.danger }}>{money(summary.margin)}</b></div>
       </div>
@@ -359,8 +412,19 @@ export default function AccountingPerformerClosingPanel({
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Начислено</p><b style={{ color: C.success }}>{money(group.accrued)}</b></div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Авансы</p><b style={{ color: C.warning }}>{money(group.advances)}</b></div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Удерж. 5%</p><b style={{ color: C.warning }}>{money(group.retention)}</b></div>
-                <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>К выплате</p><b style={{ color: C.info }}>{money(group.payable)}</b></div>
+                <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Выплачено / остаток</p><b style={{ color: C.info }}>{money(group.paid)} / {money(group.payable)}</b></div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={event => {
+                      event.stopPropagation();
+                      payPerformerGroup(group);
+                    }}
+                    disabled={group.payable <= 0}
+                    style={{ ...(btnO || btnG), padding: '6px 10px', fontSize: '11px', opacity: group.payable > 0 ? 1 : 0.55 }}
+                  >
+                    <CreditCard size={12} />
+                    Выплатить
+                  </button>
                   {savedAct ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: C.success, fontSize: '11px', fontWeight: 700 }}>
                       <CheckCircle2 size={13} />

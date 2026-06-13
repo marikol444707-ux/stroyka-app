@@ -53,12 +53,23 @@ export default function AccountingPaymentsPanel({
 
   const allMovesByProject = {};
   (projectPayments || []).forEach(payment => {
-    const amount = projectPaymentInAmount(payment);
-    if (amount <= 0) return;
+    const amountIn = projectPaymentInAmount(payment);
+    const rawAmount = Number(payment.amount || 0);
+    const note = String(payment.note || '').toLowerCase();
+    const outgoingAmount = rawAmount < 0 ? Math.abs(rawAmount) : (
+      note.startsWith('оплата счёта') ||
+      note.startsWith('оплата бригаде') ||
+      note.startsWith('возмещение') ||
+      note.startsWith('выплата исполнителю')
+        ? Math.abs(rawAmount)
+        : 0
+    );
+    if (amountIn <= 0 && outgoingAmount <= 0) return;
     const projectName = payment.projectName || 'Без объекта';
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
+        projectOut: [],
         ownExp: [],
         accountable: [],
         supplierInv: [],
@@ -69,14 +80,21 @@ export default function AccountingPaymentsPanel({
         actsDebt: 0,
       };
     }
-    allMovesByProject[projectName].incoming.push({ ...payment, _amountIn: amount });
-    allMovesByProject[projectName].totalIn += amount;
+    if (amountIn > 0) {
+      allMovesByProject[projectName].incoming.push({ ...payment, _amountIn: amountIn });
+      allMovesByProject[projectName].totalIn += amountIn;
+    }
+    if (outgoingAmount > 0) {
+      allMovesByProject[projectName].projectOut.push({ ...payment, _amountOut: outgoingAmount });
+      allMovesByProject[projectName].totalOut += outgoingAmount;
+    }
   });
   (ownExpenses || []).filter(expense => expense.status === 'Возмещено').forEach(expense => {
     const projectName = expense.projectName || 'Без объекта';
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
+        projectOut: [],
         ownExp: [],
         accountable: [],
         supplierInv: [],
@@ -95,6 +113,7 @@ export default function AccountingPaymentsPanel({
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
+        projectOut: [],
         ownExp: [],
         accountable: [],
         supplierInv: [],
@@ -113,6 +132,7 @@ export default function AccountingPaymentsPanel({
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
+        projectOut: [],
         ownExp: [],
         accountable: [],
         supplierInv: [],
@@ -138,6 +158,7 @@ export default function AccountingPaymentsPanel({
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
+        projectOut: [],
         ownExp: [],
         accountable: [],
         supplierInv: [],
@@ -272,6 +293,20 @@ export default function AccountingPaymentsPanel({
                           <div key={index} style={{ padding: '4px 10px', color: C.textSec, display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed ' + C.border }}>
                             <span>{(payment.date || '—') + (payment.note ? ' · ' + payment.note : '') + (payment.paidBy ? ' · ' + payment.paidBy : '')}</span>
                             <b style={{ color: C.success }}>{Math.round(Number(payment._amountIn || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
+                          </div>
+                        ))}
+                      </details>
+                    )}
+
+                    {group.projectOut.length > 0 && (
+                      <details style={{ marginBottom: '6px' }}>
+                        <summary style={{ cursor: 'pointer', padding: '4px 0', color: C.danger, fontWeight: '600' }}>
+                          ↗️ Выплаты и расходы ({group.projectOut.length}) — {Math.round(group.projectOut.reduce((sum, payment) => sum + Number(payment._amountOut || 0), 0)).toLocaleString('ru-RU')} ₽
+                        </summary>
+                        {group.projectOut.map((payment, index) => (
+                          <div key={payment.id || index} style={{ padding: '4px 10px', color: C.textSec, display: 'flex', justifyContent: 'space-between', gap: '8px', borderBottom: '1px dashed ' + C.border }}>
+                            <span>{(payment.date || '—') + (payment.note ? ' · ' + payment.note : '') + (payment.addedBy ? ' · ' + payment.addedBy : '')}</span>
+                            <b style={{ color: C.danger }}>{Math.round(Number(payment._amountOut || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
                           </div>
                         ))}
                       </details>

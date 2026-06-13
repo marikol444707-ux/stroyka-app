@@ -276,6 +276,8 @@ export default function AccountingPage(props) {
           contracts={contracts}
           refreshData={refreshData}
           btnO={btnO}
+          projectPayments={projectPayments}
+          user={user}
         />
       )}
 
