@@ -1278,6 +1278,7 @@ function App() {
   const [importValidating, setImportValidating] = useState(false);
   const [estimateIssueFocusKey, setEstimateIssueFocusKey] = useState('');
   const [showEstimateIssuesOnly, setShowEstimateIssuesOnly] = useState(false);
+  const [executionPriceFillPercent, setExecutionPriceFillPercent] = useState(50);
   const [showEstimateChat, setShowEstimateChat] = useState(false);
   const [estimateChatMessages, setEstimateChatMessages] = useState([]);
   const [estimateChatInput, setEstimateChatInput] = useState('');
@@ -11167,6 +11168,58 @@ function App() {
     exportToExcel((selectedEstimate.sections||[]).flatMap(s=>(s.items||[]).map(i=>({Раздел:s.name,Тип:estimateItemTypeMeta(normalizeEstimateItemType(i,s.name)).label,Основание:estimateMeasurementBasisMeta(estimateMeasurementBasisOf(i,s.name)).label,Наименование:i.name,Единица:i.unit,Количество:i.quantity,'Цена работ':i.priceWork,'Цена мат.':i.priceMaterial,Сумма:estimateItemTotal(i)}))),selectedEstimate.name);
   };
 
+  const selectedEstimateExecutionPriceStats = () => {
+    if (!selectedEstimate) return {workRows: 0, pricedRows: 0, emptyRows: 0};
+    let workRows = 0;
+    let pricedRows = 0;
+    (selectedEstimate.sections || []).forEach(section => {
+      (section.items || []).forEach(item => {
+        if (!isEstimateWorkItem(item, section.name)) return;
+        workRows += 1;
+        if (toNum(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit) > 0) pricedRows += 1;
+      });
+    });
+    return {workRows, pricedRows, emptyRows: Math.max(0, workRows - pricedRows)};
+  };
+
+  const estimateWorkCustomerUnitPrice = (item, sectionName) => {
+    const qty = toNum(item.quantity);
+    const lineWorkSum = estimateItemWorkSum({...item, sectionName});
+    if (qty > 0 && lineWorkSum > 0) return lineWorkSum / qty;
+    return toNum(item.priceWork || item.price || item.pricePerUnit);
+  };
+
+  const fillSelectedEstimateExecutionPrices = async (overwrite = false) => {
+    if (!selectedEstimate?.id) return;
+    const percent = Math.max(1, Math.min(100, toNum(executionPriceFillPercent) || 50));
+    let changed = 0;
+    const sections = (selectedEstimate.sections || []).map(section => ({
+      ...section,
+      items: (section.items || []).map(item => {
+        if (!isEstimateWorkItem(item, section.name)) return item;
+        const hasPrice = toNum(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit) > 0;
+        if (hasPrice && !overwrite) return item;
+        const customerUnitPrice = estimateWorkCustomerUnitPrice(item, section.name);
+        if (customerUnitPrice <= 0) return item;
+        changed += 1;
+        return {
+          ...item,
+          executionPricePerUnit: Math.round(customerUnitPrice * percent) / 100,
+          executionPriceMode: 'percent_' + percent,
+        };
+      }),
+    }));
+    if (!changed) {
+      alert('Нет строк для заполнения: внутренние цены уже проставлены или нет цены заказчика.');
+      return;
+    }
+    const updated = {...selectedEstimate, sections};
+    setSelectedEstimate(updated);
+    setEstimatesList(prev => prev.map(e => e.id === updated.id ? updated : e));
+    await persistEstimate(updated);
+    alert('Заполнено внутренних цен исполнителям: ' + changed + '. Каждую строку можно поправить вручную.');
+  };
+
   const handleToggleSelectedEstimateTemplate = async () => {
     if(!selectedEstimate?.id) return;
     const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/toggle-template',{method:'PUT'});
@@ -13644,11 +13697,31 @@ function App() {
                   sameEstimateGroup={sameEstimateGroup}
                   selectedEstimate={selectedEstimate}
                   setEstimateStatusRemote={setEstimateStatusRemote}
-                  showEstimateIssuesOnly={showEstimateIssuesOnly}
-                />
-                <EstimateAddSectionForm
-                  card={card}
-                  inp={inp}
+	                  showEstimateIssuesOnly={showEstimateIssuesOnly}
+	                />
+	                {['директор','зам_директора'].includes(user?.role) && (()=>{const priceStats=selectedEstimateExecutionPriceStats();return(
+	                  <div style={{...card,padding:'12px 14px',marginBottom:'12px',display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1fr) 120px auto auto',gap:'10px',alignItems:'center',backgroundColor:C.bg}}>
+	                    <div>
+	                      <b style={{color:C.text,fontSize:'14px'}}>💵 Внутренние цены исполнителям</b>
+	                      <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'12px'}}>
+	                        Работ: {priceStats.workRows} · заполнено: {priceStats.pricedRows} · пустых: {priceStats.emptyRows}. Цена сохраняется в каждой строке и идет в ЖПР/акты исполнителя.
+	                      </p>
+	                    </div>
+	                    <label style={{display:'flex',alignItems:'center',gap:'6px',color:C.textSec,fontSize:'12px'}}>
+	                      <input type="number" min="1" max="100" step="1" value={executionPriceFillPercent} onChange={e=>setExecutionPriceFillPercent(e.target.value)} style={{...inp,marginBottom:0,width:'78px'}}/>
+	                      %
+	                    </label>
+	                    <button type="button" onClick={()=>fillSelectedEstimateExecutionPrices(false)} disabled={!priceStats.emptyRows} style={{...btnO,justifyContent:'center',opacity:priceStats.emptyRows?1:0.55}}>
+	                      Заполнить пустые
+	                    </button>
+	                    <button type="button" onClick={()=>window.confirm('Перезаписать внутренние цены по всем строкам работ этой сметы?')&&fillSelectedEstimateExecutionPrices(true)} disabled={!priceStats.workRows} style={{...btnG,justifyContent:'center',opacity:priceStats.workRows?1:0.55}}>
+	                      Пересчитать все
+	                    </button>
+	                  </div>
+	                );})()}
+	                <EstimateAddSectionForm
+	                  card={card}
+	                  inp={inp}
                   btnO={btnO}
                   newEstimateSection={newEstimateSection}
                   setNewEstimateSection={setNewEstimateSection}
