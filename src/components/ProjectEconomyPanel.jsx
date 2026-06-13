@@ -12,12 +12,14 @@ export default function ProjectEconomyPanel({
   btnB,
   btnG,
   btnO,
+  project,
   economy,
   isMobile,
   onOpenFinance,
   onOpenJournal,
   onOpenMaterials,
   onOpenEstimate,
+  showPreview,
 }) {
   if (!economy) return null;
 
@@ -25,6 +27,29 @@ export default function ProjectEconomyPanel({
   const forecastColor = economy.marginForecast >= 0 ? C.success : C.warning;
   const progressColor = economy.customerPlan > 0 && economy.customerClosed > economy.customerPlan ? C.warning : C.success;
   const costTotal = economy.executionConfirmed + economy.legacyWorkCost + economy.materialCost + economy.otherCost;
+
+  const buildManagementReport = () => {
+    const rows = [
+      ['Смета заказчика', fmtMoney(economy.customerPlan), economy.activeEstimates + ' активных смет'],
+      ['Закрыто заказчику', fmtMoney(economy.customerClosed), fmtPct(economy.customerProgress) + ' от сметы'],
+      ['К оплате исполнителям', fmtMoney(economy.executionConfirmed), economy.confirmedWorks + ' подтверждено, ' + fmtMoney(economy.executionPending) + ' на проверке'],
+      ['Материалы по смете', fmtMoney(economy.materialPlan), economy.materialRows + ' позиций потребности'],
+      ['Фактические затраты', fmtMoney(costTotal), 'исполнители + материалы + прочие'],
+      ['Материалы факт', fmtMoney(economy.materialCost), 'по складу/приходам объекта'],
+      ['Прочие затраты', fmtMoney(economy.otherCost + economy.legacyWorkCost), economy.legacyWorkCost > 0 ? 'включая старые трудовые расходы' : 'без ЖПР исполнителей'],
+      ['Маржа по закрытому', fmtMoney(economy.marginClosed), fmtPct(economy.marginClosedPct)],
+      ['Прогноз маржи по плану', fmtMoney(economy.marginForecast), 'смета - исполнители - материалы - прочие затраты'],
+    ];
+    const table = rows.map(row => '<tr><td>' + row[0] + '</td><td><b>' + row[1] + '</b></td><td>' + row[2] + '</td></tr>').join('');
+    return (
+      '<h2 style="text-align:center">Управленческий отчет по объекту</h2>' +
+      '<p><b>Объект:</b> ' + (project?.name || '—') + '</p>' +
+      '<p><b>Дата:</b> ' + new Date().toLocaleDateString('ru-RU') + '</p>' +
+      '<table><tr><th>Показатель</th><th>Сумма/значение</th><th>Комментарий</th></tr>' + table + '</table>' +
+      '<p style="margin-top:18px"><b>Пакеты в расчете:</b> ' + (economy.packages.length ? economy.packages.join(', ') : 'не определены') + '</p>' +
+      '<p style="font-size:10px;color:#666">Отчет сформирован автоматически из активных смет, подтвержденного ЖПР, материалов и финансовых движений объекта.</p>'
+    );
+  };
 
   const metricCard = (label, value, color, sub, options = {}) => (
     <div style={{
@@ -54,6 +79,7 @@ export default function ProjectEconomyPanel({
           <button onClick={onOpenJournal} style={{...btnG, padding: '6px 10px', fontSize: '12px'}}>ЖПР</button>
           <button onClick={onOpenMaterials} style={{...btnG, padding: '6px 10px', fontSize: '12px'}}>Материалы</button>
           <button onClick={onOpenEstimate} style={{...btnO, padding: '6px 10px', fontSize: '12px'}}>Смета</button>
+          <button onClick={() => showPreview?.(buildManagementReport(), 'Управленческий отчет — ' + (project?.name || 'объект'))} style={{...btnB, padding: '6px 10px', fontSize: '12px'}}>Отчет</button>
         </div>
       </div>
 
