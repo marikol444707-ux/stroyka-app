@@ -83,6 +83,7 @@ export default function ProjectMaterialsControlPanel({
   const rowNormRows = rows.filter(r => r.normPlanQty > 0);
   const normOverEstimateRows = rows.filter(r => r.normOverEstimateQty > 0);
   const usedOverControlRows = rows.filter(r => r.usedOverControlQty > 0);
+  const usedOverEstimateRows = rows.filter(r => r.usedOverEstimateQty > 0);
   const overRows = normCtrl.overRows || [];
   const withoutNormRows = normCtrl.withoutNormRows || [];
   const normProblemRows = [
@@ -93,7 +94,7 @@ export default function ProjectMaterialsControlPanel({
   const filterOptions = [
     {id: 'all', label: 'Все', rows},
     {id: 'toBuy', label: 'Докупить', rows: toBuyRows},
-    {id: 'normGap', label: 'Нормы/расход', rows: rows.filter(r => r.normOverEstimateQty > 0 || r.usedOverControlQty > 0 || (r.normPlanQty > 0 && r.planQty <= 0))},
+    {id: 'normGap', label: 'Нормы/расход', rows: rows.filter(r => r.normOverEstimateQty > 0 || r.usedOverEstimateQty > 0 || r.usedOverControlQty > 0 || (r.normPlanQty > 0 && r.planQty <= 0))},
     {id: 'invalid', label: 'Проверить смету', rows: invalidPlanRows},
     {id: 'pipeline', label: 'В заявках/пути', rows: pipelineRows},
     {id: 'outside', label: 'Вне сметы', rows: outsideRows},
@@ -147,6 +148,7 @@ export default function ProjectMaterialsControlPanel({
     {label: 'Докупить', value: toBuyRows.length, active: true, color: toBuyRows.length ? C.warning : C.success, bg: toBuyRows.length ? C.warningLight : C.successLight, border: toBuyRows.length ? C.warningBorder : C.successBorder},
     {label: 'Проверить смету', value: invalidPlanRows.length, active: invalidPlanRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
     {label: 'Норма выше сметы', value: normOverEstimateRows.length, active: normOverEstimateRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
+    {label: 'Списано сверх сметы', value: usedOverEstimateRows.length, active: usedOverEstimateRows.length > 0, color: C.warning, bg: C.warningLight, border: C.warningBorder},
     {label: 'Расход сверх', value: usedOverControlRows.length, active: usedOverControlRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
     {label: 'Вне сметы', value: outsideRows.length, active: outsideRows.length > 0, color: C.danger, bg: C.dangerLight, border: C.dangerBorder},
     {label: 'По нормам работ', value: rowNormRows.length || normRows.length, active: (rowNormRows.length || normRows.length) > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
@@ -308,6 +310,7 @@ export default function ProjectMaterialsControlPanel({
                   <tr>
                     <td style={tblC}>
                       <b style={{fontSize: '12px'}}>{r.name}</b>
+                      {r.workPackage && <p style={{color: C.info, fontSize: '10px', margin: '2px 0 0'}}>📁 {r.workPackage}</p>}
                       {r.sections.length > 0 && <p style={{color: C.textMuted, fontSize: '10px', margin: '2px 0 0'}}>{r.sections.slice(0, 2).join(', ')}{r.sections.length > 2 ? '…' : ''}</p>}
                       {sourceDetails.length > 0 && (
                         <button
@@ -381,6 +384,11 @@ export default function ProjectMaterialsControlPanel({
                           сверх {fmtMeasure(r.usedOverControlQty, r.unit)}
                         </p>
                       )}
+                      {r.usedOverEstimateQty > 0 && r.usedOverControlQty <= 0 && (
+                        <p style={{margin: '2px 0 0', color: C.warning, fontSize: '10px', fontWeight: '700'}}>
+                          сверх сметы {fmtMeasure(r.usedOverEstimateQty, r.unit)}
+                        </p>
+                      )}
                     </td>
 	                    <td style={{...tblC, color: r.masterBalance > 0 ? C.info : C.textMuted}}>
 	                      <b>{fmtMeasure(r.masterBalance, r.unit)}</b>
@@ -398,7 +406,7 @@ export default function ProjectMaterialsControlPanel({
                     <td style={tblC}>
 	                      <span style={badge(st.color, st.bg, st.border)}>
 		                        {st.label}
-		                        {r.invalidPlanCount > 0 ? ' · ' + r.invalidPlanCount : r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.usedOverControlQty > 0 ? ' · ' + fmtMeasure(r.usedOverControlQty, r.unit) : r.normOverEstimateQty > 0 ? ' · +' + fmtMeasure(r.normOverEstimateQty, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
+		                        {r.invalidPlanCount > 0 ? ' · ' + r.invalidPlanCount : r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.usedOverControlQty > 0 ? ' · ' + fmtMeasure(r.usedOverControlQty, r.unit) : r.usedOverEstimateQty > 0 ? ' · ' + fmtMeasure(r.usedOverEstimateQty, r.unit) : r.normOverEstimateQty > 0 ? ' · +' + fmtMeasure(r.normOverEstimateQty, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
 		                      </span>
 	                      {renderMaterialSupplyAction(projectName, r)}
 	                      {onIssueMaterial && r.stock > 0 && (

@@ -4785,14 +4785,21 @@ function App() {
       const norm = normalizeMeasure(qty, unit);
       return {qty: norm.qty, unit: norm.unit || unit || ''};
     };
-    const ensure = (name, unit) => {
+    const packageKeyPart = (pkg='') => {
+      const clean = String(pkg || '').trim();
+      return requiredPackage ? '' : (clean ? '|' + clean.toLowerCase() : '|__no_package__');
+    };
+    const ensure = (name, unit, sourcePackage='') => {
       const rawName = name || '';
       const meta = canonicalMaterialMeta(projectName, rawName, unit);
-      const key = keyOf(meta.name);
-      if (!key) return null;
+      const baseKey = keyOf(meta.name);
+      if (!baseKey) return null;
+      const cleanPackage = String(sourcePackage || '').trim();
+      const key = baseKey + packageKeyPart(cleanPackage);
       const cleanUnit = materialUnit(meta.unit || unit);
-      if (!rows[key]) rows[key] = {key,name:meta.name||'',unit:cleanUnit,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planDetails:[],invalidPlanDetails:[],normDetails:[],normSections:[],normWorks:[],normSources:[],planQty:0,normPlanQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
-      if (rawName && keyOf(rawName)!==key && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
+      if (!rows[key]) rows[key] = {key,materialKey:baseKey,name:meta.name||'',unit:cleanUnit,workPackage:cleanPackage,sections:[],workRefs:[],aliases:[],aliasIds:[],holders:{},invoiceDetails:[],supplyDetails:[],movementDetails:[],planDetails:[],invalidPlanDetails:[],normDetails:[],normSections:[],normWorks:[],normSources:[],planQty:0,normPlanQty:0,planSum:0,invoiceReceived:0,supplyReceived:0,received:0,receivedSum:0,movedIn:0,movedOut:0,issuedFromMain:0,issued:0,issuedSigned:0,issuedPending:0,returnedFromMasters:0,used:0,stock:0,requested:0,inTransit:0,unitMismatch:false};
+      if (cleanPackage && !rows[key].workPackage) rows[key].workPackage = cleanPackage;
+      if (rawName && keyOf(rawName)!==baseKey && !rows[key].aliases.includes(rawName)) rows[key].aliases.push(rawName);
       if (meta.alias?.id && !rows[key].aliasIds.includes(meta.alias.id)) rows[key].aliasIds.push(meta.alias.id);
       if (cleanUnit && rows[key].unit && rows[key].unit!==cleanUnit) rows[key].unitMismatch = true;
       if (!rows[key].unit && cleanUnit) rows[key].unit = cleanUnit;
@@ -4827,7 +4834,7 @@ function App() {
       .forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
       const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (isEstimateMaterialItem(it, s.name)) {
-        const r = ensure(it.name, it.unit);
+        const r = ensure(it.name, it.unit, estimatePackage(est));
         if (!r) return;
         const converted = materialQty(it.quantity, it.unit || r.unit);
         const planSum = estimateItemMaterialSum(it);
@@ -4871,7 +4878,8 @@ function App() {
     })));
     (invoices||[]).filter(inv=>!isSupplyDeliveryInvoice(inv) && ((inv.project||inv.location)===projectName || inv.location===projectName)).forEach(inv=>{
       warehouseInvoiceItems(inv).items.filter(it=>sourcePackageMatches(sourcePackageOf(it, inv))).forEach(it=>{
-        const r = ensure(it.name, it.unit);
+        const itemPackage = sourcePackageOf(it, inv);
+        const r = ensure(it.name, it.unit, itemPackage);
         if (!r) return;
         const qty = Number(it.quantity||0);
         const price = Number(it.price||0);
@@ -4890,15 +4898,17 @@ function App() {
           sourceUnit: it.unit || '',
           sourceQty: qty,
           total,
-          workPackage: sourcePackageOf(it, inv),
+          workPackage: itemPackage,
         });
       });
     });
     const acceptedDeliveryKeys = new Set();
+    const deliveryKey = (row, pkg='') => (row?.key || '') + '|' + String(pkg || '').trim();
     (supplyDeliveries||[])
       .filter(d=>d.project===projectName && sourcePackageMatches(sourcePackageOf({}, d)) && ['Принято','Проблема'].includes(d.status||'') && Number(d.receivedQuantity||0)>0)
       .forEach(d=>{
-        const r = ensure(d.materialName, d.unit);
+        const deliveryPackage = sourcePackageOf({}, d);
+        const r = ensure(d.materialName, d.unit, deliveryPackage);
         if (!r) return;
         const qty = Number(d.receivedQuantity||0);
         const converted = materialQty(qty, d.unit || r.unit);
@@ -4915,15 +4925,16 @@ function App() {
           unit: converted.unit || d.unit || r.unit,
           total,
           date: d.receivedAt || d.deliveryDate || d.plannedDate || '',
-          workPackage: sourcePackageOf({}, d),
+          workPackage: deliveryPackage,
         });
-        acceptedDeliveryKeys.add(r.key);
+        acceptedDeliveryKeys.add(deliveryKey(r, deliveryPackage));
       });
     (supplyHistory||[])
       .filter(h=>h.project===projectName && sourcePackageMatches(sourcePackageOf({}, h)) && ['Доставлено','Поставлено','Принято'].includes(h.status||''))
       .forEach(h=>{
-        const r = ensure(h.materialName, h.unit);
-        if (!r || acceptedDeliveryKeys.has(r.key)) return;
+        const historyPackage = sourcePackageOf({}, h);
+        const r = ensure(h.materialName, h.unit, historyPackage);
+        if (!r || acceptedDeliveryKeys.has(deliveryKey(r, historyPackage))) return;
         const qty = Number(h.quantity||0);
         const converted = materialQty(qty, h.unit || r.unit);
         addQty(r, 'supplyReceived', qty, h.unit);
@@ -4938,27 +4949,29 @@ function App() {
           unit: converted.unit || h.unit || r.unit,
           total,
           date: h.date || h.createdAt || '',
-          workPackage: sourcePackageOf({}, h),
+          workPackage: historyPackage,
         });
       });
     (warehouseMovements||[]).forEach(m=>{
-      if (!sourcePackageMatches(sourcePackageOf({}, m))) return;
+      const movementPackage = sourcePackageOf({}, m);
+      if (!sourcePackageMatches(movementPackage)) return;
       const qty = Number(m.quantity||0);
       if ((m.toLocation||'')===projectName) {
-        const r = ensure(m.materialName, m.unit);
+        const r = ensure(m.materialName, m.unit, movementPackage);
         addQty(r, 'movedIn', qty, m.unit);
         const converted = materialQty(qty, m.unit || r?.unit);
-        if (r) r.movementDetails.push({id:m.id, type:'in', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||'', workPackage:sourcePackageOf({}, m)});
+        if (r) r.movementDetails.push({id:m.id, type:'in', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||'', workPackage:movementPackage});
       }
       if ((m.fromLocation||'')===projectName) {
-        const r = ensure(m.materialName, m.unit);
+        const r = ensure(m.materialName, m.unit, movementPackage);
         addQty(r, 'movedOut', qty, m.unit);
         const converted = materialQty(qty, m.unit || r?.unit);
-        if (r) r.movementDetails.push({id:m.id, type:'out', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||'', workPackage:sourcePackageOf({}, m)});
+        if (r) r.movementDetails.push({id:m.id, type:'out', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||'', workPackage:movementPackage});
       }
     });
     (materialTransfers||[]).filter(t=>t.projectName===projectName && (t.status||'Активна')!=='Аннулирована' && sourcePackageMatches(t.workPackage || t.work_package)).forEach(t=>{
-      const r = ensure(t.materialName, t.unit);
+      const transferPackage = t.workPackage || t.work_package || '';
+      const r = ensure(t.materialName, t.unit, transferPackage);
       if ((t.fromLocation||'')==='Основной склад') addQty(r, 'issuedFromMain', t.quantity, t.unit);
       addQty(r, 'issued', t.quantity, t.unit);
       if (t.signed) addQty(r, 'issuedSigned', t.quantity, t.unit);
@@ -4970,7 +4983,8 @@ function App() {
       if (typeof mats === 'string') { try { mats = JSON.parse(mats); } catch(_) { mats = []; } }
       if (!Array.isArray(mats)) return;
       mats.forEach(m=>{
-        const r = ensure(m.name, m.unit);
+        const writeoffPackage = m.workPackage || m.work_package || w.workPackage || w.work_package || '';
+        const r = ensure(m.name, m.unit, writeoffPackage);
         addQty(r, 'used', m.quantity, m.unit);
         addHolderQty(r, w.masterName||w.master_name||'Без ответственного', '', 'used', m.quantity, m.unit);
       });
@@ -4978,12 +4992,14 @@ function App() {
     (history||[])
       .filter(h=>h.project===projectName && h.type==='возврат от мастера' && sourcePackageMatches(h.workPackage || h.work_package))
       .forEach(h=>{
-        const r = ensure(h.material, '');
+        const returnPackage = h.workPackage || h.work_package || '';
+        const r = ensure(h.material, '', returnPackage);
         addQty(r, 'returnedFromMasters', h.quantity, r?.unit);
         addHolderQty(r, h.issuedBy||h.issued_by||'Без ответственного', '', 'returned', h.quantity, r?.unit);
       });
     (materials||[]).filter(m=>m.project===projectName && sourcePackageMatches(sourcePackageOf({}, m))).forEach(m=>{
-      const r = ensure(m.name, m.unit);
+      const stockPackage = sourcePackageOf({}, m);
+      const r = ensure(m.name, m.unit, stockPackage);
       if (r) {
         addQty(r, 'stock', m.quantity, m.unit);
         if (!r.receivedSum && Number(m.price||0)>0) r.receivedSum += Number(m.quantity||0)*Number(m.price||0);
@@ -4993,17 +5009,20 @@ function App() {
     (supplyRequests||[])
       .filter(req=>req.project===projectName && requestPipelineStatuses.has(req.status||'Новая'))
       .forEach(req=>parseSupplyItems(req).filter(it=>sourcePackageMatches(sourcePackageOf(it, req))).forEach(it=>{
-        const r = ensure(it.materialName, it.unit);
+        const requestPackage = sourcePackageOf(it, req);
+        const r = ensure(it.materialName, it.unit, requestPackage);
         addQty(r, 'requested', it.quantity, it.unit);
       }));
     (supplyDeliveries||[])
       .filter(d=>d.project===projectName && sourcePackageMatches(sourcePackageOf({}, d)) && d.status==='В пути')
       .forEach(d=>{
-        const r = ensure(d.materialName, d.unit);
+        const transitPackage = sourcePackageOf({}, d);
+        const r = ensure(d.materialName, d.unit, transitPackage);
         addQty(r, 'inTransit', d.shippedQuantity || d.plannedQuantity, d.unit);
     });
     estimateWorkNormRequirementRows(projectName, workPackage).forEach(n=>{
-      const r = ensure(n.name, n.unit);
+      const normPackage = (n.packageNames || []).find(Boolean) || n.packageName || '';
+      const r = ensure(n.name, n.unit, normPackage);
       if (!r) return;
       addQty(r, 'normPlanQty', n.planQty, n.unit);
       (n.sections||[]).forEach(s=>{ if (s && !r.normSections.includes(s)) r.normSections.push(s); });
@@ -5036,7 +5055,7 @@ function App() {
         ...(r.supplyDetails || []).map(d => d.workPackage),
         ...(r.movementDetails || []).map(d => d.workPackage),
       ].map(v => String(v || '').trim()).filter(Boolean);
-      const rowPackage = requiredPackage || detailPackages[0] || '';
+      const rowPackage = requiredPackage || r.workPackage || detailPackages[0] || '';
       const movedNet = r.movedIn + r.issuedFromMain - r.movedOut;
       const supplied = r.received + movedNet;
       const estimatePlanQty = Number(r.planQty||0);
@@ -5044,6 +5063,7 @@ function App() {
       const controlPlanQty = Math.max(estimatePlanQty, normPlanQty);
       const normOverEstimateQty = estimatePlanQty>0 ? Math.max(0, normPlanQty - estimatePlanQty) : normPlanQty;
       const estimateOverNormQty = normPlanQty>0 ? Math.max(0, estimatePlanQty - normPlanQty) : 0;
+      const usedOverEstimateQty = estimatePlanQty>0 ? Math.max(0, (r.used||0) - estimatePlanQty) : 0;
       const toBuy = controlPlanQty>0 ? Math.max(0, controlPlanQty - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
       const coveredWithPipeline = supplied + (r.requested||0) + (r.inTransit||0);
       const hasMaterialActivity = coveredWithPipeline>0 || (r.stock||0)>0 || (r.issued||0)>0 || (r.used||0)>0;
@@ -5078,6 +5098,7 @@ function App() {
         normSourceCount: (r.normDetails || []).length,
         normOverEstimateQty,
         estimateOverNormQty,
+        usedOverEstimateQty,
         usedOverControlQty: controlPlanQty>0 ? Math.max(0, (r.used||0) - controlPlanQty) : 0,
         usedOverNormQty: normPlanQty>0 ? Math.max(0, (r.used||0) - normPlanQty) : 0,
         spendPct: controlPlanQty>0 ? Math.min(999, Math.round((r.used||0)/controlPlanQty*100)) : 0,
@@ -5108,15 +5129,17 @@ function App() {
     const normRows = rows.filter(r=>r.normPlanQty>0);
     const normOverEstimateRows = rows.filter(r=>r.normOverEstimateQty>0);
     const usedOverControlRows = rows.filter(r=>r.usedOverControlQty>0);
+    const usedOverEstimateRows = rows.filter(r=>r.usedOverEstimateQty>0);
     const planSum = rows.reduce((s,r)=>s+Number(r.planSum||0),0);
     const suppliedSum = rows.reduce((s,r)=>s+Number(r.receivedSum||0),0);
-    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, invalidPlanRows, normRows, normOverEstimateRows, usedOverControlRows, planSum, suppliedSum};
+    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, invalidPlanRows, normRows, normOverEstimateRows, usedOverControlRows, usedOverEstimateRows, planSum, suppliedSum};
   };
   const materialControlStatus = (r) => {
     if (r.invalidPlanCount>0) return {label:'Проверить смету', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.stockMismatch) return {label:'Расхождение склада', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.issued>0 && r.usedWithoutIssue>0) return {label:'Списано сверх выдачи', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.usedOverControlQty>0) return {label:'Расход сверх нормы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
+    if (r.usedOverEstimateQty>0) return {label:'Списано сверх сметы', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.isOutsideEstimate) return {label:'Вне сметы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.normOverEstimateQty>0) return {label:'Норма выше сметы', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.toBuy>0) return {label:'Докупить', color:C.warning, bg:C.warningLight, border:C.warningBorder};
@@ -5126,6 +5149,7 @@ function App() {
     return {label:'Закрыто', color:C.success, bg:C.successLight, border:C.successBorder};
   };
   const warehouseInvoiceEstimateControl = (inv) => {
+    const sourcePackageOf = (item = {}, parent = {}) => item.workPackage || item.work_package || parent.workPackage || parent.work_package || '';
     const invoiceRows = warehouseInvoiceItems(inv);
     const items = invoiceRows.items || [];
     const place = inv?.location === 'Основной склад' ? '' : (inv?.project || inv?.location || '');
@@ -5149,10 +5173,12 @@ function App() {
     const summary = materialControlSummaryForProject(place);
     const rowsByKey = new Map((summary.rows||[]).map(r=>[r.key, r]));
     const itemMeta = items.map(item=>{
+      const itemPackage = sourcePackageOf(item, inv);
       const meta = canonicalMaterialMeta(place, item.name, item.unit);
-      const key = materialNameLookupKey(meta.name || item.name);
+      const baseKey = materialNameLookupKey(meta.name || item.name);
+      const key = baseKey ? baseKey + (itemPackage ? '|' + String(itemPackage).trim().toLowerCase() : '|__no_package__') : '';
       const norm = normalizeMeasure(item.quantity, item.unit);
-      return {meta, key, qty:norm.qty, unit:norm.unit || item.unit || ''};
+      return {meta, key, qty:norm.qty, unit:norm.unit || item.unit || '', workPackage:itemPackage};
     });
     const invoiceQtyByKey = {};
     itemMeta.forEach(m=>{ if (m.key) invoiceQtyByKey[m.key] = (invoiceQtyByKey[m.key]||0) + Number(m.qty||0); });
@@ -5176,6 +5202,7 @@ function App() {
 	          name:item.name||'',
 	          projectName:place,
 	          canonicalName:item.name||'',
+	          workPackage:m.workPackage || '',
 	          quantity:qty,
 	          incomingQty:qty,
 	          unit,
@@ -5220,6 +5247,7 @@ function App() {
 	        name:item.name||'',
 	        projectName:place,
 	        canonicalName:row.name,
+	        workPackage:m.workPackage || row.workPackage || '',
 	        planSourceCount: row.planSourceCount || (row.planDetails||[]).length,
 	        planDetails: row.planDetails || [],
 	        sectionsList: row.sections || [],
@@ -5267,7 +5295,8 @@ function App() {
     });
   };
   const materialNameKey = materialNameLookupKey;
-	  const materialControlSupplyMarker = (projectName, row) => 'MATERIAL_CONTROL_REQUEST:'+[materialNameKey(projectName), materialNameKey(row?.name), _normalizeUnit(row?.unit||'')].join('|');
+	  const rowPackageKey = (row = {}) => String(row.workPackage || row.work_package || row.packageName || '').trim().toLowerCase();
+	  const materialControlSupplyMarker = (projectName, row) => 'MATERIAL_CONTROL_REQUEST:'+[materialNameKey(projectName), materialNameKey(row?.name), _normalizeUnit(row?.unit||''), rowPackageKey(row)].join('|');
 	  const invoiceControlProjectName = (inv, ctrl = {}) => ctrl.projectName || inv?.project || (inv?.location && inv.location !== 'Основной склад' ? inv.location : '');
 	  const invoiceControlMaterialName = (ctrl = {}, item = {}) => ctrl.canonicalName || ctrl.name || item.name || '';
 	  const invoiceControlUnit = (ctrl = {}, item = {}) => ctrl.rowUnit || ctrl.unit || item.unit || 'шт';
@@ -5277,18 +5306,24 @@ function App() {
 	    String(ctrl?.index ?? ''),
 	    materialNameKey(invoiceControlMaterialName(ctrl, item)),
 	    _normalizeUnit(invoiceControlUnit(ctrl, item) || ''),
+	    rowPackageKey(ctrl || item),
 	  ].join('|');
 	  const invoiceControlSupplyMarker = (projectName, inv, ctrl, item) => 'INVOICE_CONTROL_REQUEST:'+invoiceControlLineKey(projectName, inv, ctrl, item);
 	  const invoiceControlReviewMarker = (projectName, inv, ctrl, item) => 'INVOICE_MATERIAL_REVIEW:'+invoiceControlLineKey(projectName, inv, ctrl, item);
-	  const materialControlRequestItems = (req) => parseSupplyItems(req).map(it=>({...it, materialName:it.materialName||it.name||'', quantity:toNum(it.quantity), unit:it.unit||req.unit||'шт'}));
+	  const materialControlRequestItems = (req) => parseSupplyItems(req).map(it=>({...it, materialName:it.materialName||it.name||'', quantity:toNum(it.quantity), unit:it.unit||req.unit||'шт', workPackage:it.workPackage||it.work_package||req.workPackage||req.work_package||''}));
   const materialControlSupplyRequestExists = (projectName, row) => {
     const marker = materialControlSupplyMarker(projectName, row);
     const rowKey = materialNameKey(row?.name);
     const unitKey = _normalizeUnit(row?.unit||'');
+    const packageKey = rowPackageKey(row);
     return (supplyRequests||[]).some(req=>{
       if ((req.project||'')!==projectName || !isActiveSupplyRequestStatus(req.status)) return false;
       if (String(req.notes||'').includes(marker)) return true;
-      return materialControlRequestItems(req).some(it=>materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name)===rowKey && (!unitKey || _normalizeUnit(it.unit||'')===unitKey));
+      return materialControlRequestItems(req).some(it=>
+        materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name)===rowKey &&
+        (!unitKey || _normalizeUnit(it.unit||'')===unitKey) &&
+        rowPackageKey(it)===packageKey
+      );
     });
   };
 	  const canCreateSupplyRequestFromControl = () => ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бухгалтер'].includes(user?.role);
@@ -5297,10 +5332,15 @@ function App() {
 	    const marker = invoiceControlSupplyMarker(projectName, inv, ctrl, item);
 	    const rowKey = materialNameKey(invoiceControlMaterialName(ctrl, item));
 	    const unitKey = _normalizeUnit(invoiceControlUnit(ctrl, item) || '');
+	    const packageKey = rowPackageKey(ctrl || item);
 	    return (supplyRequests||[]).some(req=>{
 	      if ((req.project||'')!==projectName || !isActiveSupplyRequestStatus(req.status)) return false;
 	      if (String(req.notes||'').includes(marker)) return true;
-	      return materialControlRequestItems(req).some(it=>materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name)===rowKey && (!unitKey || _normalizeUnit(it.unit||'')===unitKey));
+	      return materialControlRequestItems(req).some(it=>
+	        materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name)===rowKey &&
+	        (!unitKey || _normalizeUnit(it.unit||'')===unitKey) &&
+	        rowPackageKey(it)===packageKey
+	      );
 	    });
 	  };
 	  const createSupplyRequestFromMaterialControl = async (projectName, row) => {
@@ -5691,7 +5731,7 @@ function App() {
     const candidate = String(candidatePackage || '').trim();
     const required = String(workPackage || '').trim();
     if (!required) return true;
-    return !candidate || candidate === required;
+    return candidate === required;
   };
   const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id, workPackage='') => {
     const byName = {};
