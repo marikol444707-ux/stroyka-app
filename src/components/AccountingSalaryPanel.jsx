@@ -36,12 +36,19 @@ export default function AccountingSalaryPanel({
   const nextStr = nextMonth.toISOString().slice(0, 7) + '-01';
   const edits = (salaryEdits || {})[monthStr] || {};
   const extras = (payrollExtras || {})[monthStr] || [];
+  const normalizePayType = value => {
+    const text = String(value || '').trim().toLowerCase();
+    if (['сдельно', 'сдельная', 'сдельщик', 'subcontract', 'piecework'].includes(text)) return 'piecework';
+    if (['почасово', 'часовая', 'hourly'].includes(text)) return 'hourly';
+    return 'salary';
+  };
 
   const buildRow = staffRow => {
     const pieceworkRows = (piecework || []).filter(row => Number(row.staffId) === staffRow.id && row.date && row.date >= monthStart && row.date < nextStr);
     const pieceworkSum = pieceworkRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const salary = Number(staffRow.salary || 0);
-    const baseRaw = (staffRow.payType === 'Сдельная' ? pieceworkSum : (staffRow.payType === 'Оклад' ? salary : salary + pieceworkSum));
+    const payTypeKind = normalizePayType(staffRow.payType);
+    const baseRaw = payTypeKind === 'piecework' ? pieceworkSum : (payTypeKind === 'salary' ? salary : salary + pieceworkSum);
     const editRow = edits[staffRow.id] || {};
     const bonus = Number(editRow.bonus || 0);
     const toolHold = (tools || []).filter(tool => tool.masterName === staffRow.name && tool.issueType === 'В счёт зарплаты').reduce((sum, tool) => sum + Number(tool.cost || 0), 0);
@@ -55,6 +62,7 @@ export default function AccountingSalaryPanel({
       name: staffRow.name || (staffRow.lastName || '') + ' ' + (staffRow.firstName || ''),
       role: staffRow.role || '—',
       payType: staffRow.payType || '—',
+      payTypeKind,
       employmentType: staffRow.employmentType || '',
       salary,
       pwSum: pieceworkSum,
@@ -75,7 +83,7 @@ export default function AccountingSalaryPanel({
 
   const staffRows = allStaff
     .filter(staffRow => ['ТД', 'Оклад', 'Штат'].includes(staffRow.employmentType)
-      || staffRow.payType === 'Оклад'
+      || normalizePayType(staffRow.payType) === 'salary'
       || (!staffRow.employmentType && ['прораб', 'инженер', 'бухгалтер', 'снабженец', 'кладовщик', 'директор', 'менеджер'].some(key => String(staffRow.role || '').toLowerCase().includes(key))))
     .map(buildRow);
 

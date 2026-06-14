@@ -9227,8 +9227,18 @@ function App() {
       alert('Недопустимая роль. Используйте одну из: '+staffAccessRoles.join(', '));
       return;
     }
+    const assignedProjects = Array.isArray(staffRow.assignedProjects) ? staffRow.assignedProjects : [];
+    const assignedPackages = Array.isArray(staffRow.assignedPackages) ? staffRow.assignedPackages : [];
+    if (['прораб','главный_инженер','технадзор','стройконтроль','мастер','субподрядчик','бригадир'].includes(role) && !staffRow.project && assignedProjects.length === 0) {
+      alert('Сначала откройте сотрудника через карандаш и назначьте объект. Без объекта доступ не выдаётся.');
+      return;
+    }
+    if (['мастер','субподрядчик','бригадир'].includes(role) && assignedPackages.length === 0) {
+      alert('Сначала откройте сотрудника через карандаш и выберите разделы сметы/виды работ. Без разделов мастер или субподрядчик увидит лишнее.');
+      return;
+    }
     try {
-      const result = await upsertStaffAccess({staffRow, fullName:staffRow.name, email, password, role, projectName:staffRow.project||'', assignedProjects:staffRow.assignedProjects||[], assignedPackages:staffRow.assignedPackages||[]});
+      const result = await upsertStaffAccess({staffRow, fullName:staffRow.name, email, password, role, projectName:staffRow.project||'', assignedProjects, assignedPackages});
       await refreshData();
       alert(result.updatedExisting?'Доступ обновлён: '+email:'Доступ выдан: '+email);
     } catch(e) {

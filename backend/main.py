@@ -4005,10 +4005,26 @@ def get_warehouse_history(current_user: dict = Depends(get_current_user)):
 
 @app.post("/warehouse-history")
 def create_warehouse_history(h: WarehouseHistoryModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+    role = _current_user.get("role") or ""
+    if role not in LEADERSHIP_ROLES:
+        raise HTTPException(status_code=403, detail="Ручную запись истории склада может добавить только директор или замдиректора")
+    movement_type = (h.type or "").strip()
+    if not movement_type.startswith("ручная корректировка"):
+        raise HTTPException(
+            status_code=400,
+            detail="Прямое создание складских приходов, списаний и перемещений запрещено. Используйте накладную, перемещение или ЖПР.",
+        )
+    if not h.material or float(h.quantity or 0) <= 0:
+        raise HTTPException(status_code=400, detail="Укажите материал и положительное количество")
+    if h.project:
+        require_project_or_warehouse_access(_current_user, h.project)
+    work_package = (h.workPackage or "").strip()
+    if not has_package_access(_current_user, work_package or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы движения: " + (work_package or "Основная"))
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        (h.material,h.type,h.quantity,h.date,h.project,h.issuedTo,h.issuedBy,h.workPackage,h.dateTime))
+        (h.material,movement_type,h.quantity,h.date,h.project,h.issuedTo,h.issuedBy,work_package,h.dateTime))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -4072,6 +4088,18 @@ STAFF_ACCESS_ROLES = (
     "сметчик", "мастер", "субподрядчик", "бригадир", "кладовщик", "снабженец",
     "технадзор", "стройконтроль", "менеджер_crm",
 )
+PROJECT_SCOPED_ACCESS_ROLES = ("прораб", "главный_инженер", "технадзор", "стройконтроль", "мастер", "субподрядчик", "бригадир")
+WORK_PACKAGE_REQUIRED_ACCESS_ROLES = ("мастер", "субподрядчик", "бригадир")
+
+def _validate_user_access_scope(role: str, project_name: str = "", assigned_projects=None, assigned_packages=None):
+    projects = _safe_project_list(assigned_projects or [])
+    packages = _safe_project_list(assigned_packages or [])
+    project = (project_name or "").strip()
+    if role in PROJECT_SCOPED_ACCESS_ROLES and not project and not projects:
+        raise HTTPException(status_code=400, detail="Для роли «"+role+"» нужно назначить хотя бы один объект")
+    if role in WORK_PACKAGE_REQUIRED_ACCESS_ROLES and not packages:
+        raise HTTPException(status_code=400, detail="Для роли «"+role+"» нужно назначить разделы сметы/виды работ")
+    return projects, packages
 
 def _sync_staff_access(cur, s: StaffModel):
     email = ((s.email or s.emailWork or "") or "").strip().lower()
@@ -4098,6 +4126,7 @@ def _sync_staff_access(cur, s: StaffModel):
             project_id = project_row.get("id") if isinstance(project_row, dict) else project_row[0]
     if project_name and project_name not in assigned_projects and role in ("прораб", "технадзор", "стройконтроль", "мастер", "субподрядчик", "бригадир"):
         assigned_projects.append(project_name)
+    assigned_projects, assigned_packages = _validate_user_access_scope(role, project_name, assigned_projects, assigned_packages)
 
     cur.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1", (email,))
     existing = cur.fetchone()
@@ -4401,7 +4430,13 @@ def update_assigned_projects(id: int, data: dict, _current_user: dict = Depends(
     if not isinstance(packages_list, list):
         return {"ok": False, "error": "assignedPackages must be array"}
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT role, COALESCE(project_name,'') AS project_name FROM users WHERE id=%s", (id,))
+    user_row = cur.fetchone()
+    if not user_row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    _validate_user_access_scope(user_row.get("role") or "", user_row.get("project_name") or "", projects_list, packages_list)
     cur.execute("UPDATE users SET assigned_projects=%s::jsonb, assigned_packages=%s::jsonb WHERE id=%s",
                 (_j.dumps(projects_list), _j.dumps(packages_list), id))
     conn.commit()
@@ -4415,13 +4450,14 @@ def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADE
     email = (u.email or "").strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Email обязателен")
+    assigned_projects, assigned_packages = _validate_user_access_scope(u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         cur.execute("""INSERT INTO users (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active)
                        VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s)
                        RETURNING id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,active""",
-                    ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(u.assignedProjects or []),json.dumps(u.assignedPackages or []), u.active is not False))
+                    ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages), u.active is not False))
         row = cur.fetchone()
         conn.commit()
         cur.close()
@@ -4438,6 +4474,7 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
     email = (u.email or "").strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Email обязателен")
+    assigned_projects, assigned_packages = _validate_user_access_scope(u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -4448,10 +4485,10 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
             params_tail.append(u.active is not False)
         if u.password:
             cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb,failed_login_count=0,locked_until=NULL"+active_sql+" WHERE id=%s",
-                        ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(u.assignedProjects or []),json.dumps(u.assignedPackages or []),*params_tail,id))
+                        ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages),*params_tail,id))
         else:
             cur.execute("UPDATE users SET name=%s,email=%s,role=%s,project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb"+active_sql+" WHERE id=%s",
-                        ((u.name or "").strip(),email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(u.assignedProjects or []),json.dumps(u.assignedPackages or []),*params_tail,id))
+                        ((u.name or "").strip(),email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages),*params_tail,id))
         if cur.rowcount == 0:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Пользователь не найден")
