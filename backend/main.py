@@ -15776,6 +15776,7 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
     new_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
+    _run_project_ai_control_safely(project_name, "estimate:ai-generate")
 
     return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "version": version, "sections": sections, "smetaType": smeta_type, "workPackage": work_package, "status": status}
 
