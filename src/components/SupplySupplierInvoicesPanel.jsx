@@ -29,7 +29,7 @@ function SupplySupplierInvoicesPanel({
   const today = () => new Date().toISOString().split('T')[0];
 
   const filtered = (supplierInvoices || []).filter(invoice =>
-    matchSearch(listSearch, invoice.supplierName, invoice.invoiceNumber, invoice.projectName, invoice.description)
+    matchSearch(listSearch, invoice.supplierName, invoice.invoiceNumber, invoice.projectName, invoice.workPackage, invoice.description)
   );
   const pending = filtered.filter(invoice=>invoice.status==='На утверждении');
   const approved = filtered.filter(invoice=>invoice.status==='Утверждён'||invoice.status==='Частично оплачен');
@@ -46,7 +46,7 @@ function SupplySupplierInvoicesPanel({
   const projectNames = Object.keys(byProject).sort();
 
   const openNewInvoice = () => {
-    setNewSupplierInvoice({supplierName:'',projectName:'',invoiceNumber:'',invoiceDate:'',amount:'',vatAmount:'',description:''});
+    setNewSupplierInvoice({supplierName:'',projectName:'',workPackage:'',invoiceNumber:'',invoiceDate:'',amount:'',vatAmount:'',description:''});
   };
 
   const saveInvoice = async () => {
@@ -105,7 +105,7 @@ function SupplySupplierInvoicesPanel({
         body:JSON.stringify({
           projectName:invoice.projectName,
           amount:sum,
-          note:'Оплата счёта '+invoice.supplierName+' №'+invoice.invoiceNumber,
+          note:'Оплата счёта '+invoice.supplierName+' №'+invoice.invoiceNumber+(invoice.workPackage?' · '+invoice.workPackage:''),
           date:today(),
           paidBy:user.name,
         }),
@@ -144,6 +144,7 @@ function SupplySupplierInvoicesPanel({
               <option value=''>Объект (если по проекту)</option>
               {projects.map(project=><option key={project.id} value={project.name}>{project.name}</option>)}
             </select>
+            <input placeholder='Раздел сметы' value={newSupplierInvoice.workPackage||''} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,workPackage:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder='№ счёта *' value={newSupplierInvoice.invoiceNumber} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input type='date' value={newSupplierInvoice.invoiceDate} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceDate:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder='Сумма с НДС (₽) *' type='number' step='any' inputMode='decimal' value={newSupplierInvoice.amount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -202,6 +203,7 @@ function SupplySupplierInvoicesPanel({
                           <b style={{color:C.text,fontSize:'13px'}}>{invoice.supplierName+' · № '+invoice.invoiceNumber}</b>
                           <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(invoice.invoiceDate||'')+(invoice.projectName?' · 🏗 '+invoice.projectName:'')+(invoice.description?' · '+invoice.description:'')}</p>
                           {(invoice.offerId||invoice.offer_id)&&<p style={{color:C.accent,margin:'2px 0',fontSize:'11px'}}>📨 Создан по выигранному КП #{invoice.offerId||invoice.offer_id}{invoice.materialName?' · '+invoice.materialName:''}{invoice.paymentTerms?' · условия: '+invoice.paymentTerms:''}</p>}
+                          {invoice.workPackage&&<p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>📁 Раздел сметы: {invoice.workPackage}</p>}
                           <div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
                             <span style={{fontSize:'12px',color:C.text}}>{'Сумма: '+Math.round(total).toLocaleString('ru-RU')+' ₽'}</span>
                             {paidAmount>0&&<span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+Math.round(paidAmount).toLocaleString('ru-RU')+' ₽'}</span>}

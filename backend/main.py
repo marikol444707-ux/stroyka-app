@@ -1447,6 +1447,7 @@ def init_db():
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS request_id INT;
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100);
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS material_name VARCHAR(255);
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         CREATE TABLE IF NOT EXISTS tb_journal (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -1459,7 +1460,8 @@ def init_db():
             photo_url VARCHAR(500),
             date DATE,
             ai_filled BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT NOW()
+            created_at TIMESTAMP DEFAULT NOW(),
+            work_package VARCHAR(100)
         );
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS program TEXT;
         ALTER TABLE tb_journal ADD COLUMN IF NOT EXISTS instruction_text TEXT;
@@ -5636,7 +5638,8 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         "SELECT o.id, o.supplier_id, o.request_id, o.total_price, o.payment_terms, o.vat_included, "
-        "s.name as supplier_name, r.project as project_name, r.material_name "
+        "s.name as supplier_name, r.project as project_name, r.material_name, "
+        "COALESCE(r.work_package,'') AS work_package, r.items_json "
         "FROM supplier_offers o "
         "LEFT JOIN suppliers s ON s.id=o.supplier_id "
         "LEFT JOIN supply_requests r ON r.id=o.request_id "
@@ -5659,16 +5662,22 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
     vat_amount = float(data.get('vatAmount') or 0)
     file_url = data.get('fileUrl') or data.get('photoUrl') or ''
     description = data.get('description') or ('Материал: '+(offer['material_name'] or ''))
+    item_packages = {
+        (it.get("workPackage") or it.get("work_package") or offer.get("work_package") or "").strip()
+        for it in _json_list_or_empty(offer.get("items_json")) if isinstance(it, dict)
+    }
+    item_packages = {p for p in item_packages if p}
+    invoice_package = data.get('workPackage') or (next(iter(item_packages)) if len(item_packages) == 1 else (offer.get("work_package") or ""))
     cur.execute(
         "INSERT INTO supplier_invoices "
         "(supplier_id, supplier_name, project_name, invoice_number, invoice_date, "
         "amount, vat_amount, description, file_url, status, offer_id, request_id, "
-        "payment_terms, material_name) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        "payment_terms, material_name, work_package) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (offer['supplier_id'], offer['supplier_name'], offer['project_name'],
          invoice_number, invoice_date, amount, vat_amount, description, file_url,
          'На утверждении', offer['id'], offer['request_id'],
-         offer['payment_terms'], offer['material_name']))
+         offer['payment_terms'], offer['material_name'], invoice_package))
     new_id = cur.fetchone()['id']
     conn.commit()
     cur.close(); conn.close()
@@ -15773,7 +15782,7 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
         return []
     conn = get_db()
     cur = conn.cursor()
-    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount, offer_id, request_id, payment_terms, material_name"
+    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount, offer_id, request_id, payment_terms, material_name, COALESCE(work_package,'')"
     where, params = [], []
     if project_name:
         allowed_projects = visible_project_names(current_user)
@@ -15814,7 +15823,8 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
              "paidBy":r[15] or "","paidNote":r[16] or "",
              "createdAt":str(r[17]),"paidAmount":float(r[18] or 0),
              "offerId":r[19],"requestId":r[20],
-             "paymentTerms":r[21] or "","materialName":r[22] or ""} for r in rows]
+             "paymentTerms":r[21] or "","materialName":r[22] or "",
+             "workPackage":r[23] or ""} for r in rows]
 
 @app.post("/supplier-invoices")
 def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "поставщик"))):
@@ -15842,13 +15852,13 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
         require_project_access(_current_user, project_name)
     cur.execute("""INSERT INTO supplier_invoices
                    (supplier_id, supplier_name, project_name, invoice_number, invoice_date,
-                    amount, vat_amount, description, file_url, photo_url, status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    amount, vat_amount, description, file_url, photo_url, status, work_package)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                 (data.get("supplierId"), data.get("supplierName",""), project_name,
                  data.get("invoiceNumber",""), data.get("invoiceDate") or None,
                  float(data.get("amount",0)), float(data.get("vatAmount",0)),
                  data.get("description",""), data.get("fileUrl",""), data.get("photoUrl",""),
-                 data.get("status","На утверждении")))
+                 data.get("status","На утверждении"), data.get("workPackage") or data.get("work_package") or ""))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -15862,7 +15872,7 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
     fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
                   ('paidAt','paid_at'),('paidBy','paid_by'),('paidNote','paid_note'),
                   ('description','description'),('amount','amount'),('vatAmount','vat_amount'),
-                  ('paidAmount','paid_amount')]
+                  ('paidAmount','paid_amount'),('workPackage','work_package')]
     sets, vals = [], []
     for js_key, db_col in fields_map:
         if js_key in data:
