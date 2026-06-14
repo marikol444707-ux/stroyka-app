@@ -5279,6 +5279,59 @@ function App() {
 	    notify('Создана заявка снабжения: '+row.name+' — '+fmtMeasure(qty, unit), 'supply');
 	    await refreshData();
 	  };
+	  const createBatchSupplyRequestFromMaterialControl = async (projectName, rows = []) => {
+	    if (!projectName) return;
+	    if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
+	    const candidates = (rows || [])
+	      .filter(row => row?.name && toNum(row.toBuy) > 0)
+	      .filter(row => !materialControlSupplyRequestExists(projectName, row))
+	      .slice(0, 120);
+	    if (!candidates.length) { notify('По выбранному фильтру нет новых позиций к закупке', 'supply'); return; }
+	    if (!window.confirm('Создать одну заявку снабжения на '+candidates.length+' позиций по текущему фильтру?')) return;
+	    const items = candidates.map(row => ({
+	      materialName: row.name,
+	      quantity: Math.round(toNum(row.toBuy) * 1000) / 1000,
+	      unit: row.unit || 'шт'
+	    }));
+	    const notes = [
+	      'Создано из контроля материалов: массовая заявка по текущему фильтру.',
+	      'Объект: '+projectName,
+	      'Позиций: '+items.length,
+	      ...candidates.map(row => materialControlSupplyMarker(projectName, row)),
+	      '',
+	      ...candidates.slice(0, 40).map((row, idx) => {
+	        const unit = row.unit || 'шт';
+	        return (idx + 1)+'. '+row.name+' — докупить '+fmtMeasure(row.toBuy, unit)+'; план '+fmtMeasure(row.planQty, unit)+'; получено '+fmtMeasure(row.supplied, unit);
+	      }),
+	      candidates.length > 40 ? '...ещё '+(candidates.length - 40)+' поз.' : ''
+	    ].filter(Boolean).join('\n');
+	    const res = await fetch(API+'/supply-requests', {
+	      method:'POST',
+	      headers:{'Content-Type':'application/json'},
+	      body:JSON.stringify({
+	        materialName: items[0]?.materialName || 'Материалы по смете',
+	        quantity: items.length,
+	        unit: 'поз.',
+	        items,
+	        project: projectName,
+	        createdBy: user.name,
+	        date: new Date().toISOString().split('T')[0],
+	        notes,
+	        category: 'Материалы по смете',
+	        urgency: candidates.some(row => toNum(row.toBuy) > toNum(row.controlPlanQty || row.planQty) * 0.25) ? 'срочная' : 'обычная',
+	        requestedByRole: user.role,
+	        requestedById: user.id,
+	        selectedSuppliers: [],
+	      })
+	    });
+	    const data = await res.json().catch(()=>({}));
+	    if (!res.ok) {
+	      alert(data.detail || 'Не удалось создать массовую заявку снабжения');
+	      return;
+	    }
+	    notify('Создана заявка снабжения на '+items.length+' позиций', 'supply');
+	    await refreshData();
+	  };
 	  const createSupplyRequestFromInvoiceControl = async (inv, ctrl, item = {}) => {
 	    const projectName = invoiceControlProjectName(inv, ctrl);
 	    const materialName = invoiceControlMaterialName(ctrl, item);
@@ -12621,6 +12674,7 @@ function App() {
                         materialControlStatus={materialControlStatus}
                         renderMaterialSupplyAction={renderMaterialSupplyAction}
                         renderMaterialAliasControls={renderMaterialAliasControls}
+	                        onCreateSupplyForRows={(rows)=>createBatchSupplyRequestFromMaterialControl(p.name, rows)}
 	                        showPreview={showPreview}
 	                        buildMaterialRequirementContent={buildMaterialRequirementContent}
 	                        onIssueMaterial={(row)=>{

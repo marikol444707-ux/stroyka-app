@@ -27,6 +27,7 @@ export default function ProjectMaterialsControlPanel({
   showPreview,
   buildMaterialRequirementContent,
   onIssueMaterial,
+  onCreateSupplyForRows,
 }) {
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState('all');
@@ -84,6 +85,12 @@ export default function ProjectMaterialsControlPanel({
   const rowLimit = queryKey || filter !== 'all' ? 240 : 120;
   const displayedRows = showAllRows ? visibleRows : visibleRows.slice(0, rowLimit);
   const hiddenRows = Math.max(0, visibleRows.length - displayedRows.length);
+  const visibleToBuyRows = visibleRows.filter(r => Number(r.toBuy || 0) > 0);
+  const visibleToBuyUnits = Object.entries(visibleToBuyRows.reduce((acc, r) => {
+    const unit = r.unit || 'шт';
+    acc[unit] = (acc[unit] || 0) + Number(r.toBuy || 0);
+    return acc;
+  }, {})).slice(0, 4).map(([unit, qty]) => qty.toLocaleString('ru-RU', {maximumFractionDigits: 3}) + ' ' + unit).join(' · ');
   const normRowLimit = 12;
   const displayedNormRows = showAllNormRows ? normRows : normRows.slice(0, normRowLimit);
   const hiddenNormRows = Math.max(0, normRows.length - displayedNormRows.length);
@@ -145,6 +152,43 @@ export default function ProjectMaterialsControlPanel({
           filterOptions={filterOptions}
           C={C}
         />
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '8px',
+          flexWrap: 'wrap',
+          marginBottom: '10px',
+          padding: '10px 12px',
+          borderRadius: '10px',
+          border: '1px solid ' + C.border,
+          backgroundColor: C.bg
+        }}>
+          <div>
+            <b style={{color: C.text, fontSize: '12px'}}>Выборка: {visibleRows.length} поз.</b>
+            <p style={{color: visibleToBuyRows.length ? C.warning : C.textMuted, fontSize: '11px', margin: '2px 0 0'}}>
+              К закупке: {visibleToBuyRows.length} поз.{visibleToBuyUnits ? ' · ' + visibleToBuyUnits : ''}
+            </p>
+          </div>
+          {onCreateSupplyForRows && visibleToBuyRows.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onCreateSupplyForRows(visibleToBuyRows)}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '999px',
+                border: '1.5px solid ' + C.warningBorder,
+                backgroundColor: C.warningLight,
+                color: C.warning,
+                fontSize: '12px',
+                fontWeight: '800',
+                cursor: 'pointer'
+              }}
+            >
+              Заявка по выборке
+            </button>
+          )}
+        </div>
         <div style={{overflow: 'auto', maxHeight: '68vh', border: '1px solid ' + C.border, borderRadius: '10px'}}>
           <table style={{...tbl, fontSize: '11px', minWidth: '1420px'}}>
             <thead>
