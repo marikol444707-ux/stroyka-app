@@ -1858,6 +1858,7 @@ def init_db():
             resolved_at TIMESTAMP,
             resolution TEXT
         );
+        ALTER TABLE supply_claims ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         CREATE TABLE IF NOT EXISTS supply_history (
             id SERIAL PRIMARY KEY,
             supplier_id INT,
@@ -5073,13 +5074,16 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
                 name = d.get("material_name") or ""
                 project = d.get("project") or ""
                 unit = d.get("unit") or "шт"
+                work_package = (d.get("work_package") or d.get("workPackage") or "").strip()
                 if not name or not project or qty <= 0:
                     continue
-                cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, project))
+                cur.execute("""SELECT id, quantity FROM materials
+                               WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, project, work_package))
                 mat = cur.fetchone()
                 if not mat:
                     conn.rollback()
-                    raise HTTPException(status_code=400, detail="Нельзя откатить поставку: материал «"+name+"» не найден на складе объекта.")
+                    raise HTTPException(status_code=400, detail="Нельзя откатить поставку: материал «"+name+"» не найден на складе объекта" + (" по пакету «"+work_package+"»" if work_package else "") + ".")
                 stock_qty = float(mat.get("quantity") or 0)
                 if stock_qty + 0.000001 < qty:
                     conn.rollback()
@@ -5089,8 +5093,8 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
                     cur.execute("DELETE FROM materials WHERE id=%s", (mat.get("id"),))
                 else:
                     cur.execute("UPDATE materials SET quantity=%s WHERE id=%s", (remaining_qty, mat.get("id")))
-                cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                            (name, "откат поставки (удаление заявки)", qty, datetime.now().date().isoformat(), project, _current_user.get("name") or "", datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (name, "откат поставки (удаление заявки)", qty, datetime.now().date().isoformat(), project, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
                 restored += 1
 
         cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ("Отменена с откатом", id))
@@ -5114,19 +5118,34 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT material_name, quantity, unit, project FROM supply_requests WHERE id=%s", (id,))
+        cur.execute("SELECT material_name, quantity, unit, project, COALESCE(work_package,'') AS work_package, items_json FROM supply_requests WHERE id=%s", (id,))
         req = cur.fetchone()
         if not req:
             return {"error": "Заявка не найдена"}
-        name = (req['material_name'] or '').strip()
+        request_items = _json_list_or_empty(req.get("items_json"))
+        if not request_items:
+            request_items = [{"materialName": req.get("material_name") or "", "quantity": req.get("quantity") or 0, "unit": req.get("unit") or "шт", "workPackage": req.get("work_package") or ""}]
+        request_items = [
+            {
+                "materialName": (it.get("materialName") or it.get("name") or "").strip(),
+                "quantity": _float_or_zero(it.get("quantity")),
+                "unit": it.get("unit") or req.get("unit") or "шт",
+                "workPackage": (it.get("workPackage") or it.get("work_package") or req.get("work_package") or "").strip(),
+            }
+            for it in request_items if isinstance(it, dict)
+        ]
+        request_items = [it for it in request_items if it["materialName"] and it["quantity"] > 0]
+        display_name = (request_items[0]["materialName"] if len(request_items) == 1 else (req['material_name'] or '')).strip()
         project = (req['project'] or '').strip()
         if project:
             require_project_access(current_user, project)
-        needed = float(req['quantity'] or 0)
+        needed = sum(_float_or_zero(it.get("quantity")) for it in request_items) if request_items else float(req['quantity'] or 0)
         # Поиск похожих материалов на основном складе (ILIKE по части имени)
         stock_matches = []
         total_available = 0.0
-        if name:
+        for req_item in request_items:
+            name = req_item["materialName"]
+            item_package = req_item.get("workPackage") or ""
             # Берём первое значащее слово (>=4 символа) для гибкого поиска
             tokens = [t for t in name.split() if len(t) >= 4]
             search = tokens[0] if tokens else name
@@ -5138,21 +5157,28 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
                     "id": row['id'], "name": row['name'],
                     "quantity": float(row['quantity'] or 0),
                     "unit": row['unit'], "price": float(row['price'] or 0),
-                    "category": row['category']
+                    "category": row['category'],
+                    "workPackage": "",
+                    "requestItem": name,
                 })
                 total_available += float(row['quantity'] or 0)
             # Также ищем на складе объекта (materials)
             if project:
                 try:
                     cur.execute(
-                        "SELECT id, name, quantity, unit, price, category FROM materials WHERE project=%s AND name ILIKE %s LIMIT 10",
-                        (project, '%' + search + '%'))
+                        """SELECT id, name, quantity, unit, price, category, COALESCE(work_package,'') AS work_package
+                           FROM materials
+                           WHERE project=%s AND name ILIKE %s AND COALESCE(work_package,'')=%s
+                           LIMIT 10""",
+                        (project, '%' + search + '%', item_package))
                     for row in cur.fetchall():
                         stock_matches.append({
                             "id": row['id'], "name": '[На объекте] ' + (row['name'] or ''),
                             "quantity": float(row['quantity'] or 0),
                             "unit": row['unit'], "price": float(row['price'] or 0),
-                            "category": row['category']
+                            "category": row['category'],
+                            "workPackage": row.get("work_package") or "",
+                            "requestItem": name,
                         })
                         total_available += float(row['quantity'] or 0)
                 except Exception:
@@ -5200,9 +5226,11 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
             budget_risk = (project_approved_cost + project_pending_cost) / project_budget * 100
         return {
             "requestId": id,
-            "materialName": name,
+            "materialName": display_name,
             "needed": needed,
             "unit": req['unit'],
+            "workPackage": req.get("work_package") or "",
+            "items": request_items,
             "totalAvailable": total_available,
             "shortage": shortage,
             "stockMatches": stock_matches,
@@ -5349,6 +5377,7 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
                     'materialName': it.get('materialName',''),
                     'quantity': q,
                     'unit': it.get('unit','шт'),
+                    'workPackage': (it.get('workPackage') or it.get('work_package') or '').strip(),
                     'pricePerUnit': p,
                     'totalPrice': line_total,
                     'deliveryDays': int(it.get('deliveryDays') or 0) if it.get('deliveryDays') else None,
@@ -5678,6 +5707,7 @@ CLAIM_SELECT = """
            expected_quantity as "expectedQuantity",
            received_quantity as "receivedQuantity",
            shortage_quantity as "shortageQuantity",
+           COALESCE(work_package,'') as "workPackage",
            photo_url as "photoUrl", status, created_by as "createdBy",
            created_at as "createdAt", resolved_at as "resolvedAt", resolution
     FROM supply_claims
@@ -6154,10 +6184,11 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
             raise HTTPException(status_code=400, detail=f"По условиям «{offer.get('payment_terms') or ''}» перед отгрузкой нужно оплатить минимум {round(required, 2)} ₽. Сейчас оплачено {round(paid, 2)} ₽")
     def _line_key(item):
         if not isinstance(item, dict):
-            return ("", "")
+            return ("", "", "")
         return (
             str(item.get("materialName") or item.get("name") or "").strip().lower(),
             str(item.get("unit") or "").strip().lower(),
+            str(item.get("workPackage") or item.get("work_package") or "").strip().lower(),
         )
 
     request_items = []
@@ -6326,11 +6357,12 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
         )
         cur.execute("""INSERT INTO supply_claims
                        (delivery_id, request_id, offer_id, supplier_id, project, material_name,
-                        claim_type, description, expected_quantity, received_quantity,
+                        work_package, claim_type, description, expected_quantity, received_quantity,
                         shortage_quantity, photo_url, created_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                     (id, delivery['request_id'], delivery['offer_id'], delivery['supplier_id'],
-                     delivery['project'], delivery['material_name'], claim_type, description,
+                     delivery['project'], delivery['material_name'], delivery.get('work_package') or delivery.get('workPackage') or '',
+                     claim_type, description,
                      shipped_qty, received_qty, shortage, data.get('photoUrl') or '',
                      data.get('receivedBy') or ''))
         claim_id = cur.fetchone()['id']
@@ -13028,7 +13060,8 @@ def create_supply_request_template(data: dict, _current_user: dict = Depends(req
     if not items:
         raise HTTPException(status_code=400, detail="Шаблон должен содержать хотя бы одну позицию")
     items = [{"materialName": it["materialName"], "quantity": float(it.get("quantity") or 0),
-              "unit": it.get("unit") or "шт"} for it in items]
+              "unit": it.get("unit") or "шт",
+              "workPackage": (it.get("workPackage") or it.get("work_package") or "").strip()} for it in items]
     conn = get_db()
     cur = conn.cursor()
     cur.execute("INSERT INTO supply_request_templates (name,category,items_json,created_by,created_by_id) "

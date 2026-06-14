@@ -10038,10 +10038,25 @@ function App() {
   };
 
   const approveOffer = async (offer) => {
-    await fetch(API+'/supplier-offers/'+offer.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено'})});
+    await fetch(API+'/supplier-offers/'+offer.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'select'})});
     await fetch(API+'/supply-requests/'+offer.requestId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено'})});
     const req = supplyRequests.find(r=>r.id===offer.requestId);
-    await fetch(API+'/supply-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({supplierId:offer.supplierId,materialName:req?req.materialName:'',quantity:req?req.quantity:0,unit:req?req.unit:'',pricePerUnit:offer.pricePerUnit,totalPrice:offer.totalPrice,project:req?req.project:'',date:new Date().toISOString().split('T')[0],status:'Ожидает поставки'})});
+    const reqItems = parseSupplyItems(req);
+    const kpItems = parseOfferItems(offer);
+    const keyOf = (item={}) => [
+      String(item.materialName || item.name || '').trim().toLowerCase(),
+      String(item.unit || '').trim().toLowerCase(),
+      String(item.workPackage || item.work_package || '').trim().toLowerCase()
+    ].join('|');
+    const kpByKey = {};
+    kpItems.forEach(item => { kpByKey[keyOf(item)] = item; });
+    const historyItems = reqItems.length ? reqItems : [{materialName:req?req.materialName:'',quantity:req?req.quantity:0,unit:req?req.unit:'',workPackage:req?.workPackage||''}];
+    for (const item of historyItems) {
+      const kp = kpByKey[keyOf(item)] || {};
+      const qty = toNum(item.quantity);
+      const price = toNum(kp.pricePerUnit || offer.pricePerUnit);
+      await fetch(API+'/supply-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({supplierId:offer.supplierId,materialName:item.materialName||item.name||'',quantity:qty,unit:item.unit||'шт',pricePerUnit:price,totalPrice:toNum(kp.totalPrice) || price*qty,project:req?req.project:'',workPackage:item.workPackage||item.work_package||req?.workPackage||'',date:new Date().toISOString().split('T')[0],status:'Ожидает поставки'})});
+    }
     notify('КП утверждено','supply'); await refreshData();
   };
 
