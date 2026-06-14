@@ -4462,11 +4462,39 @@ function App() {
     active.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{ pl+=estimateItemTotal(it); dn+=estimateItemDoneTotal(it); })));
     return {plan:pl,done:dn};
   };
-  // Выполненные позиции сметы для КС-2/КС-3 — по цене ЗАКАЗЧИКУ (priceWork+priceMaterial).
-  // Смета — единый источник: берём позиции с doneQuantity>0 напрямую из сметы объекта.
+  // Выполненные позиции сметы для КС-2/КС-3.
+  // Если по смете уже есть ЖПР, в КС попадают только подтвержденные записи,
+  // а цена берется из сметы заказчика. Это не дает вывести в КС объемы "На проверке".
   const ks2ItemsFromEstimate = (p) => {
     const active = activeEstimatesForProject(p, 'Заказчик');
     if(active.length===0) return [];
+    const itemByKey = {};
+    const fallbackByName = {};
+    active.forEach(est=>_sectionsOfEst(est).forEach((s,sectionIdx)=>(s.items||[]).forEach((it,itemIdx)=>{
+        if(!isEstimateWorkItem(it,s.name)) return;
+        const pkg=estimatePackage(est);
+        const key=[est.id,sectionIdx,itemIdx].join(':');
+        const row={section:(pkg&&pkg!=='Основная'?pkg+' / ':'')+(s.name||''), workPackage:pkg, description:it.name||'', unit:it.unit||'', pricePerUnit:Number(estimateItemTotal(it))/Math.max(1,Number(it.quantity||0)), item:it};
+        itemByKey[key]=row;
+        fallbackByName[(pkg||'')+'|'+(s.name||'')+'|'+(it.name||'')]=row;
+        fallbackByName[(it.name||'').trim().toLowerCase()]=fallbackByName[(it.name||'').trim().toLowerCase()]||row;
+      })));
+    const linkedJournal = (workJournal||[]).filter(j=>j.project===p.name&&!j.unexpectedWorkId&&j.estimateItemKey);
+    if(linkedJournal.length>0){
+      const grouped = {};
+      linkedJournal.filter(j=>j.status==='Подтверждено').forEach(j=>{
+        const meta = itemByKey[j.estimateItemKey] ||
+          fallbackByName[(j.workPackage||'')+'|'+(j.sectionName||'')+'|'+(j.estimateItemName||j.description||'')] ||
+          fallbackByName[(j.estimateItemName||j.description||'').trim().toLowerCase()];
+        if(!meta) return;
+        const k = j.estimateItemKey || (meta.section+'|'+meta.description);
+        if(!grouped[k]) grouped[k]={...meta, quantity:0, total:0};
+        const qty = Number(j.quantity||0);
+        grouped[k].quantity += qty;
+        grouped[k].total += Number(j.customerTotal||0) || qty*Number(meta.pricePerUnit||0);
+      });
+      return Object.values(grouped).map(r=>({...r, total:Math.round(r.total)})).filter(r=>Number(r.quantity||0)>0);
+    }
     const rows=[];
     active.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
         if(!isEstimateWorkItem(it,s.name)) return;

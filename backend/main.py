@@ -6484,8 +6484,20 @@ def _sync_hidden_work_act_from_journal(cur, work_row: dict):
     if not project_name or not work_name:
         return 0
 
-    cur.execute("SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts WHERE work_journal_id=%s LIMIT 1", (work_journal_id,))
-    existing = cur.fetchone()
+    existing = None
+    if work_journal_id:
+        cur.execute("SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts WHERE work_journal_id=%s LIMIT 1", (work_journal_id,))
+        existing = cur.fetchone()
+    if not existing and work_row.get("estimate_id"):
+        cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
+                       WHERE estimate_id=%s AND work_name=%s LIMIT 1""", (work_row.get("estimate_id"), work_name))
+        existing = cur.fetchone()
+    if not existing:
+        cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
+                       WHERE project_name=%s AND work_name=%s AND COALESCE(brigade,'')=%s
+                         AND work_date IS NOT DISTINCT FROM %s LIMIT 1""",
+                    (project_name, work_name, work_row.get("master_name") or "", work_row.get("date") or None))
+        existing = cur.fetchone()
     quantity = work_row.get("quantity") or 0
     unit = work_row.get("unit") or ""
     price_per_unit = work_row.get("customer_price_per_unit") or work_row.get("price_per_unit") or 0
@@ -6504,10 +6516,10 @@ def _sync_hidden_work_act_from_journal(cur, work_row: dict):
             cur.execute("""UPDATE hidden_works_acts
                            SET project_name=%s, estimate_id=%s, work_name=%s, section_name=%s,
                                brigade=%s, quantity=%s, unit=%s, price_per_unit=%s, total=%s,
-                               work_date=%s, materials_used=%s, project_docs=%s
+                               work_date=%s, materials_used=%s, project_docs=%s, work_journal_id=%s
                            WHERE id=%s""",
                         (project_name, estimate_id, work_name, section_name, brigade, quantity, unit,
-                         price_per_unit, total, work_date, materials_used, project_docs, act_id))
+                         price_per_unit, total, work_date, materials_used, project_docs, work_journal_id, act_id))
         return 0
 
     cur.execute("SELECT COUNT(*) AS count FROM hidden_works_acts WHERE project_name=%s", (project_name,))
