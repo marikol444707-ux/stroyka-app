@@ -246,6 +246,7 @@ STAFF_MANAGE_ROLES = ("директор", "зам_директора", "бухг
 PRICELIST_MANAGE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 OWN_EXPENSE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "кладовщик", "снабженец")
 SUPPLIER_INVOICE_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "кладовщик", "снабженец", "поставщик")
+PACKAGE_LIMIT_ROLES = ("прораб", "мастер", "субподрядчик", "бригадир")
 
 def user_project_names(user: dict) -> list[str]:
     names = []
@@ -275,12 +276,15 @@ def user_package_names(user: dict) -> list[str]:
     return sorted(set([str(x).strip() for x in packages if str(x or "").strip()]))
 
 def has_package_access(user: dict, work_package: str = "") -> bool:
-    if can_see_all_company_data(user) or user.get("role") in ("прораб", "технадзор", "стройконтроль"):
+    role = user.get("role")
+    if can_see_all_company_data(user) or role in ("технадзор", "стройконтроль"):
         return True
     packages = user_package_names(user)
     if not packages:
-        return user.get("role") not in ("мастер", "субподрядчик", "бригадир")
-    return bool((work_package or "").strip() in packages)
+        return role not in ("мастер", "субподрядчик", "бригадир")
+    if role in PACKAGE_LIMIT_ROLES:
+        return bool((work_package or "Основная").strip() in packages)
+    return True
 
 def enrich_worker_project_links(cur, user: dict) -> dict:
     """Мастер может быть привязан к объекту через договор, журнал или передачу материалов."""
@@ -383,7 +387,7 @@ def require_estimate_access(cur, estimate_id: int, user: dict):
     project_name = row.get("project_name") if isinstance(row, dict) else row[0]
     work_package = row.get("work_package") if isinstance(row, dict) else row[1]
     require_project_access(user, project_name or "")
-    if user.get("role") in ("мастер", "субподрядчик", "бригадир") and not has_package_access(user, work_package or "Основная"):
+    if user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(user, work_package or "Основная"):
         raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
     return project_name or "", work_package or "Основная"
 
@@ -3808,7 +3812,13 @@ def get_warehouse_movements(current_user: dict = Depends(get_current_user)):
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements WHERE from_location = ANY(%s) OR to_location = ANY(%s) ORDER BY id DESC", (projects, projects))
+        package_names = user_package_names(current_user)
+        query = "SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements WHERE (from_location = ANY(%s) OR to_location = ANY(%s))"
+        params = [projects, projects]
+        if package_names:
+            query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
+            params.append(package_names)
+        cur.execute(query + " ORDER BY id DESC", tuple(params))
     elif current_user.get("role") in WAREHOUSE_ROLES or current_user.get("role") in FINANCE_ROLES:
         cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements ORDER BY id DESC")
     else:
@@ -3837,6 +3847,8 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
         require_project_or_warehouse_access(_current_user, from_location)
     if to_location != "Основной склад":
         require_project_or_warehouse_access(_current_user, to_location)
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -3946,9 +3958,21 @@ def get_warehouse_history(current_user: dict = Depends(get_current_user)):
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history WHERE project = ANY(%s) ORDER BY id DESC", (projects,))
+        package_names = user_package_names(current_user)
+        query = "SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history WHERE project = ANY(%s)"
+        params = [projects]
+        if package_names:
+            query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
+            params.append(package_names)
+        cur.execute(query + " ORDER BY id DESC", tuple(params))
     elif role in ("мастер", "субподрядчик"):
-        cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history WHERE issued_by=%s ORDER BY id DESC", (current_user.get("name",""),))
+        package_names = user_package_names(current_user)
+        query = "SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history WHERE (issued_by=%s OR issued_to=%s)"
+        params = [current_user.get("name",""), current_user.get("name","")]
+        if package_names:
+            query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
+            params.append(package_names)
+        cur.execute(query + " ORDER BY id DESC", tuple(params))
     elif role in WAREHOUSE_ROLES or role in FINANCE_ROLES:
         cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history ORDER BY id DESC")
     else:
@@ -6432,14 +6456,28 @@ def get_work_journal(limit: Optional[int] = None, offset: int = 0, current_user:
                    FROM work_journal"""
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
+    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
     if can_see_all_company_data(current_user) or role in ("прораб", "стройконтроль", "технадзор"):
         projects = user_project_names(current_user)
+        conditions = []
+        params = []
         if role in ("прораб", "стройконтроль", "технадзор") and projects:
-            cur.execute(select_sql + " WHERE project = ANY(%s) ORDER BY id DESC" + page_sql, [projects] + page_params)
+            conditions.append("project = ANY(%s)")
+            params.append(projects)
+        if role in PACKAGE_LIMIT_ROLES and package_names:
+            conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
+            params.append(package_names)
+        if conditions:
+            cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
         else:
             cur.execute(select_sql + " ORDER BY id DESC" + page_sql, page_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute(select_sql + " WHERE master_id=%s OR master_name=%s ORDER BY id DESC" + page_sql, [current_user.get("id"), current_user.get("name") or ""] + page_params)
+        conditions = ["(master_id=%s OR LOWER(TRIM(master_name))=LOWER(TRIM(%s)))"]
+        params = [current_user.get("id"), current_user.get("name") or ""]
+        if package_names:
+            conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
+            params.append(package_names)
+        cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
     elif role == "заказчик":
         projects = user_project_names(current_user)
         if not projects:
@@ -6790,7 +6828,7 @@ def _mark_room_work_rejected(cur, work_journal_id: int, confirmed_by: str = ""):
 @app.post("/work-journal")
 def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     require_project_access(_current_user, w.project)
-    if _current_user.get("role") in ("мастер", "субподрядчик") and (w.workPackage or "") != "Прайс" and not has_package_access(_current_user, w.workPackage):
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and (w.workPackage or "") != "Прайс" and not has_package_access(_current_user, w.workPackage):
         raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
     used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
 
@@ -6859,6 +6897,14 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     project_row = cur.fetchone()
     project_name = project_row.get("project") if project_row else ""
     role = _current_user.get("role")
+    current_work_package = project_row.get("work_package") or "Основная" if project_row else "Основная"
+    requested_work_package = data.get("workPackage", current_work_package)
+    if role in PACKAGE_LIMIT_ROLES and (
+        not has_package_access(_current_user, current_work_package)
+        or not has_package_access(_current_user, requested_work_package)
+    ):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
     if role in ("мастер", "субподрядчик"):
         master_id = project_row.get("master_id") if project_row else None
         master_name = project_row.get("master_name") if project_row else ""
@@ -6958,6 +7004,9 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
         if not work:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Запись журнала не найдена")
+        if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work.get("work_package") or "Основная"):
+            conn.rollback()
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
         cancellation_marker = "Аннулировано без физического удаления"
         if cancellation_marker in (work.get("comment") or ""):
             conn.rollback()
@@ -7453,13 +7502,27 @@ def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     allowed_projects = visible_project_names(current_user)
+    role = current_user.get("role")
+    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
+    select_sql = "SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",work_journal_id as \"workJournalId\",work_package as \"workPackage\",estimate_item_key as \"estimateItemKey\" FROM room_works"
+    conditions = []
+    params = []
     if allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",work_journal_id as \"workJournalId\",work_package as \"workPackage\",estimate_item_key as \"estimateItemKey\" FROM room_works WHERE project = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+        conditions.append("project = ANY(%s)")
+        params.append(allowed_projects)
+    if role in ("мастер", "субподрядчик"):
+        conditions.append("(master_id=%s OR LOWER(TRIM(master_name))=LOWER(TRIM(%s)))")
+        params.extend([current_user.get("id"), current_user.get("name") or ""])
+    if role in PACKAGE_LIMIT_ROLES and package_names:
+        conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
+        params.append(package_names)
+    if conditions:
+        cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC", tuple(params))
     else:
-        cur.execute("SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",work_journal_id as \"workJournalId\",work_package as \"workPackage\",estimate_item_key as \"estimateItemKey\" FROM room_works ORDER BY id DESC")
+        cur.execute(select_sql + " ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -7467,6 +7530,13 @@ def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_
 @app.post("/room-works")
 def create_room_work(w: RoomWorkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     require_project_access(_current_user, w.project)
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, w.workPackage or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+    if _current_user.get("role") in ("мастер", "субподрядчик"):
+        own_id = str(_current_user.get("id") or "")
+        own_name = (_current_user.get("name") or "").strip().lower()
+        if str(w.masterId or "") != own_id and (w.masterName or "").strip().lower() != own_name:
+            raise HTTPException(status_code=403, detail="Мастер может создавать только свои работы по помещениям")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _raise_work_journal_duplicate(_room_work_duplicate(
@@ -10530,8 +10600,9 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
     cur = conn.cursor()
     allowed_projects = visible_project_names(current_user)
     role = current_user.get("role")
-    restrict_packages = role in ("мастер", "субподрядчик", "бригадир")
-    package_names = user_package_names(current_user) if restrict_packages else []
+    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
+    restrict_packages = bool(package_names)
+    deny_without_packages = role in ("мастер", "субподрядчик", "бригадир") and not package_names
     base_cols = """e.id,e.project_id,e.project_name,e.name,e.version,e.sections_json,
                    COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.work_package,'Основная'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
@@ -10548,7 +10619,7 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
                         ORDER BY e.id DESC""")
     elif allowed_projects is None:
         cur.execute(f"SELECT {base_cols} FROM estimates e ORDER BY e.id DESC")
-    elif restrict_packages and not package_names:
+    elif deny_without_packages:
         cur.execute(f"""SELECT {base_cols} FROM estimates e
                         WHERE COALESCE(e.is_template,FALSE)=TRUE
                           AND COALESCE(e.project_name,'')=''
@@ -10557,13 +10628,13 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
         query = f"""SELECT {base_cols} FROM estimates e
                     WHERE e.project_name = ANY(%s)"""
         params = [allowed_projects]
-        if package_names:
-            query += " AND COALESCE(e.work_package,'Основная') = ANY(%s)"
+        if restrict_packages:
+            query += " AND COALESCE(NULLIF(e.work_package,''),'Основная') = ANY(%s)"
             params.append(package_names)
         query += """
                        OR (COALESCE(e.is_template,FALSE)=TRUE AND COALESCE(e.project_name,'')='')"""
-        if package_names:
-            query += " AND COALESCE(e.work_package,'Основная') = ANY(%s)"
+        if restrict_packages:
+            query += " AND COALESCE(NULLIF(e.work_package,''),'Основная') = ANY(%s)"
             params.append(package_names)
         query += " ORDER BY e.id DESC"
         cur.execute(query, tuple(params))
@@ -10683,7 +10754,11 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     new_smeta_type = data.get("smetaType") or prev[3] or "Заказчик"
     new_work_package = data.get("workPackage") or data.get("work_package") or prev[5] or "Основная"
     prev_status = prev[4] or "Черновик"
-    if _current_user.get("role") in ("мастер", "субподрядчик") and not has_package_access(_current_user, new_work_package):
+    current_work_package = prev[5] or "Основная"
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and (
+        not has_package_access(_current_user, current_work_package)
+        or not has_package_access(_current_user, new_work_package)
+    ):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
     if new_status == "Активная" and new_status != prev_status and _current_user.get("role") not in LEADERSHIP_ROLES:
@@ -12350,17 +12425,29 @@ def get_material_transfers(project_name: str = None, current_user: dict = Depend
     conn = get_db()
     cur = conn.cursor()
     active_filter = "COALESCE(status,'Активна') <> 'Аннулирована'"
+    role = current_user.get("role")
+    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
+    base_select = "SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers"
+    conditions = [active_filter]
+    params = []
     if project_name:
         require_project_access(current_user, project_name)
-        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name=%s AND "+active_filter+" ORDER BY id DESC", (project_name,))
+        conditions.append("project_name=%s")
+        params.append(project_name)
     elif visible_project_names(current_user) is not None:
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE project_name = ANY(%s) AND "+active_filter+" ORDER BY id DESC", (projects,))
-    else:
-        cur.execute("SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers WHERE "+active_filter+" ORDER BY id DESC")
+        conditions.append("project_name = ANY(%s)")
+        params.append(projects)
+    if role in ("мастер", "субподрядчик", "бригадир"):
+        conditions.append("LOWER(TRIM(to_person))=LOWER(TRIM(%s))")
+        params.append(current_user.get("name") or "")
+    if role in PACKAGE_LIMIT_ROLES and package_names:
+        conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
+        params.append(package_names)
+    cur.execute(base_select + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14])} for r in rows]
@@ -12384,6 +12471,8 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
         require_project_or_warehouse_access(_current_user, project_name)
     if from_location and from_location != "Основной склад":
         require_project_or_warehouse_access(_current_user, from_location)
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
 
     conn = get_db()
     conn.autocommit = False
