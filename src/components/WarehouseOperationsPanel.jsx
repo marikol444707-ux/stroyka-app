@@ -55,6 +55,13 @@ export default function WarehouseOperationsPanel({
     const sourceMaterials = newMovement.fromLocation === 'Основной склад'
       ? warehouseMain
       : materials.filter(material => material.project === newMovement.fromLocation);
+    const movementMaterialKey = (material = {}) => [
+      material.id || '',
+      material.name || '',
+      material.project || '',
+      material.workPackage || material.work_package || '',
+      material.unit || '',
+    ].join('|');
 
     return (
       <div>
@@ -102,7 +109,8 @@ export default function WarehouseOperationsPanel({
             Выберите материалы:
           </b>
           {sourceMaterials.map(material => {
-            const selected = newMovement.selectedMaterials?.find(item => item.name === material.name);
+            const materialKey = movementMaterialKey(material);
+            const selected = newMovement.selectedMaterials?.find(item => movementMaterialKey(item) === materialKey);
             return (
               <div
                 key={material.id}
@@ -130,13 +138,18 @@ export default function WarehouseOperationsPanel({
                     }
                     setNewMovement(prev => ({
                       ...prev,
-                      selectedMaterials: (prev.selectedMaterials || []).filter(item => item.name !== material.name),
+                      selectedMaterials: (prev.selectedMaterials || []).filter(item => movementMaterialKey(item) !== materialKey),
                     }));
                   }}
                   style={{ width: '16px', height: '16px', accentColor: C.accent }}
                 />
                 <span style={{ flex: 1, fontSize: '13px', color: C.text }}>
                   {material.name + ' (есть: ' + material.quantity + ' ' + material.unit + ')'}
+                  {(material.workPackage || material.work_package) && (
+                    <small style={{ display: 'block', color: C.textSec, marginTop: '2px' }}>
+                      Пакет: {material.workPackage || material.work_package}
+                    </small>
+                  )}
                 </span>
                 {selected && (
                   <input
@@ -148,7 +161,7 @@ export default function WarehouseOperationsPanel({
                     onChange={e => setNewMovement(prev => ({
                       ...prev,
                       selectedMaterials: prev.selectedMaterials.map(item => (
-                        item.name === material.name ? { ...item, quantity: e.target.value } : item
+                        movementMaterialKey(item) === materialKey ? { ...item, quantity: e.target.value } : item
                       )),
                     }))}
                     style={{

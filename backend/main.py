@@ -3908,6 +3908,16 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
                           date,created_by as "createdBy",notes""",
                     (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes))
         row = cur.fetchone()
+        actor_name = m.createdBy or _current_user.get("name","")
+        date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
+        cur.execute("""INSERT INTO warehouse_history
+                          (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (material_name, "перемещение: списание", qty, m.date or None, from_location, to_location, actor_name, work_package, date_time))
+        cur.execute("""INSERT INTO warehouse_history
+                          (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (material_name, "перемещение: приход", qty, m.date or None, to_location, from_location, actor_name, work_package, date_time))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -6406,10 +6416,12 @@ def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict
             (name, "расход (работа мастера)", qty, date_value or None, project, actor_name, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         return
 
-    cur.execute("SELECT id, quantity FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, project))
+    cur.execute("""SELECT id, quantity FROM materials
+                   WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
+                   ORDER BY id LIMIT 1 FOR UPDATE""", (name, project, work_package))
     row = cur.fetchone()
     if not row:
-        raise HTTPException(status_code=400, detail="Материал «"+name+"» не найден на складе объекта «"+project+"»")
+        raise HTTPException(status_code=400, detail="Материал «"+name+"» не найден на складе объекта «"+project+"»" + (" по пакету «"+work_package+"»" if work_package else ""))
     mat_id = row.get("id") if isinstance(row, dict) else row[0]
     stock_qty = float((row.get("quantity") if isinstance(row, dict) else row[1]) or 0)
     if stock_qty < qty:
@@ -6716,7 +6728,7 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     require_row_project_access(cur, "work_journal", id, _current_user, "project")
-    cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description, estimate_item_key, work_package
+    cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description, estimate_item_key, work_package, status
                    FROM work_journal WHERE id=%s""", (id,))
     project_row = cur.fetchone()
     project_name = project_row.get("project") if project_row else ""
@@ -6731,6 +6743,16 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
         if protected_keys.intersection(data.keys()):
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Подтверждение и контроль ЖПР доступны прорабу, главному инженеру или руководству")
+    if str(data.get("status") or "").strip() == "Отклонено":
+        current_status = str(project_row.get("status") or "").strip() if project_row else ""
+        if current_status == "Отклонено":
+            cur.close(); conn.close()
+            return {"ok": True, "alreadyRejected": True}
+        if role not in set(LEADERSHIP_ROLES) | {"прораб", "главный_инженер"}:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Отклонять ЖПР может директор, зам, прораб или главный инженер")
+        cur.close(); conn.close()
+        return delete_work_journal(id, _current_user)
     # Динамически обновляем только переданные поля. Старая логика (status/confirmedBy/...) продолжает работать.
     fields_map = [
         ('status', 'status'),
@@ -6836,13 +6858,15 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
                 cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                             (name, "отмена списания мастера", qty, str(work.get("date") or ""), project_name, master_name, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
                 continue
-            cur.execute("SELECT id FROM materials WHERE name=%s AND project=%s FOR UPDATE", (name, project_name))
+            cur.execute("""SELECT id FROM materials
+                           WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (name, project_name, work_package))
             mat = cur.fetchone()
             if mat:
                 cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=COALESCE(NULLIF(unit,''),%s) WHERE id=%s", (qty, unit, mat["id"]))
             else:
-                cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                            (name, unit, qty, 0, 0, project_name, "Возврат"))
+                cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (name, unit, qty, 0, 0, project_name, "Возврат", work_package))
             cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                         (name, "возврат (удаление работы)", qty, str(work.get("date") or ""), project_name, master_name, work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
         cur.execute("SELECT COUNT(*) AS cnt FROM piecework WHERE work_journal_id=%s", (id,))
@@ -12225,8 +12249,11 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
     to_person_role = (data.get("toPersonRole") or data.get("to_person_role") or "").strip().lower()
     if not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите материал и количество больше 0")
-    if project_name and to_person_role in ("мастер", "субподрядчик", "бригада", "бригадир") and not work_package:
-        raise HTTPException(status_code=400, detail="Для выдачи материала мастеру, бригаде или субподрядчику укажите пакет работ")
+    if to_person_role in ("мастер", "субподрядчик", "бригада", "бригадир"):
+        if not project_name:
+            raise HTTPException(status_code=400, detail="Для выдачи материала мастеру, бригаде или субподрядчику укажите объект")
+        if not work_package:
+            raise HTTPException(status_code=400, detail="Для выдачи материала мастеру, бригаде или субподрядчику укажите пакет работ")
     if project_name:
         require_project_or_warehouse_access(_current_user, project_name)
     if from_location and from_location != "Основной склад":
@@ -12746,6 +12773,39 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
     cur = conn.cursor()
     conn.autocommit = False
     try:
+        source_type = (data.get("sourceType") or "").strip()
+        source_id = data.get("sourceId") or None
+        supply_delivery_id = data.get("supplyDeliveryId") or None
+        supply_request_id = data.get("supplyRequestId") or None
+        if supply_delivery_id:
+            cur.execute("""SELECT id FROM warehouse_invoices
+                           WHERE COALESCE(status,'Принята') <> 'Аннулирована'
+                             AND supply_delivery_id=%s
+                           LIMIT 1""", (supply_delivery_id,))
+            if cur.fetchone():
+                raise HTTPException(status_code=409, detail="По этой поставке накладная уже принята")
+        if source_type and source_id:
+            cur.execute("""SELECT id FROM warehouse_invoices
+                           WHERE COALESCE(status,'Принята') <> 'Аннулирована'
+                             AND source_type=%s AND source_id=%s
+                           LIMIT 1""", (source_type, source_id))
+            if cur.fetchone():
+                raise HTTPException(status_code=409, detail="По этому источнику накладная уже принята")
+        invoice_number = (data.get("number") or "").strip()
+        invoice_date = data.get("date") or None
+        supplier_name = (data.get("supplierName") or "").strip()
+        if invoice_number:
+            cur.execute("""SELECT id FROM warehouse_invoices
+                           WHERE COALESCE(status,'Принята') <> 'Аннулирована'
+                             AND number=%s
+                             AND COALESCE(date::text,'')=COALESCE(%s::text,'')
+                             AND COALESCE(supplier_name,'')=%s
+                             AND COALESCE(location,'')=%s
+                           LIMIT 1""",
+                        (invoice_number, invoice_date, supplier_name, target_location))
+            duplicate = cur.fetchone()
+            if duplicate:
+                raise HTTPException(status_code=409, detail="Такая накладная уже принята. Если это исправление, сначала аннулируйте старую накладную.")
         cur.execute("""INSERT INTO warehouse_invoices
                        (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
                         total_base,total_vat,total_with_vat,status,added_by,photo_url,
@@ -12852,20 +12912,84 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
 
 @app.delete("/warehouse-invoices/{id}")
 def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "кладовщик", "снабженец"))):
+    import json as j
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT COALESCE(project,''), COALESCE(location,''), COALESCE(status,'') FROM warehouse_invoices WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("""SELECT id, COALESCE(project,'') AS project, COALESCE(location,'') AS location,
+                              COALESCE(status,'') AS status, items, COALESCE(accepted_by,'') AS accepted_by,
+                              COALESCE(added_by,'') AS added_by, date
+                       FROM warehouse_invoices WHERE id=%s FOR UPDATE""", (id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Накладная не найдена")
+        if row.get("status") == "Аннулирована":
+            conn.rollback()
+            return {"ok": True, "annulled": True, "alreadyAnnulled": True, "stockRowsRestored": 0}
+        target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
+        if target_project:
+            require_project_or_warehouse_access(_current_user, target_project)
+        try:
+            items_list = j.loads(row.get("items") or "[]") if isinstance(row.get("items"), str) else (row.get("items") or [])
+        except Exception:
+            items_list = []
+        restored = 0
+        actor_name = _current_user.get("name") or row.get("accepted_by") or row.get("added_by") or ""
+        date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
+        for it in items_list:
+            name = (it.get("name") or "").strip()
+            try:
+                qty = float(str(it.get("quantity") or 0).replace(" ", "").replace(",", "."))
+            except Exception:
+                qty = 0
+            if not name or qty <= 0:
+                continue
+            unit = (it.get("unit") or "шт").strip() or "шт"
+            work_package = (it.get("workPackage") or it.get("work_package") or "").strip()
+            if target_project:
+                cur.execute("""SELECT id, quantity FROM materials
+                               WHERE LOWER(name)=LOWER(%s)
+                                 AND project=%s
+                                 AND COALESCE(work_package,'')=%s
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, target_project, work_package))
+                mat = cur.fetchone()
+                if not mat:
+                    raise HTTPException(status_code=409, detail="Нельзя аннулировать накладную: материал «"+name+"» уже отсутствует на складе объекта")
+                if float(mat.get("quantity") or 0) < qty:
+                    raise HTTPException(status_code=409, detail="Нельзя аннулировать накладную: по материалу «"+name+"» остаток меньше прихода. Сначала проверьте списания/перемещения.")
+                cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, mat["id"]))
+                history_project = target_project
+            else:
+                cur.execute("""SELECT id, quantity FROM warehouse_main
+                               WHERE LOWER(name)=LOWER(%s)
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name,))
+                mat = cur.fetchone()
+                if not mat:
+                    raise HTTPException(status_code=409, detail="Нельзя аннулировать накладную: материал «"+name+"» уже отсутствует на основном складе")
+                if float(mat.get("quantity") or 0) < qty:
+                    raise HTTPException(status_code=409, detail="Нельзя аннулировать накладную: по материалу «"+name+"» остаток меньше прихода. Сначала проверьте списания/перемещения.")
+                cur.execute("UPDATE warehouse_main SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, mat["id"]))
+                history_project = "Основной склад"
+            cur.execute("""INSERT INTO warehouse_history
+                              (material,type,quantity,date,project,issued_by,work_package,date_time)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (name, "сторно прихода по накладной", qty, row.get("date") or None, history_project, actor_name, work_package, date_time))
+            restored += 1
+        cur.execute("DELETE FROM material_inspection_journal WHERE invoice_id=%s", (id,))
+        cur.execute("DELETE FROM cable_journal WHERE invoice_id=%s", (id,))
+        cur.execute("UPDATE warehouse_invoices SET status=%s WHERE id=%s", ("Аннулирована", id))
+        conn.commit()
+        _run_project_ai_control_safely(target_project, "warehouse_invoice:annul")
+        return {"ok": True, "annulled": True, "stockRowsRestored": restored}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
         cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Накладная не найдена")
-    target_project = row[0] or (row[1] if row[1] != "Основной склад" else "")
-    if target_project:
-        require_project_or_warehouse_access(_current_user, target_project)
-    cur.execute("UPDATE warehouse_invoices SET status=%s WHERE id=%s", ("Аннулирована", id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "annulled": True}
 
 def _norm_list(value):
     if isinstance(value, list):
