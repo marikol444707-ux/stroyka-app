@@ -424,7 +424,7 @@ export default function PersonnelPage({
                                 </div>
                                 <div style={{...card,padding:'12px'}}>
                                   <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>📋 Акты ({staffProfile.acts.length})</b>
-                                  {staffProfile.acts.length===0?<p style={{color:C.textMuted,fontSize:'11px'}}>Актов нет</p>:staffProfile.acts.map(a=>(<div key={a.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between'}}><span>№{a.actNumber} · {a.project}</span><b style={{color:C.success}}>{a.totalAmount.toLocaleString()} ₽</b></div>))}
+                                  {staffProfile.acts.length===0?<p style={{color:C.textMuted,fontSize:'11px'}}>Актов нет</p>:staffProfile.acts.map(a=>(<div key={a.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'11px',display:'flex',justifyContent:'space-between',gap:'8px'}}><span>№{a.actNumber} · {a.project}{a.workPackage?' · '+a.workPackage:''}</span><b style={{color:C.success,whiteSpace:'nowrap'}}>{a.totalAmount.toLocaleString()} ₽</b></div>))}
                                 </div>
                                 <div style={{...card,padding:'12px'}}>
                                   <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>✅ Согласия на ПД ({staffProfile.pdConsents.length})</b>

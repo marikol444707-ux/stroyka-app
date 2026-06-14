@@ -104,6 +104,7 @@ function SupplySupplierInvoicesPanel({
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
           projectName:invoice.projectName,
+          workPackage:invoice.workPackage || '',
           amount:sum,
           note:'Оплата счёта '+invoice.supplierName+' №'+invoice.invoiceNumber+(invoice.workPackage?' · '+invoice.workPackage:''),
           date:today(),

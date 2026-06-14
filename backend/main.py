@@ -2050,6 +2050,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS project_payments (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
+            work_package VARCHAR(100) DEFAULT '',
             amount NUMERIC(14,2) DEFAULT 0,
             note TEXT,
             date VARCHAR(50),
@@ -2057,6 +2058,7 @@ def init_db():
             paid_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE project_payments ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         CREATE TABLE IF NOT EXISTS accountable_payments (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -4253,9 +4255,9 @@ def get_staff_profile(staff_id: int, _current_user: dict = Depends(require_roles
 
     acts_list = []
     if user_id is not None:
-        cur.execute("SELECT id, project, period_start, period_end, total_amount, paid_amount, status FROM interim_acts WHERE master_id=%s ORDER BY id DESC", (user_id,))
+        cur.execute("SELECT id, project, COALESCE(work_package,'') as work_package, period_start, period_end, total_amount, paid_amount, status FROM interim_acts WHERE master_id=%s ORDER BY id DESC", (user_id,))
         for r in cur.fetchall():
-            acts_list.append({"id": r[0], "actNumber": str(r[0]), "project": r[1] or "", "periodFrom": str(r[2]) if r[2] else "", "periodTo": str(r[3]) if r[3] else "", "totalAmount": float(r[4] or 0), "paidAmount": float(r[5] or 0), "status": r[6] or "", "createdAt": ""})
+            acts_list.append({"id": r[0], "actNumber": str(r[0]), "project": r[1] or "", "workPackage": r[2] or "", "periodFrom": str(r[3]) if r[3] else "", "periodTo": str(r[4]) if r[4] else "", "totalAmount": float(r[5] or 0), "paidAmount": float(r[6] or 0), "status": r[7] or "", "createdAt": ""})
 
     pd_consents = []
     if user_id is not None:
@@ -4936,8 +4938,6 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     role = (_current_user.get("role") or "").strip()
     created_by = _current_user.get("name") or r.createdBy or ""
     requested_by_id = _current_user.get("id")
-    if r.project:
-        require_project_or_warehouse_access(_current_user, r.project)
     if role in ("директор", "зам_директора"):
         initial_status = "Утверждена"
     elif role == "прораб":
@@ -4959,6 +4959,12 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
         items = [{"materialName": r.materialName, "quantity": r.quantity, "unit": r.unit, "workPackage": request_package}]
     if not items:
         raise HTTPException(status_code=400, detail="Заявка должна содержать хотя бы одну позицию")
+    if r.project:
+        require_project_or_warehouse_access(_current_user, r.project)
+    request_packages = sorted(set([(item.get("workPackage") or request_package or "Основная").strip() for item in items] or [request_package or "Основная"]))
+    for package_name in request_packages:
+        if not has_package_access(_current_user, package_name or "Основная"):
+            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + (package_name or "Основная"))
     # material_name / quantity / unit заполняем агрегатом для совместимости со старым UI
     # Если позиций больше одной — пишем «N позиций» в material_name; quantity = сумма всех
     if len(items) == 1:
@@ -4999,13 +5005,22 @@ def update_supply_request(id: int, data: dict, _current_user: dict = Depends(req
     role = _current_user.get("role") or ""
     user_id = _current_user.get("id")
     user_name = _current_user.get("name") or ""
-    cur.execute("SELECT project FROM supply_requests WHERE id=%s", (id,))
+    cur.execute("SELECT project, COALESCE(work_package,'') as work_package, items_json FROM supply_requests WHERE id=%s", (id,))
     req = cur.fetchone()
     if not req:
         conn.close()
         raise HTTPException(status_code=404, detail="Заявка не найдена")
     if req.get("project"):
         require_project_or_warehouse_access(_current_user, req.get("project"))
+    request_items = _json_list_or_empty(req.get("items_json"))
+    request_packages = sorted(set([
+        (item.get("workPackage") or item.get("work_package") or req.get("work_package") or "Основная").strip()
+        for item in request_items
+    ] or [req.get("work_package") or "Основная"]))
+    for package_name in request_packages:
+        if not has_package_access(_current_user, package_name or "Основная"):
+            conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + (package_name or "Основная"))
     if action == 'confirm_prorab':
         if role not in (*LEADERSHIP_ROLES, "прораб", "главный_инженер"):
             conn.close()
@@ -5725,7 +5740,7 @@ CLAIM_SELECT = """
 
 def _float_or_zero(v):
     try:
-        return float(v or 0)
+        return float(str(v or 0).replace(" ", "").replace(",", "."))
     except Exception:
         return 0.0
 
@@ -7654,6 +7669,11 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "interim_acts", id, _current_user, "project")
+    cur.execute("SELECT COALESCE(work_package,'') FROM interim_acts WHERE id=%s", (id,))
+    act_row = cur.fetchone()
+    if act_row and not has_package_access(_current_user, act_row[0] or "Основная"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
     if 'status' in data:
         cur.execute("UPDATE interim_acts SET status=%s WHERE id=%s", (data['status'],id))
     if 'paidAmount' in data:
@@ -7669,6 +7689,11 @@ def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*LEA
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "interim_acts", id, _current_user, "project")
+    cur.execute("SELECT COALESCE(work_package,'') FROM interim_acts WHERE id=%s", (id,))
+    act_row = cur.fetchone()
+    if act_row and not has_package_access(_current_user, act_row[0] or "Основная"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
     cur.execute("UPDATE interim_acts SET status='Аннулирован' WHERE id=%s", (id,))
     conn.commit()
     conn.close()
@@ -13230,6 +13255,7 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         return []
     conn = get_db()
     cur = conn.cursor()
+    package_names = user_package_names(current_user) if current_user.get("role") in PACKAGE_LIMIT_ROLES else []
     if current_user.get("role") == "прораб":
         allowed_projects = user_project_names(current_user)
         if not allowed_projects:
@@ -13243,7 +13269,24 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
     result = []
     for r in rows:
         items = _json_list_or_empty(r[9])
-        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":float(r[10] or 0),"totalVat":float(r[11] or 0),"totalWithVat":float(r[12] or 0),"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19]})
+        total_base = float(r[10] or 0)
+        total_vat = float(r[11] or 0)
+        total_with_vat = float(r[12] or 0)
+        if package_names:
+            filtered_items = []
+            for item in items:
+                item_package = (item.get("workPackage") or item.get("work_package") or "Основная").strip() or "Основная"
+                if item_package in package_names:
+                    filtered_items.append(item)
+            if not filtered_items:
+                continue
+            items = filtered_items
+            total_base = sum(_float_or_zero(item.get("total") or item.get("totalBase") or 0) for item in items)
+            if total_base <= 0:
+                total_base = sum(_float_or_zero(item.get("quantity") or 0) * _float_or_zero(item.get("price") or item.get("pricePerUnit") or 0) for item in items)
+            total_vat = 0
+            total_with_vat = total_base
+        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19]})
     return result
 
 @app.post("/warehouse-invoices")
@@ -15140,18 +15183,23 @@ def list_material_inspections(project_name: str = None, _current_user: dict = De
               received_at, inspected_at, inspected, normatives, ai_filled, created_at,
               COALESCE(work_package,'')"""
     allowed_projects = visible_project_names(_current_user)
+    package_sql, package_params = package_access_filter(_current_user)
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name=%s" + package_sql + " ORDER BY id DESC", [project_name] + package_params)
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+        cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name = ANY(%s)" + package_sql + " ORDER BY id DESC", [allowed_projects] + package_params)
     else:
-        cur.execute(f"SELECT {cols} FROM material_inspection_journal ORDER BY id DESC")
+        q = f"SELECT {cols} FROM material_inspection_journal"
+        if package_sql:
+            q += " WHERE 1=1" + package_sql
+        q += " ORDER BY id DESC"
+        cur.execute(q, package_params)
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1] or "","invoiceId":r[2],"materialName":r[3] or "",
@@ -16207,37 +16255,37 @@ def get_project_payments(project_name: str = "", current_user: dict = Depends(ge
         return []
     if role == "заказчик":
         visible_pay_projects = [project_name] if project_name else customer_projects
-        cur.execute("""SELECT id,project_name,amount,note,date,added_by
+        cur.execute("""SELECT id,project_name,amount,note,date,added_by,COALESCE(work_package,'') as work_package
                        FROM (
-                           SELECT DISTINCT ON (project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''))
-                                  id,project_name,amount,note,date,added_by
+                           SELECT DISTINCT ON (project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''))
+                                  id,project_name,amount,note,date,added_by,work_package
                            FROM project_payments
                            WHERE project_name = ANY(%s) AND amount > 0
-                           ORDER BY project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
+                           ORDER BY project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
                        ) p
                        ORDER BY id DESC""", (visible_pay_projects,))
     elif project_name:
-        cur.execute("""SELECT id,project_name,amount,note,date,added_by
+        cur.execute("""SELECT id,project_name,amount,note,date,added_by,COALESCE(work_package,'') as work_package
                        FROM (
-                           SELECT DISTINCT ON (project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''))
-                                  id,project_name,amount,note,date,added_by
+                           SELECT DISTINCT ON (project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''))
+                                  id,project_name,amount,note,date,added_by,work_package
                            FROM project_payments
                            WHERE project_name=%s
-                           ORDER BY project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
+                           ORDER BY project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
                        ) p
                        ORDER BY id DESC""", (project_name,))
     else:
-        cur.execute("""SELECT id,project_name,amount,note,date,added_by
+        cur.execute("""SELECT id,project_name,amount,note,date,added_by,COALESCE(work_package,'') as work_package
                        FROM (
-                           SELECT DISTINCT ON (project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''))
-                                  id,project_name,amount,note,date,added_by
+                           SELECT DISTINCT ON (project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''))
+                                  id,project_name,amount,note,date,added_by,work_package
                            FROM project_payments
-                           ORDER BY project_name, amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
+                           ORDER BY project_name, COALESCE(work_package,''), amount, COALESCE(note,''), date, COALESCE(added_by,''), id DESC
                        ) p
                        ORDER BY id DESC""")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"amount":float(r[2] or 0),"note":r[3] or "","date":str(r[4]) if r[4] else "","addedBy":r[5] or ""} for r in rows]
+    return [{"id":r[0],"projectName":r[1],"amount":float(r[2] or 0),"note":r[3] or "","date":str(r[4]) if r[4] else "","addedBy":r[5] or "","workPackage":r[6] or ""} for r in rows]
 
 @app.post("/project-payments")
 def create_project_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
@@ -16246,20 +16294,21 @@ def create_project_payment(data: dict, _current_user: dict = Depends(require_rol
     project_name = data.get("projectName","")
     amount = data.get("amount",0)
     note = data.get("note","")
+    work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     pay_date = data.get("date") or None
     added_by = data.get("addedBy") or data.get("paidBy") or ""
     if note:
         cur.execute("""SELECT id FROM project_payments
-                       WHERE project_name=%s AND amount=%s AND COALESCE(note,'')=%s
+                       WHERE project_name=%s AND COALESCE(work_package,'')=%s AND amount=%s AND COALESCE(note,'')=%s
                          AND date IS NOT DISTINCT FROM %s AND COALESCE(added_by,'')=%s
                        ORDER BY id DESC LIMIT 1""",
-                    (project_name, amount, note, pay_date, added_by))
+                    (project_name, work_package, amount, note, pay_date, added_by))
         existing = cur.fetchone()
         if existing:
             cur.close(); conn.close()
             return {"id": existing[0], "ok": True, "duplicate": True}
-    cur.execute("INSERT INTO project_payments (project_name,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (project_name, amount, note, pay_date, added_by))
+    cur.execute("INSERT INTO project_payments (project_name,work_package,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+        (project_name, work_package, amount, note, pay_date, added_by))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -16270,13 +16319,13 @@ def delete_project_payment(id: int, _current_user: dict = Depends(require_roles(
     from datetime import date
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name, amount, note, date, added_by FROM project_payments WHERE id=%s FOR UPDATE", (id,))
+    cur.execute("SELECT project_name, COALESCE(work_package,''), amount, note, date, added_by FROM project_payments WHERE id=%s FOR UPDATE", (id,))
     row = cur.fetchone()
     if not row:
         conn.rollback()
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Платеж по объекту не найден")
-    project_name, amount, note, pay_date, added_by = row
+    project_name, work_package, amount, note, pay_date, added_by = row
     if project_name:
         require_project_access(_current_user, project_name)
     amount = amount or 0
@@ -16284,9 +16333,9 @@ def delete_project_payment(id: int, _current_user: dict = Depends(require_roles(
     if note:
         reversal_note += ": " + str(note)
     cur.execute("""SELECT id FROM project_payments
-                   WHERE project_name=%s AND amount=%s AND COALESCE(note,'')=%s
+                   WHERE project_name=%s AND COALESCE(work_package,'')=%s AND amount=%s AND COALESCE(note,'')=%s
                    ORDER BY id DESC LIMIT 1""",
-                (project_name, -amount, reversal_note))
+                (project_name, work_package or "", -amount, reversal_note))
     existing = cur.fetchone()
     if existing:
         conn.rollback()
@@ -16294,9 +16343,9 @@ def delete_project_payment(id: int, _current_user: dict = Depends(require_roles(
         existing_id = existing[0] if not isinstance(existing, dict) else existing.get("id")
         return {"ok": True, "reversed": True, "alreadyReversed": True, "reversalId": existing_id}
     actor_name = _current_user.get("name") or added_by or ""
-    cur.execute("""INSERT INTO project_payments (project_name,amount,note,date,added_by)
-                   VALUES (%s,%s,%s,%s,%s) RETURNING id""",
-                (project_name, -amount, reversal_note, date.today().isoformat(), actor_name))
+    cur.execute("""INSERT INTO project_payments (project_name,work_package,amount,note,date,added_by)
+                   VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (project_name, work_package or "", -amount, reversal_note, date.today().isoformat(), actor_name))
     reversal_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()

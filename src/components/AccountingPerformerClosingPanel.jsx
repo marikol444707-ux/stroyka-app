@@ -50,7 +50,8 @@ const performerPaymentAmount = (payment, group, month) => {
   const note = safeText(payment.note);
   if (!note.startsWith('Выплата исполнителю:')) return 0;
   if (!note.includes(group.performerName) || !note.includes(month)) return 0;
-  if (group.workPackage && !note.includes(group.workPackage)) return 0;
+  if (group.workPackage && safeText(payment.workPackage || payment.work_package) && safeText(payment.workPackage || payment.work_package) !== group.workPackage) return 0;
+  if (group.workPackage && !safeText(payment.workPackage || payment.work_package) && !note.includes(group.workPackage)) return 0;
   return Math.abs(amount);
 };
 
@@ -219,35 +220,25 @@ export default function AccountingPerformerClosingPanel({
   }, { accrued: 0, customer: 0, advances: 0, retention: 0, paid: 0, payable: 0, margin: 0 });
 
   const actGroups = useMemo(() => {
-    const byKey = {};
-    groups.forEach(group => {
-      const key = [group.staffId || group.performerName, group.project].join('|');
-      if (!byKey[key]) {
-        byKey[key] = {
-          key,
-          staffId: group.staffId,
-          performerName: group.performerName,
-          project: group.project,
-          workPackages: new Set(),
-          accrued: 0,
-          rows: 0,
-        };
-      }
-      byKey[key].workPackages.add(group.workPackage);
-      byKey[key].accrued += group.accrued;
-      byKey[key].rows += group.rows.length;
-    });
-    return Object.values(byKey).map(group => ({
-      ...group,
-      workPackages: [...group.workPackages].join(', '),
+    return groups.map(group => ({
+      key: group.key,
+      staffId: group.staffId,
+      performerName: group.performerName,
+      project: group.project,
+      workPackage: group.workPackage,
+      workPackages: group.workPackage,
+      accrued: group.accrued,
+      rows: group.rows.length,
     }));
   }, [groups]);
 
-  const existingActFor = (staffId, performerName, project) => {
+  const existingActFor = (staffId, performerName, project, workPackage) => {
     const normalizedName = personKey(performerName);
+    const normalizedPackage = safeText(workPackage || 'Основная');
     return (interimActs || []).find(act => {
       if (safeText(act.status) === 'Аннулирован') return false;
       if (safeText(act.project) !== safeText(project)) return false;
+      if (safeText(act.workPackage || act.work_package || 'Основная') !== normalizedPackage) return false;
       if (dateOnly(act.periodStart) !== periodStart || dateOnly(act.periodEnd) !== periodEnd) return false;
       const idMatch = staffId && Number(act.masterId) === Number(staffId);
       const nameMatch = personKey(act.masterName) === normalizedName;
@@ -257,7 +248,7 @@ export default function AccountingPerformerClosingPanel({
 
   const saveClosingAct = async actGroup => {
     if (!actGroup || !actGroup.project || !periodStart || !periodEnd || savingKey) return;
-    const existingAct = existingActFor(actGroup.staffId, actGroup.performerName, actGroup.project);
+    const existingAct = existingActFor(actGroup.staffId, actGroup.performerName, actGroup.project, actGroup.workPackage);
     if (existingAct) {
       window.alert('Акт за этот месяц уже зафиксирован во вкладке «Акты».');
       return;
@@ -276,6 +267,7 @@ export default function AccountingPerformerClosingPanel({
           masterId: Number(actGroup.staffId) || 0,
           masterName: actGroup.performerName,
           project: actGroup.project,
+          workPackage: actGroup.workPackage || 'Основная',
           periodStart,
           periodEnd,
           totalAmount: Math.round(actGroup.accrued * 100) / 100,
@@ -293,7 +285,7 @@ export default function AccountingPerformerClosingPanel({
   };
 
   const saveAllClosingActs = async () => {
-    const unsaved = actGroups.filter(group => !existingActFor(group.staffId, group.performerName, group.project));
+    const unsaved = actGroups.filter(group => !existingActFor(group.staffId, group.performerName, group.project, group.workPackage));
     for (const group of unsaved) {
       await saveClosingAct(group);
     }
@@ -316,6 +308,7 @@ export default function AccountingPerformerClosingPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectName: group.project,
+          workPackage: group.workPackage || '',
           amount: -amount,
           note: performerPaymentNote({ ...group, month }),
           date: new Date().toISOString().split('T')[0],
@@ -339,10 +332,10 @@ export default function AccountingPerformerClosingPanel({
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             onClick={saveAllClosingActs}
-            disabled={savingKey || actGroups.every(group => existingActFor(group.staffId, group.performerName, group.project))}
+            disabled={savingKey || actGroups.every(group => existingActFor(group.staffId, group.performerName, group.project, group.workPackage))}
             style={{
               ...(btnO || btnG),
-              opacity: savingKey || actGroups.every(group => existingActFor(group.staffId, group.performerName, group.project)) ? 0.55 : 1,
+              opacity: savingKey || actGroups.every(group => existingActFor(group.staffId, group.performerName, group.project, group.workPackage)) ? 0.55 : 1,
             }}
           >
             <Save size={14} />
@@ -395,10 +388,11 @@ export default function AccountingPerformerClosingPanel({
           const open = expandedKey === group.key;
           const actGroup = actGroups.find(item =>
             item.project === group.project &&
+            item.workPackage === group.workPackage &&
             item.performerName === group.performerName &&
             Number(item.staffId || 0) === Number(group.staffId || 0)
           );
-          const savedAct = existingActFor(group.staffId, group.performerName, group.project);
+          const savedAct = existingActFor(group.staffId, group.performerName, group.project, group.workPackage);
           return (
             <div key={group.key} style={{ ...card, padding: 0, marginBottom: '10px', overflow: 'hidden', borderLeft: '3px solid ' + (group.payable > 0 ? C.accent : C.success) }}>
               <div
