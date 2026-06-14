@@ -267,6 +267,13 @@ export default function MasterCabinetPage(props) {
     ? user.assignedPackages.filter(Boolean)
     : (Array.isArray(user?.assigned_packages) ? user.assigned_packages.filter(Boolean) : []);
   const estimatePackageName = (estimate) => estimate?.workPackage || estimate?.work_package || 'Основная';
+  const estimateIsActive = (estimate) => String(estimate?.status || 'Активная').toLowerCase() === 'активная';
+  const estimateItemIsMaterial = (item) => {
+    const itemType = String(item?.type || item?.itemType || item?._type || '').toLowerCase();
+    if (itemType.includes('материал') || itemType === 'material' || itemType === 'materials' || itemType === 'resource') return true;
+    return Number(item?.priceMaterial || item?.materialPrice || item?.materialTotal || 0) > 0 &&
+      Number(item?.priceWork || item?.workPrice || item?.workTotal || 0) <= 0;
+  };
   const myTools = tools.filter(tool => tool.masterName === (masterProfile?.fullName || user.name) && tool.status.includes('У мастера'));
 
   return (
@@ -491,8 +498,7 @@ export default function MasterCabinetPage(props) {
                 const projectEstimates = estimatesList.filter(estimate => estimate.projectName === projectName);
                 const myItems = [];
                 projectEstimates.forEach(estimate => (estimate.sections || []).forEach((section, sectionIndex) => (section.items || []).forEach((item, itemIndex) => {
-                  const itemType = String(item.type || item.itemType || '').toLowerCase();
-                  if (itemType.includes('материал')) return;
+                  if (!estimateIsActive(estimate) || estimateItemIsMaterial(item)) return;
                   const packageAllowed = userAssignedPackages.length > 0 && userAssignedPackages.includes(estimatePackageName(estimate));
                   const namedToMe = item.brigadeName && (item.brigadeName === user.name || (user.brigade && item.brigadeName === user.brigade));
                   if (packageAllowed || namedToMe) {
