@@ -2714,6 +2714,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
+        ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         ALTER TABLE material_inspection_journal ALTER COLUMN material_name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS supervisor_acts (
             id SERIAL PRIMARY KEY,
@@ -5809,6 +5810,7 @@ def _create_delivery_quality_records(cur, delivery):
     supplier = delivery.get('supplier_name') or ''
     qty = _float_or_zero(delivery.get('received_quantity'))
     unit = delivery.get('unit') or 'шт'
+    work_package = (delivery.get('work_package') or delivery.get('workPackage') or '').strip()
     received_at = delivery.get('received_at') or __import__("datetime").date.today()
     has_inspection = False
     if delivery_id:
@@ -5820,20 +5822,20 @@ def _create_delivery_quality_records(cur, delivery):
     if not has_inspection:
         try:
             cur.execute("""INSERT INTO material_inspection_journal
-                           (project_name, delivery_id, material_name, unit, quantity, supplier,
+                           (project_name, delivery_id, material_name, unit, quantity, supplier, work_package,
                             received_at, visual_inspection_result, remarks, inspected)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (project, delivery_id, name, unit, qty, supplier, received_at,
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (project, delivery_id, name, unit, qty, supplier, work_package, received_at,
                          delivery.get('quality_status') or 'Принято',
                          delivery.get('quality_notes') or '', True))
         except Exception as e:
             print("DELIVERY INSPECTION INSERT ERROR:", str(e))
             try:
                 cur.execute("""INSERT INTO material_inspection_journal
-                               (project_name, material_name, unit, quantity, supplier,
+                               (project_name, material_name, unit, quantity, supplier, work_package,
                                 received_at, visual_inspection_result, remarks, inspected)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (project, name, unit, qty, supplier, received_at,
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (project, name, unit, qty, supplier, work_package, received_at,
                              delivery.get('quality_status') or 'Принято',
                              delivery.get('quality_notes') or '', True))
             except Exception as legacy_error:
@@ -13369,9 +13371,9 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
 
             if target_project:
                 cur.execute("""INSERT INTO material_inspection_journal
-                               (project_name, invoice_id, material_name, unit, quantity, supplier, received_at)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                            (target_project, invoice_id, name, unit, qty, sup, rcv_date))
+                               (project_name, invoice_id, material_name, unit, quantity, supplier, work_package, received_at)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (target_project, invoice_id, name, unit, qty, sup, work_package, rcv_date))
                 inspections_added += 1
 
                 cable_info = _detect_cable_info(name)
@@ -15129,7 +15131,8 @@ def list_material_inspections(project_name: str = None, _current_user: dict = De
     cols = """id, project_name, invoice_id, material_name, unit, quantity, supplier,
               batch_number, passport_number, certificate_number, test_protocol_number,
               visual_inspection_result, remarks, inspector_name,
-              received_at, inspected_at, inspected, normatives, ai_filled, created_at"""
+              received_at, inspected_at, inspected, normatives, ai_filled, created_at,
+              COALESCE(work_package,'')"""
     allowed_projects = visible_project_names(_current_user)
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
@@ -15152,7 +15155,7 @@ def list_material_inspections(project_name: str = None, _current_user: dict = De
              "remarks":r[12] or "","inspectorName":r[13] or "",
              "receivedAt":str(r[14]) if r[14] else "","inspectedAt":str(r[15]) if r[15] else "",
              "inspected":bool(r[16]),"normatives":r[17] or "",
-             "aiFilled":bool(r[18]),"createdAt":str(r[19])} for r in rows]
+             "aiFilled":bool(r[18]),"createdAt":str(r[19]),"workPackage":r[20] or ""} for r in rows]
 
 @app.put("/material-inspection/{id}")
 def update_material_inspection(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):

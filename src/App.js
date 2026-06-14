@@ -4623,19 +4623,21 @@ function App() {
     if (direct.length>0) return {items:direct,reconstructed:false,source:''};
     const norm = (v) => String(v||'').toLowerCase().replace(/[.,;:()«»"']/g,' ').replace(/\s+/g,' ').trim();
     const place = inv?.location==='Основной склад' ? 'Основной склад' : (inv?.project || inv?.location || '');
-    const metaFor = (name) => {
+    const metaFor = (name, workPackage='') => {
       const n = norm(name);
-      const projectItems = (materials||[]).filter(m=>m.project===place);
+      const pkg = String(workPackage || '').trim();
+      const projectItems = (materials||[]).filter(m=>m.project===place && (!pkg || String(m.workPackage || m.work_package || '').trim()===pkg));
       const pools = [...projectItems, ...(materials||[]), ...(warehouseMain||[])];
       return pools.find(m=>norm(m.name)===n) || pools.find(m=>n && (norm(m.name).includes(n) || n.includes(norm(m.name)))) || {};
     };
     const rowsFromInspections = (materialInspections||[])
       .filter(mi=>String(mi.invoiceId||'')===String(inv?.id||''))
       .map(mi=>{
-        const meta = metaFor(mi.materialName);
+        const workPackage = mi.workPackage || mi.work_package || '';
+        const meta = metaFor(mi.materialName, workPackage);
         const price = Number(meta.price||0);
         const qty = Number(mi.quantity||0);
-        return {name:mi.materialName||'', category:meta.category||'', quantity:qty, unit:mi.unit||meta.unit||'шт', price, total:qty*price};
+        return {name:mi.materialName||'', category:meta.category||'', quantity:qty, unit:mi.unit||meta.unit||'шт', price, total:qty*price, workPackage};
       })
       .filter(it=>it.name&&it.quantity>0);
     if (rowsFromInspections.length>0) return {items:rowsFromInspections,reconstructed:true,source:'журнала входного контроля'};
@@ -4646,10 +4648,11 @@ function App() {
       .filter(h=>String(h.date||'').slice(0,10)===invDate && (h.project||'')===place)
       .filter(h=>String(h.type||'').toLowerCase().includes('приход') && !String(h.type||'').toLowerCase().includes('откат'))
       .forEach(h=>{
-        const key = norm(h.material);
+        const workPackage = h.workPackage || h.work_package || '';
+        const key = norm(h.material)+'|'+workPackage;
         if(!key) return;
-        const meta = metaFor(h.material);
-        if(!byName[key]) byName[key] = {name:h.material||'', category:meta.category||'', quantity:0, unit:meta.unit||'шт', price:Number(meta.price||0), total:0};
+        const meta = metaFor(h.material, workPackage);
+        if(!byName[key]) byName[key] = {name:h.material||'', category:meta.category||'', quantity:0, unit:meta.unit||'шт', price:Number(meta.price||0), total:0, workPackage};
         byName[key].quantity += Number(h.quantity||0);
         byName[key].total = byName[key].quantity * Number(byName[key].price||0);
       });
