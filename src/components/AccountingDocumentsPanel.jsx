@@ -98,6 +98,37 @@ export default function AccountingDocumentsPanel({
     const margin = planDone.done - factCost;
     const materialControl = materialControlSummaryForProject(accountingDocProject);
     const materialRiskRows = materialControl.outsideRows.length + materialControl.stockMismatchRows.length;
+    const moneyText = (value) => Math.round(Number(value || 0)).toLocaleString('ru-RU') + ' ₽';
+    const projectInvoices = (invoices || []).filter(invoice => {
+      const place = invoice?.location === 'Основной склад' ? '' : (invoice?.project || invoice?.location || '');
+      return place === accountingDocProject;
+    });
+    const invoiceBasisRows = projectInvoices.map(invoice => {
+      const controls = typeof warehouseInvoiceEstimateControl === 'function' ? warehouseInvoiceEstimateControl(invoice).filter(control => control.name) : [];
+      const riskControls = controls.filter(control => ['danger', 'warning'].includes(control.severity));
+      const confirmedControls = controls.filter(control => control.severity === 'success');
+      const lineSum = controls.reduce((sum, control) => sum + Number(control.lineSum || 0), 0);
+      const amount = Number(invoice.total || invoice.totalAmount || invoice.amount || invoice.sum || 0) || lineSum;
+      const dangerCount = riskControls.filter(control => control.severity === 'danger').length;
+      const warningCount = riskControls.filter(control => control.severity === 'warning').length;
+      const outsideCount = riskControls.filter(control => control.status === 'Вне сметы').length;
+      const overCount = riskControls.filter(control => control.status === 'Сверх сметы').length;
+      const unitMismatchCount = riskControls.filter(control => control.status === 'Ед. не совпала').length;
+      const priceOverCount = riskControls.filter(control => control.status === 'Цена выше плана').length;
+      return {
+        invoice,
+        controls,
+        riskControls,
+        confirmedControls,
+        amount,
+        dangerCount,
+        warningCount,
+        outsideCount,
+        overCount,
+        unitMismatchCount,
+        priceOverCount,
+      };
+    }).sort((a, b) => String(b.invoice.date || '').localeCompare(String(a.invoice.date || '')) || Number(b.invoice.id || 0) - Number(a.invoice.id || 0));
     const invoiceIssueRows = (invoices || [])
       .filter(invoice => (invoice.project || invoice.location) === accountingDocProject)
       .flatMap(invoice => warehouseInvoiceEstimateControl(invoice)
@@ -144,6 +175,59 @@ export default function AccountingDocumentsPanel({
           <p style={{ color: C.textMuted, fontSize: '10px', margin: '8px 0 0', lineHeight: 1.4 }}>
             Счета поставщиков нужно сверять с ведомостью потребности: материал должен быть в смете или в утверждённом изменении, а в печатной ведомости видно, к какой работе относится ресурс.
           </p>
+          <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid ' + C.border }}>
+            <b style={{ color: C.text, fontSize: '12px', display: 'block', marginBottom: '6px' }}>Накладные: объект → поставщик → материал → основание по смете</b>
+            {invoiceBasisRows.length === 0 ? (
+              <p style={{ color: C.textMuted, fontSize: '11px', margin: 0 }}>По выбранному объекту приходных накладных пока нет.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: '8px' }}>
+                {invoiceBasisRows.slice(0, 20).map(row => {
+                  const riskColor = row.dangerCount ? C.danger : row.warningCount ? C.warning : C.success;
+                  const riskBg = row.dangerCount ? C.dangerLight : row.warningCount ? C.warningLight : C.successLight;
+                  const riskBorder = row.dangerCount ? C.dangerBorder : row.warningCount ? C.warningBorder : C.successBorder;
+                  const riskText = row.riskControls.length
+                    ? [
+                      row.outsideCount ? 'вне сметы ' + row.outsideCount : '',
+                      row.overCount ? 'сверх ' + row.overCount : '',
+                      row.unitMismatchCount ? 'ед. изм. ' + row.unitMismatchCount : '',
+                      row.priceOverCount ? 'цена ' + row.priceOverCount : '',
+                    ].filter(Boolean).join(' · ')
+                    : 'подтверждено сметой';
+
+                  return (
+                    <div key={row.invoice.id || row.invoice.number || row.invoice.date} style={{ ...card, padding: '10px', backgroundColor: C.bgAlt, border: '1px solid ' + C.border }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,0.9fr) minmax(180px,1fr) minmax(150px,1fr) auto', gap: '10px', alignItems: 'start' }}>
+                        <div>
+                          <b style={{ color: C.text, fontSize: '12px' }}>№ {row.invoice.number || row.invoice.id || '—'} · {row.invoice.date || 'без даты'}</b>
+                          <p style={{ color: C.textMuted, fontSize: '10px', margin: '3px 0 0' }}>{row.invoice.supplierName || row.invoice.supplier || 'Поставщик не указан'}</p>
+                          <p style={{ color: C.accent, fontSize: '11px', margin: '3px 0 0', fontWeight: 800 }}>{moneyText(row.amount)}</p>
+                        </div>
+                        <div>
+                          <p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Строки накладной</p>
+                          <b style={{ color: C.text, fontSize: '12px' }}>{row.controls.length}</b>
+                          <span style={{ color: C.textMuted, fontSize: '11px' }}> · по смете {row.confirmedControls.length}</span>
+                          <p style={{ color: C.textMuted, fontSize: '10px', margin: '4px 0 0' }}>
+                            {row.controls.slice(0, 3).map(control => control.canonicalName || control.name).join(' · ') || 'Строки не распознаны'}
+                            {row.controls.length > 3 ? ' · +' + (row.controls.length - 3) : ''}
+                          </p>
+                        </div>
+                        <div>
+                          <p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Основание</p>
+                          <p style={{ color: C.textMuted, fontSize: '10px', margin: 0, lineHeight: 1.35 }}>
+                            {row.controls.slice(0, 3).map(control => {
+                              const sections = control.sectionsList?.slice(0, 2).join(' · ') || control.sections || '';
+                              return sections || (control.planSourceCount ? 'сметных строк: ' + control.planSourceCount : control.status);
+                            }).join(' / ') || 'Нет сметного основания'}
+                          </p>
+                        </div>
+                        <span style={badge(riskColor, riskBg, riskBorder)}>{riskText}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           {invoiceIssueRows.length > 0 && (
             <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid ' + C.border }}>
               <b style={{ color: C.warning, fontSize: '12px', display: 'block', marginBottom: '6px' }}>Накладные требуют проверки перед оплатой</b>
