@@ -4760,6 +4760,9 @@ function App() {
     const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
     const keyOf = materialNameLookupKey;
     const rows = {};
+    const requiredPackage = String(workPackage || '').trim();
+    const sourcePackageMatches = (value) => !requiredPackage || String(value || '').trim() === requiredPackage;
+    const sourcePackageOf = (item = {}, parent = {}) => item.workPackage || item.work_package || parent.workPackage || parent.work_package || '';
     const materialUnit = (unit) => normalizeMeasure(1, unit).unit || unit || '';
     const materialQty = (qty, unit) => {
       const norm = normalizeMeasure(qty, unit);
@@ -4850,7 +4853,7 @@ function App() {
       }
     })));
     (invoices||[]).filter(inv=>!isSupplyDeliveryInvoice(inv) && ((inv.project||inv.location)===projectName || inv.location===projectName)).forEach(inv=>{
-      warehouseInvoiceItems(inv).items.forEach(it=>{
+      warehouseInvoiceItems(inv).items.filter(it=>sourcePackageMatches(sourcePackageOf(it, inv))).forEach(it=>{
         const r = ensure(it.name, it.unit);
         if (!r) return;
         const qty = Number(it.quantity||0);
@@ -4870,12 +4873,13 @@ function App() {
           sourceUnit: it.unit || '',
           sourceQty: qty,
           total,
+          workPackage: sourcePackageOf(it, inv),
         });
       });
     });
     const acceptedDeliveryKeys = new Set();
     (supplyDeliveries||[])
-      .filter(d=>d.project===projectName && ['Принято','Проблема'].includes(d.status||'') && Number(d.receivedQuantity||0)>0)
+      .filter(d=>d.project===projectName && sourcePackageMatches(sourcePackageOf({}, d)) && ['Принято','Проблема'].includes(d.status||'') && Number(d.receivedQuantity||0)>0)
       .forEach(d=>{
         const r = ensure(d.materialName, d.unit);
         if (!r) return;
@@ -4894,11 +4898,12 @@ function App() {
           unit: converted.unit || d.unit || r.unit,
           total,
           date: d.receivedAt || d.deliveryDate || d.plannedDate || '',
+          workPackage: sourcePackageOf({}, d),
         });
         acceptedDeliveryKeys.add(r.key);
       });
     (supplyHistory||[])
-      .filter(h=>h.project===projectName && ['Доставлено','Поставлено','Принято'].includes(h.status||''))
+      .filter(h=>h.project===projectName && sourcePackageMatches(sourcePackageOf({}, h)) && ['Доставлено','Поставлено','Принято'].includes(h.status||''))
       .forEach(h=>{
         const r = ensure(h.materialName, h.unit);
         if (!r || acceptedDeliveryKeys.has(r.key)) return;
@@ -4916,24 +4921,26 @@ function App() {
           unit: converted.unit || h.unit || r.unit,
           total,
           date: h.date || h.createdAt || '',
+          workPackage: sourcePackageOf({}, h),
         });
       });
     (warehouseMovements||[]).forEach(m=>{
+      if (!sourcePackageMatches(sourcePackageOf({}, m))) return;
       const qty = Number(m.quantity||0);
       if ((m.toLocation||'')===projectName) {
         const r = ensure(m.materialName, m.unit);
         addQty(r, 'movedIn', qty, m.unit);
         const converted = materialQty(qty, m.unit || r?.unit);
-        if (r) r.movementDetails.push({id:m.id, type:'in', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||''});
+        if (r) r.movementDetails.push({id:m.id, type:'in', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||'', workPackage:sourcePackageOf({}, m)});
       }
       if ((m.fromLocation||'')===projectName) {
         const r = ensure(m.materialName, m.unit);
         addQty(r, 'movedOut', qty, m.unit);
         const converted = materialQty(qty, m.unit || r?.unit);
-        if (r) r.movementDetails.push({id:m.id, type:'out', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||''});
+        if (r) r.movementDetails.push({id:m.id, type:'out', from:m.fromLocation||'', to:m.toLocation||'', qty:converted.qty, unit:converted.unit||m.unit||r.unit, date:m.date||m.createdAt||'', workPackage:sourcePackageOf({}, m)});
       }
     });
-    (materialTransfers||[]).filter(t=>t.projectName===projectName && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage)).forEach(t=>{
+    (materialTransfers||[]).filter(t=>t.projectName===projectName && (t.status||'Активна')!=='Аннулирована' && sourcePackageMatches(t.workPackage || t.work_package)).forEach(t=>{
       const r = ensure(t.materialName, t.unit);
       if ((t.fromLocation||'')==='Основной склад') addQty(r, 'issuedFromMain', t.quantity, t.unit);
       addQty(r, 'issued', t.quantity, t.unit);
@@ -4941,7 +4948,7 @@ function App() {
       else addQty(r, 'issuedPending', t.quantity, t.unit);
       addHolderQty(r, t.toPerson, t.toPersonRole, t.signed ? 'issued' : 'pending', t.quantity, t.unit, t);
     });
-    (workJournal||[]).filter(w=>w.project===projectName&&w.status!=='Отклонено' && packageMatches(w.workPackage || w.work_package, workPackage)).forEach(w=>{
+    (workJournal||[]).filter(w=>w.project===projectName&&w.status!=='Отклонено' && sourcePackageMatches(w.workPackage || w.work_package)).forEach(w=>{
       let mats = w.materialsUsed!==undefined ? w.materialsUsed : w.materials_used;
       if (typeof mats === 'string') { try { mats = JSON.parse(mats); } catch(_) { mats = []; } }
       if (!Array.isArray(mats)) return;
@@ -4952,13 +4959,13 @@ function App() {
       });
     });
     (history||[])
-      .filter(h=>h.project===projectName && h.type==='возврат от мастера' && packageMatches(h.workPackage || h.work_package, workPackage))
+      .filter(h=>h.project===projectName && h.type==='возврат от мастера' && sourcePackageMatches(h.workPackage || h.work_package))
       .forEach(h=>{
         const r = ensure(h.material, '');
         addQty(r, 'returnedFromMasters', h.quantity, r?.unit);
         addHolderQty(r, h.issuedBy||h.issued_by||'Без ответственного', '', 'returned', h.quantity, r?.unit);
       });
-    (materials||[]).filter(m=>m.project===projectName).forEach(m=>{
+    (materials||[]).filter(m=>m.project===projectName && sourcePackageMatches(sourcePackageOf({}, m))).forEach(m=>{
       const r = ensure(m.name, m.unit);
       if (r) {
         addQty(r, 'stock', m.quantity, m.unit);
@@ -4968,12 +4975,12 @@ function App() {
     const requestPipelineStatuses = new Set(['Новая','Подтверждена прорабом','Утверждена','КП запрошены']);
     (supplyRequests||[])
       .filter(req=>req.project===projectName && requestPipelineStatuses.has(req.status||'Новая'))
-      .forEach(req=>parseSupplyItems(req).forEach(it=>{
+      .forEach(req=>parseSupplyItems(req).filter(it=>sourcePackageMatches(sourcePackageOf(it, req))).forEach(it=>{
         const r = ensure(it.materialName, it.unit);
         addQty(r, 'requested', it.quantity, it.unit);
       }));
     (supplyDeliveries||[])
-      .filter(d=>d.project===projectName && d.status==='В пути')
+      .filter(d=>d.project===projectName && sourcePackageMatches(sourcePackageOf({}, d)) && d.status==='В пути')
       .forEach(d=>{
         const r = ensure(d.materialName, d.unit);
         addQty(r, 'inTransit', d.shippedQuantity || d.plannedQuantity, d.unit);
@@ -4998,9 +5005,21 @@ function App() {
       const normPackages = (row.normDetails || []).flatMap(d=>d.packageNames || []).filter(Boolean);
       const transferPackages = (row.holders ? Object.values(row.holders) : [])
         .flatMap(h=>(h.transfers || []).map(t=>t.workPackage || t.work_package).filter(Boolean));
+      const hasStrictSourceActivity = (row.received||0) || (row.stock||0) || (row.requested||0) ||
+        (row.inTransit||0) || (row.movedIn||0) || (row.movedOut||0) || (row.issued||0) || (row.used||0);
+      if (hasStrictSourceActivity) return true;
       return [...planPackages, ...invalidPackages, ...normPackages, ...transferPackages].includes(workPackage);
     };
     return Object.values(rows).filter(materialRowMatchesPackage).map(r=>{
+      const detailPackages = [
+        ...(r.planDetails || []).map(d => d.packageName),
+        ...(r.invalidPlanDetails || []).map(d => d.packageName),
+        ...(r.normDetails || []).flatMap(d => d.packageNames || []),
+        ...(r.invoiceDetails || []).map(d => d.workPackage),
+        ...(r.supplyDetails || []).map(d => d.workPackage),
+        ...(r.movementDetails || []).map(d => d.workPackage),
+      ].map(v => String(v || '').trim()).filter(Boolean);
+      const rowPackage = requiredPackage || detailPackages[0] || '';
       const movedNet = r.movedIn + r.issuedFromMain - r.movedOut;
       const supplied = r.received + movedNet;
       const estimatePlanQty = Number(r.planQty||0);
@@ -5023,6 +5042,8 @@ function App() {
       const stockDiff = (r.stock||0) - expectedStock;
       return {
         ...r,
+        workPackage: rowPackage,
+        packageName: rowPackage,
 	        planSourceCount: (r.planDetails || []).length,
 	        invalidPlanCount: (r.invalidPlanDetails || []).length,
         movedNet,
@@ -5274,12 +5295,14 @@ function App() {
     const qty = toNum(qtyRaw);
     if (qty <= 0) { alert('Количество должно быть больше 0'); return; }
     const unit = row.unit || 'шт';
+    const rowPackage = row.workPackage || row.packageName || '';
     const marker = materialControlSupplyMarker(projectName, row);
     const planSourceCount = row.planSourceCount || (row.planDetails||[]).length;
     const notes = [
       'Создано из контроля материалов: строка `Докупить`.',
       marker,
       'Объект: '+projectName,
+      rowPackage ? 'Пакет работ: '+rowPackage : '',
       'Материал: '+row.name,
       planSourceCount ? 'Сметных строк: '+planSourceCount : '',
       (row.sections||[]).length ? 'Разделы: '+(row.sections||[]).slice(0,5).join('; ') : '',
@@ -5298,7 +5321,8 @@ function App() {
         materialName: row.name,
         quantity: qty,
         unit,
-        items:[{materialName:row.name,quantity:qty,unit}],
+        workPackage: rowPackage,
+        items:[{materialName:row.name,quantity:qty,unit,workPackage:rowPackage}],
         project: projectName,
         createdBy: user.name,
         date: new Date().toISOString().split('T')[0],
@@ -5330,11 +5354,16 @@ function App() {
 	    const items = candidates.map(row => ({
 	      materialName: row.name,
 	      quantity: Math.round(toNum(row.toBuy) * 1000) / 1000,
-	      unit: row.unit || 'шт'
+	      unit: row.unit || 'шт',
+	      workPackage: row.workPackage || row.packageName || ''
 	    }));
+	    const requestPackage = Array.from(new Set(items.map(it=>it.workPackage).filter(Boolean))).length === 1
+	      ? items.find(it=>it.workPackage)?.workPackage || ''
+	      : '';
 	    const notes = [
 	      'Создано из контроля материалов: массовая заявка по текущему фильтру.',
 	      'Объект: '+projectName,
+	      requestPackage ? 'Пакет работ: '+requestPackage : '',
 	      'Позиций: '+items.length,
 	      ...candidates.map(row => materialControlSupplyMarker(projectName, row)),
 	      '',
@@ -5351,6 +5380,7 @@ function App() {
 	        materialName: items[0]?.materialName || 'Материалы по смете',
 	        quantity: items.length,
 	        unit: 'поз.',
+	        workPackage: requestPackage,
 	        items,
 	        project: projectName,
 	        createdBy: user.name,
@@ -5376,6 +5406,7 @@ function App() {
 	    const materialName = invoiceControlMaterialName(ctrl, item);
 	    const qty = toNum(ctrl?.shortageQty);
 	    const unit = invoiceControlUnit(ctrl, item);
+	    const rowPackage = ctrl.workPackage || ctrl.packageName || item.workPackage || item.work_package || '';
 	    if (!projectName || !materialName || qty<=0) return;
 	    if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
 	    if (invoiceControlSupplyRequestExists(inv, ctrl, item)) { notify('По этой позиции уже есть активная заявка снабжения', 'supply'); return; }
@@ -5385,6 +5416,7 @@ function App() {
 	      'Создано из сметного контроля накладной: остаток к закупке после прихода.',
 	      marker,
 	      'Объект: '+projectName,
+	      rowPackage ? 'Пакет работ: '+rowPackage : '',
 	      'Накладная: №'+(inv?.number||inv?.id||'')+' от '+(inv?.date||''),
 	      'Материал: '+materialName,
 	      planSourceCount ? 'Сметных строк: '+planSourceCount : '',
@@ -5403,7 +5435,8 @@ function App() {
 	        materialName,
 	        quantity: qty,
 	        unit,
-	        items:[{materialName,quantity:qty,unit}],
+	        workPackage: rowPackage,
+	        items:[{materialName,quantity:qty,unit,workPackage:rowPackage}],
 	        project: projectName,
 	        createdBy: user.name,
 	        date: new Date().toISOString().split('T')[0],
@@ -7462,6 +7495,7 @@ function App() {
     const qty = toNum(qtyRaw);
     if (qty <= 0) { alert('Количество должно быть больше 0'); return; }
     const unit = row.requiredUnit || row.rule.materialUnit || row.materialUnit || 'шт';
+    const rowPackage = row.packageName || row.workPackage || '';
     const requestRow = {...row, materialName:cleanName, requiredQty:qty, requiredUnit:unit};
     const notes = materialNormSupplyNotes([requestRow]);
     const res = await fetch(API+'/supply-requests', {
@@ -7471,7 +7505,8 @@ function App() {
         materialName: cleanName,
         quantity: qty,
         unit,
-        items:[{materialName: cleanName, quantity: qty, unit}],
+        workPackage: rowPackage,
+        items:[{materialName: cleanName, quantity: qty, unit, workPackage: rowPackage}],
         project: row.projectName,
         createdBy: user?.name || '',
         date: new Date().toISOString().split('T')[0],
@@ -7503,11 +7538,15 @@ function App() {
     fresh.forEach(row=>{
       const materialName = row.materialName || materialTitleForNormRule(row.rule) || 'Материал';
       const unit = row.requiredUnit || row.rule?.materialUnit || row.materialUnit || 'шт';
-      const key = materialNameKey(materialName)+'|'+unit;
-      if (!byKey[key]) byKey[key] = {materialName, quantity:0, unit};
+      const workPackage = row.packageName || row.workPackage || '';
+      const key = materialNameKey(materialName)+'|'+unit+'|'+workPackage;
+      if (!byKey[key]) byKey[key] = {materialName, quantity:0, unit, workPackage};
       byKey[key].quantity += toNum(row.requiredQty);
     });
     const items = Object.values(byKey).map(it=>({...it, quantity:Number(it.quantity.toFixed(4))}));
+    const requestPackage = Array.from(new Set(items.map(it=>it.workPackage).filter(Boolean))).length === 1
+      ? items.find(it=>it.workPackage)?.workPackage || ''
+      : '';
     if (!items.length) { alert('Не удалось собрать позиции заявки'); return; }
     const res = await fetch(API+'/supply-requests', {
       method:'POST',
@@ -7516,6 +7555,7 @@ function App() {
         materialName: items[0].materialName,
         quantity: items[0].quantity,
         unit: items[0].unit,
+        workPackage: requestPackage,
         items,
         project: fresh[0].projectName,
         createdBy: user?.name || '',
@@ -9577,11 +9617,11 @@ function App() {
     if (req.itemsJson) {
       try {
         const arr = typeof req.itemsJson === 'string' ? JSON.parse(req.itemsJson) : req.itemsJson;
-        if (Array.isArray(arr) && arr.length>0) return arr;
+        if (Array.isArray(arr) && arr.length>0) return arr.map(it=>({...it, workPackage: it.workPackage || it.work_package || req.workPackage || req.work_package || ''}));
       } catch(_) {}
     }
     // Legacy: одна позиция из материала записи
-    if (req.materialName) return [{materialName:req.materialName, quantity:Number(req.quantity)||0, unit:req.unit||'шт'}];
+    if (req.materialName) return [{materialName:req.materialName, quantity:Number(req.quantity)||0, unit:req.unit||'шт', workPackage:req.workPackage||req.work_package||''}];
     return [];
   };
 

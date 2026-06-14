@@ -1660,6 +1660,7 @@ def init_db():
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS category VARCHAR(100);
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS items_json TEXT;
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         -- Multi-tenancy подготовка (см. ONBOARDING — план «единый кабинет поставщика»)
         -- Пока не используется в коде, но колонки добавлены чтобы при миграции не делать ALTER большим таблицам
         CREATE TABLE IF NOT EXISTS companies (
@@ -1797,6 +1798,7 @@ def init_db():
             supplier_id INT,
             supplier_name VARCHAR(255),
             project VARCHAR(255),
+            work_package VARCHAR(100),
             material_name VARCHAR(255),
             planned_quantity NUMERIC(14,4),
             shipped_quantity NUMERIC(14,4),
@@ -1821,6 +1823,7 @@ def init_db():
             claim_id INT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         CREATE TABLE IF NOT EXISTS supply_claims (
             id SERIAL PRIMARY KEY,
             delivery_id INT,
@@ -3068,6 +3071,7 @@ class SupplyRequestModel(BaseModel):
     quantity: float = 0
     unit: str = "шт"
     project: str = ""
+    workPackage: str = ""
     createdBy: str = ""
     date: str = ""
     notes: str = ""
@@ -3699,7 +3703,7 @@ def get_materials(current_user: dict = Depends(get_current_user)):
     if role in ("заказчик", "технадзор"):
         cur.close(); conn.close()
         return []
-    if role in WAREHOUSE_ROLES or can_see_all_company_data(current_user):
+    if can_see_all_company_data(current_user) or role in ("кладовщик", "снабженец"):
         cur.execute(base)
     elif projects:
         cur.execute(base + " WHERE project = ANY(%s)", (projects,))
@@ -4833,6 +4837,7 @@ def delete_supplier(id: int, _current_user: dict = Depends(require_roles("дир
     return {"ok": True}
 
 SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,project,"
+                 "COALESCE(work_package,'') as \"workPackage\","
                  "created_by as \"createdBy\",date,status,notes,"
                  "selected_suppliers as \"selectedSuppliers\","
                  "requested_by_role as \"requestedByRole\","
@@ -4902,9 +4907,11 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     director_name = created_by if role in ("директор", "зам_директора") else None
     director_at = now if role in ("директор", "зам_директора") else None
     # Нормализация items: если items пустой но есть materialName — упаковываем как single-item
+    request_package = (r.workPackage or "").strip()
     items = [it for it in (r.items or []) if (it or {}).get("materialName") and float((it or {}).get("quantity") or 0) > 0]
+    items = [{**it, "workPackage": (it.get("workPackage") or it.get("work_package") or request_package or "").strip()} for it in items]
     if not items and r.materialName:
-        items = [{"materialName": r.materialName, "quantity": r.quantity, "unit": r.unit}]
+        items = [{"materialName": r.materialName, "quantity": r.quantity, "unit": r.unit, "workPackage": request_package}]
     if not items:
         raise HTTPException(status_code=400, detail="Заявка должна содержать хотя бы одну позицию")
     # material_name / quantity / unit заполняем агрегатом для совместимости со старым UI
@@ -4922,12 +4929,12 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         "INSERT INTO supply_requests "
-        "(material_name,quantity,unit,project,created_by,date,notes,selected_suppliers,"
+        "(material_name,quantity,unit,project,work_package,created_by,date,notes,selected_suppliers,"
         "status,requested_by_role,requested_by_id,urgency,category,"
         "prorab_id,prorab_name,prorab_confirmed_at,"
         "director_id,director_name,director_approved_at,items_json) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (agg_name, agg_qty, agg_unit, r.project, created_by, r.date, r.notes,
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (agg_name, agg_qty, agg_unit, r.project, request_package, created_by, r.date, r.notes,
          r.selectedSuppliers, initial_status, role, requested_by_id, r.urgency, r.category,
          prorab_id, prorab_name, prorab_at,
          director_id, director_name, director_at, items_json))
@@ -5598,7 +5605,8 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
 DELIVERY_SELECT = """
     SELECT d.id, d.offer_id as "offerId", d.request_id as "requestId",
            d.supplier_id as "supplierId", d.supplier_name as "supplierName",
-           d.project, d.material_name as "materialName",
+           d.project, COALESCE(d.work_package,'') as "workPackage",
+           d.material_name as "materialName",
            d.planned_quantity as "plannedQuantity",
            d.shipped_quantity as "shippedQuantity",
            d.received_quantity as "receivedQuantity",
@@ -5707,8 +5715,8 @@ def _add_project_material(cur, name, unit, qty, price, project, work_package="")
         cur.execute("""INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (name, unit or "шт", qty, price or 0, 0, project, "Закупка", package_name))
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                (name, "приход (поставка)", qty, __import__("datetime").date.today().isoformat(), project, "Снабжение", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (name, "приход (поставка)", qty, __import__("datetime").date.today().isoformat(), project, "Снабжение", package_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
 def _create_delivery_quality_records(cur, delivery):
     name = (delivery.get('material_name') or '').strip()
@@ -5794,6 +5802,7 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
     try:
         cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT")
         cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT")
+        cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
     except Exception as e:
         print("SUPPLY HISTORY MIGRATION ERROR:", str(e))
     if delivery_id:
@@ -5801,9 +5810,9 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
             cur.execute("SELECT id FROM supply_history WHERE delivery_id=%s LIMIT 1", (delivery_id,))
             existing = cur.fetchone()
             if existing:
-                cur.execute("""UPDATE supply_history SET quantity=%s, status=%s, confirmed_by=%s
+                cur.execute("""UPDATE supply_history SET quantity=%s, status=%s, confirmed_by=%s, work_package=%s
                                WHERE id=%s""",
-                            (received_qty, status, confirmed_by,
+                            (received_qty, status, confirmed_by, delivery.get('work_package') or delivery.get('workPackage') or '',
                              existing['id'] if isinstance(existing, dict) else existing[0]))
                 return
         except Exception as e:
@@ -5811,14 +5820,14 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
     try:
         cur.execute("""INSERT INTO supply_history
                        (supplier_id, material_name, quantity, unit, price_per_unit, total_price,
-                        project, date, status, confirmed_by, request_id, delivery_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        project, date, status, confirmed_by, request_id, delivery_id, work_package)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (delivery.get('supplier_id'), delivery.get('material_name'), received_qty, delivery.get('unit'),
                      _float_or_zero(delivery.get('price_per_unit')),
                      _float_or_zero(delivery.get('price_per_unit')) * received_qty,
                      delivery.get('project'), (delivery.get('received_at') or __import__("datetime").date.today()).date().isoformat()
                      if hasattr(delivery.get('received_at'), 'date') else (delivery.get('received_at') or __import__("datetime").date.today().isoformat()),
-                     status, confirmed_by, request_id, delivery_id))
+                     status, confirmed_by, request_id, delivery_id, delivery.get('work_package') or delivery.get('workPackage') or ''))
     except Exception as e:
         print("SUPPLY HISTORY LINKED INSERT ERROR:", str(e))
         try:
@@ -5874,6 +5883,7 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         "source": "supply_delivery",
         "deliveryId": delivery_id,
         "requestId": delivery.get('request_id'),
+        "workPackage": delivery.get('work_package') or delivery.get('workPackage') or "",
     }
     number = delivery.get('waybill_number') or ("Поставка-" + str(delivery_id))
     project = delivery.get('project') or ""
@@ -6060,7 +6070,8 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
     cur.execute("""
         SELECT o.id, o.request_id, o.supplier_id, o.price_per_unit, o.total_price,
                o.payment_terms, s.name as supplier_name,
-               r.project, r.material_name, r.quantity, r.unit
+               r.project, COALESCE(r.work_package,'') as work_package,
+               r.material_name, r.quantity, r.unit
         FROM supplier_offers o
         LEFT JOIN suppliers s ON s.id=o.supplier_id
         LEFT JOIN supply_requests r ON r.id=o.request_id
@@ -6101,7 +6112,7 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
     existing = cur.fetchone()
     vals = (
         offer['request_id'], offer['supplier_id'], offer['supplier_name'] or '',
-        offer['project'] or '', offer['material_name'] or '',
+        offer['project'] or '', offer.get('work_package') or '', offer['material_name'] or '',
         _float_or_zero(offer['quantity']), shipped_qty, offer['unit'] or '',
         _float_or_zero(offer['price_per_unit']), _float_or_zero(offer['total_price']),
         data.get('waybillNumber') or '', data.get('waybillDate') or None,
@@ -6115,7 +6126,7 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail="Поставка уже принята. Повторная отгрузка запрещена — создайте новую заявку/КП для допоставки.")
         cur.execute("""UPDATE supply_deliveries SET
-                       request_id=%s, supplier_id=%s, supplier_name=%s, project=%s,
+                       request_id=%s, supplier_id=%s, supplier_name=%s, project=%s, work_package=%s,
                        material_name=%s, planned_quantity=%s, shipped_quantity=%s, unit=%s,
                        price_per_unit=%s, total_price=%s, waybill_number=%s, waybill_date=%s,
                        vehicle_number=%s, driver_name=%s, document_url=%s, photo_url=%s,
@@ -6125,10 +6136,10 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
     else:
         cur.execute("""INSERT INTO supply_deliveries
                        (offer_id, request_id, supplier_id, supplier_name, project,
-                        material_name, planned_quantity, shipped_quantity, unit,
+                        work_package, material_name, planned_quantity, shipped_quantity, unit,
                         price_per_unit, total_price, waybill_number, waybill_date,
                         vehicle_number, driver_name, document_url, photo_url, shipped_at, status)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
                     (id,) + vals + ('В пути',))
         delivery_id = cur.fetchone()['id']
@@ -6202,7 +6213,8 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
     claim_id = None
     if received_qty > 0 and quality_status not in ('Брак',):
         _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
-                              _float_or_zero(delivery['price_per_unit']), delivery['project'])
+                              _float_or_zero(delivery['price_per_unit']), delivery['project'],
+                              delivery.get('work_package') or delivery.get('workPackage') or "")
     cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
     updated = cur.fetchone()
     _create_delivery_quality_records(cur, updated)
