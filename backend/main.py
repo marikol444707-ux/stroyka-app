@@ -6137,10 +6137,13 @@ def list_supply_claims(current_user: dict = Depends(get_current_user)):
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute(CLAIM_SELECT + " WHERE project = ANY(%s) ORDER BY id DESC", (projects,))
+        package_sql, package_params = package_access_filter(current_user, "work_package")
+        cur.execute(CLAIM_SELECT + " WHERE project = ANY(%s)" + package_sql + " ORDER BY id DESC",
+                    [projects] + package_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute(CLAIM_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY id DESC",
-                    (current_user.get("id"), current_user.get("name") or ""))
+        package_sql, package_params = package_access_filter(current_user, "work_package")
+        cur.execute(CLAIM_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY id DESC",
+                    [current_user.get("id"), current_user.get("name") or ""] + package_params)
     else:
         cur.close(); conn.close()
         return []
@@ -6458,7 +6461,7 @@ def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(
 def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, supplier_id, project FROM supply_claims WHERE id=%s", (id,))
+    cur.execute("SELECT id, supplier_id, project, COALESCE(work_package,'') as work_package FROM supply_claims WHERE id=%s", (id,))
     claim = cur.fetchone()
     if not claim:
         cur.close(); conn.close()
@@ -6479,6 +6482,9 @@ def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(requi
             raise HTTPException(status_code=403, detail="Недостаточно прав для изменения претензии")
         if claim.get("project"):
             require_project_or_warehouse_access(_current_user, claim.get("project") or "")
+        if role in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, claim.get("work_package") or "Основная"):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы претензии")
     fields_map = [('status','status'),('resolution','resolution'),('resolvedAt','resolved_at')]
     sets, vals = [], []
     for js_key, db_col in fields_map:
@@ -15806,6 +15812,10 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
             cur.close(); conn.close()
             return []
         where.append("project_name = ANY(%s)"); params.append(projects)
+        packages = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
+        if packages:
+            where.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
+            params.append(packages)
     q = f"SELECT {cols} FROM supplier_invoices"
     if where: q += " WHERE " + " AND ".join(where)
     q += " ORDER BY id DESC"
