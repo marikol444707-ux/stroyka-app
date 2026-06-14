@@ -878,6 +878,7 @@ function App() {
     return '';
   });
   const [activePage, setActivePage] = useState('dashboard');
+  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [activeProjectTab, setActiveProjectTab] = useState('Общее');
   const [activeTabGroup, setActiveTabGroup] = useState(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
@@ -1563,6 +1564,7 @@ function App() {
       const ic = await getApi('/invite-codes');
       setInviteCodes(Array.isArray(ic)?ic:[]);
     }
+    setInitialDataLoaded(true);
   });
 
   const loadMobilePageData = async (page = activePage) => {
@@ -1925,7 +1927,11 @@ function App() {
         setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
       } catch(e) {}
       mobileLoadedScopesRef.current.add('full');
-    } catch(e) {}
+    } catch(e) {
+      console.error('loadAll failed', e);
+    } finally {
+      setInitialDataLoaded(true);
+    }
   };
 
   const mobileScopeForPage = (page) => {
@@ -3311,9 +3317,10 @@ function App() {
 	    await refreshData();
 	  };
 
-	  const handleLogout = () => {
+  const handleLogout = () => {
     localStorage.removeItem('authToken');
     localStorage.removeItem('user');
+    setInitialDataLoaded(false);
     setUser(null);
   };
 
@@ -3324,6 +3331,7 @@ function App() {
       const data = await res.json();
       if (data.authToken) localStorage.setItem('authToken', data.authToken);
       localStorage.setItem('user', JSON.stringify(data));
+      setInitialDataLoaded(false);
       setUser(data);
     } catch { setLoginError('Ошибка подключения к серверу'); }
   };
@@ -3341,6 +3349,7 @@ function App() {
       const data = await res.json();
       if (data.authToken) localStorage.setItem('authToken', data.authToken);
       localStorage.setItem('user', JSON.stringify(data));
+      setInitialDataLoaded(false);
       setUser(data);
     } catch { setLoginError('Ошибка подключения'); }
   };
@@ -11436,10 +11445,21 @@ function App() {
 
       <AppSidebar isMobile={isMobile} sidebarRef={sidebarRef} sidebarVisible={sidebarVisible} setSidebarVisible={setSidebarVisible} C={C} user={user} roleLabels={ROLE_LABELS} roleColor={roleColor} menuItems={menuItems} supplyRequests={supplyRequests} isLeadership={isLeadership} isMasterRole={isMasterRole} activePage={activePage} navigateTo={navigateTo} handleLogout={handleLogout}/>
 
-      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%'}}>
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%',minWidth:0,marginLeft:isMobile?0:'240px'}}>
         <AppHeaderBar C={C} activePage={activePage} isCompactHeader={isCompactHeader} isMobile={isMobile} setSidebarVisible={setSidebarVisible} allMenuItems={allMenuItems} globalSearch={globalSearch} setGlobalSearch={setGlobalSearch} setShowSearch={setShowSearch} showSearch={showSearch} searchResults={searchResults} navigateTo={navigateTo} inp={inp} darkMode={darkMode} setDarkMode={setDarkMode} setShowQuickActions={setShowQuickActions} user={user} openSystemStatus={openSystemStatus} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} setUser={setUser} API={API}/>
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
           {activePage==='dashboard'&&(()=>{
+            if(!initialDataLoaded){
+              return (
+                <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
+                  <DashboardTopBar C={C} setSidebarVisible={setSidebarVisible} darkMode={darkMode} setDarkMode={setDarkMode} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} setShowAiAssistant={setShowAiAssistant} showAiAssistant={showAiAssistant} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} setShowQuickActions={setShowQuickActions}/>
+                  <div style={{marginTop:'24px',background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'24px',boxShadow:'0 18px 60px rgba(0,0,0,.25)'}}>
+                    <div style={{fontSize:'18px',fontWeight:800,marginBottom:'8px'}}>Загружаю данные объекта</div>
+                    <div style={{color:'#94a3b8',fontSize:'14px'}}>Сейчас подтягиваются сметы, задачи, склад и журналы. Нули на дашборде не показываются до окончания загрузки.</div>
+                  </div>
+                </div>
+              );
+            }
             const _today=new Date().toISOString().split('T')[0];
             const dashboardProjects = visibleActiveProjects(projects||[]);
             const risks=[];

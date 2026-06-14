@@ -7265,6 +7265,13 @@ def _insert_ai_task(cur, data: dict, current_user: dict):
     project_name = data.get("projectName") or data.get("project_name") or ""
     require_project_access(current_user, project_name)
     dedupe_key = _ai_task_dedupe_key(data)
+    assignment = _normalize_ai_assignment(
+        cur,
+        project_name,
+        data.get("assignedRole") or data.get("assigned_role") or "",
+        data.get("assignedTo") or data.get("assigned_to") or "",
+        data.get("assignmentGroup") or data.get("assignment_group") or "",
+    )
     cur.execute("""
         INSERT INTO ai_tasks (
             finding_id, project_name, title, description, assigned_role, assigned_to,
@@ -7276,8 +7283,8 @@ def _insert_ai_task(cur, data: dict, current_user: dict):
         project_name,
         data.get("title") or "",
         data.get("description") or "",
-        data.get("assignedRole") or data.get("assigned_role") or "",
-        data.get("assignedTo") or data.get("assigned_to") or "",
+        assignment.get("assignedRole") or "",
+        assignment.get("assignedTo") or "",
         data.get("status") or "Новое",
         data.get("dueDate") or data.get("due_date") or "",
         data.get("actionLabel") or data.get("action_label") or "Принять к исполнению",
@@ -7301,6 +7308,12 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
         "dedupeKey": dedupe_key,
     }, ensure_ascii=False)
     if dedupe_key:
+        assignment = _normalize_ai_assignment(
+            cur,
+            finding.get("projectName") or "",
+            finding.get("assignedRole") or "прораб",
+            finding.get("assignedTo") or "",
+        )
         cur.execute(
             AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') ORDER BY updated_at DESC, id DESC LIMIT 1",
             (finding.get("projectName"), dedupe_key)
@@ -7318,8 +7331,8 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
                 finding_id,
                 finding.get("title") or "",
                 finding.get("suggestedAction") or finding.get("description") or "",
-                finding.get("assignedRole") or "прораб",
-                finding.get("assignedTo") or "",
+                assignment.get("assignedRole") or "",
+                assignment.get("assignedTo") or "",
                 "Принять к исполнению",
                 action_payload,
                 dedupe_key,
@@ -7346,6 +7359,13 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
 def _upsert_ai_finding(cur, finding: dict, current_user: dict):
     project_name = finding.get("projectName") or ""
     require_project_access(current_user, project_name)
+    assignment = _normalize_ai_assignment(
+        cur,
+        project_name,
+        finding.get("assignedRole") or "",
+        finding.get("assignedTo") or "",
+    )
+    finding = {**finding, "assignedRole": assignment.get("assignedRole") or "", "assignedTo": assignment.get("assignedTo") or ""}
     dedupe_key = finding.get("dedupeKey") or ""
     if dedupe_key:
         cur.execute("""
@@ -7442,17 +7462,17 @@ def _find_responsible(cur, project_name: str, roles: list[str], preferred_name: 
             params.append(preferred_role)
         cur.execute(f"""SELECT id,name,role,project_name,assigned_projects
                         FROM users
-                        WHERE LOWER(COALESCE(name,''))=%s{role_sql}
+                        WHERE COALESCE(active,TRUE)=TRUE
+                          AND LOWER(COALESCE(name,''))=%s{role_sql}
                         ORDER BY id LIMIT 20""", params)
         for row in cur.fetchall() or []:
             if _user_row_matches_project(dict(row), project_name):
                 return (row.get("role") or preferred_role or "мастер", row.get("name") or preferred_name)
-        if preferred_role:
-            return (preferred_role, preferred_name)
     for role in roles:
         cur.execute("""SELECT id,name,role,project_name,assigned_projects
                        FROM users
-                       WHERE role=%s
+                       WHERE COALESCE(active,TRUE)=TRUE
+                         AND role=%s
                        ORDER BY id LIMIT 50""", (role,))
         for row in cur.fetchall() or []:
             if _user_row_matches_project(dict(row), project_name):
@@ -7475,12 +7495,63 @@ def _ai_assignment(cur, project_name: str, group: str, preferred_name: str = "")
         role, name = _find_responsible(cur, project_name, groups.get(group) or ["директор"])
     return {"assignedRole": role, "assignedTo": name}
 
+def _ai_group_from_role(role: str) -> str:
+    role = role or ""
+    if role in ("снабженец", "кладовщик"):
+        return "materials"
+    if role in ("сметчик",):
+        return "estimate"
+    if role in ("прораб", "главный_инженер", "мастер", "субподрядчик"):
+        return "work_room"
+    return "documents"
+
+def _active_user_for_role(cur, project_name: str, role: str, preferred_name: str = ""):
+    role = (role or "").strip()
+    if not role:
+        return None
+    params = [role]
+    name_sql = ""
+    if preferred_name:
+        name_sql = " AND LOWER(COALESCE(name,''))=%s"
+        params.append(preferred_name.strip().lower())
+    cur.execute(f"""SELECT id,name,role,project_name,assigned_projects
+                    FROM users
+                    WHERE COALESCE(active,TRUE)=TRUE
+                      AND role=%s{name_sql}
+                    ORDER BY id LIMIT 50""", params)
+    for row in cur.fetchall() or []:
+        row_dict = dict(row)
+        if _user_row_matches_project(row_dict, project_name):
+            return {"assignedRole": row_dict.get("role") or role, "assignedTo": row_dict.get("name") or preferred_name or ""}
+    return None
+
+def _normalize_ai_assignment(cur, project_name: str, assigned_role: str = "", assigned_to: str = "", group: str = ""):
+    assigned_role = (assigned_role or "").strip()
+    assigned_to = (assigned_to or "").strip()
+    if assigned_role and assigned_to:
+        active_exact = _active_user_for_role(cur, project_name, assigned_role, assigned_to)
+        if active_exact:
+            return active_exact
+    if assigned_role:
+        active_role = _active_user_for_role(cur, project_name, assigned_role)
+        if active_role:
+            return active_role
+    return _ai_assignment(cur, project_name, group or _ai_group_from_role(assigned_role), assigned_to)
+
 def _ai_payload(payload: dict) -> str:
     return json.dumps(payload or {}, ensure_ascii=False)
 
 def _upsert_ai_task(cur, data: dict, current_user: dict):
     project_name = data.get("projectName") or data.get("project_name") or ""
     require_project_access(current_user, project_name)
+    assignment = _normalize_ai_assignment(
+        cur,
+        project_name,
+        data.get("assignedRole") or data.get("assigned_role") or "",
+        data.get("assignedTo") or data.get("assigned_to") or "",
+        data.get("assignmentGroup") or data.get("assignment_group") or "",
+    )
+    data = {**data, "assignedRole": assignment.get("assignedRole") or "", "assignedTo": assignment.get("assignedTo") or ""}
     dedupe_key = _ai_task_dedupe_key(data)
     if dedupe_key:
         cur.execute(
