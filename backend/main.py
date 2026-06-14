@@ -1361,6 +1361,7 @@ def init_db():
             work_package VARCHAR(255)
         );
         ALTER TABLE materials ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
+        ALTER TABLE materials ALTER COLUMN name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS warehouse_history (
             id SERIAL PRIMARY KEY,
             material VARCHAR(255),
@@ -1374,6 +1375,7 @@ def init_db():
             date_time VARCHAR(100)
         );
         ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
+        ALTER TABLE warehouse_history ALTER COLUMN material TYPE TEXT;
         CREATE TABLE IF NOT EXISTS staff (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -2414,6 +2416,7 @@ def init_db():
             min_quantity FLOAT DEFAULT 0,
             category VARCHAR(255)
         );
+        ALTER TABLE warehouse_main ALTER COLUMN name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS warehouse_movements (
             id SERIAL PRIMARY KEY,
             material_name VARCHAR(255),
@@ -2686,6 +2689,7 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
+        ALTER TABLE material_inspection_journal ALTER COLUMN material_name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS supervisor_acts (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -2730,6 +2734,7 @@ def init_db():
         );
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS cable_type VARCHAR(100);
+        ALTER TABLE cable_journal ALTER COLUMN cable_brand TYPE TEXT;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Черновик';
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS smeta_type VARCHAR(50) DEFAULT 'Заказчик';
@@ -12624,57 +12629,124 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
 @app.post("/warehouse-invoices")
 def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     import json as j
-    target_project = data.get("project") or (data.get("location") if data.get("location") != "Основной склад" else "")
-    if _current_user.get("role") == "прораб" and target_project:
-        require_project_access(_current_user, target_project)
+    target_location = (data.get("location") or "").strip()
+    target_project = (data.get("project") or "").strip() or (target_location if target_location and target_location != "Основной склад" else "")
+    if target_project:
+        require_project_or_warehouse_access(_current_user, target_project)
+
+    def _invoice_float(value, default=0.0):
+        try:
+            return float(str(value).replace(" ", "").replace(",", "."))
+        except Exception:
+            return default
+
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""INSERT INTO warehouse_invoices
-                   (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
-                    total_base,total_vat,total_with_vat,status,added_by,photo_url,
-                    source_type,source_id,supply_delivery_id,supply_request_id)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                   RETURNING id""",
-        (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),data.get("location",""),data.get("project",""),data.get("vat","Без НДС"),j.dumps(data.get("items",[]),ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl",""),data.get("sourceType",""),data.get("sourceId") or None,data.get("supplyDeliveryId") or None,data.get("supplyRequestId") or None))
-    invoice_id = cur.fetchone()[0]
-    # Авто-создание записей в журнале входного контроля материалов (по СП 48.13330)
-    items_list = data.get("items", []) or []
-    proj = data.get("project","")
-    sup = data.get("supplierName","")
-    rcv_date = data.get("date") or None
-    inspections_added = 0
-    cables_added = 0
-    for it in items_list:
-        name = (it.get("name") or "").strip()
-        if not name:
-            continue
-        qty = float(it.get("quantity",0) or 0)
-        unit = it.get("unit","шт")
-        try:
-            cur.execute("""INSERT INTO material_inspection_journal
-                           (project_name, invoice_id, material_name, unit, quantity, supplier, received_at)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                        (proj, invoice_id, name, unit, qty, sup, rcv_date))
-            inspections_added += 1
-        except Exception as e:
-            print("INSPECTION INSERT ERROR:", str(e))
-        # Автоопределение: это кабель?
-        cable_info = _detect_cable_info(name)
-        if cable_info["isCable"]:
-            try:
-                cur.execute("""INSERT INTO cable_journal
-                               (project_name, invoice_id, cable_brand, cable_type, cross_section, cores_count,
-                                length_received, supplier, received_at)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (proj, invoice_id, name, cable_info["cableType"], cable_info["section"],
-                             cable_info["cores"], qty, sup, rcv_date))
-                cables_added += 1
-            except Exception as e:
-                print("CABLE INSERT ERROR:", str(e))
-    conn.commit()
-    cur.close(); conn.close()
-    _run_project_ai_control_safely(proj or (data.get("location") if data.get("location") != "Основной склад" else ""), "warehouse_invoice:create")
-    return {"id": invoice_id, "ok": True, "inspectionsAdded": inspections_added, "cablesAdded": cables_added}
+    conn.autocommit = False
+    try:
+        cur.execute("""INSERT INTO warehouse_invoices
+                       (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
+                        total_base,total_vat,total_with_vat,status,added_by,photo_url,
+                        source_type,source_id,supply_delivery_id,supply_request_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       RETURNING id""",
+            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(data.get("items",[]),ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl",""),data.get("sourceType",""),data.get("sourceId") or None,data.get("supplyDeliveryId") or None,data.get("supplyRequestId") or None))
+        invoice_id = cur.fetchone()[0]
+
+        items_list = data.get("items", []) or []
+        sup = data.get("supplierName","")
+        rcv_date = data.get("date") or None
+        accepted_by = data.get("acceptedBy") or data.get("addedBy") or _current_user.get("name","")
+        date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
+        inspections_added = 0
+        cables_added = 0
+        stock_rows_added = 0
+        history_added = 0
+
+        for it in items_list:
+            name = (it.get("name") or "").strip()
+            qty = _invoice_float(it.get("quantity"), 0)
+            if not name or qty <= 0:
+                continue
+            unit = (it.get("unit") or "шт").strip() or "шт"
+            price = _invoice_float(it.get("price"), 0)
+            category = (it.get("category") or "").strip()
+            work_package = (it.get("workPackage") or it.get("work_package") or data.get("workPackage") or data.get("work_package") or "").strip()
+
+            if target_project:
+                cur.execute("""SELECT id FROM materials
+                               WHERE LOWER(name)=LOWER(%s)
+                                 AND project=%s
+                                 AND COALESCE(work_package,'')=%s
+                               ORDER BY id LIMIT 1 FOR UPDATE""",
+                            (name, target_project, work_package))
+                row = cur.fetchone()
+                if row:
+                    cur.execute("""UPDATE materials
+                                   SET quantity=COALESCE(quantity,0)+%s,
+                                       unit=COALESCE(NULLIF(%s,''), unit),
+                                       price=CASE WHEN %s > 0 THEN %s ELSE price END,
+                                       category=COALESCE(NULLIF(%s,''), category)
+                                   WHERE id=%s""",
+                                (qty, unit, price, price, category, row[0]))
+                else:
+                    cur.execute("""INSERT INTO materials
+                                      (name,unit,quantity,price,min_quantity,project,category,work_package)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                                (name, unit, qty, price, 0, target_project, category, work_package))
+                history_project = target_project
+            else:
+                cur.execute("""SELECT id FROM warehouse_main
+                               WHERE LOWER(name)=LOWER(%s)
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name,))
+                row = cur.fetchone()
+                if row:
+                    cur.execute("""UPDATE warehouse_main
+                                   SET quantity=COALESCE(quantity,0)+%s,
+                                       unit=COALESCE(NULLIF(%s,''), unit),
+                                       price=CASE WHEN %s > 0 THEN %s ELSE price END,
+                                       category=COALESCE(NULLIF(%s,''), category)
+                                   WHERE id=%s""",
+                                (qty, unit, price, price, category, row[0]))
+                else:
+                    cur.execute("""INSERT INTO warehouse_main
+                                      (name,unit,quantity,price,min_quantity,category)
+                                   VALUES (%s,%s,%s,%s,%s,%s)""",
+                                (name, unit, qty, price, 0, category))
+                history_project = "Основной склад"
+
+            stock_rows_added += 1
+            cur.execute("""INSERT INTO warehouse_history
+                              (material,type,quantity,date,project,issued_by,work_package,date_time)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (name, "приход", qty, rcv_date, history_project, accepted_by, work_package, date_time))
+            history_added += 1
+
+            if target_project:
+                cur.execute("""INSERT INTO material_inspection_journal
+                               (project_name, invoice_id, material_name, unit, quantity, supplier, received_at)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                            (target_project, invoice_id, name, unit, qty, sup, rcv_date))
+                inspections_added += 1
+
+                cable_info = _detect_cable_info(name)
+                if cable_info["isCable"]:
+                    cur.execute("""INSERT INTO cable_journal
+                                   (project_name, invoice_id, cable_brand, cable_type, cross_section, cores_count,
+                                    length_received, supplier, received_at)
+                                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                                (target_project, invoice_id, name, cable_info["cableType"], cable_info["section"],
+                                 cable_info["cores"], qty, sup, rcv_date))
+                    cables_added += 1
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
+    _run_project_ai_control_safely(target_project, "warehouse_invoice:create")
+    return {"id": invoice_id, "ok": True, "stockRowsAdded": stock_rows_added, "historyAdded": history_added, "inspectionsAdded": inspections_added, "cablesAdded": cables_added}
 
 @app.delete("/warehouse-invoices/{id}")
 def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "кладовщик", "снабженец"))):

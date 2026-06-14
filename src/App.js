@@ -2228,23 +2228,15 @@ function App() {
     const validItems = newInvoice.items.filter(i=>i.name&&i.quantity);
     const totalBefore = validItems.reduce((s,i)=>s+Number(i.quantity)*Number(i.price||0),0);
     const vatCalc = calcVat(totalBefore, newInvoice.vat);
-    for (const item of validItems) {
-      if (newInvoice.location==='Основной склад') {
-        const existing = warehouseMain.find(m=>m.name.toLowerCase()===item.name.toLowerCase());
-        if (existing) await fetch(API+'/warehouse-main/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
-        else await fetch(API+'/warehouse-main',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:Number(item.price||0),minQuantity:0,category:item.category||''})});
-      } else {
-        const itemWorkPackage = item.workPackage || item.work_package || '';
-        const existing = materials.find(m=>m.name.toLowerCase()===item.name.toLowerCase()&&m.project===newInvoice.location&&(m.workPackage||m.work_package||'')===itemWorkPackage);
-        if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity),workPackage:itemWorkPackage})});
-        else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:Number(item.price||0),minQuantity:0,project:newInvoice.location,category:item.category||'',workPackage:itemWorkPackage})});
-      }
-      await fetch(API+'/warehouse-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({material:item.name,type:'приход',quantity:Number(item.quantity),date:newInvoice.date||new Date().toISOString().split('T')[0],project:newInvoice.location==='Основной склад'?'Основной склад':newInvoice.location,issuedBy:newInvoice.acceptedBy||user.name,dateTime:new Date().toLocaleString('ru-RU')})});
-    }
     const photoUrl = newInvoice.photos && newInvoice.photos.length>0 ? newInvoice.photos[0] : '';
     const inv = {id:Date.now(),number:newInvoice.number,date:newInvoice.date,supplierId:Number(supplierId)||0,supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',acceptedBy:newInvoice.acceptedBy||user.name,location:newInvoice.location,project:newInvoice.project,vat:newInvoice.vat,photoUrl,photos:newInvoice.photos||[],items:validItems,totalBase:vatCalc.base,totalVat:vatCalc.vat,totalWithVat:vatCalc.total,status:'Принята',addedBy:user.name};
     const savedInv = {...inv,project:newInvoice.location!=='Основной склад'?newInvoice.location:''};
-    await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(savedInv)});
+    const invoiceRes = await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(savedInv)});
+    if (!invoiceRes.ok) {
+      const err = await invoiceRes.json().catch(()=>({}));
+      alert(err.detail || 'Не удалось сохранить накладную');
+      return;
+    }
     let reviewTasksCreated = 0;
     try {
       reviewTasksCreated = await createInvoiceControlReviewTasksForInvoice(savedInv);
