@@ -2836,6 +2836,8 @@ def init_db():
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_at DATE;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255);
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_note TEXT;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS work_journal_id INT;
+        CREATE INDEX IF NOT EXISTS idx_hidden_works_work_journal_id ON hidden_works_acts(work_journal_id);
         CREATE TABLE IF NOT EXISTS staff_documents (
             id SERIAL PRIMARY KEY,
             staff_id INT NOT NULL,
@@ -6456,6 +6458,73 @@ def _sync_room_work_from_journal(cur, work_row: dict):
                        (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,status,photo_url,confirmed_by,work_journal_id,work_package,estimate_item_key)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", payload)
 
+def _work_journal_sync_row(cur, work_journal_id: int):
+    if not work_journal_id:
+        return None
+    cur.execute("""SELECT id, master_id, master_name, project, description, surface, unit, quantity,
+                          price_per_unit, total, date, status, photo_url, confirmed_by,
+                          room_id, room_name, work_package, estimate_item_key, estimate_id,
+                          section_name, hidden_work, materials_used, project_docs,
+                          customer_price_per_unit, customer_total
+                   FROM work_journal WHERE id=%s""", (work_journal_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    if isinstance(row, dict):
+        return dict(row)
+    cols = [d[0] for d in cur.description]
+    return dict(zip(cols, row))
+
+def _sync_hidden_work_act_from_journal(cur, work_row: dict):
+    if not work_row or not work_row.get("hidden_work"):
+        return 0
+    work_journal_id = work_row.get("id")
+    project_name = (work_row.get("project") or "").strip()
+    work_name = (work_row.get("description") or "").strip()
+    if not project_name or not work_name:
+        return 0
+
+    cur.execute("SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts WHERE work_journal_id=%s LIMIT 1", (work_journal_id,))
+    existing = cur.fetchone()
+    quantity = work_row.get("quantity") or 0
+    unit = work_row.get("unit") or ""
+    price_per_unit = work_row.get("customer_price_per_unit") or work_row.get("price_per_unit") or 0
+    total = work_row.get("customer_total") or work_row.get("total") or 0
+    work_date = work_row.get("date") or None
+    section_name = work_row.get("section_name") or work_row.get("work_package") or ""
+    brigade = work_row.get("master_name") or ""
+    materials_used = work_row.get("materials_used") or ""
+    project_docs = work_row.get("project_docs") or ""
+    estimate_id = work_row.get("estimate_id")
+
+    if existing:
+        act_id = existing.get("id") if isinstance(existing, dict) else existing[0]
+        status = existing.get("status") if isinstance(existing, dict) else existing[1]
+        if status not in ("Подписан", "Аннулирован"):
+            cur.execute("""UPDATE hidden_works_acts
+                           SET project_name=%s, estimate_id=%s, work_name=%s, section_name=%s,
+                               brigade=%s, quantity=%s, unit=%s, price_per_unit=%s, total=%s,
+                               work_date=%s, materials_used=%s, project_docs=%s
+                           WHERE id=%s""",
+                        (project_name, estimate_id, work_name, section_name, brigade, quantity, unit,
+                         price_per_unit, total, work_date, materials_used, project_docs, act_id))
+        return 0
+
+    cur.execute("SELECT COUNT(*) AS count FROM hidden_works_acts WHERE project_name=%s", (project_name,))
+    count_row = cur.fetchone()
+    existing_count = count_row.get("count") if isinstance(count_row, dict) else count_row[0]
+    next_num = (existing_count or 0) + 1
+    act_number = "АОСР-" + str(next_num) + (("/" + str(estimate_id)) if estimate_id else "")
+    cur.execute("""INSERT INTO hidden_works_acts
+                   (project_name, estimate_id, act_number, work_name, section_name, brigade,
+                    quantity, unit, price_per_unit, total, work_date, materials_used, project_docs,
+                    status, work_journal_id)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (project_name, estimate_id, act_number, work_name, section_name, brigade,
+                 quantity, unit, price_per_unit, total, work_date, materials_used, project_docs,
+                 "Черновик", work_journal_id))
+    return 1
+
 def _mark_room_work_rejected(cur, work_journal_id: int, confirmed_by: str = ""):
     if not work_journal_id:
         return
@@ -6509,6 +6578,7 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
                      customer_price,customer_total,execution_price,execution_total,execution_mode))
         row = cur.fetchone()
         _sync_room_work_from_journal(cur, row)
+        _sync_hidden_work_act_from_journal(cur, row)
         conn.commit()
         _run_project_ai_control_safely(w.project, "work_journal:create")
         return dict(row)
@@ -6599,12 +6669,9 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
         ))
     vals.append(id)
     cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    cur.execute("""SELECT id, master_id, master_name, project, description, surface, unit, quantity,
-                          price_per_unit, total, date, status, photo_url, confirmed_by,
-                          room_id, room_name, work_package, estimate_item_key
-                   FROM work_journal WHERE id=%s""", (id,))
-    updated_row = cur.fetchone()
+    updated_row = _work_journal_sync_row(cur, id)
     _sync_room_work_from_journal(cur, updated_row)
+    _sync_hidden_work_act_from_journal(cur, updated_row)
     conn.commit()
     cur.close(); conn.close()
     _run_project_ai_control_safely(project_name, "work_journal:update")
@@ -10468,7 +10535,8 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                                 materials_used, estimate_id, section_name, hidden_work, confirmed_by, confirmed_at,
                                 work_package, room_id, room_name, surface, estimate_item_name, estimate_item_key,
                                 customer_price_per_unit, customer_total, execution_price_per_unit, execution_total, execution_price_mode)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                               RETURNING id""",
                     (_current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, execution_price, round(delta*execution_price,2), today,
                      auto_journal_status,
                      "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id),
@@ -10480,6 +10548,10 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                      journal_params.get("estimateItemName") or it.get("name",""),
                      estimate_item_key,
                      customer_price, round(delta*customer_price,2), execution_price, round(delta*execution_price,2), execution_mode))
+                work_journal_id = cur.fetchone()[0]
+                work_row = _work_journal_sync_row(cur, work_journal_id)
+                _sync_room_work_from_journal(cur, work_row)
+                acts_added += _sync_hidden_work_act_from_journal(cur, work_row)
                 journal_added += 1
             except HTTPException:
                 raise
@@ -15996,7 +16068,7 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
               conclusion, comments, materials_used, project_docs,
               photos, certificates, city, ai_filled,
               paid_status, paid_amount, paid_at, paid_by, paid_note,
-              created_at"""
+              work_journal_id, created_at"""
     allowed_projects = visible_project_names(current_user)
     role = current_user.get("role")
     if role not in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик", "прораб", "стройконтроль", "технадзор", "заказчик"):
@@ -16036,7 +16108,8 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
              "aiFilled":bool(r[28]),
              "paidStatus":r[29] or "Не оплачен","paidAmount":float(r[30] or 0),
              "paidAt":str(r[31]) if r[31] else "","paidBy":r[32] or "","paidNote":r[33] or "",
-             "createdAt":str(r[34])})
+             "workJournalId":r[34],
+             "createdAt":str(r[35])})
     return result
 
 @app.put("/hidden-works-acts/{act_id}")
