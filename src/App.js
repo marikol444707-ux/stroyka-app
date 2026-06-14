@@ -5538,10 +5538,10 @@ function App() {
       return [];
     }
   };
-  const materialNormDeviationRows = (projectName) => {
+  const materialNormDeviationRows = (projectName, workPackage='') => {
     const rows = {};
     (workJournal||[])
-      .filter(w=>w.project===projectName && w.status!=='Отклонено')
+      .filter(w=>w.project===projectName && w.status!=='Отклонено' && packageMatches(w.workPackage || w.work_package, workPackage))
       .forEach(w=>parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
         const name = m.name || '';
         const key = materialNameKey(name)+'|'+_normalizeUnit(m.unit||'шт');
@@ -5582,8 +5582,8 @@ function App() {
       }));
     return Object.values(rows).map(r=>({...r,overPct:r.normQty>0?Math.round(r.overQty/r.normQty*100):0})).sort((a,b)=>(b.overQty-a.overQty)||(b.withoutNormQty-a.withoutNormQty)||a.name.localeCompare(b.name,'ru'));
   };
-  const materialNormControlSummaryForProject = (projectName) => {
-    const rows = materialNormDeviationRows(projectName);
+  const materialNormControlSummaryForProject = (projectName, workPackage='') => {
+    const rows = materialNormDeviationRows(projectName, workPackage);
     const overRows = rows.filter(r=>r.overQty>0);
     const withoutNormRows = rows.filter(r=>r.withoutNormQty>0);
     const savedRows = rows.filter(r=>r.savedQty>0 && r.overQty===0);
@@ -12675,6 +12675,9 @@ function App() {
                         rows={materialReconciliationRows(p.name)}
                         normRows={estimateWorkNormRequirementRows(p.name)}
                         normCtrl={materialNormControlSummaryForProject(p.name)}
+                        buildRowsForPackage={(workPackage)=>materialReconciliationRows(p.name, workPackage)}
+                        buildNormRowsForPackage={(workPackage)=>estimateWorkNormRequirementRows(p.name, workPackage)}
+                        buildNormCtrlForPackage={(workPackage)=>materialNormControlSummaryForProject(p.name, workPackage)}
                         C={C}
                         card={card}
                         tbl={tbl}

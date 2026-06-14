@@ -10,9 +10,12 @@ import {
 
 export default function ProjectMaterialsControlPanel({
   projectName,
-  rows = [],
-  normRows = [],
-  normCtrl = {overRows: [], withoutNormRows: []},
+  rows: initialRows = [],
+  normRows: initialNormRows = [],
+  normCtrl: initialNormCtrl = {overRows: [], withoutNormRows: []},
+  buildRowsForPackage,
+  buildNormRowsForPackage,
+  buildNormCtrlForPackage,
   C,
   card,
   tbl,
@@ -35,7 +38,37 @@ export default function ProjectMaterialsControlPanel({
   const [showAllNormRows, setShowAllNormRows] = React.useState(false);
   const [showAllNormProblemRows, setShowAllNormProblemRows] = React.useState(false);
   const [expandedRows, setExpandedRows] = React.useState({});
+  const [workPackage, setWorkPackage] = React.useState('');
   const toggleExpandedRow = (key) => setExpandedRows(prev => ({...prev, [key]: !prev[key]}));
+  const packageOptions = React.useMemo(() => {
+    const names = new Set();
+    const add = (value) => {
+      const name = String(value || '').trim();
+      if (name && name !== 'Основная') names.add(name);
+    };
+    (initialRows || []).forEach(row => {
+      (row.planDetails || []).forEach(detail => add(detail.packageName));
+      (row.invalidPlanDetails || []).forEach(detail => add(detail.packageName));
+      (row.normDetails || []).forEach(detail => {
+        (detail.packageNames || []).forEach(add);
+        add(detail.packageName);
+      });
+    });
+    (initialNormRows || []).forEach(row => (row.packageNames || []).forEach(add));
+    return Array.from(names).sort((a, b) => a.localeCompare(b, 'ru'));
+  }, [initialRows, initialNormRows]);
+  const rows = React.useMemo(
+    () => (workPackage && buildRowsForPackage ? buildRowsForPackage(workPackage) : initialRows),
+    [workPackage, buildRowsForPackage, initialRows]
+  );
+  const normRows = React.useMemo(
+    () => (workPackage && buildNormRowsForPackage ? buildNormRowsForPackage(workPackage) : initialNormRows),
+    [workPackage, buildNormRowsForPackage, initialNormRows]
+  );
+  const normCtrl = React.useMemo(
+    () => (workPackage && buildNormCtrlForPackage ? buildNormCtrlForPackage(workPackage) : initialNormCtrl),
+    [workPackage, buildNormCtrlForPackage, initialNormCtrl]
+  );
   const planRows = rows.filter(r => r.planQty > 0);
   const toBuyRows = rows.filter(r => r.toBuy > 0);
   const pipelineRows = rows.filter(r => r.requested > 0 || r.inTransit > 0);
@@ -81,7 +114,7 @@ export default function ProjectMaterialsControlPanel({
   });
   React.useEffect(() => {
     setShowAllRows(false);
-  }, [queryKey, filter, rows.length]);
+  }, [queryKey, filter, rows.length, workPackage]);
   const rowLimit = queryKey || filter !== 'all' ? 240 : 120;
   const displayedRows = showAllRows ? visibleRows : visibleRows.slice(0, rowLimit);
   const hiddenRows = Math.max(0, visibleRows.length - displayedRows.length);
@@ -140,8 +173,60 @@ export default function ProjectMaterialsControlPanel({
 
       <MaterialsMetricsGrid C={C} metrics={metrics}/>
 
+      {packageOptions.length > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          flexWrap: 'wrap',
+          marginBottom: '10px',
+          padding: '10px 12px',
+          borderRadius: '10px',
+          border: '1px solid ' + C.border,
+          backgroundColor: C.bg
+        }}>
+          <span style={{color: C.textSec, fontSize: '12px', fontWeight: '700'}}>Пакет работ:</span>
+          <button
+            type="button"
+            onClick={() => setWorkPackage('')}
+            style={{
+              padding: '6px 10px',
+              borderRadius: '999px',
+              border: '1.5px solid ' + (!workPackage ? C.accentBorder : C.border),
+              backgroundColor: !workPackage ? C.accentLight : C.bgWhite,
+              color: !workPackage ? C.accent : C.textSec,
+              fontSize: '11px',
+              fontWeight: '800',
+              cursor: 'pointer'
+            }}
+          >
+            Весь объект
+          </button>
+          {packageOptions.map(name => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => setWorkPackage(name)}
+              style={{
+                padding: '6px 10px',
+                borderRadius: '999px',
+                border: '1.5px solid ' + (workPackage === name ? C.accentBorder : C.border),
+                backgroundColor: workPackage === name ? C.accentLight : C.bgWhite,
+                color: workPackage === name ? C.accent : C.textSec,
+                fontSize: '11px',
+                fontWeight: '800',
+                cursor: 'pointer'
+              }}
+              title={'Показать потребность, выдачу и списание только по пакету «' + name + '»'}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {rows.length === 0 ? (
-        <p style={{color: C.textMuted, fontSize: '12px', textAlign: 'center', padding: '14px'}}>Нет сметных материалов и движений по объекту.</p>
+        <p style={{color: C.textMuted, fontSize: '12px', textAlign: 'center', padding: '14px'}}>Нет сметных материалов и движений {workPackage ? 'по выбранному пакету.' : 'по объекту.'}</p>
       ) : (
         <>
         <MaterialsFilterBar
