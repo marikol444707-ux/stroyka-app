@@ -2620,8 +2620,12 @@ def init_db():
         ALTER TABLE material_norm_suggestions ALTER COLUMN suggestion_type TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN status TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN severity TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN work_name TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN section_name TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN work_unit TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN material_name TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN material_unit TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN label TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN source TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN dedupe_key TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN created_by TYPE TEXT;
@@ -2784,6 +2788,7 @@ def init_db():
         ALTER TABLE contracts ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Активен';
         ALTER TABLE pricelist_items ADD COLUMN IF NOT EXISTS item_type VARCHAR(20);
         ALTER TABLE pricelists ALTER COLUMN name TYPE TEXT;
+        ALTER TABLE pricelists ALTER COLUMN for_who TYPE TEXT;
         ALTER TABLE pricelist_items ALTER COLUMN name TYPE TEXT;
         ALTER TABLE pricelist_items ALTER COLUMN category TYPE TEXT;
         ALTER TABLE pricelist_items ALTER COLUMN specialization TYPE TEXT;
