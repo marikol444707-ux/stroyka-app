@@ -5055,13 +5055,22 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT id, project, material_name, status FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT id, project, material_name, status, COALESCE(work_package,'') as work_package, items_json FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
         req = cur.fetchone()
         if not req:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Заявка не найдена")
         if req.get("project"):
             require_project_access(_current_user, req.get("project"))
+        request_items = _json_list_or_empty(req.get("items_json"))
+        request_packages = sorted(set([
+            (item.get("workPackage") or item.get("work_package") or req.get("work_package") or "Основная").strip()
+            for item in request_items
+        ] or [req.get("work_package") or "Основная"]))
+        for package_name in request_packages:
+            if not has_package_access(_current_user, package_name or "Основная"):
+                conn.rollback()
+                raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + (package_name or "Основная"))
         current_status = req.get("status") or ""
         if current_status == "Отменена с откатом":
             conn.rollback()
@@ -13358,6 +13367,7 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
         cables_added = 0
         stock_rows_added = 0
         history_added = 0
+        restricted_packages = user_package_names(_current_user) if _current_user.get("role") in PACKAGE_LIMIT_ROLES else []
 
         for it in items_list:
             name = (it.get("name") or "").strip()
@@ -13368,6 +13378,8 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
             price = _invoice_float(it.get("price"), 0)
             category = (it.get("category") or "").strip()
             work_package = (it.get("workPackage") or it.get("work_package") or data.get("workPackage") or data.get("work_package") or "").strip()
+            if restricted_packages and (work_package or "Основная") not in restricted_packages:
+                raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы накладной: " + (work_package or "Основная"))
 
             if target_project:
                 cur.execute("""SELECT id FROM materials
@@ -15216,6 +15228,11 @@ def update_material_inspection(id: int, data: dict, _current_user: dict = Depend
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "material_inspection_journal", id, _current_user)
+    cur.execute("SELECT COALESCE(work_package,'') FROM material_inspection_journal WHERE id=%s", (id,))
+    inspection_row = cur.fetchone()
+    if inspection_row and not has_package_access(_current_user, inspection_row[0] or "Основная"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы входного контроля")
     fields_map = [
         ('batchNumber', 'batch_number'),
         ('passportNumber', 'passport_number'),
@@ -15892,6 +15909,7 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
     conn = get_db()
     cur = conn.cursor()
     project_name = data.get("projectName", "")
+    invoice_work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     if _current_user.get("role") == "поставщик":
         supplier_id = current_supplier_id(cur, _current_user)
         if not supplier_id:
@@ -15904,7 +15922,8 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
                        FROM supplier_offers o
                        JOIN supply_requests r ON r.id=o.request_id
                        WHERE o.supplier_id=%s AND r.project=%s
-                       LIMIT 1""", (supplier_id, project_name))
+                         AND (%s='' OR COALESCE(r.work_package,'')=%s OR COALESCE(r.work_package,'')='')
+                       LIMIT 1""", (supplier_id, project_name, invoice_work_package, invoice_work_package))
         if not cur.fetchone():
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="нет заявки поставщика по этому объекту")
@@ -15919,7 +15938,7 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
                  data.get("invoiceNumber",""), data.get("invoiceDate") or None,
                  float(data.get("amount",0)), float(data.get("vatAmount",0)),
                  data.get("description",""), data.get("fileUrl",""), data.get("photoUrl",""),
-                 data.get("status","На утверждении"), data.get("workPackage") or data.get("work_package") or ""))
+                 data.get("status","На утверждении"), invoice_work_package))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
