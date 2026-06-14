@@ -11095,12 +11095,54 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
     rows = cur.fetchall()
     cur.close(); conn.close()
     import json as j
+    def _worker_estimate_item_kind(item):
+        kind = str((item or {}).get("itemType") or (item or {}).get("type") or "").strip().lower()
+        if kind:
+            return kind
+        try:
+            price_work = float((item or {}).get("priceWork") or 0)
+            price_material = float((item or {}).get("priceMaterial") or 0)
+        except (TypeError, ValueError):
+            price_work = 0
+            price_material = 0
+        if price_material > 0 and price_work <= 0:
+            return "material"
+        return "work"
+    def _sanitize_worker_estimate_sections(sections):
+        money_keys = (
+            "priceWork", "priceMaterial", "totalWork", "totalMaterial", "lineTotal",
+            "currentTotal", "total", "sum", "amount", "totalSum", "workTotal",
+            "materialTotal", "workSum", "materialSum", "currentWork", "currentMaterial",
+            "customerPricePerUnit", "customerTotal",
+        )
+        sanitized_sections = []
+        for section in sections or []:
+            if not isinstance(section, dict):
+                continue
+            items = []
+            for item in section.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                if _worker_estimate_item_kind(item) in ("material", "equipment", "transport", "note", "adjustment"):
+                    continue
+                cleaned = dict(item)
+                for key in money_keys:
+                    if key in cleaned:
+                        cleaned[key] = 0
+                items.append(cleaned)
+            if items:
+                cleaned_section = dict(section)
+                cleaned_section["items"] = items
+                sanitized_sections.append(cleaned_section)
+        return sanitized_sections
     result = []
     for r in rows:
         try:
             sections = j.loads(r[5]) if r[5] else []
         except:
             sections = []
+        if role in ("мастер", "субподрядчик", "бригадир"):
+            sections = _sanitize_worker_estimate_sections(sections)
         result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","workPackage":r[7] or "Основная","isTemplate":bool(r[8]),"status":r[9] or "Черновик","createdAt":str(r[10]) if r[10] else "","versionCount":int(r[11] or 0),"latestVersionAt":str(r[12]) if r[12] else ""})
     return result
 
@@ -11132,17 +11174,17 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FIN
     return {"id":row[0],"ok":True}
 
 @app.put("/estimates/{id}")
-def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик"))):
+def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "бригадир"))):
     import json as j
     from datetime import date as _date
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT sections_json, version, project_name, COALESCE(smeta_type,'Заказчик'), status, COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (id,))
+    cur.execute("SELECT sections_json, name, version, project_name, COALESCE(smeta_type,'Заказчик'), status, COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (id,))
     prev = cur.fetchone()
     if not prev:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
-    project_name = (prev[2] or "") if prev else ""
+    project_name = (prev[3] or "") if prev else ""
     require_project_access(_current_user, project_name)
 
     def _num(v):
@@ -11207,7 +11249,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 for it in (s.get("items") or []):
                     total += _estimate_item_total(it)
             cur.execute("INSERT INTO estimate_versions (estimate_id, version_label, sections_json, total, comment, created_by) VALUES (%s,%s,%s,%s,%s,%s)",
-                (id, prev[1] or "", prev[0], total, data.get("versionComment",""), data.get("updatedBy","")))
+                (id, prev[2] or "", prev[0], total, data.get("versionComment",""), data.get("updatedBy","")))
         except Exception:
             pass
 
@@ -11223,12 +11265,84 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 it["doneQuantity"] = qty
             elif done < 0:
                 it["doneQuantity"] = 0
-    new_status = data.get("status") or prev[4] or "Черновик"
-    new_smeta_type = data.get("smetaType") or prev[3] or "Заказчик"
-    new_work_package = data.get("workPackage") or data.get("work_package") or prev[5] or "Основная"
-    prev_status = prev[4] or "Черновик"
-    current_work_package = prev[5] or "Основная"
-    if _current_user.get("role") in ("мастер", "субподрядчик") and not _sections_equal_except_done(old_sections, new_sections):
+    new_name = data.get("name") or prev[1] or ""
+    new_version = data.get("version") or prev[2] or "1.0"
+    new_status = data.get("status") or prev[5] or "Черновик"
+    new_smeta_type = data.get("smetaType") or prev[4] or "Заказчик"
+    new_work_package = data.get("workPackage") or data.get("work_package") or prev[6] or "Основная"
+    prev_status = prev[5] or "Черновик"
+    current_work_package = prev[6] or "Основная"
+    if _current_user.get("role") in ("мастер", "субподрядчик", "бригадир"):
+        def _is_worker_work_item(item):
+            kind = str((item or {}).get("itemType") or (item or {}).get("type") or "").strip().lower()
+            if kind in ("material", "equipment", "transport", "note", "adjustment"):
+                return False
+            if kind == "work":
+                return True
+            return not (_num((item or {}).get("priceMaterial")) > 0 and _num((item or {}).get("priceWork")) <= 0)
+        incoming_done = {}
+        unmatched = []
+        for section in new_sections or []:
+            section_name = section.get("name", "") if isinstance(section, dict) else ""
+            for item in (section.get("items") or []) if isinstance(section, dict) else []:
+                item_id = item.get("id")
+                item_name = item.get("name", "")
+                keys = []
+                if item_id is not None:
+                    keys.append(("id", str(item_id)))
+                keys.append(("name", section_name, item_name))
+                try:
+                    done_value = float(item.get("doneQuantity") or 0)
+                except Exception:
+                    done_value = 0
+                for key in keys:
+                    incoming_done[key] = done_value
+                unmatched.append((item_id, section_name, item_name))
+        merged_sections = []
+        matched = set()
+        for section in old_sections or []:
+            merged_section = dict(section)
+            merged_items = []
+            section_name = section.get("name", "")
+            for item in section.get("items") or []:
+                merged_item = dict(item)
+                if not _is_worker_work_item(item):
+                    merged_items.append(merged_item)
+                    continue
+                item_id = item.get("id")
+                keys = []
+                if item_id is not None:
+                    keys.append(("id", str(item_id)))
+                keys.append(("name", section_name, item.get("name", "")))
+                for key in keys:
+                    if key in incoming_done:
+                        done_value = incoming_done[key]
+                        try:
+                            qty_value = float(item.get("quantity") or 0)
+                        except Exception:
+                            qty_value = 0
+                        if qty_value > 0:
+                            done_value = min(done_value, qty_value)
+                        merged_item["doneQuantity"] = max(0, done_value)
+                        matched.add(key)
+                        break
+                merged_items.append(merged_item)
+            merged_section["items"] = merged_items
+            merged_sections.append(merged_section)
+        for item_id, section_name, item_name in unmatched:
+            if item_id is not None and ("id", str(item_id)) in matched:
+                continue
+            if ("name", section_name, item_name) in matched:
+                continue
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Исполнитель может закрывать только строки своей сметы")
+        new_sections = merged_sections
+        new_name = prev[1] or ""
+        new_version = prev[2] or "1.0"
+        new_status = prev_status
+        new_smeta_type = prev[4] or "Заказчик"
+        new_work_package = current_work_package
+    elif not _sections_equal_except_done(old_sections, new_sections) and _current_user.get("role") in ("мастер", "субподрядчик"):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Исполнитель может менять в смете только выполненный объём")
     if _current_user.get("role") in PACKAGE_LIMIT_ROLES and (
@@ -11248,7 +11362,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                          AND COALESCE(work_package,'Основная')=%s""",
                     (id, project_name, new_smeta_type, new_work_package))
     cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s,work_package=%s,status=%s WHERE id=%s",
-        (data.get("name",""),data.get("version","1.0"),j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_work_package,new_status,id))
+        (new_name,new_version,j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_work_package,new_status,id))
 
     # Build lookup of old done qty by (section name, item name)
     old_done = {}
