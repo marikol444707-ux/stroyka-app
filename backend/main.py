@@ -2424,10 +2424,13 @@ def init_db():
             to_location VARCHAR(255),
             quantity FLOAT,
             unit VARCHAR(50),
+            work_package VARCHAR(255),
             date VARCHAR(50),
             created_by VARCHAR(255),
             notes TEXT
         );
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
+        ALTER TABLE warehouse_movements ALTER COLUMN material_name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS inventory (
             id SERIAL PRIMARY KEY,
             project VARCHAR(255),
@@ -2951,6 +2954,7 @@ class WarehouseMovementModel(BaseModel):
     toLocation: str
     quantity: float
     unit: str = ""
+    workPackage: str = ""
     date: str = ""
     createdBy: str = ""
     notes: str = ""
@@ -3795,9 +3799,9 @@ def get_warehouse_movements(current_user: dict = Depends(get_current_user)):
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,date,created_by as \"createdBy\",notes FROM warehouse_movements WHERE from_location = ANY(%s) OR to_location = ANY(%s) ORDER BY id DESC", (projects, projects))
+        cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements WHERE from_location = ANY(%s) OR to_location = ANY(%s) ORDER BY id DESC", (projects, projects))
     elif current_user.get("role") in WAREHOUSE_ROLES or current_user.get("role") in FINANCE_ROLES:
-        cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,date,created_by as \"createdBy\",notes FROM warehouse_movements ORDER BY id DESC")
+        cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements ORDER BY id DESC")
     else:
         cur.close(); conn.close()
         return []
@@ -3807,12 +3811,110 @@ def get_warehouse_movements(current_user: dict = Depends(get_current_user)):
 
 @app.post("/warehouse-movements")
 def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+    material_name = (m.materialName or "").strip()
+    from_location = (m.fromLocation or "").strip()
+    to_location = (m.toLocation or "").strip()
+    work_package = (m.workPackage or "").strip()
+    qty = float(m.quantity or 0)
+    if not material_name:
+        raise HTTPException(status_code=400, detail="Укажите материал")
+    if not from_location or not to_location:
+        raise HTTPException(status_code=400, detail="Укажите откуда и куда переместить материал")
+    if from_location == to_location:
+        raise HTTPException(status_code=400, detail="Источник и получатель перемещения совпадают")
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="Количество должно быть больше нуля")
+    if from_location != "Основной склад":
+        require_project_or_warehouse_access(_current_user, from_location)
+    if to_location != "Основной склад":
+        require_project_or_warehouse_access(_current_user, to_location)
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO warehouse_movements (material_name,from_location,to_location,quantity,unit,date,created_by,notes) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (m.materialName,m.fromLocation,m.toLocation,m.quantity,m.unit,m.date,m.createdBy,m.notes))
-    row = cur.fetchone()
-    conn.close()
+    conn.autocommit = False
+    try:
+        source_price = 0
+        source_category = ""
+        source_unit = (m.unit or "").strip()
+        if from_location == "Основной склад":
+            cur.execute("""SELECT id,quantity,unit,price,category FROM warehouse_main
+                           WHERE LOWER(name)=LOWER(%s)
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name,))
+            source = cur.fetchone()
+            if not source:
+                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
+            if float(source.get("quantity") or 0) < qty:
+                raise HTTPException(status_code=400, detail="На основном складе недостаточно материала «"+material_name+"»")
+            source_unit = source_unit or source.get("unit") or "шт"
+            source_price = float(source.get("price") or 0)
+            source_category = source.get("category") or ""
+            cur.execute("UPDATE warehouse_main SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
+        else:
+            cur.execute("""SELECT id,quantity,unit,price,category FROM materials
+                           WHERE LOWER(name)=LOWER(%s)
+                             AND project=%s
+                             AND COALESCE(work_package,'')=%s
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, from_location, work_package))
+            source = cur.fetchone()
+            if not source:
+                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «"+work_package+"»" if work_package else ""))
+            if float(source.get("quantity") or 0) < qty:
+                raise HTTPException(status_code=400, detail="На складе объекта недостаточно материала «"+material_name+"»")
+            source_unit = source_unit or source.get("unit") or "шт"
+            source_price = float(source.get("price") or 0)
+            source_category = source.get("category") or ""
+            cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
+
+        if to_location == "Основной склад":
+            cur.execute("""SELECT id FROM warehouse_main
+                           WHERE LOWER(name)=LOWER(%s)
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name,))
+            target = cur.fetchone()
+            if target:
+                cur.execute("""UPDATE warehouse_main
+                               SET quantity=COALESCE(quantity,0)+%s,
+                                   unit=COALESCE(NULLIF(%s,''), unit),
+                                   price=CASE WHEN %s > 0 THEN %s ELSE price END,
+                                   category=COALESCE(NULLIF(%s,''), category)
+                               WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
+            else:
+                cur.execute("""INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category)
+                               VALUES (%s,%s,%s,%s,%s,%s)""",
+                            (material_name, source_unit, qty, source_price, 0, source_category))
+        else:
+            cur.execute("""SELECT id FROM materials
+                           WHERE LOWER(name)=LOWER(%s)
+                             AND project=%s
+                             AND COALESCE(work_package,'')=%s
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, to_location, work_package))
+            target = cur.fetchone()
+            if target:
+                cur.execute("""UPDATE materials
+                               SET quantity=COALESCE(quantity,0)+%s,
+                                   unit=COALESCE(NULLIF(%s,''), unit),
+                                   price=CASE WHEN %s > 0 THEN %s ELSE price END,
+                                   category=COALESCE(NULLIF(%s,''), category)
+                               WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
+            else:
+                cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (material_name, source_unit, qty, source_price, 0, to_location, source_category, work_package))
+
+        cur.execute("""INSERT INTO warehouse_movements
+                          (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
+                          id,material_name as "materialName",from_location as "fromLocation",
+                          to_location as "toLocation",quantity,unit,work_package as "workPackage",
+                          date,created_by as "createdBy",notes""",
+                    (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes))
+        row = cur.fetchone()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
+    _run_project_ai_control_safely(to_location if to_location != "Основной склад" else from_location, "warehouse_movement:create")
     return dict(row)
 
 @app.get("/warehouse-history")

@@ -2257,27 +2257,12 @@ function App() {
     if (selected.length===0) { alert('Выберите материалы'); return; }
     for (const item of selected) {
       if (!item.quantity||Number(item.quantity)<=0) continue;
-      await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes})});
-      if (newMovement.fromLocation==='Основной склад') {
-        const mat = warehouseMain.find(m=>m.name===item.name);
-        if (mat) await fetch(API+'/warehouse-main/'+mat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mat,quantity:Math.max(0,mat.quantity-Number(item.quantity))})});
-        const itemWorkPackage = item.workPackage || item.work_package || '';
-        const existing = materials.find(m=>m.name===item.name&&m.project===newMovement.toLocation&&(m.workPackage||m.work_package||'')===itemWorkPackage);
-        if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity),workPackage:itemWorkPackage})});
-        else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:item.price||0,minQuantity:0,project:newMovement.toLocation,category:item.category||'',workPackage:itemWorkPackage})});
-      } else {
-        const itemWorkPackage = item.workPackage || item.work_package || '';
-        const mat = materials.find(m=>m.name===item.name&&m.project===newMovement.fromLocation&&(m.workPackage||m.work_package||'')===itemWorkPackage);
-        if (mat) await fetch(API+'/materials/'+mat.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...mat,quantity:Math.max(0,mat.quantity-Number(item.quantity)),workPackage:itemWorkPackage})});
-        if (newMovement.toLocation==='Основной склад') {
-          const existing = warehouseMain.find(m=>m.name===item.name);
-          if (existing) await fetch(API+'/warehouse-main/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity)})});
-          else await fetch(API+'/warehouse-main',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:mat?.price||0,minQuantity:0,category:mat?.category||''})});
-        } else {
-          const existing = materials.find(m=>m.name===item.name&&m.project===newMovement.toLocation&&(m.workPackage||m.work_package||'')===itemWorkPackage);
-          if (existing) await fetch(API+'/materials/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...existing,quantity:existing.quantity+Number(item.quantity),workPackage:itemWorkPackage})});
-          else await fetch(API+'/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:item.name,unit:item.unit,quantity:Number(item.quantity),price:mat?.price||0,minQuantity:0,project:newMovement.toLocation,category:mat?.category||'',workPackage:itemWorkPackage})});
-        }
+      const itemWorkPackage = item.workPackage || item.work_package || newMovement.workPackage || '';
+      const res = await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,workPackage:itemWorkPackage,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes})});
+      if (!res.ok) {
+        const err = await res.json().catch(()=>({}));
+        alert(err.detail || 'Не удалось выполнить перемещение материала');
+        return;
       }
     }
     notify('Перемещение выполнено','material');
