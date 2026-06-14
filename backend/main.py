@@ -6648,6 +6648,105 @@ def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict
     cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
         (name, "расход (работа)", qty, date_value or None, project, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
+def _work_material_items(raw, fallback_package: str = ""):
+    items = []
+    for material in _parse_materials_used(raw):
+        if not isinstance(material, dict):
+            continue
+        name = (material.get("name") or "").strip()
+        qty = _float_or_zero(material.get("quantity"))
+        if not name or qty <= 0:
+            continue
+        work_package = (material.get("workPackage") or material.get("work_package") or fallback_package or "").strip()
+        items.append({
+            **material,
+            "name": name,
+            "quantity": qty,
+            "unit": material.get("unit") or "шт",
+            "workPackage": work_package,
+        })
+    return items
+
+def _work_material_key(material: dict):
+    return (
+        (material.get("name") or "").strip().lower(),
+        (material.get("unit") or "").strip().lower(),
+        (material.get("workPackage") or material.get("work_package") or "").strip().lower(),
+    )
+
+def _work_material_map(items):
+    mapped = {}
+    for material in items or []:
+        key = _work_material_key(material)
+        if not key[0]:
+            continue
+        current = mapped.get(key)
+        if current:
+            current["quantity"] = _float_or_zero(current.get("quantity")) + _float_or_zero(material.get("quantity"))
+        else:
+            mapped[key] = {**material, "quantity": _float_or_zero(material.get("quantity"))}
+    return mapped
+
+def _scale_work_materials(items, ratio: float):
+    scaled = []
+    for material in items or []:
+        qty = _float_or_zero(material.get("quantity"))
+        if qty <= 0:
+            continue
+        scaled.append({**material, "quantity": round(qty * ratio, 6)})
+    return scaled
+
+def _restore_material_work_writeoff(cur, project: str, material: dict, work_row: dict, date_value: str, actor_name: str = ""):
+    name = material.get("name") or ""
+    qty = _float_or_zero(material.get("quantity"))
+    unit = material.get("unit") or "шт"
+    work_package = (material.get("workPackage") or material.get("work_package") or work_row.get("work_package") or "").strip()
+    master_name = work_row.get("master_name") or ""
+    master_id = work_row.get("master_id")
+    if not name or qty <= 0:
+        return
+    personal_balance = _personal_material_balance(cur, project, master_id, master_name, name, work_package)
+    if personal_balance["issued"] > 0:
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (name, "корректировка списания мастера", qty, date_value or None, project, master_name, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        return
+    cur.execute("""SELECT id FROM materials
+                   WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
+                   ORDER BY id LIMIT 1 FOR UPDATE""", (name, project, work_package))
+    mat = cur.fetchone()
+    if mat:
+        mat_id = mat.get("id") if isinstance(mat, dict) else mat[0]
+        cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=COALESCE(NULLIF(unit,''),%s) WHERE id=%s", (qty, unit, mat_id))
+    else:
+        cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (name, unit, qty, 0, 0, project, "Возврат", work_package))
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (name, "возврат (корректировка работы)", qty, date_value or None, project, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+
+def _apply_work_material_delta(cur, work_row: dict, old_items, new_items, current_user: dict, date_value: str):
+    project = work_row.get("project") or ""
+    if not project:
+        return
+    old_map = _work_material_map(old_items)
+    new_map = _work_material_map(new_items)
+    for key in set(old_map.keys()) | set(new_map.keys()):
+        old_material = old_map.get(key) or {}
+        new_material = new_map.get(key) or {}
+        delta = round(_float_or_zero(new_material.get("quantity")) - _float_or_zero(old_material.get("quantity")), 6)
+        if abs(delta) < 0.000001:
+            continue
+        base = new_material or old_material
+        material = {**base, "quantity": abs(delta)}
+        if delta > 0:
+            master_name = work_row.get("master_name") or ""
+            master_id = work_row.get("master_id")
+            work_package = material.get("workPackage") or material.get("work_package") or work_row.get("work_package") or ""
+            personal_balance = _personal_material_balance(cur, project, master_id, master_name, material.get("name") or "", work_package)
+            actor = {"role": "мастер", "id": master_id, "name": master_name} if personal_balance["issued"] > 0 else current_user
+            _apply_material_work_writeoff(cur, project, material, actor, date_value, master_name)
+        else:
+            _restore_material_work_writeoff(cur, project, material, work_row, date_value, current_user.get("name") or "")
+
 def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_id=None):
     project = (project or "").strip()
     room_name = (room_name or "").strip()
@@ -6943,11 +7042,14 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
 
 @app.put("/work-journal/{id}")
 def update_work_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+    import json as _json
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     require_row_project_access(cur, "work_journal", id, _current_user, "project")
-    cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description, estimate_item_key, work_package, status
-                   FROM work_journal WHERE id=%s""", (id,))
+    cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description,
+                          estimate_item_key, work_package, status, quantity, date, materials_used
+                   FROM work_journal WHERE id=%s FOR UPDATE""", (id,))
     project_row = cur.fetchone()
     project_name = project_row.get("project") if project_row else ""
     role = _current_user.get("role")
@@ -6972,11 +7074,14 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     if str(data.get("status") or "").strip() == "Отклонено":
         current_status = str(project_row.get("status") or "").strip() if project_row else ""
         if current_status == "Отклонено":
+            conn.rollback()
             cur.close(); conn.close()
             return {"ok": True, "alreadyRejected": True}
         if role not in set(LEADERSHIP_ROLES) | {"прораб", "главный_инженер"}:
+            conn.rollback()
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Отклонять ЖПР может директор, зам, прораб или главный инженер")
+        conn.rollback()
         cur.close(); conn.close()
         return delete_work_journal(id, _current_user)
     # Динамически обновляем только переданные поля. Старая логика (status/confirmedBy/...) продолжает работать.
@@ -7020,9 +7125,18 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
                 reset_ai = True
     if reset_ai:
         sets.append("ai_filled=FALSE")
-    if not sets:
-        cur.close(); conn.close()
-        return {"ok": True}
+    old_materials = _work_material_items(project_row.get("materials_used"), project_row.get("work_package") or "") if project_row else []
+    new_materials = None
+    old_qty = _float_or_zero(project_row.get("quantity") if project_row else 0)
+    new_qty = _float_or_zero(data.get("quantity")) if "quantity" in data else old_qty
+    package_changed = "workPackage" in data and (data.get("workPackage") or "") != (project_row.get("work_package") or "")
+    if "materialsUsed" in data:
+        new_materials = _work_material_items(data.get("materialsUsed"), data.get("workPackage", project_row.get("work_package") if project_row else ""))
+    elif old_materials and ("quantity" in data or package_changed):
+        new_materials = _scale_work_materials(old_materials, max(0, new_qty) / old_qty) if "quantity" in data and old_qty > 0 else list(old_materials)
+        if package_changed:
+            target_package = data.get("workPackage") or ""
+            new_materials = [{**m, "workPackage": target_package} for m in new_materials]
     if any(k in data for k in ("roomId", "roomName", "estimateItemKey", "description")):
         _raise_work_journal_duplicate(_work_journal_duplicate(
             cur,
@@ -7034,15 +7148,31 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
             work_package=data.get("workPackage", project_row.get("work_package") if project_row else ""),
             exclude_id=id,
         ))
-    vals.append(id)
-    cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    updated_row = _work_journal_sync_row(cur, id)
-    _sync_room_work_from_journal(cur, updated_row)
-    _sync_hidden_work_act_from_journal(cur, updated_row)
-    conn.commit()
-    cur.close(); conn.close()
-    _run_project_ai_control_safely(project_name, "work_journal:update")
-    return {"ok": True}
+    try:
+        if new_materials is not None:
+            _apply_work_material_delta(cur, project_row, old_materials, new_materials, _current_user, project_row.get("date") or "")
+            sets.append("materials_used=%s")
+            vals.append(_json.dumps(new_materials, ensure_ascii=False) if new_materials else None)
+        if not sets:
+            conn.rollback()
+            return {"ok": True}
+        vals.append(id)
+        cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
+        updated_row = _work_journal_sync_row(cur, id)
+        _sync_room_work_from_journal(cur, updated_row)
+        _sync_hidden_work_act_from_journal(cur, updated_row)
+        conn.commit()
+        _run_project_ai_control_safely(project_name, "work_journal:update")
+        return {"ok": True}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.delete("/work-journal/{id}")
 def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер"))):
