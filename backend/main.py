@@ -286,6 +286,15 @@ def has_package_access(user: dict, work_package: str = "") -> bool:
         return bool((work_package or "Основная").strip() in packages)
     return True
 
+def package_access_filter(user: dict, column: str = "work_package"):
+    role = user.get("role")
+    if role not in PACKAGE_LIMIT_ROLES:
+        return "", []
+    packages = user_package_names(user)
+    if not packages:
+        return "", []
+    return f" AND COALESCE(NULLIF({column},''),'Основная') = ANY(%s)", [packages]
+
 def enrich_worker_project_links(cur, user: dict) -> dict:
     """Мастер может быть привязан к объекту через договор, журнал или передачу материалов."""
     if not user:
@@ -1859,7 +1868,8 @@ def init_db():
             project VARCHAR(255),
             date VARCHAR(50),
             status VARCHAR(100),
-            confirmed_by VARCHAR(255)
+            confirmed_by VARCHAR(255),
+            work_package VARCHAR(100) DEFAULT ''
         );
         ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT;
         ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT;
@@ -3105,6 +3115,7 @@ class SupplyHistoryModel(BaseModel):
     project: str = ""
     date: str = ""
     status: str = "Ожидает поставки"
+    workPackage: str = ""
 
 class MaterialNormModel(BaseModel):
     ruleKey: str = ""
@@ -3710,7 +3721,8 @@ def get_materials(current_user: dict = Depends(get_current_user)):
     if can_see_all_company_data(current_user) or role in ("кладовщик", "снабженец"):
         cur.execute(base)
     elif projects:
-        cur.execute(base + " WHERE project = ANY(%s)", (projects,))
+        package_sql, package_params = package_access_filter(current_user)
+        cur.execute(base + " WHERE project = ANY(%s)" + package_sql, [projects] + package_params)
     else:
         cur.close(); conn.close()
         return []
@@ -4897,10 +4909,12 @@ def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_us
         if projects:
             clauses.append("project = ANY(%s)")
             params.append(projects)
-        cur.execute(SUPPLY_SELECT + " WHERE (" + " OR ".join(clauses) + ") ORDER BY id DESC" + page_sql, params + page_params)
+        package_sql, package_params = package_access_filter(current_user)
+        cur.execute(SUPPLY_SELECT + " WHERE (" + " OR ".join(clauses) + ")" + package_sql + " ORDER BY id DESC" + page_sql, params + package_params + page_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute(SUPPLY_SELECT + " WHERE (requested_by_id=%s OR created_by=%s) ORDER BY id DESC" + page_sql,
-                    [current_user.get("id"), current_user.get("name") or ""] + page_params)
+        package_sql, package_params = package_access_filter(current_user)
+        cur.execute(SUPPLY_SELECT + " WHERE (requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY id DESC" + page_sql,
+                    [current_user.get("id"), current_user.get("name") or ""] + package_params + page_params)
     else:
         cur.close(); conn.close()
         return []
@@ -5235,10 +5249,12 @@ def get_supplier_offers(current_user: dict = Depends(get_current_user)):
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute(OFFERS_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE project = ANY(%s)) ORDER BY id DESC", (projects,))
+        package_sql, package_params = package_access_filter(current_user)
+        cur.execute(OFFERS_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE project = ANY(%s)" + package_sql + ") ORDER BY id DESC", [projects] + package_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute(OFFERS_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY id DESC",
-                    (current_user.get("id"), current_user.get("name") or ""))
+        package_sql, package_params = package_access_filter(current_user)
+        cur.execute(OFFERS_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE (requested_by_id=%s OR created_by=%s)" + package_sql + ") ORDER BY id DESC",
+                    [current_user.get("id"), current_user.get("name") or ""] + package_params)
     else:
         cur.close(); conn.close()
         return []
@@ -6046,10 +6062,12 @@ def list_supply_deliveries(limit: Optional[int] = None, offset: int = 0, current
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute(DELIVERY_SELECT + " WHERE d.project = ANY(%s) ORDER BY d.id DESC" + page_sql, [projects] + page_params)
+        package_sql, package_params = package_access_filter(current_user, "d.work_package")
+        cur.execute(DELIVERY_SELECT + " WHERE d.project = ANY(%s)" + package_sql + " ORDER BY d.id DESC" + page_sql, [projects] + package_params + page_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute(DELIVERY_SELECT + " WHERE d.request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY d.id DESC" + page_sql,
-                    [current_user.get("id"), current_user.get("name") or ""] + page_params)
+        package_sql, package_params = package_access_filter(current_user, "d.work_package")
+        cur.execute(DELIVERY_SELECT + " WHERE d.request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY d.id DESC" + page_sql,
+                    [current_user.get("id"), current_user.get("name") or ""] + package_params + page_params)
     else:
         cur.close(); conn.close()
         return []
@@ -6437,23 +6455,29 @@ def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_use
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
+    select_sql = ("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,"
+                  "price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,"
+                  "confirmed_by as \"confirmedBy\",COALESCE(work_package,'') as \"workPackage\" "
+                  "FROM supply_history")
     if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
-        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history ORDER BY id DESC" + page_sql, page_params)
+        cur.execute(select_sql + " ORDER BY id DESC" + page_sql, page_params)
     elif role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
         if not supplier_id:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE supplier_id=%s ORDER BY id DESC" + page_sql, [supplier_id] + page_params)
+        cur.execute(select_sql + " WHERE supplier_id=%s ORDER BY id DESC" + page_sql, [supplier_id] + page_params)
     elif role == "прораб":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE project = ANY(%s) ORDER BY id DESC" + page_sql, [projects] + page_params)
+        package_sql, package_params = package_access_filter(current_user)
+        cur.execute(select_sql + " WHERE project = ANY(%s)" + package_sql + " ORDER BY id DESC" + page_sql, [projects] + package_params + page_params)
     elif role in ("мастер", "субподрядчик"):
-        cur.execute("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,confirmed_by as \"confirmedBy\" FROM supply_history WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s) ORDER BY id DESC" + page_sql,
-                    [current_user.get("id"), current_user.get("name") or ""] + page_params)
+        package_sql, package_params = package_access_filter(current_user)
+        cur.execute(select_sql + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY id DESC" + page_sql,
+                    [current_user.get("id"), current_user.get("name") or ""] + package_params + page_params)
     else:
         cur.close(); conn.close()
         return []
@@ -6465,8 +6489,15 @@ def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_use
 def create_supply_history(d: SupplyHistoryModel, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO supply_history (supplier_id,material_name,quantity,unit,price_per_unit,total_price,project,date,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (d.supplierId,d.materialName,d.quantity,d.unit,d.pricePerUnit,d.totalPrice,d.project,d.date,d.status))
+    if d.project:
+        require_project_or_warehouse_access(_current_user, d.project)
+    if not has_package_access(_current_user, d.workPackage or ""):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к этому пакету работ")
+    cur.execute("""INSERT INTO supply_history
+                   (supplier_id,material_name,quantity,unit,price_per_unit,total_price,project,date,status,work_package)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                (d.supplierId,d.materialName,d.quantity,d.unit,d.pricePerUnit,d.totalPrice,d.project,d.date,d.status,d.workPackage or ""))
     row = cur.fetchone()
     conn.close()
     return dict(row)
