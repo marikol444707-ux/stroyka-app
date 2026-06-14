@@ -25,6 +25,11 @@ export default function AccountingPaymentsPanel({
   expandedProject,
   setExpandedProject,
 }) {
+  const workPackageLabel = (row) => {
+    const value = row?.workPackage || row?.work_package || '';
+    return value ? ' · ' + value : '';
+  };
+
   const addIncomingPayment = async () => {
     const projectOptions = (projects || []).map(project => project.name);
     const projectName = window.prompt(
@@ -291,7 +296,7 @@ export default function AccountingPaymentsPanel({
                         </summary>
                         {group.incoming.map((payment, index) => (
                           <div key={index} style={{ padding: '4px 10px', color: C.textSec, display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed ' + C.border }}>
-                            <span>{(payment.date || '—') + (payment.note ? ' · ' + payment.note : '') + (payment.paidBy ? ' · ' + payment.paidBy : '')}</span>
+                            <span>{(payment.date || '—') + workPackageLabel(payment) + (payment.note ? ' · ' + payment.note : '') + (payment.paidBy ? ' · ' + payment.paidBy : '')}</span>
                             <b style={{ color: C.success }}>{Math.round(Number(payment._amountIn || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
                           </div>
                         ))}
@@ -305,7 +310,7 @@ export default function AccountingPaymentsPanel({
                         </summary>
                         {group.projectOut.map((payment, index) => (
                           <div key={payment.id || index} style={{ padding: '4px 10px', color: C.textSec, display: 'flex', justifyContent: 'space-between', gap: '8px', borderBottom: '1px dashed ' + C.border }}>
-                            <span>{(payment.date || '—') + (payment.note ? ' · ' + payment.note : '') + (payment.addedBy ? ' · ' + payment.addedBy : '')}</span>
+                            <span>{(payment.date || '—') + workPackageLabel(payment) + (payment.note ? ' · ' + payment.note : '') + (payment.addedBy ? ' · ' + payment.addedBy : '')}</span>
                             <b style={{ color: C.danger }}>{Math.round(Number(payment._amountOut || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
                           </div>
                         ))}

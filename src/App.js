@@ -12393,7 +12393,7 @@ function App() {
                           {projectPayments.filter(pay=>pay.projectName===p.name).length>0&&(<div style={{marginTop:'12px'}}>
                             <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px'}}>История оплат:</b>
                             {projectPayments.filter(pay=>pay.projectName===p.name).map(pay=>(<div key={pay.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid '+C.border}}>
-                              <div><span style={{fontSize:'12px',color:C.text}}>{pay.note||'Оплата'}</span><span style={{fontSize:'11px',color:C.textMuted,marginLeft:'8px'}}>{pay.date}</span></div>
+                              <div><span style={{fontSize:'12px',color:C.text}}>{pay.note||'Оплата'}</span>{(pay.workPackage||pay.work_package)&&<span style={{fontSize:'11px',color:C.info,marginLeft:'8px'}}>📁 {pay.workPackage||pay.work_package}</span>}<span style={{fontSize:'11px',color:C.textMuted,marginLeft:'8px'}}>{pay.date}</span></div>
                               <b style={{fontSize:'12px',color:C.success}}>+{Number(pay.amount).toLocaleString()+' ₽'}</b>
                             </div>))}
                           </div>)}

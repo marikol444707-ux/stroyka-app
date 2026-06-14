@@ -42,6 +42,7 @@ export default function ProjectFinancePanel({
   const profit = received - total - inAccountable;
   const toReimburse = ownExpenses.filter(e => e.projectName === projectName && e.status === 'Ожидает');
   const activeCategories = expenseCategories.filter(c => cat[c.id] > 0);
+  const workPackageLabel = pay => pay?.workPackage || pay?.work_package || '';
 
   const addCustomerPayment = () => {
     const amount = prompt('Сумма оплаты от заказчика (₽):');
@@ -175,6 +176,7 @@ export default function ProjectFinancePanel({
               <div key={pay.id} style={{display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid ' + C.border}}>
                 <div>
                   <span style={{fontSize: '12px', color: C.text}}>{pay.note || 'Оплата'}</span>
+                  {workPackageLabel(pay) && <span style={{fontSize: '11px', color: C.info, marginLeft: '8px'}}>📁 {workPackageLabel(pay)}</span>}
                   <span style={{fontSize: '11px', color: C.textMuted, marginLeft: '8px'}}>{pay.date}</span>
                 </div>
                 <b style={{fontSize: '12px', color: signed >= 0 ? C.success : C.danger}}>{formatSignedRub(signed)}</b>
