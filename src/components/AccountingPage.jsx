@@ -22,6 +22,7 @@ export default function AccountingPage(props) {
     C,
     card,
     projects,
+    estimatesList,
     projectPayments,
     projectPaymentInAmount,
     ownExpenses,
@@ -239,6 +240,7 @@ export default function AccountingPage(props) {
           masterProfiles={masterProfiles}
           staff={staff}
           projects={projects}
+          estimatesList={estimatesList}
           createInterimAct={createInterimAct}
           interimActs={interimActs}
           showPreview={showPreview}

@@ -1754,6 +1754,7 @@ def init_db():
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS scan_url TEXT;
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
@@ -2342,6 +2343,7 @@ def init_db():
             master_id INT,
             master_name VARCHAR(255),
             project VARCHAR(255),
+            work_package VARCHAR(100) DEFAULT '',
             period_start VARCHAR(50),
             period_end VARCHAR(50),
             total_amount FLOAT DEFAULT 0,
@@ -3221,6 +3223,7 @@ class InterimActModel(BaseModel):
     masterId: int
     masterName: str
     project: str
+    workPackage: str = ""
     periodStart: str
     periodEnd: str
     totalAmount: float = 0
@@ -7568,7 +7571,11 @@ def get_interim_acts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES
     if _current_user.get("role") in ("мастер", "субподрядчик"):
         where.append("(master_id=%s OR master_name=%s)")
         params.extend([_current_user.get("id"), _current_user.get("name") or ""])
-    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts"
+    package_sql, package_params = package_access_filter(_current_user)
+    if package_sql:
+        where.append("1=1" + package_sql)
+        params.extend(package_params)
+    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts"
     if where:
         q += " WHERE " + " AND ".join(where)
     q += " ORDER BY id DESC"
@@ -7580,10 +7587,14 @@ def get_interim_acts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES
 @app.post("/interim-acts")
 def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
     require_project_access(_current_user, a.project)
+    if not has_package_access(_current_user, a.workPackage or ""):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому пакету работ")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO interim_acts (master_id,master_name,project,period_start,period_end,total_amount,paid_amount,contract_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (a.masterId,a.masterName,a.project,a.periodStart,a.periodEnd,a.totalAmount,a.paidAmount,a.contractId))
+    cur.execute("""INSERT INTO interim_acts
+                   (master_id,master_name,project,work_package,period_start,period_end,total_amount,paid_amount,contract_id)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                (a.masterId,a.masterName,a.project,a.workPackage or "",a.periodStart,a.periodEnd,a.totalAmount,a.paidAmount,a.contractId))
     row = cur.fetchone()
     conn.commit()
     conn.close()

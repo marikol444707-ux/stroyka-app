@@ -1320,7 +1320,7 @@ function App() {
   const [newRequest, setNewRequest] = useState({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',notes:'',selectedSuppliers:[],category:''});
   const [newOffer, setNewOffer] = useState({supplierId:'',pricePerUnit:'',deliveryDays:'',notes:''});
   const [newContract, setNewContract] = useState({masterId:'',masterName:'',contractType:'ГПХ',contractNumber:'',project:'',startDate:'',endDate:''});
-  const [newAct, setNewAct] = useState({masterId:'',masterName:'',project:'',periodStart:'',periodEnd:''});
+  const [newAct, setNewAct] = useState({masterId:'',masterName:'',project:'',workPackage:'',periodStart:'',periodEnd:''});
   const [newTool, setNewTool] = useState({name:'',inventoryNumber:'',cost:'',status:'На складе',location:'Основной склад',project:'',masterId:'',masterName:'',issueType:'',notes:''});
   const [newRoom, setNewRoom] = useState({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',notes:''});
   const [newWindow, setNewWindow] = useState({roomId:'',name:'Окно 1',width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'});
@@ -2572,7 +2572,8 @@ function App() {
     const inPeriod = (d)=>{ if(!d)return false; const day=String(d).split('T')[0]; return day>=(act.periodStart||'0000-01-01') && day<=(act.periodEnd||'9999-12-31'); };
     const workPayUnitPrice = (wk)=>Number(wk.executionPricePerUnit||wk.pricePerUnit||0) || (Number(wk.executionTotal||wk.total||0)/Math.max(1,Number(wk.quantity||0)));
     const workPayTotal = (wk)=>Number(wk.executionTotal||wk.total||0);
-    const mw = workJournal.filter(j=>j.masterId===act.masterId&&j.project===act.project&&j.status==='Подтверждено'&&inPeriod(j.confirmedAt||j.date));
+    const actPackage = String(act.workPackage || '').trim();
+    const mw = workJournal.filter(j=>j.masterId===act.masterId&&j.project===act.project&&j.status==='Подтверждено'&&inPeriod(j.confirmedAt||j.date)&&(!actPackage || String(j.workPackage || j.work_package || 'Основная').trim()===actPackage));
     const payments = actPayments.filter(p=>p.actId===act.id);
     const toolDeductions = tools.filter(t=>t.masterName===act.masterName&&t.issueType==='В счёт зарплаты').reduce((s,t)=>s+t.cost,0);
     // Возмещения "Моих трат" в рамках периода и объекта
@@ -2583,7 +2584,7 @@ function App() {
     const advanceSum = advancesGiven.reduce((s,a)=>s+Number(a.amount||0),0);
     let html = '<h2 style="text-align:center">АКТ ВЫПОЛНЕННЫХ РАБОТ № '+act.id+'</h2>';
     html += '<p>Заказчик: <b>'+companyNameDoc+'</b> | Исполнитель: <b>'+act.masterName+'</b></p>';
-    html += '<p>Объект: <b>'+act.project+'</b> | Период: '+act.periodStart+' — '+act.periodEnd+'</p>';
+    html += '<p>Объект: <b>'+act.project+'</b> | Раздел: <b>'+(act.workPackage||'Все разделы')+'</b> | Период: '+act.periodStart+' — '+act.periodEnd+'</p>';
     if (profile) html += '<p>ИНН: '+profile.inn+' | '+profile.bankName+' | Р/с: '+profile.bankAccount+'</p>';
     html += '<table><tr><th>N</th><th>Работа</th><th>Помещение</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr>';
     mw.forEach((wk,i) => { html += '<tr><td>'+(i+1)+'</td><td>'+wk.description+'</td><td>'+(wk.roomName||'—')+'</td><td>'+wk.unit+'</td><td>'+wk.quantity+'</td><td>'+workPayUnitPrice(wk).toLocaleString()+'</td><td>'+workPayTotal(wk).toLocaleString()+'</td></tr>'; });
@@ -10042,12 +10043,13 @@ function App() {
   const createInterimAct = async () => {
     if (!newAct.masterId||!newAct.project||!newAct.periodStart||!newAct.periodEnd) return;
     const inActPeriod = (d)=>{ if(!d)return false; const day=String(d).split('T')[0]; return day>=newAct.periodStart && day<=newAct.periodEnd; };
-    const mw = workJournal.filter(j=>j.masterId===Number(newAct.masterId)&&j.project===newAct.project&&j.status==='Подтверждено'&&inActPeriod(j.confirmedAt||j.date));
+    const selectedPackage = String(newAct.workPackage || '').trim();
+    const mw = workJournal.filter(j=>j.masterId===Number(newAct.masterId)&&j.project===newAct.project&&j.status==='Подтверждено'&&inActPeriod(j.confirmedAt||j.date)&&(!selectedPackage || String(j.workPackage || j.work_package || 'Основная').trim()===selectedPackage));
     const total = mw.reduce((s,w)=>s+Number(w.executionTotal||w.total||0),0);
     const contract = contracts.find(c=>c.masterId===Number(newAct.masterId)&&c.project===newAct.project);
     await fetch(API+'/interim-acts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newAct,masterId:Number(newAct.masterId),contractId:contract?contract.id:null,totalAmount:total,paidAmount:0})});
     notify('Акт создан: '+newAct.masterName,'act');
-    await refreshData(); setNewAct({masterId:'',masterName:'',project:'',periodStart:'',periodEnd:''}); setShowForm(false);
+    await refreshData(); setNewAct({masterId:'',masterName:'',project:'',workPackage:'',periodStart:'',periodEnd:''}); setShowForm(false);
   };
 
   const saveRoom = async () => {
@@ -13636,6 +13638,7 @@ function App() {
               setShowPayActModal={setShowPayActModal}
               deleteInterimAct={deleteInterimAct}
               buildBrigadeActContent={buildBrigadeActContent}
+              estimatesList={estimatesList}
               accountingDocProject={accountingDocProject}
               setAccountingDocProject={setAccountingDocProject}
               projectPlanDone={projectPlanDone}

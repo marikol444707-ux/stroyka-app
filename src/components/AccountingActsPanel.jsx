@@ -40,6 +40,7 @@ export default function AccountingActsPanel({
   masterProfiles,
   staff,
   projects,
+  estimatesList,
   createInterimAct,
   interimActs,
   showPreview,
@@ -54,6 +55,16 @@ export default function AccountingActsPanel({
 }) {
   const filteredInterimActs = (interimActs || []).filter(act => matchSearch(listSearch, act.masterName, act.project));
   const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? work.total ?? 0);
+  const actPackageOptions = Array.from(new Set([
+    ...((estimatesList || [])
+      .filter(est => !newAct.project || est.projectName === newAct.project || est.project_name === newAct.project)
+      .map(est => est.workPackage || est.work_package)
+      .filter(Boolean)),
+    ...((workJournal || [])
+      .filter(work => !newAct.project || work.project === newAct.project)
+      .map(work => work.workPackage || work.work_package)
+      .filter(Boolean)),
+  ])).sort();
 
   const allWorks = [
     ...((workJournal || []).filter(work => work.status === 'Подтверждено').map(work => ({ ...work, _kind: 'journal' }))),
@@ -240,9 +251,13 @@ export default function AccountingActsPanel({
                 );
               })}
             </select>
-            <select value={newAct.project} onChange={event => setNewAct({ ...newAct, project: event.target.value })} style={{ ...inp, marginBottom: 0 }}>
+            <select value={newAct.project} onChange={event => setNewAct({ ...newAct, project: event.target.value, workPackage: '' })} style={{ ...inp, marginBottom: 0 }}>
               <option value="">Объект *</option>
               {(projects || []).map(project => <option key={project.id} value={project.name}>{project.name}</option>)}
+            </select>
+            <select value={newAct.workPackage || ''} onChange={event => setNewAct({ ...newAct, workPackage: event.target.value })} style={{ ...inp, marginBottom: 0 }}>
+              <option value="">Все разделы</option>
+              {actPackageOptions.map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
             </select>
             <input type="date" step="any" inputMode="decimal" placeholder="Период с *" value={newAct.periodStart} onChange={event => setNewAct({ ...newAct, periodStart: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
             <input type="date" step="any" inputMode="decimal" placeholder="Период по *" value={newAct.periodEnd} onChange={event => setNewAct({ ...newAct, periodEnd: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
@@ -268,7 +283,7 @@ export default function AccountingActsPanel({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
               <div>
                 <b style={{ color: C.text, fontSize: '13px' }}>{'Акт №' + act.id + ' · ' + act.masterName}</b>
-                <p style={{ color: C.textSec, margin: '2px 0', fontSize: '12px' }}>{act.project + ' · ' + act.periodStart + ' — ' + act.periodEnd}</p>
+                <p style={{ color: C.textSec, margin: '2px 0', fontSize: '12px' }}>{act.project + ' · ' + (act.workPackage || 'Все разделы') + ' · ' + act.periodStart + ' — ' + act.periodEnd}</p>
                 <div style={{ display: 'flex', gap: '12px', marginTop: '4px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '12px', color: C.text }}>{'Начислено: ' + totalAmount.toLocaleString() + ' ₽'}</span>
                   <span style={{ fontSize: '12px', color: C.success }}>{'Оплачено: ' + paidAmount.toLocaleString() + ' ₽'}</span>
