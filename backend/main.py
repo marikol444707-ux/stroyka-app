@@ -5221,30 +5221,43 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
                 project_budget = float(pr['budget'] or 0) if pr else 0.0
             except Exception:
                 project_budget = 0.0
-            # Считаем оценочную стоимость уже утверждённых/ожидающих заявок
+            # Считаем оценочную стоимость уже утверждённых/ожидающих заявок по реальным строкам items_json.
+            # Старые агрегаты вида «N позиций» нельзя умножать как материал: это ломает бюджет и пакеты работ.
             try:
                 cur.execute(
-                    "SELECT material_name, quantity, status FROM supply_requests WHERE project=%s",
+                    "SELECT material_name, quantity, unit, status, COALESCE(work_package,'') AS work_package, items_json FROM supply_requests WHERE project=%s",
                     (project,))
                 requests_rows = cur.fetchall()
                 for row in requests_rows:
-                    mname = (row['material_name'] or '').strip()
-                    if not mname:
-                        continue
-                    first_word = mname.split()[0]
-                    try:
-                        cur.execute(
-                            "SELECT AVG(price) AS avg_price FROM warehouse_main WHERE name ILIKE %s",
-                            ('%' + first_word + '%',))
-                        avg_row = cur.fetchone()
-                        avg_price = float(avg_row['avg_price'] or 0) if avg_row else 0.0
-                    except Exception:
-                        avg_price = 0.0
-                    est_cost = float(row['quantity'] or 0) * avg_price
-                    if row['status'] == 'Утверждена':
-                        project_approved_cost += est_cost
-                    elif row['status'] in ('Новая', 'Подтверждена прорабом'):
-                        project_pending_cost += est_cost
+                    raw_items = _json_list_or_empty(row.get("items_json"))
+                    if not raw_items:
+                        raw_items = [{
+                            "materialName": row.get("material_name") or "",
+                            "quantity": row.get("quantity") or 0,
+                            "unit": row.get("unit") or "шт",
+                            "workPackage": row.get("work_package") or "",
+                        }]
+                    for item in raw_items:
+                        if not isinstance(item, dict):
+                            continue
+                        mname = (item.get("materialName") or item.get("name") or "").strip()
+                        qty = _float_or_zero(item.get("quantity"))
+                        if not mname or qty <= 0:
+                            continue
+                        first_word = mname.split()[0]
+                        try:
+                            cur.execute(
+                                "SELECT AVG(price) AS avg_price FROM warehouse_main WHERE name ILIKE %s",
+                                ('%' + first_word + '%',))
+                            avg_row = cur.fetchone()
+                            avg_price = float(avg_row['avg_price'] or 0) if avg_row else 0.0
+                        except Exception:
+                            avg_price = 0.0
+                        est_cost = qty * avg_price
+                        if row['status'] == 'Утверждена':
+                            project_approved_cost += est_cost
+                        elif row['status'] in ('Новая', 'Подтверждена прорабом'):
+                            project_pending_cost += est_cost
             except Exception:
                 pass
         shortage = max(0.0, needed - total_available)
