@@ -6093,9 +6093,9 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""
         SELECT o.id, o.request_id, o.supplier_id, o.price_per_unit, o.total_price,
-               o.payment_terms, s.name as supplier_name,
+               o.payment_terms, o.items_kp_json, s.name as supplier_name,
                r.project, COALESCE(r.work_package,'') as work_package,
-               r.material_name, r.quantity, r.unit
+               r.material_name, r.quantity, r.unit, r.items_json
         FROM supplier_offers o
         LEFT JOIN suppliers s ON s.id=o.supplier_id
         LEFT JOIN supply_requests r ON r.id=o.request_id
@@ -6131,33 +6131,84 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
         if paid + 0.01 < required:
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail=f"По условиям «{offer.get('payment_terms') or ''}» перед отгрузкой нужно оплатить минимум {round(required, 2)} ₽. Сейчас оплачено {round(paid, 2)} ₽")
-    shipped_qty = _float_or_zero(data.get('shippedQuantity') or offer['quantity'])
-    cur.execute("SELECT id FROM supply_deliveries WHERE offer_id=%s LIMIT 1", (id,))
-    existing = cur.fetchone()
-    vals = (
-        offer['request_id'], offer['supplier_id'], offer['supplier_name'] or '',
-        offer['project'] or '', offer.get('work_package') or '', offer['material_name'] or '',
-        _float_or_zero(offer['quantity']), shipped_qty, offer['unit'] or '',
-        _float_or_zero(offer['price_per_unit']), _float_or_zero(offer['total_price']),
-        data.get('waybillNumber') or '', data.get('waybillDate') or None,
-        data.get('vehicleNumber') or '', data.get('driverName') or '',
-        data.get('documentUrl') or '', data.get('photoUrl') or '', datetime.now()
-    )
-    if existing:
-        cur.execute("SELECT status FROM supply_deliveries WHERE id=%s", (existing['id'],))
-        existing_status = cur.fetchone()
-        if existing_status and existing_status['status'] in ('Принято', 'Проблема'):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Поставка уже принята. Повторная отгрузка запрещена — создайте новую заявку/КП для допоставки.")
-        cur.execute("""UPDATE supply_deliveries SET
-                       request_id=%s, supplier_id=%s, supplier_name=%s, project=%s, work_package=%s,
-                       material_name=%s, planned_quantity=%s, shipped_quantity=%s, unit=%s,
-                       price_per_unit=%s, total_price=%s, waybill_number=%s, waybill_date=%s,
-                       vehicle_number=%s, driver_name=%s, document_url=%s, photo_url=%s,
-                       shipped_at=%s, status='В пути'
-                       WHERE id=%s RETURNING id""", vals + (existing['id'],))
-        delivery_id = cur.fetchone()['id']
-    else:
+    def _line_key(item):
+        if not isinstance(item, dict):
+            return ("", "")
+        return (
+            str(item.get("materialName") or item.get("name") or "").strip().lower(),
+            str(item.get("unit") or "").strip().lower(),
+        )
+
+    request_items = []
+    for item in _json_list_or_empty(offer.get("items_json")):
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("materialName") or item.get("name") or "").strip()
+        qty = _float_or_zero(item.get("quantity"))
+        if name and qty > 0:
+            request_items.append({
+                "materialName": name,
+                "quantity": qty,
+                "unit": item.get("unit") or offer.get("unit") or "шт",
+                "workPackage": (item.get("workPackage") or item.get("work_package") or offer.get("work_package") or "").strip(),
+            })
+    if not request_items:
+        request_items = [{
+            "materialName": offer.get("material_name") or "",
+            "quantity": _float_or_zero(offer.get("quantity")),
+            "unit": offer.get("unit") or "шт",
+            "workPackage": offer.get("work_package") or "",
+        }]
+
+    kp_by_key = {}
+    for item in _json_list_or_empty(offer.get("items_kp_json")):
+        if isinstance(item, dict):
+            kp_by_key[_line_key(item)] = item
+
+    shipped_by_key = {}
+    for item in _json_list_or_empty(data.get("shippedItems")):
+        if isinstance(item, dict):
+            shipped_by_key[_line_key(item)] = _float_or_zero(item.get("shippedQuantity") or item.get("quantity"))
+
+    has_item_kp = bool(kp_by_key)
+    fallback_total = _float_or_zero(offer.get("total_price"))
+    fallback_line_total = fallback_total / len(request_items) if request_items and fallback_total > 0 else 0
+
+    cur.execute("SELECT id, status FROM supply_deliveries WHERE offer_id=%s", (id,))
+    existing_rows = cur.fetchall()
+    if any((r.get('status') if isinstance(r, dict) else r[1]) in ('Принято', 'Проблема') for r in existing_rows):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Поставка уже принята. Повторная отгрузка запрещена — создайте новую заявку/КП для допоставки.")
+    if existing_rows:
+        cur.execute("DELETE FROM supply_deliveries WHERE offer_id=%s", (id,))
+
+    delivery_ids = []
+    single_request = len(request_items) == 1
+    for item in request_items:
+        key = _line_key(item)
+        kp = kp_by_key.get(key) or {}
+        planned_qty = _float_or_zero(item.get("quantity"))
+        shipped_qty = shipped_by_key.get(key)
+        if shipped_qty is None:
+            shipped_qty = _float_or_zero(data.get('shippedQuantity')) if single_request and data.get('shippedQuantity') not in (None, "") else planned_qty
+        price_per_unit = _float_or_zero(kp.get("pricePerUnit")) if has_item_kp else 0
+        line_total = _float_or_zero(kp.get("totalPrice")) if has_item_kp else 0
+        if line_total <= 0 and price_per_unit > 0:
+            line_total = round(price_per_unit * planned_qty, 2)
+        if line_total <= 0:
+            line_total = fallback_line_total if not single_request else fallback_total
+        if price_per_unit <= 0 and planned_qty > 0 and line_total > 0:
+            price_per_unit = round(line_total / planned_qty, 6)
+        vals = (
+            offer['request_id'], offer['supplier_id'], offer['supplier_name'] or '',
+            offer['project'] or '', item.get("workPackage") or offer.get('work_package') or '',
+            item.get("materialName") or '',
+            planned_qty, shipped_qty, item.get("unit") or offer.get("unit") or '',
+            price_per_unit, line_total,
+            data.get('waybillNumber') or '', data.get('waybillDate') or None,
+            data.get('vehicleNumber') or '', data.get('driverName') or '',
+            data.get('documentUrl') or '', data.get('photoUrl') or '', datetime.now()
+        )
         cur.execute("""INSERT INTO supply_deliveries
                        (offer_id, request_id, supplier_id, supplier_name, project,
                         work_package, material_name, planned_quantity, shipped_quantity, unit,
@@ -6166,13 +6217,16 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
                     (id,) + vals + ('В пути',))
-        delivery_id = cur.fetchone()['id']
+        delivery_ids.append(cur.fetchone()['id'])
     cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", ('В пути', id))
     cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('В пути', offer['request_id']))
-    cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (delivery_id,))
-    row = cur.fetchone()
+    cur.execute(DELIVERY_SELECT + " WHERE d.offer_id=%s ORDER BY d.id", (id,))
+    rows = [dict(r) for r in cur.fetchall()]
+    row = rows[0] if rows else None
     cur.close(); conn.close()
-    return dict(row)
+    if len(rows) == 1:
+        return row
+    return {"ok": True, "count": len(rows), "deliveries": rows}
 
 @app.put("/supply-deliveries/{id}/receive")
 def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
