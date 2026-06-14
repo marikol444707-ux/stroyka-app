@@ -4897,6 +4897,60 @@ SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,proj
                  "created_at as \"createdAt\" "
                  "FROM supply_requests")
 
+def _supply_item_quantity(item: dict) -> float:
+    try:
+        return float((item or {}).get("quantity") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+def _normalize_supply_request_items(raw_items, material_name: str = "", quantity: float = 0, unit: str = "шт", work_package: str = ""):
+    request_package = (work_package or "").strip()
+    items = []
+    for raw in raw_items or []:
+        if not isinstance(raw, dict):
+            continue
+        name = (raw.get("materialName") or raw.get("material_name") or raw.get("name") or "").strip()
+        if not name or _supply_item_quantity(raw) <= 0:
+            continue
+        item_package = (raw.get("workPackage") or raw.get("work_package") or request_package or "").strip()
+        cleaned = dict(raw)
+        cleaned["materialName"] = name
+        cleaned["quantity"] = _supply_item_quantity(raw)
+        cleaned["unit"] = (raw.get("unit") or unit or "шт").strip()
+        cleaned["workPackage"] = item_package
+        cleaned.pop("work_package", None)
+        items.append(cleaned)
+    if not items and material_name:
+        items = [{
+            "materialName": material_name,
+            "quantity": _supply_item_quantity({"quantity": quantity}),
+            "unit": unit or "шт",
+            "workPackage": request_package,
+        }]
+    return items
+
+def _resolve_supply_request_package(user: dict, items: list, header_package: str = "") -> str:
+    header = (header_package or "").strip()
+    packages = sorted(set([
+        (item.get("workPackage") or item.get("work_package") or header or "Основная").strip()
+        for item in items
+        if isinstance(item, dict)
+    ] or [header or "Основная"]))
+    if len(packages) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Одна заявка снабжения не может смешивать разные разделы сметы: "
+            + ", ".join(packages)
+            + ". Создайте отдельную заявку по каждому разделу.",
+        )
+    package_name = packages[0] if packages else (header or "Основная")
+    if not has_package_access(user, package_name or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + (package_name or "Основная"))
+    for item in items:
+        item["workPackage"] = package_name
+        item.pop("work_package", None)
+    return package_name
+
 @app.get("/supply-requests")
 def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
     conn = get_db()
@@ -4951,20 +5005,14 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     director_id = requested_by_id if role in ("директор", "зам_директора") else None
     director_name = created_by if role in ("директор", "зам_директора") else None
     director_at = now if role in ("директор", "зам_директора") else None
-    # Нормализация items: если items пустой но есть materialName — упаковываем как single-item
+    # Нормализация items: если items пустой, но есть materialName, упаковываем как single-item.
     request_package = (r.workPackage or "").strip()
-    items = [it for it in (r.items or []) if (it or {}).get("materialName") and float((it or {}).get("quantity") or 0) > 0]
-    items = [{**it, "workPackage": (it.get("workPackage") or it.get("work_package") or request_package or "").strip()} for it in items]
-    if not items and r.materialName:
-        items = [{"materialName": r.materialName, "quantity": r.quantity, "unit": r.unit, "workPackage": request_package}]
+    items = _normalize_supply_request_items(r.items, r.materialName, r.quantity, r.unit, request_package)
     if not items:
         raise HTTPException(status_code=400, detail="Заявка должна содержать хотя бы одну позицию")
     if r.project:
         require_project_or_warehouse_access(_current_user, r.project)
-    request_packages = sorted(set([(item.get("workPackage") or request_package or "Основная").strip() for item in items] or [request_package or "Основная"]))
-    for package_name in request_packages:
-        if not has_package_access(_current_user, package_name or "Основная"):
-            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + (package_name or "Основная"))
+    request_package = _resolve_supply_request_package(_current_user, items, request_package)
     # material_name / quantity / unit заполняем агрегатом для совместимости со старым UI
     # Если позиций больше одной — пишем «N позиций» в material_name; quantity = сумма всех
     if len(items) == 1:
@@ -15030,10 +15078,12 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
                 "materialName": item.get("materialName") or "",
                 "quantity": round(qty, 6),
                 "unit": item.get("unit") or "шт",
+                "workPackage": work_package,
                 "pricePerUnit": round(price, 2) if price else 0,
                 "totalPrice": round(qty * price, 2) if price else 0,
             })
         if supply_items:
+            request_package = _resolve_supply_request_package(current_user, supply_items, work_package)
             marker = "NORM_ESTIMATE_REQUEST:" + str(estimate_id)
             notes = "\n".join([
                 "Пакетная заявка из черновика сметы по нормам.",
@@ -15051,14 +15101,15 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
             agg_unit = "поз." if len(supply_items) > 1 else supply_items[0].get("unit") or "шт"
             cur.execute(
                 "INSERT INTO supply_requests "
-                "(material_name,quantity,unit,project,created_by,date,notes,selected_suppliers,"
+                "(material_name,quantity,unit,project,work_package,created_by,date,notes,selected_suppliers,"
                 "status,requested_by_role,requested_by_id,urgency,category,items_json) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
                 (
                     agg_name,
                     agg_qty,
                     agg_unit,
                     project_name,
+                    request_package,
                     current_user.get("name") or "",
                     dt.date.today().isoformat(),
                     notes,
