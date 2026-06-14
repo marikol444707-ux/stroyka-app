@@ -12988,10 +12988,13 @@ def _estimate_item_type_backend(item: dict, section_name: str = "") -> str:
     text = _norm_key_text((item.get("name") or "") + " " + section_name)
     source_code = str(item.get("sourceCode") or item.get("obosn") or item.get("code") or "").strip()
     material_markers = ("смесь", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "краска", "акрил", "грунтовка", "грунтовк", "кабель", "провод", "гофра", "лист гкл", "профиль", "саморез", "кирпич", "бетон", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "пвх", "уголок", "панель", "плинтус", "наличник")
-    strong_work_markers = ("монтаж", "установка", "устройство", "демонтаж", "разбор", "разборка", "прокладка", "замена", "подключение", "снятие", "очистка", "ремонт", "облицовка", "окраска", "кладка", "стяжка", "отбивка", "отбивк")
+    strong_work_markers = ("монтаж", "установка", "устройство", "демонтаж", "разбор", "разборка", "прокладка", "замена", "подключение", "снятие", "очистка", "ремонт", "облицовка", "окраска", "кладка", "стяжка", "отбивка", "отбивк", "грунтование")
+    source_looks_work = bool(re.match(r"^(ГЭСН|ФЕР|ТЕР)", source_code, re.I))
     source_looks_resource = bool(re.match(r"^\d{2,}[-/]\d+", source_code) or re.match(r"^\d{3,}$", source_code) or re.match(r"^(ТЦ_|ФСБЦ|ФССЦ)", source_code, re.I))
     if raw in ("adjustment", "корректировка", "note", "примечание"):
         return "other"
+    if raw in ("work", "работа", "works", "работы") and item.get("isImported") and source_looks_work:
+        return "work"
     if raw in ("work", "работа", "works", "работы") and item.get("isImported"):
         if (source_looks_resource or any(m in text for m in material_markers)) and not any(w in text for w in strong_work_markers):
             return "material"
@@ -15837,7 +15840,20 @@ def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_ro
                 price_work = _safe_float(it.get("priceWork"))
                 qty = _safe_float(it.get("quantity"))
                 is_imported = bool(it.get("isImported"))
-                price = price_work if not is_imported or qty == 0 else (price_work / qty if qty > 0 else price_work)
+                imported_total = _safe_float(
+                    it.get("totalWork")
+                    or it.get("workTotal")
+                    or it.get("lineTotal")
+                    or it.get("currentTotal")
+                    or it.get("total")
+                )
+                if is_imported and qty > 0 and imported_total > 0:
+                    if price_work <= 0 or abs(price_work - imported_total) <= max(1, abs(imported_total) * 0.001):
+                        price = imported_total / qty
+                    else:
+                        price = price_work
+                else:
+                    price = price_work
                 price = round(price, 2)
                 if price <= 0:
                     skipped += 1
