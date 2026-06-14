@@ -13,15 +13,35 @@ export default function ScannedInvoiceFormModal({
   newInvoice,
   setNewInvoice,
   projects,
+  getProjectWorkPackageOptions,
   units,
   saveInvoiceNew,
 }) {
   if (!showScannedInvoiceForm) return null;
+  const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
+  const packageOptions = invoiceProject && typeof getProjectWorkPackageOptions === 'function'
+    ? getProjectWorkPackageOptions(invoiceProject)
+    : [];
+  const defaultWorkPackage = packageOptions.length === 1 ? packageOptions[0] : '';
 
   const updateItem = (idx, patch) => {
     const items=[...newInvoice.items];
     items[idx]={...items[idx],...patch};
     setNewInvoice({...newInvoice,items});
+  };
+  const updateLocation = (location) => {
+    const project = location !== 'Основной склад' ? location : '';
+    const packages = project && typeof getProjectWorkPackageOptions === 'function'
+      ? getProjectWorkPackageOptions(project)
+      : [];
+    const defaultPackage = packages.length === 1 ? packages[0] : '';
+    setNewInvoice({
+      ...newInvoice,
+      location,
+      project,
+      workPackage: defaultPackage,
+      items: (newInvoice.items || []).map(item => ({...item, workPackage: item.workPackage || defaultPackage})),
+    });
   };
 
   const save = async () => {
@@ -43,7 +63,7 @@ export default function ScannedInvoiceFormModal({
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>Проверьте данные и сохраните</p>
         <input placeholder='Номер накладной *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inp}/>
         <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>setNewInvoice({...newInvoice,supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inp}/>
-        <select value={newInvoice.location||''} onChange={e=>setNewInvoice({...newInvoice,location:e.target.value,project:e.target.value!=='Основной склад'?e.target.value:''})} style={inp}>
+        <select value={newInvoice.location||''} onChange={e=>updateLocation(e.target.value)} style={inp}>
           <option value=''>Выберите склад *</option>
           <option value='Основной склад'>📦 Основной склад</option>
           {projects.map(p=><option key={p.id} value={p.name}>🏗️ {p.name}</option>)}
@@ -51,15 +71,19 @@ export default function ScannedInvoiceFormModal({
         <input type='date' value={newInvoice.date||new Date().toISOString().split('T')[0]} onChange={e=>setNewInvoice({...newInvoice,date:e.target.value})} style={inp}/>
         <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Позиции:</b>
         {(newInvoice.items||[]).map((item,idx)=>(
-          <div key={idx} style={{display:'grid',gridTemplateColumns:'2fr 0.7fr 0.7fr 1fr 24px',gap:'4px',marginBottom:'6px'}}>
+          <div key={idx} style={{display:'grid',gridTemplateColumns:'2fr 1.2fr 0.7fr 0.7fr 1fr 24px',gap:'4px',marginBottom:'6px'}}>
             <input placeholder='Название' value={item.name} onChange={e=>updateItem(idx,{name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+            <select value={item.workPackage || ''} onChange={e=>updateItem(idx,{workPackage:e.target.value})} disabled={!invoiceProject} style={{...inp,marginBottom:0,fontSize:'11px',padding:'6px 4px',opacity:invoiceProject?1:0.65}}>
+              <option value=''>{invoiceProject ? 'Раздел' : 'Склад'}</option>
+              {packageOptions.map(pkg=><option key={pkg} value={pkg}>{pkg}</option>)}
+            </select>
             <input placeholder='Кол.' type='number' step='any' inputMode='decimal' value={item.quantity} onChange={e=>updateItem(idx,{quantity:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
             <select value={item.unit||'шт'} onChange={e=>updateItem(idx,{unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px',padding:'6px 4px'}}>{units.map(u=><option key={u}>{u}</option>)}</select>
             <input placeholder='Цена' type='number' step='any' inputMode='decimal' value={item.price} onChange={e=>updateItem(idx,{price:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-            <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push({name:'',quantity:'',unit:'шт',price:'',category:''});setNewInvoice({...newInvoice,items});}} style={{...btnR,padding:'4px 6px',fontSize:'11px'}}><X size={12}/></button>
+            <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push({name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage});setNewInvoice({...newInvoice,items});}} style={{...btnR,padding:'4px 6px',fontSize:'11px'}}><X size={12}/></button>
           </div>
         ))}
-        <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),{name:'',quantity:'',unit:'шт',price:'',category:''}]})} style={{...btnG,fontSize:'12px',padding:'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>
+        <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage}]})} style={{...btnG,fontSize:'12px',padding:'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'8px 0'}}>
           <b style={{color:C.text,fontSize:'13px'}}>Итого: {(newInvoice.items||[]).reduce((s,i)=>s+Number(i.quantity||0)*Number(i.price||0),0).toLocaleString()} ₽</b>
         </div>

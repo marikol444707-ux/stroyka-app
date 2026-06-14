@@ -42,6 +42,7 @@ export default function SupplyPage({
   fetchPriceHint,
   UNITS,
   projects,
+  getProjectWorkPackageOptions,
   renderSupplyPlanningHint,
   createSupplyReq,
   saveSupplyTemplate,
@@ -322,6 +323,7 @@ export default function SupplyPage({
           fetchPriceHint={fetchPriceHint}
           UNITS={UNITS}
           projects={projects}
+          getProjectWorkPackageOptions={getProjectWorkPackageOptions}
           renderSupplyPlanningHint={renderSupplyPlanningHint}
           createSupplyReq={createSupplyReq}
           saveSupplyTemplate={saveSupplyTemplate}

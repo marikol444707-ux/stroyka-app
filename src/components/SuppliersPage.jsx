@@ -34,6 +34,7 @@ function SuppliersPage({
   newRequest,
   setNewRequest,
   projects,
+  getProjectWorkPackageOptions,
   units,
   saveRequest,
   supplyRequests,
@@ -59,6 +60,21 @@ function SuppliersPage({
   supplyDeliveries,
   supplyHistory,
 }) {
+  const supplierRequestPackages = typeof getProjectWorkPackageOptions === 'function'
+    ? getProjectWorkPackageOptions(newRequest.project)
+    : [];
+  const supplierRequestDefaultPackage = supplierRequestPackages.length === 1 ? supplierRequestPackages[0] : '';
+  const updateRequestProject = (projectName) => {
+    const packages = typeof getProjectWorkPackageOptions === 'function' ? getProjectWorkPackageOptions(projectName) : [];
+    const defaultPackage = packages.length === 1 ? packages[0] : '';
+    setNewRequest({
+      ...newRequest,
+      project: projectName,
+      workPackage: defaultPackage,
+      items: (newRequest.items || []).map(item => ({...item, workPackage: item.workPackage || defaultPackage})),
+    });
+  };
+
   return (
     <div>
       <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
@@ -146,17 +162,21 @@ function SuppliersPage({
 
           {showForm&&(
             <div style={{...card,padding:'20px',marginBottom:'16px'}}>
-              <select value={newRequest.project} onChange={e=>setNewRequest({...newRequest,project:e.target.value})} style={inp}><option value="">Выберите объект *</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
+              <select value={newRequest.project} onChange={e=>updateRequestProject(e.target.value)} style={inp}><option value="">Выберите объект *</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
               <select value={newRequest.category} onChange={e=>setNewRequest({...newRequest,category:e.target.value})} style={inp}><option value="">Категория материала</option>{supplierCategories.map(c=><option key={c}>{c}</option>)}</select>
               {newRequest.items.map((item,idx)=>(
-                <div key={idx} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr auto',gap:'8px',marginBottom:'8px',alignItems:'center'}}>
+                <div key={idx} style={{display:'grid',gridTemplateColumns:'minmax(180px,3fr) minmax(130px,1.5fr) 1fr 1fr auto',gap:'8px',marginBottom:'8px',alignItems:'center'}}>
                   <input placeholder="Материал *" value={item.materialName} onChange={e=>{const items=[...newRequest.items];items[idx]={...items[idx],materialName:e.target.value};setNewRequest({...newRequest,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
+                  <select value={item.workPackage || ''} onChange={e=>{const items=[...newRequest.items];items[idx]={...items[idx],workPackage:e.target.value};setNewRequest({...newRequest,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}>
+                    <option value="">Раздел сметы</option>
+                    {supplierRequestPackages.map(pkg=><option key={pkg} value={pkg}>{pkg}</option>)}
+                  </select>
                   <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={item.quantity} onChange={e=>{const items=[...newRequest.items];items[idx]={...items[idx],quantity:e.target.value};setNewRequest({...newRequest,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                   <select value={item.unit} onChange={e=>{const items=[...newRequest.items];items[idx]={...items[idx],unit:e.target.value};setNewRequest({...newRequest,items});}} style={{...inp,marginBottom:0,fontSize:'12px'}}>{units.map(u=><option key={u}>{u}</option>)}</select>
                   <button onClick={()=>setNewRequest({...newRequest,items:newRequest.items.filter((_,i)=>i!==idx)})} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
                 </div>
               ))}
-              <button onClick={()=>setNewRequest({...newRequest,items:[...newRequest.items,{materialName:'',quantity:'',unit:'шт'}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={13}/>Строка</button>
+              <button onClick={()=>setNewRequest({...newRequest,items:[...newRequest.items,{materialName:'',quantity:'',unit:'шт',workPackage:supplierRequestDefaultPackage}]})} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={13}/>Строка</button>
               <textarea placeholder="Примечания" value={newRequest.notes} onChange={e=>setNewRequest({...newRequest,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical'}}/>
               <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'8px'}}>Отправить поставщикам:</b>
               {suppliers.filter(s=>!newRequest.category||s.category===newRequest.category).map(s=>(

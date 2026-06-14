@@ -10,6 +10,7 @@ export default function WarehouseInvoicesPanel({
   suppliers,
   projects,
   estimatesList,
+  getProjectWorkPackageOptions,
   invoices,
   saveInvoiceNew,
   uploadPhoto,
@@ -125,6 +126,7 @@ export default function WarehouseInvoicesPanel({
           suppliers={suppliers}
           projects={projects}
           materialEstimates={materialEstimates}
+          getProjectWorkPackageOptions={getProjectWorkPackageOptions}
           invoiceItems={invoiceItems}
           invoiceTotal={invoiceTotal}
           draftEstimateControl={draftEstimateControl}

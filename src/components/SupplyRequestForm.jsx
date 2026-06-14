@@ -19,12 +19,17 @@ function SupplyRequestForm({
   fetchPriceHint,
   UNITS,
   projects,
+  getProjectWorkPackageOptions,
   renderSupplyPlanningHint,
   createSupplyReq,
   saveSupplyTemplate,
   setShowSupplyForm,
 }) {
   const items = newSupplyReq.items || [];
+  const packageOptions = typeof getProjectWorkPackageOptions === 'function'
+    ? getProjectWorkPackageOptions(newSupplyReq.project)
+    : [];
+  const defaultWorkPackage = packageOptions.length === 1 ? packageOptions[0] : '';
 
   const updateItem = (idx, patch) => {
     const nextItems = [...items];
@@ -37,7 +42,20 @@ function SupplyRequestForm({
   };
 
   const addItem = () => {
-    setNewSupplyReq({...newSupplyReq, items: [...items, {materialName:'',quantity:'',unit:'шт'}]});
+    setNewSupplyReq({...newSupplyReq, items: [...items, {materialName:'',quantity:'',unit:'шт',workPackage:defaultWorkPackage}]});
+  };
+
+  const updateProject = (projectName) => {
+    const nextPackages = typeof getProjectWorkPackageOptions === 'function'
+      ? getProjectWorkPackageOptions(projectName)
+      : [];
+    const nextDefault = nextPackages.length === 1 ? nextPackages[0] : '';
+    setNewSupplyReq({
+      ...newSupplyReq,
+      project: projectName,
+      workPackage: nextDefault,
+      items: items.map(item => ({...item, workPackage: item.workPackage || nextDefault})),
+    });
   };
 
   return (
@@ -64,8 +82,12 @@ function SupplyRequestForm({
         const hint = priceHints[(it.materialName||'').trim()];
         return (
           <React.Fragment key={idx}>
-            <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr auto',gap:'6px',marginBottom:'4px',alignItems:'center'}}>
+            <div style={{display:'grid',gridTemplateColumns:'minmax(180px,3fr) minmax(120px,1.5fr) 1fr 1fr auto',gap:'6px',marginBottom:'4px',alignItems:'center'}}>
               <input placeholder="Материал *" value={it.materialName} onBlur={e=>fetchPriceHint(e.target.value)} onChange={e=>updateItem(idx,{materialName:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
+              <select value={it.workPackage || ''} onChange={e=>updateItem(idx,{workPackage:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}>
+                <option value="">Раздел сметы</option>
+                {packageOptions.map(pkg=><option key={pkg} value={pkg}>{pkg}</option>)}
+              </select>
               <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={it.quantity} onChange={e=>updateItem(idx,{quantity:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
               <select value={it.unit} onChange={e=>updateItem(idx,{unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}>
                 {UNITS.map(u=><option key={u}>{u}</option>)}
@@ -88,7 +110,7 @@ function SupplyRequestForm({
 
       <button onClick={addItem} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
       <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:'8px',marginBottom:'8px'}}>
-        <select value={newSupplyReq.project} onChange={e=>setNewSupplyReq({...newSupplyReq,project:e.target.value})} style={{...inp,marginBottom:0}}>
+        <select value={newSupplyReq.project} onChange={e=>updateProject(e.target.value)} style={{...inp,marginBottom:0}}>
           <option value="">Объект *</option>
           {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
         </select>

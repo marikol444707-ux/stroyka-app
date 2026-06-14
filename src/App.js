@@ -1051,7 +1051,7 @@ function App() {
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
 
   const openReceiveInvoice = (preselectedLocation) => {
-    setNewInvoice({number:'',date:new Date().toISOString().split('T')[0],supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:user?.name||'',location:preselectedLocation||'',project:preselectedLocation&&preselectedLocation!=='Основной склад'?preselectedLocation:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}],supplier:'',totalWithVat:0});
+    setNewInvoice({number:'',date:new Date().toISOString().split('T')[0],supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:user?.name||'',location:preselectedLocation||'',project:preselectedLocation&&preselectedLocation!=='Основной склад'?preselectedLocation:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}],supplier:'',totalWithVat:0});
     setShowReceiveDialog(true);
   };
   const openSystemStatus = async () => {
@@ -1158,7 +1158,7 @@ function App() {
   const [suppliersTab, setSuppliersTab] = useState('active');
   const [supplyTab, setSupplyTab] = useState('inbox');
   const [showSupplyForm, setShowSupplyForm] = useState(false);
-  const [newSupplyReq, setNewSupplyReq] = useState({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',urgency:'обычная',notes:'',category:''});
+  const [newSupplyReq, setNewSupplyReq] = useState({items:[{materialName:'',quantity:'',unit:'шт',workPackage:''}],project:'',urgency:'обычная',notes:'',category:''});
   const [supplyExpandedId, setSupplyExpandedId] = useState(null);
   const [supplyStockCheck, setSupplyStockCheck] = useState(null);
   const [supplyAiText, setSupplyAiText] = useState('');
@@ -1283,7 +1283,7 @@ function App() {
   const [newClient, setNewClient] = useState({name:'',phone:'',email:'',status:'Активный',notes:''});
   const [newWarehouse, setNewWarehouse] = useState({name:'',city:'',address:'',notes:''});
   const [newMovement, setNewMovement] = useState({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
-  const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}]});
+  const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}]});
   const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
   const [newStaff, setNewStaff] = useState(emptyStaffForm());
   const [staffExpandedSections, setStaffExpandedSections] = useState({access:false,docs:false,finance:false,extra:false});
@@ -1317,7 +1317,7 @@ function App() {
   const [newPlItem, setNewPlItem] = useState({name:'',unit:'м2',price:'',category:''});
   const [newInviteRole, setNewInviteRole] = useState('мастер');
   const [newSupplier, setNewSupplier] = useState({name:'',phone:'',email:'',specialization:'',category:'Сыпучие и бетон',rating:5.0,status:'Активный'});
-  const [newRequest, setNewRequest] = useState({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',notes:'',selectedSuppliers:[],category:''});
+  const [newRequest, setNewRequest] = useState({items:[{materialName:'',quantity:'',unit:'шт',workPackage:''}],project:'',notes:'',selectedSuppliers:[],category:''});
   const [newOffer, setNewOffer] = useState({supplierId:'',pricePerUnit:'',deliveryDays:'',notes:''});
   const [newContract, setNewContract] = useState({masterId:'',masterName:'',contractType:'ГПХ',contractNumber:'',project:'',startDate:'',endDate:''});
   const [newAct, setNewAct] = useState({masterId:'',masterName:'',project:'',workPackage:'',periodStart:'',periodEnd:''});
@@ -2259,7 +2259,12 @@ function App() {
       const res = await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newInvoice.newSupplierName,phone:'',email:'',specialization:'',category:'Прочее',rating:5.0,status:'Активный'})});
       const newSup = await res.json(); supplierId = newSup.id;
     }
-    const validItems = newInvoice.items.filter(i=>i.name&&i.quantity);
+    const invoiceProject = newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
+    const invoicePackages = invoiceProject ? getProjectWorkPackageOptions(invoiceProject) : [];
+    const defaultWorkPackage = newInvoice.workPackage || (invoicePackages.length === 1 ? invoicePackages[0] : '');
+    const validItems = newInvoice.items
+      .filter(i=>i.name&&i.quantity)
+      .map(i=>({...i, workPackage:i.workPackage || i.work_package || defaultWorkPackage}));
     const totalBefore = validItems.reduce((s,i)=>s+Number(i.quantity)*Number(i.price||0),0);
     const vatCalc = calcVat(totalBefore, newInvoice.vat);
     const photoUrl = newInvoice.photos && newInvoice.photos.length>0 ? newInvoice.photos[0] : '';
@@ -2280,7 +2285,7 @@ function App() {
     notify('Накладная №'+newInvoice.number+' принята'+(reviewTasksCreated ? ' · задач ИИ-контроля: '+reviewTasksCreated : ''),'invoice');
     addActivity('Принята накладная №'+newInvoice.number);
     await refreshData();
-    setNewInvoice({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:''}]});
+    setNewInvoice({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}]});
     setShowForm(false);
     alert('Накладная принята!'+(reviewTasksCreated ? '\nСоздано задач ИИ-контроля: '+reviewTasksCreated : ''));
   };
@@ -3940,6 +3945,14 @@ function App() {
     return Object.values(groups)
       .map(items=>activeEstimateFromList(items))
       .filter(e=>e && !isArchivedEstimate(e));
+  };
+  const getProjectWorkPackageOptions = (projectName='') => {
+    const project = (projects||[]).find(p=>p.name===projectName);
+    const activePackages = project
+      ? activeEstimatesForProject(project, 'Заказчик').map(estimatePackage).filter(Boolean)
+      : [];
+    const fallback = ESTIMATE_PACKAGES.filter(Boolean);
+    return [...new Set((activePackages.length ? activePackages : fallback).filter(Boolean))];
   };
   const projectMeasurementBasisTotals = (projectName) => {
     const projectRooms = (rooms||[]).filter(r=>r.project===projectName);
@@ -9499,13 +9512,19 @@ function App() {
   const deleteSupplier = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/suppliers/'+id,{method:'DELETE'}); await refreshData(); } };
 
   const saveRequest = async () => {
-    const validItems = newRequest.items.filter(i=>i.materialName&&i.quantity);
+    const requestPackages = getProjectWorkPackageOptions(newRequest.project);
+    const defaultWorkPackage = newRequest.workPackage || (requestPackages.length === 1 ? requestPackages[0] : '');
+    const validItems = newRequest.items
+      .filter(i=>i.materialName&&i.quantity)
+      .map(i=>({...i, workPackage:i.workPackage || defaultWorkPackage}));
     if (!validItems.length||!newRequest.project) return;
-    for (const item of validItems) {
-      await fetch(API+'/supply-requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.materialName,quantity:Number(item.quantity),unit:item.unit,project:newRequest.project,createdBy:user.name,date:new Date().toISOString().split('T')[0],notes:newRequest.notes,selectedSuppliers:newRequest.selectedSuppliers,category:newRequest.category||''})});
-    }
+    const itemsPayload = validItems.map(item=>({materialName:item.materialName,quantity:Number(item.quantity),unit:item.unit||'шт',workPackage:item.workPackage||''}));
+    const requestPackage = Array.from(new Set(itemsPayload.map(i=>i.workPackage).filter(Boolean))).length === 1
+      ? itemsPayload.find(i=>i.workPackage)?.workPackage || ''
+      : '';
+    await fetch(API+'/supply-requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:itemsPayload[0].materialName,quantity:itemsPayload[0].quantity,unit:itemsPayload[0].unit,items:itemsPayload,workPackage:requestPackage,project:newRequest.project,createdBy:user.name,date:new Date().toISOString().split('T')[0],notes:newRequest.notes,selectedSuppliers:newRequest.selectedSuppliers,category:newRequest.category||''})});
     notify('Новая заявка на материалы','supply');
-    await refreshData(); setNewRequest({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',notes:'',selectedSuppliers:[],category:''}); setShowForm(false);
+    await refreshData(); setNewRequest({items:[{materialName:'',quantity:'',unit:'шт',workPackage:''}],project:'',notes:'',selectedSuppliers:[],category:''}); setShowForm(false);
   };
 
   const cancelRequest = async (id) => { await fetch(API+'/supply-requests/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отменена'})}); await refreshData(); };
@@ -9519,11 +9538,17 @@ function App() {
     }
     // ОДНА заявка со ВСЕМИ позициями (items[])
     // backend пакует все позиции в items_json, в material_name пишется агрегат для совместимости
+    const requestPackages = getProjectWorkPackageOptions(newSupplyReq.project);
+    const defaultWorkPackage = newSupplyReq.workPackage || (requestPackages.length === 1 ? requestPackages[0] : '');
     const itemsPayload = valid.map(it => ({
       materialName: it.materialName,
       quantity: Number(it.quantity),
-      unit: it.unit || 'шт'
+      unit: it.unit || 'шт',
+      workPackage: it.workPackage || defaultWorkPackage || ''
     }));
+    const requestPackage = Array.from(new Set(itemsPayload.map(it=>it.workPackage).filter(Boolean))).length === 1
+      ? itemsPayload.find(it=>it.workPackage)?.workPackage || ''
+      : '';
     const r = await fetch(API+'/supply-requests', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
@@ -9533,6 +9558,7 @@ function App() {
         unit: itemsPayload[0].unit,
         // Главное — массив всех позиций
         items: itemsPayload,
+        workPackage: requestPackage,
         project: newSupplyReq.project,
         createdBy: user.name,
         date: new Date().toISOString().split('T')[0],
@@ -9561,7 +9587,7 @@ function App() {
       notify(msg+' — утверждена директором', 'supply');
     }
     await refreshData();
-    setNewSupplyReq({items:[{materialName:'',quantity:'',unit:'шт'}],project:'',urgency:'обычная',notes:'',category:''});
+    setNewSupplyReq({items:[{materialName:'',quantity:'',unit:'шт',workPackage:''}],project:'',urgency:'обычная',notes:'',category:''});
     setShowSupplyForm(false);
   };
 
@@ -9588,7 +9614,7 @@ function App() {
       body: JSON.stringify({
         name: name.trim(),
         category: newSupplyReq.category || '',
-        items: valid.map(it=>({materialName:it.materialName, quantity:Number(it.quantity), unit:it.unit||'шт'})),
+        items: valid.map(it=>({materialName:it.materialName, quantity:Number(it.quantity), unit:it.unit||'шт', workPackage:it.workPackage||''})),
         createdBy: user.name, createdById: user.id,
       })
     });
@@ -9601,8 +9627,8 @@ function App() {
   const applySupplyTemplate = (tplId) => {
     const tpl = (supplyTemplates||[]).find(t=>String(t.id)===String(tplId));
     if (!tpl) return;
-    const items = (tpl.items||[]).map(it=>({materialName:it.materialName, quantity:String(it.quantity||''), unit:it.unit||'шт'}));
-    setNewSupplyReq(prev => ({...prev, items: items.length?items:[{materialName:'',quantity:'',unit:'шт'}], category: tpl.category||prev.category}));
+    const items = (tpl.items||[]).map(it=>({materialName:it.materialName, quantity:String(it.quantity||''), unit:it.unit||'шт', workPackage:it.workPackage||''}));
+    setNewSupplyReq(prev => ({...prev, items: items.length?items:[{materialName:'',quantity:'',unit:'шт',workPackage:''}], category: tpl.category||prev.category}));
   };
 
   const deleteSupplyTemplate = async (tplId) => {
@@ -13318,6 +13344,7 @@ function App() {
               materialControlSummaryForProject={materialControlSummaryForProject}
               materialReconciliationRows={materialReconciliationRows}
               projects={projects}
+              getProjectWorkPackageOptions={getProjectWorkPackageOptions}
               setSelectedWarehouseProject={setSelectedWarehouseProject}
               visibleActiveProjects={visibleActiveProjects}
               showForm={showForm}
@@ -13440,6 +13467,7 @@ function App() {
                 fetchPriceHint={fetchPriceHint}
                 UNITS={UNITS}
                 projects={projects}
+                getProjectWorkPackageOptions={getProjectWorkPackageOptions}
                 renderSupplyPlanningHint={renderSupplyPlanningHint}
                 createSupplyReq={createSupplyReq}
                 saveSupplyTemplate={saveSupplyTemplate}
@@ -13544,6 +13572,7 @@ function App() {
               newRequest={newRequest}
               setNewRequest={setNewRequest}
               projects={projects}
+              getProjectWorkPackageOptions={getProjectWorkPackageOptions}
               units={UNITS}
               saveRequest={saveRequest}
               supplyRequests={supplyRequests}
@@ -14303,7 +14332,7 @@ function App() {
     <EstimateChatModal showEstimateChat={showEstimateChat} setShowEstimateChat={setShowEstimateChat} selectedEstimate={selectedEstimate} C={C} card={card} inp={inp} btnG={btnG} btnO={btnO} isMobile={isMobile} darkMode={darkMode} API={API} estimateChatMessages={estimateChatMessages} setEstimateChatMessages={setEstimateChatMessages} estimateChatLoading={estimateChatLoading} estimateChatInput={estimateChatInput} setEstimateChatInput={setEstimateChatInput} sendEstimateChatMessage={sendEstimateChatMessage}/>
     <EstimateVersionHistoryModal showVersionHistory={showVersionHistory} setShowVersionHistory={setShowVersionHistory} selectedEstimate={selectedEstimate} estimateVersions={estimateVersions} selectedVersionsToCompare={selectedVersionsToCompare} setSelectedVersionsToCompare={setSelectedVersionsToCompare} isMobile={isMobile} C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} API={API} user={user} setSelectedEstimate={setSelectedEstimate} setEstimatesList={setEstimatesList} showPreview={showPreview} buildEstimateDiffContent={buildEstimateDiffContent} estimateItemTotal={estimateItemTotal} setShowAiChat={setShowAiChat} setAiMessages={setAiMessages} setAiLoading={setAiLoading}/>
     <ReceiveMaterialDialog showReceiveDialog={showReceiveDialog} setShowReceiveDialog={setShowReceiveDialog} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnB={btnB} btnG={btnG}/>
-    <ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>
+    <ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} getProjectWorkPackageOptions={getProjectWorkPackageOptions} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>
     <ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} setNewInvoice={setNewInvoice}/>
     <OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>
     <QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setExpandedProject={setExpandedProject} setActiveProjectTab={setActiveProjectTab} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>

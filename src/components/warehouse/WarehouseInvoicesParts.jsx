@@ -7,6 +7,7 @@ export function WarehouseInvoiceForm({
   suppliers,
   projects,
   materialEstimates,
+  getProjectWorkPackageOptions,
   invoiceItems,
   invoiceTotal,
   draftEstimateControl,
@@ -30,6 +31,12 @@ export function WarehouseInvoiceForm({
   UNITS,
   MATERIAL_CATEGORIES,
 }) {
+  const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
+  const packageOptions = invoiceProject && typeof getProjectWorkPackageOptions === 'function'
+    ? getProjectWorkPackageOptions(invoiceProject)
+    : [];
+  const defaultWorkPackage = packageOptions.length === 1 ? packageOptions[0] : '';
+
   const setItem = (idx, patch) => {
     const items = [...invoiceItems];
     items[idx] = {...items[idx], ...patch};
@@ -40,14 +47,29 @@ export function WarehouseInvoiceForm({
     const items = invoiceItems.filter((_, itemIdx) => itemIdx !== idx);
     setNewInvoice({
       ...newInvoice,
-      items: items.length ? items : [{name:'', quantity:'', unit:'шт', price:'', category:''}],
+      items: items.length ? items : [{name:'', quantity:'', unit:'шт', price:'', category:'', workPackage:defaultWorkPackage}],
     });
   };
 
   const addItem = () => {
     setNewInvoice({
       ...newInvoice,
-      items: [...invoiceItems, {name:'', quantity:'', unit:'шт', price:'', category:''}],
+      items: [...invoiceItems, {name:'', quantity:'', unit:'шт', price:'', category:'', workPackage:defaultWorkPackage}],
+    });
+  };
+
+  const updateLocation = (location) => {
+    const nextProject = location === 'Основной склад' ? '' : location;
+    const nextPackages = nextProject && typeof getProjectWorkPackageOptions === 'function'
+      ? getProjectWorkPackageOptions(nextProject)
+      : [];
+    const nextDefault = nextPackages.length === 1 ? nextPackages[0] : '';
+    setNewInvoice({
+      ...newInvoice,
+      location,
+      project: nextProject,
+      workPackage: nextDefault,
+      items: invoiceItems.map(item => ({...item, workPackage: item.workPackage || nextDefault})),
     });
   };
 
@@ -84,7 +106,7 @@ export function WarehouseInvoiceForm({
         </select>
         <div style={{gridColumn:'span 2'}}>
           <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'5px'}}>Куда оприходовать:</label>
-          <select value={newInvoice.location} onChange={event => setNewInvoice({...newInvoice, location: event.target.value, project: event.target.value === 'Основной склад' ? '' : newInvoice.project})} style={inp}>
+          <select value={newInvoice.location} onChange={event => updateLocation(event.target.value)} style={inp}>
             <option value="Основной склад">Основной склад</option>
             {(projects || []).map(project => <option key={project.id} value={project.name}>{project.name}</option>)}
           </select>
@@ -108,7 +130,7 @@ export function WarehouseInvoiceForm({
 
       <b style={{color:C.text,fontSize:'13px',display:'block',marginTop:'15px',marginBottom:'10px'}}>Позиции накладной:</b>
       {invoiceItems.map((item, idx) => (
-        <div key={idx} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 2fr auto',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
+        <div key={idx} style={{display:'grid',gridTemplateColumns:'minmax(180px,3fr) 1fr 1fr 1fr minmax(130px,1.5fr) minmax(140px,1.7fr) auto',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
           <input placeholder="Наименование товара *" value={item.name} onChange={event => setItem(idx, {name: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
           <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={item.quantity} onChange={event => setItem(idx, {quantity: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
           <select value={item.unit} onChange={event => setItem(idx, {unit: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>
@@ -118,6 +140,10 @@ export function WarehouseInvoiceForm({
           <select value={item.category} onChange={event => setItem(idx, {category: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>
             <option value="">Категория</option>
             {MATERIAL_CATEGORIES.map(category => <option key={category}>{category}</option>)}
+          </select>
+          <select value={item.workPackage || ''} onChange={event => setItem(idx, {workPackage: event.target.value})} disabled={!invoiceProject} style={{...inp,marginBottom:0,fontSize:'12px',opacity:invoiceProject?1:0.65}}>
+            <option value="">{invoiceProject ? 'Раздел сметы' : 'Только для объекта'}</option>
+            {packageOptions.map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
           </select>
           <button onClick={() => removeItem(idx)} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
         </div>

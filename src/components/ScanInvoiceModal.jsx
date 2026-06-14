@@ -39,7 +39,8 @@ export default function ScanInvoiceModal({
           quantity:String(item.quantity||''),
           unit:item.unit||'шт',
           price:String(item.price||''),
-          category:''
+          category:'',
+          workPackage:''
         }))
       }));
       setShowScanInvoice(false);
