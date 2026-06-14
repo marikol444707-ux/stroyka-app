@@ -142,10 +142,10 @@ export default function ProjectWorkJournalPanel({
                       </div>
                       {canConfirm && item.status === 'На проверке' && (
                         <>
-                          <button onClick={() => openConfirmModal(item)} style={{...btnGr, padding: '3px 8px', fontSize: '11px'}} title="Принять (можно пересчитать)">
+                          <button onClick={event => { event.stopPropagation(); openConfirmModal(item); }} style={{...btnGr, padding: '3px 8px', fontSize: '11px'}} title="Принять (можно пересчитать)">
                             <Check size={11}/>
                           </button>
-                          <button onClick={() => setRejectingEntry(item)} style={{...btnR, padding: '3px 8px', fontSize: '11px'}} title="Отклонить">
+                          <button onClick={event => { event.stopPropagation(); setRejectingEntry(item); }} style={{...btnR, padding: '3px 8px', fontSize: '11px'}} title="Отклонить">
                             <X size={11}/>
                           </button>
                         </>
@@ -156,7 +156,7 @@ export default function ProjectWorkJournalPanel({
                         <img
                           src={fileSrc(item.photoUrl)}
                           alt=""
-                          onClick={() => setShowPhotoModal(fileSrc(item.photoUrl))}
+                          onClick={event => { event.stopPropagation(); setShowPhotoModal(fileSrc(item.photoUrl)); }}
                           style={{width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover', cursor: 'pointer'}}
                         />
                       )}

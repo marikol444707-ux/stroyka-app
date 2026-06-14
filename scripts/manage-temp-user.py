@@ -71,6 +71,7 @@ def create_or_update_user(args):
     email = args.email.strip().lower()
     project_id, project_name = resolve_project(cur, args.project or "")
     assigned_projects = [project_name] if project_name else []
+    assigned_packages = [p.strip() for p in (args.package or []) if p and p.strip()]
     password_hash = hash_password(args.password)
     cur.execute("SELECT id, email FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1", (email,))
     existing = cur.fetchone()
@@ -85,13 +86,14 @@ def create_or_update_user(args):
                    project_id=%s,
                    project_name=%s,
                    assigned_projects=%s::jsonb,
+                   assigned_packages=%s::jsonb,
                    active=TRUE,
                    failed_login_count=0,
                    locked_until=NULL,
                    reset_token=NULL,
                    reset_token_expires=NULL
              WHERE id=%s
-         RETURNING id, name, email, role, project_name, active
+         RETURNING id, name, email, role, project_name, assigned_packages, active
             """,
             (
                 args.name,
@@ -101,6 +103,7 @@ def create_or_update_user(args):
                 project_id,
                 project_name,
                 json.dumps(assigned_projects, ensure_ascii=False),
+                json.dumps(assigned_packages, ensure_ascii=False),
                 existing["id"],
             ),
         )
@@ -110,10 +113,10 @@ def create_or_update_user(args):
         cur.execute(
             """
             INSERT INTO users
-                (name, email, password, role, project_id, project_name, assigned_projects, active)
+                (name, email, password, role, project_id, project_name, assigned_projects, assigned_packages, active)
             VALUES
-                (%s, %s, %s, %s, %s, %s, %s::jsonb, TRUE)
-            RETURNING id, name, email, role, project_name, active
+                (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, TRUE)
+            RETURNING id, name, email, role, project_name, assigned_packages, active
             """,
             (
                 args.name,
@@ -123,6 +126,7 @@ def create_or_update_user(args):
                 project_id,
                 project_name,
                 json.dumps(assigned_projects, ensure_ascii=False),
+                json.dumps(assigned_packages, ensure_ascii=False),
             ),
         )
         row = cur.fetchone()
@@ -164,7 +168,7 @@ def show_user(args):
     email = args.email.strip().lower()
     cur.execute(
         """
-        SELECT id, name, email, role, project_name, assigned_projects, active, failed_login_count, locked_until
+        SELECT id, name, email, role, project_name, assigned_projects, assigned_packages, active, failed_login_count, locked_until
           FROM users
          WHERE LOWER(email)=LOWER(%s)
          LIMIT 1
@@ -189,6 +193,7 @@ def build_parser():
     create_cmd.add_argument("--password", required=True, help="Пароль")
     create_cmd.add_argument("--role", default="зам_директора", help="Системная роль")
     create_cmd.add_argument("--project", default="", help="Имя проекта для привязки")
+    create_cmd.add_argument("--package", action="append", default=[], help="Пакет работ для assignedPackages; можно передать несколько раз")
     create_cmd.set_defaults(func=create_or_update_user)
 
     disable_cmd = sub.add_parser("disable", help="Отключить пользователя")

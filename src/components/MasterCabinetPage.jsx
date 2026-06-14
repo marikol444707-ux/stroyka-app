@@ -605,13 +605,13 @@ export default function MasterCabinetPage(props) {
                                     const hasStock = toNum(available?.quantity) > 0;
                                     const status = materialControlStatus(suggestion);
                                     const norm = materialNormForWork(project.name, item.name, item.section, delta, item.unit, { name: suggestion.name, unit }, estimateWorkParams[workKey] || {});
-                                    const writeQty = norm ? capMaterialWriteoffQty(project.name, suggestion.name, norm.quantity) : '';
+                                    const writeQty = norm ? capMaterialWriteoffQty(project.name, suggestion.name, norm.quantity, item.workPackage) : '';
                                     return (
                                       <button
                                         type="button"
                                         key={key}
                                         disabled={!hasStock}
-                                        onClick={() => checked ? removeEstimateWorkMaterial(workKey, suggestion.name) : upsertEstimateWorkMaterial(workKey, { name: suggestion.name, unit, autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, writeQty)}
+                                        onClick={() => checked ? removeEstimateWorkMaterial(workKey, suggestion.name) : upsertEstimateWorkMaterial(workKey, { name: suggestion.name, unit, workPackage: item.workPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, writeQty)}
                                         style={{ padding: '4px 7px', borderRadius: '7px', border: '1px solid ' + (checked ? C.accentBorder : status.border), backgroundColor: checked ? C.accentLight : status.bg, color: hasStock ? (checked ? C.accent : status.color) : C.textMuted, cursor: hasStock ? 'pointer' : 'not-allowed', fontSize: '10px', fontWeight: '600' }}
                                       >
                                         {(checked ? '✓ ' : '') + suggestion.name + (norm ? ' · норма ' + fmtMeasure(norm.quantity, unit) + (writeQty && toNum(writeQty) < toNum(norm.quantity) ? ' · доступно ' + fmtMeasure(writeQty, unit) : '') : (hasStock ? ' · ' + fmtMeasure(available.quantity, available.unit) : ''))}
@@ -634,7 +634,7 @@ export default function MasterCabinetPage(props) {
                                     const over = checked && toNum(selected.quantity) > stock;
                                     return (
                                       <div key={material.id} style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr) auto', gap: '6px', alignItems: 'center', fontSize: '11px', padding: '5px 6px', border: '1px solid ' + (over ? C.dangerBorder : checked ? C.accentBorder : C.border), borderRadius: '7px' }}>
-                                        <input type="checkbox" checked={checked} onChange={e => e.target.checked ? upsertEstimateWorkMaterial(workKey, { name: material.name, unit: material.unit || 'шт', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, norm ? capMaterialWriteoffQty(project.name, material.name, norm.quantity) : '') : removeEstimateWorkMaterial(workKey, material.name)} style={{ width: '14px', height: '14px', accentColor: C.accent }} />
+                                        <input type="checkbox" checked={checked} onChange={e => e.target.checked ? upsertEstimateWorkMaterial(workKey, { name: material.name, unit: material.unit || 'шт', workPackage: item.workPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, norm ? capMaterialWriteoffQty(project.name, material.name, norm.quantity, item.workPackage) : '') : removeEstimateWorkMaterial(workKey, material.name)} style={{ width: '14px', height: '14px', accentColor: C.accent }} />
                                         <span style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                           {material.name}
                                           <span style={{ color: over ? C.danger : C.textSec }}>
@@ -779,13 +779,13 @@ export default function MasterCabinetPage(props) {
                                             const status = materialControlStatus(suggestion);
                                             const unit = available?.unit || suggestion.unit || 'шт';
                                             const norm = materialNormForWork(project.name, item.name, category, toNum(selectedWorks[item.id]?.quantity), item.unit, { name: suggestion.name, unit }, selectedWorks[item.id] || {});
-                                            const writeQty = norm ? capMaterialWriteoffQty(project.name, suggestion.name, norm.quantity) : '';
+                                            const writeQty = norm ? capMaterialWriteoffQty(project.name, suggestion.name, norm.quantity, scopedPackage) : '';
                                             return (
                                               <button
                                                 type="button"
                                                 key={'sug-' + key}
                                                 disabled={!hasStock}
-                                                onClick={() => checked ? removeSelectedWorkMaterial(item.id, suggestion.name) : upsertSelectedWorkMaterial(item.id, { name: suggestion.name, unit, autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, writeQty)}
+                                                onClick={() => checked ? removeSelectedWorkMaterial(item.id, suggestion.name) : upsertSelectedWorkMaterial(item.id, { name: suggestion.name, unit, workPackage: scopedPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, writeQty)}
                                                 style={{ padding: '5px 8px', borderRadius: '8px', border: '1px solid ' + (checked ? C.accentBorder : status.border), backgroundColor: checked ? C.accentLight : status.bg, color: hasStock ? (checked ? C.accent : status.color) : C.textMuted, cursor: hasStock ? 'pointer' : 'not-allowed', fontSize: '10px', fontWeight: '600' }}
                                               >
                                                 {(checked ? '✓ ' : '') + suggestion.name + ' · ' + (norm ? 'норма ' + fmtMeasure(norm.quantity, unit) + (writeQty && toNum(writeQty) < toNum(norm.quantity) ? ' · доступно ' + fmtMeasure(writeQty, unit) : '') : (hasStock ? 'доступно ' + fmtMeasure(available.quantity, available.unit) : isPersonalMaterialRole() ? 'не выдано мне' : 'нет на объекте'))}
@@ -809,7 +809,7 @@ export default function MasterCabinetPage(props) {
                                             const status = hint ? materialControlStatus(hint) : null;
                                             return (
                                               <div key={material.id} style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr) auto', alignItems: 'center', gap: '8px', padding: '7px 8px', backgroundColor: checked ? C.bgWhite : 'transparent', border: '1px solid ' + (over ? C.dangerBorder : checked ? C.accentBorder : C.border), borderRadius: '8px', fontSize: '11px' }}>
-                                                <input type="checkbox" checked={checked} onChange={e => e.target.checked ? upsertSelectedWorkMaterial(item.id, { name: material.name, unit: material.unit || 'шт', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, norm ? capMaterialWriteoffQty(project.name, material.name, norm.quantity) : '') : removeSelectedWorkMaterial(item.id, material.name)} style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: C.accent }} />
+                                                <input type="checkbox" checked={checked} onChange={e => e.target.checked ? upsertSelectedWorkMaterial(item.id, { name: material.name, unit: material.unit || 'шт', workPackage: scopedPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, norm ? capMaterialWriteoffQty(project.name, material.name, norm.quantity, scopedPackage) : '') : removeSelectedWorkMaterial(item.id, material.name)} style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: C.accent }} />
                                                 <div style={{ minWidth: 0 }}>
                                                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                                                     <b style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis' }}>{material.name}</b>

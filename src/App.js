@@ -7634,7 +7634,8 @@ function App() {
   };
   const autoFillNormMaterialsForWork = (projectName, workName, sectionName, workQty, workUnit, currentMaterials=[], params={}) => {
     if (!projectName || toNum(workQty)<=0) return currentMaterials || [];
-    const available = materialRowsAvailableForWork(projectName);
+    const workPackage = params.workPackage || params.work_package || '';
+    const available = materialRowsAvailableForWork(projectName, workPackage);
     const matches = available.map(m=>({material:m, norm:materialNormForWork(projectName, workName, sectionName, workQty, workUnit, m, params)})).filter(x=>x.norm);
     if (!matches.length) return currentMaterials || [];
     const byRule = {};
@@ -7654,7 +7655,7 @@ function App() {
         normSource: match.norm.normSource
       };
       if (m.autoNorm || m.quantity==='' || m.quantity===undefined || m.quantity===null) {
-        return {...m, ...patch, quantity: capMaterialWriteoffQty(projectName, m.name, match.norm.quantity), autoNorm: true};
+        return {...m, ...patch, quantity: capMaterialWriteoffQty(projectName, m.name, match.norm.quantity, patch.workPackage), autoNorm: true};
       }
       return {...m, ...patch, autoNorm: false};
     });
@@ -7665,7 +7666,7 @@ function App() {
         name:x.material.name,
         unit:x.norm.unit || x.material.unit || 'шт',
         workPackage:x.material.workPackage || '',
-        quantity:capMaterialWriteoffQty(projectName, x.material.name, x.norm.quantity),
+        quantity:capMaterialWriteoffQty(projectName, x.material.name, x.norm.quantity, x.material.workPackage || ''),
         autoNorm:true,
         normQuantity:x.norm.normQuantity,
         normSource:x.norm.normSource
@@ -7887,10 +7888,11 @@ function App() {
     return {label:'экономия '+fmtMeasure(Math.abs(diff),m.unit), color:C.info, bg:C.infoLight, border:C.infoBorder};
   };
   const materialWriteoffRows = (projectName, usedMaterials=[]) => {
-    const stockByName = materialAvailabilityMapForWork(projectName);
     return (usedMaterials||[])
       .filter(m=>m?.name)
       .map(m=>{
+        const workPackage = m.workPackage || m.work_package || '';
+        const stockByName = materialAvailabilityMapForWork(projectName, workPackage);
         const key = materialNameKey(m.name);
         const stock = stockByName[key] || null;
         const qty = toNum(m.quantity);
@@ -7919,14 +7921,14 @@ function App() {
         };
       });
   };
-  const materialWriteoffAvailableQty = (projectName, materialName) => {
-    const stock = materialAvailabilityMapForWork(projectName)[materialNameKey(materialName)];
+  const materialWriteoffAvailableQty = (projectName, materialName, workPackage='') => {
+    const stock = materialAvailabilityMapForWork(projectName, workPackage)[materialNameKey(materialName)];
     return stock ? toNum(stock.quantity) : 0;
   };
-  const capMaterialWriteoffQty = (projectName, materialName, quantity) => {
+  const capMaterialWriteoffQty = (projectName, materialName, quantity, workPackage='') => {
     const qty = toNum(quantity);
     if (qty <= 0) return quantity || '';
-    const available = materialWriteoffAvailableQty(projectName, materialName);
+    const available = materialWriteoffAvailableQty(projectName, materialName, workPackage);
     if (available > 0 && qty > available) return Math.round(available * 1000) / 1000;
     return qty;
   };

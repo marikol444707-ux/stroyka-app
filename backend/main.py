@@ -6787,6 +6787,46 @@ def _work_material_items(raw, fallback_package: str = ""):
         })
     return items
 
+def _validate_work_material_norm_reasons(items):
+    for material in items or []:
+        name = (material.get("name") or "").strip()
+        qty = _float_or_zero(material.get("quantity"))
+        norm_qty = _float_or_zero(material.get("normQuantity") or material.get("norm_quantity"))
+        if not name or qty <= 0 or norm_qty <= 0:
+            continue
+        tolerance = max(0.001, norm_qty * 0.10)
+        if qty <= norm_qty + tolerance:
+            continue
+        reason = (material.get("overNormReason") or material.get("over_norm_reason") or "").strip()
+        if not reason:
+            over_qty = round(qty - norm_qty, 3)
+            unit = material.get("unit") or "шт"
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Списание материала «" + name + "» выше нормы на "
+                    + str(over_qty) + " " + unit
+                    + ". Укажите причину перерасхода перед сохранением ЖПР"
+                ),
+            )
+
+def _force_work_material_package(items, work_package: str):
+    target_package = (work_package or "").strip()
+    for material in items or []:
+        current_package = (material.get("workPackage") or material.get("work_package") or "").strip()
+        if current_package and current_package != target_package:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Материал «" + ((material.get("name") or "").strip() or "(без названия)")
+                    + "» относится к пакету «" + current_package
+                    + "», а работа закрывается по пакету «" + (target_package or "Без пакета") + "»"
+                ),
+            )
+        material["workPackage"] = target_package
+        material.pop("work_package", None)
+    return items
+
 def _work_material_key(material: dict):
     return (
         (material.get("name") or "").strip().lower(),
@@ -7103,6 +7143,9 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
     require_project_access(_current_user, w.project)
     if _current_user.get("role") in PACKAGE_LIMIT_ROLES and (w.workPackage or "") != "Прайс" and not has_package_access(_current_user, w.workPackage):
         raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+    if _current_user.get("role") in ("мастер", "субподрядчик"):
+        if str(w.masterId or "") != str(_current_user.get("id") or "") and (w.masterName or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
+            raise HTTPException(status_code=403, detail="Мастер может создавать ЖПР только от своего имени")
     used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
 
     conn = get_db()
@@ -7118,9 +7161,9 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
             description=w.description,
             work_package=w.workPackage,
         ))
+        used = _force_work_material_package(used, w.workPackage or "")
+        _validate_work_material_norm_reasons(used)
         for m in used:
-            if not m.get("workPackage") and not m.get("work_package"):
-                m["workPackage"] = w.workPackage or ""
             _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
 
         import json as _json
@@ -7257,6 +7300,10 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
         if package_changed:
             target_package = data.get("workPackage") or ""
             new_materials = [{**m, "workPackage": target_package} for m in new_materials]
+    if new_materials is not None:
+        target_material_package = data.get("workPackage", project_row.get("work_package") if project_row else "")
+        new_materials = _force_work_material_package(new_materials, target_material_package or "")
+        _validate_work_material_norm_reasons(new_materials)
     if any(k in data for k in ("roomId", "roomName", "estimateItemKey", "description")):
         _raise_work_journal_duplicate(_work_journal_duplicate(
             cur,
@@ -11047,6 +11094,25 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 return customer_price * value, "coefficient:" + key
         return customer_price, "customer_fallback"
 
+    def _sections_equal_except_done(old_list, new_list):
+        if len(old_list or []) != len(new_list or []):
+            return False
+        for old_section, new_section in zip(old_list or [], new_list or []):
+            old_items = old_section.get("items") or []
+            new_items = new_section.get("items") or []
+            if len(old_items) != len(new_items):
+                return False
+            old_section_clean = {k: v for k, v in (old_section or {}).items() if k != "items"}
+            new_section_clean = {k: v for k, v in (new_section or {}).items() if k != "items"}
+            if old_section_clean != new_section_clean:
+                return False
+            for old_item, new_item in zip(old_items, new_items):
+                old_clean = {k: v for k, v in (old_item or {}).items() if k != "doneQuantity"}
+                new_clean = {k: v for k, v in (new_item or {}).items() if k != "doneQuantity"}
+                if old_clean != new_clean:
+                    return False
+        return True
+
     old_sections = []
     if prev and prev[0]:
         try:
@@ -11077,6 +11143,9 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     new_work_package = data.get("workPackage") or data.get("work_package") or prev[5] or "Основная"
     prev_status = prev[4] or "Черновик"
     current_work_package = prev[5] or "Основная"
+    if _current_user.get("role") in ("мастер", "субподрядчик") and not _sections_equal_except_done(old_sections, new_sections):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Исполнитель может менять в смете только выполненный объём")
     if _current_user.get("role") in PACKAGE_LIMIT_ROLES and (
         not has_package_access(_current_user, current_work_package)
         or not has_package_access(_current_user, new_work_package)
@@ -11187,6 +11256,9 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 room_id = None
             estimate_item_key = journal_params.get("estimateItemKey") or journal_params.get("_estimateItemKey") or (str(id) + ":" + str(section_idx) + ":" + str(item_idx))
             try:
+                work_package_for_journal = journal_params.get("workPackage") or new_work_package
+                if _current_user.get("role") in PACKAGE_LIMIT_ROLES and work_package_for_journal != "Прайс" and not has_package_access(_current_user, work_package_for_journal):
+                    raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
                 _raise_work_journal_duplicate(_work_journal_duplicate(
                     cur,
                     project_name,
@@ -11194,11 +11266,11 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     room_name=journal_params.get("roomName") or "",
                     estimate_item_key=estimate_item_key,
                     description=it.get("name",""),
+                    work_package=work_package_for_journal,
                 ))
-                work_package_for_journal = journal_params.get("workPackage") or new_work_package
+                used_materials = _force_work_material_package(used_materials, work_package_for_journal)
+                _validate_work_material_norm_reasons(used_materials)
                 for m in used_materials:
-                    if isinstance(m, dict) and not m.get("workPackage") and not m.get("work_package"):
-                        m["workPackage"] = work_package_for_journal
                     _apply_material_work_writeoff(cur, project_name, m, _current_user, today, brigade)
                 materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal
