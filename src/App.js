@@ -8883,6 +8883,18 @@ function App() {
     lowStock.forEach(m=>issues.push({severity:'Внимание',project:m.project||'Объект',where:m.name,problem:'Остаток ниже минимума: '+fmtMeasure(m.quantity,m.unit),action:'Создать заявку или перемещение'}));
     (supplyRequests||[]).filter(r=>r.status==='Новая'||r.status==='Подтверждена прорабом').forEach(r=>issues.push({severity:r.status==='Новая'?'Внимание':'Критично',project:r.project||'',where:r.materialName||'Заявка #'+r.id,problem:'Заявка ждёт решения: '+(r.status||'Новая'),action:'Открыть снабжение'}));
     (supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).forEach(i=>issues.push({severity:'Критично',project:i.projectName||i.project||'',where:i.supplierName||'Поставщик',problem:'Счёт ждёт утверждения: '+fmtDocMoney(i.amount||i.totalAmount),action:'Утвердить или отклонить'}));
+    (invoices||[]).filter(inv=>(inv.location||'')!=='Основной склад').slice(0,80).forEach(inv=>{
+      warehouseInvoiceEstimateControl(inv).filter(invoiceControlNeedsReview).slice(0,4).forEach(ctrl=>{
+        const severe = ctrl.status==='Вне сметы' || toNum(ctrl.overQty)>0;
+        issues.push({
+          severity: severe ? 'Критично' : 'Внимание',
+          project: invoiceControlProjectName(inv, ctrl),
+          where: invoiceControlMaterialName(ctrl, ctrl) || ('Накладная #'+(inv.id||inv.number||'')),
+          problem: 'Накладная №'+(inv.number||inv.id||'')+': '+invoiceControlReviewReason(ctrl),
+          action: 'Создать/открыть задачу сметчику или директору'
+        });
+      });
+    });
     activeDirectorProjects().slice(0,12).forEach(p=>{
       const materialRows = materialReconciliationRows(p.name);
       materialRows.filter(r=>r.toBuy>0).slice(0,3).forEach(r=>issues.push({severity:'Внимание',project:p.name,where:r.name,problem:'К закупке по плану: '+fmtMeasure(r.toBuy,r.unit),action:'Проверить заявку/поставку'}));
