@@ -539,6 +539,40 @@ const fmtMeasure = (qty, unit) => {
   const qStr = Math.abs(q - Math.round(q)) < 0.001 ? String(Math.round(q)) : q.toLocaleString('ru-RU', {maximumFractionDigits: 3});
   return qStr + ' ' + (n.unit||'');
 };
+const estimateLineTotalSourceLabel = (source) => ({
+  current_total: 'сумма из сметы',
+  direct_total: 'сумма из строки',
+  total_column: 'итоговая колонка',
+  unit_price_x_quantity: 'цена × объем',
+  base_total_x_index: 'база × индекс',
+  base_total_x_summary_index: 'база × индекс раздела',
+  base_total: 'базовая сумма',
+  contract_total: 'сумма договора',
+  fallback_scan: 'найдено рядом',
+  reconciliation_to_declared_total: 'сверка до итога',
+})[String(source || '').trim()] || String(source || '').trim();
+const estimateImportLineMeta = (item={}, qtyNorm={}) => {
+  if (!item?.isImported) return '';
+  const rawQtyPresent = item.rawQuantity !== undefined && item.rawQuantity !== null && item.rawQuantity !== '';
+  const rawQty = rawQtyPresent ? toNum(item.rawQuantity) : null;
+  const rawUnit = String(item.rawUnit || '').trim();
+  const unitFactor = toNum(item.unitFactor) || 1;
+  const quantityCoefficient = toNum(item.quantityCoefficient) || 0;
+  const workingQty = Number.isFinite(Number(qtyNorm.qty)) ? Number(qtyNorm.qty) : normalizeMeasure(item.quantity, item.unit).qty;
+  const workingUnit = qtyNorm.unit || item.unit || '';
+  const parts = [];
+  if (rawQtyPresent) parts.push(`исх. объем ${rawQty.toLocaleString('ru-RU', {maximumFractionDigits: 6})}`);
+  if (rawUnit) parts.push(`исх. ед. ${rawUnit}`);
+  if (unitFactor > 1) parts.push(`множитель ед. ×${unitFactor.toLocaleString('ru-RU')}`);
+  if (quantityCoefficient && Math.abs(quantityCoefficient - 1) > 0.000001) parts.push(`кф. объема ${quantityCoefficient.toLocaleString('ru-RU', {maximumFractionDigits: 6})}`);
+  if (Number.isFinite(workingQty)) parts.push(`раб. объем ${workingQty.toLocaleString('ru-RU', {maximumFractionDigits: 3})} ${workingUnit}`.trim());
+  if (item.lineTotalSource) parts.push(`сумма: ${estimateLineTotalSourceLabel(item.lineTotalSource)}`);
+  if (item.currentTotal) parts.push(`тек. ${toNum(item.currentTotal).toLocaleString('ru-RU', {maximumFractionDigits: 2})}`);
+  else if (item.lineTotal) parts.push(`строка ${toNum(item.lineTotal).toLocaleString('ru-RU', {maximumFractionDigits: 2})}`);
+  if (item.baseTotal) parts.push(`база ${toNum(item.baseTotal).toLocaleString('ru-RU', {maximumFractionDigits: 2})}`);
+  if (item.costIndex) parts.push(`инд. ${toNum(item.costIndex).toLocaleString('ru-RU', {maximumFractionDigits: 4})}`);
+  return parts.filter(Boolean).join(' · ');
+};
 const estimateMaterialPlanIssue = (it={}, sectionName='') => {
   if (!isEstimateMaterialItem(it, sectionName)) return '';
   const qty = toNum(it.quantity);
@@ -13957,7 +13991,7 @@ function App() {
                       <th style={{...tblH,width:'180px'}}>Сумма</th>
                       <th style={{...tblH,width:'48px'}}></th>
                     </tr></thead><tbody>
-		                      {groupRows.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const executionPrice=Number(item.executionPricePerUnit||item.internalPricePerUnit||item.masterPricePerUnit||0);const importedLineTotal=estimateItemTotal(item);const importedUnitPrice=qty>0?importedLineTotal/qty:0;const importMeta=item.isImported?[item.rawQuantity!==undefined&&item.rawQuantity!==null&&item.rawQuantity!==''?'исх. '+Number(item.rawQuantity).toLocaleString('ru-RU'):'',item.rawUnit?'ед. '+item.rawUnit:'',item.unitFactor&&Number(item.unitFactor)>1?'×'+Number(item.unitFactor).toLocaleString('ru-RU'):'',item.quantityCoefficient!==undefined&&item.quantityCoefficient!==null&&item.quantityCoefficient!==''?'кф. '+Number(item.quantityCoefficient).toLocaleString('ru-RU'):'',item.baseTotal?'база '+Number(item.baseTotal).toLocaleString('ru-RU'):'',item.costIndex?'инд. '+Number(item.costIndex).toLocaleString('ru-RU'):'',item.currentTotal?'тек. '+Number(item.currentTotal).toLocaleString('ru-RU'):'' ].filter(Boolean).join(' · '):'';const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
+		                      {groupRows.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const executionPrice=Number(item.executionPricePerUnit||item.internalPricePerUnit||item.masterPricePerUnit||0);const importedLineTotal=estimateItemTotal(item);const importedUnitPrice=qty>0?importedLineTotal/qty:0;const importMeta=estimateImportLineMeta(item,qtyNorm);const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
 	                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'13px',width:'18px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
 	                        <td style={tblC}>{autoPill(meta.icon,meta.label)}</td>
                           <td style={tblC}>{autoPill(basisMeta.icon,isWork?basisMeta.label:'—',!isWork)}</td>
