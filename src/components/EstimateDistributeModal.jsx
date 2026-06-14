@@ -3,6 +3,27 @@ import { Bot, X } from 'lucide-react';
 import EstimateDistributeBrigadesPanel from './EstimateDistributeBrigadesPanel';
 import EstimateDistributeItemsTable from './EstimateDistributeItemsTable';
 
+function isDistributableWorkItem(item) {
+  const rawType = String(item?.itemType || item?.type || item?.kind || 'work').toLowerCase();
+  const priceWork = Number(item?.priceWork || 0);
+  const priceMaterial = Number(item?.priceMaterial || 0);
+  if (['material', 'материал', 'materials', 'материалы', 'equipment', 'оборудование', 'delivery', 'доставка', 'other', 'прочее'].some(t => rawType.includes(t))) return false;
+  if (priceWork <= 0 && priceMaterial > 0) return false;
+  return true;
+}
+
+function getDistributableWorkRows(estimate) {
+  const rows = [];
+  (estimate?.sections || []).forEach((section, sectionIndex) => {
+    (section.items || []).forEach((item, itemIndex) => {
+      if (isDistributableWorkItem(item)) {
+        rows.push({ section, sectionIndex, item, itemIndex, key: sectionIndex + '-' + itemIndex });
+      }
+    });
+  });
+  return rows;
+}
+
 export default function EstimateDistributeModal({
   showDistribute,
   setShowDistribute,
@@ -26,6 +47,7 @@ export default function EstimateDistributeModal({
   loadAll,
 }) {
   if (!showDistribute || !selectedEstimate) return null;
+  const workRows = getDistributableWorkRows(selectedEstimate);
 
   const suggestWithAi = async () => {
     if(distributeBrigades.length===0){alert('Сначала добавьте бригады');return;}
@@ -35,12 +57,10 @@ export default function EstimateDistributeModal({
       const data=await res.json();
       if(data.ok&&Array.isArray(data.assignments)){
         const newAssign={};
-        let flatIdx=0;
-        (selectedEstimate.sections||[]).forEach((s,si)=>(s.items||[]).forEach((it,ii)=>{
-          const a=data.assignments.find(a=>a.itemIndex===flatIdx);
-          if(a) newAssign[si+'-'+ii]=a.brigadeName;
-          flatIdx++;
-        }));
+        data.assignments.forEach((a) => {
+          const row = workRows[Number(a.itemIndex)];
+          if (row && a.brigadeName) newAssign[row.key] = a.brigadeName;
+        });
         setDistributeAssignments(newAssign);
         alert('ИИ распределил позиции — проверьте и поправьте если нужно');
       }else alert('ИИ не справился, распределите вручную');
@@ -50,13 +70,13 @@ export default function EstimateDistributeModal({
 
   const createContracts = async () => {
     const assignments=[];
-    (selectedEstimate.sections||[]).forEach((s,si)=>(s.items||[]).forEach((it,ii)=>{
-      const bname=distributeAssignments[si+'-'+ii];
+    workRows.forEach(({section:s,item:it,key})=>{
+      const bname=distributeAssignments[key];
       if(bname){
         const bdata=distributeBrigades.find(b=>b.name===bname);
-        assignments.push({section:s.name,name:it.name,unit:it.unit||'шт',quantity:Number(it.quantity||0),priceSmeta:Number(it.priceWork||0),brigadeName:bname,contractorType:bdata?.contractorType||'Своя бригада',pricelistId:bdata?.pricelistId||null});
+        assignments.push({section:s.name,name:it.name,unit:it.unit||'шт',quantity:Number(it.quantity||0),priceSmeta:Number(it.priceWork||0),itemType:it.type||it.itemType||'work',brigadeName:bname,contractorType:bdata?.contractorType||'Своя бригада',pricelistId:bdata?.pricelistId||null});
       }
-    }));
+    });
     if(!assignments.length){alert('Ничего не назначено');return;}
     setDistributing(true);
     try{

@@ -109,6 +109,16 @@ def _check_known_regressions(file_name, items, errors):
             "Грунтовка акриловая НОРТЕКС-ГРУНТ",
             item_type="material", unit="кг", total_min=1,
         )
+        _assert_regression_item(
+            errors, file_name, items,
+            "Дюбели монтажные",
+            item_type="material", unit="шт", quantity=39.678, total_min=1,
+        )
+        _assert_regression_item(
+            errors, file_name, items,
+            "Клинья пластиковые монтажные",
+            item_type="material", unit="шт", quantity=81.6, total_min=1,
+        )
     elif file_name == "Электрика на 12 208 784,66.xlsx":
         _assert_regression_item(
             errors, file_name, items,
@@ -153,6 +163,17 @@ async def _check_file(parse_smeta, path):
         errors.append(
             f"{Path(path).name}: huge quantity {sample.get('quantity')} "
             f"{sample.get('unit')} in {str(sample.get('name'))[:80]}"
+        )
+
+    service_material_rows = [
+        item for item in items
+        if item.get("type") == "material"
+        and _norm_text(item.get("name")) in ("материалы", "материал", "строительные материалы")
+    ]
+    if service_material_rows:
+        sample = service_material_rows[0]
+        errors.append(
+            f"{Path(path).name}: service row imported as material: {str(sample.get('name'))[:80]}"
         )
 
     zero_work_sum = [

@@ -279,7 +279,7 @@ def has_package_access(user: dict, work_package: str = "") -> bool:
         return True
     packages = user_package_names(user)
     if not packages:
-        return True
+        return user.get("role") not in ("мастер", "субподрядчик", "бригадир")
     return bool((work_package or "").strip() in packages)
 
 def enrich_worker_project_links(cur, user: dict) -> dict:
@@ -10291,6 +10291,11 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
                         ORDER BY e.id DESC""")
     elif allowed_projects is None:
         cur.execute(f"SELECT {base_cols} FROM estimates e ORDER BY e.id DESC")
+    elif restrict_packages and not package_names:
+        cur.execute(f"""SELECT {base_cols} FROM estimates e
+                        WHERE COALESCE(e.is_template,FALSE)=TRUE
+                          AND COALESCE(e.project_name,'')=''
+                        ORDER BY e.id DESC""")
     else:
         query = f"""SELECT {base_cols} FROM estimates e
                     WHERE e.project_name = ANY(%s)"""
@@ -11840,6 +11845,11 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
         bname = (a.get("brigadeName") or "").strip()
         if not bname:
             continue
+        item_type = str(a.get("itemType") or a.get("type") or "work").lower()
+        if any(t in item_type for t in ("material", "материал", "equipment", "оборудование", "delivery", "доставка", "other", "прочее")):
+            continue
+        if float(a.get("priceSmeta") or a.get("priceWork") or 0) <= 0:
+            continue
         key = bname.lower()
         if key not in brigades_map:
             brigades_map[key] = {
@@ -11850,6 +11860,10 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
                 "items": [],
             }
         brigades_map[key]["items"].append(a)
+
+    if not brigades_map:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Нет рабочих позиций для распределения")
 
     # Load pricelists once for coefficient lookup
     cur.execute("SELECT id, coefficient FROM pricelists")
