@@ -2997,6 +2997,11 @@ class StaffModel(BaseModel):
     cardNumber: Optional[str] = ""
     signatureUrl: Optional[str] = ""
     notes: Optional[str] = ""
+    email: Optional[str] = ""
+    password: Optional[str] = ""
+    systemRole: Optional[str] = ""
+    assignedProjects: list[str] = []
+    assignedPackages: list[str] = []
 
 class PieceworkModel(BaseModel):
     staffId: str
@@ -4013,6 +4018,84 @@ STAFF_INSERT_COLS = """name, role, phone, salary, project, pay_type,
     signature_url, notes"""
 STAFF_PLACEHOLDERS = ",".join(["%s"] * 37)
 
+STAFF_ACCESS_ROLES = (
+    "директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер",
+    "сметчик", "мастер", "субподрядчик", "бригадир", "кладовщик", "снабженец",
+    "технадзор", "стройконтроль", "менеджер_crm",
+)
+
+def _sync_staff_access(cur, s: StaffModel):
+    email = ((s.email or s.emailWork or "") or "").strip().lower()
+    password = ((s.password or "") or "").strip()
+    role = ((s.systemRole or "") or "").strip()
+    has_access_input = bool(email or password or role or s.assignedProjects or s.assignedPackages)
+    if not has_access_input:
+        return None
+    if not email or not role:
+        raise HTTPException(status_code=400, detail="Для доступа сотрудника нужны системная роль и email")
+    if role not in STAFF_ACCESS_ROLES:
+        raise HTTPException(status_code=400, detail="Недопустимая системная роль: " + role)
+    if password and len(password) < 5:
+        raise HTTPException(status_code=400, detail="Пароль минимум 5 символов")
+
+    assigned_projects = _safe_project_list(s.assignedProjects or [])
+    assigned_packages = _safe_project_list(s.assignedPackages or [])
+    project_name = (s.project or "").strip()
+    project_id = None
+    if project_name:
+        cur.execute("SELECT id FROM projects WHERE name=%s LIMIT 1", (project_name,))
+        project_row = cur.fetchone()
+        if project_row:
+            project_id = project_row.get("id") if isinstance(project_row, dict) else project_row[0]
+    if project_name and project_name not in assigned_projects and role in ("прораб", "технадзор", "стройконтроль", "мастер", "субподрядчик", "бригадир"):
+        assigned_projects.append(project_name)
+
+    cur.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1", (email,))
+    existing = cur.fetchone()
+    user_id = existing.get("id") if isinstance(existing, dict) and existing else (existing[0] if existing else None)
+    full_name = (s.name or "Сотрудник").strip()
+    if user_id:
+        if password:
+            cur.execute("""
+                UPDATE users
+                   SET name=%s, email=%s, password=%s, role=%s, project_id=%s, project_name=%s,
+                       assigned_projects=%s::jsonb, assigned_packages=%s::jsonb,
+                       active=TRUE, failed_login_count=0, locked_until=NULL
+                 WHERE id=%s
+            """, (full_name, email, hash_password(password), role, project_id, project_name,
+                  json.dumps(assigned_projects), json.dumps(assigned_packages), user_id))
+            action = "password_updated"
+        else:
+            cur.execute("""
+                UPDATE users
+                   SET name=%s, email=%s, role=%s, project_id=%s, project_name=%s,
+                       assigned_projects=%s::jsonb, assigned_packages=%s::jsonb,
+                       active=TRUE, locked_until=NULL
+                 WHERE id=%s
+            """, (full_name, email, role, project_id, project_name,
+                  json.dumps(assigned_projects), json.dumps(assigned_packages), user_id))
+            action = "updated"
+    else:
+        if not password:
+            raise HTTPException(status_code=400, detail="Для нового доступа сотрудника нужен пароль")
+        cur.execute("""
+            INSERT INTO users (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active)
+            VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,TRUE)
+            RETURNING id
+        """, (full_name, email, hash_password(password), role, project_id, project_name,
+              json.dumps(assigned_projects), json.dumps(assigned_packages)))
+        new_row = cur.fetchone()
+        user_id = new_row.get("id") if isinstance(new_row, dict) else new_row[0]
+        action = "created"
+    return {
+        "id": user_id,
+        "email": email,
+        "role": role,
+        "action": action,
+        "assignedProjects": assigned_projects,
+        "assignedPackages": assigned_packages,
+    }
+
 @app.get("/staff")
 def get_staff(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") not in STAFF_MANAGE_ROLES and current_user.get("role") not in ("прораб", "главный_инженер"):
@@ -4037,31 +4120,62 @@ def get_staff(current_user: dict = Depends(get_current_user)):
 def create_staff(s: StaffModel, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO staff (" + STAFF_INSERT_COLS + ") VALUES (" + STAFF_PLACEHOLDERS + ") RETURNING id", _staff_tuple(s))
-    new_id = cur.fetchone()[0]
-    conn.commit(); conn.close()
-    return {"id": new_id, "ok": True}
+    try:
+        cur.execute("INSERT INTO staff (" + STAFF_INSERT_COLS + ") VALUES (" + STAFF_PLACEHOLDERS + ") RETURNING id", _staff_tuple(s))
+        new_id = cur.fetchone()[0]
+        access = _sync_staff_access(cur, s)
+        conn.commit()
+        return {"id": new_id, "ok": True, "access": access}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/staff/{id}")
 def update_staff(id: int, s: StaffModel, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""UPDATE staff SET name=%s, role=%s, phone=%s, salary=%s, project=%s, pay_type=%s,
-        last_name=%s, first_name=%s, middle_name=%s, birth_date=%s, citizenship=%s, address=%s, photo_url=%s,
-        email_work=%s, email_personal=%s, phone_extra=%s,
-        passport_series=%s, passport_number=%s, passport_issued_by=%s, passport_issued_date=%s,
-        inn=%s, snils=%s, specialization=%s, category=%s,
-        employment_type=%s, hired_date=%s, fired_date=%s, status=%s, brigade=%s,
-        bank_account=%s, bank_name=%s, bank_bik=%s, bank_corr=%s, ogrnip=%s, card_number=%s,
-        signature_url=%s, notes=%s WHERE id=%s""", _staff_tuple(s) + (id,))
-    conn.commit(); conn.close()
-    return {"ok": True}
+    try:
+        cur.execute("""UPDATE staff SET name=%s, role=%s, phone=%s, salary=%s, project=%s, pay_type=%s,
+            last_name=%s, first_name=%s, middle_name=%s, birth_date=%s, citizenship=%s, address=%s, photo_url=%s,
+            email_work=%s, email_personal=%s, phone_extra=%s,
+            passport_series=%s, passport_number=%s, passport_issued_by=%s, passport_issued_date=%s,
+            inn=%s, snils=%s, specialization=%s, category=%s,
+            employment_type=%s, hired_date=%s, fired_date=%s, status=%s, brigade=%s,
+            bank_account=%s, bank_name=%s, bank_bik=%s, bank_corr=%s, ogrnip=%s, card_number=%s,
+            signature_url=%s, notes=%s WHERE id=%s""", _staff_tuple(s) + (id,))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Сотрудник не найден")
+        access = _sync_staff_access(cur, s)
+        conn.commit()
+        return {"ok": True, "access": access}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.delete("/staff/{id}")
 def delete_staff(id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM staff WHERE id=%s", (id,))
+    if cur.rowcount == 0:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Сотрудник не найден")
+    conn.commit()
+    cur.close()
     conn.close()
     return {"ok": True}
 

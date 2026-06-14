@@ -9095,18 +9095,12 @@ function App() {
       return;
     }
     const data = {...newStaff,name:fullName,salary:Number(newStaff.salary)||0,role:newStaff.role||newStaff.systemRole||''};
-    if (editingItem) await fetch(API+'/staff/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    else await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    if (hasEmail && hasRole && (hasPassword || existingAccess?.id)) {
-      const ap = Array.isArray(newStaff.assignedProjects)?newStaff.assignedProjects:[];
-      const apk = Array.isArray(newStaff.assignedPackages)?newStaff.assignedPackages:[];
-      try {
-        const result = await upsertStaffAccess({staffRow:newStaff, fullName, email:accessEmail, password:accessPassword, role:newStaff.systemRole, projectName:newStaff.project||'', assignedProjects:ap, assignedPackages:apk});
-        if (result.updatedExisting) alert('Пользователь с email '+accessEmail+' уже существует — роль, объект и пароль при вводе обновлены. Сотрудник сохранён.');
-      } catch(e) {
-        alert('Сотрудник сохранён, но доступ создать/обновить не удалось: '+(e.message||e));
-      }
-    }
+    const response = editingItem
+      ? await readApiResult(await fetch(API+'/staff/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}))
+      : await readApiResult(await fetch(API+'/staff',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}));
+    if (response?.access?.action === 'password_updated') alert('Сотрудник сохранён. Пароль и доступ обновлены: '+response.access.email);
+    else if (response?.access?.action === 'updated') alert('Сотрудник сохранён. Доступ обновлён: '+response.access.email);
+    else if (response?.access?.action === 'created') alert('Сотрудник сохранён. Доступ выдан: '+response.access.email);
     await refreshData(); setNewStaff(emptyStaffForm()); setEditingItem(null); setShowForm(false);
   };
 
