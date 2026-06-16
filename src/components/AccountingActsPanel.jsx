@@ -55,6 +55,19 @@ export default function AccountingActsPanel({
 }) {
   const filteredInterimActs = (interimActs || []).filter(act => matchSearch(listSearch, act.masterName, act.project));
   const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
+  const parseActWorkIds = (act) => {
+    const raw = act?.workJournalIds ?? act?.work_journal_ids ?? [];
+    if (Array.isArray(raw)) return raw.map(id => Number(id)).filter(Boolean);
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.map(id => Number(id)).filter(Boolean) : [];
+      } catch {
+        return raw.split(',').map(id => Number(String(id).trim())).filter(Boolean);
+      }
+    }
+    return [];
+  };
   const actPackageOptions = Array.from(new Set([
     ...((estimatesList || [])
       .filter(est => !newAct.project || est.projectName === newAct.project || est.project_name === newAct.project)
@@ -278,6 +291,7 @@ export default function AccountingActsPanel({
         const paidAmount = Number(act.paidAmount || 0);
         const totalAmount = Number(act.totalAmount || 0);
         const remaining = totalAmount - paidAmount;
+        const actWorkCount = parseActWorkIds(act).length;
         return (
           <div key={act.id} style={{ ...card, padding: '14px', marginBottom: '8px', borderLeft: '3px solid ' + (act.status === 'Оплачен' ? C.success : remaining > 0 && paidAmount > 0 ? C.warning : C.textSec) }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
@@ -287,6 +301,7 @@ export default function AccountingActsPanel({
                 <div style={{ display: 'flex', gap: '12px', marginTop: '4px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '12px', color: C.text }}>{'Начислено: ' + totalAmount.toLocaleString() + ' ₽'}</span>
                   <span style={{ fontSize: '12px', color: C.success }}>{'Оплачено: ' + paidAmount.toLocaleString() + ' ₽'}</span>
+                  {actWorkCount > 0 && <span style={{ fontSize: '12px', color: C.accent }}>{'ЖПР: ' + actWorkCount}</span>}
                   {remaining > 0 && <span style={{ fontSize: '12px', color: C.danger, fontWeight: '700', padding: '2px 8px', borderRadius: '6px', backgroundColor: C.dangerLight }}>{'⚠️ Недоплата: ' + remaining.toLocaleString() + ' ₽'}</span>}
                 </div>
               </div>

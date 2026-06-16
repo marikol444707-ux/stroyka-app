@@ -42,6 +42,23 @@ const matchByPerson = (payment, performer) => {
 const paymentSignedAmount = payment => Number(payment?.amount || 0);
 const performerPaymentNote = ({ performerName, month, workPackage }) =>
   'Выплата исполнителю: ' + performerName + ' · ' + month + (workPackage ? ' · ' + workPackage : '');
+const lockedActStatuses = new Set(['Подписан', 'Оплачен', 'Частично оплачен', 'Оплачен частично']);
+const parseIdList = value => {
+  if (Array.isArray(value)) return value.map(Number).filter(Boolean);
+  if (!safeText(value)) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(Number).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+};
+const actWorkIds = act => parseIdList(act?.workJournalIds ?? act?.work_journal_ids);
+const missingActWorkIds = (act, actGroup) => {
+  const existing = new Set(actWorkIds(act));
+  return (actGroup?.workJournalIds || []).map(Number).filter(Boolean).filter(id => !existing.has(id));
+};
+const canAmendAct = act => act && !lockedActStatuses.has(safeText(act.status));
 
 const performerPaymentAmount = (payment, group, month) => {
   const amount = paymentSignedAmount(payment);
@@ -156,9 +173,8 @@ export default function AccountingPerformerClosingPanel({
       .filter(row => row.executionTotal > 0)
       .filter(row => !projectFilter || row.project === projectFilter)
       .filter(row => !performerFilter || row.performerName === performerFilter)
-      .filter(row => matchSearch ? matchSearch(listSearch, row.performerName, row.project, row.workPackage, row.roomName, row.description) : true)
       .sort((a, b) => (a.performerName + a.project + a.date).localeCompare(b.performerName + b.project + b.date));
-  }, [workJournal, staffById, month, projectFilter, performerFilter, listSearch, matchSearch]);
+  }, [workJournal, staffById, month, projectFilter, performerFilter]);
 
   const blockedRows = useMemo(() => {
     return (workJournal || [])
@@ -215,6 +231,14 @@ export default function AccountingPerformerClosingPanel({
     return Object.values(byKey).sort((a, b) => b.accrued - a.accrued);
   }, [rows, accountablePayments, ownExpenses, projectPayments, month, projectFilter]);
 
+  const visibleGroups = useMemo(() => {
+    if (!listSearch || !matchSearch) return groups;
+    return groups.filter(group => (
+      matchSearch(listSearch, group.performerName, group.project, group.workPackage) ||
+      group.rows.some(row => matchSearch(listSearch, row.roomName, row.description, row.unit))
+    ));
+  }, [groups, listSearch, matchSearch]);
+
   const performerNames = useMemo(() => [...new Set((workJournal || []).map(work => safeText(work.masterName || work.master_name)).filter(Boolean))].sort(), [workJournal]);
   const projectNames = useMemo(() => [...new Set([...(projects || []).map(project => safeText(project.name)), ...(workJournal || []).map(work => safeText(work.project))].filter(Boolean))].sort(), [projects, workJournal]);
 
@@ -261,7 +285,32 @@ export default function AccountingPerformerClosingPanel({
     if (!actGroup || !actGroup.project || !periodStart || !periodEnd || savingKey) return;
     const existingAct = existingActFor(actGroup.staffId, actGroup.performerName, actGroup.project, actGroup.workPackage);
     if (existingAct) {
-      window.alert('Акт за этот месяц уже зафиксирован во вкладке «Акты».');
+      const missingIds = missingActWorkIds(existingAct, actGroup);
+      if (!missingIds.length) {
+        window.alert('Акт за этот месяц уже зафиксирован во вкладке «Акты».');
+        return;
+      }
+      if (!canAmendAct(existingAct)) {
+        window.alert('Акт уже подписан или оплачен. Новые работы нужно закрывать отдельным актом корректировки.');
+        return;
+      }
+      setSavingKey(actGroup.key);
+      try {
+        const response = await fetch(API + '/interim-acts/' + existingAct.id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            totalAmount: Math.round(actGroup.accrued * 100) / 100,
+            workJournalIds: actGroup.workJournalIds || [],
+          }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        await refreshData?.();
+      } catch (error) {
+        window.alert('Не удалось дополнить акт: ' + (error?.message || error));
+      } finally {
+        setSavingKey('');
+      }
       return;
     }
     setSavingKey(actGroup.key);
@@ -297,7 +346,10 @@ export default function AccountingPerformerClosingPanel({
   };
 
   const saveAllClosingActs = async () => {
-    const unsaved = actGroups.filter(group => !existingActFor(group.staffId, group.performerName, group.project, group.workPackage));
+    const unsaved = actGroups.filter(group => {
+      const act = existingActFor(group.staffId, group.performerName, group.project, group.workPackage);
+      return !act || (canAmendAct(act) && missingActWorkIds(act, group).length > 0);
+    });
     for (const group of unsaved) {
       await saveClosingAct(group);
     }
@@ -399,12 +451,12 @@ export default function AccountingPerformerClosingPanel({
         <div style={{ ...card, padding: '12px', backgroundColor: summary.margin >= 0 ? C.successLight : C.dangerLight }}><p style={{ color: summary.margin >= 0 ? C.success : C.danger, margin: '0 0 4px', fontSize: '11px' }}>Разница заказчик/исполнитель</p><b style={{ color: summary.margin >= 0 ? C.success : C.danger }}>{money(summary.margin)}</b></div>
       </div>
 
-      {groups.length === 0 ? (
+      {visibleGroups.length === 0 ? (
         <div style={{ ...card, padding: '28px', textAlign: 'center', color: C.textMuted }}>
           Подтвержденных работ за выбранный период нет.
         </div>
       ) : (
-        groups.map(group => {
+        visibleGroups.map(group => {
           const open = expandedKey === group.key;
           const actGroup = actGroups.find(item =>
             item.project === group.project &&
@@ -413,6 +465,7 @@ export default function AccountingPerformerClosingPanel({
             Number(item.staffId || 0) === Number(group.staffId || 0)
           );
           const savedAct = existingActFor(group.staffId, group.performerName, group.project, group.workPackage);
+          const missingIds = missingActWorkIds(savedAct, actGroup);
           return (
             <div key={group.key} style={{ ...card, padding: 0, marginBottom: '10px', overflow: 'hidden', borderLeft: '3px solid ' + (group.payable > 0 ? C.accent : C.success) }}>
               <div
@@ -439,7 +492,7 @@ export default function AccountingPerformerClosingPanel({
                     <CreditCard size={12} />
                     Выплатить
                   </button>
-                  {savedAct ? (
+                  {savedAct && !missingIds.length ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: C.success, fontSize: '11px', fontWeight: 700 }}>
                       <CheckCircle2 size={13} />
                       акт №{savedAct.id}
@@ -454,7 +507,7 @@ export default function AccountingPerformerClosingPanel({
                       style={{ ...(btnO || btnG), padding: '6px 10px', fontSize: '11px', opacity: savingKey === actGroup?.key ? 0.55 : 1 }}
                     >
                       <Save size={12} />
-                      Сохранить
+                      {savedAct ? 'Дополнить' : 'Сохранить'}
                     </button>
                   )}
                   <button

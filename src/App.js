@@ -2211,29 +2211,24 @@ function App() {
     const amount = Number(newPayment.amount);
     if (!Number.isFinite(amount) || amount <= 0) { alert('Введите сумму оплаты больше нуля'); return; }
     const paymentNote = 'Оплата акта #' + actId + ' · ' + (act.masterName || act.brigadeName || act.performerName || 'исполнитель') + (newPayment.notes ? ' · ' + newPayment.notes : '');
-    const payRes = await fetch(API + '/project-payments', {
+    const payRes = await fetch(API + '/interim-acts/' + actId + '/pay', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        projectName: act.projectName || act.project || '',
-        workPackage: act.workPackage || act.work_package || '',
-        amount: -amount,
+        amount,
         note: paymentNote,
-        date: newPayment.date,
+        paidDate: newPayment.date,
         paidBy: newPayment.paidBy || user?.name || '',
       }),
     });
     if (!payRes.ok) {
-      const err = await payRes.json().catch(()=>({detail:'Не удалось записать оплату в платежи объекта'}));
-      alert(err.detail || 'Не удалось записать оплату в платежи объекта');
+      const err = await payRes.json().catch(()=>({detail:'Не удалось провести оплату акта'}));
+      alert(err.detail || 'Не удалось провести оплату акта');
       return;
     }
     const payment = {...newPayment,id:Date.now(),actId,amount};
     const updated = [...actPayments,payment];
     setActPayments(updated); localStorage.setItem('actPayments',JSON.stringify(updated));
-    const totalPaid = updated.filter(p=>p.actId===actId).reduce((s,p)=>s+p.amount,0);
-    const newStatus = totalPaid>=(act.totalAmount||0)?'Оплачен':'Частично оплачен';
-    await fetch(API+'/interim-acts/'+actId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:newStatus,paidAmount:totalPaid})});
     await refreshData();
     setNewPayment({amount:'',paymentType:'Наличный расчёт',paidBy:'',date:'',notes:''});
     setShowPayActModal(null);
