@@ -2751,6 +2751,8 @@ function App() {
     return (users||[]).find(u=>normalizePersonKey(u.name)===name) || null;
   };
   const staffAccessRoles = Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner'].includes(r));
+  const staffProjectRequiredRoles = ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
+  const staffPackageRequiredRoles = ['мастер','субподрядчик','бригадир'];
   const upsertStaffAccess = async ({staffRow={}, fullName, email, password, role, projectName, assignedProjects=[], assignedPackages=[]}) => {
     const cleanEmail = String(email||'').trim().toLowerCase();
     const cleanPassword = String(password||'').trim();
@@ -9288,6 +9290,20 @@ function App() {
     if (hasRole && !staffAccessRoles.includes(newStaff.systemRole)) {
       alert('Недопустимая системная роль: '+newStaff.systemRole);
       return;
+    }
+    if (hasRole && staffProjectRequiredRoles.includes(newStaff.systemRole)) {
+      const assignedProjects = Array.isArray(newStaff.assignedProjects) ? newStaff.assignedProjects.filter(Boolean) : [];
+      if (!newStaff.project && assignedProjects.length === 0) {
+        alert('Для роли '+(ROLE_LABELS[newStaff.systemRole]||newStaff.systemRole)+' нужно назначить объект.');
+        return;
+      }
+    }
+    if (hasRole && staffPackageRequiredRoles.includes(newStaff.systemRole)) {
+      const assignedPackages = Array.isArray(newStaff.assignedPackages) ? newStaff.assignedPackages.filter(Boolean) : [];
+      if (assignedPackages.length === 0) {
+        alert('Для мастера, субподрядчика или бригадира нужно выбрать пакет работ/сметы. Так он увидит только свои работы.');
+        return;
+      }
     }
     const data = {...newStaff,name:fullName,salary:Number(newStaff.salary)||0,role:newStaff.role||newStaff.systemRole||''};
     const response = editingItem
