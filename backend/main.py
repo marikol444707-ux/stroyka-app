@@ -13134,7 +13134,12 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
         if role == "бухгалтер":
             sections = []
         if role in WORKER_EXECUTION_ROLES:
-            sections = _sanitize_worker_estimate_sections(sections, worker_allowed_items_by_scope.get((r[2] or "", r[7] or "Основная"), []))
+            # Исполнитель получает доступ через объект + пакет работ. Старые
+            # contract-items могут дополнительно сузить список строк, но их
+            # отсутствие не должно скрывать весь пакет: новая логика работает
+            # без обязательного ручного наряда.
+            allowed_items = worker_allowed_items_by_scope.get((r[2] or "", r[7] or "Основная"))
+            sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None)
         result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","workPackage":r[7] or "Основная","isTemplate":bool(r[8]),"status":r[9] or "Черновик","createdAt":str(r[10]) if r[10] else "","versionCount":int(r[11] or 0),"latestVersionAt":str(r[12]) if r[12] else ""})
     return result
 
