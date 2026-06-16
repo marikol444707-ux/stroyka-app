@@ -4733,12 +4733,13 @@ function App() {
     activeEstimates.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
       const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (!isEstimateMaterialItem(it, s.name)) return;
+      if (estimateMaterialPlanIssue(it, s.name)) return;
       const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
-      const r = ensure(it.name, it.unit, sectionLabel);
+      const planMeasure = estimateImportedPlanMeasure(it);
+      const r = ensure(it.name, planMeasure.unit || it.unit, sectionLabel);
       if (!r) return;
       if (it.parentWorkName && !r.workRefs.includes(it.parentWorkName)) r.workRefs.push(it.parentWorkName);
-      const norm = normalizeMeasure(it.quantity, it.unit);
-      r.planQty += norm.qty;
+      r.planQty += toNum(planMeasure.qty);
       r.planSum += estimateItemMaterialSum(it);
     })));
     return Object.values(rows).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
@@ -5109,7 +5110,8 @@ function App() {
       const normWithoutEstimateQty = !hasEstimatePlan ? normPlanQty : 0;
       const estimateOverNormQty = normPlanQty>0 ? Math.max(0, estimatePlanQty - normPlanQty) : 0;
       const usedOverEstimateQty = estimatePlanQty>0 ? Math.max(0, (r.used||0) - estimatePlanQty) : 0;
-      const toBuy = hasEstimatePlan ? Math.max(0, estimatePlanQty - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
+      const invalidPlanCount = (r.invalidPlanDetails || []).length;
+      const toBuy = hasEstimatePlan && invalidPlanCount <= 0 ? Math.max(0, estimatePlanQty - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
       const coveredWithPipeline = supplied + (r.requested||0) + (r.inTransit||0);
       const hasMaterialActivity = coveredWithPipeline>0 || (r.stock||0)>0 || (r.issued||0)>0 || (r.used||0)>0;
       const holders = Object.values(r.holders||{}).map(h=>({
@@ -5127,7 +5129,7 @@ function App() {
         workPackage: rowPackage,
         packageName: rowPackage,
 	        planSourceCount: (r.planDetails || []).length,
-	        invalidPlanCount: (r.invalidPlanDetails || []).length,
+	        invalidPlanCount,
         movedNet,
         supplied,
         holders,
@@ -5452,7 +5454,7 @@ function App() {
 	    if (!projectName) return;
 	    if (!canCreateSupplyRequestFromControl()) { alert('У вашей роли нет права создать заявку снабжения'); return; }
 	    const candidates = (rows || [])
-	      .filter(row => row?.name && toNum(row.toBuy) > 0)
+	      .filter(row => row?.name && toNum(row.toBuy) > 0 && toNum(row.invalidPlanCount) <= 0)
 	      .filter(row => !materialControlSupplyRequestExists(projectName, row))
 	      .slice(0, 120);
 	    if (!candidates.length) { notify('По выбранному фильтру нет новых позиций к закупке', 'supply'); return; }
@@ -5700,7 +5702,7 @@ function App() {
 	    return <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>{actions}</div>;
 	  };
 	  const renderMaterialSupplyAction = (projectName, row) => {
-    if (!row || toNum(row.toBuy)<=0 || !canCreateSupplyRequestFromControl()) return null;
+    if (!row || toNum(row.toBuy)<=0 || toNum(row.invalidPlanCount)>0 || !canCreateSupplyRequestFromControl()) return null;
     const exists = materialControlSupplyRequestExists(projectName, row);
     return (
       <button

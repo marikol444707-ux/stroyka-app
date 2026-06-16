@@ -119,7 +119,7 @@ export default function ProjectMaterialsControlPanel({
   const rowLimit = queryKey || filter !== 'all' ? 240 : 120;
   const displayedRows = showAllRows ? visibleRows : visibleRows.slice(0, rowLimit);
   const hiddenRows = Math.max(0, visibleRows.length - displayedRows.length);
-  const visibleToBuyRows = visibleRows.filter(r => Number(r.toBuy || 0) > 0);
+  const visibleToBuyRows = visibleRows.filter(r => Number(r.toBuy || 0) > 0 && Number(r.invalidPlanCount || 0) <= 0);
   const visibleToBuyUnits = Object.entries(visibleToBuyRows.reduce((acc, r) => {
     const unit = r.unit || 'шт';
     acc[unit] = (acc[unit] || 0) + Number(r.toBuy || 0);
