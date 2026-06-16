@@ -9,6 +9,11 @@ export default function EstimateSelectedStatusActions({selectedEstimate, btnGr, 
           <CheckCircle size={14}/>Активной
         </button>
       )}
+      {showLeadership && selectedEstimate.status==='Активная'&&(
+        <button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>
+          Снять активность
+        </button>
+      )}
       {showLeadership && selectedEstimate.status==='Архив'&&(
         <button onClick={()=>setEstimateStatusRemote(selectedEstimate,'Черновик')} style={btnG}>
           ↩ Черновик

@@ -3680,7 +3680,7 @@ function App() {
     return rows.map(e => {
       if (!e || e.id === activated.id) return e;
       if (e.status === 'Активная' && !isGlobalEstimateTemplate(e) && sameEstimateGroup(e, activated)) {
-        return {...e, status:'Архив'};
+        return {...e, status:'Черновик'};
       }
       return e;
     });

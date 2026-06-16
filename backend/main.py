@@ -13167,7 +13167,7 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*EST
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора. Сохраните смету черновиком.")
     if status == "Активная":
         cur.execute("""UPDATE estimates
-                       SET status='Архив'
+                       SET status='Черновик'
                        WHERE project_name=%s
                          AND COALESCE(smeta_type,'Заказчик')=%s
                          AND COALESCE(NULLIF(work_package,''),'Основная')=%s
@@ -13668,7 +13668,7 @@ def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(re
         raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
     if status == "Активная":
         cur.execute("""UPDATE estimates
-                       SET status='Архив'
+                       SET status='Черновик'
                        WHERE id<>%s
                          AND project_name=%s
                          AND COALESCE(smeta_type,'Заказчик')=%s
