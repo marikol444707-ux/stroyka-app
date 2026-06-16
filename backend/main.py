@@ -5564,6 +5564,29 @@ SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,proj
                  "created_at as \"createdAt\" "
                  "FROM supply_requests")
 
+def _ensure_supply_runtime_columns(cur):
+    """Поднимает колонки снабжения для старых баз, где миграция могла не пройти."""
+    cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
+    cur.execute("ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
+    cur.execute("ALTER TABLE supply_claims ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
+    cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT ''")
+    cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT")
+    cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT")
+
+def _normalize_supplier_ids(value) -> list:
+    if value is None:
+        return []
+    raw = value if isinstance(value, (list, tuple, set)) else [value]
+    ids = []
+    for item in raw:
+        try:
+            supplier_id = int(item)
+        except (TypeError, ValueError):
+            continue
+        if supplier_id > 0 and supplier_id not in ids:
+            ids.append(supplier_id)
+    return ids
+
 def _supply_item_quantity(item: dict) -> float:
     try:
         return float((item or {}).get("quantity") or 0)
@@ -6063,8 +6086,11 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
         agg_name = items[0]["materialName"] + " и ещё " + str(len(items)-1) + " поз."
         agg_qty = float(len(items))  # количество позиций
         agg_unit = "поз."
+    selected_suppliers = _normalize_supplier_ids(r.selectedSuppliers)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    _ensure_supply_runtime_columns(cur)
+    conn.commit()
     items = _attach_supply_estimate_control(cur, project_name, items)
     if project_name != "Основной склад":
         _enforce_supply_estimate_control(items, source="заявка")
@@ -6077,7 +6103,7 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
         "director_id,director_name,director_approved_at,items_json) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (agg_name, agg_qty, agg_unit, project_name, request_package, created_by, r.date, r.notes,
-         r.selectedSuppliers, initial_status, role, requested_by_id, r.urgency, r.category,
+         selected_suppliers, initial_status, role, requested_by_id, r.urgency, r.category,
          prorab_id, prorab_name, prorab_at,
          director_id, director_name, director_at, items_json))
     new_id = cur.fetchone()['id']
@@ -7974,6 +8000,8 @@ def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(requi
 def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    _ensure_supply_runtime_columns(cur)
+    conn.commit()
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
     select_sql = ("SELECT id,supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,"
@@ -8009,6 +8037,8 @@ def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_use
 def create_supply_history(d: SupplyHistoryModel, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    _ensure_supply_runtime_columns(cur)
+    conn.commit()
     if d.project:
         require_project_or_warehouse_access(_current_user, d.project)
     if not has_package_access(_current_user, d.workPackage or ""):
@@ -8027,6 +8057,8 @@ def create_supply_history(d: SupplyHistoryModel, _current_user: dict = Depends(r
 def update_supply_history(id: int, data: dict, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    _ensure_supply_runtime_columns(cur)
+    conn.commit()
     cur.execute("SELECT project, COALESCE(NULLIF(work_package,''),'Основная') AS work_package FROM supply_history WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
