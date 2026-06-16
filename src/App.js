@@ -3672,6 +3672,17 @@ function App() {
   const estimateProjectGroupKey = (est) => String(est?.projectName || est?.project || est?.projectId || '').toLowerCase().replace(/\s+/g,' ').trim();
   const estimateGroupKey = (est) => [estimateProjectGroupKey(est), estimateKind(est), estimatePackage(est)].join('|');
   const sameEstimateGroup = (a,b) => estimateGroupKey(a) === estimateGroupKey(b);
+  const applyEstimateActivationState = (list, activated) => {
+    const rows = list || [];
+    if (!activated || activated.status !== 'Активная' || isGlobalEstimateTemplate(activated)) return rows;
+    return rows.map(e => {
+      if (!e || e.id === activated.id) return e;
+      if (e.status === 'Активная' && !isGlobalEstimateTemplate(e) && sameEstimateGroup(e, activated)) {
+        return {...e, status:'Архив'};
+      }
+      return e;
+    });
+  };
   const activeEstimateFromList = (list) => {
     const arr = [...(list||[])].sort((a,b)=>(estimateUpdatedTs(b)||Number(b.id||0))-(estimateUpdatedTs(a)||Number(a.id||0)));
     const normal = arr.filter(e=>!isGlobalEstimateTemplate(e));
@@ -4486,7 +4497,7 @@ function App() {
     const res = await fetch(API+'/estimates/'+est.id+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
     if(!res.ok){const data=await res.json().catch(()=>({}));alert(data.detail||'Не удалось изменить статус сметы');return;}
     const updated = {...est,status};
-    const nextEstimates = (estimatesList||[]).map(e=>e.id===est.id?updated:e);
+    const nextEstimates = applyEstimateActivationState((estimatesList||[]).map(e=>e.id===est.id?updated:e), updated);
     setEstimatesList(nextEstimates);
     setSelectedEstimate(prev=>prev&&prev.id===est.id?updated:prev);
     if (status==='Активная') {
@@ -11411,7 +11422,7 @@ function App() {
       if(!saved?.id) throw new Error('Сервер не вернул id сохранённой сметы');
       const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage,status:estimateStatus};
       const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId)&&e.status==='Активная'));
-      const nextEstimates=[...(estimatesList||[]),estWithId];
+      const nextEstimates=applyEstimateActivationState([...(estimatesList||[]),estWithId], estWithId);
       setEstimatesList(nextEstimates);
       setSelectedEstimate(estWithId);
       setEstimatesTab('list');
@@ -14065,7 +14076,7 @@ function App() {
                   const est=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(estimatePayload)}));
                   const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:estimateStatus};
                   const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>newEst.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,newEst)&&e.status==='Активная'));
-	                  const nextEstimates=[...(estimatesList||[]),newEst];
+	                  const nextEstimates=applyEstimateActivationState([...(estimatesList||[]),newEst], newEst);
                   setEstimatesList(nextEstimates);
                   setSelectedEstimate(newEst);
                   setShowForm(false);
@@ -14502,7 +14513,7 @@ function App() {
     <EstimateDistributeModal showDistribute={showDistribute} setShowDistribute={setShowDistribute} selectedEstimate={selectedEstimate} distributing={distributing} setDistributing={setDistributing} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnB={btnB} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists} staff={staff} distributeAssignments={distributeAssignments} setDistributeAssignments={setDistributeAssignments} API={API} loadAll={loadAll}/>
     <PricelistFromEstimateModal showFromEstimate={showFromEstimate} setShowFromEstimate={setShowFromEstimate} creatingFromEstimate={creatingFromEstimate} setCreatingFromEstimate={setCreatingFromEstimate} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} fromEstimateForm={fromEstimateForm} setFromEstimateForm={setFromEstimateForm} estimatesList={estimatesList} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>
     <GeneratePricelistModal showGeneratePricelist={showGeneratePricelist} setShowGeneratePricelist={setShowGeneratePricelist} generatingPricelist={generatingPricelist} setGeneratingPricelist={setGeneratingPricelist} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatePricelistForm={generatePricelistForm} setGeneratePricelistForm={setGeneratePricelistForm} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>
-    <GenerateEstimateModal showGenerateEstimate={showGenerateEstimate} setShowGenerateEstimate={setShowGenerateEstimate} generating={generating} setGenerating={setGenerating} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generateForm={generateForm} setGenerateForm={setGenerateForm} projects={projects} pricelists={pricelists} estimatePackages={ESTIMATE_PACKAGES} nextEstimateVersionFor={nextEstimateVersionFor} API={API} enrichEstimateMeasurementBasis={enrichEstimateMeasurementBasis} estimatesList={estimatesList} setEstimatesList={setEstimatesList} setSelectedEstimate={setSelectedEstimate} activeEstimateFromList={activeEstimateFromList} isGlobalEstimateTemplate={isGlobalEstimateTemplate} sameEstimateGroup={sameEstimateGroup} queueEstimateDiffReviewTask={queueEstimateDiffReviewTask} autoReconcileEstimateChanges={autoReconcileEstimateChanges} queueEstimateQualityReviewTask={queueEstimateQualityReviewTask} queueEstimateNormReviewTask={queueEstimateNormReviewTask}/>
+    <GenerateEstimateModal showGenerateEstimate={showGenerateEstimate} setShowGenerateEstimate={setShowGenerateEstimate} generating={generating} setGenerating={setGenerating} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generateForm={generateForm} setGenerateForm={setGenerateForm} projects={projects} pricelists={pricelists} estimatePackages={ESTIMATE_PACKAGES} nextEstimateVersionFor={nextEstimateVersionFor} API={API} enrichEstimateMeasurementBasis={enrichEstimateMeasurementBasis} estimatesList={estimatesList} setEstimatesList={setEstimatesList} setSelectedEstimate={setSelectedEstimate} activeEstimateFromList={activeEstimateFromList} isGlobalEstimateTemplate={isGlobalEstimateTemplate} sameEstimateGroup={sameEstimateGroup} applyEstimateActivationState={applyEstimateActivationState} queueEstimateDiffReviewTask={queueEstimateDiffReviewTask} autoReconcileEstimateChanges={autoReconcileEstimateChanges} queueEstimateQualityReviewTask={queueEstimateQualityReviewTask} queueEstimateNormReviewTask={queueEstimateNormReviewTask}/>
     <EstimateChatModal showEstimateChat={showEstimateChat} setShowEstimateChat={setShowEstimateChat} selectedEstimate={selectedEstimate} C={C} card={card} inp={inp} btnG={btnG} btnO={btnO} isMobile={isMobile} darkMode={darkMode} API={API} estimateChatMessages={estimateChatMessages} setEstimateChatMessages={setEstimateChatMessages} estimateChatLoading={estimateChatLoading} estimateChatInput={estimateChatInput} setEstimateChatInput={setEstimateChatInput} sendEstimateChatMessage={sendEstimateChatMessage}/>
     <EstimateVersionHistoryModal showVersionHistory={showVersionHistory} setShowVersionHistory={setShowVersionHistory} selectedEstimate={selectedEstimate} estimateVersions={estimateVersions} selectedVersionsToCompare={selectedVersionsToCompare} setSelectedVersionsToCompare={setSelectedVersionsToCompare} isMobile={isMobile} C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} API={API} user={user} setSelectedEstimate={setSelectedEstimate} setEstimatesList={setEstimatesList} showPreview={showPreview} buildEstimateDiffContent={buildEstimateDiffContent} estimateItemTotal={estimateItemTotal} setShowAiChat={setShowAiChat} setAiMessages={setAiMessages} setAiLoading={setAiLoading}/>
     <ReceiveMaterialDialog showReceiveDialog={showReceiveDialog} setShowReceiveDialog={setShowReceiveDialog} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnB={btnB} btnG={btnG}/>
