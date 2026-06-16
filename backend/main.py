@@ -8597,22 +8597,27 @@ def _apply_work_material_delta(cur, work_row: dict, old_items, new_items, curren
     project = work_row.get("project") or ""
     if not project:
         return
-    if (current_user.get("role") or "") not in WORKER_EXECUTION_ROLES:
-        raise HTTPException(
-            status_code=403,
-            detail="Списание материалов в ЖПР может менять только исполнитель: мастер, субподрядчик или бригадир.",
-        )
     old_map = _work_material_map(old_items, cur, project)
     new_map = _work_material_map(new_items, cur, project)
+    changes = []
     for key in set(old_map.keys()) | set(new_map.keys()):
         old_material = old_map.get(key) or {}
         new_material = new_map.get(key) or {}
         delta = round(_float_or_zero(new_material.get("quantity")) - _float_or_zero(old_material.get("quantity")), 6)
         if abs(delta) < 0.000001:
             continue
-        base = new_material or old_material
+        changes.append((delta, new_material or old_material))
+    if not changes:
+        return
+    is_worker = (current_user.get("role") or "") in WORKER_EXECUTION_ROLES
+    for delta, base in changes:
         material = {**base, "quantity": abs(delta)}
         if delta > 0:
+            if not is_worker:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Увеличивать списание материалов в ЖПР может только исполнитель: мастер, субподрядчик или бригадир.",
+                )
             master_name = work_row.get("master_name") or ""
             master_id = work_row.get("master_id")
             work_package = material.get("workPackage") or material.get("work_package") or work_row.get("work_package") or ""
