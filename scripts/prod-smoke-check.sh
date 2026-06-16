@@ -5,6 +5,7 @@ BASE_URL="${BASE_URL:-https://stroyka26.pro}"
 BASE_URL="${BASE_URL%/}"
 SMOKE_RETRIES="${SMOKE_RETRIES:-20}"
 SMOKE_DELAY="${SMOKE_DELAY:-1}"
+SMOKE_STARTED_TS="${SMOKE_STARTED_TS:-$(date -u +%s)}"
 
 failures=()
 health_body=""
@@ -89,10 +90,14 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
         failures+=("$path got=$code expected=200")
       fi
     done
-    status_body="$(curl -skS "$BASE_URL/system-status" -H "Authorization: Bearer $token" || true)"
+    status_body="$(curl -skS "$BASE_URL/system-status?api_errors_since=$SMOKE_STARTED_TS" -H "Authorization: Bearer $token" || true)"
     api_errors="$(printf '%s' "$status_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(len(data.get("apiErrors", [])))' 2>/dev/null || true)"
     if [[ -n "$api_errors" ]]; then
       echo "INFO apiErrorsShown=$api_errors"
+      api_errors_window="$(printf '%s' "$status_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("apiErrorsWindow", ""))' 2>/dev/null || true)"
+      if [[ -n "$api_errors_window" ]]; then
+        echo "INFO apiErrorsWindow=$api_errors_window"
+      fi
       if [[ "$api_errors" != "0" ]]; then
         printf '%s' "$status_body" | python3 -c '
 import json

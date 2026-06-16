@@ -901,8 +901,24 @@ def health():
     }
 
 @app.get("/system-status")
-def system_status(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
+def system_status(
+    api_errors_since: Optional[float] = None,
+    api_errors_hours: int = 24,
+    _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner")),
+):
     started = time.time()
+    try:
+        api_errors_hours = max(1, min(int(api_errors_hours or 24), 168))
+    except (TypeError, ValueError):
+        api_errors_hours = 24
+    if api_errors_since:
+        api_errors_where = "created_at >= (to_timestamp(%s) AT TIME ZONE 'UTC')"
+        api_errors_params = (api_errors_since,)
+        api_errors_window = "since"
+    else:
+        api_errors_where = "created_at >= NOW() - (%s || ' hours')::interval"
+        api_errors_params = (api_errors_hours,)
+        api_errors_window = f"last_{api_errors_hours}h"
     status = {
         "ok": True,
         "service": "stroyka-backend",
@@ -917,6 +933,7 @@ def system_status(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES,
         "counts": {},
         "recentAudit": [],
         "apiErrors": [],
+        "apiErrorsWindow": api_errors_window,
     }
     try:
         conn = get_db()
@@ -936,11 +953,13 @@ def system_status(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES,
         if api_errors_count is not None:
             status["counts"]["apiErrors"] = api_errors_count
             status["counts"]["apiErrorsLast24h"] = _count_table(cur, "api_errors", "created_at >= NOW() - INTERVAL '24 hours'")
+            cur.execute("SELECT COUNT(*) FROM api_errors WHERE " + api_errors_where, api_errors_params)
+            status["counts"]["apiErrorsShown"] = int((cur.fetchone() or [0])[0] or 0)
             cur.execute("""SELECT id, method, path, status_code, error_type, error_message,
                                   user_name, user_role, created_at
                            FROM api_errors
-                           WHERE created_at >= NOW() - INTERVAL '24 hours'
-                           ORDER BY id DESC LIMIT 20""")
+                           WHERE """ + api_errors_where + """
+                           ORDER BY id DESC LIMIT 20""", api_errors_params)
             status["apiErrors"] = [
                 {
                     "id": r[0],
