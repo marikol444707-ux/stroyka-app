@@ -11916,10 +11916,10 @@ function App() {
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
                 {isLeadership()&&<button onClick={()=>{setShowForm(showForm===true?false:true);setEditingItem(null);setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null});}} style={btnO}><Plus size={14}/>Новый проект</button>}
-                <button onClick={()=>setShowArchive(!showArchive)} style={btnG}><Archive size={14}/>{showArchive?'Активные':'Архив'}</button>
+                {projects.some(pr=>pr.archived)&&<button onClick={()=>setShowArchive(!showArchive)} style={btnG}><Archive size={14}/>{showArchive?'Активные':'Архив'}</button>}
               </div>
             </div>
-            {showArchive&&<div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{margin:0,color:C.text,fontSize:'12px'}}>📦 <b>Архив закрытых объектов.</b> Здесь хранятся завершённые объекты со всеми документами, перепиской и актами — для просмотра. Чтобы вернуть объект в работу, нажмите <Archive size={11} style={{verticalAlign:'middle'}}/>↩ у объекта.</p></div>}
+            {showArchive&&<div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{margin:0,color:C.text,fontSize:'12px'}}>📦 <b>Архив закрытых объектов.</b> Здесь хранятся завершённые объекты со всеми документами, перепиской и актами только для просмотра.</p></div>}
             {showForm===true&&isLeadership()&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
               <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать проект':'Новый проект'}</h3>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px'}}>

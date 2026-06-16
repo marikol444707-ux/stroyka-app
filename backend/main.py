@@ -3852,10 +3852,10 @@ def create_project(p: ProjectModel, current_user: dict = Depends(require_roles(*
 
 @app.put("/projects/{id}")
 def update_project(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_CARD_WRITE_ROLES))):
-    if data.get("archived"):
+    if "archived" in data or "archivedAt" in data:
         raise HTTPException(status_code=403, detail="Архивация объекта отключена. Объект может закрыть только директор отдельной процедурой закрытия.")
-    if str(data.get("status") or "").strip().lower() in ("завершён", "завершен"):
-        raise HTTPException(status_code=403, detail="Статус 'Завершён' отключён в обычном редактировании. Объект закрывается только отдельной процедурой директора.")
+    if str(data.get("status") or "").strip().lower() in ("завершён", "завершен", "архив", "закрыт", "закрытый"):
+        raise HTTPException(status_code=403, detail="Закрытие или архив объекта отключены в обычном редактировании. Объект закрывается только отдельной процедурой директора.")
     fields_map = [
         ('name','name'),('client','client'),('status','status'),('budget','budget'),
         ('deadline','deadline'),('progress','progress'),('tasks','tasks'),
@@ -3863,8 +3863,6 @@ def update_project(id: int, data: dict, current_user: dict = Depends(require_rol
         ('warrantyStartDate','warranty_start_date'),
         ('warrantyEndDate','warranty_end_date'),
         ('warrantyContact','warranty_contact'),
-        ('archived','archived'),
-        ('archivedAt','archived_at'),
     ]
     sets, vals = [], []
     for js_key, db_col in fields_map:
