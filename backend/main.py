@@ -792,6 +792,16 @@ def _app_version() -> str:
 def _utc_now_iso() -> str:
     return dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
+def _date_or_none(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", raw):
+        return raw
+    if re.match(r"^\d{4}-\d{2}-\d{2}T", raw):
+        return raw[:10]
+    return None
+
 def _count_table(cur, table: str, where: str = "", params: tuple = ()) -> Optional[int]:
     allowed = {
         "projects", "users", "estimates", "work_journal", "materials",
@@ -865,9 +875,12 @@ def system_status(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES,
         api_errors_count = _count_table(cur, "api_errors")
         if api_errors_count is not None:
             status["counts"]["apiErrors"] = api_errors_count
+            status["counts"]["apiErrorsLast24h"] = _count_table(cur, "api_errors", "created_at >= NOW() - INTERVAL '24 hours'")
             cur.execute("""SELECT id, method, path, status_code, error_type, error_message,
                                   user_name, user_role, created_at
-                           FROM api_errors ORDER BY id DESC LIMIT 20""")
+                           FROM api_errors
+                           WHERE created_at >= NOW() - INTERVAL '24 hours'
+                           ORDER BY id DESC LIMIT 20""")
             status["apiErrors"] = [
                 {
                     "id": r[0],
@@ -4748,10 +4761,12 @@ def get_staff_profile(staff_id: int, _current_user: dict = Depends(require_roles
 def add_staff_document(staff_id: int, data: dict, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    signed_at = _date_or_none(data.get("signedAt") or data.get("signed_at"))
+    expires_at = _date_or_none(data.get("expiresAt") or data.get("expires_at"))
     cur.execute("""INSERT INTO staff_documents (staff_id, doc_type, title, file_url, status, signed_at, expires_at, notes, created_by)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
         (staff_id, data.get("docType","другое"), data.get("title",""), data.get("fileUrl","") or None,
-         data.get("status","действует"), data.get("signedAt") or None, data.get("expiresAt") or None,
+         data.get("status","действует"), signed_at, expires_at,
          data.get("notes",""), data.get("createdBy","")))
     new_id = cur.fetchone()[0]
     conn.commit(); cur.close(); conn.close()
