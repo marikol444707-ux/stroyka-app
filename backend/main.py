@@ -15592,11 +15592,13 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
     project_name = (data.get("projectName") or "").strip()
     work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     to_person_role = (data.get("toPersonRole") or data.get("to_person_role") or "").strip().lower()
-    transfer_receiver_roles = ("мастер", "субподрядчик", "бригадир", "бригада")
+    transfer_receiver_roles = ("мастер", "субподрядчик", "бригадир")
     if not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите материал и количество больше 0")
+    if to_person_role == "бригада":
+        raise HTTPException(status_code=400, detail="Выдача материала абстрактной бригаде закрыта. Выберите конкретного активного бригадира, мастера или субподрядчика с доступом к объекту и пакету.")
     if to_person_role not in transfer_receiver_roles:
-        raise HTTPException(status_code=400, detail="Материал можно выдать только мастеру, субподрядчику, бригадиру или бригаде. Прораб управляет выдачей, но не является получателем списания.")
+        raise HTTPException(status_code=400, detail="Материал можно выдать только мастеру, субподрядчику или бригадиру. Прораб управляет выдачей, но не является получателем списания.")
     if project_name:
         if from_location == "Основной склад":
             raise HTTPException(status_code=400, detail="Передача исполнителю идёт только со склада объекта. Сначала переместите материал с основного склада на объект.")
@@ -15627,14 +15629,6 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
             raise HTTPException(status_code=400, detail="Укажите получателя материала")
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
             to_user_id = _resolve_staff_or_user_id(cur, to_user_id, to_person)
-        if to_person_role == "бригада":
-            cur.execute("""SELECT id FROM brigade_contracts
-                           WHERE project_name=%s
-                             AND LOWER(TRIM(COALESCE(brigade_name,'')))=LOWER(TRIM(%s))
-                             AND COALESCE(status,'') NOT IN ('Аннулирован','Аннулирована','Удалён','Удалена')
-                           ORDER BY id DESC LIMIT 1""", (project_name, to_person))
-            if not cur.fetchone():
-                raise HTTPException(status_code=400, detail="Бригада-получатель должна быть действующим договором по объекту «" + project_name + "»")
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
             cur.execute("""SELECT id,name,role,COALESCE(project_name,''),assigned_projects,assigned_packages
                            FROM users

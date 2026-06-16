@@ -63,7 +63,7 @@ export default function WarehouseObjectsPanel({
   );
   const selectedTransferQty = toNum(newTransfer.quantity);
   const selectedTransferStockQty = toNum(selectedTransferStock?.quantity);
-  const transferNeedsPackage = ['мастер', 'бригадир', 'субподрядчик', 'бригада'].includes((newTransfer.toPersonRole || '').toLowerCase());
+  const transferNeedsPackage = ['мастер', 'бригадир', 'субподрядчик'].includes((newTransfer.toPersonRole || '').toLowerCase());
   const transferMissingPackage = transferNeedsPackage && !(newTransfer.workPackage || '').trim();
   const transferOverStock = !!newTransfer.materialName && selectedTransferQty > selectedTransferStockQty;
   const canSaveObjectTransfer = !!newTransfer.materialName && selectedTransferQty > 0 && !!newTransfer.toPerson && !transferMissingPackage && !transferOverStock;

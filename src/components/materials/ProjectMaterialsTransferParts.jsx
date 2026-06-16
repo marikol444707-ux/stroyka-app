@@ -143,8 +143,6 @@ export function TransferRecipientSelect({
   setNewTransfer,
   requesterOptions,
   staff,
-  brigadeContracts,
-  projectName,
 }) {
   return (
     <select
@@ -153,12 +151,11 @@ export function TransferRecipientSelect({
         const rawValue = e.target.value;
         const selected = rawValue.startsWith('user:') ? staff.find(st => String(st.id) === rawValue.slice(5)) : null;
         const requesterUser = !selected ? staff.find(st => st.name === rawValue) : null;
-        const selectedBrigade = !selected && !requesterUser ? brigadeContracts.find(bc => bc.projectName === projectName && bc.brigadeName === rawValue) : null;
         const person = selected || requesterUser;
         setNewTransfer({
           ...newTransfer,
           toPerson: person ? person.name : rawValue,
-          toPersonRole: person ? person.role : selectedBrigade ? 'бригада' : '',
+          toPersonRole: person ? person.role : '',
           toUserId: person ? person.id : '',
         });
       }}
@@ -177,11 +174,6 @@ export function TransferRecipientSelect({
           .filter(s => ['мастер', 'бригадир', 'субподрядчик'].includes((s.role || '').toLowerCase()) && !requesterOptions.requesterNames.has(s.name))
           .map(s => <option key={s.id} value={'user:' + s.id}>{s.name} ({s.role})</option>)}
       </optgroup>
-      {brigadeContracts.filter(bc => bc.projectName === projectName).length > 0 && (
-        <optgroup label="🔨 Бригады по объекту">
-          {brigadeContracts.filter(bc => bc.projectName === projectName).map(bc => <option key={bc.id} value={bc.brigadeName}>{bc.brigadeName} ({bc.contractorType})</option>)}
-        </optgroup>
-      )}
     </select>
   );
 }
@@ -207,7 +199,6 @@ export function MaterialTransferForm({
   fmtQty,
   requesterOptions,
   staff,
-  brigadeContracts,
   workPackageOptions,
   needsWorkPackage,
   missingWorkPackage,
@@ -217,7 +208,7 @@ export function MaterialTransferForm({
 }) {
   return (
     <div style={{...card, padding: '20px', marginBottom: '16px'}}>
-      <h3 style={{color: C.text, marginBottom: '15px', fontWeight: '700'}}>Передача материала бригаде/мастеру</h3>
+      <h3 style={{color: C.text, marginBottom: '15px', fontWeight: '700'}}>Передача материала исполнителю</h3>
       <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
         <select
           value={projectName}
@@ -257,8 +248,6 @@ export function MaterialTransferForm({
           setNewTransfer={setNewTransfer}
           requesterOptions={requesterOptions}
           staff={staff}
-          brigadeContracts={brigadeContracts}
-          projectName={projectName}
         />
 
         <select
@@ -274,7 +263,7 @@ export function MaterialTransferForm({
       </div>
       {missingWorkPackage && (
         <div style={{marginTop: '10px', padding: '10px 12px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder, borderRadius: '8px', color: C.warning, fontSize: '12px', fontWeight: 700}}>
-          Для выдачи материала мастеру, бригаде или субподрядчику выберите пакет работ. Потом списание в ЖПР пройдет только в этом же пакете.
+          Для выдачи материала мастеру, бригадиру или субподрядчику выберите пакет работ. Потом списание в ЖПР пройдет только в этом же пакете.
         </div>
       )}
       <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>

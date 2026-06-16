@@ -36,7 +36,6 @@ export default function ProjectMaterialsTransferPanel({
   setMaterials,
   supplyRequests = [],
   staff = [],
-  brigadeContracts = [],
   workJournal = [],
   history = [],
   workPackageOptions = [],
@@ -92,7 +91,7 @@ export default function ProjectMaterialsTransferPanel({
   const selectedStockQty = toNum(selectedStock?.quantity);
   const hasStockOverrun = !!newTransfer.materialName && selectedQty > selectedStockQty;
   const receiverRole = (newTransfer.toPersonRole || '').trim().toLowerCase();
-  const needsWorkPackage = !!projectName && ['мастер', 'бригада', 'бригадир', 'субподрядчик'].includes(receiverRole);
+  const needsWorkPackage = !!projectName && ['мастер', 'бригадир', 'субподрядчик'].includes(receiverRole);
   const missingWorkPackage = needsWorkPackage && !(newTransfer.workPackage || '').trim();
 
   const packageMatches = (rowPackage, targetPackage) => {
@@ -187,7 +186,7 @@ export default function ProjectMaterialsTransferPanel({
       alert(hasStockOverrun
         ? 'Нельзя выдать больше остатка на складе.'
         : missingWorkPackage
-          ? 'Для выдачи мастеру, бригаде или субподрядчику выберите пакет работ.'
+          ? 'Для выдачи мастеру, бригадиру или субподрядчику выберите пакет работ.'
         : 'Укажите материал, получателя и количество больше нуля.');
       return;
     }
@@ -269,7 +268,6 @@ export default function ProjectMaterialsTransferPanel({
           fmtQty={fmtQty}
           requesterOptions={requesterOptions}
           staff={staff}
-          brigadeContracts={brigadeContracts}
           workPackageOptions={workPackageOptions}
           needsWorkPackage={needsWorkPackage}
           missingWorkPackage={missingWorkPackage}
