@@ -8,6 +8,7 @@ export function WarehouseInvoiceForm({
   projects,
   materialEstimates,
   getProjectWorkPackageOptions,
+  getProjectEstimateWorkOptions,
   invoiceItems,
   invoiceTotal,
   draftEstimateControl,
@@ -41,6 +42,35 @@ export function WarehouseInvoiceForm({
     const items = [...invoiceItems];
     items[idx] = {...items[idx], ...patch};
     setNewInvoice({...newInvoice, items});
+  };
+  const workOptionsForItem = (item = {}) => invoiceProject && typeof getProjectEstimateWorkOptions === 'function'
+    ? getProjectEstimateWorkOptions(invoiceProject, item.workPackage || newInvoice.workPackage || '')
+    : [];
+  const setItemWork = (idx, value) => {
+    const item = invoiceItems[idx] || {};
+    const option = workOptionsForItem(item).find(row => row.value === value);
+    if (!option) {
+      setItem(idx, {
+        estimateWorkValue:'',
+        estimateId:'',
+        estimateItemKey:'',
+        parentWorkKey:'',
+        parentWorkName:'',
+        parentWorkSourceCode:'',
+        sectionName:'',
+      });
+      return;
+    }
+    setItem(idx, {
+      estimateWorkValue:option.value,
+      estimateId:option.estimateId,
+      estimateItemKey:option.estimateItemKey,
+      parentWorkKey:option.parentWorkKey,
+      parentWorkName:option.parentWorkName,
+      parentWorkSourceCode:option.parentWorkSourceCode,
+      sectionName:option.sectionName,
+      workPackage:option.workPackage || item.workPackage || '',
+    });
   };
 
   const removeItem = (idx) => {
@@ -130,7 +160,7 @@ export function WarehouseInvoiceForm({
 
       <b style={{color:C.text,fontSize:'13px',display:'block',marginTop:'15px',marginBottom:'10px'}}>Позиции накладной:</b>
       {invoiceItems.map((item, idx) => (
-        <div key={idx} style={{display:'grid',gridTemplateColumns:'minmax(180px,3fr) 1fr 1fr 1fr minmax(130px,1.5fr) minmax(140px,1.7fr) auto',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
+        <div key={idx} style={{display:'grid',gridTemplateColumns:'minmax(180px,2.5fr) 0.8fr 0.8fr 0.9fr minmax(120px,1.2fr) minmax(130px,1.4fr) minmax(180px,1.8fr) auto',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
           <input placeholder="Наименование товара *" value={item.name} onChange={event => setItem(idx, {name: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
           <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={item.quantity} onChange={event => setItem(idx, {quantity: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
           <select value={item.unit} onChange={event => setItem(idx, {unit: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>
@@ -141,9 +171,15 @@ export function WarehouseInvoiceForm({
             <option value="">Категория</option>
             {MATERIAL_CATEGORIES.map(category => <option key={category}>{category}</option>)}
           </select>
-          <select value={item.workPackage || ''} onChange={event => setItem(idx, {workPackage: event.target.value})} disabled={!invoiceProject} style={{...inp,marginBottom:0,fontSize:'12px',opacity:invoiceProject?1:0.65}}>
+          <select value={item.workPackage || ''} onChange={event => setItem(idx, {workPackage: event.target.value, estimateWorkValue:'', estimateId:'', estimateItemKey:'', parentWorkKey:'', parentWorkName:'', parentWorkSourceCode:'', sectionName:''})} disabled={!invoiceProject} style={{...inp,marginBottom:0,fontSize:'12px',opacity:invoiceProject?1:0.65}}>
             <option value="">{invoiceProject ? 'Раздел сметы' : 'Только для объекта'}</option>
             {packageOptions.map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
+          </select>
+          <select value={item.estimateWorkValue || ''} onChange={event => setItemWork(idx, event.target.value)} disabled={!invoiceProject} style={{...inp,marginBottom:0,fontSize:'12px',opacity:invoiceProject?1:0.65}}>
+            <option value="">{invoiceProject ? 'Работа сметы, если нет материала' : 'Работа сметы'}</option>
+            {workOptionsForItem(item).map(work => (
+              <option key={work.value} value={work.value}>{work.label}</option>
+            ))}
           </select>
           <button onClick={() => removeItem(idx)} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
         </div>
@@ -284,6 +320,7 @@ export function WarehouseInvoiceCard({
                         {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
                         {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}
                         {ctrl.workRefs?.length > 0 && <p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {ctrl.workRefs.slice(0,2).join('; ')}{ctrl.workRefs.length > 2 ? '…' : ''}</p>}
+                        {item.parentWorkName && !(ctrl.workRefs||[]).includes(item.parentWorkName) && <p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Комплектация: {item.parentWorkName}</p>}
                       </td>
                       <td style={tblC}>{item.unit || ''}</td>
                       <td style={tblC}>{item.quantity || 0}</td>

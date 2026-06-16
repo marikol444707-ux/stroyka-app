@@ -65,6 +65,7 @@ export default function WarehousePage(props) {
     suppliers,
     estimatesList,
     getProjectWorkPackageOptions,
+    getProjectEstimateWorkOptions,
     invoices,
     saveInvoiceNew,
     uploadPhoto,
@@ -235,6 +236,7 @@ export default function WarehousePage(props) {
           projects={projects}
           estimatesList={estimatesList}
           getProjectWorkPackageOptions={getProjectWorkPackageOptions}
+          getProjectEstimateWorkOptions={getProjectEstimateWorkOptions}
           invoices={invoices}
           saveInvoiceNew={saveInvoiceNew}
           uploadPhoto={uploadPhoto}

@@ -14,6 +14,7 @@ export default function ScannedInvoiceFormModal({
   setNewInvoice,
   projects,
   getProjectWorkPackageOptions,
+  getProjectEstimateWorkOptions,
   units,
   saveInvoiceNew,
 }) {
@@ -28,6 +29,27 @@ export default function ScannedInvoiceFormModal({
     const items=[...newInvoice.items];
     items[idx]={...items[idx],...patch};
     setNewInvoice({...newInvoice,items});
+  };
+  const workOptionsForItem = (item = {}) => invoiceProject && typeof getProjectEstimateWorkOptions === 'function'
+    ? getProjectEstimateWorkOptions(invoiceProject, item.workPackage || newInvoice.workPackage || '')
+    : [];
+  const updateItemWork = (idx, value) => {
+    const item = (newInvoice.items || [])[idx] || {};
+    const option = workOptionsForItem(item).find(row => row.value === value);
+    if (!option) {
+      updateItem(idx, {estimateWorkValue:'', estimateId:'', estimateItemKey:'', parentWorkKey:'', parentWorkName:'', parentWorkSourceCode:'', sectionName:''});
+      return;
+    }
+    updateItem(idx, {
+      estimateWorkValue:option.value,
+      estimateId:option.estimateId,
+      estimateItemKey:option.estimateItemKey,
+      parentWorkKey:option.parentWorkKey,
+      parentWorkName:option.parentWorkName,
+      parentWorkSourceCode:option.parentWorkSourceCode,
+      sectionName:option.sectionName,
+      workPackage:option.workPackage || item.workPackage || '',
+    });
   };
   const updateLocation = (location) => {
     const project = location !== 'Основной склад' ? location : '';
@@ -73,7 +95,7 @@ export default function ScannedInvoiceFormModal({
         {(newInvoice.items||[]).map((item,idx)=>(
           <div key={idx} style={{display:'grid',gridTemplateColumns:'2fr 1.2fr 0.7fr 0.7fr 1fr 24px',gap:'4px',marginBottom:'6px'}}>
             <input placeholder='Название' value={item.name} onChange={e=>updateItem(idx,{name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-            <select value={item.workPackage || ''} onChange={e=>updateItem(idx,{workPackage:e.target.value})} disabled={!invoiceProject} style={{...inp,marginBottom:0,fontSize:'11px',padding:'6px 4px',opacity:invoiceProject?1:0.65}}>
+            <select value={item.workPackage || ''} onChange={e=>updateItem(idx,{workPackage:e.target.value, estimateWorkValue:'', estimateId:'', estimateItemKey:'', parentWorkKey:'', parentWorkName:'', parentWorkSourceCode:'', sectionName:''})} disabled={!invoiceProject} style={{...inp,marginBottom:0,fontSize:'11px',padding:'6px 4px',opacity:invoiceProject?1:0.65}}>
               <option value=''>{invoiceProject ? 'Раздел' : 'Склад'}</option>
               {packageOptions.map(pkg=><option key={pkg} value={pkg}>{pkg}</option>)}
             </select>
@@ -81,6 +103,12 @@ export default function ScannedInvoiceFormModal({
             <select value={item.unit||'шт'} onChange={e=>updateItem(idx,{unit:e.target.value})} style={{...inp,marginBottom:0,fontSize:'11px',padding:'6px 4px'}}>{units.map(u=><option key={u}>{u}</option>)}</select>
             <input placeholder='Цена' type='number' step='any' inputMode='decimal' value={item.price} onChange={e=>updateItem(idx,{price:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
             <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push({name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage});setNewInvoice({...newInvoice,items});}} style={{...btnR,padding:'4px 6px',fontSize:'11px'}}><X size={12}/></button>
+            {invoiceProject && (
+              <select value={item.estimateWorkValue || ''} onChange={e=>updateItemWork(idx, e.target.value)} style={{...inp,gridColumn:'1 / span 6',marginBottom:0,fontSize:'11px',padding:'6px 4px'}}>
+                <option value=''>Работа сметы, если материал не выделен отдельной строкой</option>
+                {workOptionsForItem(item).map(work=><option key={work.value} value={work.value}>{work.label}</option>)}
+              </select>
+            )}
           </div>
         ))}
         <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage}]})} style={{...btnG,fontSize:'12px',padding:'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>

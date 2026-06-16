@@ -171,6 +171,18 @@ const estimateCodeLooksResource = (value) => {
   const raw = String(value||'').trim();
   return /^\d{2,}[-/]\d+/.test(raw) || /^\d{3,}$/.test(raw) || /^тц[_-]/i.test(raw) || /^фс[сб]ц/i.test(raw);
 };
+const estimateImportedLineTotalRaw = (it={}) => toNum(it.lineTotal ?? it.currentTotal ?? it.total ?? it.sum ?? it.amount ?? it.totalSum ?? it.totalMaterial ?? it.materialTotal ?? it.materialSum);
+const estimateItemLooksResourceAdjustment = (it={}, sectionName='') => {
+  const raw = estimateTextKey(it.itemType || it.type || it.kind);
+  const qty = toNum(it.quantity);
+  const lineTotal = estimateImportedLineTotalRaw(it);
+  const sourceCode = String(it.sourceCode || it.obosn || it.code || it.reason || '').trim();
+  const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
+  const rawResource = ['material','materials','материал','материалы','equipment','оборудование','delivery','доставка','transport'].includes(raw);
+  const looksResource = rawResource || estimateCodeLooksResource(sourceCode) || estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.material) || estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.equipment) || estimateTextHasAny(text, ESTIMATE_TYPE_TOKENS.transport);
+  const looksStrongWork = estimateTextStartsWithAny(estimateTextKey(it.name), ESTIMATE_WORK_START_TOKENS) || estimateTextHasAny(estimateTextKey(it.name), ESTIMATE_STRONG_WORK_TOKENS);
+  return looksResource && !looksStrongWork && (qty < 0 || lineTotal < 0 || it.importKind === 'resource_adjustment');
+};
 const normalizeEstimateItemType = (it={}, sectionName='') => {
   const explicit = estimateTextKey(it.itemType || it.type);
   const nameText = estimateTextKey(it.name);
@@ -184,13 +196,15 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   const codeLooksWork = /^(ГЭСН|ФЕР|ТЕР)/i.test(sourceCode);
   const codeLooksResource = estimateCodeLooksResource(sourceCode);
   const explicitKnown = ESTIMATE_ITEM_TYPE_BY_ID[explicit] ? explicit : '';
+  const lineTotalLike = estimateImportedLineTotalRaw(it);
   const nameMaterialShouldWin = nameLooksMaterial && !nameStartsWithWork;
   const nameEquipmentShouldWin = nameLooksEquipment && !nameStartsWithWork;
   const nameTransportShouldWin = nameLooksTransport && !nameStartsWithWork;
   const weakExplicitMaterial = explicitKnown === 'material' && (codeLooksWork || nameLooksStrongWork);
-  const weakExplicitWork = explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameMaterialShouldWin || nameEquipmentShouldWin || nameTransportShouldWin || toNum(it.quantity) < 0);
-  if (toNum(it.quantity) < 0 && ['material','equipment','transport'].includes(explicitKnown)) return 'adjustment';
-  if (toNum(it.quantity) < 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
+  const weakExplicitWork = explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameMaterialShouldWin || nameEquipmentShouldWin || nameTransportShouldWin || toNum(it.quantity) < 0 || lineTotalLike < 0);
+  if (estimateItemLooksResourceAdjustment(it, sectionName)) return 'adjustment';
+  if ((toNum(it.quantity) < 0 || lineTotalLike < 0) && ['material','equipment','transport'].includes(explicitKnown)) return 'adjustment';
+  if ((toNum(it.quantity) < 0 || lineTotalLike < 0) && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
   if (explicitKnown && !weakExplicitWork && !weakExplicitMaterial) return explicitKnown;
   if (weakExplicitMaterial) return 'work';
   if (explicit.includes('коррект') || explicit.includes('adjust')) return 'adjustment';
@@ -200,7 +214,7 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   if (explicit.includes('проч') || explicit.includes('наклад')) return 'overhead';
   if (explicit.includes('работ') && !weakExplicitWork) return 'work';
   if (codeLooksWork || nameLooksStrongWork) return 'work';
-  if (it.isImported && toNum(it.quantity) < 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
+  if (it.isImported && (toNum(it.quantity) < 0 || lineTotalLike < 0) && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
   if (toNum(it.priceMaterial)>0 && toNum(it.priceWork)===0) return 'material';
   if (codeLooksResource && !nameLooksStrongWork) return 'material';
   if (nameTransportShouldWin && !nameLooksWork) return 'transport';
@@ -502,6 +516,8 @@ const estimateImportedMaterialTotal = (it, itemType) => {
   const totalWork = toNum(it?.totalWork);
   const lineTotal = toNum(it?.lineTotal ?? it?.currentTotal);
   const total = toNum(it?.total);
+  if (estimateItemLooksResourceAdjustment(it, it?.sectionName||it?.section||'')) return 0;
+  if (['material','equipment','transport'].includes(itemType) && (toNum(it?.quantity) < 0 || totalMaterial < 0 || lineTotal < 0 || total < 0)) return 0;
   if (totalMaterial) return totalMaterial;
   if (['material','equipment','transport'].includes(itemType) && lineTotal && !totalWork) return lineTotal;
   if (priceMaterial && toNum(it?.quantity) > 0) return priceMaterial * toNum(it.quantity);
@@ -4009,6 +4025,41 @@ function App() {
     const fallback = ESTIMATE_PACKAGES.filter(Boolean);
     return [...new Set((activePackages.length ? activePackages : fallback).filter(Boolean))];
   };
+  const getProjectEstimateWorkOptions = (projectName='', workPackage='') => {
+    const project = (projects||[]).find(p=>p.name===projectName);
+    if (!project) return [];
+    const packageFilter = String(workPackage || '').trim();
+    const seen = new Set();
+    const out = [];
+    activeEstimatesForProject(project, 'Заказчик')
+      .filter(est => !packageFilter || estimatePackage(est) === packageFilter)
+      .forEach(est => {
+        const pkg = estimatePackage(est);
+        _sectionsOfEst(est).forEach((section, sectionIdx) => {
+          const sectionName = section?.name || '';
+          (section?.items || []).forEach((item, itemIdx) => {
+            if (normalizeEstimateItemType(item, sectionName) !== 'work') return;
+            const key = item.workKey || estimateWorkKeyForItem(item, sectionName, itemIdx);
+            const value = [est.id, sectionIdx, itemIdx, key].join(':');
+            if (seen.has(value)) return;
+            seen.add(value);
+            out.push({
+              value,
+              estimateId: est.id,
+              estimateName: est.name,
+              estimateItemKey: key,
+              parentWorkKey: key,
+              parentWorkName: item.workName || item.name || '',
+              parentWorkSourceCode: item.workSourceCode || item.sourceCode || item.obosn || '',
+              sectionName,
+              workPackage: pkg,
+              label: (item.workName || item.name || '').slice(0, 140),
+            });
+          });
+        });
+      });
+    return out;
+  };
   const projectMeasurementBasisTotals = (projectName) => {
     const projectRooms = (rooms||[]).filter(r=>r.project===projectName);
     const projectRoomIds = new Set(projectRooms.map(r=>Number(r.id)));
@@ -5210,6 +5261,7 @@ function App() {
   };
   const warehouseInvoiceEstimateControl = (inv) => {
     const sourcePackageOf = (item = {}, parent = {}) => item.workPackage || item.work_package || parent.workPackage || parent.work_package || '';
+    const linkedWorkLabel = (item = {}) => item.parentWorkName || item.parent_work_name || item.estimateWorkName || item.estimate_work_name || item.workName || item.work_name || '';
     const invoiceRows = warehouseInvoiceItems(inv);
     const items = invoiceRows.items || [];
     const place = inv?.location === 'Основной склад' ? '' : (inv?.project || inv?.location || '');
@@ -5255,8 +5307,42 @@ function App() {
       const row = m.key ? rowsByKey.get(m.key) : null;
       const alreadySeen = seenQtyByKey[m.key] || 0;
       seenQtyByKey[m.key] = alreadySeen + qty;
+      const workLabel = linkedWorkLabel(item);
 
       if (!row || Number(row.controlPlanQty||row.planQty||0) <= 0) {
+        if (workLabel) {
+          return {
+            index,
+            name:item.name||'',
+            projectName:place,
+            canonicalName:item.name||'',
+            workPackage:m.workPackage || item.workPackage || item.work_package || '',
+            quantity:qty,
+            incomingQty:qty,
+            unit,
+            rowUnit:unit,
+            lineSum,
+            shortageQty:0,
+            overQty:0,
+            priceOverSum:0,
+            unitMismatch:false,
+            status:'К работе сметы',
+            severity:'success',
+            detail:'Материал не выделен отдельной строкой сметы, но привязан к укрупненной работе',
+            planText:'комплектация работы',
+            beforeText:'—',
+            afterText:fmtMeasure(qty, unit),
+            overText:'—',
+            shortageText:'—',
+            lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
+            planPriceText:'—',
+            invoicePriceText:qty > 0 && lineSum ? Math.round(lineSum / qty).toLocaleString('ru-RU')+' ₽/'+(unit||'ед.') : '—',
+            priceOverText:'—',
+            workRefs:[workLabel],
+            sectionsList:item.sectionName ? [item.sectionName] : [],
+            estimateItemKey:item.estimateItemKey || item.estimate_item_key || item.parentWorkKey || item.parent_work_key || '',
+          };
+        }
 	        return {
 	          index,
 	          name:item.name||'',
@@ -13559,6 +13645,7 @@ function App() {
               materialReconciliationRows={materialReconciliationRows}
               projects={projects}
               getProjectWorkPackageOptions={getProjectWorkPackageOptions}
+              getProjectEstimateWorkOptions={getProjectEstimateWorkOptions}
               setSelectedWarehouseProject={setSelectedWarehouseProject}
               visibleActiveProjects={visibleActiveProjects}
               showForm={showForm}
@@ -14202,8 +14289,8 @@ function App() {
                   const typedItems=allItems.map((i,idx)=>{const normalized=normalizeEstimateWorkingItem(i,section.name);return {...normalized,_idx:idx,_type:itemKind(normalized)};}).filter(i=>!showEstimateIssuesOnly||issueKeySet.has(String(si)+'|'+String(i._idx)));
                   if(showEstimateIssuesOnly&&typedItems.length===0) return null;
                   const works=typedItems.filter(i=>i._type==='work');
-                  const mats=typedItems.filter(i=>i._type==='material');
-                  const adjustments=typedItems.filter(i=>i._type==='adjustment');
+                  const mats=typedItems.filter(i=>i._type==='material'&&!estimateItemLooksResourceAdjustment(i,section.name));
+                  const adjustments=typedItems.filter(i=>i._type==='adjustment'||estimateItemLooksResourceAdjustment(i,section.name));
                   const others=typedItems.filter(i=>!['work','material','adjustment'].includes(i._type));
                   const total=allItems.reduce((s,i)=>s+sumOf(i),0);
                   const totalW=works.reduce((s,i)=>s+sumOf(i),0);
@@ -14555,7 +14642,7 @@ function App() {
     <EstimateChatModal showEstimateChat={showEstimateChat} setShowEstimateChat={setShowEstimateChat} selectedEstimate={selectedEstimate} C={C} card={card} inp={inp} btnG={btnG} btnO={btnO} isMobile={isMobile} darkMode={darkMode} API={API} estimateChatMessages={estimateChatMessages} setEstimateChatMessages={setEstimateChatMessages} estimateChatLoading={estimateChatLoading} estimateChatInput={estimateChatInput} setEstimateChatInput={setEstimateChatInput} sendEstimateChatMessage={sendEstimateChatMessage}/>
     <EstimateVersionHistoryModal showVersionHistory={showVersionHistory} setShowVersionHistory={setShowVersionHistory} selectedEstimate={selectedEstimate} estimateVersions={estimateVersions} selectedVersionsToCompare={selectedVersionsToCompare} setSelectedVersionsToCompare={setSelectedVersionsToCompare} isMobile={isMobile} C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} API={API} user={user} setSelectedEstimate={setSelectedEstimate} setEstimatesList={setEstimatesList} showPreview={showPreview} buildEstimateDiffContent={buildEstimateDiffContent} estimateItemTotal={estimateItemTotal} setShowAiChat={setShowAiChat} setAiMessages={setAiMessages} setAiLoading={setAiLoading}/>
     <ReceiveMaterialDialog showReceiveDialog={showReceiveDialog} setShowReceiveDialog={setShowReceiveDialog} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnB={btnB} btnG={btnG}/>
-    <ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} getProjectWorkPackageOptions={getProjectWorkPackageOptions} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>
+    <ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} getProjectWorkPackageOptions={getProjectWorkPackageOptions} getProjectEstimateWorkOptions={getProjectEstimateWorkOptions} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>
     <ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} setNewInvoice={setNewInvoice}/>
     <OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>
     <QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setExpandedProject={setExpandedProject} setActiveProjectTab={setActiveProjectTab} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>

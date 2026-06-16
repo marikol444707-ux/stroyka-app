@@ -446,7 +446,7 @@ def require_estimate_access(cur, estimate_id: int, user: dict):
 
 def _estimate_item_key_candidates(item: dict, estimate_id=None, section_idx=None, item_idx=None) -> list[str]:
     keys = []
-    for field in ("estimateItemKey", "estimate_item_key", "itemKey", "key", "id", "code", "sourceCode", "obosn"):
+    for field in ("estimateItemKey", "estimate_item_key", "itemKey", "workKey", "work_key", "key", "id", "code", "sourceCode", "obosn"):
         value = str((item or {}).get(field) or "").strip()
         if value and value not in keys:
             keys.append(value)
@@ -5794,6 +5794,66 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
         "workPackage": package,
     }
 
+def _supply_linked_work_estimate_control(cur, project: str, item: dict, work_package: str = ""):
+    project = (project or "").strip()
+    if not project or not isinstance(item, dict):
+        return None
+    package = _supply_work_package(work_package or item.get("workPackage") or item.get("work_package"))
+    target_keys = {
+        str(item.get("estimateItemKey") or item.get("estimate_item_key") or "").strip(),
+        str(item.get("parentWorkKey") or item.get("parent_work_key") or "").strip(),
+        str(item.get("workKey") or item.get("work_key") or "").strip(),
+    }
+    target_keys.discard("")
+    target_name = _norm_key_text(
+        item.get("parentWorkName")
+        or item.get("parent_work_name")
+        or item.get("estimateWorkName")
+        or item.get("estimate_work_name")
+        or item.get("workName")
+        or item.get("work_name")
+        or ""
+    )
+    if not target_keys and not target_name:
+        return None
+
+    params = [project]
+    package_clause = ""
+    if package:
+        package_clause = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
+        params.append(package)
+    cur.execute("""SELECT id, name, sections_json, COALESCE(NULLIF(work_package,''),'Основная') AS work_package
+                   FROM estimates
+                   WHERE project_name=%s
+                     AND status='Активная'
+                     AND COALESCE(smeta_type,'Заказчик')='Заказчик'""" + package_clause, tuple(params))
+    for est in _cursor_rows_as_dicts(cur, cur.fetchall()):
+        est_id = est.get("id")
+        for section_idx, section in enumerate(_estimate_sections(est.get("sections_json"))):
+            section_name = section.get("name") or ""
+            for item_idx, work in enumerate(section.get("items") or []):
+                if not isinstance(work, dict) or _estimate_item_type_backend(work, section_name) != "work":
+                    continue
+                keys = set(_estimate_item_key_candidates(work, est_id, section_idx, item_idx))
+                work_name = work.get("workName") or work.get("name") or ""
+                work_name_key = _norm_key_text(work_name)
+                if (target_keys and target_keys.intersection(keys)) or (target_name and work_name_key and (target_name == work_name_key or target_name in work_name_key or work_name_key in target_name)):
+                    work_qty = _estimate_imported_quantity(work)
+                    if work_qty <= 0:
+                        work_qty = _float_or_zero(work.get("quantity"))
+                    return {
+                        "status": "composite_work_material",
+                        "estimateId": est_id,
+                        "estimateName": est.get("name") or "",
+                        "estimateItemKey": next(iter(keys), ""),
+                        "workName": work_name,
+                        "workPackage": est.get("work_package") or package,
+                        "sectionName": section_name,
+                        "plannedWorkQty": round(work_qty, 6),
+                        "plannedWorkSum": round(_estimate_item_sum_backend(work), 2),
+                    }
+    return None
+
 def _attach_supply_estimate_control(cur, project: str, items: list, exclude_request_id=None, exclude_stock_by_key=None):
     if not project:
         return items
@@ -5812,6 +5872,16 @@ def _attach_supply_estimate_control(cur, project: str, items: list, exclude_requ
         )
         if not control:
             continue
+        if control.get("status") == "no_estimate_material":
+            linked_work = _supply_linked_work_estimate_control(
+                cur,
+                project,
+                item,
+                item.get("workPackage") or item.get("work_package") or "",
+            )
+            if linked_work:
+                control.update(linked_work)
+                control["matchedRows"] = control.get("matchedRows") or 0
         qty = _float_or_zero(item.get("quantity"))
         remaining_after = control["remainingQty"] - qty
         control["requestQty"] = round(qty, 6)
@@ -10494,16 +10564,19 @@ def _estimate_material_sum_backend(item: dict) -> float:
     if raw in ("adjustment", "корректировка", "note", "примечание"):
         return 0.0
     qty = _float_or_zero(item.get("quantity"))
-    if qty < 0 and raw in ("material", "материал", "materials", "материалы", "equipment", "оборудование", "delivery", "доставка", "transport"):
-        return 0.0
+    raw_is_resource = raw in ("material", "материал", "materials", "материалы", "equipment", "оборудование", "delivery", "доставка", "transport")
     if item.get("isImported"):
         total_material = _float_or_zero(item.get("totalMaterial") or item.get("materialTotal") or item.get("materialSum"))
         line_total = _float_or_zero(item.get("lineTotal") or item.get("currentTotal") or item.get("total") or item.get("sum") or item.get("amount") or item.get("totalSum"))
+        if raw_is_resource and (qty < 0 or total_material < 0 or line_total < 0):
+            return 0.0
         if total_material:
             return total_material
         if raw in ("material", "материал", "materials", "материалы", "equipment", "оборудование", "delivery", "доставка", "transport") and line_total:
             return line_total
         return qty * _float_or_zero(item.get("priceMaterial"))
+    if raw_is_resource and qty < 0:
+        return 0.0
     return qty * _float_or_zero(item.get("priceMaterial"))
 
 def _estimate_import_line_total_backend(item: dict) -> float:
