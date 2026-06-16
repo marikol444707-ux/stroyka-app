@@ -8117,13 +8117,13 @@ def _personal_material_balance(cur, project: str, person_id, person_name: str, m
     if person_id:
         cur.execute("""SELECT materials_used FROM work_journal
                        WHERE project=%s
-                         AND COALESCE(status,'') <> 'Отклонено'
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                          AND (COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))""" + package_journal_filter,
                     (project, person_id, person_name or "", package_name))
     else:
         cur.execute("""SELECT materials_used FROM work_journal
                        WHERE project=%s
-                         AND COALESCE(status,'') <> 'Отклонено'
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                          AND master_name=%s""" + package_journal_filter,
                     (project, person_name or "", package_name))
     used = 0
@@ -8574,7 +8574,7 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
     if room_id:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM work_journal
                        WHERE project=%s AND room_id=%s AND {target_sql}
-                         AND COALESCE(status,'') <> 'Отклонено'{package_sql}{exclude_sql}
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
                        LIMIT 1""", [project, room_id, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
@@ -8583,7 +8583,7 @@ def _work_journal_duplicate(cur, project, room_id=None, room_name="", estimate_i
     if room_name:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM work_journal
                        WHERE project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
-                         AND COALESCE(status,'') <> 'Отклонено'{package_sql}{exclude_sql}
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
                        LIMIT 1""", [project, room_name, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
@@ -8622,7 +8622,7 @@ def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item
     if room_id:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
                         WHERE project=%s AND room_id=%s AND {target_sql}
-                          AND COALESCE(status,'') <> 'Отклонено'{package_sql}{exclude_sql}
+                          AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
                         LIMIT 1""", [project, room_id, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
@@ -8631,7 +8631,7 @@ def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item
     if room_name:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
                         WHERE project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
-                          AND COALESCE(status,'') <> 'Отклонено'{package_sql}{exclude_sql}
+                          AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
                         LIMIT 1""", [project, room_name, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
@@ -10717,7 +10717,7 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
 
     cur.execute("""SELECT id, description, section_name, unit, quantity, date, master_name
                    FROM work_journal
-                   WHERE project=%s AND COALESCE(status,'') <> 'Отклонено'
+                   WHERE project=%s AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                    ORDER BY id DESC LIMIT 150""", (project_name,))
     journal_rows = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT description, date FROM room_works WHERE project=%s", (project_name,))
@@ -17416,7 +17416,7 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             "estimateMaterialsWithoutCandidateWork": 0,
         })
     suggestions = {}
-    where = "WHERE COALESCE(status,'') <> 'Отклонено'"
+    where = "WHERE COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')"
     params = []
     if project_name:
         where += " AND project=%s"
