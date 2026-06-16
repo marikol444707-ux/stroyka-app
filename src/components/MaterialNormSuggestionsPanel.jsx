@@ -42,6 +42,10 @@ export default function MaterialNormSuggestionsPanel({
       <div style={{display:'grid',gap:'8px'}}>
         {suggestions.slice(0,12).map(s=>{
           const isPreview = s.previewOnly || s.status==='Предпросмотр';
+          const confidence = Number(s.confidence||0) > 1 ? Number(s.confidence||0) / 100 : Number(s.confidence||0);
+          const canAcceptGlobal = Boolean(s.suggestedQtyPerUnit) && confidence >= 0.7;
+          const confidenceLabel = confidence >= 0.7 ? 'высокая' : confidence >= 0.5 ? 'средняя' : 'слабая';
+          const confidenceColor = confidence >= 0.7 ? C.success : confidence >= 0.5 ? C.warning : C.danger;
           const sevColor=s.severity==='Критично'?C.danger:s.severity==='Не хватает данных'?C.warning:C.info;
           const sourceLabel={
             'estimate-parent':'связка из сметы',
@@ -70,13 +74,13 @@ export default function MaterialNormSuggestionsPanel({
               <div>
                 <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Предложение</span>
                 <p style={{color:C.success,margin:'2px 0 0',fontSize:'13px',fontWeight:'800'}}>{s.suggestedQtyPerUnit?Number(s.suggestedQtyPerUnit).toLocaleString('ru-RU'):'—'} {s.materialUnit||''} / {s.workUnit||'ед.'}</p>
-                <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>Уверенность: {Math.round(Number(s.confidence||0)*100)}% · {sourceLabel} · примеров: {s.sampleCount||0}</p>
+                <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>Уверенность: <b style={{color:confidenceColor}}>{confidenceLabel} {Math.round(confidence*100)}%</b> · {sourceLabel} · примеров: {s.sampleCount||0}</p>
               </div>
               <div style={{display:'flex',gap:'6px',justifyContent:isMobile?'flex-start':'flex-end',flexWrap:'wrap'}}>
                 {isPreview ? <>
                   <span style={badge(C.textMuted,C.bgGray,C.border)}>Без сохранения</span>
                 </> : <>
-                  <button onClick={()=>acceptMaterialNormSuggestion(s.id)} disabled={!s.suggestedQtyPerUnit} style={btnState(btnGr,!s.suggestedQtyPerUnit,{padding:'6px 9px',fontSize:'11px'})}><Check size={12}/>Принять</button>
+                  <button onClick={()=>acceptMaterialNormSuggestion(s.id)} disabled={!canAcceptGlobal} title={canAcceptGlobal?'Записать в глобальный справочник компании':'Слабую норму нельзя писать глобально: примите в объект или создайте поручение'} style={btnState(btnGr,!canAcceptGlobal,{padding:'6px 9px',fontSize:'11px'})}><Check size={12}/>В справочник</button>
                   <button onClick={()=>acceptMaterialNormSuggestionAsOverride(s.id)} disabled={!s.suggestedQtyPerUnit} style={btnState(btnB,!s.suggestedQtyPerUnit,{padding:'6px 9px',fontSize:'11px'})}><Check size={12}/>В объект</button>
                   <button onClick={()=>createTaskFromMaterialNormSuggestion(s.id)} style={{...btnB,padding:'6px 9px',fontSize:'11px'}}><Bot size={12}/>Поручение</button>
                   <button onClick={()=>rejectMaterialNormSuggestion(s.id)} style={{...btnR,padding:'6px 9px',fontSize:'11px'}}><X size={12}/></button>

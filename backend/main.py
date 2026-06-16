@@ -16635,6 +16635,15 @@ def _material_alias_values(data: MaterialAliasModel, user_name: str):
         user_name or "",
     )
 
+def _material_norm_confidence_value(value) -> float:
+    try:
+        confidence = float(value or 0)
+    except Exception:
+        return 0.0
+    if confidence > 1:
+        confidence = confidence / 100
+    return max(0.0, min(1.0, confidence))
+
 @app.get("/material-aliases")
 def list_material_aliases(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     conn = get_db()
@@ -18161,6 +18170,9 @@ def accept_material_norm_suggestion(id: int, current_user: dict = Depends(requir
     if qty <= 0:
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="В предложении нет расчётной нормы. Уточните вручную.")
+    if _material_norm_confidence_value(suggestion.get("confidence")) < 0.70:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Низкая уверенность предложения. Примите его как поправку объекта или создайте поручение сметчику.")
     work_keywords = suggestion["work"] or _norm_keywords_from_text(suggestion["workName"] + " " + suggestion["sectionName"])
     material_keywords = suggestion["material"] or _norm_keywords_from_text(suggestion["materialName"])
     block_keywords = suggestion["blockWork"] or ["демонтаж", "разбор"]
