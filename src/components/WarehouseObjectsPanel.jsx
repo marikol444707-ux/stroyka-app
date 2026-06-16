@@ -41,12 +41,32 @@ export default function WarehouseObjectsPanel({
   _normalizeUnit,
   convertUnits,
   staff,
+  getProjectWorkPackageOptions,
   setMaterials,
   notify,
 }) {
   const projectMaterials = (projectName) => (materials || []).filter(material => material.project === projectName);
   const canDeleteProjectMaterial = ['директор', 'зам_директора', 'кладовщик', 'снабженец'].includes(user?.role);
   const transferSourceMaterials = (materials || []).filter(material => material.project === selectedWarehouseProject);
+  const toNum = value => {
+    const parsed = Number(String(value ?? '').replace(',', '.').replace(/\s+/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const transferPackageOptions = selectedWarehouseProject
+    ? (getProjectWorkPackageOptions
+      ? getProjectWorkPackageOptions(selectedWarehouseProject)
+      : [...new Set(transferSourceMaterials.map(material => material.workPackage || material.work_package || '').filter(Boolean))])
+    : [];
+  const selectedTransferStock = transferSourceMaterials.find(material =>
+    material.name === newTransfer.materialName &&
+    (material.workPackage || material.work_package || '') === (newTransfer.workPackage || '')
+  );
+  const selectedTransferQty = toNum(newTransfer.quantity);
+  const selectedTransferStockQty = toNum(selectedTransferStock?.quantity);
+  const transferNeedsPackage = ['мастер', 'бригадир', 'субподрядчик', 'бригада'].includes((newTransfer.toPersonRole || '').toLowerCase());
+  const transferMissingPackage = transferNeedsPackage && !(newTransfer.workPackage || '').trim();
+  const transferOverStock = !!newTransfer.materialName && selectedTransferQty > selectedTransferStockQty;
+  const canSaveObjectTransfer = !!newTransfer.materialName && selectedTransferQty > 0 && !!newTransfer.toPerson && !transferMissingPackage && !transferOverStock;
 
   return (
     <div>
@@ -292,13 +312,34 @@ export default function WarehouseObjectsPanel({
                 );
               })()}
             </select>
+            <select
+              value={newTransfer.workPackage || ''}
+              onChange={event => setNewTransfer({ ...newTransfer, workPackage: event.target.value })}
+              style={{ ...inp, borderColor: transferMissingPackage ? C.warning : inp.borderColor }}
+            >
+              <option value=''>{transferNeedsPackage ? 'Пакет работ *' : 'Пакет работ'}</option>
+              {transferPackageOptions.map(packageName => (
+                <option key={packageName} value={packageName}>{packageName}</option>
+              ))}
+            </select>
             <input type='date' value={newTransfer.transferDate} onChange={event => setNewTransfer({ ...newTransfer, transferDate: event.target.value })} style={inp} />
             <input placeholder='Примечание' value={newTransfer.notes} onChange={event => setNewTransfer({ ...newTransfer, notes: event.target.value })} style={inp} />
+            {(transferMissingPackage || transferOverStock) && (
+              <div style={{ padding: '10px 12px', backgroundColor: transferOverStock ? C.dangerLight : C.warningLight, border: '1.5px solid ' + (transferOverStock ? C.dangerBorder : C.warningBorder), borderRadius: '8px', color: transferOverStock ? C.danger : C.warning, fontSize: '12px', fontWeight: 700 }}>
+                {transferOverStock
+                  ? `Нельзя выдать больше остатка: на складе ${selectedTransferStockQty}, указано ${selectedTransferQty}.`
+                  : 'Для выдачи мастеру, бригадиру или субподрядчику выберите пакет работ.'}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
                 onClick={async () => {
-                  if (!newTransfer.materialName || !newTransfer.quantity || !newTransfer.toPerson) {
-                    window.alert('Заполните: материал, количество, кому');
+                  if (!canSaveObjectTransfer) {
+                    window.alert(transferOverStock
+                      ? 'Нельзя выдать больше остатка на складе объекта.'
+                      : transferMissingPackage
+                        ? 'Для выдачи исполнителю выберите пакет работ.'
+                        : 'Заполните: материал, количество, кому');
                     return;
                   }
                   const data = { ...newTransfer, fromLocation: selectedWarehouseProject, projectName: selectedWarehouseProject, createdBy: user.name };
@@ -323,7 +364,8 @@ export default function WarehouseObjectsPanel({
                   setNewTransfer({ materialName: '', quantity: '', unit: 'шт', workPackage: '', toPerson: '', toPersonRole: '', toUserId: '', fromLocation: selectedWarehouseProject, notes: '', transferDate: new Date().toISOString().split('T')[0] });
                   notify('Передал ' + (saved.materialName || newTransfer.materialName) + ' (' + newTransfer.quantity + ' ' + newTransfer.unit + ') → ' + newTransfer.toPerson, 'material');
                 }}
-                style={btnO}
+                disabled={!canSaveObjectTransfer}
+                style={{ ...btnO, opacity: canSaveObjectTransfer ? 1 : 0.55, cursor: canSaveObjectTransfer ? 'pointer' : 'not-allowed' }}
               >
                 <Check size={14} />
                 Передать

@@ -197,6 +197,7 @@ export default function WarehousePage(props) {
           _normalizeUnit={_normalizeUnit}
           convertUnits={convertUnits}
           staff={staff}
+          getProjectWorkPackageOptions={getProjectWorkPackageOptions}
           setWarehouseMain={setWarehouseMain}
           setMaterials={setMaterials}
           notify={notify}

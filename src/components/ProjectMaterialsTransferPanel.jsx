@@ -123,7 +123,7 @@ export default function ProjectMaterialsTransferPanel({
       });
 
     (workJournal || [])
-      .filter(w => w.project === projectName && w.status !== 'Отклонено' && ((w.masterName || w.master_name || '') === personName) && packageMatches(w.workPackage || w.work_package, workPackage))
+      .filter(w => w.project === projectName && !['Отклонено', 'Аннулировано'].includes(w.status || '') && ((w.masterName || w.master_name || '') === personName) && packageMatches(w.workPackage || w.work_package, workPackage))
       .forEach(w => {
         parseJournalMaterials(w.materialsUsed !== undefined ? w.materialsUsed : w.materials_used)
           .filter(m => materialKey(m.name) === nameKey)
