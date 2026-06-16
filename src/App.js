@@ -2304,8 +2304,8 @@ function App() {
   };
 
   const saveInvoiceNew = async () => {
-    if (!newInvoice.number || newInvoice.items.filter(i=>i.name&&i.quantity).length===0) { alert('Заполните номер накладной и материалы'); return; }
-    if (!newInvoice.location) { alert('Выберите куда оприходовать (основной склад или объект)'); return; }
+    if (!newInvoice.number || newInvoice.items.filter(i=>i.name&&i.quantity).length===0) { alert('Заполните номер накладной и материалы'); return false; }
+    if (!newInvoice.location) { alert('Выберите куда оприходовать (основной склад или объект)'); return false; }
     let supplierId = newInvoice.supplierId;
     if (newInvoice.isNewSupplier && newInvoice.newSupplierName) {
       const res = await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newInvoice.newSupplierName,phone:'',email:'',specialization:'',category:'Прочее',rating:5.0,status:'Активный'})});
@@ -2326,7 +2326,7 @@ function App() {
     if (!invoiceRes.ok) {
       const err = await invoiceRes.json().catch(()=>({}));
       alert(err.detail || 'Не удалось сохранить накладную');
-      return;
+      return false;
     }
     let reviewTasksCreated = 0;
     try {
@@ -2340,6 +2340,7 @@ function App() {
     setNewInvoice({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}]});
     setShowForm(false);
     alert('Накладная принята!'+(reviewTasksCreated ? '\nСоздано задач ИИ-контроля: '+reviewTasksCreated : ''));
+    return true;
   };
 
   const applyWarehouseMovement = async () => {

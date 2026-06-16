@@ -12359,7 +12359,7 @@ async def parse_smeta(file: UploadFile = File(...)):
         work_prefixes = ["ГЭСНм", "ФЕРм", "ТЕРм", "ГЭСНи", "ФЕРи", "ГЭСНр", "ФЕРр", "ТЕРр", "ГЭСН", "ФЕР", "ТЕР"]
         material_prefixes = ["ФСБЦ", "ФССЦ", "ТССЦ", "ТССЦпг", "ТЦ_", "ТЦ-", "КАЦ", "МАТ"]
         work_words = ("монтаж", "демонтаж", "установка", "устройство", "прокладка", "разбор", "разборка", "сборка", "замена", "подключение", "снятие", "очистка", "ремонт", "отбивка", "облицов", "окраск", "шпатлев", "шпаклев", "грунтов", "стяжк", "укладка")
-        material_words = ("материал", "труба", "кабель", "провод", "смесь", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "краска", "акрил", "грунтовка", "цемент", "бетон", "кирпич", "блок", "лист", "профиль", "саморез", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "пвх", "уголок", "уголк", "угол", "панель", "плинтус", "наличник")
+        material_words = ("материал", "труба", "кабель", "провод", "смесь", "раствор", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "краска", "акрил", "грунтовка", "цемент", "бетон", "кирпич", "блок", "лист", "профиль", "саморез", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "линолеум", "арматур", "битум", "бризол", "лак", "мастик", "утеплитель", "рубероид", "пвх", "уголок", "уголк", "угол", "панель", "плинтус", "наличник", "дюбел", "втулк", "скреп", "крепеж")
         lsr_service_tokens = (
             "итого", "всего", "в том числе", "объем=", "объём=",
             "фот", "средства на оплату труда", "нормативные затраты труда",
@@ -12473,6 +12473,20 @@ async def parse_smeta(file: UploadFile = File(...)):
             if any(word in name_key for word in material_words):
                 return "material"
             return "material"
+
+        def _lsr_name_looks_resource(name_value):
+            name_key = _lsr_text_key(name_value)
+            if not name_key:
+                return False
+            work_starts = (
+                "монтаж", "демонтаж", "устройство", "установка", "разбор",
+                "разборка", "снятие", "очистка", "отбивка", "облицовка",
+                "окраска", "грунтование", "штукатурка поверхностей", "стяжка",
+                "смена", "прокладка", "подключение", "ремонт"
+            )
+            if any(name_key.startswith(prefix) for prefix in work_starts):
+                return False
+            return any(word in name_key for word in material_words)
 
         def _lsr_code_is_resource(obosn_value):
             code = str(obosn_value or "").strip()
@@ -12955,7 +12969,10 @@ async def parse_smeta(file: UploadFile = File(...)):
                             continue
                         item_type = _lsr_item_type(obosn, name_col)
                         if item_type == "work":
-                            continue
+                            if _lsr_name_looks_resource(name_col):
+                                item_type = "material"
+                            else:
+                                continue
                     else:
                         if len(name_col) < 5 or _is_lsr_service_row(name_col, obosn):
                             continue
@@ -12984,9 +13001,13 @@ async def parse_smeta(file: UploadFile = File(...)):
                     money = _lsr_money_with_index(row, lsr_columns, unit_idx, item_type, name_col, obosn)
                     line_money = float(money.get("lineTotal") or 0)
                     resource_item_type = item_type
-                    is_resource_adjustment = item_type in ("material", "equipment", "transport") and (
-                        float(qty or 0) < -0.0001 or line_money < 0
+                    is_negative_line = float(qty or 0) < -0.0001 or line_money < 0
+                    is_resource_adjustment = is_negative_line and (
+                        item_type in ("material", "equipment", "transport")
+                        or (item_type == "work" and _lsr_name_looks_resource(name_col))
                     )
+                    if is_resource_adjustment and item_type == "work":
+                        resource_item_type = "material"
                     if is_resource_adjustment:
                         item_type = "adjustment"
                     work_total = line_money if item_type == "work" else 0
@@ -13070,6 +13091,12 @@ async def parse_smeta(file: UploadFile = File(...)):
                     if total is None and unit_price is not None:
                         total = float(unit_price) * float(raw_qty or 0)
                     total = round(float(total or 0), 2)
+                    item_type = "material" if _lsr_name_looks_resource(name) else "work"
+                    is_resource_adjustment = item_type == "material" and (
+                        float(unit_qty or 0) < -0.0001 or total < 0
+                    )
+                    if is_resource_adjustment:
+                        item_type = "adjustment"
                     results.append({
                         "section": current_section,
                         "name": name,
@@ -13089,11 +13116,11 @@ async def parse_smeta(file: UploadFile = File(...)):
                         "lineTotalSource": "contract_total",
                         "lineTotal": total,
                         "total": total,
-                        "totalWork": total,
-                        "totalMaterial": 0,
-                        "type": "work",
+                        "totalWork": total if item_type == "work" else 0,
+                        "totalMaterial": total if item_type == "material" else 0,
+                        "type": item_type,
                         "sourceCode": source_code,
-                        "importKind": "contract_smeta",
+                        "importKind": "resource_adjustment" if is_resource_adjustment else "contract_smeta",
                     })
                 
                 elif file_type == "defect":

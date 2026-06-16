@@ -58,6 +58,30 @@ def _norm_text(value):
     return str(value or "").lower().replace("ё", "е").replace("\xa0", " ").strip()
 
 
+def _looks_material_resource(value):
+    text = _norm_text(value)
+    if not text:
+        return False
+    work_starts = (
+        "монтаж", "демонтаж", "устройство", "установка", "разбор",
+        "разборка", "снятие", "очистка", "отбивка", "облицовка",
+        "окраска", "грунтование", "штукатурка поверхностей", "стяжка",
+        "смена", "прокладка", "подключение", "ремонт"
+    )
+    if any(text.startswith(prefix) for prefix in work_starts):
+        return False
+    material_words = (
+        "материал", "труба", "кабель", "провод", "смесь", "раствор",
+        "штукатурка", "шпатлев", "шпаклев", "клей", "краска", "акрил",
+        "грунтовка", "цемент", "бетон", "кирпич", "блок", "лист",
+        "профиль", "саморез", "плитка", "керамогранит", "гранит",
+        "линолеум", "арматур", "битум", "бризол", "лак", "мастик",
+        "утеплитель", "рубероид", "пвх", "уголок", "панель", "плинтус",
+        "наличник", "дюбел", "втулк", "скреп", "крепеж"
+    )
+    return any(word in text for word in material_words)
+
+
 def _find_items(items, needle):
     needle = _norm_text(needle)
     return [item for item in items if needle in _norm_text(item.get("name"))]
@@ -136,6 +160,17 @@ def _check_known_regressions(file_name, items, errors):
             "Демонтаж: радиаторов весом до 80 кг",
             item_type="work", unit="шт", quantity=133, total_min=1,
         )
+    elif file_name in ("СК_ Лицей 5.xlsx", "СК_ Лицей 4_корр.2_05.05.2026.xlsx", "СК_ Л®ж•© 4_™Ѓаа.2_05.05.2026.xlsx"):
+        _assert_regression_item(
+            errors, file_name, items,
+            "Раствор готовый отделочный",
+            item_type="adjustment",
+        )
+        _assert_regression_item(
+            errors, file_name, items,
+            "Линолеум поливинилхлоридный",
+            item_type="adjustment",
+        )
 
 
 async def _check_file(parse_smeta, path):
@@ -179,12 +214,25 @@ async def _check_file(parse_smeta, path):
     negative_material_rows = [
         item for item in items
         if item.get("type") in ("material", "equipment", "transport")
-        and _num(item.get("quantity")) < 0
+        and (_num(item.get("quantity")) < 0 or _num(item.get("lineTotal") or item.get("total")) < 0)
     ]
     if negative_material_rows:
         sample = negative_material_rows[0]
         errors.append(
             f"{Path(path).name}: negative resource imported as material: "
+            f"{sample.get('quantity')} {sample.get('unit')} in {str(sample.get('name'))[:80]}"
+        )
+
+    negative_resource_work_rows = [
+        item for item in items
+        if item.get("type") == "work"
+        and (_num(item.get("quantity")) < 0 or _num(item.get("lineTotal") or item.get("total")) < 0)
+        and _looks_material_resource(item.get("name"))
+    ]
+    if negative_resource_work_rows:
+        sample = negative_resource_work_rows[0]
+        errors.append(
+            f"{Path(path).name}: negative resource imported as work: "
             f"{sample.get('quantity')} {sample.get('unit')} in {str(sample.get('name'))[:80]}"
         )
 

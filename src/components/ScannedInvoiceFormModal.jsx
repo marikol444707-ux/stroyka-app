@@ -72,9 +72,8 @@ export default function ScannedInvoiceFormModal({
     const validItems=(newInvoice.items||[]).filter(i=>i.name&&Number(i.quantity)>0);
     if(!validItems.length) return alert('Добавьте хотя бы одну позицию');
     try{
-      await saveInvoiceNew();
-      setShowScannedInvoiceForm(false);
-      alert('Накладная принята, материалы оприходованы!');
+      const saved = await saveInvoiceNew();
+      if (saved) setShowScannedInvoiceForm(false);
     }catch(e){alert('Ошибка: '+(e.message||e));}
   };
 
