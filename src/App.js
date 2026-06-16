@@ -1244,6 +1244,7 @@ function App() {
   const [newMaterialNorm, setNewMaterialNorm] = useState(EMPTY_MATERIAL_NORM_FORM);
   const [editingMaterialNormId, setEditingMaterialNormId] = useState(null);
   const [estimateSearch, setEstimateSearch] = useState('');
+  const [estimateProjectFilter, setEstimateProjectFilter] = useState('');
   const [showArchivedEstimates, setShowArchivedEstimates] = useState(false);
   const [listSearch, setListSearch] = useState('');
   const [expandedActDate, setExpandedActDate] = useState(null);
@@ -14175,6 +14176,7 @@ function App() {
             />
 
             {estimatesTab==='list'&&(<div>
+              {(()=>{const visibleEstimateList=visibleEstimatesForCurrentUser(estimatesList);const estimateProjectOptions=Array.from(new Set((visibleEstimateList||[]).filter(e=>!isGlobalEstimateTemplate(e)).map(e=>e.projectName||e.project||'Без объекта').filter(Boolean))).sort((a,b)=>a.localeCompare(b,'ru'));const filteredEstimateList=estimateProjectFilter?visibleEstimateList.filter(e=>(e.projectName||e.project||'Без объекта')===estimateProjectFilter):visibleEstimateList;return(<>
               <EstimatesListToolbar
                 C={C}
                 btnB={btnB}
@@ -14186,6 +14188,9 @@ function App() {
                 setShowGenerateEstimate={setShowGenerateEstimate}
                 estimateSearch={estimateSearch}
                 setEstimateSearch={setEstimateSearch}
+                projectOptions={estimateProjectOptions}
+                projectFilter={estimateProjectFilter}
+                setProjectFilter={setEstimateProjectFilter}
                 showLeadership={isLeadership()}
               />
               <EstimateSearchResults
@@ -14193,7 +14198,7 @@ function App() {
                 card={card}
                 btnG={btnG}
                 estimateSearch={estimateSearch}
-                estimatesList={estimatesList}
+                estimatesList={filteredEstimateList}
                 setEstimateSearch={setEstimateSearch}
                 setSelectedEstimate={setSelectedEstimate}
                 fmtMeasure={fmtMeasure}
@@ -14435,7 +14440,8 @@ function App() {
                   btnG={btnG}
                   btnGr={btnGr}
                   btnR={btnR}
-                  estimatesList={estimatesList}
+                  estimatesList={filteredEstimateList}
+                  projectFilter={estimateProjectFilter}
                   showArchivedEstimates={showArchivedEstimates}
                   setShowArchivedEstimates={setShowArchivedEstimates}
                   setSelectedEstimate={setSelectedEstimate}
@@ -14459,6 +14465,7 @@ function App() {
                   canHardDeleteEstimate={isDirector}
                 />
               </div>)}
+              </>);})()}
             </div>)}
 
             {estimatesTab==='import'&&(

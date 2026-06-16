@@ -25,6 +25,9 @@ export default function EstimatesListToolbar({
   setShowGenerateEstimate,
   estimateSearch,
   setEstimateSearch,
+  projectOptions = [],
+  projectFilter = '',
+  setProjectFilter = () => {},
   showLeadership = false,
 }) {
   return (
@@ -46,14 +49,27 @@ export default function EstimatesListToolbar({
           </button>
         </div>
       </div>
-      <div style={{marginBottom:'14px',position:'relative'}}>
-        <Search size={15} style={{position:'absolute',left:'12px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
-        <input
-          placeholder='🔍 Поиск по позициям всех смет (например: «демонтаж», «штукатурка»…)'
-          value={estimateSearch||''}
-          onChange={e=>setEstimateSearch(e.target.value)}
-          style={{...inp,marginBottom:0,paddingLeft:'34px'}}
-        />
+      <div style={{marginBottom:'14px',display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:'8px',alignItems:'center'}}>
+        <select
+          value={projectFilter||''}
+          onChange={e=>setProjectFilter(e.target.value)}
+          style={{...inp,marginBottom:0}}
+          title="Фильтр смет по объекту"
+        >
+          <option value="">Все объекты</option>
+          {projectOptions.map(projectName => (
+            <option key={projectName} value={projectName}>{projectName}</option>
+          ))}
+        </select>
+        <div style={{position:'relative'}}>
+          <Search size={15} style={{position:'absolute',left:'12px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+          <input
+            placeholder='🔍 Поиск по позициям смет (например: «демонтаж», «штукатурка»…)'
+            value={estimateSearch||''}
+            onChange={e=>setEstimateSearch(e.target.value)}
+            style={{...inp,marginBottom:0,paddingLeft:'34px'}}
+          />
+        </div>
       </div>
     </>
   );
