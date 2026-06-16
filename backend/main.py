@@ -5925,7 +5925,7 @@ def _enforce_supply_estimate_control(items: list, *, source: str = "заявка
             remaining = _float_or_zero(control.get("remainingQty"))
             blockers.append(f"{name} ({package}) — запрошено {qty:g} {unit}, по смете осталось {remaining:g} {unit}")
     if blockers:
-        prefix = "Заявка" if source == "заявка" else ("Перемещение" if source == "перемещение" else "Накладная")
+        prefix = "Заявка" if source == "заявка" else ("Перемещение" if source == "перемещение" else ("Выдача исполнителю" if source == "выдача исполнителю" else "Накладная"))
         raise HTTPException(
             status_code=400,
             detail=prefix + " не проходит сметный контроль. " + "; ".join(blockers[:5]) + ". Сначала добавьте материал в активную/доп. смету или исправьте раздел сметы."
@@ -15696,6 +15696,20 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
             stock_name = _row_value(row, 1, "name", material_name)
             if stock_qty < qty:
                 raise HTTPException(status_code=400, detail="На складе «"+from_location+"» только "+str(stock_qty)+", запрошено "+str(qty))
+            transfer_control_items = [{
+                "materialName": stock_name or material_name,
+                "quantity": qty,
+                "unit": unit,
+                "workPackage": work_package,
+            }]
+            control_key = _material_control_key_resolved(cur, project_name, stock_name or material_name, unit)
+            _attach_supply_estimate_control(
+                cur,
+                project_name,
+                transfer_control_items,
+                exclude_stock_by_key={control_key: qty},
+            )
+            _enforce_supply_estimate_control(transfer_control_items, source="выдача исполнителю")
             cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
             material_name = stock_name or material_name
 
