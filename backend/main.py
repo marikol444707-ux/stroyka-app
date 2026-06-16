@@ -5696,7 +5696,7 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                    FROM warehouse_history
                    WHERE project=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                     AND LOWER(COALESCE(type,'')) LIKE 'возврат от мастера%'""", (project, package))
+                     AND LOWER(COALESCE(type,'')) LIKE %s""", (project, package, "возврат от мастера%"))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
         if _material_control_key_resolved(cur, project, row.get("material"), row.get("unit")) == target_key:
             returned_qty += _float_or_zero(row.get("quantity"))
