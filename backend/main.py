@@ -2920,6 +2920,11 @@ def init_db():
         ALTER TABLE material_norm_suggestions ALTER COLUMN work_unit TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN material_name TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN material_unit TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN reason TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN ai_summary TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN work_keywords TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN material_keywords TYPE TEXT;
+        ALTER TABLE material_norm_suggestions ALTER COLUMN block_work_keywords TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN label TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN source TYPE TEXT;
         ALTER TABLE material_norm_suggestions ALTER COLUMN dedupe_key TYPE TEXT;
@@ -3101,6 +3106,7 @@ def init_db():
         ALTER TABLE pricelist_items ALTER COLUMN unit TYPE TEXT;
         ALTER TABLE pricelist_items ALTER COLUMN category TYPE TEXT;
         ALTER TABLE pricelist_items ALTER COLUMN specialization TYPE TEXT;
+        ALTER TABLE pricelist_items ALTER COLUMN item_type TYPE TEXT;
         CREATE TABLE IF NOT EXISTS hidden_works_acts (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
