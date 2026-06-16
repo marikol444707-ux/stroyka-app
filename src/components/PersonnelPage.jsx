@@ -78,6 +78,28 @@ export default function PersonnelPage({
 }) {
   const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
+  const normalizeAccessList = (value) => Array.isArray(value) ? value.filter(Boolean) : [];
+  const openStaffEdit = (s) => {
+    const access = findUserForStaff(s);
+    const accessProject = access?.projectName || access?.project_name || s.project || '';
+    const assignedProjects = normalizeAccessList(access?.assignedProjects || access?.assigned_projects || s.assignedProjects || s.assigned_projects);
+    const assignedPackages = normalizeAccessList(access?.assignedPackages || access?.assigned_packages || s.assignedPackages || s.assigned_packages);
+    setEditingItem(s);
+    setNewStaff({
+      ...emptyStaffForm(),
+      ...s,
+      salary: String(s.salary || ''),
+      project: s.project || accessProject,
+      email: access?.email || s.emailWork || s.email || s.emailPersonal || '',
+      emailWork: access?.email || s.emailWork || s.email || '',
+      password: '',
+      systemRole: access?.role || s.systemRole || '',
+      assignedProjects: assignedProjects.length ? assignedProjects : (accessProject ? [accessProject] : []),
+      assignedPackages
+    });
+    setStaffExpandedSections(prev => ({...prev, access: true}));
+    setShowForm(true);
+  };
   const estimatePackage = (est) => est?.workPackage || est?.work_package || 'Основная';
   const packageOptionsForProjects = (projectNames=[]) => {
     const names = Array.isArray(projectNames) ? projectNames.filter(Boolean) : [];
@@ -258,9 +280,9 @@ export default function PersonnelPage({
                 <div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
                   <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Чтобы сотрудник мог входить в приложение — заполните все три поля. Если email уже есть, пароль, роль и объекты будут обновлены.</p>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                    <select value={newStaff.systemRole} onChange={e=>setNewStaff({...newStaff,systemRole:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Системная роль</option>{Object.keys(ROLE_LABELS).filter(r=>r!=='заказчик'&&r!=='поставщик').map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>
+                    <select value={newStaff.systemRole} onChange={e=>setNewStaff({...newStaff,systemRole:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Системная роль</option>{Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner'].includes(r)).map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>
                     <input type='email' placeholder='Email для входа' value={newStaff.email} onChange={e=>setNewStaff({...newStaff,email:e.target.value,emailWork:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input type='text' placeholder='Пароль' value={newStaff.password} onChange={e=>setNewStaff({...newStaff,password:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                    <input type='text' placeholder={editingItem ? 'Новый пароль (оставьте пустым, если не меняем)' : 'Пароль'} value={newStaff.password} onChange={e=>setNewStaff({...newStaff,password:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                   </div>
                   {accessProjectRoles.includes(newStaff.systemRole)&&(()=>{const ap=newStaff.assignedProjects||[];return(
                     <div style={{marginTop:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
@@ -393,7 +415,7 @@ export default function PersonnelPage({
                       </td>
                       <td style={tblC} onClick={e=>e.stopPropagation()}>
                         <div style={{display:'flex',gap:'4px'}}>
-                          <button onClick={()=>{const access=findUserForStaff(s);setEditingItem(s);setNewStaff({...emptyStaffForm(),...s,salary:String(s.salary||''),email:access?.email||s.emailWork||s.emailPersonal||'',password:'',systemRole:access?.role||'',assignedProjects:access?.assignedProjects||access?.assigned_projects||s.assignedProjects||[],assignedPackages:access?.assignedPackages||access?.assigned_packages||s.assignedPackages||[]});setShowForm(true);}} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button>
+                          <button onClick={()=>openStaffEdit(s)} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button>
                           <button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button>
                         </div>
                       </td>
