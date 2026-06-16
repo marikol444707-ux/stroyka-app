@@ -312,9 +312,11 @@ STAFF_FULL_VIEW_ROLES = (*STAFF_MANAGE_ROLES, "бухгалтер")
 STAFF_VIEW_ROLES = (*STAFF_MANAGE_ROLES, "бухгалтер", "прораб", "главный_инженер")
 PRICELIST_MANAGE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 OWN_EXPENSE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "бригадир", "кладовщик", "снабженец")
+OWN_EXPENSE_REVIEW_ROLES = ("директор", "зам_директора", "бухгалтер")
 SUPPLIER_INVOICE_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "кладовщик", "снабженец", "поставщик")
 PACKAGE_LIMIT_ROLES = ("прораб", "мастер", "субподрядчик", "бригадир")
 WORKER_EXECUTION_ROLES = ("мастер", "субподрядчик", "бригадир")
+OWN_EXPENSE_NO_PROJECT_CATEGORY = "personal_no_project"
 
 def user_project_names(user: dict) -> list[str]:
     names = []
@@ -1642,6 +1644,8 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INT DEFAULT 0;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id VARCHAR(100);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100);
         UPDATE users SET active=TRUE WHERE active IS NULL;
         CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
@@ -1655,7 +1659,6 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_by JSONB DEFAULT '[]'::jsonb;
-        ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'other';
         ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_packages JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2) DEFAULT 0;
@@ -1972,6 +1975,8 @@ def init_db():
         ALTER TABLE warehouse_main ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS telegram_id VARCHAR(100);
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100);
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
@@ -2333,6 +2338,14 @@ def init_db():
             added_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+        ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS approved_by VARCHAR(255);
+        ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS telegram_id VARCHAR(100);
+        ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100);
+        ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS expense_id INT;
+        ALTER TABLE expenses ADD COLUMN IF NOT EXISTS own_expense_id INT;
+        ALTER TABLE expenses ADD COLUMN IF NOT EXISTS source VARCHAR(100);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_own_expense_id ON expenses(own_expense_id) WHERE own_expense_id IS NOT NULL;
         CREATE TABLE IF NOT EXISTS unexpected_works (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -3226,6 +3239,37 @@ def init_db():
             rule.get("label", ""),
         ))
     _startup_repair_saved_estimate_adjustments(cur)
+    try:
+        cur.execute(
+            """
+            INSERT INTO expenses (project, category, amount, note, date, added_by, own_expense_id, source)
+            SELECT
+                COALESCE(NULLIF(oe.project_name,''),'') AS project,
+                CASE WHEN COALESCE(NULLIF(oe.project_name,''),'')<>'' THEN 'other' ELSE %s END AS category,
+                COALESCE(oe.amount,0) AS amount,
+                CONCAT('Моя трата: ', COALESCE(oe.description,''), CASE WHEN COALESCE(oe.employee_name,'')<>'' THEN CONCAT(' · сотрудник: ', oe.employee_name) ELSE '' END) AS note,
+                oe.date,
+                COALESCE(oe.employee_name,'') AS added_by,
+                oe.id AS own_expense_id,
+                'own_expense' AS source
+            FROM own_expenses oe
+            WHERE NOT EXISTS (
+                SELECT 1 FROM expenses e WHERE e.own_expense_id=oe.id
+            )
+            """,
+            (OWN_EXPENSE_NO_PROJECT_CATEGORY,),
+        )
+        cur.execute(
+            """
+            UPDATE own_expenses oe
+               SET expense_id=e.id
+              FROM expenses e
+             WHERE e.own_expense_id=oe.id
+               AND (oe.expense_id IS NULL OR oe.expense_id<>e.id)
+            """
+        )
+    except Exception as e:
+        print("OWN EXPENSE BACKFILL ERROR:", e)
     conn.close()
 
 init_db()
@@ -19734,6 +19778,82 @@ def create_accountable_expense(data: dict, _current_user: dict = Depends(require
     return {"ok":True}
     return {"id":row[0],"ok":True}
 
+def _own_expense_telegram_value(data: dict, *keys: str) -> str:
+    for key in keys:
+        value = data.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+def _resolve_own_expense_employee(cur, data: dict, current_user: dict) -> tuple[str, int, str, str]:
+    telegram_id = _own_expense_telegram_value(data, "telegramId", "telegram_id", "tgId", "tg_id")
+    telegram_chat_id = _own_expense_telegram_value(data, "telegramChatId", "telegram_chat_id", "chatId", "chat_id")
+
+    if current_user.get("role") in FINANCE_ROLES and (telegram_id or telegram_chat_id):
+        try:
+            cur.execute(
+                """
+                SELECT id, name
+                  FROM users
+                 WHERE (%s<>'' AND telegram_id=%s)
+                    OR (%s<>'' AND telegram_chat_id=%s)
+                 LIMIT 1
+                """,
+                (telegram_id, telegram_id, telegram_chat_id, telegram_chat_id),
+            )
+            row = cur.fetchone()
+            if row:
+                return row[1] or "", row[0], telegram_id, telegram_chat_id
+        except Exception:
+            pass
+        try:
+            cur.execute(
+                """
+                SELECT id, name
+                  FROM staff
+                 WHERE (%s<>'' AND telegram_id=%s)
+                    OR (%s<>'' AND telegram_chat_id=%s)
+                 LIMIT 1
+                """,
+                (telegram_id, telegram_id, telegram_chat_id, telegram_chat_id),
+            )
+            row = cur.fetchone()
+            if row:
+                return row[1] or "", row[0], telegram_id, telegram_chat_id
+        except Exception:
+            pass
+
+    if current_user.get("role") in FINANCE_ROLES:
+        employee_name = data.get("employeeName") or current_user.get("name") or ""
+        employee_id = data.get("employeeId") or current_user.get("id")
+    else:
+        employee_name = current_user.get("name") or ""
+        employee_id = current_user.get("id")
+    return employee_name, employee_id, telegram_id, telegram_chat_id
+
+def _sync_own_expense_to_finance_expense(cur, own_expense_id: int, project_name: str, description: str, amount, date_value, employee_name: str):
+    finance_category = "other" if project_name else OWN_EXPENSE_NO_PROJECT_CATEGORY
+    note_prefix = "Моя трата"
+    note = f"{note_prefix}: {description or ''}".strip()
+    if employee_name:
+        note += f" · сотрудник: {employee_name}"
+    cur.execute("SELECT id FROM expenses WHERE own_expense_id=%s LIMIT 1", (own_expense_id,))
+    existing = cur.fetchone()
+    if existing:
+        expense_id = existing[0]
+        cur.execute(
+            "UPDATE expenses SET project=%s, category=%s, amount=%s, note=%s, date=%s, added_by=%s, source=%s WHERE id=%s",
+            (project_name or "", finance_category, amount or 0, note, date_value or None, employee_name or "", "own_expense", expense_id),
+        )
+    else:
+        cur.execute(
+            "INSERT INTO expenses (project,category,amount,note,date,added_by,own_expense_id,source) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (project_name or "", finance_category, amount or 0, note, date_value or None, employee_name or "", own_expense_id, "own_expense"),
+        )
+        expense_id = cur.fetchone()[0]
+    cur.execute("UPDATE own_expenses SET expense_id=%s WHERE id=%s", (expense_id, own_expense_id))
+    return expense_id
+
 @app.get("/own-expenses")
 def get_own_expenses(project_name: str = "", employee_name: str = "", current_user: dict = Depends(require_roles(*OWN_EXPENSE_ROLES))):
     conn = get_db()
@@ -19750,7 +19870,7 @@ def get_own_expenses(project_name: str = "", employee_name: str = "", current_us
         params.append(employee_name)
 
     role = current_user.get("role")
-    if can_see_all_company_data(current_user):
+    if role in OWN_EXPENSE_REVIEW_ROLES:
         pass
     elif role in WORKER_EXECUTION_ROLES:
         where.append("(employee_id=%s OR employee_name=%s)")
@@ -19774,21 +19894,40 @@ def get_own_expenses(project_name: str = "", employee_name: str = "", current_us
 
 @app.post("/own-expenses")
 def create_own_expense(data: dict, current_user: dict = Depends(require_roles(*OWN_EXPENSE_ROLES))):
-    project_name = data.get("projectName", "")
-    require_project_access(current_user, project_name)
-    if current_user.get("role") in FINANCE_ROLES:
-        employee_name = data.get("employeeName") or current_user.get("name") or ""
-        employee_id = data.get("employeeId") or current_user.get("id")
-    else:
-        employee_name = current_user.get("name") or ""
-        employee_id = current_user.get("id")
+    project_name = (data.get("projectName") or "").strip()
+    if project_name:
+        require_project_access(current_user, project_name)
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO own_expenses (project_name,employee_name,employee_id,description,amount,photo_url,date,category) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-        (project_name,employee_name,employee_id,data.get("description",""),data.get("amount",0),data.get("photoUrl",""),data.get("date") or None,data.get("category","other")))
+    employee_name, employee_id, telegram_id, telegram_chat_id = _resolve_own_expense_employee(cur, data, current_user)
+    description = data.get("description", "")
+    amount = data.get("amount", 0)
+    date_value = data.get("date") or None
+    cur.execute(
+        """
+        INSERT INTO own_expenses
+            (project_name,employee_name,employee_id,description,amount,photo_url,date,category,telegram_id,telegram_chat_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id
+        """,
+        (
+            project_name,
+            employee_name,
+            employee_id,
+            description,
+            amount,
+            data.get("photoUrl", ""),
+            date_value,
+            data.get("category", "other"),
+            telegram_id,
+            telegram_chat_id,
+        ),
+    )
+    own_expense_id = cur.fetchone()[0]
+    expense_id = _sync_own_expense_to_finance_expense(cur, own_expense_id, project_name, description, amount, date_value, employee_name)
     conn.commit()
     cur.close(); conn.close()
-    return {"ok":True}
+    return {"ok": True, "id": own_expense_id, "expenseId": expense_id}
 
 @app.put("/own-expenses/{id}")
 def update_own_expense(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
@@ -19804,6 +19943,7 @@ def update_own_expense(id: int, data: dict, _current_user: dict = Depends(requir
 def delete_own_expense(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("DELETE FROM expenses WHERE own_expense_id=%s", (id,))
     cur.execute("DELETE FROM own_expenses WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()

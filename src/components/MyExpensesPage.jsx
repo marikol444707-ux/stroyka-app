@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { FileText, Plus } from 'lucide-react';
 
 export default function MyExpensesPage({
@@ -9,12 +9,30 @@ export default function MyExpensesPage({
   card,
   fileSrc,
   ownExpenses,
+  projectOptions = [],
   setReportingPayment,
   setShowOwnExpenseForm,
   setShowPhotoModal,
   user,
 }) {
-  const myExp=(ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);
+  const [projectFilter, setProjectFilter] = useState('');
+  const [employeeFilter, setEmployeeFilter] = useState('');
+  const reviewerRoles = ['директор','зам_директора','бухгалтер'];
+  const canReviewAll = reviewerRoles.includes(user.role);
+  const baseExp = canReviewAll ? (ownExpenses||[]) : (ownExpenses||[]).filter(e=>e.employeeName===user.name||e.employeeId===user.id);
+  const projectNames = useMemo(() => {
+    const names = new Set((projectOptions||[]).map(p=>p.name).filter(Boolean));
+    (ownExpenses||[]).forEach(e=>{ if(e.projectName) names.add(e.projectName); });
+    return Array.from(names).sort((a,b)=>a.localeCompare(b,'ru'));
+  }, [ownExpenses, projectOptions]);
+  const employeeNames = useMemo(() => {
+    const names = new Set((ownExpenses||[]).map(e=>e.employeeName).filter(Boolean));
+    return Array.from(names).sort((a,b)=>a.localeCompare(b,'ru'));
+  }, [ownExpenses]);
+  const myExp=baseExp.filter(e=>
+    (!projectFilter || (projectFilter==='__none__' ? !e.projectName : e.projectName===projectFilter)) &&
+    (!employeeFilter || e.employeeName===employeeFilter)
+  );
   const pending=myExp.filter(e=>e.status==='Ожидает');
   const approved=myExp.filter(e=>e.status==='Возмещено');
   const rejected=myExp.filter(e=>e.status==='Отклонено');
@@ -26,9 +44,22 @@ export default function MyExpensesPage({
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'18px',flexWrap:'wrap',gap:'10px'}}>
-        <b style={{color:C.text,fontSize:'18px',fontWeight:'700'}}>💸 Мои траты на возмещении</b>
+        <b style={{color:C.text,fontSize:'18px',fontWeight:'700'}}>{canReviewAll?'💸 Траты сотрудников на возмещении':'💸 Мои траты на возмещении'}</b>
         <button onClick={()=>setShowOwnExpenseForm(true)} style={btnO}><Plus size={14}/>Новая трата</button>
       </div>
+      {canReviewAll&&(
+        <div style={{...card,padding:'12px',marginBottom:'14px',display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'10px'}}>
+          <select value={projectFilter} onChange={e=>setProjectFilter(e.target.value)} style={{padding:'10px 12px',borderRadius:'10px',border:'1.5px solid '+C.border,backgroundColor:C.bgWhite,color:C.text,fontSize:'13px'}}>
+            <option value=''>Все объекты</option>
+            {projectNames.map(name=><option key={name} value={name}>{name}</option>)}
+            <option value='__none__'>Личные/без объекта</option>
+          </select>
+          <select value={employeeFilter} onChange={e=>setEmployeeFilter(e.target.value)} style={{padding:'10px 12px',borderRadius:'10px',border:'1.5px solid '+C.border,backgroundColor:C.bgWhite,color:C.text,fontSize:'13px'}}>
+            <option value=''>Все сотрудники</option>
+            {employeeNames.map(name=><option key={name} value={name}>{name}</option>)}
+          </select>
+        </div>
+      )}
       {myAcc.length>0&&(<div style={{...card,padding:'14px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
         <b style={{color:C.warning,fontSize:'13px',display:'block',marginBottom:'8px'}}>💵 Подотчётные — нужно отчитаться</b>
         {myAcc.map(a=>{const total=Number(a.amount||0);const spent=Number(a.spentAmount||0);const remaining=total-spent;return(<div key={a.id} style={{...card,padding:'10px 12px',marginBottom:'6px',backgroundColor:C.bgWhite,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
@@ -45,14 +76,18 @@ export default function MyExpensesPage({
         <div style={{...card,padding:'14px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'11px',margin:'0 0 4px'}}>✅ Возмещено</p><b style={{color:C.success,fontSize:'18px'}}>{Math.round(sumA).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{approved.length+' шт'}</p></div>
         <div style={{...card,padding:'14px',backgroundColor:C.dangerLight,border:'1.5px solid '+C.dangerBorder}}><p style={{color:C.danger,fontSize:'11px',margin:'0 0 4px'}}>❌ Отклонено</p><b style={{color:C.danger,fontSize:'18px'}}>{Math.round(sumR).toLocaleString('ru-RU')+' ₽'}</b><p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>{rejected.length+' шт'}</p></div>
       </div>
-      <p style={{color:C.textMuted,fontSize:'12px',marginBottom:'12px'}}>Здесь видны все ваши траты собственными деньгами. После одобрения бухгалтерией сумма попадёт в расходы объекта по выбранной категории.</p>
+      <p style={{color:C.textMuted,fontSize:'12px',marginBottom:'12px'}}>
+        {canReviewAll
+          ? 'Здесь видны траты сотрудников из веба и Telegram. Трата с объектом сразу попадает в расходы объекта как «Прочее», без объекта — в «Личные/без объекта».'
+          : 'Здесь видны все ваши траты собственными деньгами. Трата с объектом сразу попадает в расходы объекта как «Прочее», без объекта — в «Личные/без объекта».'}
+      </p>
       {myExp.length===0?<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}>Трат пока нет.<br/>Нажмите «Новая трата» чтобы зафиксировать расход.</div>:
         ['Ожидает','Возмещено','Отклонено'].map(st=>{const items=myExp.filter(e=>e.status===st);if(items.length===0) return null;const stColor=st==='Возмещено'?C.success:st==='Отклонено'?C.danger:C.warning;const stBg=st==='Возмещено'?C.successLight:st==='Отклонено'?C.dangerLight:C.warningLight;return(<div key={st} style={{marginBottom:'18px'}}>
           <b style={{color:stColor,fontSize:'12px',display:'block',marginBottom:'8px'}}>{st==='Ожидает'?'⏳':st==='Возмещено'?'✅':'❌'} {st} ({items.length})</b>
           {items.map(e=>{const cat=EXPENSE_CATEGORIES.find(c=>c.id===e.category)||{label:'Прочее',color:C.textMuted};return(<div key={e.id} style={{...card,padding:'12px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
             <div style={{flex:1,minWidth:'200px'}}>
               <b style={{color:C.text,fontSize:'13px'}}>{e.description}</b>
-              <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'—'} · 📅 {e.date||e.createdAt||'—'}</p>
+              <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'Личные/без объекта'} · 👤 {e.employeeName||'—'} · 📅 {e.date||e.createdAt||'—'}</p>
               <span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:stBg,color:cat.color,fontSize:'10px',fontWeight:'600'}}>{cat.label}</span>
               {e.photoUrl&&<img src={fileSrc(e.photoUrl)} alt='' onClick={()=>setShowPhotoModal(fileSrc(e.photoUrl))} style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>}
             </div>
@@ -66,4 +101,3 @@ export default function MyExpensesPage({
     </div>
   );
 }
-

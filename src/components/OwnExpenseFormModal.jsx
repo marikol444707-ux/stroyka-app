@@ -30,8 +30,8 @@ export default function OwnExpenseFormModal({
   };
 
   const submit = async () => {
-    if(!newOwnExpense.projectName||!newOwnExpense.description||!newOwnExpense.amount) {
-      if (validationAlert) alert('Заполните: проект, описание, сумма');
+    if(!newOwnExpense.description||!newOwnExpense.amount) {
+      if (validationAlert) alert('Заполните: описание и сумму');
       return;
     }
     await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newOwnExpense,amount:Number(newOwnExpense.amount),employeeName:user.name,employeeId:user.id})});
@@ -46,7 +46,7 @@ export default function OwnExpenseFormModal({
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💸 Потратил свои деньги</b>
-        <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{projectOptions.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
+        <select value={newOwnExpense.projectName} onChange={e=>setNewOwnExpense({...newOwnExpense,projectName:e.target.value})} style={inp}><option value=''>Без объекта / личная трата</option>{projectOptions.map(proj=><option key={proj.id} value={proj.name}>{proj.name}</option>)}</select>
         <select value={newOwnExpense.category||'other'} onChange={e=>setNewOwnExpense({...newOwnExpense,category:e.target.value})} style={inp}><option value=''>Категория затрат *</option>{expenseCategories.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select>
         <input placeholder='За что потрачено *' value={newOwnExpense.description} onChange={e=>setNewOwnExpense({...newOwnExpense,description:e.target.value})} style={inp}/>
         <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newOwnExpense.amount} onChange={e=>setNewOwnExpense({...newOwnExpense,amount:e.target.value})} style={inp}/>

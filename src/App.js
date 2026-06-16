@@ -14661,7 +14661,7 @@ function App() {
           )}
 
           {activePage==='myexpenses'&&(
-            <MyExpensesPage C={C} EXPENSE_CATEGORIES={EXPENSE_CATEGORIES} accountablePayments={accountablePayments} btnO={btnO} card={card} fileSrc={fileSrc} ownExpenses={ownExpenses} setReportingPayment={setReportingPayment} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowPhotoModal={setShowPhotoModal} user={user}/>
+            <MyExpensesPage C={C} EXPENSE_CATEGORIES={EXPENSE_CATEGORIES} accountablePayments={accountablePayments} btnO={btnO} card={card} fileSrc={fileSrc} ownExpenses={ownExpenses} projectOptions={projects} setReportingPayment={setReportingPayment} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowPhotoModal={setShowPhotoModal} user={user}/>
           )}
 
           {activePage==='settings'&&isFinanceRole()&&(

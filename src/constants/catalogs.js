@@ -12,6 +12,7 @@ export const EXPENSE_CATEGORIES = [
   {id:'accountable',label:'Подотчётные расходы',color:'#d97706'},
   {id:'unexpected',label:'Изменения к смете',color:'#ef4444'},
   {id:'other',label:'Прочее',color:'#6b7280'},
+  {id:'personal_no_project',label:'Личные/без объекта',color:'#64748b'},
 ];
 
 export const MATERIAL_CATEGORIES = [

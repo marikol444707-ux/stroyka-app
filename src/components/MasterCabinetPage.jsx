@@ -969,6 +969,7 @@ export default function MasterCabinetPage(props) {
             card={card}
             fileSrc={fileSrc}
             ownExpenses={ownExpenses}
+            projectOptions={projects}
             setReportingPayment={setReportingPayment}
             setShowOwnExpenseForm={setShowOwnExpenseForm}
             setShowPhotoModal={setShowPhotoModal}
