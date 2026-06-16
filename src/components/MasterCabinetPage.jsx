@@ -70,6 +70,7 @@ export default function MasterCabinetPage(props) {
     estimateWorkMaterials,
     estimateWorkParams,
     estimatesList,
+    visibleEstimatesForCurrentUser,
     expandedProject,
     fileSrc,
     fmtMeasure,
@@ -272,7 +273,10 @@ export default function MasterCabinetPage(props) {
   const masterProjectOptions = selectableActiveProjects(projects);
   const selectedMasterProject = masterProjectOptions.find(project => project.id === Number(masterProjectId)) || projects.find(project => project.id === Number(masterProjectId));
   const projectRooms = masterProjectId ? rooms.filter(room => room.project === (selectedMasterProject?.name || '')) : [];
-  const selectedProjectHasActiveCustomerEstimate = !!selectedMasterProject && (estimatesList || []).some(estimate =>
+  const visibleEstimatesList = typeof visibleEstimatesForCurrentUser === 'function'
+    ? visibleEstimatesForCurrentUser(estimatesList || [])
+    : (estimatesList || []);
+  const selectedProjectHasActiveCustomerEstimate = !!selectedMasterProject && visibleEstimatesList.some(estimate =>
     (estimate.projectName || estimate.project_name) === selectedMasterProject.name &&
     String(estimate.status || 'Активная').toLowerCase() === 'активная' &&
     String(estimate.smetaType || estimate.smeta_type || 'Заказчик') === 'Заказчик'
@@ -509,7 +513,7 @@ export default function MasterCabinetPage(props) {
               )}
               {masterProjectId && (() => {
                 const projectName = projects.find(project => project.id === Number(masterProjectId))?.name || '';
-                const projectEstimates = estimatesList.filter(estimate => estimate.projectName === projectName);
+                const projectEstimates = visibleEstimatesList.filter(estimate => (estimate.projectName || estimate.project_name) === projectName);
                 const assignedContractItems = Array.isArray(brigadeContractItems) ? brigadeContractItems : [];
                 const myItems = [];
                 projectEstimates.forEach(estimate => (estimate.sections || []).forEach((section, sectionIndex) => (section.items || []).forEach((item, itemIndex) => {

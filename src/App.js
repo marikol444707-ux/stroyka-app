@@ -10669,6 +10669,7 @@ function App() {
         upsertEstimateWorkMaterial={upsertEstimateWorkMaterial}
         upsertSelectedWorkMaterial={upsertSelectedWorkMaterial}
         user={user}
+        visibleEstimatesForCurrentUser={visibleEstimatesForCurrentUser}
         workJournal={workJournal}
         workNeedsThicknessParam={workNeedsThicknessParam}
       />
@@ -12023,7 +12024,7 @@ function App() {
                         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(3,1fr)',gap:'10px',marginBottom:'12px'}}>
                           <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Бригад</p><b style={{color:C.text,fontSize:'18px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).length}</b></div>
                           <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>По договорам</p><b style={{color:C.accent,fontSize:'16px'}}>{brigadeContracts.filter(bc=>bc.projectName===p.name).reduce((s,bc)=>s+Number(bc.totalAmount||0),0).toLocaleString()+' ₽'}</b></div>
-                          <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смет</p><b style={{color:C.text,fontSize:'18px'}}>{estimatesList.filter(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id)).length}</b></div>
+                          <div style={{textAlign:'center'}}><p style={{color:C.textSec,fontSize:'11px',margin:'0 0 4px'}}>Смет</p><b style={{color:C.text,fontSize:'18px'}}>{visibleEstimatesForCurrentUser(estimatesList).filter(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id)).length}</b></div>
                         </div>
                         <div style={{marginBottom:'12px'}}>
                           <div style={{display:'flex',justifyContent:'space-between',marginBottom:'4px'}}>
