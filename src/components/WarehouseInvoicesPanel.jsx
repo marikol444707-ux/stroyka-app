@@ -48,6 +48,7 @@ export default function WarehouseInvoicesPanel({
   const controlTone = (row = {}) => {
     if (row.severity === 'danger') return {color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (row.severity === 'warning') return {color:C.warning, bg:C.warningLight, border:C.warningBorder};
+    if (row.severity === 'info') return {color:C.info, bg:C.infoLight, border:C.infoBorder};
     if (row.severity === 'success') return {color:C.success, bg:C.successLight, border:C.successBorder};
     return {color:C.textSec, bg:C.bg, border:C.border};
   };
@@ -57,6 +58,7 @@ export default function WarehouseInvoicesPanel({
     return {
       ok: filled.filter(row => row.severity === 'success').length,
       outside: filled.filter(row => row.status === 'Вне сметы').length,
+      composite: filled.filter(row => row.isCompositeWorkMaterial || row.status === 'Комплектация работы').length,
       over: filled.filter(row => row.overText && row.overText !== '—').length,
       price: filled.filter(row => row.priceOverText && row.priceOverText !== '—').length,
     };

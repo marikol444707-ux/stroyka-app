@@ -3295,8 +3295,9 @@ function App() {
     if (isSupplyDeliveryInvoice(inv)) html += '<p style="font-size:11px;color:#0f766e;margin:6px 0">Источник: поставка снабжения #'+(inv.supplyDeliveryId||inv.sourceId||'')+(inv.supplyRequestId?' по заявке #'+inv.supplyRequestId:'')+'. В материальном контроле это поступление учитывается в колонке «Поставки».</p>';
     if(invoiceRows.reconstructed) html += '<p style="font-size:11px;color:#666;margin:6px 0">Строки восстановлены из '+invoiceRows.source+', потому что в старой накладной был сохранён только итог.</p>';
     if ((inv.location||'') !== 'Основной склад' && estimateControlRows.length>0) {
+      const compositeCount = estimateControlRows.filter(r=>r.isCompositeWorkMaterial || r.status === 'Комплектация работы').length;
       const color = estimateControlIssues.length ? '#b91c1c' : '#047857';
-      html += '<p style="font-size:11px;color:'+color+';margin:6px 0"><b>Сметный контроль:</b> '+(estimateControlIssues.length ? 'есть замечания: '+estimateControlIssues.length : 'все строки сопоставлены со сметой')+'</p>';
+      html += '<p style="font-size:11px;color:'+color+';margin:6px 0"><b>Сметный контроль:</b> '+(estimateControlIssues.length ? 'есть замечания: '+estimateControlIssues.length : 'все строки сопоставлены со сметой')+(compositeCount ? '; комплектация укрупненных работ: '+compositeCount : '')+'</p>';
     }
     html += '<table><tr><th>N</th><th>Наименование товара</th><th>Категория</th><th>Кол-во</th><th>Ед.</th><th>Сумма</th><th>План</th><th>До</th><th>После</th><th>Сметный контроль</th></tr>';
     (invoiceRows.items||[]).forEach((item,i) => {
@@ -3305,7 +3306,7 @@ function App() {
       const sourceText = ctrl.planSourceCount ? '; сметных строк: '+ctrl.planSourceCount : '';
       const sectionsText = (ctrl.sectionsList||[]).length ? '; разделы: '+(ctrl.sectionsList||[]).slice(0,3).join(', ') : '';
       const ctrlText = ctrl.status
-        ? ctrl.status+sourceText+sectionsText+(ctrl.incomingText?'; накладная: '+ctrl.incomingText:'')+(ctrl.shortageText&&ctrl.shortageText!=='—'?'; докупить: '+ctrl.shortageText:'')+(ctrl.overText&&ctrl.overText!=='—'?'; сверх: '+ctrl.overText:'')+(ctrl.priceOverText&&ctrl.priceOverText!=='—'?'; дороже плана: '+ctrl.priceOverText:'')
+        ? ctrl.status+(ctrl.detail?'; '+ctrl.detail:'')+sourceText+sectionsText+(ctrl.incomingText?'; накладная: '+ctrl.incomingText:'')+(ctrl.shortageText&&ctrl.shortageText!=='—'?'; докупить: '+ctrl.shortageText:'')+(ctrl.overText&&ctrl.overText!=='—'?'; сверх: '+ctrl.overText:'')+(ctrl.priceOverText&&ctrl.priceOverText!=='—'?'; дороже плана: '+ctrl.priceOverText:'')
         : '—';
       html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+rowSum.toLocaleString()+'</td><td>'+(ctrl.planText||'—')+'</td><td>'+(ctrl.beforeText||'—')+'</td><td>'+(ctrl.afterText||'—')+'</td><td>'+ctrlText+'</td></tr>';
     });
@@ -5318,6 +5319,7 @@ function App() {
             projectName:place,
             canonicalName:item.name||'',
             workPackage:m.workPackage || item.workPackage || item.work_package || '',
+            isCompositeWorkMaterial:true,
             quantity:qty,
             incomingQty:qty,
             unit,
@@ -5327,10 +5329,10 @@ function App() {
             overQty:0,
             priceOverSum:0,
             unitMismatch:false,
-            status:'К работе сметы',
-            severity:'success',
-            detail:'Материал не выделен отдельной строкой сметы, но привязан к укрупненной работе',
-            planText:'комплектация работы',
+            status:'Комплектация работы',
+            severity:'info',
+            detail:'Материал не выделен отдельной ресурсной строкой сметы, но привязан к укрупненной работе',
+            planText:'укрупненная работа',
             beforeText:'—',
             afterText:fmtMeasure(qty, unit),
             overText:'—',

@@ -5854,8 +5854,16 @@ def _supply_linked_work_estimate_control(cur, project: str, item: dict, work_pac
                     work_qty = _estimate_imported_quantity(work)
                     if work_qty <= 0:
                         work_qty = _float_or_zero(work.get("quantity"))
+                    message = "Материал не найден отдельной ресурсной строкой сметы, но привязан к укрупненной работе"
+                    if work_name:
+                        message += f" «{work_name}»"
+                    if section_name:
+                        message += f" в разделе «{section_name}»"
                     return {
                         "status": "composite_work_material",
+                        "controlLabel": "Комплектация укрупненной работы",
+                        "controlMessage": message + ". Учитывать как фактическую комплектацию работы, не как отдельную сметную потребность.",
+                        "isCompositeWorkMaterial": True,
                         "estimateId": est_id,
                         "estimateName": est.get("name") or "",
                         "estimateItemKey": next(iter(keys), ""),

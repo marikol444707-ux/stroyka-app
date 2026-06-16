@@ -159,12 +159,14 @@ function SupplyEstimateControlBlock({ C, items }) {
     if (status === 'no_active_estimate') return 'Нет активной сметы';
     if (status === 'no_estimate_material') return 'Вне сметы';
     if (status === 'over_estimate_need') return 'Сверх сметы';
+    if (status === 'composite_work_material') return 'Комплектация работы';
     if (status === 'covered') return 'Закрыто';
     return 'В потребности';
   };
   const statusStyle = (status) => {
     if (status === 'no_estimate_material' || status === 'over_estimate_need') return [C.danger, C.dangerLight, C.dangerBorder];
     if (status === 'no_active_estimate') return [C.warning, C.warningLight, C.warningBorder];
+    if (status === 'composite_work_material') return [C.info, C.infoLight, C.infoBorder];
     if (status === 'covered') return [C.textMuted, C.bg, C.border];
     return [C.success, C.successLight, C.successBorder];
   };
@@ -189,7 +191,10 @@ function SupplyEstimateControlBlock({ C, items }) {
                 <span>Остаток: <b style={{ color }}>{fmtQty(control.remainingQty)} {unit}</b></span>
                 <span>После заявки: <b style={{ color }}>{fmtQty(control.remainingAfterRequest)} {unit}</b></span>
                 {control.plannedSum > 0 && <span>По смете: <b style={{ color: C.text }}>{Number(control.plannedSum).toLocaleString('ru-RU')} ₽</b></span>}
+                {control.status === 'composite_work_material' && control.workName && <span>Работа: <b style={{ color: C.text }}>{control.workName}</b></span>}
+                {control.status === 'composite_work_material' && control.sectionName && <span>Раздел: <b style={{ color: C.text }}>{control.sectionName}</b></span>}
               </div>
+              {control.controlMessage && <p style={{ margin: '6px 0 0', color: C.textSec, fontSize: '11px', lineHeight: 1.35 }}>{control.controlMessage}</p>}
             </div>
           );
         })}

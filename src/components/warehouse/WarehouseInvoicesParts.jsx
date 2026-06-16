@@ -288,6 +288,7 @@ export function WarehouseInvoiceCard({
                 const sum = invoiceControlSummary(estimateControl);
                 return 'Сметный контроль: ' + (estimateIssues.length ? 'замечаний ' + estimateIssues.length : 'без замечаний') +
                   ' · по смете ' + sum.ok +
+                  (sum.composite ? ' · комплектация работ ' + sum.composite : '') +
                   (sum.outside ? ' · вне сметы ' + sum.outside : '') +
                   (sum.over ? ' · сверх плана ' + sum.over : '') +
                   (sum.price ? ' · цена выше ' + sum.price : '');
@@ -320,6 +321,7 @@ export function WarehouseInvoiceCard({
                         {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
                         {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}
                         {ctrl.workRefs?.length > 0 && <p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {ctrl.workRefs.slice(0,2).join('; ')}{ctrl.workRefs.length > 2 ? '…' : ''}</p>}
+                        {ctrl.isCompositeWorkMaterial && <p style={{color:C.info,fontSize:'10px',margin:'2px 0 0',fontWeight:700}}>Комплектация укрупненной работы</p>}
                         {item.parentWorkName && !(ctrl.workRefs||[]).includes(item.parentWorkName) && <p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Комплектация: {item.parentWorkName}</p>}
                       </td>
                       <td style={tblC}>{item.unit || ''}</td>
