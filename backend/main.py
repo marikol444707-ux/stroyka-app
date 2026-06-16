@@ -8363,6 +8363,14 @@ def _validate_work_material_norm_reasons(items, cur=None, *, project: str = "", 
             )
         if server_norm:
             material.update(server_norm)
+        elif _float_or_zero(material.get("normQuantity") or material.get("norm_quantity")) > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Норма материала «" + name + "» не подтверждена сервером. "
+                    "Сохраните правило нормы в справочнике или оформите материал без нормы как отдельную проверяемую позицию."
+                ),
+            )
         norm_qty = _float_or_zero(material.get("normQuantity") or material.get("norm_quantity"))
         if not name or qty <= 0 or norm_qty <= 0:
             continue
