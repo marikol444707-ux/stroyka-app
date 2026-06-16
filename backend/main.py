@@ -17561,8 +17561,11 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
     min_confidence = _safe_float(data.get("minConfidence"), 0.75)
     min_confidence = min(max(min_confidence, 0.0), 1.0)
     include_search = bool(data.get("includeSearch") or data.get("include_search"))
-    status = data.get("status") or "Черновик"
-    smeta_type = data.get("smetaType") or "Материалы"
+    # Черновик материалов по нормам не должен менять активную смету заказчика.
+    # Не доверяем входящим status/smetaType: этот endpoint всегда создает
+    # отдельный черновик материалов.
+    status = "Черновик"
+    smeta_type = "Материалы"
     work_package = data.get("workPackage") or data.get("work_package") or "Доп. материалы"
 
     conn = get_db()
