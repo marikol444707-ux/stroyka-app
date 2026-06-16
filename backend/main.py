@@ -10400,13 +10400,15 @@ def _estimate_sections(value):
 
 def _estimate_item_sum_backend(item: dict) -> float:
     raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").lower()
-    if raw in ("adjustment", "корректировка", "note", "примечание"):
+    if raw in ("note", "примечание"):
         return 0.0
     qty = _float_or_zero(item.get("quantity"))
     if item.get("isImported"):
         total_work = _float_or_zero(item.get("totalWork") or item.get("workTotal") or item.get("workSum"))
         total_material = _float_or_zero(item.get("totalMaterial") or item.get("materialTotal") or item.get("materialSum"))
         line_total = _float_or_zero(item.get("lineTotal") or item.get("currentTotal") or item.get("total") or item.get("sum") or item.get("amount") or item.get("totalSum"))
+        if raw in ("adjustment", "корректировка"):
+            return line_total
         if total_work or total_material:
             return total_work + total_material
         if line_total:
@@ -10419,7 +10421,7 @@ def _estimate_material_sum_backend(item: dict) -> float:
     if raw in ("adjustment", "корректировка", "note", "примечание"):
         return 0.0
     qty = _float_or_zero(item.get("quantity"))
-    if qty <= 0 and raw in ("material", "материал", "materials", "материалы", "equipment", "оборудование", "delivery", "доставка", "transport"):
+    if qty < 0 and raw in ("material", "материал", "materials", "материалы", "equipment", "оборудование", "delivery", "доставка", "transport"):
         return 0.0
     if item.get("isImported"):
         total_material = _float_or_zero(item.get("totalMaterial") or item.get("materialTotal") or item.get("materialSum"))
@@ -12368,7 +12370,7 @@ async def parse_smeta(file: UploadFile = File(...)):
             return 0, ""
 
         def _lsr_items_total(items):
-            return round(sum(float(item.get("total") or 0) for item in items if item.get("type") in ("work", "material", "equipment", "transport", "overhead")), 2)
+            return round(sum(float(item.get("total") or 0) for item in items if item.get("type") in ("work", "material", "equipment", "transport", "overhead", "adjustment")), 2)
 
         def _declared_total_diagnostics(items, declared_total, declared_source):
             parsed_total = _lsr_items_total(items)
@@ -12783,10 +12785,16 @@ async def parse_smeta(file: UploadFile = File(...)):
 
                     money = _lsr_money_with_index(row, lsr_columns, unit_idx, item_type, name_col, obosn)
                     line_money = float(money.get("lineTotal") or 0)
+                    resource_item_type = item_type
+                    is_resource_adjustment = item_type in ("material", "equipment", "transport") and (
+                        float(qty or 0) < -0.0001 or line_money < 0
+                    )
+                    if is_resource_adjustment:
+                        item_type = "adjustment"
                     work_total = line_money if item_type == "work" else 0
                     mat_total = line_money if item_type in ("material", "equipment", "transport") else 0
-                    line_total = mat_total if item_type in ("material", "equipment", "transport") else work_total
-                    if item_type in ("material", "equipment", "transport") and abs(float(qty or 0)) <= 0.0001 and abs(line_total) <= 0.0001:
+                    line_total = line_money if is_resource_adjustment else (mat_total if item_type in ("material", "equipment", "transport") else work_total)
+                    if resource_item_type in ("material", "equipment", "transport") and not is_resource_adjustment and abs(float(qty or 0)) <= 0.0001 and abs(line_total) <= 0.0001:
                         continue
 
                     item = {
@@ -12822,13 +12830,13 @@ async def parse_smeta(file: UploadFile = File(...)):
                             "resourceCount": 0,
                         }
                         item.update(current_work_ref)
-                    elif item_type in ("material", "equipment", "transport") and current_work_ref:
+                    elif resource_item_type in ("material", "equipment", "transport") and current_work_ref:
                         item.update({
                             "parentWorkKey": current_work_ref.get("workKey"),
                             "parentWorkName": current_work_ref.get("workName"),
                             "parentWorkSourceCode": current_work_ref.get("workSourceCode"),
-                            "resourceRole": item_type,
-                            "importKind": "resource_adjustment" if line_total < 0 else "resource",
+                            "resourceRole": resource_item_type,
+                            "importKind": "resource_adjustment" if is_resource_adjustment else "resource",
                         })
                         current_work_ref["resourceCount"] = int(current_work_ref.get("resourceCount") or 0) + 1
                     results.append(item)

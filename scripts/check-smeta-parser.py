@@ -176,6 +176,18 @@ async def _check_file(parse_smeta, path):
             f"{Path(path).name}: service row imported as material: {str(sample.get('name'))[:80]}"
         )
 
+    negative_material_rows = [
+        item for item in items
+        if item.get("type") in ("material", "equipment", "transport")
+        and _num(item.get("quantity")) < 0
+    ]
+    if negative_material_rows:
+        sample = negative_material_rows[0]
+        errors.append(
+            f"{Path(path).name}: negative resource imported as material: "
+            f"{sample.get('quantity')} {sample.get('unit')} in {str(sample.get('name'))[:80]}"
+        )
+
     zero_work_sum = [
         item for item in items
         if item.get("type") == "work" and abs(_num(item.get("total"))) < 0.01

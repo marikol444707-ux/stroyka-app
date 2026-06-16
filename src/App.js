@@ -508,9 +508,14 @@ const estimateImportedMaterialTotal = (it, itemType) => {
   if (priceMaterial) return priceMaterial;
   return ['material','equipment','transport'].includes(itemType) && !totalWork ? total : 0;
 };
+const estimateImportedAdjustmentTotal = (it={}) => {
+  const lineTotal = toNum(it?.lineTotal ?? it?.currentTotal);
+  if (lineTotal) return lineTotal;
+  return toNum(it?.total ?? it?.sum ?? it?.amount ?? it?.totalSum);
+};
 const estimateItemWorkSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) ? 0 : (it?.isImported ? estimateImportedWorkTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceWork)); };
-const estimateItemMaterialSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) || (['material','equipment','transport'].includes(itemType) && toNum(it?.quantity)<=0) ? 0 : (it?.isImported ? estimateImportedMaterialTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceMaterial)); };
-const estimateItemTotal = (it) => estimateItemWorkSum(it) + estimateItemMaterialSum(it);
+const estimateItemMaterialSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) ? 0 : (it?.isImported ? estimateImportedMaterialTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceMaterial)); };
+const estimateItemTotal = (it) => normalizeEstimateItemType(it, it?.sectionName||it?.section||'') === 'adjustment' ? estimateImportedAdjustmentTotal(it) : estimateItemWorkSum(it) + estimateItemMaterialSum(it);
 const estimateItemDoneTotal = (it) => {
   const q = toNum(it?.quantity);
   const d = toNum(it?.doneQuantity);
