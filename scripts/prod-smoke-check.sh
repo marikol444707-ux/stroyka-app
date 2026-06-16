@@ -92,6 +92,24 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
     api_errors="$(printf '%s' "$status_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(len(data.get("apiErrors", [])))' 2>/dev/null || true)"
     if [[ -n "$api_errors" ]]; then
       echo "INFO apiErrorsShown=$api_errors"
+      if [[ "$api_errors" != "0" ]]; then
+        printf '%s' "$status_body" | python3 -c '
+import json
+import sys
+
+data = json.load(sys.stdin)
+for e in (data.get("apiErrors") or [])[:5]:
+    created = e.get("createdAt") or "?"
+    method = e.get("method") or "?"
+    path = e.get("path") or "?"
+    code = e.get("statusCode") or 500
+    err_type = e.get("errorType") or "?"
+    msg = (e.get("message") or "").replace("\n", " ")
+    if len(msg) > 140:
+        msg = msg[:137] + "..."
+    print(f"INFO apiError {created} {code} {method} {path} {err_type}: {msg}")
+'
+      fi
     fi
   fi
 else
