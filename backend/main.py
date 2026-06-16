@@ -2872,8 +2872,13 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_material_norm_overrides_project ON material_norm_overrides(project_name);
         CREATE INDEX IF NOT EXISTS idx_material_norm_overrides_estimate ON material_norm_overrides(estimate_id);
         ALTER TABLE material_norm_overrides ALTER COLUMN project_name TYPE TEXT;
+        ALTER TABLE material_norm_overrides ALTER COLUMN section_name TYPE TEXT;
+        ALTER TABLE material_norm_overrides ALTER COLUMN work_name TYPE TEXT;
+        ALTER TABLE material_norm_overrides ALTER COLUMN material_name TYPE TEXT;
         ALTER TABLE material_norm_overrides ALTER COLUMN work_unit TYPE TEXT;
         ALTER TABLE material_norm_overrides ALTER COLUMN material_unit TYPE TEXT;
+        ALTER TABLE material_norm_overrides ALTER COLUMN label TYPE TEXT;
+        ALTER TABLE material_norm_overrides ALTER COLUMN reason TYPE TEXT;
         ALTER TABLE material_norm_overrides ALTER COLUMN updated_by TYPE TEXT;
         CREATE TABLE IF NOT EXISTS material_norm_suggestions (
             id SERIAL PRIMARY KEY,
@@ -3030,6 +3035,12 @@ def init_db():
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS smeta_type VARCHAR(50) DEFAULT 'Заказчик';
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT 'Основная';
+        ALTER TABLE estimates ALTER COLUMN project_name TYPE TEXT;
+        ALTER TABLE estimates ALTER COLUMN name TYPE TEXT;
+        ALTER TABLE estimates ALTER COLUMN version TYPE TEXT;
+        ALTER TABLE estimates ALTER COLUMN status TYPE TEXT;
+        ALTER TABLE estimates ALTER COLUMN smeta_type TYPE TEXT;
+        ALTER TABLE estimates ALTER COLUMN work_package TYPE TEXT;
         UPDATE estimates SET smeta_type='Заказчик' WHERE smeta_type IS NULL OR smeta_type='';
         UPDATE estimates SET work_package='Основная' WHERE work_package IS NULL OR work_package='';
         CREATE TABLE IF NOT EXISTS estimate_versions (
