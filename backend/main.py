@@ -4036,7 +4036,13 @@ def get_materials(current_user: dict = Depends(get_current_user)):
     if role in ("заказчик", "технадзор"):
         cur.close(); conn.close()
         return []
-    if can_see_warehouse_data(current_user):
+    if role == "прораб":
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        package_sql, package_params = package_access_filter(current_user)
+        cur.execute(base + " WHERE project = ANY(%s)" + package_sql, [projects] + package_params)
+    elif can_see_warehouse_data(current_user):
         cur.execute(base)
     elif projects:
         package_sql, package_params = package_access_filter(current_user)
@@ -4047,7 +4053,7 @@ def get_materials(current_user: dict = Depends(get_current_user)):
     rows = cur.fetchall()
     conn.close()
     can_see_stock = can_see_warehouse_data(current_user)
-    can_see_prices = role in WAREHOUSE_ROLES or role in FINANCE_ROLES
+    can_see_prices = role in MATERIAL_PRICE_HISTORY_ROLES or role in FINANCE_ROLES
     out = []
     for r in rows:
         d = dict(r)
@@ -4145,7 +4151,14 @@ def get_warehouse_main(current_user: dict = Depends(get_current_user)):
     cur.execute("SELECT id,name,unit,quantity,price,min_quantity as \"minQuantity\",category FROM warehouse_main")
     rows = cur.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    can_see_prices = current_user.get("role") in MATERIAL_PRICE_HISTORY_ROLES or current_user.get("role") in FINANCE_ROLES
+    out = []
+    for r in rows:
+        d = dict(r)
+        if not can_see_prices:
+            d["price"] = 0
+        out.append(d)
+    return out
 
 @app.post("/warehouse-main")
 def create_warehouse_main(m: WarehouseMainModel, _current_user: dict = Depends(require_roles(*MAIN_WAREHOUSE_WRITE_ROLES))):
