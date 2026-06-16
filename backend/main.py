@@ -42,6 +42,66 @@ def _env_list(name: str, default: list[str]) -> list[str]:
         return default
     return [x.strip() for x in raw.split(",") if x.strip()]
 
+def _startup_num(v) -> float:
+    try:
+        return float(str(v if v is not None else 0).replace(" ", "").replace(",", "."))
+    except Exception:
+        return 0.0
+
+def _startup_repair_saved_estimate_adjustments(cur) -> int:
+    """One-time compatible repair for estimates imported before adjustment rows existed."""
+    try:
+        cur.execute("SELECT id, sections_json FROM estimates WHERE sections_json IS NOT NULL AND sections_json<>''")
+        rows = cur.fetchall()
+    except Exception:
+        return 0
+    resource_types = {
+        "material", "материал", "materials", "материалы",
+        "equipment", "оборудование", "delivery", "доставка", "transport",
+    }
+    repaired = 0
+    for estimate_id, raw_sections in rows:
+        try:
+            sections = json.loads(raw_sections or "[]")
+        except Exception:
+            continue
+        if not isinstance(sections, list):
+            continue
+        changed = False
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            for item in section.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").strip().lower()
+                line_total = _startup_num(
+                    item.get("lineTotal")
+                    or item.get("currentTotal")
+                    or item.get("total")
+                    or item.get("sum")
+                    or item.get("amount")
+                    or item.get("totalSum")
+                    or item.get("totalMaterial")
+                    or item.get("materialTotal")
+                    or item.get("materialSum")
+                )
+                if raw in resource_types and (_startup_num(item.get("quantity")) < 0 or line_total < 0):
+                    item.setdefault("originalType", item.get("itemType") or item.get("type") or item.get("kind") or "material")
+                    item["type"] = "adjustment"
+                    item["itemType"] = "adjustment"
+                    item["importKind"] = "resource_adjustment"
+                    if not _startup_num(item.get("lineTotal")) and line_total:
+                        item["lineTotal"] = line_total
+                    changed = True
+        if changed:
+            cur.execute(
+                "UPDATE estimates SET sections_json=%s WHERE id=%s",
+                (json.dumps(sections, ensure_ascii=False), estimate_id),
+            )
+            repaired += 1
+    return repaired
+
 CORS_ORIGINS = _env_list("CORS_ORIGINS", [
     "https://stroyka26.pro",
     "https://www.stroyka26.pro",
@@ -2017,6 +2077,7 @@ def init_db():
             confirmed_by VARCHAR(255),
             work_package VARCHAR(100) DEFAULT ''
         );
+        ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT;
         ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT;
         CREATE TABLE IF NOT EXISTS supplier_catalog (
@@ -3128,6 +3189,7 @@ def init_db():
             rule.get("defaultThicknessMm"),
             rule.get("label", ""),
         ))
+    _startup_repair_saved_estimate_adjustments(cur)
     conn.close()
 
 init_db()
@@ -10433,6 +10495,58 @@ def _estimate_material_sum_backend(item: dict) -> float:
         return qty * _float_or_zero(item.get("priceMaterial"))
     return qty * _float_or_zero(item.get("priceMaterial"))
 
+def _estimate_import_line_total_backend(item: dict) -> float:
+    return _float_or_zero(
+        item.get("lineTotal")
+        or item.get("currentTotal")
+        or item.get("total")
+        or item.get("sum")
+        or item.get("amount")
+        or item.get("totalSum")
+        or item.get("totalMaterial")
+        or item.get("materialTotal")
+        or item.get("materialSum")
+    )
+
+def _normalize_estimate_adjustment_rows(sections):
+    """Keep negative estimate resources as corrections, not material demand."""
+    if not isinstance(sections, list):
+        return [], False
+    changed = False
+    normalized_sections = []
+    resource_types = {
+        "material", "материал", "materials", "материалы",
+        "equipment", "оборудование", "delivery", "доставка", "transport",
+    }
+    for section in sections:
+        if not isinstance(section, dict):
+            normalized_sections.append(section)
+            continue
+        next_section = dict(section)
+        next_items = []
+        for item in section.get("items") or []:
+            if not isinstance(item, dict):
+                next_items.append(item)
+                continue
+            raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").strip().lower()
+            qty = _float_or_zero(item.get("quantity"))
+            line_total = _estimate_import_line_total_backend(item)
+            if raw in resource_types and (qty < 0 or line_total < 0):
+                next_item = dict(item)
+                next_item.setdefault("originalType", item.get("itemType") or item.get("type") or item.get("kind") or "material")
+                next_item["type"] = "adjustment"
+                next_item["itemType"] = "adjustment"
+                next_item["importKind"] = "resource_adjustment"
+                if not _float_or_zero(next_item.get("lineTotal")) and line_total:
+                    next_item["lineTotal"] = line_total
+                next_items.append(next_item)
+                changed = True
+            else:
+                next_items.append(item)
+        next_section["items"] = next_items
+        normalized_sections.append(next_section)
+    return normalized_sections, changed
+
 def _material_control_key(name: str, unit: str = "") -> str:
     return (_norm_key_text(name or ""), _norm_base_unit(unit or ""))
 
@@ -13146,6 +13260,7 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
             sections = j.loads(r[5]) if r[5] else []
         except:
             sections = []
+        sections, _ = _normalize_estimate_adjustment_rows(sections)
         if role == "бухгалтер":
             sections = []
         if role in WORKER_EXECUTION_ROLES:
@@ -13188,8 +13303,9 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*EST
                          AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                          AND status='Активная'""",
                     (project_name, smeta_type, work_package))
+    sections, _ = _normalize_estimate_adjustment_rows(data.get("sections", []))
     cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type,work_package,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId"),project_name,data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),smeta_type,work_package,status))
+        (data.get("projectId"),project_name,data.get("name",""),data.get("version","1.0"),j.dumps(sections,ensure_ascii=False),smeta_type,work_package,status))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -13277,7 +13393,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
         except Exception:
             pass
 
-    new_sections = data.get("sections", []) or []
+    new_sections, _ = _normalize_estimate_adjustment_rows(data.get("sections", []) or [])
     for s in new_sections:
         for it in (s.get("items") or []):
             try:
