@@ -4,7 +4,6 @@ import {
   Check,
   ChevronRight,
   Download,
-  Plus,
   Trash2,
   Truck,
   X,
@@ -28,7 +27,6 @@ export default function WarehouseObjectsPanel({
   visibleActiveProjects,
   projects,
   materials,
-  openReceiveInvoice,
   isLeadership,
   user,
   setMaterialTransfers,
@@ -39,22 +37,16 @@ export default function WarehouseObjectsPanel({
   deleteMaterial,
   showTransferForm,
   newTransfer,
-  warehouseMain,
   supplyRequests,
   _normalizeUnit,
   convertUnits,
   staff,
-  setWarehouseMain,
   setMaterials,
   notify,
 }) {
   const projectMaterials = (projectName) => (materials || []).filter(material => material.project === projectName);
-  const transferSourceMaterials = [
-    ...(newTransfer.fromLocation === 'Основной склад' ? (warehouseMain || []) : []),
-    ...((newTransfer.fromLocation !== 'Основной склад')
-      ? (materials || []).filter(material => material.project === newTransfer.fromLocation)
-      : []),
-  ];
+  const canDeleteProjectMaterial = ['директор', 'зам_директора', 'кладовщик', 'снабженец'].includes(user?.role);
+  const transferSourceMaterials = (materials || []).filter(material => material.project === selectedWarehouseProject);
 
   return (
     <div>
@@ -89,10 +81,6 @@ export default function WarehouseObjectsPanel({
             <h3 style={{ color: C.text, margin: 0, fontSize: '15px', fontWeight: '700' }}>{selectedWarehouseProject}</h3>
           </div>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
-            <button onClick={() => openReceiveInvoice(selectedWarehouseProject)} style={btnO}>
-              <Plus size={14} />
-              Принять материал
-            </button>
             {(isLeadership() || user.role === 'прораб' || user.role === 'кладовщик') && (
               <button
                 onClick={async () => {
@@ -166,9 +154,11 @@ export default function WarehouseObjectsPanel({
                   <td style={tblC}>{Number(material.price || 0).toLocaleString() + ' ₽'}</td>
                   <td style={{ ...tblC, fontWeight: '600' }}>{(Number(material.price || 0) * Number(material.quantity || 0)).toLocaleString() + ' ₽'}</td>
                   <td style={tblC}>
-                    <button onClick={() => deleteMaterial(material.id)} style={{ ...btnR, padding: '3px 7px' }}>
-                      <Trash2 size={11} />
-                    </button>
+                    {canDeleteProjectMaterial && (
+                      <button onClick={() => deleteMaterial(material.id)} style={{ ...btnR, padding: '3px 7px' }}>
+                        <Trash2 size={11} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -189,8 +179,7 @@ export default function WarehouseObjectsPanel({
                 <X size={14} />
               </button>
             </div>
-            <select value={newTransfer.fromLocation} onChange={event => setNewTransfer({ ...newTransfer, fromLocation: event.target.value, materialName: '', quantity: '' })} style={inp}>
-              <option value='Основной склад'>Основной склад</option>
+            <select value={selectedWarehouseProject} onChange={() => {}} disabled style={inp}>
               <option value={selectedWarehouseProject}>Склад объекта «{selectedWarehouseProject}»</option>
             </select>
             <p style={{ fontSize: '12px', color: C.textSec, marginBottom: '6px' }}>Выберите материал:</p>
@@ -257,10 +246,13 @@ export default function WarehouseObjectsPanel({
               </>
             )}
             <select
-              value={newTransfer.toPerson}
+              value={newTransfer.toUserId ? 'user:' + newTransfer.toUserId : newTransfer.toPerson}
               onChange={event => {
-                const staffRow = (staff || []).find(item => item.name === event.target.value);
-                setNewTransfer({ ...newTransfer, toPerson: event.target.value, toPersonRole: staffRow ? staffRow.role : '' });
+                const rawValue = event.target.value;
+                const staffRow = rawValue.startsWith('user:') ? (staff || []).find(item => String(item.id) === rawValue.slice(5)) : null;
+                const requesterRow = !staffRow ? (staff || []).find(item => item.name === rawValue) : null;
+                const personRow = staffRow || requesterRow;
+                setNewTransfer({ ...newTransfer, toPerson: personRow ? personRow.name : rawValue, toPersonRole: personRow ? personRow.role : '', toUserId: personRow ? personRow.id : '' });
               }}
               style={inp}
             >
@@ -285,15 +277,15 @@ export default function WarehouseObjectsPanel({
                     {requesters.size > 0 && (
                       <optgroup label="📋 Заявляли этот материал">
                         {Array.from(requesters.values()).map((requester, index) => (
-                          <option key={'wreq-' + index} value={requester.name}>
+                          <option key={'wreq-' + index} value={(staff || []).find(item => item.name === requester.name) ? 'user:' + (staff || []).find(item => item.name === requester.name).id : requester.name}>
                             ⭐ {requester.name} ({requester.role}) — просил {requester.quantity} {requester.unit}
                           </option>
                         ))}
                       </optgroup>
                     )}
-                    <optgroup label={requesters.size > 0 ? '👥 Остальные' : '👥 Мастера и прорабы'}>
-                      {(staff || []).filter(item => ['мастер', 'прораб', 'бригадир', 'субподрядчик'].includes((item.role || '').toLowerCase()) && !requesterNames.has(item.name)).map(item => (
-                        <option key={item.id} value={item.name}>{item.name} ({item.role})</option>
+                    <optgroup label={requesters.size > 0 ? '👥 Остальные исполнители' : '👥 Исполнители'}>
+                      {(staff || []).filter(item => ['мастер', 'бригадир', 'субподрядчик'].includes((item.role || '').toLowerCase()) && !requesterNames.has(item.name)).map(item => (
+                        <option key={item.id} value={'user:' + item.id}>{item.name} ({item.role})</option>
                       ))}
                     </optgroup>
                   </>
@@ -309,7 +301,7 @@ export default function WarehouseObjectsPanel({
                     window.alert('Заполните: материал, количество, кому');
                     return;
                   }
-                  const data = { ...newTransfer, projectName: selectedWarehouseProject, createdBy: user.name };
+                  const data = { ...newTransfer, fromLocation: selectedWarehouseProject, projectName: selectedWarehouseProject, createdBy: user.name };
                   const response = await fetch(API + '/material-transfers', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -322,17 +314,13 @@ export default function WarehouseObjectsPanel({
                   }
                   setMaterialTransfers(prev => [{ ...data, id: saved.id, signed: false }, ...prev]);
                   const quantity = Number(newTransfer.quantity);
-                  if (newTransfer.fromLocation === 'Основной склад') {
-                    setWarehouseMain(prev => prev.map(material => material.name === newTransfer.materialName ? { ...material, quantity: Number(material.quantity || 0) - quantity } : material));
-                  } else {
-                    setMaterials(prev => prev.map(material => (
-                      material.name === newTransfer.materialName &&
-                      material.project === newTransfer.fromLocation &&
-                      (material.workPackage || material.work_package || '') === (newTransfer.workPackage || '')
-                    ) ? { ...material, quantity: Number(material.quantity || 0) - quantity } : material));
-                  }
+                  setMaterials(prev => prev.map(material => (
+                    material.name === newTransfer.materialName &&
+                    material.project === selectedWarehouseProject &&
+                    (material.workPackage || material.work_package || '') === (newTransfer.workPackage || '')
+                  ) ? { ...material, quantity: Number(material.quantity || 0) - quantity } : material));
                   setShowTransferForm(false);
-                  setNewTransfer({ materialName: '', quantity: '', unit: 'шт', workPackage: '', toPerson: '', toPersonRole: '', fromLocation: 'Основной склад', notes: '', transferDate: new Date().toISOString().split('T')[0] });
+                  setNewTransfer({ materialName: '', quantity: '', unit: 'шт', workPackage: '', toPerson: '', toPersonRole: '', toUserId: '', fromLocation: selectedWarehouseProject, notes: '', transferDate: new Date().toISOString().split('T')[0] });
                   notify('Передал ' + (saved.materialName || newTransfer.materialName) + ' (' + newTransfer.quantity + ' ' + newTransfer.unit + ') → ' + newTransfer.toPerson, 'material');
                 }}
                 style={btnO}

@@ -65,9 +65,11 @@ export default function ProjectBrigadeCalculationTab({
     <div>
       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
         <b style={{color: C.text, fontSize: '15px', fontWeight: '700'}}>Расчёт с бригадой</b>
-        <button onClick={() => setShowBrigadeForm(!showBrigadeForm)} style={btnO}>
-          <Plus size={14}/>Новая бригада
-        </button>
+        {showLeadership && (
+          <button onClick={() => setShowBrigadeForm(!showBrigadeForm)} style={btnO}>
+            <Plus size={14}/>Новая бригада
+          </button>
+        )}
       </div>
 
       <ProjectBrigadeBudgetSummary
@@ -78,7 +80,7 @@ export default function ProjectBrigadeCalculationTab({
         card={card}
       />
 
-      {showBrigadeForm && (
+      {showLeadership && showBrigadeForm && (
         <ProjectBrigadeCreateForm
           project={project}
           newBrigadeContract={newBrigadeContract}
@@ -140,6 +142,7 @@ export default function ProjectBrigadeCalculationTab({
             inp={inp}
             btnG={btnG}
             btnO={btnO}
+            showLeadership={showLeadership}
           />
 
           <ProjectBrigadeBulkPricePanel
@@ -159,6 +162,7 @@ export default function ProjectBrigadeCalculationTab({
             brigadeContractItems={brigadeContractItems}
             setBrigadeContractItems={setBrigadeContractItems}
             showFinance={showFinance}
+            showLeadership={showLeadership}
             normalizeMeasure={normalizeMeasure}
             toNum={toNum}
             fmtMeasure={fmtMeasure}

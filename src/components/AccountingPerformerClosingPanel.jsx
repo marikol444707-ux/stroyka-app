@@ -9,7 +9,7 @@ const monthNow = () => new Date().toISOString().slice(0, 7);
 const dateOnly = value => safeText(value).split('T')[0];
 const monthOf = value => dateOnly(value).slice(0, 7);
 const personKey = value => safeText(value).toLowerCase().replace(/\s+/g, ' ');
-const workExecutionTotal = work => toNumber(work?.executionTotal ?? work?.execution_total ?? work?.total);
+const workExecutionTotal = work => toNumber(work?.executionTotal ?? work?.execution_total ?? 0);
 const workCustomerTotal = work => toNumber(work?.customerTotal ?? work?.customer_total ?? work?.total);
 const periodStartForMonth = month => month ? month + '-01' : '';
 const periodEndForMonth = month => {
@@ -141,7 +141,7 @@ export default function AccountingPerformerClosingPanel({
           project: safeText(work.project) || 'Без объекта',
           performerName: safeText(work.masterName || work.master_name || staffRow.name) || 'Без исполнителя',
           staffId: Number(work.masterId || staffRow.id || 0),
-          workPackage: safeText(work.workPackage || work.work_package) || 'Без пакета',
+          workPackage: safeText(work.workPackage || work.work_package) || 'Основная',
           roomName: safeText(work.roomName || work.room_name) || 'Без помещения',
           description: safeText(work.description),
           unit: safeText(work.unit),
@@ -152,16 +152,26 @@ export default function AccountingPerformerClosingPanel({
           isContractor: isContractorLike(staffRow),
         };
       })
+      .filter(row => row.roomName !== 'Без помещения')
+      .filter(row => row.executionTotal > 0)
       .filter(row => !projectFilter || row.project === projectFilter)
       .filter(row => !performerFilter || row.performerName === performerFilter)
       .filter(row => matchSearch ? matchSearch(listSearch, row.performerName, row.project, row.workPackage, row.roomName, row.description) : true)
       .sort((a, b) => (a.performerName + a.project + a.date).localeCompare(b.performerName + b.project + b.date));
   }, [workJournal, staffById, month, projectFilter, performerFilter, listSearch, matchSearch]);
 
+  const blockedRows = useMemo(() => {
+    return (workJournal || [])
+      .filter(work => safeText(work.status) === 'Подтверждено')
+      .filter(work => monthOf(work.confirmedAt || work.date) === month)
+      .filter(work => !safeText(work.roomName || work.room_name) || workExecutionTotal(work) <= 0);
+  }, [workJournal, month]);
+
   const groups = useMemo(() => {
     const byKey = {};
     rows.forEach(row => {
-      const key = row.performerName + '|' + row.project + '|' + row.workPackage;
+      const performerKey = row.staffId ? 'staff:' + row.staffId : 'name:' + personKey(row.performerName);
+      const key = performerKey + '|' + row.project + '|' + row.workPackage;
       if (!byKey[key]) {
         byKey[key] = {
           key,
@@ -229,6 +239,7 @@ export default function AccountingPerformerClosingPanel({
       workPackages: group.workPackage,
       accrued: group.accrued,
       rows: group.rows.length,
+      workJournalIds: group.rows.map(row => row.id).filter(Boolean),
     }));
   }, [groups]);
 
@@ -273,6 +284,7 @@ export default function AccountingPerformerClosingPanel({
           totalAmount: Math.round(actGroup.accrued * 100) / 100,
           paidAmount: 0,
           contractId: contract ? contract.id : null,
+          workJournalIds: actGroup.workJournalIds || [],
         }),
       });
       if (!response.ok) throw new Error(await response.text());
@@ -293,6 +305,11 @@ export default function AccountingPerformerClosingPanel({
 
   const payPerformerGroup = async group => {
     if (!group?.project || group.payable <= 0) return;
+    const savedAct = existingActFor(group.staffId, group.performerName, group.project, group.workPackage);
+    if (!savedAct) {
+      window.alert('Сначала зафиксируйте акт по подтверждённым работам. Оплата без акта заблокирована.');
+      return;
+    }
     const defaultAmount = Math.round(group.payable * 100) / 100;
     const raw = window.prompt(
       'Сумма выплаты исполнителю ' + group.performerName + ' за ' + month + ':',
@@ -303,15 +320,13 @@ export default function AccountingPerformerClosingPanel({
     if (amount <= 0) return;
     if (amount > group.payable && !window.confirm('Сумма больше остатка к выплате. Всё равно провести?')) return;
     try {
-      const response = await fetch(API + '/project-payments', {
+      const response = await fetch(API + '/interim-acts/' + savedAct.id + '/pay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectName: group.project,
-          workPackage: group.workPackage || '',
-          amount: -amount,
-          note: performerPaymentNote({ ...group, month }),
-          date: new Date().toISOString().split('T')[0],
+          amount,
+          note: performerPaymentNote({ ...group, month }) + ' · акт #' + savedAct.id,
+          paidDate: new Date().toISOString().split('T')[0],
           paidBy: user?.name || '',
         }),
       });
@@ -367,6 +382,11 @@ export default function AccountingPerformerClosingPanel({
             <input placeholder="Поиск по работе, помещению, исполнителю" value={listSearch} onChange={event => setListSearch(event.target.value)} style={{ ...inp, marginBottom: 0, paddingLeft: '32px' }} />
           </div>
         </div>
+        {blockedRows.length > 0 && (
+          <p style={{ color: C.warning, margin: '10px 0 0', fontSize: '12px', fontWeight: 700 }}>
+            Не попадут в акт: {blockedRows.length} подтверждённых строк без помещения или исполнительской суммы. Исправьте ЖПР перед закрытием месяца.
+          </p>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px', marginBottom: '14px' }}>

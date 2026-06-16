@@ -148,14 +148,18 @@ export function TransferRecipientSelect({
 }) {
   return (
     <select
-      value={newTransfer.toPerson}
+      value={newTransfer.toUserId ? 'user:' + newTransfer.toUserId : newTransfer.toPerson}
       onChange={e => {
-        const selected = staff.find(st => st.name === e.target.value);
-        const selectedBrigade = brigadeContracts.find(bc => bc.projectName === projectName && bc.brigadeName === e.target.value);
+        const rawValue = e.target.value;
+        const selected = rawValue.startsWith('user:') ? staff.find(st => String(st.id) === rawValue.slice(5)) : null;
+        const requesterUser = !selected ? staff.find(st => st.name === rawValue) : null;
+        const selectedBrigade = !selected && !requesterUser ? brigadeContracts.find(bc => bc.projectName === projectName && bc.brigadeName === rawValue) : null;
+        const person = selected || requesterUser;
         setNewTransfer({
           ...newTransfer,
-          toPerson: e.target.value,
-          toPersonRole: selected ? selected.role : selectedBrigade ? 'бригада' : '',
+          toPerson: person ? person.name : rawValue,
+          toPersonRole: person ? person.role : selectedBrigade ? 'бригада' : '',
+          toUserId: person ? person.id : '',
         });
       }}
       style={{...inp, marginBottom: 0}}
@@ -164,14 +168,14 @@ export function TransferRecipientSelect({
       {requesterOptions.requesters.length > 0 && (
         <optgroup label="📋 Заявляли этот материал">
           {requesterOptions.requesters.map((r, i) => (
-            <option key={'req-' + i} value={r.name}>⭐ {r.name} ({r.role}) — просил {r.quantity} {r.unit}</option>
+            <option key={'req-' + i} value={staff.find(st => st.name === r.name) ? 'user:' + staff.find(st => st.name === r.name).id : r.name}>⭐ {r.name} ({r.role}) — просил {r.quantity} {r.unit}</option>
           ))}
         </optgroup>
       )}
-      <optgroup label={requesterOptions.requesters.length > 0 ? '👥 Остальные мастера и прорабы' : '👥 Мастера и прорабы'}>
+        <optgroup label={requesterOptions.requesters.length > 0 ? '👥 Остальные исполнители' : '👥 Исполнители'}>
         {staff
-          .filter(s => ['мастер', 'прораб', 'бригадир', 'субподрядчик'].includes((s.role || '').toLowerCase()) && !requesterOptions.requesterNames.has(s.name))
-          .map(s => <option key={s.id} value={s.name}>{s.name} ({s.role})</option>)}
+          .filter(s => ['мастер', 'бригадир', 'субподрядчик'].includes((s.role || '').toLowerCase()) && !requesterOptions.requesterNames.has(s.name))
+          .map(s => <option key={s.id} value={'user:' + s.id}>{s.name} ({s.role})</option>)}
       </optgroup>
       {brigadeContracts.filter(bc => bc.projectName === projectName).length > 0 && (
         <optgroup label="🔨 Бригады по объекту">
@@ -190,7 +194,6 @@ export function MaterialTransferForm({
   btnO,
   btnG,
   btnGr,
-  visibleProjects,
   availableMaterials,
   newTransfer,
   setNewTransfer,
@@ -217,12 +220,12 @@ export function MaterialTransferForm({
       <h3 style={{color: C.text, marginBottom: '15px', fontWeight: '700'}}>Передача материала бригаде/мастеру</h3>
       <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
         <select
-          value={newTransfer.fromLocation}
-          onChange={e => setNewTransfer({...newTransfer, fromLocation: e.target.value, materialName: '', quantity: ''})}
+          value={projectName}
+          onChange={() => {}}
+          disabled
           style={{...inp, marginBottom: 0, gridColumn: 'span 2'}}
         >
-          <option value="Основной склад">Основной склад</option>
-          {visibleProjects.map(pr => <option key={pr.id} value={pr.name}>{pr.name}</option>)}
+          <option value={projectName}>Склад объекта: {projectName}</option>
         </select>
 
         <MaterialPicker

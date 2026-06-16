@@ -21,6 +21,18 @@ export default function PricelistFromEstimateModal({
 }) {
   if (!showFromEstimate) return null;
 
+  const projectNames = Array.from(new Set((estimatesList || []).map(e => e.projectName || 'Без объекта').filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ru'));
+  const selectedProject = fromEstimateForm.projectName || '';
+  const visibleEstimates = selectedProject
+    ? (estimatesList || []).filter(e => (e.projectName || 'Без объекта') === selectedProject)
+    : (estimatesList || []);
+  const estimatesByProject = visibleEstimates.reduce((acc, est) => {
+    const projectName = est.projectName || 'Без объекта';
+    if (!acc[projectName]) acc[projectName] = [];
+    acc[projectName].push(est);
+    return acc;
+  }, {});
+
   const createPricelist = async () => {
     setCreatingFromEstimate(true);
     try{
@@ -46,9 +58,21 @@ export default function PricelistFromEstimateModal({
           <b style={{color:C.text,fontSize:'15px'}}>Создать прайс-лист из сметы</b>
         </div>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>В прайс попадут только работы выбранной сметы. Материалы, корректировки и дубли пропускаются, чтобы не смешивать цены работ со снабжением.</p>
-        <select value={fromEstimateForm.estimateId} onChange={e=>{const est=estimatesList.find(es=>String(es.id)===e.target.value);setFromEstimateForm({...fromEstimateForm,estimateId:e.target.value,name:est?'Прайс из «'+est.name+'»':fromEstimateForm.name});}} style={inp}>
+        <select
+          value={selectedProject}
+          onChange={e => setFromEstimateForm({...fromEstimateForm, projectName: e.target.value, estimateId: '', name: ''})}
+          style={inp}
+        >
+          <option value=''>Все объекты</option>
+          {projectNames.map(projectName => <option key={projectName} value={projectName}>{projectName}</option>)}
+        </select>
+        <select value={fromEstimateForm.estimateId} onChange={e=>{const est=(estimatesList || []).find(es=>String(es.id)===e.target.value);setFromEstimateForm({...fromEstimateForm,estimateId:e.target.value,projectName:est?(est.projectName || 'Без объекта'):fromEstimateForm.projectName,name:est?'Прайс из «'+est.name+'»':fromEstimateForm.name});}} style={inp}>
           <option value=''>Выберите смету *</option>
-          {estimatesList.map(e=><option key={e.id} value={e.id}>{e.name}{e.projectName?' — '+e.projectName:''}</option>)}
+          {Object.entries(estimatesByProject).map(([projectName, rows]) => (
+            <optgroup key={projectName} label={projectName}>
+              {rows.map(e=><option key={e.id} value={e.id}>{e.workPackage ? e.workPackage + ' · ' : ''}{e.name}</option>)}
+            </optgroup>
+          ))}
         </select>
         <input placeholder='Название прайс-листа' value={fromEstimateForm.name} onChange={e=>setFromEstimateForm({...fromEstimateForm,name:e.target.value})} style={inp}/>
         <select value={fromEstimateForm.forWho} onChange={e=>setFromEstimateForm({...fromEstimateForm,forWho:e.target.value})} style={inp}>

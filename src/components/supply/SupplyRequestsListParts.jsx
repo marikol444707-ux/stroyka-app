@@ -143,6 +143,61 @@ function OfferItemsDetails({ C, offer, parseOfferItems }) {
   );
 }
 
+const fmtQty = (value) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return '0';
+  return n.toLocaleString('ru-RU', { maximumFractionDigits: 3 });
+};
+
+function SupplyEstimateControlBlock({ C, items }) {
+  const rows = (items || [])
+    .map(item => ({ item, control: item?.estimateControl || item?.estimate_control || null }))
+    .filter(row => row.control);
+  if (!rows.length) return null;
+
+  const statusText = (status) => {
+    if (status === 'no_active_estimate') return 'Нет активной сметы';
+    if (status === 'no_estimate_material') return 'Вне сметы';
+    if (status === 'over_estimate_need') return 'Сверх сметы';
+    if (status === 'covered') return 'Закрыто';
+    return 'В потребности';
+  };
+  const statusStyle = (status) => {
+    if (status === 'no_estimate_material' || status === 'over_estimate_need') return [C.danger, C.dangerLight, C.dangerBorder];
+    if (status === 'no_active_estimate') return [C.warning, C.warningLight, C.warningBorder];
+    if (status === 'covered') return [C.textMuted, C.bg, C.border];
+    return [C.success, C.successLight, C.successBorder];
+  };
+
+  return (
+    <div style={{ marginTop: '10px', padding: '10px', borderRadius: '8px', border: '1.5px solid ' + C.border, backgroundColor: C.bg }}>
+      <b style={{ display: 'block', color: C.text, fontSize: '12px', marginBottom: '8px' }}>📐 Контроль по смете</b>
+      <div style={{ display: 'grid', gap: '6px' }}>
+        {rows.map(({ item, control }, i) => {
+          const [color, bg, border] = statusStyle(control.status);
+          const unit = item.unit || control.unit || '';
+          return (
+            <div key={i} style={{ padding: '8px', borderRadius: '7px', border: '1px solid ' + border, backgroundColor: bg }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '5px' }}>
+                <b style={{ color: C.text, fontSize: '12px' }}>{item.materialName || item.name || 'Материал'}</b>
+                <span style={{ color, fontSize: '11px', fontWeight: 700 }}>{statusText(control.status)}</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: '6px', fontSize: '11px', color: C.textSec }}>
+                <span>План: <b style={{ color: C.text }}>{fmtQty(control.plannedQty)} {unit}</b></span>
+                <span>На объекте: <b style={{ color: C.text }}>{fmtQty(control.stockQty)} {unit}</b></span>
+                <span>В заявках: <b style={{ color: C.text }}>{fmtQty(control.requestedQty)} {unit}</b></span>
+                <span>Остаток: <b style={{ color }}>{fmtQty(control.remainingQty)} {unit}</b></span>
+                <span>После заявки: <b style={{ color }}>{fmtQty(control.remainingAfterRequest)} {unit}</b></span>
+                {control.plannedSum > 0 && <span>По смете: <b style={{ color: C.text }}>{Number(control.plannedSum).toLocaleString('ru-RU')} ₽</b></span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function CompareResultBlock({ C, compareResult }) {
   return (
     <>
@@ -368,6 +423,7 @@ export function SupplyRequestCard(props) {
           {request.status === 'Отклонена' && request.rejectReason && <p style={{ color: C.danger, margin: '4px 0 0', fontSize: '11px' }}>❌ Причина: {request.rejectReason}</p>}
           {request.prorabName && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>👷 Прораб: {request.prorabName}</p>}
           {request.directorName && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>👑 Директор: {request.directorName}</p>}
+          <SupplyEstimateControlBlock C={C} items={items} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end' }}>
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>

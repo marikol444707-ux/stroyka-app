@@ -25,6 +25,8 @@ const emptyBrigadeItem = () => ({
   priceSmeta: '',
   priceBrigade: '',
   estimateSection: '',
+  workPackage: 'Основная',
+  estimateItemKey: '',
 });
 
 const estimateIcon = (smetaType) => ({
@@ -33,11 +35,18 @@ const estimateIcon = (smetaType) => ({
   Материалы: '📦',
 }[smetaType] || '📄');
 
+const estimatePackageName = (estimate) => estimate?.workPackage || estimate?.work_package || 'Основная';
+
 const getEstimateItems = (estimate) => (
   estimate.sections || []
-).flatMap(section => (
+).flatMap((section, sectionIndex) => (
   section.items || []
-).map(item => ({...item, estimateSection: section.name})));
+).map((item, itemIndex) => ({
+  ...item,
+  estimateSection: section.name,
+  workPackage: estimatePackageName(estimate),
+  estimateItemKey: item.estimateItemKey || item.estimate_item_key || (String(estimate.id || '') + ':' + sectionIndex + ':' + itemIndex),
+})));
 
 const isWorkItem = (item) => {
   const name = (item.name || '').toLowerCase();
@@ -62,10 +71,19 @@ export default function ProjectBrigadeWorkEntryPanel({
   inp,
   btnG,
   btnO,
+  showLeadership = false,
 }) {
+  if (!showLeadership) return null;
+  const contractPackage = selectedBrigadeContract?.workPackage || selectedBrigadeContract?.work_package || '';
   const projectEstimates = estimatesList.filter(estimate => (
-    estimate.projectName === project.name || estimate.projectId === project.id
+    (estimate.projectName === project.name || estimate.projectId === project.id) &&
+    (!contractPackage || estimatePackageName(estimate) === contractPackage)
   ));
+  const workPackageOptions = Array.from(new Set([
+    ...projectEstimates.map(estimatePackageName),
+    newBrigadeItem.workPackage || '',
+    'Основная',
+  ].filter(Boolean)));
 
   const loadEstimateItems = async (estimate) => {
     if (!selectedBrigadeContract) return;
@@ -83,6 +101,8 @@ export default function ProjectBrigadeWorkEntryPanel({
         quantity: item.quantity || 0,
         priceSmeta: item.priceWork || 0,
         priceBrigade: 0,
+        workPackage: item.workPackage || 'Основная',
+        estimateItemKey: item.estimateItemKey || '',
         doneQuantity: 0,
         status: 'Не начато',
       };
@@ -103,6 +123,7 @@ export default function ProjectBrigadeWorkEntryPanel({
 
     const item = {
       ...newBrigadeItem,
+      workPackage: newBrigadeItem.workPackage || (workPackageOptions[0] || 'Основная'),
       contractId: selectedBrigadeContract.id,
       doneQuantity: 0,
       status: 'Не начато',
@@ -138,8 +159,11 @@ export default function ProjectBrigadeWorkEntryPanel({
         )}
       </div>
       <b style={{color: C.text, fontSize: '13px', display: 'block', marginBottom: '10px'}}>Добавить работу вручную</b>
-      <div style={{display: 'grid', gridTemplateColumns: '3fr 1fr 1fr 1fr 1fr auto', gap: '6px', alignItems: 'center'}}>
+      <div style={{display: 'grid', gridTemplateColumns: '3fr 1.2fr 1fr 1fr 1fr 1fr auto', gap: '6px', alignItems: 'center'}}>
         <input placeholder="Наименование *" value={newBrigadeItem.name} onChange={e => setNewBrigadeItem({...newBrigadeItem, name: e.target.value})} style={{...inp, marginBottom: 0, fontSize: '12px'}}/>
+        <select value={newBrigadeItem.workPackage || 'Основная'} onChange={e => setNewBrigadeItem({...newBrigadeItem, workPackage: e.target.value})} style={{...inp, marginBottom: 0, fontSize: '12px'}}>
+          {workPackageOptions.map(workPackage => <option key={workPackage} value={workPackage}>{workPackage}</option>)}
+        </select>
         <select value={newBrigadeItem.unit} onChange={e => setNewBrigadeItem({...newBrigadeItem, unit: e.target.value})} style={{...inp, marginBottom: 0, fontSize: '12px'}}>
           {UNITS.map(unit => <option key={unit}>{unit}</option>)}
         </select>

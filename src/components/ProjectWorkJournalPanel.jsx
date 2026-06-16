@@ -18,6 +18,7 @@ export default function ProjectWorkJournalPanel({
   openConfirmModal,
   setRejectingEntry,
   canConfirm = false,
+  showCustomerTotals = false,
   fileSrc,
   setShowPhotoModal,
   C,
@@ -29,7 +30,7 @@ export default function ProjectWorkJournalPanel({
   badge,
 }) {
   const projectName = project.name;
-  const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? work?.total ?? 0);
+  const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? 0);
   const workCustomerTotal = (work) => Number(work?.customerTotal ?? work?.customer_total ?? work?.total ?? 0);
   const projectWorks = workJournal.filter(item => item.project === projectName);
   const unexpectedWorks = projectWorks.filter(item => item.unexpectedWorkId);
@@ -91,7 +92,7 @@ export default function ProjectWorkJournalPanel({
                 {groupedByDate[date][masterName].map(item => {
                   const executionTotal = workExecutionTotal(item);
                   const customerTotal = workCustomerTotal(item);
-                  const showCustomerTotal = Math.abs(customerTotal - executionTotal) > 1;
+                  const showCustomerTotal = showCustomerTotals && Math.abs(customerTotal - executionTotal) > 1;
                   return (
                   <div
                     key={item.id}

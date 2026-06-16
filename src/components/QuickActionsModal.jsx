@@ -11,6 +11,7 @@ export default function QuickActionsModal({
   visibleActiveProjects,
   openReceiveInvoice,
   setActivePage,
+  navigateTo,
   API,
   setMaterialTransfers,
   setShowTransferForm,
@@ -24,13 +25,13 @@ export default function QuickActionsModal({
 
   const iconBg = (color) => `rgba(${color==='#f97316'?'249,115,22':color==='#22c55e'?'34,197,94':color==='#3b82f6'?'59,130,246':color==='#f59e0b'?'245,158,11':color==='#8b5cf6'?'139,92,246':color==='#10b981'?'16,185,129':color==='#06b6d4'?'6,182,212':'249,115,22'},.15)`;
   const actions = [
-    {icon:<Plus size={24}/>,label:'Принять материал',color:'#3b82f6',action:()=>{const visible=visibleActiveProjects(projects);if(visible.length===1){openReceiveInvoice(visible[0].name);setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте нужный объект → Объект → Материалы → Принять материал');}},roles:['директор','зам_директора','прораб','кладовщик','снабженец']},
-    {icon:<Truck size={24}/>,label:'Передать материал',color:'#10b981',action:async()=>{const visible=visibleActiveProjects(projects);if(visible.length===1){const pn=visible[0].name;const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(pn));const data=await res.json();setMaterialTransfers(Array.isArray(data)?data:[]);setShowTransferForm(true);setExpandedProject(visible[0].id);setActivePage('projects');setActiveProjectTab('Материалы');setShowQuickActions(false);}else{setShowQuickActions(false);setActivePage('projects');alert('Откройте объект → Объект → Материалы → Передать материал');}},roles:['директор','зам_директора','прораб','кладовщик']},
+    {icon:<Plus size={24}/>,label:'Принять на склад',color:'#3b82f6',action:()=>{openReceiveInvoice('Основной склад');setShowQuickActions(false);},roles:['директор','зам_директора','прораб','кладовщик','снабженец']},
+    {icon:<Truck size={24}/>,label:'Передать материал',color:'#10b981',action:async()=>{const visible=visibleActiveProjects(projects);if(visible.length===1){const pn=visible[0].name;const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(pn));const data=await res.json();setMaterialTransfers(Array.isArray(data)?data:[]);setShowTransferForm(true);setExpandedProject(visible[0].id);(navigateTo || setActivePage)('projects');setActiveProjectTab('Материалы');setShowQuickActions(false);}else{setShowQuickActions(false);(navigateTo || setActivePage)('projects');alert('Откройте объект → Объект → Материалы → Передать материал');}},roles:['директор','зам_директора','прораб','кладовщик']},
     {icon:<CreditCard size={24}/>,label:'Мои траты',color:'#22c55e',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
     {icon:<MessageSquare size={24}/>,label:'Чат',color:'#3b82f6',action:()=>{setShowQuickActions(false);setShowChatPanel(true);}},
-    {icon:<CloudSun size={24}/>,label:'Погода',color:'#06b6d4',action:()=>{setShowQuickActions(false);setActivePage('weather');},roles:['прораб','главный_инженер']},
-    {icon:<FolderKanban size={24}/>,label:'Объекты',color:'#f59e0b',action:()=>{setShowQuickActions(false);setActivePage('projects');}},
-    {icon:<Package size={24}/>,label:'Склад',color:'#8b5cf6',action:()=>{setShowQuickActions(false);setActivePage('warehouse');},roles:['директор','зам_директора','бухгалтер','кладовщик','снабженец']},
+    {icon:<CloudSun size={24}/>,label:'Погода',color:'#06b6d4',action:()=>{setShowQuickActions(false);(navigateTo || setActivePage)('weather');},roles:['прораб','главный_инженер']},
+    {icon:<FolderKanban size={24}/>,label:'Объекты',color:'#f59e0b',action:()=>{setShowQuickActions(false);(navigateTo || setActivePage)('projects');},roles:['директор','зам_директора','главный_инженер','прораб','стройконтроль','технадзор','сметчик']},
+    {icon:<Package size={24}/>,label:'Склад',color:'#10b981',action:()=>{setShowQuickActions(false);(navigateTo || setActivePage)('warehouse');},roles:['директор','зам_директора','кладовщик','снабженец']},
     {icon:<Bot size={24}/>,label:'ИИ',color:'#f97316',action:()=>{setShowQuickActions(false);setShowAiAssistant(true);}},
   ].filter(btn=>!btn.roles||(user&&btn.roles.includes(user.role)));
 

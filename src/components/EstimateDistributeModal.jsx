@@ -14,10 +14,19 @@ function isDistributableWorkItem(item) {
 
 function getDistributableWorkRows(estimate) {
   const rows = [];
+  const workPackage = estimate?.workPackage || estimate?.work_package || 'Основная';
   (estimate?.sections || []).forEach((section, sectionIndex) => {
     (section.items || []).forEach((item, itemIndex) => {
       if (isDistributableWorkItem(item)) {
-        rows.push({ section, sectionIndex, item, itemIndex, key: sectionIndex + '-' + itemIndex });
+        rows.push({
+          section,
+          sectionIndex,
+          item,
+          itemIndex,
+          key: sectionIndex + '-' + itemIndex,
+          workPackage,
+          estimateItemKey: item.estimateItemKey || item.estimate_item_key || (String(estimate.id || '') + ':' + sectionIndex + ':' + itemIndex),
+        });
       }
     });
   });
@@ -41,6 +50,7 @@ export default function EstimateDistributeModal({
   newDistributeBrigade,
   setNewDistributeBrigade,
   pricelists,
+  staff,
   distributeAssignments,
   setDistributeAssignments,
   API,
@@ -70,17 +80,17 @@ export default function EstimateDistributeModal({
 
   const createContracts = async () => {
     const assignments=[];
-    workRows.forEach(({section:s,item:it,key})=>{
+    workRows.forEach(({section:s,item:it,key,workPackage,estimateItemKey})=>{
       const bname=distributeAssignments[key];
       if(bname){
         const bdata=distributeBrigades.find(b=>b.name===bname);
-        assignments.push({section:s.name,name:it.name,unit:it.unit||'шт',quantity:Number(it.quantity||0),priceSmeta:Number(it.priceWork||0),itemType:it.type||it.itemType||'work',brigadeName:bname,contractorType:bdata?.contractorType||'Своя бригада',pricelistId:bdata?.pricelistId||null});
+        assignments.push({section:s.name,name:it.name,unit:it.unit||'шт',quantity:Number(it.quantity||0),priceSmeta:Number(it.priceWork||0),itemType:it.type||it.itemType||'work',workPackage,estimateItemKey,brigadeName:bname,contractorType:bdata?.contractorType||'Своя бригада',contractorId:bdata?.contractorId||null,pricelistId:bdata?.pricelistId||null});
       }
     });
     if(!assignments.length){alert('Ничего не назначено');return;}
     setDistributing(true);
     try{
-      const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/distribute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignments,defaultCoefficient:0.6})});
+      const res=await fetch(API+'/estimates/'+selectedEstimate.id+'/distribute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignments,defaultCoefficient:1})});
       const data=await res.json();
       if(!res.ok||!data.ok){alert('Ошибка: '+(data.detail||'не удалось'));setDistributing(false);return;}
       await loadAll();
@@ -98,7 +108,7 @@ export default function EstimateDistributeModal({
           <b style={{color:C.text,fontSize:'15px'}}>Распределить смету по бригадам</b>
         </div>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>Каждой позиции выбери бригаду. Из этого автоматически создадутся расчёты с бригадами с пересчётом цен по коэффициенту бригадного прайса (или 0.6 по умолчанию).</p>
-        <EstimateDistributeBrigadesPanel C={C} card={card} inp={inp} btnO={btnO} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists}/>
+        <EstimateDistributeBrigadesPanel C={C} card={card} inp={inp} btnO={btnO} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists} staff={staff}/>
         <EstimateDistributeItemsTable C={C} inp={inp} selectedEstimate={selectedEstimate} distributeAssignments={distributeAssignments} setDistributeAssignments={setDistributeAssignments} distributeBrigades={distributeBrigades}/>
         <div style={{display:'flex',gap:'8px',justifyContent:'space-between',marginTop:'12px'}}>
           <button onClick={suggestWithAi} disabled={distributing||distributeBrigades.length===0} style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669',fontSize:'12px'}}><Bot size={13}/>🤖 ИИ распределит</button>

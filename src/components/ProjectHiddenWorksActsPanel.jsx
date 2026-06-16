@@ -22,7 +22,12 @@ export default function ProjectHiddenWorksActsPanel({
 
   const deleteAct = async (act) => {
     if (!window.confirm('Удалить акт ' + act.actNumber + '?')) return;
-    await fetch(API + '/hidden-works-acts/' + act.id, {method: 'DELETE'});
+    const res = await fetch(API + '/hidden-works-acts/' + act.id, {method: 'DELETE'});
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || data.error || 'Не удалось удалить акт');
+      return;
+    }
     setHiddenActs(prev => prev.filter(item => item.id !== act.id));
   };
 
@@ -63,7 +68,10 @@ export default function ProjectHiddenWorksActsPanel({
                 {actsHere.map(act => (
                   <tr key={act.id} style={{cursor: 'pointer'}} onClick={() => setEditingAct(act)}>
                     <td style={tblC}><b style={{color: C.accent}}>{act.actNumber}</b></td>
-                    <td style={tblC}>{act.sectionName || '—'}</td>
+                    <td style={tblC}>
+                      <div style={{fontWeight: 700}}>{act.workPackage || 'Основная'}</div>
+                      <div style={{fontSize: '11px', color: C.textMuted}}>{act.sectionName || '—'}</div>
+                    </td>
                     <td style={{...tblC, maxWidth: '280px', whiteSpace: 'normal'}}>{act.workName}</td>
                     <td style={tblC}>{act.brigade || '—'}</td>
                     <td style={tblC}>{act.quantity + ' ' + (act.unit || '')}</td>

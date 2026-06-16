@@ -27,6 +27,15 @@ const SIGNATURE_CONFIG = {
     tone: 'warning',
     showProjectDocs: true,
   },
+  executor: {
+    title: 'Исполнитель',
+    field: 'signedSubcontractor',
+    dateField: 'signedSubcontractorAt',
+    materialLabel: 'Материалы и применённые конструкции',
+    helper: 'Подписывается только сторона исполнителя. Остальные подписи ставят заказчик, технадзор и генподрядчик в своих кабинетах.',
+    tone: 'accent',
+    showProjectDocs: false,
+  },
 };
 
 export default function ProjectHiddenWorksActSignatureModal({
@@ -44,14 +53,13 @@ export default function ProjectHiddenWorksActSignatureModal({
 
   const config = SIGNATURE_CONFIG[mode] || SIGNATURE_CONFIG.customer;
   const updateAct = (key, value) => setEditingAct({...act, [key]: value});
-  const allSigned = !!(act.signedCustomer && act.signedSupervisor && act.signedContractor && act.signedSubcontractor);
   const toneColor = config.tone === 'warning' ? C.warning : C.accent;
   const toneLight = config.tone === 'warning' ? C.warningLight : C.accentLight;
   const toneBorder = config.tone === 'warning' ? C.warningBorder : C.accentBorder;
 
   const saveSignature = async () => {
     const body = {
-      status: allSigned ? 'Подписан' : (act.status || 'Черновик'),
+      status: act.status || 'Черновик',
       signedCustomer: act.signedCustomer || '',
       signedSupervisor: act.signedSupervisor || '',
       signedContractor: act.signedContractor || '',
@@ -68,12 +76,18 @@ export default function ProjectHiddenWorksActSignatureModal({
       certificates: act.certificates || '',
       city: act.city || '',
     };
+    const willBeAllSigned = !!(body.signedCustomer && body.signedSupervisor && body.signedContractor && body.signedSubcontractor);
+    body.status = willBeAllSigned ? 'Подписан' : body.status;
     const res = await fetch(API + '/hidden-works-acts/' + act.id, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.detail || 'Не удалось подписать АОСР');
+      return;
+    }
     setHiddenActs(prev => prev.map(item => (
       item.id === act.id ? {...item, ...body, status: data.status || body.status} : item
     )));

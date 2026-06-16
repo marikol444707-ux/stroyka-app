@@ -94,7 +94,7 @@ export default function ProjectMaterialsControlPanel({
   const filterOptions = [
     {id: 'all', label: 'Все', rows},
     {id: 'toBuy', label: 'Докупить', rows: toBuyRows},
-    {id: 'normGap', label: 'Нормы/расход', rows: rows.filter(r => r.normOverEstimateQty > 0 || r.usedOverEstimateQty > 0 || r.usedOverControlQty > 0 || (r.normPlanQty > 0 && r.planQty <= 0))},
+    {id: 'normGap', label: 'Нормы/расход', rows: rows.filter(r => r.normWithoutEstimateQty > 0 || r.normOverEstimateQty > 0 || r.usedOverEstimateQty > 0 || r.usedOverControlQty > 0 || (r.normPlanQty > 0 && r.planQty <= 0))},
     {id: 'invalid', label: 'Проверить смету', rows: invalidPlanRows},
     {id: 'pipeline', label: 'В заявках/пути', rows: pipelineRows},
     {id: 'outside', label: 'Вне сметы', rows: outsideRows},
@@ -406,7 +406,7 @@ export default function ProjectMaterialsControlPanel({
                     <td style={tblC}>
 	                      <span style={badge(st.color, st.bg, st.border)}>
 		                        {st.label}
-		                        {r.invalidPlanCount > 0 ? ' · ' + r.invalidPlanCount : r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.usedOverControlQty > 0 ? ' · ' + fmtMeasure(r.usedOverControlQty, r.unit) : r.usedOverEstimateQty > 0 ? ' · ' + fmtMeasure(r.usedOverEstimateQty, r.unit) : r.normOverEstimateQty > 0 ? ' · +' + fmtMeasure(r.normOverEstimateQty, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
+		                        {r.invalidPlanCount > 0 ? ' · ' + r.invalidPlanCount : r.stockMismatch ? ' · ' + fmtMeasure(r.stockDiff, r.unit) : r.usedOverControlQty > 0 ? ' · ' + fmtMeasure(r.usedOverControlQty, r.unit) : r.usedOverEstimateQty > 0 ? ' · ' + fmtMeasure(r.usedOverEstimateQty, r.unit) : r.normWithoutEstimateQty > 0 ? ' · ' + fmtMeasure(r.normWithoutEstimateQty, r.unit) : r.normOverEstimateQty > 0 ? ' · +' + fmtMeasure(r.normOverEstimateQty, r.unit) : r.toBuy > 0 ? ' · ' + fmtMeasure(r.toBuy, r.unit) : r.shortage > 0 ? ' · ' + fmtMeasure(r.shortage, r.unit) : r.masterBalance > 0 ? ' · ' + fmtMeasure(r.masterBalance, r.unit) : ''}
 		                      </span>
 	                      {renderMaterialSupplyAction(projectName, r)}
 	                      {onIssueMaterial && r.stock > 0 && (
@@ -474,7 +474,14 @@ export default function ProjectMaterialsControlPanel({
 	                                    <td style={tblC}>{d.sectionName || '—'}</td>
 	                                    <td style={tblC}>{d.workName || '—'}</td>
 	                                    <td style={tblC}>{d.materialName || r.name}{invalid && <p style={{color: C.warning, fontSize: '10px', margin: '3px 0 0'}}>⚠️ {d.reason}</p>}</td>
-	                                    <td style={{...tblC, fontWeight: '700'}}>{fmtMeasure(d.qty || 0, d.unit || r.unit)}</td>
+	                                    <td style={{...tblC, fontWeight: '700'}}>
+                                        {fmtMeasure(d.qty || 0, d.unit || r.unit)}
+                                        {(d.rawQty !== undefined && d.rawQty !== null && d.rawQty !== '') || d.rawUnit ? (
+                                          <p style={{color: C.textMuted, fontSize: '10px', margin: '3px 0 0'}}>
+                                            исходник: {d.rawQty !== undefined && d.rawQty !== null && d.rawQty !== '' ? Number(d.rawQty || 0).toLocaleString('ru-RU', {maximumFractionDigits: 6}) : '—'} {d.rawUnit || ''}
+                                          </p>
+                                        ) : null}
+                                      </td>
 	                                    <td style={tblC}>{Math.round(d.sum || 0).toLocaleString('ru-RU')} ₽</td>
 	                                  </tr>
 	                                );})}

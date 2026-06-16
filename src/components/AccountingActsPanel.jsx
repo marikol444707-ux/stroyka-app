@@ -54,7 +54,7 @@ export default function AccountingActsPanel({
   buildBrigadeActContent,
 }) {
   const filteredInterimActs = (interimActs || []).filter(act => matchSearch(listSearch, act.masterName, act.project));
-  const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? work.total ?? 0);
+  const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const actPackageOptions = Array.from(new Set([
     ...((estimatesList || [])
       .filter(est => !newAct.project || est.projectName === newAct.project || est.project_name === newAct.project)

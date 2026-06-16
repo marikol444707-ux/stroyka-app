@@ -1,5 +1,6 @@
 import React from 'react';
 import { CheckCircle, Eye, Printer, Upload } from 'lucide-react';
+import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 
 export default function MasterDocumentsPage({
   API,
@@ -8,9 +9,12 @@ export default function MasterDocumentsPage({
   btnO,
   buildActContent,
   buildContractContent,
+  buildHiddenActContent,
   card,
   doPrint,
   fileSrc,
+  hiddenActs = [],
+  editingHiddenAct,
   masterProfile,
   masterProfiles,
   myActs,
@@ -19,9 +23,13 @@ export default function MasterDocumentsPage({
   pdConsents,
   PD_CONSENT_TEXT,
   refreshData,
+  setEditingHiddenAct,
+  setHiddenActs,
   showPreview,
   uploadPhoto,
   user,
+  btnG,
+  inp,
 }) {
   const consentHtml = PD_CONSENT_TEXT({
     fullName: masterProfile?.fullName || user.name,
@@ -29,6 +37,19 @@ export default function MasterDocumentsPage({
     inn: masterProfile?.inn || '',
   });
   const consent = pdConsents.find((item) => item.userId === user.id);
+  const actorKey = String(user.name || '').trim().toLowerCase();
+  const normalizedContract = myContract ? {
+    ...myContract,
+    contractNumber: myContract.contractNumber || myContract.contract_number || myContract.number || myContract.id || '',
+    contractType: myContract.contractType || myContract.contract_type || myContract.contractorType || 'Договор субподряда',
+    project: myContract.project || myContract.projectName || myContract.project_name || '',
+  } : null;
+  const myHiddenActs = (hiddenActs || []).filter((act) => {
+    const names = [act.brigade, act.signedContractor, act.signedSubcontractor]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean);
+    return names.includes(actorKey);
+  });
 
   return (
     <div>
@@ -80,13 +101,13 @@ export default function MasterDocumentsPage({
 
       <div style={{ ...card, padding: '20px', marginBottom: '15px' }}>
         <h4 style={{ color: C.text, marginBottom: '10px', fontSize: '14px', fontWeight: '600' }}>📄 Мой договор</h4>
-        {myContract ? (
+        {normalizedContract ? (
           <div>
-            <p style={{ color: C.textSec, fontSize: '13px' }}>{'Договор № ' + myContract.contractNumber + ' · ' + myContract.contractType + ' · ' + myContract.project}</p>
+            <p style={{ color: C.textSec, fontSize: '13px' }}>{'Договор № ' + normalizedContract.contractNumber + ' · ' + normalizedContract.contractType + ' · ' + normalizedContract.project}</p>
             <button
               onClick={() => {
                 const profile = masterProfiles.find((item) => item.userId === user.id);
-                if (profile) showPreview(buildContractContent(profile, myContract), 'Договор');
+                if (profile) showPreview(buildContractContent(profile, normalizedContract), 'Договор');
               }}
               style={{ ...btnB, marginTop: '8px' }}
             >
@@ -126,6 +147,56 @@ export default function MasterDocumentsPage({
         })}
         {myActs.length === 0 && <p style={{ color: C.textMuted, fontSize: '13px' }}>Актов нет</p>}
       </div>
+
+      <div style={{ ...card, padding: '20px', marginTop: '15px' }}>
+        <h4 style={{ color: C.text, marginBottom: '10px', fontSize: '14px', fontWeight: '600' }}>🔒 АОСР на подпись</h4>
+        {myHiddenActs.map((act) => (
+          <div key={act.id} style={{ padding: '12px', backgroundColor: C.bg, borderRadius: '8px', marginBottom: '8px', border: '1.5px solid ' + C.border }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <b style={{ fontSize: '13px', color: C.text }}>{act.actNumber || 'АОСР'} · {act.workName || 'Работа'}</b>
+                <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px' }}>
+                  {(act.projectName || '—') + ' · ' + (act.quantity || 0) + ' ' + (act.unit || '') + ' · ' + (act.workDate || 'без даты')}
+                </p>
+                <span style={{
+                  display: 'inline-flex',
+                  padding: '2px 8px',
+                  borderRadius: '10px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  backgroundColor: act.signedSubcontractor ? C.successLight : C.warningLight,
+                  color: act.signedSubcontractor ? C.success : C.warning,
+                }}>
+                  {act.signedSubcontractor ? 'Подписано исполнителем' : 'Нужна подпись исполнителя'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <button onClick={() => setEditingHiddenAct(act)} style={{ ...btnB, padding: '6px 10px', fontSize: '12px' }}>
+                  <CheckCircle size={13} />
+                  Подписать
+                </button>
+                <button onClick={() => showPreview(buildHiddenActContent(act), 'АОСР № ' + (act.actNumber || act.id))} style={{ ...btnO, padding: '6px 10px', fontSize: '12px' }}>
+                  <Printer size={13} />
+                  Печать
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {myHiddenActs.length === 0 && <p style={{ color: C.textMuted, fontSize: '13px' }}>АОСР на подпись нет</p>}
+      </div>
+
+      <ProjectHiddenWorksActSignatureModal
+        act={editingHiddenAct}
+        mode="executor"
+        setEditingAct={setEditingHiddenAct}
+        setHiddenActs={setHiddenActs}
+        C={C}
+        card={card}
+        inp={inp}
+        btnG={btnG}
+        btnO={btnO}
+      />
     </div>
   );
 }

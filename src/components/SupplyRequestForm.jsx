@@ -123,7 +123,7 @@ function SupplyRequestForm({
       <textarea placeholder="Комментарий (для чего, особенности)" value={newSupplyReq.notes} onChange={e=>setNewSupplyReq({...newSupplyReq,notes:e.target.value})} style={{...inp,height:'60px',resize:'vertical'}}/>
 
       <div style={{padding:'10px 12px',backgroundColor:C.infoLight||C.warningLight,border:'1.5px solid '+(C.infoBorder||C.warningBorder),borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
-        {role==='мастер'||role==='субподрядчик'?'ℹ️ После создания заявка попадёт прорабу на подтверждение':
+        {['мастер','субподрядчик','бригадир'].includes(role)?'ℹ️ После создания заявка попадёт прорабу на подтверждение':
           role==='прораб'?'ℹ️ Заявка сразу пойдёт директору на утверждение':
           '✅ Заявка будет утверждена автоматически'}
       </div>

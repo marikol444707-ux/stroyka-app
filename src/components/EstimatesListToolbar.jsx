@@ -25,6 +25,7 @@ export default function EstimatesListToolbar({
   setShowGenerateEstimate,
   estimateSearch,
   setEstimateSearch,
+  showLeadership = false,
 }) {
   return (
     <>
@@ -33,7 +34,7 @@ export default function EstimatesListToolbar({
         <div style={{display:'flex',gap:'8px'}}>
           <button
             onClick={() => {
-              setGenerateForm(emptyGenerateEstimateForm);
+              setGenerateForm({...emptyGenerateEstimateForm, status: showLeadership ? 'Активная' : 'Черновик'});
               setShowGenerateEstimate(true);
             }}
             style={{...btnB,backgroundColor:'#10b981',color:'white',borderColor:'#059669'}}

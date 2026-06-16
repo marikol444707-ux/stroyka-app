@@ -5,6 +5,7 @@ export default function DashboardStatsGrid({
   avgProg,
   totalDone,
   setActivePage,
+  navigateTo,
   setAccountingTab,
 }) {
   const cards = [
@@ -17,7 +18,7 @@ export default function DashboardStatsGrid({
   return (
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'16px',marginBottom:'20px'}}>
       {cards.map((k,i)=>(
-        <div key={i} onClick={()=>{if(k.page){setActivePage(k.page);if(k.tab)setAccountingTab(k.tab);}}} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)',cursor:'pointer',transition:'transform 0.15s, box-shadow 0.15s'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 30px 90px rgba(0,0,0,.45)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow='0 24px 80px rgba(0,0,0,.35)';}}>
+        <div key={i} onClick={()=>{if(k.page){(navigateTo || setActivePage)(k.page);if(k.tab)setAccountingTab(k.tab);}}} style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)',boxShadow:'0 24px 80px rgba(0,0,0,.35)',cursor:'pointer',transition:'transform 0.15s, box-shadow 0.15s'}} onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 30px 90px rgba(0,0,0,.45)';}} onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow='0 24px 80px rgba(0,0,0,.35)';}}>
           <span style={{display:'inline-flex',borderRadius:'999px',padding:'5px 10px',fontSize:'11px',fontWeight:'700',background:k.bg,color:k.color,border:'1px solid '+k.border}}>{k.label}</span>
           <div style={{fontSize:'34px',fontWeight:'800',letterSpacing:'-.04em',margin:'10px 0 4px',color:'#f8fafc'}}>{k.value}</div>
           <div style={{color:'#94a3b8',fontSize:'13px'}}>{k.sub}</div>

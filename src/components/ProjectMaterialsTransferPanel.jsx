@@ -13,9 +13,15 @@ const emptyTransfer = () => ({
   workPackage: '',
   toPerson: '',
   toPersonRole: '',
+  toUserId: '',
   fromLocation: 'Основной склад',
   notes: '',
   transferDate: new Date().toISOString().split('T')[0],
+});
+
+const emptyProjectTransfer = (projectName) => ({
+  ...emptyTransfer(),
+  fromLocation: projectName || '',
 });
 
 export default function ProjectMaterialsTransferPanel({
@@ -26,11 +32,8 @@ export default function ProjectMaterialsTransferPanel({
   setNewTransfer,
   materialTransfers = [],
   setMaterialTransfers,
-  warehouseMain = [],
-  setWarehouseMain,
   materials = [],
   setMaterials,
-  visibleProjects = [],
   supplyRequests = [],
   staff = [],
   brigadeContracts = [],
@@ -77,16 +80,12 @@ export default function ProjectMaterialsTransferPanel({
     }
   };
 
-  const availableMaterials = [
-    ...warehouseMain.filter(m => m.location === newTransfer.fromLocation || (!m.location && newTransfer.fromLocation === 'Основной склад')),
-    ...materials.filter(m => m.project === newTransfer.fromLocation),
-  ];
+  const sourceProject = projectName || newTransfer.fromLocation || '';
+  const availableMaterials = materials.filter(m => m.project === sourceProject);
   const transfers = materialTransfers.filter(t => t.projectName === projectName);
-  const selectedStock = newTransfer.fromLocation === 'Основной склад'
-    ? warehouseMain.find(m => m.name === newTransfer.materialName)
-    : materials.find(m =>
+  const selectedStock = materials.find(m =>
         m.name === newTransfer.materialName &&
-        m.project === newTransfer.fromLocation &&
+        m.project === sourceProject &&
         (m.workPackage || m.work_package || '') === (newTransfer.workPackage || '')
       );
   const selectedQty = toNum(newTransfer.quantity);
@@ -104,13 +103,20 @@ export default function ProjectMaterialsTransferPanel({
   const personMaterialBalance = (personName, materialName, workPackage = '') => {
     const nameKey = materialKey(materialName);
     if (!personName || !nameKey) return {issued: 0, pending: 0, used: 0, returned: 0, balance: 0};
+    const person = (staff || []).find(s => s.name === personName);
+    const personId = person?.id || newTransfer.toUserId || newTransfer.to_user_id;
+    const transferBelongsToPerson = (t) => {
+      const transferUserId = t.toUserId || t.to_user_id;
+      if (personId && transferUserId) return Number(transferUserId) === Number(personId);
+      return !transferUserId && t.toPerson === personName;
+    };
     let issued = 0;
     let pending = 0;
     let used = 0;
     let returned = 0;
 
     transfers
-      .filter(t => t.toPerson === personName && materialKey(t.materialName) === nameKey && packageMatches(t.workPackage, workPackage))
+      .filter(t => transferBelongsToPerson(t) && materialKey(t.materialName) === nameKey && packageMatches(t.workPackage, workPackage))
       .forEach(t => {
         if (t.signed) issued += toNum(t.quantity);
         else pending += toNum(t.quantity);
@@ -186,7 +192,7 @@ export default function ProjectMaterialsTransferPanel({
       return;
     }
 
-    const data = {...newTransfer, projectName, createdBy: user.name};
+    const data = {...newTransfer, projectName, fromLocation: sourceProject, createdBy: user.name};
     const res = await fetch(API + '/material-transfers', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -202,17 +208,13 @@ export default function ProjectMaterialsTransferPanel({
     setMaterialTransfers(prev => [{...data, id: saved.id, signed: false}, ...prev]);
     const qty = Number(newTransfer.quantity);
 
-    if (newTransfer.fromLocation === 'Основной склад') {
-      setWarehouseMain(prev => prev.map(m => m.name === newTransfer.materialName ? {...m, quantity: Number(m.quantity || 0) - qty} : m));
-    } else {
-      setMaterials(prev => prev.map(m => (
-        m.name === newTransfer.materialName &&
-        m.project === newTransfer.fromLocation &&
-        (m.workPackage || m.work_package || '') === (newTransfer.workPackage || '')
-      ) ? {...m, quantity: Number(m.quantity || 0) - qty} : m));
-    }
+    setMaterials(prev => prev.map(m => (
+      m.name === newTransfer.materialName &&
+      m.project === sourceProject &&
+      (m.workPackage || m.work_package || '') === (newTransfer.workPackage || '')
+    ) ? {...m, quantity: Number(m.quantity || 0) - qty} : m));
 
-    setNewTransfer(emptyTransfer());
+    setNewTransfer(emptyProjectTransfer(projectName));
     setShowTransferForm(false);
   };
 
@@ -236,15 +238,11 @@ export default function ProjectMaterialsTransferPanel({
     }
     setMaterialTransfers(prev => prev.filter(mt => mt.id !== transfer.id));
     const qty = Number(transfer.quantity || 0);
-    if ((transfer.fromLocation || '') === 'Основной склад') {
-      setWarehouseMain(prev => prev.map(m => m.name === transfer.materialName ? {...m, quantity: Number(m.quantity || 0) + qty} : m));
-    } else {
-      setMaterials(prev => prev.map(m => (
-        m.name === transfer.materialName &&
-        m.project === transfer.fromLocation &&
-        (m.workPackage || m.work_package || '') === (transfer.workPackage || '')
-      ) ? {...m, quantity: Number(m.quantity || 0) + qty} : m));
-    }
+    setMaterials(prev => prev.map(m => (
+      m.name === transfer.materialName &&
+      m.project === (transfer.fromLocation || projectName) &&
+      (m.workPackage || m.work_package || '') === (transfer.workPackage || '')
+    ) ? {...m, quantity: Number(m.quantity || 0) + qty} : m));
   };
 
   return (
@@ -258,7 +256,6 @@ export default function ProjectMaterialsTransferPanel({
           btnO={btnO}
           btnG={btnG}
           btnGr={btnGr}
-          visibleProjects={visibleProjects}
           availableMaterials={availableMaterials}
           newTransfer={newTransfer}
           setNewTransfer={setNewTransfer}

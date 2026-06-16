@@ -573,12 +573,26 @@ const estimateImportLineMeta = (item={}, qtyNorm={}) => {
   if (item.costIndex) parts.push(`инд. ${toNum(item.costIndex).toLocaleString('ru-RU', {maximumFractionDigits: 4})}`);
   return parts.filter(Boolean).join(' · ');
 };
+const estimateImportedPlanMeasure = (item={}) => {
+  if (!estimateItemLooksImported(item)) {
+    const regular = normalizeMeasure(item.quantity, item.unit);
+    return {qty: regular.qty, unit: regular.unit || item.unit || '', factor: regular.factor || 1};
+  }
+  const importedUnit = authoritativeImportedUnit(item) || item.unit || '';
+  return normalizeImportedMeasure(item, importedUnit);
+};
 const estimateMaterialPlanIssue = (it={}, sectionName='') => {
   if (!isEstimateMaterialItem(it, sectionName)) return '';
-  const qty = toNum(it.quantity);
-  const unit = _normalizeUnit(it.unit || '');
+  const planMeasure = estimateImportedPlanMeasure(it);
+  const qty = toNum(planMeasure.qty);
+  const unit = _normalizeUnit(planMeasure.unit || it.unit || '');
   if (!Number.isFinite(qty)) return 'Количество материала не является числом';
   if (qty <= 0) return 'Количество материала не задано или меньше нуля';
+  const hasRawQuantity = [it.rawQuantity, it.quantityFinal, it.quantityBase].some(v=>v!==undefined&&v!==null&&v!=='');
+  const hasScale = (toNum(it.unitFactor)>1) || estimateUnitScaleInfo(it.unit).factor>1 || estimateUnitScaleInfo(it.rawUnit).factor>1;
+  if (estimateItemLooksImported(it) && hasScale && !hasRawQuantity && Math.abs(toNum(it.quantity)) > Math.max(100000, Math.abs(qty) * 100)) {
+    return 'Импортная ресурсная строка потеряла исходный объём. Проверьте строку перед закупкой';
+  }
   // Старые импортированные сметы могли сохранить ресурс уже умноженным несколько раз.
   // Такие строки нельзя превращать в заявку, пока сметчик не пересчитает/переимпортирует смету.
   if (Math.abs(qty) > 10000000) return 'Подозрительно большое количество. Проверь импорт сметы и исходную единицу измерения';
@@ -990,7 +1004,7 @@ function App() {
   const [uploadingLetter, setUploadingLetter] = useState(false);
   const [showBrigadeForm, setShowBrigadeForm] = useState(false);
   const [newBrigadeContract, setNewBrigadeContract] = useState({projectId:'',projectName:'',brigadeName:'',contractorType:'Своя бригада',contractorId:'',notes:'',pricelistId:''});
-  const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:''});
+  const [newBrigadeItem, setNewBrigadeItem] = useState({name:'',unit:'м',quantity:'',priceSmeta:'',priceBrigade:'',estimateSection:'',workPackage:'Основная',estimateItemKey:''});
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
   const [supplierCatalog, setSupplierCatalog] = useState([]);
   const [supplyTemplates, setSupplyTemplates] = useState([]);
@@ -1036,7 +1050,7 @@ function App() {
   }, [user, suppliers]);
   const [materialTransfers, setMaterialTransfers] = useState([]);
   const [showTransferForm, setShowTransferForm] = useState(false);
-  const [newTransfer, setNewTransfer] = useState({materialName:'',quantity:'',unit:'шт',workPackage:'',toPerson:'',toPersonRole:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
+  const [newTransfer, setNewTransfer] = useState({materialName:'',quantity:'',unit:'шт',workPackage:'',toPerson:'',toPersonRole:'',toUserId:'',fromLocation:'Основной склад',notes:'',transferDate:new Date().toISOString().split('T')[0]});
   const [sverkaModal, setSverkaModal] = useState(null);
   const [showAiChat, setShowAiChat] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
@@ -1312,7 +1326,7 @@ function App() {
     setNewStaffDoc({docType:'другое',title:'',fileUrl:'',signedAt:'',expiresAt:'',notes:''});
     setShowStaffDocForm(false);
   };
-  const [newUser, setNewUser] = useState({name:'',email:'',password:'',role:'прораб',projectId:'',projectName:'',active:true});
+  const [newUser, setNewUser] = useState({name:'',email:'',password:'',role:'прораб',projectId:'',projectName:'',assignedProjects:[],assignedPackages:[],active:true});
   const [newPricelist, setNewPricelist] = useState({name:'',description:'',forWho:'',coefficient:1.0});
   const [newPlItem, setNewPlItem] = useState({name:'',unit:'м2',price:'',category:''});
   const [newInviteRole, setNewInviteRole] = useState('мастер');
@@ -1352,7 +1366,7 @@ function App() {
   const [showDistribute, setShowDistribute] = useState(false);
   const [distributeAssignments, setDistributeAssignments] = useState({});
   const [distributeBrigades, setDistributeBrigades] = useState([]);
-  const [newDistributeBrigade, setNewDistributeBrigade] = useState({brigadeName:'',contractorType:'Своя бригада',pricelistId:''});
+  const [newDistributeBrigade, setNewDistributeBrigade] = useState({brigadeName:'',contractorType:'Своя бригада',contractorId:'',pricelistId:''});
   const [distributing, setDistributing] = useState(false);
 
   const persistEstimate = async (est) => {
@@ -1474,7 +1488,7 @@ function App() {
     if (!user) return notifs;
     if (['директор','зам_директора'].includes(user.role)) return notifs;
     if (user.role==='прораб') return notifs.filter(n=>['work','material','unexpected','prescription','supply'].includes(n.type));
-    if (['мастер','субподрядчик'].includes(user.role)) return notifs.filter(n=>n.text&&n.text.includes(user.name));
+    if (['мастер','субподрядчик','бригадир'].includes(user.role)) return notifs.filter(n=>n.text&&n.text.includes(user.name));
     if (user.role==='бухгалтер') return notifs.filter(n=>['invoice','act','contract','pay','expreport','ownexp','supplyinv'].includes(n.type));
     if (['кладовщик','снабженец'].includes(user.role)) return notifs.filter(n=>['stock','supply','delivery','supplyinv'].includes(n.type));
     return notifs;
@@ -1522,7 +1536,7 @@ function App() {
       mobileApiRequestsRef.current.clear();
       if (isMobile) loadMobileInitial();
       else refreshData();
-      if (['мастер','субподрядчик'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
+      if (['мастер','субподрядчик','бригадир'].includes(user.role)) { loadMasterProfile(); setActivePage('works'); }
       const saved = localStorage.getItem('companyName'); if (saved) setCompanyName(saved);
       const keys = ['masterRatings','activityLog','notifications','tbJournal','geoCheckins','signedDocs','actPayments','weatherLog'];
       const setters = [setMasterRatings,setActivityLog,setNotifications,setTbJournal,setGeoCheckins,setSignedDocs,setActPayments,setWeatherLog];
@@ -1545,10 +1559,10 @@ function App() {
     const isLeadershipRole = ['директор','зам_директора'].includes(role);
     const isFinanceRole = ['директор','зам_директора','бухгалтер'].includes(role);
     const isWarehouseRole = ['директор','зам_директора','кладовщик','снабженец','прораб','главный_инженер'].includes(role);
-    const isSupplyRole = ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','поставщик','бухгалтер'].includes(role);
+    const isSupplyRole = ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бригадир','поставщик','бухгалтер'].includes(role);
     const canSeeSupplierInvoices = ['директор','зам_директора','бухгалтер','снабженец','кладовщик','прораб','поставщик'].includes(role);
     const isProjectRole = role && !['поставщик','system_owner'].includes(role);
-    const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
+    const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','бригадир','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
     const canSeeProjectDocs = isProjectRole || ['технадзор','заказчик'].includes(role);
     return {role,isLeadershipRole,isFinanceRole,isWarehouseRole,isSupplyRole,canSeeSupplierInvoices,isProjectRole,isInternalRole,canSeeProjectDocs};
   };
@@ -1622,7 +1636,7 @@ function App() {
       const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
-        (isWarehouseRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
+	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/rooms') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/room-works') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/room-windows') : Promise.resolve([]),
@@ -1661,7 +1675,7 @@ function App() {
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
       const [est,pl,mn,ma,mno,mns,bc,abi,abp] = await Promise.all([
         canSeeProjectDocs ? getApi('/estimates') : Promise.resolve([]),
-        (isInternalRole || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
+        ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norms') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-aliases') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norms/overrides') : Promise.resolve([]),
@@ -1682,9 +1696,9 @@ function App() {
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-invoices') : Promise.resolve([]),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-main') : Promise.resolve([]),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-movements') : Promise.resolve([]),
-        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
+	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
         (isWarehouseRole || isSupplyRole || isFinanceRole) ? getApi('/warehouses') : Promise.resolve([]),
-        (isWarehouseRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
+	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/cable-journal') : Promise.resolve([]),
       ]);
@@ -1754,8 +1768,8 @@ function App() {
     if (page === 'history') return loadMobileScopeOnce('mobile:history', async () => {
       const [wj,h,mt] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
-        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
-        (isWarehouseRole || ['мастер','субподрядчик'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
+	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
+	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
       ]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
       setHistory(Array.isArray(h)?h:[]);
@@ -1770,7 +1784,7 @@ function App() {
       setClients(Array.isArray(c)?c:[]);
     });
     if (page === 'pricelists') return loadMobileScopeOnce('mobile:pricelists', async () => {
-      const pl = (isInternalRole || role === 'технадзор') ? await getApi('/pricelists') : [];
+      const pl = ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? await getApi('/pricelists') : [];
       setPricelists(Array.isArray(pl)?pl:[]);
     });
     if (page === 'crm') return loadMobileScopeOnce('mobile:crm', async () => {
@@ -1814,10 +1828,10 @@ function App() {
       const isLeadershipRole = ['директор','зам_директора'].includes(role);
       const isFinanceRole = ['директор','зам_директора','бухгалтер'].includes(role);
       const isWarehouseRole = ['директор','зам_директора','кладовщик','снабженец','прораб','главный_инженер'].includes(role);
-      const isSupplyRole = ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','поставщик','бухгалтер'].includes(role);
+      const isSupplyRole = ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бригадир','поставщик','бухгалтер'].includes(role);
       const canSeeSupplierInvoices = ['директор','зам_директора','бухгалтер','снабженец','кладовщик','прораб','поставщик'].includes(role);
       const isProjectRole = role && !['поставщик','system_owner'].includes(role);
-      const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
+      const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','бригадир','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
       const canSeeProjectDocs = isProjectRole || ['технадзор','заказчик'].includes(role);
       const get = (path, fallback = []) => fetch(API + path)
         .then(r => r.ok ? r.json() : fallback)
@@ -1835,11 +1849,11 @@ function App() {
         isFinanceRole ? get('/expenses') : skip([]),
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-main') : skip([]),
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-movements') : skip([]),
-	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик'].includes(role)) ? get('/warehouse-history') : skip([]),
+	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? get('/warehouse-history') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/staff') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/piecework') : skip([]),
         role === 'system_owner' ? skip([]) : get('/users'),
-        (isInternalRole || role === 'технадзор') ? get('/pricelists') : skip([]),
+        ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? get('/pricelists') : skip([]),
         isLeadershipRole ? get('/invite-codes') : skip([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? get('/suppliers') : skip([]),
         isSupplyRole ? get('/supply-requests') : skip([]),
@@ -1930,7 +1944,7 @@ function App() {
         const msgs = await get('/messages');
         setCompanyMessages(Array.isArray(msgs)?msgs:[]);
       } catch(e) {}
-      if (isWarehouseRole || ['мастер','субподрядчик'].includes(role)) try {
+      if (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) try {
         const mt = await get('/material-transfers');
         setMaterialTransfers(Array.isArray(mt)?mt:[]);
       } catch(e) {}
@@ -2194,7 +2208,27 @@ function App() {
     if (!newPayment.amount||!newPayment.date) { alert('Заполните сумму и дату'); return; }
     const act = interimActs.find(a=>a.id===actId);
     if (!act) return;
-    const payment = {...newPayment,id:Date.now(),actId,amount:Number(newPayment.amount)};
+    const amount = Number(newPayment.amount);
+    if (!Number.isFinite(amount) || amount <= 0) { alert('Введите сумму оплаты больше нуля'); return; }
+    const paymentNote = 'Оплата акта #' + actId + ' · ' + (act.masterName || act.brigadeName || act.performerName || 'исполнитель') + (newPayment.notes ? ' · ' + newPayment.notes : '');
+    const payRes = await fetch(API + '/project-payments', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        projectName: act.projectName || act.project || '',
+        workPackage: act.workPackage || act.work_package || '',
+        amount: -amount,
+        note: paymentNote,
+        date: newPayment.date,
+        paidBy: newPayment.paidBy || user?.name || '',
+      }),
+    });
+    if (!payRes.ok) {
+      const err = await payRes.json().catch(()=>({detail:'Не удалось записать оплату в платежи объекта'}));
+      alert(err.detail || 'Не удалось записать оплату в платежи объекта');
+      return;
+    }
+    const payment = {...newPayment,id:Date.now(),actId,amount};
     const updated = [...actPayments,payment];
     setActPayments(updated); localStorage.setItem('actPayments',JSON.stringify(updated));
     const totalPaid = updated.filter(p=>p.actId===actId).reduce((s,p)=>s+p.amount,0);
@@ -2575,8 +2609,8 @@ function App() {
     const req = companyRequisites||{};
     const companyNameDoc = req.fullName||req.shortName||companyName||'_____';
     const inPeriod = (d)=>{ if(!d)return false; const day=String(d).split('T')[0]; return day>=(act.periodStart||'0000-01-01') && day<=(act.periodEnd||'9999-12-31'); };
-    const workPayUnitPrice = (wk)=>Number(wk.executionPricePerUnit||wk.pricePerUnit||0) || (Number(wk.executionTotal||wk.total||0)/Math.max(1,Number(wk.quantity||0)));
-    const workPayTotal = (wk)=>Number(wk.executionTotal||wk.total||0);
+    const workPayUnitPrice = (wk)=>Number(wk.executionPricePerUnit||0) || (Number(wk.executionTotal||0)/Math.max(1,Number(wk.quantity||0)));
+    const workPayTotal = (wk)=>Number(wk.executionTotal||0);
     const actPackage = String(act.workPackage || '').trim();
     const mw = workJournal.filter(j=>j.masterId===act.masterId&&j.project===act.project&&j.status==='Подтверждено'&&inPeriod(j.confirmedAt||j.date)&&(!actPackage || String(j.workPackage || j.work_package || 'Основная').trim()===actPackage));
     const payments = actPayments.filter(p=>p.actId===act.id);
@@ -2753,7 +2787,7 @@ function App() {
     }
     const ap = Array.isArray(assignedProjects) ? assignedProjects : [];
     const apk = Array.isArray(assignedPackages) ? assignedPackages : [];
-    if (accessUser?.id && (ap.length>0 || apk.length>0 || ['прораб','технадзор','стройконтроль','мастер','субподрядчик'].includes(role))) {
+    if (accessUser?.id && (ap.length>0 || apk.length>0 || ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'].includes(role))) {
       await readApiResult(await fetch(API+'/users/'+accessUser.id+'/assigned-projects',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({assignedProjects:ap,assignedPackages:apk})}));
     }
     return {accessUser, updatedExisting: !!existing};
@@ -3424,6 +3458,10 @@ function App() {
     if(!user) return list||[];
     // Руководство и финансы видят все
     if(['директор','зам_директора','бухгалтер','сметчик','главный_инженер'].includes(user.role)) return list||[];
+    if(['мастер','субподрядчик','бригадир'].includes(user.role)){
+      const mine = myAssignedProjects();
+      return mine.length>0 ? (list||[]).filter(p=>mine.includes(p.name)) : [];
+    }
     // Прораб / технадзор / стройконтроль — только назначенные (если назначены)
     if(['прораб','технадзор','стройконтроль'].includes(user.role)){
       const mine = myAssignedProjects();
@@ -3439,14 +3477,14 @@ function App() {
     const restrictPackages = ['мастер','субподрядчик','бригадир'].includes(user.role);
     return (list||[]).filter(est=>{
       const projectOk = projectNames.length===0 || projectNames.includes(est.projectName||est.project_name||est.project||'');
-      const packageOk = !restrictPackages || packageNames.length===0 || packageNames.includes(estimatePackage(est));
+      const packageOk = !restrictPackages || (packageNames.length > 0 && packageNames.includes(estimatePackage(est)));
       return projectOk && packageOk;
     });
   };
   const selectableActiveProjects = (list=projects) => visibleProjects(list||[]).filter(p=>!p.archived&&p.status!=='Завершён');
   const visibleActiveProjects = (list=projects) => selectableActiveProjects(list||[]);
   useEffect(() => {
-    if(!user||!['мастер','субподрядчик'].includes(user.role)) return;
+    if(!user||!['мастер','субподрядчик','бригадир'].includes(user.role)) return;
     const options = selectableActiveProjects(projects);
     const currentOk = masterProjectId&&options.some(p=>String(p.id)===String(masterProjectId));
     if(currentOk) return;
@@ -3936,7 +3974,9 @@ function App() {
     const groups = {};
     visibleEstimatesForCurrentUser(sourceEstimates||estimatesList||[]).filter(e=>
       (e.projectName===p.name||Number(e.projectId)===Number(p.id)) &&
-      estimateKind(e)===kind
+      estimateKind(e)===kind &&
+      e.status==='Активная' &&
+      !isArchivedEstimate(e)
     ).forEach(e=>{
       const k = estimatePackage(e);
       if(!groups[k]) groups[k] = [];
@@ -3944,7 +3984,7 @@ function App() {
     });
     return Object.values(groups)
       .map(items=>activeEstimateFromList(items))
-      .filter(e=>e && !isArchivedEstimate(e));
+      .filter(Boolean);
   };
   const getProjectWorkPackageOptions = (projectName='') => {
     const project = (projects||[]).find(p=>p.name===projectName);
@@ -4451,11 +4491,7 @@ function App() {
     const res = await fetch(API+'/estimates/'+est.id+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
     if(!res.ok){const data=await res.json().catch(()=>({}));alert(data.detail||'Не удалось изменить статус сметы');return;}
     const updated = {...est,status};
-    const nextEstimates = (estimatesList||[]).map(e=>{
-      if(status==='Активная' && e.id!==est.id && !isGlobalEstimateTemplate(e) && sameEstimateGroup(e, est)) return {...e,status:'Архив'};
-      if(e.id===est.id) return updated;
-      return e;
-    });
+    const nextEstimates = (estimatesList||[]).map(e=>e.id===est.id?updated:e);
     setEstimatesList(nextEstimates);
     setSelectedEstimate(prev=>prev&&prev.id===est.id?updated:prev);
     if (status==='Активная') {
@@ -4470,7 +4506,7 @@ function App() {
   const deleteEstimateRemote = async (est) => {
     if (!est?.id) return;
     const title = est.name || 'смету';
-    if (!window.confirm('Удалить смету "' + title + '" безвозвратно? Журналы и акты останутся, но ссылка на эту смету будет снята.')) return;
+    if (!window.confirm('Удалить смету "' + title + '" безвозвратно? Если смета уже связана с ЖПР, АОСР или договорными позициями, сервер не даст удалить ее, чтобы не потерять историю объекта.')) return;
     const res = await fetch(API + '/estimates/' + est.id + '?hard=true', {method: 'DELETE'});
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -4686,12 +4722,7 @@ function App() {
       return rows[key];
     };
     const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
-    const fallbackEstimates = (estimatesList||[]).filter(e=>
-      estimateKind(e)==='Заказчик' &&
-      !isArchivedEstimate(e) &&
-      ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
-    );
-    (activeEstimates.length ? activeEstimates : fallbackEstimates).forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
+    activeEstimates.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
       const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (!isEstimateMaterialItem(it, s.name)) return;
       const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
@@ -4824,19 +4855,15 @@ function App() {
       if (transfer) row.holders[key].transfers.push(transfer);
     };
     const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
-    const fallbackEstimates = (estimatesList||[]).filter(e=>
-      estimateKind(e)==='Заказчик' &&
-      !isArchivedEstimate(e) &&
-      ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
-    );
-    (activeEstimates.length ? activeEstimates : fallbackEstimates)
+    activeEstimates
       .filter(est=>packageMatches(estimatePackage(est), workPackage))
       .forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
       const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (isEstimateMaterialItem(it, s.name)) {
         const r = ensure(it.name, it.unit, estimatePackage(est));
         if (!r) return;
-        const converted = materialQty(it.quantity, it.unit || r.unit);
+        const planMeasure = estimateImportedPlanMeasure(it);
+        const converted = materialQty(planMeasure.qty, planMeasure.unit || it.unit || r.unit);
         const planSum = estimateItemMaterialSum(it);
         const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
         if (sectionLabel && !r.sections.includes(sectionLabel)) r.sections.push(sectionLabel);
@@ -4854,12 +4881,14 @@ function App() {
             unit: converted.unit || it.unit || r.unit,
             sourceQty: Number(it.quantity || 0),
             sourceUnit: it.unit || '',
+            rawQty: it.rawQuantity,
+            rawUnit: it.rawUnit,
             sum: planSum,
             reason: planIssue,
           });
           return;
         }
-        addQty(r, 'planQty', it.quantity, it.unit);
+        addQty(r, 'planQty', planMeasure.qty, planMeasure.unit || it.unit);
         r.planSum += planSum;
         r.planDetails.push({
           estimateId: est.id,
@@ -4872,11 +4901,17 @@ function App() {
           unit: converted.unit || it.unit || r.unit,
           sourceQty: Number(it.quantity || 0),
           sourceUnit: it.unit || '',
+          rawQty: it.rawQuantity,
+          rawUnit: it.rawUnit,
           sum: planSum,
         });
       }
     })));
-    (invoices||[]).filter(inv=>!isSupplyDeliveryInvoice(inv) && ((inv.project||inv.location)===projectName || inv.location===projectName)).forEach(inv=>{
+    (invoices||[]).filter(inv=>{
+      const invoiceStatus = String(inv.status || '').trim().toLowerCase();
+      if (invoiceStatus === 'аннулирована' || invoiceStatus === 'аннулирован') return false;
+      return !isSupplyDeliveryInvoice(inv) && ((inv.project||inv.location)===projectName || inv.location===projectName);
+    }).forEach(inv=>{
       warehouseInvoiceItems(inv).items.filter(it=>sourcePackageMatches(sourcePackageOf(it, inv))).forEach(it=>{
         const itemPackage = sourcePackageOf(it, inv);
         const r = ensure(it.name, it.unit, itemPackage);
@@ -4978,7 +5013,7 @@ function App() {
       else addQty(r, 'issuedPending', t.quantity, t.unit);
       addHolderQty(r, t.toPerson, t.toPersonRole, t.signed ? 'issued' : 'pending', t.quantity, t.unit, t);
     });
-    (workJournal||[]).filter(w=>w.project===projectName&&w.status!=='Отклонено' && sourcePackageMatches(w.workPackage || w.work_package)).forEach(w=>{
+    (workJournal||[]).filter(w=>w.project===projectName&&!['Отклонено','Аннулировано','Удалено','Отменено'].includes(w.status||'') && sourcePackageMatches(w.workPackage || w.work_package)).forEach(w=>{
       let mats = w.materialsUsed!==undefined ? w.materialsUsed : w.materials_used;
       if (typeof mats === 'string') { try { mats = JSON.parse(mats); } catch(_) { mats = []; } }
       if (!Array.isArray(mats)) return;
@@ -5060,11 +5095,13 @@ function App() {
       const supplied = r.received + movedNet;
       const estimatePlanQty = Number(r.planQty||0);
       const normPlanQty = Number(r.normPlanQty||0);
-      const controlPlanQty = Math.max(estimatePlanQty, normPlanQty);
+      const hasEstimatePlan = estimatePlanQty > 0;
+      const controlPlanQty = hasEstimatePlan ? estimatePlanQty : normPlanQty;
       const normOverEstimateQty = estimatePlanQty>0 ? Math.max(0, normPlanQty - estimatePlanQty) : normPlanQty;
+      const normWithoutEstimateQty = !hasEstimatePlan ? normPlanQty : 0;
       const estimateOverNormQty = normPlanQty>0 ? Math.max(0, estimatePlanQty - normPlanQty) : 0;
       const usedOverEstimateQty = estimatePlanQty>0 ? Math.max(0, (r.used||0) - estimatePlanQty) : 0;
-      const toBuy = controlPlanQty>0 ? Math.max(0, controlPlanQty - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
+      const toBuy = hasEstimatePlan ? Math.max(0, estimatePlanQty - supplied - (r.requested||0) - (r.inTransit||0)) : 0;
       const coveredWithPipeline = supplied + (r.requested||0) + (r.inTransit||0);
       const hasMaterialActivity = coveredWithPipeline>0 || (r.stock||0)>0 || (r.issued||0)>0 || (r.used||0)>0;
       const holders = Object.values(r.holders||{}).map(h=>({
@@ -5095,6 +5132,8 @@ function App() {
         estimatePlanQty,
         normPlanQty,
         controlPlanQty,
+        procurementPlanQty: hasEstimatePlan ? estimatePlanQty : 0,
+        normWithoutEstimateQty,
         normSourceCount: (r.normDetails || []).length,
         normOverEstimateQty,
         estimateOverNormQty,
@@ -5102,7 +5141,7 @@ function App() {
         usedOverControlQty: controlPlanQty>0 ? Math.max(0, (r.used||0) - controlPlanQty) : 0,
         usedOverNormQty: normPlanQty>0 ? Math.max(0, (r.used||0) - normPlanQty) : 0,
         spendPct: controlPlanQty>0 ? Math.min(999, Math.round((r.used||0)/controlPlanQty*100)) : 0,
-        shortage: Math.max(0, controlPlanQty - supplied),
+        shortage: hasEstimatePlan ? Math.max(0, estimatePlanQty - supplied) : 0,
         toBuy,
         coveredWithPipeline,
         over: controlPlanQty>0 ? Math.max(0, supplied - controlPlanQty) : coveredWithPipeline,
@@ -5128,11 +5167,12 @@ function App() {
     const invalidPlanRows = rows.filter(r=>r.invalidPlanCount>0);
     const normRows = rows.filter(r=>r.normPlanQty>0);
     const normOverEstimateRows = rows.filter(r=>r.normOverEstimateQty>0);
+    const normWithoutEstimateRows = rows.filter(r=>r.normWithoutEstimateQty>0);
     const usedOverControlRows = rows.filter(r=>r.usedOverControlQty>0);
     const usedOverEstimateRows = rows.filter(r=>r.usedOverEstimateQty>0);
     const planSum = rows.reduce((s,r)=>s+Number(r.planSum||0),0);
     const suppliedSum = rows.reduce((s,r)=>s+Number(r.receivedSum||0),0);
-    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, invalidPlanRows, normRows, normOverEstimateRows, usedOverControlRows, usedOverEstimateRows, planSum, suppliedSum};
+    return {rows, planRows, suppliedRows, invoiceRows, deliveryRows, movedRows, toBuyRows, outsideRows, overRows, mismatchRows, stockMismatchRows, masterBalanceRows, usedWithoutIssueRows, invalidPlanRows, normRows, normOverEstimateRows, normWithoutEstimateRows, usedOverControlRows, usedOverEstimateRows, planSum, suppliedSum};
   };
   const materialControlStatus = (r) => {
     if (r.invalidPlanCount>0) return {label:'Проверить смету', color:C.warning, bg:C.warningLight, border:C.warningBorder};
@@ -5141,6 +5181,7 @@ function App() {
     if (r.usedOverControlQty>0) return {label:'Расход сверх нормы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (r.usedOverEstimateQty>0) return {label:'Списано сверх сметы', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.isOutsideEstimate) return {label:'Вне сметы', color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
+    if (r.normWithoutEstimateQty>0) return {label:'Норма без сметы', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.normOverEstimateQty>0) return {label:'Норма выше сметы', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.toBuy>0) return {label:'Докупить', color:C.warning, bg:C.warningLight, border:C.warningBorder};
     if (r.shortage>0) return {label:'Закрывается', color:C.info, bg:C.infoLight, border:C.infoBorder};
@@ -5326,7 +5367,7 @@ function App() {
       );
     });
   };
-	  const canCreateSupplyRequestFromControl = () => ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бухгалтер'].includes(user?.role);
+	  const canCreateSupplyRequestFromControl = () => ['директор','зам_директора','снабженец','кладовщик','прораб','мастер','субподрядчик','бригадир','бухгалтер'].includes(user?.role);
 	  const invoiceControlSupplyRequestExists = (inv, ctrl, item = {}) => {
 	    const projectName = invoiceControlProjectName(inv, ctrl);
 	    const marker = invoiceControlSupplyMarker(projectName, inv, ctrl, item);
@@ -5407,55 +5448,63 @@ function App() {
 	      .filter(row => !materialControlSupplyRequestExists(projectName, row))
 	      .slice(0, 120);
 	    if (!candidates.length) { notify('По выбранному фильтру нет новых позиций к закупке', 'supply'); return; }
-	    if (!window.confirm('Создать одну заявку снабжения на '+candidates.length+' позиций по текущему фильтру?')) return;
-	    const items = candidates.map(row => ({
-	      materialName: row.name,
-	      quantity: Math.round(toNum(row.toBuy) * 1000) / 1000,
-	      unit: row.unit || 'шт',
-	      workPackage: row.workPackage || row.packageName || ''
-	    }));
-	    const requestPackage = Array.from(new Set(items.map(it=>it.workPackage).filter(Boolean))).length === 1
-	      ? items.find(it=>it.workPackage)?.workPackage || ''
-	      : '';
-	    const notes = [
-	      'Создано из контроля материалов: массовая заявка по текущему фильтру.',
-	      'Объект: '+projectName,
-	      requestPackage ? 'Пакет работ: '+requestPackage : '',
-	      'Позиций: '+items.length,
-	      ...candidates.map(row => materialControlSupplyMarker(projectName, row)),
-	      '',
-	      ...candidates.slice(0, 40).map((row, idx) => {
-	        const unit = row.unit || 'шт';
-	        return (idx + 1)+'. '+row.name+' — докупить '+fmtMeasure(row.toBuy, unit)+'; план '+fmtMeasure(row.planQty, unit)+'; получено '+fmtMeasure(row.supplied, unit);
-	      }),
-	      candidates.length > 40 ? '...ещё '+(candidates.length - 40)+' поз.' : ''
-	    ].filter(Boolean).join('\n');
-	    const res = await fetch(API+'/supply-requests', {
-	      method:'POST',
-	      headers:{'Content-Type':'application/json'},
-	      body:JSON.stringify({
-	        materialName: items[0]?.materialName || 'Материалы по смете',
-	        quantity: items.length,
-	        unit: 'поз.',
-	        workPackage: requestPackage,
-	        items,
-	        project: projectName,
-	        createdBy: user.name,
-	        date: new Date().toISOString().split('T')[0],
-	        notes,
-	        category: 'Материалы по смете',
-	        urgency: candidates.some(row => toNum(row.toBuy) > toNum(row.controlPlanQty || row.planQty) * 0.25) ? 'срочная' : 'обычная',
-	        requestedByRole: user.role,
-	        requestedById: user.id,
-	        selectedSuppliers: [],
-	      })
-	    });
-	    const data = await res.json().catch(()=>({}));
-	    if (!res.ok) {
-	      alert(data.detail || 'Не удалось создать массовую заявку снабжения');
-	      return;
+	    const groups = candidates.reduce((acc, row) => {
+	      const pkg = String(row.workPackage || row.packageName || 'Основная').trim() || 'Основная';
+	      if (!acc[pkg]) acc[pkg] = [];
+	      acc[pkg].push(row);
+	      return acc;
+	    }, {});
+	    const groupNames = Object.keys(groups);
+	    if (!window.confirm('Создать '+groupNames.length+' заявк. снабжения на '+candidates.length+' позиций по текущему фильтру?')) return;
+	    let createdItems = 0;
+	    for (const [requestPackage, groupRows] of Object.entries(groups)) {
+	      const items = groupRows.map(row => ({
+	        materialName: row.name,
+	        quantity: Math.round(toNum(row.toBuy) * 1000) / 1000,
+	        unit: row.unit || 'шт',
+	        workPackage: requestPackage
+	      }));
+	      const notes = [
+	        'Создано из контроля материалов: массовая заявка по текущему фильтру.',
+	        'Объект: '+projectName,
+	        'Пакет работ: '+requestPackage,
+	        'Позиций: '+items.length,
+	        ...groupRows.map(row => materialControlSupplyMarker(projectName, row)),
+	        '',
+	        ...groupRows.slice(0, 40).map((row, idx) => {
+	          const unit = row.unit || 'шт';
+	          return (idx + 1)+'. '+row.name+' — докупить '+fmtMeasure(row.toBuy, unit)+'; план '+fmtMeasure(row.planQty, unit)+'; получено '+fmtMeasure(row.supplied, unit);
+	        }),
+	        groupRows.length > 40 ? '...ещё '+(groupRows.length - 40)+' поз.' : ''
+	      ].filter(Boolean).join('\n');
+	      const res = await fetch(API+'/supply-requests', {
+	        method:'POST',
+	        headers:{'Content-Type':'application/json'},
+	        body:JSON.stringify({
+	          materialName: items[0]?.materialName || 'Материалы по смете',
+	          quantity: items.length,
+	          unit: 'поз.',
+	          workPackage: requestPackage,
+	          items,
+	          project: projectName,
+	          createdBy: user.name,
+	          date: new Date().toISOString().split('T')[0],
+	          notes,
+	          category: 'Материалы по смете',
+	          urgency: groupRows.some(row => toNum(row.toBuy) > toNum(row.controlPlanQty || row.planQty) * 0.25) ? 'срочная' : 'обычная',
+	          requestedByRole: user.role,
+	          requestedById: user.id,
+	          selectedSuppliers: [],
+	        })
+	      });
+	      const data = await res.json().catch(()=>({}));
+	      if (!res.ok) {
+	        alert((data.detail || 'Не удалось создать массовую заявку снабжения')+' · раздел '+requestPackage);
+	        return;
+	      }
+	      createdItems += items.length;
 	    }
-	    notify('Создана заявка снабжения на '+items.length+' позиций', 'supply');
+	    notify('Создано заявок снабжения: '+groupNames.length+' · позиций '+createdItems, 'supply');
 	    await refreshData();
 	  };
 	  const createSupplyRequestFromInvoiceControl = async (inv, ctrl, item = {}) => {
@@ -5656,7 +5705,7 @@ function App() {
       </button>
     );
   };
-  const isPersonalMaterialRole = () => ['мастер','субподрядчик'].includes(user?.role);
+  const isPersonalMaterialRole = () => ['мастер','субподрядчик','бригадир'].includes(user?.role);
   const parseJournalMaterials = (value) => {
     if (!value) return [];
     if (Array.isArray(value)) return value;
@@ -5735,34 +5784,65 @@ function App() {
   };
   const personalMaterialRowsForProject = (projectName, personName=user?.name, personId=user?.id, workPackage='') => {
     const byName = {};
-    const materialTransferKey = (name, workPackage='') => {
-      const base = materialNameKey(name);
-      return base ? base+'|'+(workPackage||'') : '';
+    const materialTransferKey = (name, workPackage='', unit='') => {
+      const meta = canonicalMaterialMeta(projectName, name, unit);
+      const base = materialNameKey(meta.name);
+      return base ? base+'|'+(workPackage||'')+'|'+_normalizeUnit(meta.unit||unit||'шт') : '';
+    };
+    const ensurePersonalMaterialRow = (key, source = {}) => {
+      if (!key) return null;
+      if (!byName[key]) {
+        const meta = canonicalMaterialMeta(projectName, source.materialName || source.material || source.name || '', source.unit || 'шт');
+        byName[key] = {
+          id:key+'|'+projectName,
+          key,
+          name:meta.name || source.materialName || source.material || source.name || '',
+          unit:meta.unit || source.unit || 'шт',
+          workPackage:source.workPackage || source.work_package || '',
+          quantity:0,
+          received:0,
+          used:0,
+          returned:0,
+          pending:0,
+          project:projectName,
+          aliases:[],
+          transfers:[],
+          pendingTransfers:[]
+        };
+      }
+      const rawName = source.materialName || source.material || source.name || '';
+      if (rawName && materialNameKey(rawName)!==materialNameKey(byName[key].name) && !byName[key].aliases.includes(rawName)) byName[key].aliases.push(rawName);
+      return byName[key];
+    };
+    const transferBelongsToPerson = (t) => {
+      const transferUserId = t.toUserId || t.to_user_id;
+      if (personId && transferUserId) return Number(transferUserId) === Number(personId);
+      return !transferUserId && t.toPerson === personName;
     };
     (materialTransfers||[])
-      .filter(t=>t.projectName===projectName && t.toPerson===personName && t.signed && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage))
+      .filter(t=>t.projectName===projectName && transferBelongsToPerson(t) && t.signed && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage))
       .forEach(t=>{
-        const key = materialTransferKey(t.materialName, t.workPackage);
-        if (!key) return;
-        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', workPackage:t.workPackage||'', quantity:0, received:0, used:0, returned:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
-        byName[key].received += toNum(t.quantity);
-        byName[key].quantity += toNum(t.quantity);
-        byName[key].transfers.push(t);
+        const key = materialTransferKey(t.materialName, t.workPackage, t.unit);
+        const row = ensurePersonalMaterialRow(key, t);
+        if (!row) return;
+        row.received += toNum(t.quantity);
+        row.quantity += toNum(t.quantity);
+        row.transfers.push(t);
       });
     (materialTransfers||[])
-      .filter(t=>t.projectName===projectName && t.toPerson===personName && !t.signed && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage))
+      .filter(t=>t.projectName===projectName && transferBelongsToPerson(t) && !t.signed && (t.status||'Активна')!=='Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage))
       .forEach(t=>{
-        const key = materialTransferKey(t.materialName, t.workPackage);
-        if (!key) return;
-        if (!byName[key]) byName[key] = {id:key+'|'+projectName, key, name:t.materialName, unit:t.unit||'шт', workPackage:t.workPackage||'', quantity:0, received:0, used:0, returned:0, pending:0, project:projectName, transfers:[], pendingTransfers:[]};
-        byName[key].pending += toNum(t.quantity);
-        byName[key].pendingTransfers.push(t);
+        const key = materialTransferKey(t.materialName, t.workPackage, t.unit);
+        const row = ensurePersonalMaterialRow(key, t);
+        if (!row) return;
+        row.pending += toNum(t.quantity);
+        row.pendingTransfers.push(t);
       });
     (workJournal||[])
       .filter(w=>w.project===projectName && w.status!=='Отклонено' && packageMatches(w.workPackage || w.work_package, workPackage) && (Number(w.masterId||w.master_id)===Number(personId) || w.masterName===personName || w.master_name===personName))
       .forEach(w=>parseJournalMaterials(w.materialsUsed!==undefined?w.materialsUsed:w.materials_used).forEach(m=>{
-        const key = materialTransferKey(m.name, m.workPackage || w.workPackage || w.work_package);
-        const cur = byName[key] || byName[materialTransferKey(m.name, '')];
+        const key = materialTransferKey(m.name, m.workPackage || w.workPackage || w.work_package, m.unit);
+        const cur = byName[key] || byName[materialTransferKey(m.name, '', m.unit)];
 	        if (cur) {
 	          cur.used += toNum(m.quantity);
 	          cur.quantity -= toNum(m.quantity);
@@ -5771,8 +5851,8 @@ function App() {
     (history||[])
       .filter(h=>h.project===projectName && h.type==='возврат от мастера' && h.issuedBy===personName && packageMatches(h.workPackage || h.work_package, workPackage))
       .forEach(h=>{
-        const key = materialTransferKey(h.material, h.workPackage || h.work_package);
-        const cur = byName[key] || byName[materialTransferKey(h.material, '')];
+        const key = materialTransferKey(h.material, h.workPackage || h.work_package, h.unit);
+        const cur = byName[key] || byName[materialTransferKey(h.material, '', h.unit)];
         if (cur) {
           cur.returned += toNum(h.quantity);
           cur.quantity -= toNum(h.quantity);
@@ -6105,13 +6185,8 @@ function App() {
   const estimateWorkNormRequirementRows = (projectName, workPackage='') => {
     const project = projects.find(pr=>pr.name===projectName) || {name:projectName};
     const activeEstimates = activeEstimatesForProject(project, 'Заказчик');
-    const fallbackEstimates = (estimatesList||[]).filter(e=>
-      estimateKind(e)==='Заказчик' &&
-      !isArchivedEstimate(e) &&
-      ((projectName && (e.projectName===projectName || e.project===projectName)) || (project.id && Number(e.projectId)===Number(project.id)))
-    );
     const rows = {};
-    (activeEstimates.length ? activeEstimates : fallbackEstimates)
+    activeEstimates
       .filter(est=>packageMatches(estimatePackage(est), workPackage))
       .forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
       if (!isEstimateWorkItem(it, s.name)) return;
@@ -6295,7 +6370,7 @@ function App() {
     });
     html += '</table>';
     html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px"><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Сметчик:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div><div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Прораб / главный инженер:</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div></div>';
-    html += '<p style="margin-top:16px;font-size:10px;color:#666;text-align:center">Строки `Некорректное количество` сначала исправляются в смете. Строки `Нет материала в смете` и `Материал без количества` можно закрыть: добавить/уточнить материал, создать заявку снабжения, пометить работу как не требующую материала или поставить поручение сметчику.</p>';
+    html += '<p style="margin-top:16px;font-size:10px;color:#666;text-align:center">Строки `Некорректное количество` и `Материал без количества` сначала исправляются в смете. Строки `Нет материала в смете` сначала добавляются в смету/доп. смету. После этого снабжение создаёт заявку по утверждённой потребности.</p>';
     return html;
   };
   const saveMaterialNormOverrideFromCoverage = async (row) => {
@@ -6595,7 +6670,6 @@ function App() {
     if (!est?.id) return estimatesList||[];
     let found = false;
     const mapped = (estimatesList||[]).map(e=>{
-      if (est.status==='Активная' && e.id!==est.id && !isGlobalEstimateTemplate(e) && sameEstimateGroup(e, est)) return {...e,status:'Архив'};
       if (Number(e.id)===Number(est.id)) { found = true; return est; }
       return e;
     });
@@ -7510,13 +7584,13 @@ function App() {
     const ruleKey = row?.rule?.ruleKey || row?.rule?.id || '';
     return 'NORM_COVERAGE_REQUEST:'+[row?.estimateId||'',row?.sectionIdx??'',row?.itemIdx??'',ruleKey].join('|');
   };
-  const isActiveSupplyRequestStatus = (status) => ['Новая','Подтверждена прорабом','Утверждена','КП запрошены','В пути','Утверждено'].includes(status||'Новая');
+  const isActiveSupplyRequestStatus = (status) => ['Новая','Подтверждена прорабом','Утверждена','КП запрошены','В пути','Частично поставлено','Проблема поставки','Утверждено'].includes(status||'Новая');
   const materialNormSupplyRequestExists = (row) => {
     const marker = materialNormSupplyMarker(row);
     return (supplyRequests||[]).some(req=>req.project===row?.projectName && isActiveSupplyRequestStatus(req.status) && String(req.notes||'').includes(marker));
   };
   const materialNormCanCreateSupply = (row) => (
-    ['Нет материала в смете','Материал без количества'].includes(row?.status)
+    row?.allowDirectSupplyRequest === true
     && row?.rule
     && toNum(row?.requiredQty)>0
   );
@@ -7600,36 +7674,50 @@ function App() {
       if (!byKey[key]) byKey[key] = {materialName, quantity:0, unit, workPackage};
       byKey[key].quantity += toNum(row.requiredQty);
     });
-    const items = Object.values(byKey).map(it=>({...it, quantity:Number(it.quantity.toFixed(4))}));
-    const requestPackage = Array.from(new Set(items.map(it=>it.workPackage).filter(Boolean))).length === 1
-      ? items.find(it=>it.workPackage)?.workPackage || ''
-      : '';
+    const items = Object.values(byKey).map(it=>({...it, workPackage:it.workPackage || 'Основная', quantity:Number(it.quantity.toFixed(4))}));
     if (!items.length) { alert('Не удалось собрать позиции заявки'); return; }
-    const res = await fetch(API+'/supply-requests', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        materialName: items[0].materialName,
-        quantity: items[0].quantity,
-        unit: items[0].unit,
-        workPackage: requestPackage,
-        items,
-        project: fresh[0].projectName,
-        createdBy: user?.name || '',
-        date: new Date().toISOString().split('T')[0],
-        notes: materialNormSupplyNotes(fresh, 'Пакетная заявка из ведомости «Вся смета по нормам»: материалы нужны по нормам, но отсутствуют в смете или указаны без количества.'),
-        category: 'Нормы материалов',
-        urgency: 'обычная',
-        requestedByRole: user?.role || '',
-        requestedById: user?.id || null,
-        selectedSuppliers: [],
-      })
-    });
-    const data = await res.json().catch(()=>({}));
-    if (!res.ok) { alert(data.detail || 'Не удалось создать пакетную заявку'); return; }
-    setSupplyRequests(prev=>data?.id?[data,...(prev||[]).filter(r=>Number(r.id)!==Number(data.id))]:(prev||[]));
-    notify('Создана пакетная заявка снабжения: '+items.length+' позиций', 'supply');
-    setMaterialNormNotice({tone:'success',title:'Пакетная заявка создана',text:'В снабжение отправлено '+items.length+' позиций по '+fresh.length+' строкам норм. Уже заявленные строки пропущены.'});
+    const rowsByPackage = fresh.reduce((acc, row) => {
+      const pkg = String(row.packageName || row.workPackage || 'Основная').trim() || 'Основная';
+      if (!acc[pkg]) acc[pkg] = [];
+      acc[pkg].push(row);
+      return acc;
+    }, {});
+    const itemsByPackage = items.reduce((acc, item) => {
+      const pkg = String(item.workPackage || 'Основная').trim() || 'Основная';
+      if (!acc[pkg]) acc[pkg] = [];
+      acc[pkg].push(item);
+      return acc;
+    }, {});
+    const created = [];
+    for (const [requestPackage, packageItems] of Object.entries(itemsByPackage)) {
+      const packageRows = rowsByPackage[requestPackage] || [];
+      const res = await fetch(API+'/supply-requests', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          materialName: packageItems[0].materialName,
+          quantity: packageItems[0].quantity,
+          unit: packageItems[0].unit,
+          workPackage: requestPackage,
+          items: packageItems,
+          project: fresh[0].projectName,
+          createdBy: user?.name || '',
+          date: new Date().toISOString().split('T')[0],
+          notes: materialNormSupplyNotes(packageRows, 'Пакетная заявка из ведомости «Вся смета по нормам»: материалы нужны по нормам, но отсутствуют в смете или указаны без количества.'),
+          category: 'Нормы материалов',
+          urgency: 'обычная',
+          requestedByRole: user?.role || '',
+          requestedById: user?.id || null,
+          selectedSuppliers: [],
+        })
+      });
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) { alert((data.detail || 'Не удалось создать пакетную заявку')+' · раздел '+requestPackage); return; }
+      if (data?.id) created.push(data);
+    }
+    if (created.length) setSupplyRequests(prev=>[...created,...(prev||[]).filter(r=>!created.some(n=>Number(n.id)===Number(r.id)))]);
+    notify('Создано заявок снабжения: '+created.length+' · позиций '+items.length, 'supply');
+    setMaterialNormNotice({tone:'success',title:'Пакетные заявки созданы',text:'В снабжение отправлено '+items.length+' позиций по '+fresh.length+' строкам норм. Заявки разделены по пакетам работ.'});
     await refreshData();
   };
   const autoFillNormMaterialsForWork = (projectName, workName, sectionName, workQty, workUnit, currentMaterials=[], params={}) => {
@@ -7674,7 +7762,7 @@ function App() {
     return next;
   };
   const canEditMaterialNorms = () => ['директор','зам_директора','прораб','главный_инженер','сметчик'].includes(user?.role);
-  const canCreateSupplyRequestFromNorm = () => ['директор','зам_директора','прораб','снабженец','кладовщик','мастер','субподрядчик'].includes(user?.role);
+  const canCreateSupplyRequestFromNorm = () => ['директор','зам_директора','прораб','снабженец','кладовщик','мастер','субподрядчик','бригадир'].includes(user?.role);
   const materialNormPayload = () => ({
     ruleKey: newMaterialNorm.ruleKey.trim(),
     name: newMaterialNorm.name.trim(),
@@ -7893,11 +7981,12 @@ function App() {
       .map(m=>{
         const workPackage = m.workPackage || m.work_package || '';
         const stockByName = materialAvailabilityMapForWork(projectName, workPackage);
-        const key = materialNameKey(m.name);
+        const meta = canonicalMaterialMeta(projectName, m.name, m.unit);
+        const key = materialNameKey(meta.name);
         const stock = stockByName[key] || null;
         const qty = toNum(m.quantity);
         const normQty = toNum(m.normQuantity);
-        const unit = m.unit || stock?.unit || 'шт';
+        const unit = meta.unit || m.unit || stock?.unit || 'шт';
         const available = toNum(stock?.quantity);
         const tolerance = normQty>0 ? Math.max(0.001, normQty*0.1) : 0;
         const overNormQty = normQty>0 ? Math.max(0, qty - normQty) : 0;
@@ -7922,7 +8011,8 @@ function App() {
       });
   };
   const materialWriteoffAvailableQty = (projectName, materialName, workPackage='') => {
-    const stock = materialAvailabilityMapForWork(projectName, workPackage)[materialNameKey(materialName)];
+    const meta = canonicalMaterialMeta(projectName, materialName);
+    const stock = materialAvailabilityMapForWork(projectName, workPackage)[materialNameKey(meta.name)];
     return stock ? toNum(stock.quantity) : 0;
   };
   const capMaterialWriteoffQty = (projectName, materialName, quantity, workPackage='') => {
@@ -7987,7 +8077,7 @@ function App() {
       const cur = prev[itemId] || {};
       const list = Array.isArray(cur.materials) ? cur.materials : [];
       const exists = list.some(m=>materialNameKey(m.name)===key);
-      const row = {name:material.name, quantity, unit:material.unit||'шт', workPackage:material.workPackage||'', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||''};
+      const row = {name:material.name, quantity, unit:material.unit||'шт', workPackage:material.workPackage||'', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||'', normRuleId:material.normRuleId||material.ruleId||'', normThicknessMm:material.normThicknessMm||material.thicknessMm||''};
       const next = exists
         ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
         : [...list, row];
@@ -8016,7 +8106,7 @@ function App() {
     setEstimateWorkMaterials(prev=>{
       const list = Array.isArray(prev[workKey]) ? prev[workKey] : [];
       const exists = list.some(m=>materialNameKey(m.name)===key);
-      const row = {name:material.name, quantity, unit:material.unit||'шт', workPackage:material.workPackage||'', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||''};
+      const row = {name:material.name, quantity, unit:material.unit||'шт', workPackage:material.workPackage||'', autoNorm:!!material.autoNorm, normQuantity:material.normQuantity||'', normSource:material.normSource||'', normRuleId:material.normRuleId||material.ruleId||'', normThicknessMm:material.normThicknessMm||material.thicknessMm||''};
       const next = exists
         ? list.map(m=>materialNameKey(m.name)===key ? {...m, ...row, quantity:quantity!==undefined?quantity:m.quantity} : m)
         : [...list, row];
@@ -8096,7 +8186,7 @@ function App() {
     const other=total-(cat.works||0)-(cat.materials||0)-(cat.unexpected||0);
     return {works:cat.works||0,materials:cat.materials||0,unexpected:cat.unexpected||0,other:other,total:total};
   };
-  const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? work?.total ?? 0);
+  const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? 0);
   const workCustomerTotal = (work) => Number(work?.customerTotal ?? work?.customer_total ?? work?.total ?? 0);
 	  const projectEconomy = (p) => {
 	    if (!p) return null;
@@ -8808,8 +8898,8 @@ function App() {
   const isLeadership = () => ['директор','зам_директора'].includes(user?user.role:'');
   const canUseDirectorAgent = () => ['директор','system_owner'].includes(user?user.role:'');
   const isProrab = () => ['директор','зам_директора','прораб','главный_инженер'].includes(user?user.role:'');
-  const isMasterRole = () => ['мастер','субподрядчик'].includes(user?user.role:'');
-  const roleColor = (r) => ({'директор':'#f97316','зам_директора':'#ea580c','главный_инженер':'#8b5cf6','прораб':'#3b82f6','кладовщик':'#10b981','снабженец':'#14b8a6','бухгалтер':'#6b7280','стройконтроль':'#06b6d4','менеджер_crm':'#8b5cf6','мастер':'#ec4899','субподрядчик':'#f59e0b','сметчик':'#3b82f6','заказчик':'#06b6d4','поставщик':'#f59e0b'}[r]||'#6b7280');
+  const isMasterRole = () => ['мастер','субподрядчик','бригадир'].includes(user?user.role:'');
+  const roleColor = (r) => ({'директор':'#f97316','зам_директора':'#ea580c','главный_инженер':'#8b5cf6','прораб':'#3b82f6','кладовщик':'#10b981','снабженец':'#14b8a6','бухгалтер':'#6b7280','стройконтроль':'#06b6d4','менеджер_crm':'#8b5cf6','мастер':'#ec4899','субподрядчик':'#f59e0b','бригадир':'#ec4899','сметчик':'#3b82f6','заказчик':'#06b6d4','поставщик':'#f59e0b'}[r]||'#6b7280');
   const workedDays = (id) => daysInMonth.filter(d=>timesheet[id+'-'+d]).length;
   const pwTotal = (id) => piecework.filter(p=>Number(p.staffId)===id).reduce((s,p)=>s+p.total,0);
   const calcSalary = (s) => s.payType==='сдельно'?pwTotal(s.id):Math.round((s.salary/31)*workedDays(s.id));
@@ -9272,7 +9362,7 @@ function App() {
     if (roomCheck?.over>0) { alert(roomMeasurementMessage(roomCheck)); return; }
     let usedMats = (estimateWorkMaterials[workKey]||[])
       .filter(m=>m.name)
-      .map(m=>({name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт', workPackage:m.workPackage||estimatePackage(est), normQuantity:toNum(m.normQuantity), normSource:m.normSource||'', autoNorm:!!m.autoNorm, overNorm:toNum(m.normQuantity)>0 && toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
+      .map(m=>({name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт', workPackage:m.workPackage||estimatePackage(est), normQuantity:toNum(m.normQuantity), normSource:m.normSource||'', normRuleId:m.normRuleId||m.ruleId||'', normThicknessMm:m.normThicknessMm||m.thicknessMm||'', autoNorm:!!m.autoNorm, overNorm:toNum(m.normQuantity)>0 && toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
     for (const m of usedMats) {
       if (toNum(m.quantity)<=0) { alert('Укажите количество материала «'+m.name+'» или снимите галочку.'); return; }
     }
@@ -9285,8 +9375,12 @@ function App() {
     const customerPricePerUnit = toNum(mi.pricePerUnit || mi.price || 0) || (toNum(mi.priceWork || 0) + toNum(mi.priceMaterial || 0));
     const fixedExecutionPrice = toNum(mi.executionPricePerUnit || mi.internalPricePerUnit || mi.masterPricePerUnit || mi.contractorPricePerUnit || mi.executorPricePerUnit);
     const executionCoeff = toNum(mi.executionCoefficient || mi.internalCoefficient || mi.masterCoefficient || mi.contractorCoefficient || mi.executorCoefficient);
-    const executionPricePerUnit = fixedExecutionPrice > 0 ? fixedExecutionPrice : (executionCoeff > 0 ? customerPricePerUnit * executionCoeff : customerPricePerUnit);
-    const executionPriceMode = fixedExecutionPrice > 0 ? 'fixed' : (executionCoeff > 0 ? 'coefficient' : 'customer_fallback');
+    const executionPricePerUnit = fixedExecutionPrice > 0 ? fixedExecutionPrice : (executionCoeff > 0 ? customerPricePerUnit * executionCoeff : 0);
+    const executionPriceMode = fixedExecutionPrice > 0 ? 'fixed' : (executionCoeff > 0 ? 'coefficient' : 'not_set');
+    if (isPersonalMaterialRole() && executionPricePerUnit <= 0) {
+      alert('По этой работе не назначена цена исполнителю. Директор или замдиректора должен задать цену/коэффициент в смете или договорной позиции.');
+      return;
+    }
     const updated = {
       ...est,
       sections:newSections,
@@ -9299,6 +9393,7 @@ function App() {
         workPackage: estimatePackage(est),
         estimateItemName: mi.name,
         estimateItemKey: workKey,
+        contractItemId: mi.contractItemId || null,
         customerPricePerUnit,
         customerTotal: deltaQty * customerPricePerUnit,
         executionPricePerUnit,
@@ -9364,8 +9459,8 @@ function App() {
       const workQty = toNum(workData.quantity);
       const total = workQty*ppu;
       const reason = overrunReasons[itemId] || '';
-      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>{const over=toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1;return {name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',workPackage:m.workPackage||'Прайс',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',autoNorm:!!m.autoNorm,overNorm:over,overNormReason:over?reason:''};});
-      const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,customerPricePerUnit:ppu,customerTotal:total,executionPricePerUnit:ppu,executionTotal:total,executionPriceMode:'pricelist',date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats,workPackage:'Прайс',roomId:workData.roomId?Number(workData.roomId):null,roomName:workData.roomName||'',surface:workData.surface||'Стены',estimateItemName:item.name,estimateItemKey:'pricelist:'+item.id})});
+      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>{const over=toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1;return {name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',workPackage:m.workPackage||'Прайс',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',normRuleId:m.normRuleId||m.ruleId||'',normThicknessMm:m.normThicknessMm||m.thicknessMm||'',autoNorm:!!m.autoNorm,overNorm:over,overNormReason:over?reason:''};});
+      const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,customerPricePerUnit:ppu,customerTotal:total,executionPricePerUnit:ppu,executionTotal:total,executionPriceMode:'pricelist',date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats,workPackage:'Прайс',roomId:workData.roomId?Number(workData.roomId):null,roomName:workData.roomName||'',surface:workData.surface||'Стены',estimateItemName:item.name})});
       if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось отправить работу: '+(er.detail||'ошибка'));return;}
     }
     if (!hasWork) { alert('Введите количество хотя бы для одной работы'); return; }
@@ -9376,8 +9471,8 @@ function App() {
 
   // Открыть модалку для подтверждения с возможным пересчётом количества
   const openConfirmModal = (e) => {
-    // Если pricePerUnit пустой — берём total/quantity (исторически некоторые записи без ppu)
-    const fallbackPpu = (Number(e.pricePerUnit||0)===0 && Number(e.quantity||0)>0) ? (Number(e.total||0)/Number(e.quantity||0)) : Number(e.pricePerUnit||0);
+    // Если исполнительская цена пустая, не подставляем заказчиковую сумму.
+    const fallbackPpu = (Number(e.executionPricePerUnit||0)===0 && Number(e.quantity||0)>0) ? (Number(e.executionTotal||0)/Number(e.quantity||0)) : Number(e.executionPricePerUnit||0);
     setConfirmingEntry({...e, _ppu: fallbackPpu});
     setConfirmAcceptedQty(String(e.quantity||''));
     setConfirmComment('');
@@ -9386,7 +9481,7 @@ function App() {
   const confirmJ = async (e, acceptedQty, comment) => {
     const planQty = toNum(e.quantity||0);
     const accepted = (acceptedQty===undefined||acceptedQty===null||acceptedQty==='')?planQty:toNum(acceptedQty);
-    const ppu = Number(e._ppu||e.executionPricePerUnit||e.pricePerUnit||0) || (Number(e.executionTotal||e.total||0)/Math.max(1, planQty));
+    const ppu = Number(e._ppu||e.executionPricePerUnit||0) || (Number(e.executionTotal||0)/Math.max(1, planQty));
     const customerPpu = Number(e.customerPricePerUnit||0) || (Number(e.customerTotal||0)/Math.max(1, planQty));
     const newTotal = Math.round(accepted * ppu);
     const newCustomerTotal = Math.round(accepted * customerPpu);
@@ -9395,33 +9490,17 @@ function App() {
       confirmedBy:user.name,
       confirmedAt:new Date().toISOString().split('T')[0],
       quantity: accepted,
-      total: newTotal,
-      pricePerUnit: ppu,
-      executionPricePerUnit: ppu,
-      executionTotal: newTotal,
-      customerPricePerUnit: customerPpu,
-      customerTotal: newCustomerTotal,
     };
+    if (isFinanceRole) {
+      body.total = newTotal;
+      body.pricePerUnit = ppu;
+      body.executionPricePerUnit = ppu;
+      body.executionTotal = newTotal;
+      body.customerPricePerUnit = customerPpu;
+      body.customerTotal = newCustomerTotal;
+    }
     if(comment) body.comment = comment;
     await fetch(API+'/work-journal/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    // Записываем в piecework (сдельные) — для расчёта зарплаты
-    try {
-      const alreadyPaid = (piecework||[]).some(pw=>Number(pw.workJournalId)===Number(e.id));
-      if(!alreadyPaid && e.masterId && accepted>0 && ppu>0){
-        await fetch(API+'/piecework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-          staffId:e.masterId,
-          masterName:e.masterName||e.master_name||'',
-          project:e.project||'',
-          description:e.description||'',
-          unit:e.unit||'',
-          quantity:accepted,
-          pricePerUnit:ppu,
-          total:newTotal,
-          date:new Date().toISOString().split('T')[0],
-          workJournalId:e.id,
-        })});
-      }
-    } catch(_){}
     await refreshData();
     await updateProjectProgress(e.project||"");
     setConfirmingEntry(null); setConfirmAcceptedQty(''); setConfirmComment('');
@@ -9465,7 +9544,7 @@ function App() {
         }
       }
     }
-    await refreshData(); setNewUser({name:'',email:'',password:'',role:'прораб',companyName:'',inn:'',projectId:'',projectName:'',active:true}); setEditingItem(null); setShowForm(false);
+    await refreshData(); setNewUser({name:'',email:'',password:'',role:'прораб',companyName:'',inn:'',projectId:'',projectName:'',assignedProjects:[],assignedPackages:[],active:true}); setEditingItem(null); setShowForm(false);
   };
 
   const toggleUserActive = async (u, nextActive) => {
@@ -9473,7 +9552,17 @@ function App() {
     const label = nextActive ? 'Включить доступ пользователю?' : 'Отключить доступ пользователю? История останется в системе.';
     if (!window.confirm(label)) return;
     if (nextActive) {
-      await fetch(API+'/users/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:u.name,email:u.email,password:'',role:u.role,projectId:u.projectId||'',projectName:u.projectName||'',active:true})});
+      await fetch(API+'/users/'+u.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        name:u.name,
+        email:u.email,
+        password:'',
+        role:u.role,
+        projectId:u.projectId||'',
+        projectName:u.projectName||u.project_name||'',
+        assignedProjects:u.assignedProjects||u.assigned_projects||[],
+        assignedPackages:u.assignedPackages||u.assigned_packages||[],
+        active:true
+      })});
     } else {
       await fetch(API+'/users/'+u.id,{method:'DELETE'});
     }
@@ -9574,10 +9663,20 @@ function App() {
       .map(i=>({...i, workPackage:i.workPackage || defaultWorkPackage}));
     if (!validItems.length||!newRequest.project) return;
     const itemsPayload = validItems.map(item=>({materialName:item.materialName,quantity:Number(item.quantity),unit:item.unit||'шт',workPackage:item.workPackage||''}));
+    const itemPackages = Array.from(new Set(itemsPayload.map(i=>i.workPackage || 'Основная')));
+    if (itemPackages.length > 1) {
+      alert('В одной заявке нельзя смешивать разные разделы сметы: '+itemPackages.join(', ')+'. Создайте отдельные заявки.');
+      return;
+    }
     const requestPackage = Array.from(new Set(itemsPayload.map(i=>i.workPackage).filter(Boolean))).length === 1
       ? itemsPayload.find(i=>i.workPackage)?.workPackage || ''
       : '';
-    await fetch(API+'/supply-requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:itemsPayload[0].materialName,quantity:itemsPayload[0].quantity,unit:itemsPayload[0].unit,items:itemsPayload,workPackage:requestPackage,project:newRequest.project,createdBy:user.name,date:new Date().toISOString().split('T')[0],notes:newRequest.notes,selectedSuppliers:newRequest.selectedSuppliers,category:newRequest.category||''})});
+    const res = await fetch(API+'/supply-requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:itemsPayload[0].materialName,quantity:itemsPayload[0].quantity,unit:itemsPayload[0].unit,items:itemsPayload,workPackage:requestPackage,project:newRequest.project,createdBy:user.name,date:new Date().toISOString().split('T')[0],notes:newRequest.notes,selectedSuppliers:newRequest.selectedSuppliers,category:newRequest.category||''})});
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok || data.detail || data.error) {
+      alert('Не удалось создать заявку: '+(data.detail || data.error || res.status));
+      return;
+    }
     notify('Новая заявка на материалы','supply');
     await refreshData(); setNewRequest({items:[{materialName:'',quantity:'',unit:'шт',workPackage:''}],project:'',notes:'',selectedSuppliers:[],category:''}); setShowForm(false);
   };
@@ -9601,6 +9700,11 @@ function App() {
       unit: it.unit || 'шт',
       workPackage: it.workPackage || defaultWorkPackage || ''
     }));
+    const itemPackages = Array.from(new Set(itemsPayload.map(it=>it.workPackage || 'Основная')));
+    if (itemPackages.length > 1) {
+      alert('В одной заявке нельзя смешивать разные разделы сметы: '+itemPackages.join(', ')+'. Создайте отдельные заявки.');
+      return;
+    }
     const requestPackage = Array.from(new Set(itemsPayload.map(it=>it.workPackage).filter(Boolean))).length === 1
       ? itemsPayload.find(it=>it.workPackage)?.workPackage || ''
       : '';
@@ -9634,7 +9738,7 @@ function App() {
     const msg = valid.length>1
       ? ('Заявка из '+valid.length+' позиций — объект '+newSupplyReq.project)
       : ('Заявка «'+valid[0].materialName+'» — объект '+newSupplyReq.project);
-    if (user.role === 'мастер' || user.role === 'субподрядчик') {
+    if (['мастер','субподрядчик','бригадир'].includes(user.role)) {
       notify('Новая заявка от '+user.name+': '+msg, 'supply');
     } else if (user.role === 'прораб') {
       notify('Прораб '+user.name+': '+msg+' — нужно утвердить', 'supply');
@@ -9879,10 +9983,15 @@ function App() {
   };
 
   const approveSupplyAsDirector = async (id) => {
-    await fetch(API+'/supply-requests/'+id, {
+    const r = await fetch(API+'/supply-requests/'+id, {
       method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({action:'approve_director', userId:user.id, userName:user.name})
     });
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok || data.detail || data.error) {
+      alert('Не удалось утвердить заявку: '+(data.detail || data.error || r.status));
+      return;
+    }
     notify('Заявка утверждена директором','supply');
     await refreshData();
   };
@@ -9961,8 +10070,8 @@ function App() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({supplierIds:selectedSupplierIds, aiRecommendedIds:aiIds})
     });
-    const data = await r.json();
-    if (data.error) { alert('Ошибка: '+data.error); return; }
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok || data.detail || data.error) { alert('Ошибка: '+(data.detail||data.error||r.status)); return; }
     notify('Отправлен запрос КП '+selectedSupplierIds.length+' поставщикам','supply');
     setShowRequestKpModal(null);
     setSelectedSupplierIds([]);
@@ -10093,24 +10202,11 @@ function App() {
   };
 
   const approveOffer = async (offer) => {
-    await fetch(API+'/supplier-offers/'+offer.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'select'})});
-    await fetch(API+'/supply-requests/'+offer.requestId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Утверждено'})});
-    const req = supplyRequests.find(r=>r.id===offer.requestId);
-    const reqItems = parseSupplyItems(req);
-    const kpItems = parseOfferItems(offer);
-    const keyOf = (item={}) => [
-      String(item.materialName || item.name || '').trim().toLowerCase(),
-      String(item.unit || '').trim().toLowerCase(),
-      String(item.workPackage || item.work_package || '').trim().toLowerCase()
-    ].join('|');
-    const kpByKey = {};
-    kpItems.forEach(item => { kpByKey[keyOf(item)] = item; });
-    const historyItems = reqItems.length ? reqItems : [{materialName:req?req.materialName:'',quantity:req?req.quantity:0,unit:req?req.unit:'',workPackage:req?.workPackage||''}];
-    for (const item of historyItems) {
-      const kp = kpByKey[keyOf(item)] || {};
-      const qty = toNum(item.quantity);
-      const price = toNum(kp.pricePerUnit || offer.pricePerUnit);
-      await fetch(API+'/supply-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({supplierId:offer.supplierId,materialName:item.materialName||item.name||'',quantity:qty,unit:item.unit||'шт',pricePerUnit:price,totalPrice:toNum(kp.totalPrice) || price*qty,project:req?req.project:'',workPackage:item.workPackage||item.work_package||req?.workPackage||'',date:new Date().toISOString().split('T')[0],status:'Ожидает поставки'})});
+    const r = await fetch(API+'/supplier-offers/'+offer.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'select'})});
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok || data.detail || data.error) {
+      alert('Не удалось утвердить КП: '+(data.detail || data.error || r.status));
+      return;
     }
     notify('КП утверждено','supply'); await refreshData();
   };
@@ -10140,11 +10236,32 @@ function App() {
     if (!newAct.masterId||!newAct.project||!newAct.periodStart||!newAct.periodEnd) return;
     const inActPeriod = (d)=>{ if(!d)return false; const day=String(d).split('T')[0]; return day>=newAct.periodStart && day<=newAct.periodEnd; };
     const selectedPackage = String(newAct.workPackage || '').trim();
-    const mw = workJournal.filter(j=>j.masterId===Number(newAct.masterId)&&j.project===newAct.project&&j.status==='Подтверждено'&&inActPeriod(j.confirmedAt||j.date)&&(!selectedPackage || String(j.workPackage || j.work_package || 'Основная').trim()===selectedPackage));
-    const total = mw.reduce((s,w)=>s+Number(w.executionTotal||w.total||0),0);
+    const mw = workJournal.filter(j=>j.masterId===Number(newAct.masterId)&&j.project===newAct.project&&j.status==='Подтверждено'&&inActPeriod(j.confirmedAt||j.date)&&String(j.roomName || j.room_name || '').trim()&&Number(j.executionTotal||0)>0&&(!selectedPackage || String(j.workPackage || j.work_package || 'Основная').trim()===selectedPackage));
     const contract = contracts.find(c=>c.masterId===Number(newAct.masterId)&&c.project===newAct.project);
-    await fetch(API+'/interim-acts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newAct,masterId:Number(newAct.masterId),contractId:contract?contract.id:null,totalAmount:total,paidAmount:0})});
-    notify('Акт создан: '+newAct.masterName,'act');
+    const groups = selectedPackage
+      ? [[selectedPackage, mw]]
+      : Object.entries(mw.reduce((acc, work) => {
+          const pkg = String(work.workPackage || work.work_package || 'Основная').trim() || 'Основная';
+          if (!acc[pkg]) acc[pkg] = [];
+          acc[pkg].push(work);
+          return acc;
+        }, {}));
+    if (!groups.length) { alert('Нет подтверждённых работ для акта за выбранный период'); return; }
+    let createdCount = 0;
+    for (const [packageName, works] of groups) {
+      const total = works.reduce((s,w)=>s+Number(w.executionTotal||0),0);
+      const workJournalIds = works.map(w=>w.id).filter(Boolean);
+      if (!workJournalIds.length || total <= 0) continue;
+      const res = await fetch(API+'/interim-acts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newAct,workPackage:packageName,masterId:Number(newAct.masterId),contractId:contract?contract.id:null,totalAmount:total,paidAmount:0,workJournalIds})});
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok || data.detail || data.error) {
+        alert('Не удалось создать акт по разделу '+packageName+': '+(data.detail || data.error || res.status));
+        return;
+      }
+      createdCount += 1;
+    }
+    if (!createdCount) { alert('Нет работ с суммой для акта'); return; }
+    notify('Акт создан: '+newAct.masterName+(createdCount>1?' · разделов '+createdCount:''),'act');
     await refreshData(); setNewAct({masterId:'',masterName:'',project:'',workPackage:'',periodStart:'',periodEnd:''}); setShowForm(false);
   };
 
@@ -10371,10 +10488,12 @@ function App() {
         applySupplyTemplate={applySupplyTemplate}
         autoFillNormMaterialsForWork={autoFillNormMaterialsForWork}
         badge={badge}
+        brigadeContracts={brigadeContracts}
         brigadeContractItems={brigadeContractItems}
         buildActContent={buildActContent}
         buildCableJournalContent={buildCableJournalContent}
         buildContractContent={buildContractContent}
+        buildHiddenActContent={buildHiddenActContent}
         btnB={btnB}
         btnG={btnG}
         btnGr={btnGr}
@@ -10405,6 +10524,7 @@ function App() {
         fmtMeasure={fmtMeasure}
         getNotifPage={getNotifPage}
         handleLogout={handleLogout}
+        hiddenActs={hiddenActs}
         inp={inp}
         interimActs={interimActs}
         isMobile={isMobile}
@@ -10469,6 +10589,7 @@ function App() {
         setEstimateDoneDrafts={setEstimateDoneDrafts}
         setEstimateWorkMaterials={setEstimateWorkMaterials}
         setEstimateWorkParams={setEstimateWorkParams}
+        setEditingAct={setEditingAct}
         setExpandedProject={setExpandedProject}
         setListSearch={setListSearch}
         setMasterProjectId={setMasterProjectId}
@@ -10486,6 +10607,7 @@ function App() {
         setShowSupplyForm={setShowSupplyForm}
         setSupplyCollapsedProjects={setSupplyCollapsedProjects}
         setUser={setUser}
+        setHiddenActs={setHiddenActs}
         showNotifications={showNotifications}
         showOwnExpenseForm={showOwnExpenseForm}
         showPhotoModal={showPhotoModal}
@@ -10702,6 +10824,7 @@ function App() {
                         ? newKpResponse.itemsKp
                         : reqItems.map(it => ({
                             materialName: it.materialName, quantity: Number(it.quantity)||0, unit: it.unit,
+                            workPackage: it.workPackage || it.work_package || req.workPackage || req.work_package || '',
                             pricePerUnit: '', deliveryDays: '', notes: ''
                           }));
                       const grandTotal = itemsKp.reduce((s,it)=>s+(Number(it.pricePerUnit||0)*Number(it.quantity||0)), 0);
@@ -10813,7 +10936,7 @@ function App() {
                           const body = isMulti
                             ? {
                                 action:'respond',
-                                itemsKp: itemsKp.map(it=>({materialName:it.materialName, quantity:Number(it.quantity)||0, unit:it.unit, pricePerUnit:Number(it.pricePerUnit)||0})),
+                                itemsKp: itemsKp.map(it=>({materialName:it.materialName, quantity:Number(it.quantity)||0, unit:it.unit, workPackage:it.workPackage||it.work_package||req.workPackage||req.work_package||'', pricePerUnit:Number(it.pricePerUnit)||0})),
                                 deliveryDays: Number(newKpResponse.deliveryDays),
                                 paymentTerms: newKpResponse.paymentTerms,
                                 vatIncluded: newKpResponse.vatIncluded,
@@ -11288,12 +11411,12 @@ function App() {
         }, item.section);
         sections[item.section].items.push(importedItem);
       });
-      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const resolvedWorkPackage=resolveEstimatePackage(newEstimate.workPackage,fileName,newEstimate.name);const estDraft={projectId:newEstimate.projectId,projectName:projName,smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage};const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:newEstimate.version||nextEstimateVersionFor(estDraft),smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage,status:newEstimate.status||'Активная',sections:enrichEstimateMeasurementBasis(Object.values(sections))};
+      const projName=newEstimate.projectName||(projects.find(p=>p.id===Number(newEstimate.projectId))?.name||'');const fileName=e.target.files[0].name.replace('.xlsx','').replace('.xls','');const resolvedWorkPackage=resolveEstimatePackage(newEstimate.workPackage,fileName,newEstimate.name);const estimateStatus=isLeadership()?(newEstimate.status||'Активная'):'Черновик';const estDraft={projectId:newEstimate.projectId,projectName:projName,smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage};const est={id:Date.now(),name:fileName||newEstimate.name||'Смета — '+projName,projectId:newEstimate.projectId,projectName:projName,version:newEstimate.version||nextEstimateVersionFor(estDraft),smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage,status:estimateStatus,sections:enrichEstimateMeasurementBasis(Object.values(sections))};
       const saved=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(est)}));
       if(!saved?.id) throw new Error('Сервер не вернул id сохранённой сметы');
-      const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage,status:newEstimate.status||'Активная'};
+      const estWithId={...est,id:saved.id,smetaType:newEstimate.smetaType||'Заказчик',workPackage:resolvedWorkPackage,status:estimateStatus};
       const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId)&&e.status==='Активная'));
-      const nextEstimates=[...(estimatesList||[]).map(e=>(estWithId.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,estWithId))?{...e,status:'Архив'}:e),estWithId];
+      const nextEstimates=[...(estimatesList||[]),estWithId];
       setEstimatesList(nextEstimates);
       setSelectedEstimate(estWithId);
       setEstimatesTab('list');
@@ -11741,7 +11864,7 @@ function App() {
               +(supplierInvoices||[]).filter(i=>i.status==='На утверждении'||!i.status).length;
             const directorSkillCards = [
               {label:'Сводка директору',sub:'риски, деньги, задачи',icon:<Bot size={18}/>,color:'#fdba74',bg:'rgba(234,88,12,.14)',border:'rgba(234,88,12,.32)',metric:risks.length+' рисков',onClick:()=>showPreview(buildDirectorBriefReportContent(directorSkillDate),'Сводка директора — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
-              {label:'ИИ-контроль',sub:'обмеры и поручения',icon:<Bot size={18}/>,color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',metric:openAiControl.length+' замеч.',onClick:()=>setActivePage('projects')},
+              {label:'ИИ-контроль',sub:'обмеры и поручения',icon:<Bot size={18}/>,color:'#fca5a5',bg:'rgba(239,68,68,.12)',border:'rgba(239,68,68,.28)',metric:openAiControl.length+' замеч.',onClick:()=>navigateTo('projects')},
               {label:'Ежедневный отчёт',sub:'работы по объектам',icon:<FileText size={18}/>,color:'#86efac',bg:'rgba(34,197,94,.12)',border:'rgba(34,197,94,.28)',metric:directorSkillDailyWorks.length+' работ',onClick:()=>showPreview(buildDailyObjectReportContent(directorSkillDate),'Ежедневный отчет — '+new Date(directorSkillDate+'T00:00:00').toLocaleDateString('ru-RU'))},
               {label:'Проверка смет',sub:'нули, дубли, бюджет',icon:<Calculator size={18}/>,color:'#93c5fd',bg:'rgba(59,130,246,.12)',border:'rgba(59,130,246,.28)',metric:directorSkillEstimateIssues+' замеч.',onClick:openEstimateControlReport},
               {label:'Склад и снабжение',sub:'остатки, заявки, счета',icon:<Package size={18}/>,color:'#c4b5fd',bg:'rgba(139,92,246,.12)',border:'rgba(139,92,246,.28)',metric:directorSkillSupplyIssues+' задач',onClick:()=>showPreview(buildSupplyControlReportContent(),'Контроль снабжения и склада')},
@@ -11749,14 +11872,14 @@ function App() {
             return(
             <div style={{minHeight:'100%',padding:'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
               <DashboardTopBar C={C} setSidebarVisible={setSidebarVisible} darkMode={darkMode} setDarkMode={setDarkMode} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} setShowAiAssistant={setShowAiAssistant} showAiAssistant={showAiAssistant} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} navigateTo={navigateTo} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} user={user} setUser={setUser} API={API} setShowQuickActions={setShowQuickActions}/>
-              <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} setActivePage={setActivePage} setAccountingTab={setAccountingTab}/>
+              <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} setActivePage={setActivePage} navigateTo={navigateTo} setAccountingTab={setAccountingTab}/>
               <DashboardDirectorAiPanel isLeadership={isLeadership} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={askDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={setDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>
               <DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>
               <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:'16px'}}>
                 <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                   <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
                   {dashboardProjects.slice(0,5).map(p=>{const bs=projectBudgetSpent(p);const factTotal=bs.total;const realProg=_projProgress(p);return(
-                    <div key={p.id} onClick={()=>{setExpandedProject(p.id);setActivePage('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
+                    <div key={p.id} onClick={()=>{setExpandedProject(p.id);navigateTo('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
                         <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
                         <span style={{display:'inline-flex',borderRadius:'999px',padding:'4px 10px',fontSize:'11px',fontWeight:'700',background:'rgba(234,88,12,.14)',color:'#fdba74',border:'1px solid rgba(234,88,12,.32)',whiteSpace:'nowrap'}}>{realProg}%</span>
@@ -11783,15 +11906,15 @@ function App() {
             </div>
             );
           })()}
-          {activePage==='projects'&&(<div>
+          {activePage==='projects'&&canAccess('projects')&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
               <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                <button onClick={()=>{setShowForm(showForm===true?false:true);setEditingItem(null);setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null});}} style={btnO}><Plus size={14}/>Новый проект</button>
+                {isLeadership()&&<button onClick={()=>{setShowForm(showForm===true?false:true);setEditingItem(null);setNewProject({name:'',client:'',status:'Планирование',budget:'',deadline:'',progress:0,tasks:[],pricelistId:null});}} style={btnO}><Plus size={14}/>Новый проект</button>}
                 <button onClick={()=>setShowArchive(!showArchive)} style={btnG}><Archive size={14}/>{showArchive?'Активные':'Архив'}</button>
               </div>
             </div>
             {showArchive&&<div style={{...card,padding:'12px 14px',marginBottom:'14px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}><p style={{margin:0,color:C.text,fontSize:'12px'}}>📦 <b>Архив закрытых объектов.</b> Здесь хранятся завершённые объекты со всеми документами, перепиской и актами — для просмотра. Чтобы вернуть объект в работу, нажмите <Archive size={11} style={{verticalAlign:'middle'}}/>↩ у объекта.</p></div>}
-            {showForm===true&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
+            {showForm===true&&isLeadership()&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
               <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать проект':'Новый проект'}</h3>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px'}}>
                 <input placeholder="Название *" value={newProject.name} onChange={e=>setNewProject({...newProject,name:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -11903,11 +12026,11 @@ function App() {
                       </div>
                       <div>
                         <b style={{color:C.text,fontSize:'13px'}}>Задачи:</b>
-                        <div style={{display:'flex',gap:'8px',marginTop:'8px',marginBottom:'10px'}}>
+                        {isLeadership()&&<div style={{display:'flex',gap:'8px',marginTop:'8px',marginBottom:'10px'}}>
                           <input placeholder="Новая задача..." value={newTask} onChange={e=>setNewTask(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addTask(p)} style={{...inp,marginBottom:0,flex:1,fontSize:'13px'}}/>
                           <button onClick={()=>addTask(p)} style={btnO}><Plus size={14}/></button>
-                        </div>
-                        {(p.tasks||[]).map((t,i)=>(<div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><span style={{fontSize:'13px',color:C.text}}>{'• '+t}</span><button onClick={()=>removeTask(p,i)} style={{...btnR,padding:'3px 7px',fontSize:'10px'}}><X size={10}/></button></div>))}
+                        </div>}
+                        {(p.tasks||[]).map((t,i)=>(<div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border}}><span style={{fontSize:'13px',color:C.text}}>{'• '+t}</span>{isLeadership()&&<button onClick={()=>removeTask(p,i)} style={{...btnR,padding:'3px 7px',fontSize:'10px'}}><X size={10}/></button>}</div>))}
                       </div>
 
                       {user&&['директор','зам_директора','бухгалтер','прораб'].includes(user.role)&&(()=>{
@@ -12021,16 +12144,6 @@ function App() {
                         </div>);
                       })()}
 
-                    <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await refreshData();
-                      await updateProjectProgress(selectedBrigadeContract?.projectName||'');
-                    }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
 
                     {activeProjectTab==='ИИ-контроль'&&(()=> {
@@ -12345,16 +12458,6 @@ function App() {
                           <button onClick={()=>saveProjectStage(p.id,p.name)} style={btnO}><Check size={14}/>Сохранить</button>
                           <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
                         </div>
-                      <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await refreshData();
-                      await updateProjectProgress(selectedBrigadeContract?.projectName||'');
-                    }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                       {projectStages.filter(s=>s.projectName===p.name).map(stage=>{
                         const stColors={'Не начат':[C.textSec,C.bgGray,C.border],'В работе':[C.info,C.infoLight,C.infoBorder],'Завершён':[C.success,C.successLight,C.successBorder],'Заморожен':[C.warning,C.warningLight,C.warningBorder],'Просрочен':[C.danger,C.dangerLight,C.dangerBorder]};
@@ -12378,16 +12481,6 @@ function App() {
                                 {STAGE_STATUSES.map(s=><option key={s}>{s}</option>)}
                               </select>
                               <button onClick={()=>deleteStage(stage.id)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>
-                            <button onClick={async()=>{
-                      const doneItems=brigadeContractItems.filter(i=>i.doneQuantity>0);
-                      if(!doneItems.length){alert('Введите выполненные объёмы');return;}
-                      for(const item of doneItems){
-                        await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:selectedBrigadeContract?.projectName||'',description:item.name,quantity:item.doneQuantity,unit:item.unit,date:new Date().toISOString().split('T')[0],masterName:user.name,masterId:user.id,total:Math.round(item.doneQuantity*item.priceBrigade),status:'На проверке'})});
-                      }
-                      alert('Отправлено на проверку прорабу!');
-                      await refreshData();
-                      await updateProjectProgress(selectedBrigadeContract?.projectName||'');
-                    }} style={{...btnO,display:user&&['мастер','субподрядчик'].includes(user.role)?'flex':'none',marginTop:'10px',width:'100%',justifyContent:'center'}}><Check size={14}/>Отправить на проверку</button>
                   </div>)}
                           </div>
                         </div>);
@@ -12509,6 +12602,7 @@ function App() {
                         openConfirmModal={openConfirmModal}
                         setRejectingEntry={setRejectingEntry}
                         canConfirm={isProrab()}
+                        showCustomerTotals={['директор','зам_директора','бухгалтер','сметчик','главный_инженер','прораб'].includes(user?.role)}
                         fileSrc={fileSrc}
                         setShowPhotoModal={setShowPhotoModal}
                         C={C}
@@ -12830,13 +12924,23 @@ function App() {
                     {activeProjectTab==='Материалы'&&(<div>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
                         <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Материалы объекта</b>
-                        <div style={{display:'flex',gap:'8px'}}>
-                          <button onClick={()=>openReceiveInvoice(p.name)} style={btnB}><Plus size={14}/>Принять материал</button>
-                          {(isLeadership()||user.role==='прораб'||user.role==='кладовщик')&&(
+	                        <div style={{display:'flex',gap:'8px'}}>
+	                          {(isLeadership()||user.role==='прораб'||user.role==='кладовщик')&&(
                           <button onClick={async()=>{
                             const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(p.name));
                             const data=await res.json();
                             setMaterialTransfers(Array.isArray(data)?data:[]);
+                            setNewTransfer({
+                              materialName: '',
+                              quantity: '',
+                              unit: 'шт',
+                              workPackage: '',
+                              toPerson: '',
+                              toPersonRole: '',
+                              fromLocation: p.name,
+                              notes: '',
+                              transferDate: new Date().toISOString().split('T')[0],
+                            });
                             setShowTransferForm(!showTransferForm);
                           }} style={btnO}><Plus size={14}/>Передать материал</button>)}
                         </div>
@@ -13289,7 +13393,7 @@ function App() {
                     </div>
                     {(()=>{
                       const here=materialInspections.filter(mi=>mi.projectName===p.name);
-                      if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>📦</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при оформлении приходной накладной (📦 Материалы → 📷 Принять материал).<br/>Затем здесь прораб/кладовщик дополняет паспорт, сертификат и отметку об осмотре.</p></div>);
+	                      if(here.length===0) return(<div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}><div style={{fontSize:'40px',marginBottom:'10px'}}>📦</div><p style={{margin:'0 0 8px',fontWeight:'600'}}>Записей пока нет</p><p style={{fontSize:'12px',margin:0,lineHeight:1.6}}>Записи создаются автоматически при приёмке поставки или оформлении приходной накладной на склад.<br/>Затем здесь прораб/кладовщик дополняет паспорт, сертификат и отметку об осмотре.</p></div>);
                       const cntInsp=here.filter(r=>r.inspected).length;
                       const cntPending=here.length-cntInsp;
                       const cntOk=here.filter(r=>r.visualInspectionResult==='Соответствует').length;
@@ -13882,6 +13986,7 @@ function App() {
               users={users}
               user={user}
               projects={projects}
+              estimatesList={estimatesList}
               ROLES={ROLES}
               ROLE_LABELS={ROLE_LABELS}
               ROLE_GROUPS={ROLE_GROUPS}
@@ -13930,6 +14035,7 @@ function App() {
                 setShowGenerateEstimate={setShowGenerateEstimate}
                 estimateSearch={estimateSearch}
                 setEstimateSearch={setEstimateSearch}
+                showLeadership={isLeadership()}
               />
               <EstimateSearchResults
                 C={C}
@@ -13959,10 +14065,12 @@ function App() {
                     const tmpl=estimatesList.find(e=>String(e.id)===String(newEstimate.templateId));
                     if(tmpl) sections=enrichEstimateMeasurementBasis((tmpl.sections||[]).map(s=>({...s,id:Date.now()+Math.random(),items:(s.items||[]).map(i=>({...i,id:Date.now()+Math.random()}))})));
                   }
-                  const est=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newEstimate,sections})}));
-                  const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:newEstimate.status||'Активная'};
+                  const estimateStatus=isLeadership()?(newEstimate.status||'Активная'):'Черновик';
+                  const estimatePayload={...newEstimate,status:estimateStatus,sections};
+                  const est=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(estimatePayload)}));
+                  const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:estimateStatus};
                   const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>newEst.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,newEst)&&e.status==='Активная'));
-                  const nextEstimates=[...(estimatesList||[]).map(e=>(newEst.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,newEst))?{...e,status:'Архив'}:e),newEst];
+	                  const nextEstimates=[...(estimatesList||[]),newEst];
                   setEstimatesList(nextEstimates);
                   setSelectedEstimate(newEst);
                   setShowForm(false);
@@ -14014,6 +14122,7 @@ function App() {
                   sameEstimateGroup={sameEstimateGroup}
                   selectedEstimate={selectedEstimate}
                   setEstimateStatusRemote={setEstimateStatusRemote}
+                  showLeadership={['директор','зам_директора'].includes(user?.role)}
 	                  showEstimateIssuesOnly={showEstimateIssuesOnly}
 	                />
 	                {['директор','зам_директора'].includes(user?.role) && (()=>{const priceStats=selectedEstimateExecutionPriceStats();return(
@@ -14395,7 +14504,7 @@ function App() {
     <AccountableExpenseReportModal reportingPayment={reportingPayment} setReportingPayment={setReportingPayment} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} expenseCategories={EXPENSE_CATEGORIES} newExpense={newExpense} setNewExpense={setNewExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} expenseSubmitting={expenseSubmitting} setExpenseSubmitting={setExpenseSubmitting} API={API} user={user} loadAll={loadAll}/>
     <ManualExpenseModal addExpenseProject={addExpenseProject} setAddExpenseProject={setAddExpenseProject} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newManualExpense={newManualExpense} setNewManualExpense={setNewManualExpense} isFinanceRole={isFinanceRole} expenseCategories={EXPENSE_CATEGORIES} API={API} user={user} loadAll={loadAll}/>
     <AccountablePaymentModal showAccountableForm={showAccountableForm} setShowAccountableForm={setShowAccountableForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} users={users} newAccountable={newAccountable} setNewAccountable={setNewAccountable} API={API} user={user} loadAll={loadAll}/>
-    <EstimateDistributeModal showDistribute={showDistribute} setShowDistribute={setShowDistribute} selectedEstimate={selectedEstimate} distributing={distributing} setDistributing={setDistributing} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnB={btnB} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists} distributeAssignments={distributeAssignments} setDistributeAssignments={setDistributeAssignments} API={API} loadAll={loadAll}/>
+    <EstimateDistributeModal showDistribute={showDistribute} setShowDistribute={setShowDistribute} selectedEstimate={selectedEstimate} distributing={distributing} setDistributing={setDistributing} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnB={btnB} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists} staff={staff} distributeAssignments={distributeAssignments} setDistributeAssignments={setDistributeAssignments} API={API} loadAll={loadAll}/>
     <PricelistFromEstimateModal showFromEstimate={showFromEstimate} setShowFromEstimate={setShowFromEstimate} creatingFromEstimate={creatingFromEstimate} setCreatingFromEstimate={setCreatingFromEstimate} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} fromEstimateForm={fromEstimateForm} setFromEstimateForm={setFromEstimateForm} estimatesList={estimatesList} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>
     <GeneratePricelistModal showGeneratePricelist={showGeneratePricelist} setShowGeneratePricelist={setShowGeneratePricelist} generatingPricelist={generatingPricelist} setGeneratingPricelist={setGeneratingPricelist} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatePricelistForm={generatePricelistForm} setGeneratePricelistForm={setGeneratePricelistForm} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>
     <GenerateEstimateModal showGenerateEstimate={showGenerateEstimate} setShowGenerateEstimate={setShowGenerateEstimate} generating={generating} setGenerating={setGenerating} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generateForm={generateForm} setGenerateForm={setGenerateForm} projects={projects} pricelists={pricelists} estimatePackages={ESTIMATE_PACKAGES} nextEstimateVersionFor={nextEstimateVersionFor} API={API} enrichEstimateMeasurementBasis={enrichEstimateMeasurementBasis} estimatesList={estimatesList} setEstimatesList={setEstimatesList} setSelectedEstimate={setSelectedEstimate} activeEstimateFromList={activeEstimateFromList} isGlobalEstimateTemplate={isGlobalEstimateTemplate} sameEstimateGroup={sameEstimateGroup} queueEstimateDiffReviewTask={queueEstimateDiffReviewTask} autoReconcileEstimateChanges={autoReconcileEstimateChanges} queueEstimateQualityReviewTask={queueEstimateQualityReviewTask} queueEstimateNormReviewTask={queueEstimateNormReviewTask}/>
@@ -14405,7 +14514,7 @@ function App() {
     <ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} getProjectWorkPackageOptions={getProjectWorkPackageOptions} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>
     <ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} setNewInvoice={setNewInvoice}/>
     <OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>
-    <QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setExpandedProject={setExpandedProject} setActiveProjectTab={setActiveProjectTab} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>
+    <QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setExpandedProject={setExpandedProject} setActiveProjectTab={setActiveProjectTab} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>
     <SystemStatusModal
       show={showSystemStatus}
       systemStatus={systemStatus}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, ChevronDown, ChevronUp, Plus, Search, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, FileCheck2, Plus, Search, Trash2 } from 'lucide-react';
 import { API } from '../api';
 
 function SupplySupplierInvoicesPanel({
@@ -54,16 +54,23 @@ function SupplySupplierInvoicesPanel({
       alert('Заполните: поставщик, № счёта, сумма');
       return;
     }
-    await fetch(API+'/supplier-invoices',{
+    const res = await fetch(API+'/supplier-invoices',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         ...newSupplierInvoice,
+        projectName:'',
+        workPackage:'',
         amount:Number(newSupplierInvoice.amount)||0,
         vatAmount:Number(newSupplierInvoice.vatAmount||0),
         status:'На утверждении',
       }),
     });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok || data.detail || data.error){
+      alert('Ошибка: '+(data.detail||data.error||'не удалось сохранить счёт'));
+      return;
+    }
     await loadAll();
     setNewSupplierInvoice(null);
   };
@@ -87,7 +94,7 @@ function SupplySupplierInvoicesPanel({
     }
     const newPaid = paidAmount + sum;
     const newStatus = newPaid >= total ? 'Оплачен' : 'Частично оплачен';
-    await fetch(API+'/supplier-invoices/'+invoice.id,{
+    const payRes = await fetch(API+'/supplier-invoices/'+invoice.id,{
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -98,6 +105,11 @@ function SupplySupplierInvoicesPanel({
         paidNote:'Оплачено '+Math.round(sum).toLocaleString('ru-RU')+' ₽',
       }),
     });
+    const payData = await payRes.json().catch(()=>({}));
+    if(!payRes.ok || payData.detail || payData.error){
+      alert('Оплата не проведена: '+(payData.detail||payData.error||'сервер отклонил оплату'));
+      return;
+    }
     if(invoice.projectName){
       await fetch(API+'/project-payments',{
         method:'POST',
@@ -136,16 +148,20 @@ function SupplySupplierInvoicesPanel({
 
       {newSupplierInvoice&&(
         <div style={{...card,padding:'16px',marginBottom:'14px',backgroundColor:C.bg}}>
+          <div style={{display:'flex',gap:'10px',alignItems:'flex-start',padding:'10px 12px',borderRadius:'8px',backgroundColor:C.infoLight||C.accentLight,border:'1px solid '+(C.infoBorder||C.accentBorder||C.border),marginBottom:'10px'}}>
+            <FileCheck2 size={18} style={{color:C.info||C.accent,marginTop:'1px',flexShrink:0}}/>
+            <div>
+              <b style={{display:'block',color:C.text,fontSize:'12px',marginBottom:'2px'}}>Ручной счёт без привязки к объекту</b>
+              <p style={{color:C.textSec,fontSize:'11px',margin:0,lineHeight:1.35}}>
+                Счета по объектам создаются из утверждённого КП в заявке снабжения. Так сумма, поставка, накладная и контроль материалов остаются связаны со сметой.
+              </p>
+            </div>
+          </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
             <select value={newSupplierInvoice.supplierName} onChange={e=>{const supplier=suppliers.find(s=>s.name===e.target.value);setNewSupplierInvoice({...newSupplierInvoice,supplierName:e.target.value,supplierId:supplier?supplier.id:null});}} style={{...inp,marginBottom:0}}>
               <option value=''>Поставщик *</option>
               {(suppliers||[]).map(supplier=><option key={supplier.id} value={supplier.name}>{supplier.name}</option>)}
             </select>
-            <select value={newSupplierInvoice.projectName} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,projectName:e.target.value})} style={{...inp,marginBottom:0}}>
-              <option value=''>Объект (если по проекту)</option>
-              {projects.map(project=><option key={project.id} value={project.name}>{project.name}</option>)}
-            </select>
-            <input placeholder='Раздел сметы' value={newSupplierInvoice.workPackage||''} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,workPackage:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder='№ счёта *' value={newSupplierInvoice.invoiceNumber} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input type='date' value={newSupplierInvoice.invoiceDate} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,invoiceDate:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder='Сумма с НДС (₽) *' type='number' step='any' inputMode='decimal' value={newSupplierInvoice.amount} onChange={e=>setNewSupplierInvoice({...newSupplierInvoice,amount:e.target.value})} style={{...inp,marginBottom:0}}/>

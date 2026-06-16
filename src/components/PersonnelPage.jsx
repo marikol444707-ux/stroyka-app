@@ -6,9 +6,7 @@ export default function PersonnelPage({
   ROLE_GROUPS,
   ROLE_LABELS,
   PD_CONSENT_TEXT,
-  UNITS,
   API,
-  addPiecework,
   addStaffDoc,
   buildContractContent,
   buildPositionInstructionContent,
@@ -21,7 +19,6 @@ export default function PersonnelPage({
   contracts,
   createStaffAccessFromPrompt,
   daysInMonth,
-  deletePiecework,
   deleteStaff,
   editingItem,
   expandedMaster,
@@ -38,7 +35,6 @@ export default function PersonnelPage({
   masterProfiles,
   masterRatings,
   matchSearch,
-  newPiecework,
   newStaff,
   newStaffDoc,
   openStaffProfile,
@@ -55,18 +51,15 @@ export default function PersonnelPage({
   setExpandedMasterProject,
   setExpandedPieceworkProject,
   setListSearch,
-  setNewPiecework,
   setNewStaff,
   setNewStaffDoc,
   setPersonnelTab,
   setShowForm,
   setShowPhotoModal,
-  setShowPiecework,
   setShowStaffDocForm,
   setStaffProfile,
   setStaffExpandedSections,
   showForm,
-  showPiecework,
   showPreview,
   showStaffDocForm,
   staff,
@@ -83,7 +76,7 @@ export default function PersonnelPage({
   workJournal,
   workedDays,
 }) {
-  const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? work.total ?? 0);
+  const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
   const estimatePackage = (est) => est?.workPackage || est?.work_package || 'Основная';
   const packageOptionsForProjects = (projectNames=[]) => {
@@ -272,7 +265,7 @@ export default function PersonnelPage({
                   {accessProjectRoles.includes(newStaff.systemRole)&&(()=>{const ap=newStaff.assignedProjects||[];return(
                     <div style={{marginTop:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
                       <b style={{fontSize:'11px',color:C.text,display:'block',marginBottom:'6px'}}>📍 Назначить объекты (приказ директора)</b>
-                      <p style={{color:C.textMuted,fontSize:'10px',margin:'0 0 8px'}}>Исполнитель увидит только назначенные объекты. Если ничего не выбрано — доступ не ограничен объектами.</p>
+                      <p style={{color:C.textMuted,fontSize:'10px',margin:'0 0 8px'}}>Исполнитель увидит только назначенные объекты. Для мастера, субподрядчика и бригадира объект обязателен: без объекта рабочие данные не откроются.</p>
                       <div style={{maxHeight:'140px',overflowY:'auto',display:'flex',flexDirection:'column',gap:'4px'}}>
                         {projects.filter(p=>p.status!=='Завершён').map(pr=>(
                           <label key={pr.id} style={{display:'flex',alignItems:'center',gap:'6px',cursor:'pointer',padding:'4px 6px',borderRadius:'6px',backgroundColor:ap.includes(pr.name)?C.successLight:'transparent'}}>
@@ -533,24 +526,16 @@ export default function PersonnelPage({
 
       {personnelTab==='piecework'&&(
         <div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-            <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сдельные работы</b>
-            <button onClick={()=>setShowPiecework(!showPiecework)} style={btnO}><Plus size={14}/>Добавить</button>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'12px',flexWrap:'wrap'}}>
+            <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Сдельные начисления</b>
+            <span style={{color:C.textSec,fontSize:'12px'}}>Формируются автоматически из подтверждённого ЖПР и актов</span>
           </div>
-          {showPiecework&&(
-            <div style={{...card,padding:'20px',marginBottom:'16px'}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-                <select value={newPiecework.staffId} onChange={e=>setNewPiecework({...newPiecework,staffId:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Сотрудник *</option>{staff.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>
-                <select value={newPiecework.project} onChange={e=>setNewPiecework({...newPiecework,project:e.target.value})} style={{...inp,marginBottom:0}}><option value="">Объект</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
-                <input placeholder="Описание *" value={newPiecework.description} onChange={e=>setNewPiecework({...newPiecework,description:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder="Количество *" type="number" step="any" inputMode="decimal" value={newPiecework.quantity} onChange={e=>setNewPiecework({...newPiecework,quantity:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <select value={newPiecework.unit} onChange={e=>setNewPiecework({...newPiecework,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
-                <input placeholder="Цена за единицу *" type="number" step="any" inputMode="decimal" value={newPiecework.pricePerUnit} onChange={e=>setNewPiecework({...newPiecework,pricePerUnit:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <div style={{padding:'10px',backgroundColor:C.accentLight,borderRadius:'8px',border:'1.5px solid '+C.accentBorder,display:'flex',alignItems:'center',justifyContent:'center'}}><b style={{color:C.accent}}>{newPiecework.quantity&&newPiecework.pricePerUnit?(Number(newPiecework.quantity)*Number(newPiecework.pricePerUnit)).toLocaleString()+' ₽':'0 ₽'}</b></div>
-              </div>
-              <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={addPiecework} style={btnO}><Check size={14}/>Добавить</button><button onClick={()=>setShowPiecework(false)} style={btnG}><X size={14}/>Отмена</button></div>
-            </div>
-          )}
+          <div style={{...card,padding:'14px',marginBottom:'16px',borderColor:C.warningBorder||C.border,backgroundColor:C.warningLight||C.bg}}>
+            <b style={{color:C.warning||C.text,fontSize:'12px'}}>Ручное добавление отключено</b>
+            <p style={{color:C.textSec,margin:'6px 0 0',fontSize:'12px',lineHeight:1.45}}>
+              Чтобы начислить оплату мастеру или субподрядчику, исполнитель закрывает работу в ЖПР с помещением, руководитель подтверждает, затем бухгалтерия формирует акт закрытия.
+            </p>
+          </div>
           {staff.map(s=>{
             const sWorks=piecework.filter(p=>Number(p.staffId)===s.id);
             const sTotal=sWorks.reduce((ss,p)=>ss+p.total,0);
@@ -567,7 +552,7 @@ export default function PersonnelPage({
                     {sWorks.map(w=>(
                       <div key={w.id} style={{padding:'8px 0',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                         <div><b style={{fontSize:'12px',color:C.text}}>{w.description}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{w.quantity+' '+w.unit+' × '+w.pricePerUnit.toLocaleString()+' ₽ · '+w.date+(w.project?' · '+w.project:'')}</p></div>
-                        <div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{fontSize:'12px',color:C.success}}>{w.total.toLocaleString()+' ₽'}</b><button onClick={()=>deletePiecework(w.id)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={10}/></button></div>
+                        <div style={{display:'flex',gap:'6px',alignItems:'center'}}><b style={{fontSize:'12px',color:C.success}}>{w.total.toLocaleString()+' ₽'}</b></div>
                       </div>
                     ))}
                   </div>

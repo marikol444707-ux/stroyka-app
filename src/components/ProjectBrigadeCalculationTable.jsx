@@ -10,6 +10,7 @@ export default function ProjectBrigadeCalculationTable({
   brigadeContractItems = [],
   setBrigadeContractItems,
   showFinance = false,
+  showLeadership = false,
   normalizeMeasure = defaultNormalizeMeasure,
   toNum = defaultToNum,
   fmtMeasure = defaultFmtMeasure,
@@ -61,10 +62,10 @@ export default function ProjectBrigadeCalculationTable({
           <th style={tblH}>Осталось</th>
           <th style={tblH}>%</th>
           <th style={{...tblH, display: showFinance ? '' : 'none'}}>Цена смета</th>
-          <th style={tblH}>Цена бригаде</th>
-          <th style={tblH}>К оплате</th>
+          <th style={{...tblH, display: showLeadership ? '' : 'none'}}>Цена бригаде</th>
+          <th style={{...tblH, display: showLeadership ? '' : 'none'}}>К оплате</th>
           <th style={{...tblH, display: showFinance ? '' : 'none'}}>Экономия</th>
-          <th style={tblH}></th>
+          <th style={{...tblH, display: showLeadership ? '' : 'none'}}></th>
         </tr>
       </thead>
       <tbody>
@@ -80,14 +81,16 @@ export default function ProjectBrigadeCalculationTable({
               <td style={tblC}>{item.name}</td>
               <td style={tblC}>{unit}</td>
               <td style={tblC}>
-                <input
-                  type="number"
-                  step="any"
-                  inputMode="decimal"
-                  value={item.quantity ? String(toNum(item.quantity) * normalizeMeasure(1, item.unit).factor) : ''}
-                  onChange={e => updateQuantity(item, index, e.target.value)}
-                  style={{...inp, marginBottom: 0, width: '70px', fontSize: '12px', padding: '4px 6px'}}
-                />
+                {showLeadership ? (
+                  <input
+                    type="number"
+                    step="any"
+                    inputMode="decimal"
+                    value={item.quantity ? String(toNum(item.quantity) * normalizeMeasure(1, item.unit).factor) : ''}
+                    onChange={e => updateQuantity(item, index, e.target.value)}
+                    style={{...inp, marginBottom: 0, width: '70px', fontSize: '12px', padding: '4px 6px'}}
+                  />
+                ) : fmtMeasure(Number(item.quantity || 0), item.unit)}
               </td>
               <td
                 style={{...tblC, fontWeight: '600', color: C.text}}
@@ -104,7 +107,7 @@ export default function ProjectBrigadeCalculationTable({
                 </span>
               </td>
               <td style={{...tblC, display: showFinance ? '' : 'none'}}>{Number(item.priceSmeta || 0).toLocaleString('ru-RU') + ' ₽'}</td>
-              <td style={tblC}>
+              <td style={{...tblC, display: showLeadership ? '' : 'none'}}>
                 <input
                   type="number"
                   step="any"
@@ -115,9 +118,9 @@ export default function ProjectBrigadeCalculationTable({
                   style={{...inp, marginBottom: 0, width: '80px', fontSize: '12px', padding: '4px 6px'}}
                 />
               </td>
-              <td style={{...tblC, fontWeight: '600', color: C.accent}}>{toPay.toLocaleString('ru-RU') + ' ₽'}</td>
+              <td style={{...tblC, fontWeight: '600', color: C.accent, display: showLeadership ? '' : 'none'}}>{toPay.toLocaleString('ru-RU') + ' ₽'}</td>
               <td style={{...tblC, fontWeight: '600', color: C.success, display: showFinance ? '' : 'none'}}>{economy.toLocaleString('ru-RU') + ' ₽'}</td>
-              <td style={tblC}>
+              <td style={{...tblC, display: showLeadership ? '' : 'none'}}>
                 <button onClick={() => deleteItem(item, index)} style={{...btnR, padding: '3px 7px'}}>
                   <Trash2 size={11}/>
                 </button>

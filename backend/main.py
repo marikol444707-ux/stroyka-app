@@ -234,19 +234,27 @@ def get_ai_control_runner(
 LEADERSHIP_ROLES = ("директор", "зам_директора")
 SYSTEM_PROJECT_NAME = "Система"
 FINANCE_ROLES = ("директор", "зам_директора", "бухгалтер")
+ESTIMATE_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 WAREHOUSE_ROLES = ("директор", "зам_директора", "кладовщик", "снабженец", "прораб")
-SUPPLY_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "мастер", "субподрядчик", "поставщик", "бухгалтер")
+MAIN_WAREHOUSE_WRITE_ROLES = ("директор", "зам_директора", "кладовщик", "снабженец")
+SUPPLY_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "мастер", "субподрядчик", "бригадир", "поставщик", "бухгалтер")
 SUPPLY_INTERNAL_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "бухгалтер")
+MATERIAL_PRICE_HISTORY_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер")
 PROJECT_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
-PROJECT_DOCUMENT_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "кладовщик", "снабженец", "технадзор", "заказчик", "стройконтроль")
+PROJECT_CARD_WRITE_ROLES = ("директор", "зам_директора", "главный_инженер", "сметчик")
+PROJECT_DOCUMENT_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "бригадир", "кладовщик", "снабженец", "технадзор", "заказчик", "стройконтроль")
 PROJECT_DOCUMENT_WRITE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "технадзор", "стройконтроль")
-CONTRACT_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик")
-JOURNAL_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик", "кладовщик", "снабженец", "мастер", "субподрядчик", "технадзор", "стройконтроль")
-STAFF_MANAGE_ROLES = ("директор", "зам_директора", "бухгалтер")
+PROJECT_DOCUMENT_CONTENT_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик", "технадзор", "стройконтроль")
+CONTRACT_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "бригадир")
+JOURNAL_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "мастер", "субподрядчик", "бригадир")
+STAFF_MANAGE_ROLES = ("директор", "зам_директора")
+STAFF_FULL_VIEW_ROLES = (*STAFF_MANAGE_ROLES, "бухгалтер")
+STAFF_VIEW_ROLES = (*STAFF_MANAGE_ROLES, "бухгалтер", "прораб", "главный_инженер")
 PRICELIST_MANAGE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
-OWN_EXPENSE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "кладовщик", "снабженец")
+OWN_EXPENSE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "бригадир", "кладовщик", "снабженец")
 SUPPLIER_INVOICE_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "кладовщик", "снабженец", "поставщик")
 PACKAGE_LIMIT_ROLES = ("прораб", "мастер", "субподрядчик", "бригадир")
+WORKER_EXECUTION_ROLES = ("мастер", "субподрядчик", "бригадир")
 
 def user_project_names(user: dict) -> list[str]:
     names = []
@@ -279,10 +287,12 @@ def has_package_access(user: dict, work_package: str = "") -> bool:
     role = user.get("role")
     if can_see_all_company_data(user) or role in ("технадзор", "стройконтроль"):
         return True
+    if role == "прораб":
+        return True
     packages = user_package_names(user)
-    if not packages:
-        return role not in ("мастер", "субподрядчик", "бригадир")
     if role in PACKAGE_LIMIT_ROLES:
+        if not packages:
+            return False
         return bool((work_package or "Основная").strip() in packages)
     return True
 
@@ -290,48 +300,19 @@ def package_access_filter(user: dict, column: str = "work_package"):
     role = user.get("role")
     if role not in PACKAGE_LIMIT_ROLES:
         return "", []
+    if role == "прораб":
+        return "", []
     packages = user_package_names(user)
     if not packages:
-        return "", []
+        return " AND FALSE", []
     return f" AND COALESCE(NULLIF({column},''),'Основная') = ANY(%s)", [packages]
 
+def has_work_execution_package_access(user: dict, project: str, work_package: str = "") -> bool:
+    package = (work_package or "Основная").strip() or "Основная"
+    return has_package_access(user, package)
+
 def enrich_worker_project_links(cur, user: dict) -> dict:
-    """Мастер может быть привязан к объекту через договор, журнал или передачу материалов."""
-    if not user:
-        return user
-    role = user.get("role")
-    if role not in ("мастер", "субподрядчик"):
-        return user
-    names = set(user_project_names(user))
-    user_id = user.get("id")
-    user_name = user.get("name") or ""
-    try:
-        cur.execute("""
-            SELECT DISTINCT project_name AS project_name
-            FROM brigade_contracts
-            WHERE COALESCE(project_name,'') <> ''
-              AND (contractor_id=%s OR LOWER(COALESCE(brigade_name,''))=LOWER(%s))
-            UNION
-            SELECT DISTINCT project AS project_name
-            FROM work_journal
-            WHERE COALESCE(project,'') <> ''
-              AND (master_id=%s OR LOWER(COALESCE(master_name,''))=LOWER(%s))
-            UNION
-            SELECT DISTINCT project_name AS project_name
-            FROM material_transfers
-            WHERE COALESCE(project_name,'') <> ''
-              AND LOWER(COALESCE(to_person,''))=LOWER(%s)
-        """, (user_id, user_name, user_id, user_name, user_name))
-        for row in cur.fetchall() or []:
-            project_name = row.get("project_name") if isinstance(row, dict) else row[0]
-            if project_name:
-                names.add(str(project_name))
-    except Exception:
-        return user
-    if names:
-        merged = sorted(names)
-        user["assignedProjects"] = merged
-        user["assigned_projects"] = merged
+    """Права исполнителя задаются только явными assignedProjects/assignedPackages."""
     return user
 
 def current_supplier_id(cur, user: dict):
@@ -370,6 +351,9 @@ def limit_offset_sql(limit: Optional[int] = None, offset: int = 0):
 def can_see_all_company_data(user: dict) -> bool:
     return user.get("role") in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик")
 
+def can_see_warehouse_data(user: dict) -> bool:
+    return user.get("role") in WAREHOUSE_ROLES or user.get("role") in FINANCE_ROLES or user.get("role") == "главный_инженер"
+
 def visible_project_names(user: dict) -> Optional[List[str]]:
     if can_see_all_company_data(user):
         return None
@@ -399,6 +383,101 @@ def require_estimate_access(cur, estimate_id: int, user: dict):
     if user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(user, work_package or "Основная"):
         raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
     return project_name or "", work_package or "Основная"
+
+def _estimate_item_key_candidates(item: dict, estimate_id=None, section_idx=None, item_idx=None) -> list[str]:
+    keys = []
+    for field in ("estimateItemKey", "estimate_item_key", "itemKey", "key", "id", "code", "sourceCode", "obosn"):
+        value = str((item or {}).get(field) or "").strip()
+        if value and value not in keys:
+            keys.append(value)
+    if estimate_id is not None and section_idx is not None and item_idx is not None:
+        generated = str(estimate_id) + ":" + str(section_idx) + ":" + str(item_idx)
+        if generated not in keys:
+            keys.append(generated)
+    return keys
+
+def _estimate_item_unit_price_backend(item: dict) -> float:
+    for field in (
+        "executionPricePerUnit", "priceBrigade", "masterPricePerUnit", "contractorPricePerUnit",
+        "executorPricePerUnit", "internalPricePerUnit", "priceWork", "priceSmeta", "price",
+        "baseUnitPrice",
+    ):
+        value = _safe_float((item or {}).get(field))
+        if value > 0:
+            return value
+    qty = _safe_float((item or {}).get("quantity"))
+    total = 0
+    for field in ("totalWork", "lineTotal", "currentTotal", "total", "baseTotal", "estimatedCost"):
+        total = _safe_float((item or {}).get(field))
+        if abs(total) > 0:
+            break
+    if qty > 0 and total > 0:
+        return round(total / qty, 6)
+    return 0
+
+def _load_estimate_work_item(cur, estimate_id: int, *, project_name: str = "", work_package: str = "",
+                             estimate_item_key: str = "", section_name: str = "", item_name: str = ""):
+    cur.execute("""SELECT project_name, COALESCE(NULLIF(work_package,''),'Основная') AS work_package, sections_json
+                   FROM estimates WHERE id=%s""", (estimate_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+    est_project = row.get("project_name") if isinstance(row, dict) else row[0]
+    est_package = row.get("work_package") if isinstance(row, dict) else row[1]
+    raw_sections = row.get("sections_json") if isinstance(row, dict) else row[2]
+    if project_name and est_project and est_project != project_name:
+        raise HTTPException(status_code=400, detail="Смета относится к другому объекту")
+    normalized_package = (work_package or est_package or "Основная").strip() or "Основная"
+    if est_package and normalized_package != est_package:
+        raise HTTPException(status_code=400, detail="Пакет работы не совпадает с пакетом сметы")
+    try:
+        sections = json.loads(raw_sections) if isinstance(raw_sections, str) else (raw_sections or [])
+    except Exception:
+        sections = []
+    target_key = str(estimate_item_key or "").strip()
+    target_section = str(section_name or "").strip().lower()
+    target_name = str(item_name or "").strip().lower()
+    fallback_match = None
+    for section_idx, section in enumerate(sections or []):
+        if not isinstance(section, dict):
+            continue
+        current_section = str(section.get("name") or "").strip()
+        for item_idx, item in enumerate(section.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            if _estimate_item_type_backend(item, current_section) != "work":
+                continue
+            keys = _estimate_item_key_candidates(item, estimate_id, section_idx, item_idx)
+            item_name_value = str(item.get("name") or item.get("description") or "").strip()
+            key_match = target_key and target_key in keys
+            name_match = target_name and item_name_value.strip().lower() == target_name
+            section_match = (not target_section) or current_section.lower() == target_section
+            if key_match or (name_match and section_match):
+                canonical_key = target_key if key_match else (keys[0] if keys else "")
+                return {
+                    "sectionName": current_section,
+                    "name": item_name_value,
+                    "unit": item.get("unit") or "шт",
+                    "quantity": _safe_float(item.get("quantity")),
+                    "pricePerUnit": _estimate_item_unit_price_backend(item),
+                    "workPackage": est_package or "Основная",
+                    "estimateItemKey": canonical_key,
+                    "item": item,
+                }
+            if name_match and not fallback_match:
+                fallback_match = {
+                    "sectionName": current_section,
+                    "name": item_name_value,
+                    "unit": item.get("unit") or "шт",
+                    "quantity": _safe_float(item.get("quantity")),
+                    "pricePerUnit": _estimate_item_unit_price_backend(item),
+                    "workPackage": est_package or "Основная",
+                    "estimateItemKey": keys[0] if keys else "",
+                    "item": item,
+                }
+    if fallback_match:
+        return fallback_match
+    raise HTTPException(status_code=400, detail="Строка ЖПР не найдена в указанной смете")
 
 def require_project_or_warehouse_access(user: dict, project_name: str):
     if can_see_all_company_data(user) or user.get("role") in ("кладовщик", "снабженец"):
@@ -496,10 +575,50 @@ def require_tool_access(cur, tool_id: int, user: dict):
         allowed = user_project_names(user)
         if not project or project in allowed or location in allowed:
             return
-    if role in ("мастер", "субподрядчик"):
-        if str(master_id or "") == str(user.get("id") or "") or master_name == (user.get("name") or ""):
+    if role in WORKER_EXECUTION_ROLES:
+        if str(master_id or "") == str(user.get("id") or "") or (not master_id and master_name == (user.get("name") or "")):
             return
     raise HTTPException(status_code=403, detail="Нет доступа к инструменту")
+
+def require_work_journal_actor_access(cur, journal_id: int, user: dict):
+    cur.execute("""SELECT project, work_package, master_id, master_name
+                   FROM work_journal WHERE id=%s""", (journal_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Запись ЖПР не найдена")
+    project = (row[0] if not isinstance(row, dict) else row.get("project")) or ""
+    work_package = (row[1] if not isinstance(row, dict) else row.get("work_package")) or "Основная"
+    master_id = row[2] if not isinstance(row, dict) else row.get("master_id")
+    master_name = (row[3] if not isinstance(row, dict) else row.get("master_name")) or ""
+    require_project_access(user, project)
+    if user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(user, work_package or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+    if user.get("role") in WORKER_EXECUTION_ROLES:
+        if str(master_id or "") != str(user.get("id") or "") and (master_id or master_name.strip().lower() != (user.get("name") or "").strip().lower()):
+            raise HTTPException(status_code=403, detail="Исполнитель может работать только со своей записью ЖПР")
+    return {"project": project, "workPackage": work_package, "masterId": master_id, "masterName": master_name}
+
+def require_hidden_work_actor_access(cur, act_id: int, user: dict):
+    cur.execute("""SELECT project_name, COALESCE(NULLIF(work_package,''),'Основная') AS work_package,
+                          brigade, signed_contractor, signed_subcontractor
+                   FROM hidden_works_acts WHERE id=%s""", (act_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="АОСР не найден")
+    project = (row[0] if not isinstance(row, dict) else row.get("project_name")) or ""
+    work_package = (row[1] if not isinstance(row, dict) else row.get("work_package")) or "Основная"
+    brigade = (row[2] if not isinstance(row, dict) else row.get("brigade")) or ""
+    signed_contractor = (row[3] if not isinstance(row, dict) else row.get("signed_contractor")) or ""
+    signed_subcontractor = (row[4] if not isinstance(row, dict) else row.get("signed_subcontractor")) or ""
+    require_project_access(user, project)
+    if user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(user, work_package or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету АОСР")
+    if user.get("role") in WORKER_EXECUTION_ROLES:
+        actor_key = (user.get("name") or "").strip().lower()
+        own_names = {brigade.strip().lower(), signed_contractor.strip().lower(), signed_subcontractor.strip().lower()}
+        if actor_key not in own_names:
+            raise HTTPException(status_code=403, detail="Исполнитель может работать только со своим АОСР")
+    return {"project": project, "workPackage": work_package}
 
 def require_inventory_access(cur, inventory_id: int, user: dict):
     cur.execute("SELECT project FROM inventory WHERE id=%s", (inventory_id,))
@@ -512,17 +631,21 @@ def require_inventory_access(cur, inventory_id: int, user: dict):
     require_project_access(user, project_name or "")
 
 def require_brigade_item_access(cur, item_id: int, user: dict):
-    cur.execute("""SELECT bc.project_name
+    cur.execute("""SELECT bc.project_name, COALESCE(bci.work_package,'')
                    FROM brigade_contract_items bci
                    JOIN brigade_contracts bc ON bc.id = bci.contract_id
                    WHERE bci.id=%s""", (item_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Запись не найдена")
-    require_project_access(user, row[0] or "")
+    project_name = row[0] if not isinstance(row, dict) else row.get("project_name")
+    work_package = row[1] if not isinstance(row, dict) else row.get("work_package")
+    require_project_access(user, project_name or "")
+    if user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(user, work_package or "Основная"):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету договорной позиции")
 
 def require_worker_brigade_contract_access(cur, contract_id: int, user: dict):
-    if user.get("role") not in ("мастер", "субподрядчик"):
+    if user.get("role") not in WORKER_EXECUTION_ROLES:
         return
     cur.execute("SELECT contractor_id, brigade_name FROM brigade_contracts WHERE id=%s", (contract_id,))
     row = cur.fetchone()
@@ -1388,6 +1511,7 @@ def init_db():
             date_time VARCHAR(100)
         );
         ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
+        ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS unit VARCHAR(50);
         ALTER TABLE warehouse_history ALTER COLUMN material TYPE TEXT;
         CREATE TABLE IF NOT EXISTS staff (
             id SERIAL PRIMARY KEY,
@@ -1637,6 +1761,9 @@ def init_db():
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS created_by VARCHAR(255);
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
         ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS project_name VARCHAR(255);
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS assigned_packages JSONB DEFAULT '[]'::jsonb;
         CREATE TABLE IF NOT EXISTS supplier_documents (
             id SERIAL PRIMARY KEY,
             supplier_id INT,
@@ -1754,9 +1881,11 @@ def init_db():
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS scan_url TEXT;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_journal_ids TEXT DEFAULT '[]';
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
@@ -1921,10 +2050,12 @@ def init_db():
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(255);
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS to_user_id INT;
         CREATE TABLE IF NOT EXISTS brigade_contracts (
             id SERIAL PRIMARY KEY,
             project_id INT,
             project_name VARCHAR(255),
+            work_package VARCHAR(100) DEFAULT '',
             brigade_name VARCHAR(255),
             contractor_type VARCHAR(50),
             contractor_id INT,
@@ -1940,6 +2071,8 @@ def init_db():
             contract_id INT,
             estimate_section VARCHAR(255),
             description VARCHAR(255),
+            work_package VARCHAR(100) DEFAULT '',
+            estimate_item_key VARCHAR(255) DEFAULT '',
             unit VARCHAR(50),
             quantity FLOAT DEFAULT 0,
             price_smeta NUMERIC(14,2) DEFAULT 0,
@@ -2473,6 +2606,22 @@ def init_db():
             difference FLOAT,
             notes TEXT
         );
+        ALTER TABLE work_journal ALTER COLUMN description TYPE TEXT;
+        ALTER TABLE room_works ALTER COLUMN description TYPE TEXT;
+        ALTER TABLE hidden_works_acts ALTER COLUMN section_name TYPE TEXT;
+        ALTER TABLE supplier_invoices ALTER COLUMN material_name TYPE TEXT;
+        ALTER TABLE supply_requests ALTER COLUMN material_name TYPE TEXT;
+        ALTER TABLE supply_deliveries ALTER COLUMN material_name TYPE TEXT;
+        ALTER TABLE supply_claims ALTER COLUMN material_name TYPE TEXT;
+        ALTER TABLE supply_history ALTER COLUMN material_name TYPE TEXT;
+        ALTER TABLE supplier_catalog ALTER COLUMN material_name TYPE TEXT;
+        ALTER TABLE material_transfers ALTER COLUMN material_name TYPE TEXT;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS to_user_id INT;
+        ALTER TABLE inventory_items ALTER COLUMN material_name TYPE TEXT;
+        ALTER TABLE brigade_contract_items ALTER COLUMN estimate_section TYPE TEXT;
+        ALTER TABLE brigade_contract_items ALTER COLUMN description TYPE TEXT;
+        ALTER TABLE brigade_contract_items ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
+        ALTER TABLE brigade_contract_items ADD COLUMN IF NOT EXISTS estimate_item_key VARCHAR(255) DEFAULT '';
         CREATE TABLE IF NOT EXISTS pd_consents (
             id SERIAL PRIMARY KEY,
             user_id INT UNIQUE,
@@ -2531,6 +2680,17 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE ai_tasks ADD COLUMN IF NOT EXISTS dedupe_key VARCHAR(255);
+        ALTER TABLE ai_findings ALTER COLUMN project_name TYPE TEXT;
+        ALTER TABLE ai_findings ALTER COLUMN source TYPE TEXT;
+        ALTER TABLE ai_findings ALTER COLUMN linked_entity_type TYPE TEXT;
+        ALTER TABLE ai_findings ALTER COLUMN linked_entity_id TYPE TEXT;
+        ALTER TABLE ai_findings ALTER COLUMN assigned_to TYPE TEXT;
+        ALTER TABLE ai_findings ALTER COLUMN dedupe_key TYPE TEXT;
+        ALTER TABLE ai_findings ALTER COLUMN created_by TYPE TEXT;
+        ALTER TABLE ai_tasks ALTER COLUMN project_name TYPE TEXT;
+        ALTER TABLE ai_tasks ALTER COLUMN assigned_to TYPE TEXT;
+        ALTER TABLE ai_tasks ALTER COLUMN action_label TYPE TEXT;
+        ALTER TABLE ai_tasks ALTER COLUMN dedupe_key TYPE TEXT;
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_project ON ai_tasks(project_name);
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status);
         CREATE INDEX IF NOT EXISTS idx_ai_tasks_finding ON ai_tasks(finding_id);
@@ -2576,6 +2736,11 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW(),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE material_norms ALTER COLUMN rule_key TYPE TEXT;
+        ALTER TABLE material_norms ALTER COLUMN name TYPE TEXT;
+        ALTER TABLE material_norms ALTER COLUMN work_unit TYPE TEXT;
+        ALTER TABLE material_norms ALTER COLUMN material_unit TYPE TEXT;
+        ALTER TABLE material_norms ALTER COLUMN updated_by TYPE TEXT;
         CREATE TABLE IF NOT EXISTS material_aliases (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -2590,6 +2755,10 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_material_aliases_project ON material_aliases(project_name);
         CREATE INDEX IF NOT EXISTS idx_material_aliases_alias ON material_aliases(alias_name);
+        ALTER TABLE material_aliases ALTER COLUMN project_name TYPE TEXT;
+        ALTER TABLE material_aliases ALTER COLUMN canonical_unit TYPE TEXT;
+        ALTER TABLE material_aliases ALTER COLUMN source TYPE TEXT;
+        ALTER TABLE material_aliases ALTER COLUMN updated_by TYPE TEXT;
         CREATE TABLE IF NOT EXISTS material_norm_overrides (
             id SERIAL PRIMARY KEY,
             base_norm_id INT,
@@ -2615,6 +2784,10 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_material_norm_overrides_project ON material_norm_overrides(project_name);
         CREATE INDEX IF NOT EXISTS idx_material_norm_overrides_estimate ON material_norm_overrides(estimate_id);
+        ALTER TABLE material_norm_overrides ALTER COLUMN project_name TYPE TEXT;
+        ALTER TABLE material_norm_overrides ALTER COLUMN work_unit TYPE TEXT;
+        ALTER TABLE material_norm_overrides ALTER COLUMN material_unit TYPE TEXT;
+        ALTER TABLE material_norm_overrides ALTER COLUMN updated_by TYPE TEXT;
         CREATE TABLE IF NOT EXISTS material_norm_suggestions (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -2688,6 +2861,7 @@ def init_db():
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS surface VARCHAR(100);
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS estimate_item_name TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS estimate_item_key VARCHAR(500);
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS contract_item_id INT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS customer_price_per_unit FLOAT DEFAULT 0;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS customer_total FLOAT DEFAULT 0;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS execution_price_per_unit FLOAT DEFAULT 0;
@@ -2717,6 +2891,7 @@ def init_db():
         );
         ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
         ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
+        ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Активна';
         ALTER TABLE material_inspection_journal ALTER COLUMN material_name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS supervisor_acts (
             id SERIAL PRIMARY KEY,
@@ -2762,6 +2937,7 @@ def init_db():
         );
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS delivery_id INT;
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS cable_type VARCHAR(100);
+        ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Активна';
         ALTER TABLE cable_journal ALTER COLUMN cable_brand TYPE TEXT;
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Черновик';
         ALTER TABLE estimates ADD COLUMN IF NOT EXISTS is_template BOOLEAN DEFAULT FALSE;
@@ -2821,8 +2997,10 @@ def init_db():
         ALTER TABLE contracts ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'Активен';
         ALTER TABLE pricelist_items ADD COLUMN IF NOT EXISTS item_type VARCHAR(20);
         ALTER TABLE pricelists ALTER COLUMN name TYPE TEXT;
+        ALTER TABLE pricelists ALTER COLUMN description TYPE TEXT;
         ALTER TABLE pricelists ALTER COLUMN for_who TYPE TEXT;
         ALTER TABLE pricelist_items ALTER COLUMN name TYPE TEXT;
+        ALTER TABLE pricelist_items ALTER COLUMN unit TYPE TEXT;
         ALTER TABLE pricelist_items ALTER COLUMN category TYPE TEXT;
         ALTER TABLE pricelist_items ALTER COLUMN specialization TYPE TEXT;
         CREATE TABLE IF NOT EXISTS hidden_works_acts (
@@ -2832,6 +3010,7 @@ def init_db():
             act_number VARCHAR(100),
             work_name TEXT,
             section_name VARCHAR(255),
+            work_package VARCHAR(100) DEFAULT '',
             brigade VARCHAR(255),
             quantity NUMERIC(14,4),
             unit VARCHAR(50),
@@ -2870,6 +3049,7 @@ def init_db():
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255);
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS paid_note TEXT;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS work_journal_id INT;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         CREATE INDEX IF NOT EXISTS idx_hidden_works_work_journal_id ON hidden_works_acts(work_journal_id);
         CREATE TABLE IF NOT EXISTS staff_documents (
             id SERIAL PRIMARY KEY,
@@ -2966,6 +3146,7 @@ class WarehouseHistoryModel(BaseModel):
     material: str
     type: str
     quantity: float
+    unit: str = "шт"
     date: str
     project: str = ""
     issuedTo: str = ""
@@ -3203,6 +3384,7 @@ class WorkJournalModel(BaseModel):
     surface: str = ""
     estimateItemName: str = ""
     estimateItemKey: str = ""
+    contractItemId: int | None = None
 
 class MasterProfileModel(BaseModel):
     userId: int
@@ -3235,6 +3417,7 @@ class InterimActModel(BaseModel):
     totalAmount: float = 0
     paidAmount: float = 0
     contractId: Optional[int] = None
+    workJournalIds: list[int] = []
 
 class TimesheetModel(BaseModel):
     staffId: int
@@ -3563,8 +3746,17 @@ def register(data: dict):
         conn.close()
         raise HTTPException(status_code=400, detail="Код истёк — попросите новую ссылку")
     try:
-        cur.execute("INSERT INTO users (name,email,password,role) VALUES (%s,%s,%s,%s) RETURNING *",
-                    (name, email, hash_password(password), role))
+        project_name = (invite.get("project_name") or "").strip()
+        assigned_projects = _safe_project_list(invite.get("assigned_projects"))
+        assigned_packages = _safe_project_list(invite.get("assigned_packages"))
+        assigned_projects, assigned_packages = _prepare_user_access_scope(cur, role, project_name, assigned_projects, assigned_packages)
+        cur.execute("SELECT id FROM projects WHERE name=%s LIMIT 1", (project_name,))
+        project_row = cur.fetchone()
+        project_id = project_row.get("id") if isinstance(project_row, dict) and project_row else (project_row[0] if project_row else None)
+        cur.execute("""INSERT INTO users (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb) RETURNING *""",
+                    (name, email, hash_password(password), role, project_id, project_name,
+                     json.dumps(assigned_projects), json.dumps(assigned_packages)))
         user = cur.fetchone()
         # Если регистрируется поставщик — создаём/связываем suppliers row
         if role == 'поставщик':
@@ -3621,7 +3813,17 @@ def get_projects(current_user: dict = Depends(get_current_user)):
         cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,warranty_start_date as \"warrantyStartDate\",warranty_end_date as \"warrantyEndDate\",warranty_contact as \"warrantyContact\",COALESCE(archived,false) as archived,archived_at as \"archivedAt\" FROM projects WHERE name = ANY(%s)", (allowed_projects,))
     rows = cur.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        if current_user.get("role") in WORKER_EXECUTION_ROLES:
+            d["budget"] = 0
+            d["pricelistId"] = None
+            d["warrantyStartDate"] = ""
+            d["warrantyEndDate"] = ""
+            d["warrantyContact"] = ""
+        out.append(d)
+    return out
 
 @app.post("/projects")
 def create_project(p: ProjectModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
@@ -3636,7 +3838,7 @@ def create_project(p: ProjectModel, current_user: dict = Depends(require_roles(*
     return dict(row)
 
 @app.put("/projects/{id}")
-def update_project(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES))):
+def update_project(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_CARD_WRITE_ROLES))):
     if data.get("archived"):
         raise HTTPException(status_code=403, detail="Архивация объекта отключена. Объект может закрыть только директор отдельной процедурой закрытия.")
     if str(data.get("status") or "").strip().lower() in ("завершён", "завершен"):
@@ -3664,6 +3866,12 @@ def update_project(id: int, data: dict, current_user: dict = Depends(require_rol
     vals.append(id)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT name FROM projects WHERE id=%s", (id,))
+    project_row = cur.fetchone()
+    if not project_row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Объект не найден")
+    require_project_access(current_user, project_row.get("name") or "")
     cur.execute("UPDATE projects SET " + ", ".join(sets) + " WHERE id=%s", vals)
     cur.execute("SELECT id,name,COALESCE(archived,false) as archived FROM projects WHERE id=%s", (id,))
     row = cur.fetchone()
@@ -3686,7 +3894,11 @@ def get_clients(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "
     cur.execute("SELECT * FROM clients")
     rows = cur.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        for row in result:
+            row["price"] = 0
+    return result
 
 @app.post("/clients")
 def create_client(c: ClientModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
@@ -3727,7 +3939,7 @@ def get_materials(current_user: dict = Depends(get_current_user)):
     if role in ("заказчик", "технадзор"):
         cur.close(); conn.close()
         return []
-    if can_see_all_company_data(current_user) or role in ("кладовщик", "снабженец"):
+    if can_see_warehouse_data(current_user):
         cur.execute(base)
     elif projects:
         package_sql, package_params = package_access_filter(current_user)
@@ -3737,44 +3949,76 @@ def get_materials(current_user: dict = Depends(get_current_user)):
         return []
     rows = cur.fetchall()
     conn.close()
-    can_see_prices = role in WAREHOUSE_ROLES or can_see_all_company_data(current_user)
+    can_see_stock = can_see_warehouse_data(current_user)
+    can_see_prices = role in WAREHOUSE_ROLES or role in FINANCE_ROLES
     out = []
     for r in rows:
         d = dict(r)
+        if not can_see_stock:
+            d["quantity"] = 0
+            d["minQuantity"] = 0
         if not can_see_prices:
             d["price"] = 0
         out.append(d)
     return out
 
 @app.post("/materials")
-def create_material(m: MaterialModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def create_material(m: MaterialModel, _current_user: dict = Depends(require_roles(*MAIN_WAREHOUSE_WRITE_ROLES))):
     require_project_or_warehouse_access(_current_user, m.project or "")
+    work_package = (m.workPackage or "Основная").strip() or "Основная"
+    unit = _norm_base_unit(m.unit or "шт") or "шт"
+    if not has_package_access(_current_user, work_package):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
+    if (m.project or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Материал на объект добавляется только через накладную, перемещение, выдачу или списание. Прямое создание остатка объекта отключено.",
+        )
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                    RETURNING id,name,unit,quantity,price,min_quantity as "minQuantity",
                              project,category,COALESCE(work_package,'') as "workPackage" """,
-                (m.name,m.unit,m.quantity,m.price,m.minQuantity,m.project,m.category,m.workPackage or ""))
+                (m.name,unit,m.quantity,m.price,m.minQuantity,m.project,m.category,work_package))
     row = cur.fetchone()
+    conn.commit()
     conn.close()
     return dict(row)
 
 @app.put("/materials/{id}")
-def update_material(id: int, m: MaterialModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def update_material(id: int, m: MaterialModel, _current_user: dict = Depends(require_roles(*MAIN_WAREHOUSE_WRITE_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT project FROM materials WHERE id=%s", (id,))
+    cur.execute("SELECT project, quantity, COALESCE(NULLIF(work_package,''),'Основная') as work_package FROM materials WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Материал не найден")
     require_project_or_warehouse_access(_current_user, row.get("project") or "")
     require_project_or_warehouse_access(_current_user, m.project or "")
+    old_work_package = row.get("work_package") or "Основная"
+    new_work_package = (m.workPackage or old_work_package or "Основная").strip() or "Основная"
+    unit = _norm_base_unit(m.unit or "шт") or "шт"
+    if not has_package_access(_current_user, old_work_package) or not has_package_access(_current_user, new_work_package):
+        conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
+    old_qty = float(row.get("quantity") or 0)
+    old_project = (row.get("project") or "").strip()
+    new_project = (m.project or "").strip()
+    qty_delta = float(m.quantity or 0) - old_qty
+    if old_project or new_project:
+        if old_project != new_project or abs(qty_delta) > 0.000001:
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail="Остатки объекта нельзя менять прямой правкой материала. Используйте накладную, перемещение, выдачу или списание.",
+            )
     cur.execute("""UPDATE materials
                    SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,project=%s,category=%s,work_package=%s
                    WHERE id=%s""",
-                (m.name,m.unit,m.quantity,m.price,m.minQuantity,m.project,m.category,m.workPackage or "",id))
+                (m.name,unit,m.quantity,m.price,m.minQuantity,m.project,m.category,new_work_package,id))
+    conn.commit()
     conn.close()
     return {"ok": True}
 
@@ -3782,13 +4026,22 @@ def update_material(id: int, m: MaterialModel, _current_user: dict = Depends(req
 def delete_material(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT COALESCE(project,'') FROM materials WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Материал не найден")
+    if (row[0] or "").strip():
+        conn.close()
+        raise HTTPException(status_code=400, detail="Материал объекта нельзя удалить напрямую. Аннулируйте накладную или оформите корректировку движения.")
     cur.execute("DELETE FROM materials WHERE id=%s", (id,))
+    conn.commit()
     conn.close()
     return {"ok": True}
 
 @app.get("/warehouse-main")
 def get_warehouse_main(current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in WAREHOUSE_ROLES and not can_see_all_company_data(current_user):
+    if not can_see_warehouse_data(current_user):
         return []
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -3798,21 +4051,25 @@ def get_warehouse_main(current_user: dict = Depends(get_current_user)):
     return [dict(r) for r in rows]
 
 @app.post("/warehouse-main")
-def create_warehouse_main(m: WarehouseMainModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def create_warehouse_main(m: WarehouseMainModel, _current_user: dict = Depends(require_roles(*MAIN_WAREHOUSE_WRITE_ROLES))):
+    unit = _norm_base_unit(m.unit or "шт") or "шт"
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id,name,unit,quantity,price,min_quantity as \"minQuantity\",category",
-                (m.name,m.unit,m.quantity,m.price,m.minQuantity,m.category))
+                (m.name,unit,m.quantity,m.price,m.minQuantity,m.category))
     row = cur.fetchone()
+    conn.commit()
     conn.close()
     return dict(row)
 
 @app.put("/warehouse-main/{id}")
-def update_warehouse_main(id: int, m: WarehouseMainModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def update_warehouse_main(id: int, m: WarehouseMainModel, _current_user: dict = Depends(require_roles(*MAIN_WAREHOUSE_WRITE_ROLES))):
+    unit = _norm_base_unit(m.unit or "шт") or "шт"
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE warehouse_main SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,category=%s WHERE id=%s",
-                (m.name,m.unit,m.quantity,m.price,m.minQuantity,m.category,id))
+                (m.name,unit,m.quantity,m.price,m.minQuantity,m.category,id))
+    conn.commit()
     conn.close()
     return {"ok": True}
 
@@ -3821,6 +4078,7 @@ def delete_warehouse_main(id: int, _current_user: dict = Depends(require_roles(*
     conn = get_db()
     cur = conn.cursor()
     cur.execute("DELETE FROM warehouse_main WHERE id=%s", (id,))
+    conn.commit()
     conn.close()
     return {"ok": True}
 
@@ -3854,7 +4112,7 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
     material_name = (m.materialName or "").strip()
     from_location = (m.fromLocation or "").strip()
     to_location = (m.toLocation or "").strip()
-    work_package = (m.workPackage or "").strip()
+    work_package = (m.workPackage or "Основная").strip() or "Основная"
     qty = float(m.quantity or 0)
     if not material_name:
         raise HTTPException(status_code=400, detail="Укажите материал")
@@ -3870,6 +4128,8 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
         require_project_or_warehouse_access(_current_user, to_location)
     if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package or "Основная"):
         raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
+    if from_location == "Основной склад" and _current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
+        raise HTTPException(status_code=403, detail="Перемещать материал с основного склада на объект может директор, замдиректора, снабженец или кладовщик")
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -3877,40 +4137,53 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
     try:
         source_price = 0
         source_category = ""
-        source_unit = (m.unit or "").strip()
+        source_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else ""
         if from_location == "Основной склад":
-            cur.execute("""SELECT id,quantity,unit,price,category FROM warehouse_main
+            cur.execute(f"""SELECT id,quantity,unit,price,category FROM warehouse_main
                            WHERE LOWER(name)=LOWER(%s)
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name,))
+                             AND (%s='' OR {_sql_norm_unit('unit')}=%s)
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, source_unit, source_unit))
             source = cur.fetchone()
             if not source:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
             if float(source.get("quantity") or 0) < qty:
                 raise HTTPException(status_code=400, detail="На основном складе недостаточно материала «"+material_name+"»")
-            source_unit = source_unit or source.get("unit") or "шт"
+            source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
             source_price = float(source.get("price") or 0)
             source_category = source.get("category") or ""
             cur.execute("UPDATE warehouse_main SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
         else:
-            cur.execute("""SELECT id,quantity,unit,price,category FROM materials
+            cur.execute(f"""SELECT id,quantity,unit,price,category FROM materials
                            WHERE LOWER(name)=LOWER(%s)
                              AND project=%s
-                             AND COALESCE(work_package,'')=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, from_location, work_package))
+                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                             AND (%s='' OR {_sql_norm_unit('unit')}=%s)
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, from_location, work_package, source_unit, source_unit))
             source = cur.fetchone()
             if not source:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «"+work_package+"»" if work_package else ""))
             if float(source.get("quantity") or 0) < qty:
                 raise HTTPException(status_code=400, detail="На складе объекта недостаточно материала «"+material_name+"»")
-            source_unit = source_unit or source.get("unit") or "шт"
+            source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
             source_price = float(source.get("price") or 0)
             source_category = source.get("category") or ""
             cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
 
+        if to_location != "Основной склад":
+            movement_control_items = [{
+                "materialName": material_name,
+                "quantity": qty,
+                "unit": source_unit,
+                "workPackage": work_package,
+            }]
+            _attach_supply_estimate_control(cur, to_location, movement_control_items)
+            _enforce_supply_estimate_control(movement_control_items, source="перемещение")
+
         if to_location == "Основной склад":
-            cur.execute("""SELECT id FROM warehouse_main
+            cur.execute(f"""SELECT id FROM warehouse_main
                            WHERE LOWER(name)=LOWER(%s)
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name,))
+                             AND {_sql_norm_unit('unit')}=%s
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, source_unit))
             target = cur.fetchone()
             if target:
                 cur.execute("""UPDATE warehouse_main
@@ -3924,11 +4197,12 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
                                VALUES (%s,%s,%s,%s,%s,%s)""",
                             (material_name, source_unit, qty, source_price, 0, source_category))
         else:
-            cur.execute("""SELECT id FROM materials
+            cur.execute(f"""SELECT id FROM materials
                            WHERE LOWER(name)=LOWER(%s)
                              AND project=%s
-                             AND COALESCE(work_package,'')=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, to_location, work_package))
+                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                             AND {_sql_norm_unit('unit')}=%s
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, to_location, work_package, source_unit))
             target = cur.fetchone()
             if target:
                 cur.execute("""UPDATE materials
@@ -3953,13 +4227,13 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
         actor_name = m.createdBy or _current_user.get("name","")
         date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
         cur.execute("""INSERT INTO warehouse_history
-                          (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (material_name, "перемещение: списание", qty, m.date or None, from_location, to_location, actor_name, work_package, date_time))
+                          (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (material_name, "перемещение: списание", qty, source_unit, m.date or None, from_location, to_location, actor_name, work_package, date_time))
         cur.execute("""INSERT INTO warehouse_history
-                          (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (material_name, "перемещение: приход", qty, m.date or None, to_location, from_location, actor_name, work_package, date_time))
+                          (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (material_name, "перемещение: приход", qty, source_unit, m.date or None, to_location, from_location, actor_name, work_package, date_time))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -3986,13 +4260,15 @@ def get_warehouse_history(current_user: dict = Depends(get_current_user)):
             query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
             params.append(package_names)
         cur.execute(query + " ORDER BY id DESC", tuple(params))
-    elif role in ("мастер", "субподрядчик"):
+    elif role in WORKER_EXECUTION_ROLES:
         package_names = user_package_names(current_user)
+        if not package_names:
+            cur.close(); conn.close()
+            return []
         query = "SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history WHERE (issued_by=%s OR issued_to=%s)"
         params = [current_user.get("name",""), current_user.get("name","")]
-        if package_names:
-            query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
-            params.append(package_names)
+        query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
+        params.append(package_names)
         cur.execute(query + " ORDER BY id DESC", tuple(params))
     elif role in WAREHOUSE_ROLES or role in FINANCE_ROLES:
         cur.execute("SELECT id,material,type,quantity,date,project,issued_to as \"issuedTo\",issued_by as \"issuedBy\",work_package as \"workPackage\",date_time as \"dateTime\" FROM warehouse_history ORDER BY id DESC")
@@ -4023,8 +4299,9 @@ def create_warehouse_history(h: WarehouseHistoryModel, _current_user: dict = Dep
         raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы движения: " + (work_package or "Основная"))
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-        (h.material,movement_type,h.quantity,h.date,h.project,h.issuedTo,h.issuedBy,work_package,h.dateTime))
+    unit = (h.unit or "шт").strip() or "шт"
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        (h.material,movement_type,h.quantity,unit,h.date,h.project,h.issuedTo,h.issuedBy,work_package,h.dateTime))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -4057,6 +4334,20 @@ STAFF_COLUMNS = """id, name, role, phone, salary, project, pay_type as "payType"
     status, brigade, bank_account as "bankAccount", bank_name as "bankName",
     bank_bik as "bankBik", bank_corr as "bankCorr", ogrnip, card_number as "cardNumber",
     signature_url as "signatureUrl", notes"""
+
+SENSITIVE_STAFF_FIELDS = {
+    "salary", "birthDate", "citizenship", "address", "emailPersonal", "phoneExtra",
+    "passportSeries", "passportNumber", "passportIssuedBy", "passportIssuedDate",
+    "inn", "snils", "bankAccount", "bankName", "bankBik", "bankCorr", "ogrnip",
+    "cardNumber", "signatureUrl", "notes",
+}
+
+def _sanitize_staff_for_project_roles(row: dict) -> dict:
+    data = dict(row or {})
+    for key in SENSITIVE_STAFF_FIELDS:
+        if key in data:
+            data[key] = ""
+    return data
 
 def _staff_tuple(s):
     def d(v):
@@ -4101,6 +4392,21 @@ def _validate_user_access_scope(role: str, project_name: str = "", assigned_proj
         raise HTTPException(status_code=400, detail="Для роли «"+role+"» нужно назначить разделы сметы/виды работ")
     return projects, packages
 
+def _prepare_user_access_scope(cur, role: str, project_name: str = "", assigned_projects=None, assigned_packages=None):
+    projects = _safe_project_list(assigned_projects or [])
+    packages = _safe_project_list(assigned_packages or [])
+    project = (project_name or "").strip()
+    if project and project not in projects and role in PROJECT_SCOPED_ACCESS_ROLES:
+        projects.append(project)
+    if role == "прораб" and projects and not packages:
+        cur.execute("""SELECT DISTINCT COALESCE(NULLIF(work_package,''),'Основная') AS work_package
+                       FROM estimates
+                       WHERE project_name = ANY(%s)
+                         AND COALESCE(status,'Активная')='Активная'
+                       ORDER BY 1""", (projects,))
+        packages = [r.get("work_package") if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+    return _validate_user_access_scope(role, project, projects, packages)
+
 def _sync_staff_access(cur, s: StaffModel):
     email = ((s.email or s.emailWork or "") or "").strip().lower()
     password = ((s.password or "") or "").strip()
@@ -4124,9 +4430,7 @@ def _sync_staff_access(cur, s: StaffModel):
         project_row = cur.fetchone()
         if project_row:
             project_id = project_row.get("id") if isinstance(project_row, dict) else project_row[0]
-    if project_name and project_name not in assigned_projects and role in ("прораб", "технадзор", "стройконтроль", "мастер", "субподрядчик", "бригадир"):
-        assigned_projects.append(project_name)
-    assigned_projects, assigned_packages = _validate_user_access_scope(role, project_name, assigned_projects, assigned_packages)
+    assigned_projects, assigned_packages = _prepare_user_access_scope(cur, role, project_name, assigned_projects, assigned_packages)
 
     cur.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1", (email,))
     existing = cur.fetchone()
@@ -4174,18 +4478,96 @@ def _sync_staff_access(cur, s: StaffModel):
         "assignedPackages": assigned_packages,
     }
 
+def _grant_user_project_package_access(cur, user_id, project_name: str = "", work_package: str = ""):
+    try:
+        uid = int(user_id or 0)
+    except Exception:
+        uid = 0
+    project = (project_name or "").strip()
+    package = (work_package or "Основная").strip() or "Основная"
+    if uid <= 0 or not project:
+        return None
+    cur.execute("""SELECT id, role, project_name, assigned_projects, assigned_packages
+                   FROM users WHERE id=%s FOR UPDATE""", (uid,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    role = (row.get("role") if isinstance(row, dict) else row[1]) or ""
+    if role not in PROJECT_SCOPED_ACCESS_ROLES:
+        return None
+    current_project = (row.get("project_name") if isinstance(row, dict) else row[2]) or ""
+    raw_projects = row.get("assigned_projects") if isinstance(row, dict) else row[3]
+    raw_packages = row.get("assigned_packages") if isinstance(row, dict) else row[4]
+    projects = _safe_project_list(raw_projects or [])
+    packages = _safe_project_list(raw_packages or [])
+    if project not in projects:
+        projects.append(project)
+    if role in WORK_PACKAGE_REQUIRED_ACCESS_ROLES and package not in packages:
+        packages.append(package)
+    next_project = current_project or project
+    cur.execute("""UPDATE users
+                      SET project_name=%s,
+                          assigned_projects=%s::jsonb,
+                          assigned_packages=%s::jsonb,
+                          active=TRUE
+                    WHERE id=%s""",
+                (next_project, json.dumps(projects, ensure_ascii=False), json.dumps(packages, ensure_ascii=False), uid))
+    return {"id": uid, "project": next_project, "assignedProjects": projects, "assignedPackages": packages}
+
+def _resolve_staff_or_user_id(cur, actor_id, actor_name: str = ""):
+    try:
+        raw_id = int(actor_id or 0)
+    except Exception:
+        raw_id = 0
+    actor = (actor_name or "").strip()
+    if raw_id > 0:
+        cur.execute("SELECT id FROM users WHERE id=%s LIMIT 1", (raw_id,))
+        row = cur.fetchone()
+        if row:
+            return raw_id
+        cur.execute("""SELECT name, email_work, email_personal
+                       FROM staff WHERE id=%s LIMIT 1""", (raw_id,))
+        staff_row = cur.fetchone()
+        if staff_row:
+            staff_name = (staff_row.get("name") if isinstance(staff_row, dict) else staff_row[0]) or actor
+            email_work = (staff_row.get("email_work") if isinstance(staff_row, dict) else staff_row[1]) or ""
+            email_personal = (staff_row.get("email_personal") if isinstance(staff_row, dict) else staff_row[2]) or ""
+            emails = [x.strip().lower() for x in (email_work, email_personal) if x and x.strip()]
+            if emails:
+                cur.execute("SELECT id FROM users WHERE LOWER(COALESCE(email,'')) = ANY(%s) ORDER BY id LIMIT 1", (emails,))
+                row = cur.fetchone()
+                if row:
+                    return row.get("id") if isinstance(row, dict) else row[0]
+            actor = staff_name or actor
+    if actor:
+        cur.execute("SELECT id FROM users WHERE LOWER(COALESCE(name,''))=LOWER(%s) ORDER BY id LIMIT 1", (actor,))
+        row = cur.fetchone()
+        if row:
+            return row.get("id") if isinstance(row, dict) else row[0]
+    return raw_id or None
+
 @app.get("/staff")
 def get_staff(current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in STAFF_MANAGE_ROLES and current_user.get("role") not in ("прораб", "главный_инженер"):
+    if current_user.get("role") not in STAFF_VIEW_ROLES:
         return []
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT " + STAFF_COLUMNS + " FROM staff ORDER BY id")
+    role = current_user.get("role")
+    if role in ("прораб", "главный_инженер") and role not in STAFF_MANAGE_ROLES:
+        projects = user_project_names(current_user)
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT " + STAFF_COLUMNS + " FROM staff WHERE project = ANY(%s) ORDER BY id", (projects,))
+    else:
+        cur.execute("SELECT " + STAFF_COLUMNS + " FROM staff ORDER BY id")
     rows = cur.fetchall()
     conn.close()
     result = []
     for r in rows:
         d = dict(r)
+        if role in ("прораб", "главный_инженер") and role not in STAFF_MANAGE_ROLES:
+            d = _sanitize_staff_for_project_roles(d)
         for k in ("birthDate", "passportIssuedDate", "hiredDate", "firedDate"):
             d[k] = str(d[k]) if d.get(k) else ""
         for k in list(d.keys()):
@@ -4245,31 +4627,64 @@ def update_staff(id: int, s: StaffModel, _current_user: dict = Depends(require_r
 @app.delete("/staff/{id}")
 def delete_staff(id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES))):
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM staff WHERE id=%s", (id,))
-    if cur.rowcount == 0:
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT name,email_work,email_personal FROM staff WHERE id=%s", (id,))
+        staff_row = cur.fetchone()
+        if not staff_row:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Сотрудник не найден")
+        emails = sorted(set([
+            str(staff_row.get("email_work") or "").strip().lower(),
+            str(staff_row.get("email_personal") or "").strip().lower(),
+        ]) - {""})
+        cur.execute("DELETE FROM staff WHERE id=%s", (id,))
+        disabled_users = 0
+        if emails:
+            cur.execute("""
+                UPDATE users
+                   SET active=FALSE,
+                       assigned_projects='[]'::jsonb,
+                       assigned_packages='[]'::jsonb,
+                       locked_until=NULL
+                 WHERE LOWER(COALESCE(email,'')) = ANY(%s)
+            """, (emails,))
+            disabled_users = cur.rowcount
+        conn.commit()
+        return {"ok": True, "disabledUsers": disabled_users}
+    except HTTPException:
         conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
         cur.close()
         conn.close()
-        raise HTTPException(status_code=404, detail="Сотрудник не найден")
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"ok": True}
 
 @app.get("/staff/{staff_id}/profile")
-def get_staff_profile(staff_id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
+def get_staff_profile(staff_id: int, _current_user: dict = Depends(require_roles(*STAFF_VIEW_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, name FROM staff WHERE id=%s", (staff_id,))
+    cur.execute("SELECT id, name, COALESCE(project,'') FROM staff WHERE id=%s", (staff_id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Сотрудник не найден")
     staff_name = row[1] or ""
+    staff_project = row[2] or ""
+    allowed_staff_projects = None
+    if _current_user.get("role") not in STAFF_FULL_VIEW_ROLES:
+        allowed_staff_projects = user_project_names(_current_user)
+        if staff_project not in allowed_staff_projects:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к карточке сотрудника этого объекта")
 
-    cur.execute("SELECT id, doc_type, title, file_url, status, signed_at, expires_at, notes, created_at FROM staff_documents WHERE staff_id=%s ORDER BY id DESC", (staff_id,))
-    custom = [{"id": r[0], "docType": r[1], "title": r[2] or "", "fileUrl": r[3] or "", "status": r[4] or "", "signedAt": str(r[5]) if r[5] else "", "expiresAt": str(r[6]) if r[6] else "", "notes": r[7] or "", "createdAt": str(r[8])} for r in cur.fetchall()]
+    if _current_user.get("role") in STAFF_FULL_VIEW_ROLES:
+        cur.execute("SELECT id, doc_type, title, file_url, status, signed_at, expires_at, notes, created_at FROM staff_documents WHERE staff_id=%s ORDER BY id DESC", (staff_id,))
+        custom = [{"id": r[0], "docType": r[1], "title": r[2] or "", "fileUrl": r[3] or "", "status": r[4] or "", "signedAt": str(r[5]) if r[5] else "", "expiresAt": str(r[6]) if r[6] else "", "notes": r[7] or "", "createdAt": str(r[8])} for r in cur.fetchall()]
+    else:
+        custom = []
 
     # Match user by name (legacy linkage)
     cur.execute("SELECT id FROM users WHERE name=%s LIMIT 1", (staff_name,))
@@ -4278,29 +4693,41 @@ def get_staff_profile(staff_id: int, _current_user: dict = Depends(require_roles
 
     contracts_list = []
     if user_id is not None:
-        cur.execute("SELECT id, contract_number, project, start_date, end_date FROM contracts WHERE master_id=%s ORDER BY id DESC", (user_id,))
+        if allowed_staff_projects is None:
+            cur.execute("SELECT id, contract_number, project, start_date, end_date FROM contracts WHERE master_id=%s ORDER BY id DESC", (user_id,))
+        else:
+            cur.execute("SELECT id, contract_number, project, start_date, end_date FROM contracts WHERE master_id=%s AND project = ANY(%s) ORDER BY id DESC", (user_id, allowed_staff_projects))
         for r in cur.fetchall():
             contracts_list.append({"id": r[0], "contractNumber": r[1] or "", "project": r[2] or "", "startDate": str(r[3]) if r[3] else "", "endDate": str(r[4]) if r[4] else "", "signedAt": "", "status": ""})
 
     acts_list = []
     if user_id is not None:
-        cur.execute("SELECT id, project, COALESCE(work_package,'') as work_package, period_start, period_end, total_amount, paid_amount, status FROM interim_acts WHERE master_id=%s ORDER BY id DESC", (user_id,))
+        if allowed_staff_projects is None:
+            cur.execute("SELECT id, project, COALESCE(work_package,'') as work_package, period_start, period_end, total_amount, paid_amount, status FROM interim_acts WHERE master_id=%s ORDER BY id DESC", (user_id,))
+        else:
+            cur.execute("SELECT id, project, COALESCE(work_package,'') as work_package, period_start, period_end, total_amount, paid_amount, status FROM interim_acts WHERE master_id=%s AND project = ANY(%s) ORDER BY id DESC", (user_id, allowed_staff_projects))
         for r in cur.fetchall():
             acts_list.append({"id": r[0], "actNumber": str(r[0]), "project": r[1] or "", "workPackage": r[2] or "", "periodFrom": str(r[3]) if r[3] else "", "periodTo": str(r[4]) if r[4] else "", "totalAmount": float(r[5] or 0), "paidAmount": float(r[6] or 0), "status": r[7] or "", "createdAt": ""})
 
     pd_consents = []
-    if user_id is not None:
+    if user_id is not None and _current_user.get("role") in STAFF_FULL_VIEW_ROLES:
         cur.execute("SELECT id, signed_at, scan_url, uploaded_by FROM pd_consents WHERE user_id=%s ORDER BY id DESC", (user_id,))
         for r in cur.fetchall():
             pd_consents.append({"id": r[0], "signedAt": r[1] or "", "scanUrl": r[2] or "", "uploadedBy": r[3] or ""})
 
     tb_entries = []
-    cur.execute("SELECT id, project_name, instructor, instruction_type, date FROM tb_journal WHERE master_name=%s ORDER BY id DESC LIMIT 20", (staff_name,))
+    if allowed_staff_projects is None:
+        cur.execute("SELECT id, project_name, instructor, instruction_type, date FROM tb_journal WHERE master_name=%s ORDER BY id DESC LIMIT 20", (staff_name,))
+    else:
+        cur.execute("SELECT id, project_name, instructor, instruction_type, date FROM tb_journal WHERE master_name=%s AND project_name = ANY(%s) ORDER BY id DESC LIMIT 20", (staff_name, allowed_staff_projects))
     for r in cur.fetchall():
         tb_entries.append({"id": r[0], "projectName": r[1] or "", "instructor": r[2] or "", "instructionType": r[3] or "", "date": str(r[4]) if r[4] else ""})
 
     works = []
-    cur.execute("SELECT project, description, quantity, unit, total, date, status FROM work_journal WHERE master_name=%s ORDER BY id DESC LIMIT 50", (staff_name,))
+    if allowed_staff_projects is None:
+        cur.execute("SELECT project, description, quantity, unit, total, date, status FROM work_journal WHERE master_name=%s ORDER BY id DESC LIMIT 50", (staff_name,))
+    else:
+        cur.execute("SELECT project, description, quantity, unit, total, date, status FROM work_journal WHERE master_name=%s AND project = ANY(%s) ORDER BY id DESC LIMIT 50", (staff_name, allowed_staff_projects))
     for r in cur.fetchall():
         works.append({"project": r[0] or "", "description": r[1] or "", "quantity": float(r[2] or 0), "unit": r[3] or "", "total": float(r[4] or 0), "date": str(r[5]) if r[5] else "", "status": r[6] or ""})
 
@@ -4349,7 +4776,17 @@ def get_piecework(current_user: dict = Depends(get_current_user)):
         WHERE wj.id = piecework.work_journal_id
           AND COALESCE(wj.status,'') = 'Отклонено'
     )"""
-    if allowed_projects is None:
+    if current_user.get("role") in WORKER_EXECUTION_ROLES:
+        cur.execute(f"""SELECT {cols} FROM piecework
+                        WHERE {active_clause}
+                          AND (staff_id=%s OR EXISTS (
+                              SELECT 1 FROM work_journal wj
+                              WHERE wj.id = piecework.work_journal_id
+                                AND (COALESCE(wj.master_id,0)=%s OR (COALESCE(wj.master_id,0)=0 AND LOWER(TRIM(COALESCE(wj.master_name,'')))=LOWER(TRIM(%s))))
+                          ))
+                        ORDER BY id DESC""",
+                    (str(current_user.get("id")), current_user.get("id"), current_user.get("name") or ""))
+    elif allowed_projects is None:
         cur.execute(f"SELECT {cols} FROM piecework WHERE {active_clause} ORDER BY id DESC")
     elif not allowed_projects:
         cur.execute(f"SELECT {cols} FROM piecework WHERE {active_clause} AND staff_id=%s ORDER BY id DESC", (str(current_user.get("id")),))
@@ -4362,14 +4799,36 @@ def get_piecework(current_user: dict = Depends(get_current_user)):
 @app.post("/piecework")
 def create_piecework(p: PieceworkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     require_project_access(_current_user, p.project)
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        raise HTTPException(status_code=403, detail="Сдельное начисление создаётся только после проверки ЖПР прорабом/руководителем")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if p.workJournalId:
+        work = require_work_journal_actor_access(cur, p.workJournalId, _current_user)
         cur.execute("SELECT id FROM piecework WHERE work_journal_id=%s LIMIT 1", (p.workJournalId,))
         existing = cur.fetchone()
         if existing:
             conn.close()
             return dict(existing)
+        cur.execute("""SELECT master_id, master_name, project, description, unit, quantity,
+                              execution_price_per_unit, execution_total, date
+                       FROM work_journal
+                       WHERE id=%s AND COALESCE(status,'')='Подтверждено'""", (p.workJournalId,))
+        work_row = cur.fetchone()
+        if not work_row:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Сдельное начисление можно создать только по подтверждённой записи ЖПР")
+        p.staffId = str(work_row.get("master_id") or p.staffId or "")
+        p.project = work_row.get("project") or work.get("project") or p.project
+        p.description = work_row.get("description") or p.description
+        p.unit = work_row.get("unit") or p.unit
+        p.quantity = float(work_row.get("quantity") or 0)
+        p.pricePerUnit = float(work_row.get("execution_price_per_unit") or 0)
+        p.total = float(work_row.get("execution_total") or (p.quantity * p.pricePerUnit))
+        p.date = str(work_row.get("date") or p.date or "")
+    else:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Ручные сдельные начисления отключены. Закрывайте работу через ЖПР: подтверждённая запись сама формирует сумму исполнителя и акт бухгалтерии.")
     cur.execute("INSERT INTO piecework (staff_id,description,unit,quantity,price_per_unit,total,project,date,comment,photo_url,work_journal_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
                 (p.staffId,p.description,p.unit,p.quantity,p.pricePerUnit,p.total,p.project,p.date,p.comment,p.photoUrl,p.workJournalId))
     row = cur.fetchone()
@@ -4450,10 +4909,10 @@ def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADE
     email = (u.email or "").strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Email обязателен")
-    assigned_projects, assigned_packages = _validate_user_access_scope(u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        assigned_projects, assigned_packages = _prepare_user_access_scope(cur, u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
         cur.execute("""INSERT INTO users (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active)
                        VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s)
                        RETURNING id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,active""",
@@ -4474,10 +4933,10 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
     email = (u.email or "").strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Email обязателен")
-    assigned_projects, assigned_packages = _validate_user_access_scope(u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
     conn = get_db()
     cur = conn.cursor()
     try:
+        assigned_projects, assigned_packages = _prepare_user_access_scope(cur, u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
         active_sql = ""
         params_tail = []
         if u.active is not None:
@@ -4527,7 +4986,23 @@ def delete_user(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP
 def get_pricelists(_current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,name,description,for_who as \"forWho\",coefficient FROM pricelists")
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        projects = user_project_names(_current_user)
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("""SELECT DISTINCT pl.id,pl.name,pl.description,pl.for_who as "forWho",pl.coefficient
+                       FROM pricelists pl
+                       JOIN projects p ON p.pricelist_id=pl.id
+                       WHERE p.name = ANY(%s)
+                         AND NOT EXISTS (
+                             SELECT 1 FROM estimates e
+                             WHERE e.project_name=p.name
+                               AND e.status='Активная'
+                               AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'
+                         )""", (projects,))
+    else:
+        cur.execute("SELECT id,name,description,for_who as \"forWho\",coefficient FROM pricelists")
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -4579,6 +5054,25 @@ def copy_pricelist(id: int, data: CopyPricelistModel, _current_user: dict = Depe
 
 @app.get("/pricelists/{id}/items")
 def get_pricelist_items(id: int, _current_user: dict = Depends(get_current_user)):
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        projects = user_project_names(_current_user)
+        if not projects:
+            raise HTTPException(status_code=403, detail="Нет доступа к прайс-листу")
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""SELECT COUNT(*) FROM projects p
+                       WHERE p.pricelist_id=%s
+                         AND p.name = ANY(%s)
+                         AND NOT EXISTS (
+                             SELECT 1 FROM estimates e
+                             WHERE e.project_name=p.name
+                               AND e.status='Активная'
+                               AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'
+                         )""", (id, projects))
+        allowed = (cur.fetchone() or [0])[0]
+        cur.close(); conn.close()
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Исполнители видят только прайс, привязанный к объекту без активной сметы заказчика")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT id,pricelist_id as \"pricelistId\",name,unit,price,category,specialization FROM pricelist_items WHERE pricelist_id=%s ORDER BY category,name", (id,))
@@ -4633,11 +5127,20 @@ def create_invite_code(data: dict, _current_user: dict = Depends(require_roles(*
     code = str(uuid.uuid4())[:8].upper()
     expires_in_days = int(data.get('expiresInDays') or 14)
     expires_at = datetime.now() + timedelta(days=expires_in_days)
+    project_name = (data.get("projectName") or data.get("project_name") or "").strip()
+    assigned_projects, assigned_packages = _prepare_user_access_scope(
+        cur,
+        role,
+        project_name,
+        data.get("assignedProjects") or [],
+        data.get("assignedPackages") or [],
+    )
     cur.execute(
-        "INSERT INTO invite_codes (code, role, supplier_id, preset_name, preset_category, created_by, expires_at) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+        "INSERT INTO invite_codes (code, role, supplier_id, preset_name, preset_category, created_by, expires_at, project_name, assigned_projects, assigned_packages) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb) RETURNING *",
         (code, role, data.get('supplierId'), data.get('presetName'),
-         data.get('presetCategory'), data.get('createdBy'), expires_at))
+         data.get('presetCategory'), data.get('createdBy'), expires_at, project_name,
+         json.dumps(assigned_projects), json.dumps(assigned_packages)))
     row = cur.fetchone()
     conn.close()
     return dict(row)
@@ -4852,6 +5355,7 @@ def invite_code_info(code: str):
     """Возвращает данные приглашения для подсветки формы регистрации."""
     from datetime import datetime
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM invite_codes WHERE code=%s", (code.upper().strip(),))
     row = cur.fetchone()
@@ -4882,6 +5386,9 @@ def get_suppliers(current_user: dict = Depends(get_current_user)):
         else:
             cur.close(); conn.close()
             return []
+    elif role in WORKER_EXECUTION_ROLES:
+        cur.close(); conn.close()
+        return []
     elif role in SUPPLY_ROLES or role in WAREHOUSE_ROLES or role in FINANCE_ROLES:
         cur.execute("SELECT * FROM suppliers ORDER BY name")
     else:
@@ -4940,8 +5447,11 @@ def _supply_item_quantity(item: dict) -> float:
     except (TypeError, ValueError):
         return 0.0
 
+def _supply_work_package(value: str = "") -> str:
+    return (value or "Основная").strip() or "Основная"
+
 def _normalize_supply_request_items(raw_items, material_name: str = "", quantity: float = 0, unit: str = "шт", work_package: str = ""):
-    request_package = (work_package or "").strip()
+    request_package = _supply_work_package(work_package)
     items = []
     for raw in raw_items or []:
         if not isinstance(raw, dict):
@@ -4949,11 +5459,11 @@ def _normalize_supply_request_items(raw_items, material_name: str = "", quantity
         name = (raw.get("materialName") or raw.get("material_name") or raw.get("name") or "").strip()
         if not name or _supply_item_quantity(raw) <= 0:
             continue
-        item_package = (raw.get("workPackage") or raw.get("work_package") or request_package or "").strip()
+        item_package = _supply_work_package(raw.get("workPackage") or raw.get("work_package") or request_package)
         cleaned = dict(raw)
         cleaned["materialName"] = name
         cleaned["quantity"] = _supply_item_quantity(raw)
-        cleaned["unit"] = (raw.get("unit") or unit or "шт").strip()
+        cleaned["unit"] = _norm_base_unit(raw.get("unit") or unit or "шт") or "шт"
         cleaned["workPackage"] = item_package
         cleaned.pop("work_package", None)
         items.append(cleaned)
@@ -4961,18 +5471,18 @@ def _normalize_supply_request_items(raw_items, material_name: str = "", quantity
         items = [{
             "materialName": material_name,
             "quantity": _supply_item_quantity({"quantity": quantity}),
-            "unit": unit or "шт",
+            "unit": _norm_base_unit(unit or "шт") or "шт",
             "workPackage": request_package,
         }]
     return items
 
 def _resolve_supply_request_package(user: dict, items: list, header_package: str = "") -> str:
-    header = (header_package or "").strip()
+    header = _supply_work_package(header_package)
     packages = sorted(set([
-        (item.get("workPackage") or item.get("work_package") or header or "Основная").strip()
+        _supply_work_package(item.get("workPackage") or item.get("work_package") or header)
         for item in items
         if isinstance(item, dict)
-    ] or [header or "Основная"]))
+    ] or [header]))
     if len(packages) > 1:
         raise HTTPException(
             status_code=400,
@@ -4980,13 +5490,302 @@ def _resolve_supply_request_package(user: dict, items: list, header_package: str
             + ", ".join(packages)
             + ". Создайте отдельную заявку по каждому разделу.",
         )
-    package_name = packages[0] if packages else (header or "Основная")
+    package_name = packages[0] if packages else header
     if not has_package_access(user, package_name or "Основная"):
         raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + (package_name or "Основная"))
     for item in items:
         item["workPackage"] = package_name
         item.pop("work_package", None)
     return package_name
+
+def _material_control_key_resolved(cur, project: str, name: str, unit: str = ""):
+    raw_name = (name or "").strip()
+    raw_unit = _norm_base_unit(unit or "")
+    if not raw_name:
+        return _material_control_key(raw_name, raw_unit)
+    try:
+        cur.execute("""SELECT canonical_name, canonical_unit
+                       FROM material_aliases
+                       WHERE active=TRUE
+                         AND (project_name=%s OR COALESCE(project_name,'')='')
+                         AND LOWER(TRIM(alias_name))=LOWER(TRIM(%s))
+                       ORDER BY COALESCE(project_name,'') DESC, id DESC
+                       LIMIT 1""", ((project or "").strip(), raw_name))
+        row = cur.fetchone()
+        if row:
+            canonical_name = row[0] if not isinstance(row, dict) else row.get("canonical_name")
+            canonical_unit = row[1] if not isinstance(row, dict) else row.get("canonical_unit")
+            return _material_control_key(canonical_name or raw_name, canonical_unit or raw_unit)
+        raw_key = _norm_key_text(raw_name)
+        cur.execute("""SELECT alias_name, canonical_name, canonical_unit
+                       FROM material_aliases
+                       WHERE active=TRUE
+                         AND (project_name=%s OR COALESCE(project_name,'')='')
+                       ORDER BY COALESCE(project_name,'') DESC, id DESC""", ((project or "").strip(),))
+        for alias_row in cur.fetchall() or []:
+            alias_name = alias_row[0] if not isinstance(alias_row, dict) else alias_row.get("alias_name")
+            if _norm_key_text(alias_name or "") != raw_key:
+                continue
+            canonical_name = alias_row[1] if not isinstance(alias_row, dict) else alias_row.get("canonical_name")
+            canonical_unit = alias_row[2] if not isinstance(alias_row, dict) else alias_row.get("canonical_unit")
+            return _material_control_key(canonical_name or raw_name, canonical_unit or raw_unit)
+    except Exception as e:
+        print("MATERIAL ALIAS CONTROL ERROR:", str(e))
+    return _material_control_key(raw_name, raw_unit)
+
+def _supply_material_estimate_control(cur, project: str, material_name: str, unit: str = "", work_package: str = "", exclude_request_id=None, exclude_stock_qty: float = 0.0):
+    project = (project or "").strip()
+    material_name = (material_name or "").strip()
+    if not project or not material_name:
+        return None
+    package = _supply_work_package(work_package)
+    target_key = _material_control_key_resolved(cur, project, material_name, unit)
+    planned_qty = planned_sum = 0.0
+    matched_rows = 0
+    params = [project]
+    package_clause = ""
+    if package:
+        package_clause = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
+        params.append(package)
+    cur.execute("""SELECT id, name, sections_json, COALESCE(work_package,'Основная') AS work_package
+                   FROM estimates
+                   WHERE project_name=%s
+                     AND status='Активная'
+                     AND COALESCE(smeta_type,'Заказчик') IN ('Заказчик','Материалы')""" + package_clause, tuple(params))
+    estimates = _cursor_rows_as_dicts(cur, cur.fetchall())
+    estimate_count = len(estimates)
+    for est in estimates:
+        for section in _estimate_sections(est.get("sections_json")):
+            section_name = section.get("name") or ""
+            for item in section.get("items") or []:
+                if _estimate_item_type_backend(item, section_name) != "material":
+                    continue
+                if _estimate_material_plan_issue_backend(item, section_name):
+                    continue
+                item_name = (item.get("name") or "").strip()
+                item_unit = item.get("unit") or ""
+                if _material_control_key_resolved(cur, project, item_name, item_unit) != target_key:
+                    continue
+                qty = _estimate_imported_quantity(item)
+                if qty <= 0:
+                    qty = _float_or_zero(item.get("quantity"))
+                planned_qty += qty
+                planned_sum += _estimate_material_sum_backend(item) or _estimate_item_sum_backend(item)
+                matched_rows += 1
+
+    stock_qty = 0.0
+    cur.execute("""SELECT name, unit, quantity FROM materials
+                   WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s""",
+                (project, package))
+    for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
+        if _material_control_key_resolved(cur, project, row.get("name"), row.get("unit")) == target_key:
+            stock_qty += _float_or_zero(row.get("quantity"))
+
+    transferred_qty = 0.0
+    transferred_signed_qty = 0.0
+    transferred_pending_qty = 0.0
+    cur.execute("""SELECT material_name, unit, quantity, COALESCE(signed,FALSE) AS signed
+                   FROM material_transfers
+                   WHERE project_name=%s
+                     AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                     AND COALESCE(status,'Активна') <> 'Аннулирована'""", (project, package))
+    for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
+        if _material_control_key_resolved(cur, project, row.get("material_name"), row.get("unit")) == target_key:
+            qty = _float_or_zero(row.get("quantity"))
+            transferred_qty += qty
+            if row.get("signed"):
+                transferred_signed_qty += qty
+            else:
+                transferred_pending_qty += qty
+
+    returned_qty = 0.0
+    cur.execute("""SELECT material, unit, quantity
+                   FROM warehouse_history
+                   WHERE project=%s
+                     AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                     AND LOWER(COALESCE(type,'')) LIKE 'возврат от мастера%'""", (project, package))
+    for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
+        if _material_control_key_resolved(cur, project, row.get("material"), row.get("unit")) == target_key:
+            returned_qty += _float_or_zero(row.get("quantity"))
+
+    written_off_qty = 0.0
+    cur.execute("""SELECT materials_used
+                   FROM work_journal
+                   WHERE project=%s
+                     AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                     AND COALESCE(status,'') NOT IN ('Аннулировано','Отклонено')
+                     AND COALESCE(materials_used,'') <> ''""", (project, package))
+    for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
+        for item in _json_list_or_empty(row.get("materials_used")):
+            if not isinstance(item, dict):
+                continue
+            item_name = item.get("name") or item.get("materialName") or ""
+            item_unit = item.get("unit") or unit
+            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key:
+                written_off_qty += _float_or_zero(item.get("quantity"))
+
+    requested_qty = 0.0
+    request_params = [project, package]
+    request_exclude_clause = ""
+    if exclude_request_id:
+        request_exclude_clause = " AND id<>%s"
+        request_params.append(int(exclude_request_id))
+    cur.execute("""SELECT id, status, items_json, material_name, quantity, unit, COALESCE(work_package,'Основная') AS work_package
+                   FROM supply_requests
+                   WHERE project=%s
+                     AND COALESCE(status,'') NOT IN ('Отклонена','Отменена','Отменена с откатом','Поставлено')
+                     AND COALESCE(NULLIF(work_package,''),'Основная')=%s""" + request_exclude_clause,
+                tuple(request_params))
+    for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
+        raw_items = _json_list_or_empty(row.get("items_json"))
+        if not raw_items:
+            raw_items = [{
+                "materialName": row.get("material_name") or "",
+                "quantity": row.get("quantity") or 0,
+                "unit": row.get("unit") or "",
+                "workPackage": row.get("work_package") or package,
+            }]
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            item_name = item.get("materialName") or item.get("name") or ""
+            item_unit = item.get("unit") or row.get("unit") or unit
+            item_package = _supply_work_package(item.get("workPackage") or item.get("work_package") or row.get("work_package"))
+            if item_package != package:
+                continue
+            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key:
+                item_qty = _float_or_zero(item.get("quantity"))
+                delivered_qty = 0.0
+                cur.execute("""SELECT material_name, unit, received_quantity, COALESCE(work_package,'Основная') AS work_package
+                               FROM supply_deliveries
+                               WHERE request_id=%s
+                                 AND COALESCE(status,'') NOT IN ('Отменена','Отклонена')""", (row.get("id"),))
+                for delivery_row in _cursor_rows_as_dicts(cur, cur.fetchall()):
+                    delivery_package = _supply_work_package(delivery_row.get("work_package"))
+                    if delivery_package != item_package:
+                        continue
+                    if _material_control_key_resolved(cur, project, delivery_row.get("material_name"), delivery_row.get("unit")) == target_key:
+                        delivered_qty += _float_or_zero(delivery_row.get("received_quantity"))
+                requested_qty += max(0.0, item_qty - delivered_qty)
+
+    stock_qty = max(0.0, stock_qty - max(0.0, _float_or_zero(exclude_stock_qty)))
+    issued_or_consumed_qty = max(written_off_qty, max(0.0, transferred_qty - returned_qty))
+    covered_qty = stock_qty + issued_or_consumed_qty
+    remaining = planned_qty - covered_qty - requested_qty
+    return {
+        "status": "no_active_estimate" if estimate_count == 0 else ("no_estimate_material" if matched_rows == 0 else ("shortage_open" if remaining > 0 else "covered")),
+        "estimateCount": estimate_count,
+        "matchedRows": matched_rows,
+        "plannedQty": round(planned_qty, 6),
+        "plannedSum": round(planned_sum, 2),
+        "stockQty": round(stock_qty, 6),
+        "transferredQty": round(transferred_qty, 6),
+        "transferredSignedQty": round(transferred_signed_qty, 6),
+        "transferredPendingQty": round(transferred_pending_qty, 6),
+        "returnedQty": round(returned_qty, 6),
+        "writtenOffQty": round(written_off_qty, 6),
+        "coveredQty": round(covered_qty, 6),
+        "requestedQty": round(requested_qty, 6),
+        "remainingQty": round(remaining, 6),
+        "workPackage": package,
+    }
+
+def _attach_supply_estimate_control(cur, project: str, items: list, exclude_request_id=None, exclude_stock_by_key=None):
+    if not project:
+        return items
+    exclude_stock_by_key = exclude_stock_by_key or {}
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        control = _supply_material_estimate_control(
+            cur,
+            project,
+            item.get("materialName") or item.get("name") or "",
+            item.get("unit") or "",
+            item.get("workPackage") or item.get("work_package") or "",
+            exclude_request_id=exclude_request_id,
+            exclude_stock_qty=exclude_stock_by_key.get(_material_control_key_resolved(cur, project, item.get("materialName") or item.get("name") or "", item.get("unit") or ""), 0),
+        )
+        if not control:
+            continue
+        qty = _float_or_zero(item.get("quantity"))
+        remaining_after = control["remainingQty"] - qty
+        control["requestQty"] = round(qty, 6)
+        control["remainingAfterRequest"] = round(remaining_after, 6)
+        if control["matchedRows"] > 0 and remaining_after < -max(0.01, control["plannedQty"] * 0.05):
+            control["status"] = "over_estimate_need"
+        item["estimateControl"] = control
+    return items
+
+def _enforce_supply_estimate_control(items: list, *, source: str = "заявка"):
+    blockers = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        control = item.get("estimateControl") or {}
+        status = control.get("status")
+        if status not in ("no_active_estimate", "no_estimate_material", "over_estimate_need"):
+            continue
+        name = item.get("materialName") or item.get("name") or ""
+        unit = item.get("unit") or ""
+        qty = _float_or_zero(item.get("quantity"))
+        package = control.get("workPackage") or item.get("workPackage") or item.get("work_package") or "Основная"
+        if status == "no_active_estimate":
+            blockers.append(f"{name} ({package}) — по объекту нет активной заказной или нормативной сметы материалов")
+        elif status == "no_estimate_material":
+            blockers.append(f"{name} ({package}) — материала нет в активной смете")
+        else:
+            remaining = _float_or_zero(control.get("remainingQty"))
+            blockers.append(f"{name} ({package}) — запрошено {qty:g} {unit}, по смете осталось {remaining:g} {unit}")
+    if blockers:
+        prefix = "Заявка" if source == "заявка" else ("Перемещение" if source == "перемещение" else "Накладная")
+        raise HTTPException(
+            status_code=400,
+            detail=prefix + " не проходит сметный контроль. " + "; ".join(blockers[:5]) + ". Сначала добавьте материал в активную/доп. смету или исправьте раздел сметы."
+        )
+
+def _copy_approved_supply_request_control(cur, request_id, project: str, items: list) -> bool:
+    if not request_id or not items:
+        return False
+    cur.execute("SELECT status, items_json FROM supply_requests WHERE id=%s", (request_id,))
+    req = cur.fetchone()
+    if not req:
+        return False
+    status = (req.get("status") if isinstance(req, dict) else req[0]) or ""
+    if status not in ("Утверждена", "В пути", "Поставлено", "Частично поставлено", "Проблема поставки"):
+        return False
+    request_items = _json_list_or_empty(req.get("items_json") if isinstance(req, dict) else req[1])
+    if not request_items:
+        return True
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        item_package = _supply_work_package(item.get("workPackage") or item.get("work_package"))
+        item_key = _material_control_key_resolved(
+            cur,
+            project,
+            item.get("materialName") or item.get("name") or "",
+            item.get("unit") or "",
+        )
+        for req_item in request_items:
+            if not isinstance(req_item, dict):
+                continue
+            req_package = _supply_work_package(req_item.get("workPackage") or req_item.get("work_package"))
+            if req_package != item_package:
+                continue
+            req_key = _material_control_key_resolved(
+                cur,
+                project,
+                req_item.get("materialName") or req_item.get("name") or "",
+                req_item.get("unit") or "",
+            )
+            if req_key != item_key:
+                continue
+            if isinstance(req_item.get("estimateControl"), dict):
+                item["estimateControl"] = dict(req_item["estimateControl"])
+                item["estimateControl"]["receiptLockedByRequest"] = request_id
+            break
+    return True
 
 @app.get("/supply-requests")
 def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
@@ -5001,7 +5800,8 @@ def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_us
         if not supplier_id:
             cur.close(); conn.close()
             return []
-        cur.execute(SUPPLY_SELECT + " WHERE selected_suppliers::text LIKE %s ORDER BY id DESC" + page_sql, ['%"'+str(supplier_id)+'"%'] + page_params)
+        cur.execute(SUPPLY_SELECT + " WHERE %s = ANY(COALESCE(selected_suppliers, '{}'::int[])) ORDER BY id DESC" + page_sql,
+                    [int(supplier_id)] + page_params)
     elif role == "прораб":
         projects = user_project_names(current_user)
         clauses = ["requested_by_id=%s", "created_by=%s"]
@@ -5011,7 +5811,7 @@ def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_us
             params.append(projects)
         package_sql, package_params = package_access_filter(current_user)
         cur.execute(SUPPLY_SELECT + " WHERE (" + " OR ".join(clauses) + ")" + package_sql + " ORDER BY id DESC" + page_sql, params + package_params + page_params)
-    elif role in ("мастер", "субподрядчик"):
+    elif role in WORKER_EXECUTION_ROLES:
         package_sql, package_params = package_access_filter(current_user)
         cur.execute(SUPPLY_SELECT + " WHERE (requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY id DESC" + page_sql,
                     [current_user.get("id"), current_user.get("name") or ""] + package_params + page_params)
@@ -5027,6 +5827,9 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     import json as _json
     from datetime import datetime
     role = (_current_user.get("role") or "").strip()
+    project_name = (r.project or "").strip()
+    if not project_name:
+        raise HTTPException(status_code=400, detail="Заявка снабжения должна быть привязана к объекту или складу")
     created_by = _current_user.get("name") or r.createdBy or ""
     requested_by_id = _current_user.get("id")
     if role in ("директор", "зам_директора"):
@@ -5043,12 +5846,11 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     director_name = created_by if role in ("директор", "зам_директора") else None
     director_at = now if role in ("директор", "зам_директора") else None
     # Нормализация items: если items пустой, но есть materialName, упаковываем как single-item.
-    request_package = (r.workPackage or "").strip()
+    request_package = _supply_work_package(r.workPackage)
     items = _normalize_supply_request_items(r.items, r.materialName, r.quantity, r.unit, request_package)
     if not items:
         raise HTTPException(status_code=400, detail="Заявка должна содержать хотя бы одну позицию")
-    if r.project:
-        require_project_or_warehouse_access(_current_user, r.project)
+    require_project_or_warehouse_access(_current_user, project_name)
     request_package = _resolve_supply_request_package(_current_user, items, request_package)
     # material_name / quantity / unit заполняем агрегатом для совместимости со старым UI
     # Если позиций больше одной — пишем «N позиций» в material_name; quantity = сумма всех
@@ -5060,9 +5862,12 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
         agg_name = items[0]["materialName"] + " и ещё " + str(len(items)-1) + " поз."
         agg_qty = float(len(items))  # количество позиций
         agg_unit = "поз."
-    items_json = _json.dumps(items, ensure_ascii=False)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    items = _attach_supply_estimate_control(cur, project_name, items)
+    if project_name != "Основной склад":
+        _enforce_supply_estimate_control(items, source="заявка")
+    items_json = _json.dumps(items, ensure_ascii=False)
     cur.execute(
         "INSERT INTO supply_requests "
         "(material_name,quantity,unit,project,work_package,created_by,date,notes,selected_suppliers,"
@@ -5070,7 +5875,7 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
         "prorab_id,prorab_name,prorab_confirmed_at,"
         "director_id,director_name,director_approved_at,items_json) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (agg_name, agg_qty, agg_unit, r.project, request_package, created_by, r.date, r.notes,
+        (agg_name, agg_qty, agg_unit, project_name, request_package, created_by, r.date, r.notes,
          r.selectedSuppliers, initial_status, role, requested_by_id, r.urgency, r.category,
          prorab_id, prorab_name, prorab_at,
          director_id, director_name, director_at, items_json))
@@ -5090,7 +5895,9 @@ def update_supply_request(id: int, data: dict, _current_user: dict = Depends(req
     role = _current_user.get("role") or ""
     user_id = _current_user.get("id")
     user_name = _current_user.get("name") or ""
-    cur.execute("SELECT project, COALESCE(work_package,'') as work_package, items_json FROM supply_requests WHERE id=%s", (id,))
+    cur.execute("""SELECT project, COALESCE(work_package,'') as work_package, items_json,
+                          requested_by_id, created_by, status
+                   FROM supply_requests WHERE id=%s""", (id,))
     req = cur.fetchone()
     if not req:
         conn.close()
@@ -5099,13 +5906,27 @@ def update_supply_request(id: int, data: dict, _current_user: dict = Depends(req
         require_project_or_warehouse_access(_current_user, req.get("project"))
     request_items = _json_list_or_empty(req.get("items_json"))
     request_packages = sorted(set([
-        (item.get("workPackage") or item.get("work_package") or req.get("work_package") or "Основная").strip()
+        _supply_work_package(item.get("workPackage") or item.get("work_package") or req.get("work_package"))
         for item in request_items
-    ] or [req.get("work_package") or "Основная"]))
+    ] or [_supply_work_package(req.get("work_package"))]))
     for package_name in request_packages:
         if not has_package_access(_current_user, package_name or "Основная"):
             conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + (package_name or "Основная"))
+    if role in WORKER_EXECUTION_ROLES:
+        owns_request = (
+            str(req.get("requested_by_id") or "") == str(user_id or "")
+            or (req.get("created_by") or "").strip().lower() == user_name.strip().lower()
+        )
+        if not owns_request:
+            conn.close()
+            raise HTTPException(status_code=403, detail="Исполнитель может менять только свою заявку")
+        if action != "cancel":
+            conn.close()
+            raise HTTPException(status_code=403, detail="Исполнитель может только отменить свою заявку до обработки")
+        if (req.get("status") or "Новая") not in ("Новая", "Подтверждена прорабом"):
+            conn.close()
+            raise HTTPException(status_code=400, detail="Заявка уже в обработке, отмену делает снабжение или руководитель")
     if action == 'confirm_prorab':
         if role not in (*LEADERSHIP_ROLES, "прораб", "главный_инженер"):
             conn.close()
@@ -5117,17 +5938,41 @@ def update_supply_request(id: int, data: dict, _current_user: dict = Depends(req
         if role not in LEADERSHIP_ROLES:
             conn.close()
             raise HTTPException(status_code=403, detail="Утвердить заявку может только директор или замдиректора")
+        refreshed_items = _attach_supply_estimate_control(cur, req.get("project") or "", request_items, exclude_request_id=id)
+        if req.get("project") and req.get("project") != "Основной склад":
+            _enforce_supply_estimate_control(refreshed_items, source="заявка")
+            cur.execute("UPDATE supply_requests SET items_json=%s WHERE id=%s", (json.dumps(refreshed_items, ensure_ascii=False), id))
         cur.execute(
             "UPDATE supply_requests SET status=%s, director_id=%s, director_name=%s, director_approved_at=%s WHERE id=%s",
             ('Утверждена', user_id, user_name, now, id))
     elif action == 'reject':
+        if role not in (*LEADERSHIP_ROLES, "прораб", "главный_инженер", "снабженец", "кладовщик"):
+            conn.close()
+            raise HTTPException(status_code=403, detail="Отклонить заявку может прораб, снабжение или руководство")
         cur.execute(
             "UPDATE supply_requests SET status=%s, reject_reason=%s WHERE id=%s",
             ('Отклонена', data.get('rejectReason') or data.get('reason') or '', id))
     elif action == 'cancel':
+        current_status = req.get("status") or "Новая"
+        if role in WORKER_EXECUTION_ROLES:
+            pass
+        elif role in LEADERSHIP_ROLES:
+            pass
+        elif role in ("прораб", "главный_инженер"):
+            if current_status not in ("Новая", "Подтверждена прорабом"):
+                conn.close()
+                raise HTTPException(status_code=400, detail="Заявка уже в снабжении: отменить может директор или замдиректора")
+        elif role in ("снабженец", "кладовщик"):
+            if current_status not in ("Новая", "Подтверждена прорабом", "Утверждена"):
+                conn.close()
+                raise HTTPException(status_code=400, detail="Поставка уже началась: отменить может директор или замдиректора")
+        else:
+            conn.close()
+            raise HTTPException(status_code=403, detail="Нет прав на отмену заявки")
         cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('Отменена', id))
     elif 'status' in data:
-        cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", (data['status'], id))
+        conn.close()
+        raise HTTPException(status_code=400, detail="Статус заявки меняется только через действия confirm_prorab / approve_director / reject / cancel")
     cur.execute(SUPPLY_SELECT + " WHERE id=%s", (id,))
     row = cur.fetchone()
     conn.close()
@@ -5149,9 +5994,9 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
             require_project_access(_current_user, req.get("project"))
         request_items = _json_list_or_empty(req.get("items_json"))
         request_packages = sorted(set([
-            (item.get("workPackage") or item.get("work_package") or req.get("work_package") or "Основная").strip()
+            _supply_work_package(item.get("workPackage") or item.get("work_package") or req.get("work_package"))
             for item in request_items
-        ] or [req.get("work_package") or "Основная"]))
+        ] or [_supply_work_package(req.get("work_package"))]))
         for package_name in request_packages:
             if not has_package_access(_current_user, package_name or "Основная"):
                 conn.rollback()
@@ -5173,6 +6018,24 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
         if received_deliveries and not rollback_received:
             conn.rollback()
             raise HTTPException(status_code=400, detail="По заявке уже есть принятая поставка. Можно только отменить без удаления истории или выполнить откат руководителем.")
+        if rollback_received and received_deliveries:
+            delivery_ids = [int(d.get("id") or 0) for d in received_deliveries if int(d.get("id") or 0) > 0]
+            cur.execute("""SELECT
+                              (SELECT COUNT(*) FROM warehouse_invoices
+                               WHERE supply_request_id=%s
+                                  OR (supply_delivery_id = ANY(%s))) AS invoice_count,
+                              (SELECT COUNT(*) FROM supply_history
+                               WHERE request_id=%s
+                                  OR (delivery_id = ANY(%s))) AS history_count""",
+                        (id, delivery_ids, id, delivery_ids))
+            doc_links = cur.fetchone() or {}
+            linked_docs = int(doc_links.get("invoice_count") or 0) + int(doc_links.get("history_count") or 0)
+            if linked_docs:
+                conn.rollback()
+                raise HTTPException(
+                    status_code=400,
+                    detail="Откат принятой поставки запрещён после формирования накладной или истории. Оформите сторно отдельным документом, чтобы не потерять связь складского учёта."
+                )
 
         if not rollback_received:
             cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ("Отменена", id))
@@ -5185,13 +6048,14 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
                 qty = float(d.get("received_quantity") or 0)
                 name = d.get("material_name") or ""
                 project = d.get("project") or ""
-                unit = d.get("unit") or "шт"
-                work_package = (d.get("work_package") or d.get("workPackage") or "").strip()
+                unit = _norm_base_unit(d.get("unit") or "шт") or "шт"
+                work_package = _supply_work_package(d.get("work_package") or d.get("workPackage") or req.get("work_package"))
                 if not name or not project or qty <= 0:
                     continue
                 cur.execute("""SELECT id, quantity FROM materials
-                               WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
-                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, project, work_package))
+                               WHERE name=%s AND project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                                 AND """ + _sql_norm_unit("unit") + """=%s
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, project, work_package, unit))
                 mat = cur.fetchone()
                 if not mat:
                     conn.rollback()
@@ -5205,8 +6069,8 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
                     cur.execute("DELETE FROM materials WHERE id=%s", (mat.get("id"),))
                 else:
                     cur.execute("UPDATE materials SET quantity=%s WHERE id=%s", (remaining_qty, mat.get("id")))
-                cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (name, "откат поставки (удаление заявки)", qty, datetime.now().date().isoformat(), project, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (name, "откат поставки (удаление заявки)", qty, unit, datetime.now().date().isoformat(), project, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
                 restored += 1
 
         cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ("Отменена с откатом", id))
@@ -5230,10 +6094,20 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT material_name, quantity, unit, project, COALESCE(work_package,'') AS work_package, items_json FROM supply_requests WHERE id=%s", (id,))
+        is_worker = current_user.get("role") in WORKER_EXECUTION_ROLES
+        cur.execute("""SELECT material_name, quantity, unit, project, COALESCE(work_package,'') AS work_package,
+                              items_json, requested_by_id, created_by
+                       FROM supply_requests WHERE id=%s""", (id,))
         req = cur.fetchone()
         if not req:
             return {"error": "Заявка не найдена"}
+        if is_worker:
+            current_user_id = str(current_user.get("id") or "")
+            current_user_name = (current_user.get("name") or "").strip().lower()
+            request_user_id = str(req.get("requested_by_id") or "")
+            request_author = (req.get("created_by") or "").strip().lower()
+            if request_user_id != current_user_id and request_author != current_user_name:
+                raise HTTPException(status_code=403, detail="Исполнитель может проверять склад только по своей заявке")
         request_items = _json_list_or_empty(req.get("items_json"))
         if not request_items:
             request_items = [{"materialName": req.get("material_name") or "", "quantity": req.get("quantity") or 0, "unit": req.get("unit") or "шт", "workPackage": req.get("work_package") or ""}]
@@ -5242,11 +6116,14 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
                 "materialName": (it.get("materialName") or it.get("name") or "").strip(),
                 "quantity": _float_or_zero(it.get("quantity")),
                 "unit": it.get("unit") or req.get("unit") or "шт",
-                "workPackage": (it.get("workPackage") or it.get("work_package") or req.get("work_package") or "").strip(),
+                "workPackage": _supply_work_package(it.get("workPackage") or it.get("work_package") or req.get("work_package")),
             }
             for it in request_items if isinstance(it, dict)
         ]
         request_items = [it for it in request_items if it["materialName"] and it["quantity"] > 0]
+        for req_item in request_items:
+            if not has_package_access(current_user, req_item["workPackage"]):
+                raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы заявки: " + req_item["workPackage"])
         display_name = (request_items[0]["materialName"] if len(request_items) == 1 else (req['material_name'] or '')).strip()
         project = (req['project'] or '').strip()
         if project:
@@ -5255,9 +6132,11 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
         # Поиск похожих материалов на основном складе (ILIKE по части имени)
         stock_matches = []
         total_available = 0.0
+        item_checks = []
         for req_item in request_items:
             name = req_item["materialName"]
-            item_package = req_item.get("workPackage") or ""
+            item_package = _supply_work_package(req_item.get("workPackage"))
+            item_available = 0.0
             # Берём первое значащее слово (>=4 символа) для гибкого поиска
             tokens = [t for t in name.split() if len(t) >= 4]
             search = tokens[0] if tokens else name
@@ -5268,33 +6147,42 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
                 stock_matches.append({
                     "id": row['id'], "name": row['name'],
                     "quantity": float(row['quantity'] or 0),
-                    "unit": row['unit'], "price": float(row['price'] or 0),
+                    "unit": row['unit'], "price": 0 if is_worker else float(row['price'] or 0),
                     "category": row['category'],
                     "workPackage": "",
                     "requestItem": name,
                 })
-                total_available += float(row['quantity'] or 0)
+                item_available += float(row['quantity'] or 0)
             # Также ищем на складе объекта (materials)
             if project:
                 try:
                     cur.execute(
                         """SELECT id, name, quantity, unit, price, category, COALESCE(work_package,'') AS work_package
                            FROM materials
-                           WHERE project=%s AND name ILIKE %s AND COALESCE(work_package,'')=%s
+                           WHERE project=%s AND name ILIKE %s AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                            LIMIT 10""",
                         (project, '%' + search + '%', item_package))
                     for row in cur.fetchall():
                         stock_matches.append({
                             "id": row['id'], "name": '[На объекте] ' + (row['name'] or ''),
                             "quantity": float(row['quantity'] or 0),
-                            "unit": row['unit'], "price": float(row['price'] or 0),
+                            "unit": row['unit'], "price": 0 if is_worker else float(row['price'] or 0),
                             "category": row['category'],
-                            "workPackage": row.get("work_package") or "",
+                            "workPackage": _supply_work_package(row.get("work_package")),
                             "requestItem": name,
                         })
-                        total_available += float(row['quantity'] or 0)
+                        item_available += float(row['quantity'] or 0)
                 except Exception:
                     pass
+            item_checks.append({
+                "materialName": name,
+                "needed": req_item["quantity"],
+                "unit": req_item["unit"],
+                "workPackage": item_package,
+                "available": item_available,
+                "shortage": max(0.0, req_item["quantity"] - item_available),
+            })
+            total_available += item_available
         # Бюджет проекта
         project_budget = 0.0
         project_approved_cost = 0.0
@@ -5320,7 +6208,7 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
                             "materialName": row.get("material_name") or "",
                             "quantity": row.get("quantity") or 0,
                             "unit": row.get("unit") or "шт",
-                            "workPackage": row.get("work_package") or "",
+                            "workPackage": _supply_work_package(row.get("work_package")),
                         }]
                     for item in raw_items:
                         if not isinstance(item, dict):
@@ -5345,7 +6233,7 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
                             project_pending_cost += est_cost
             except Exception:
                 pass
-        shortage = max(0.0, needed - total_available)
+        shortage = sum(item["shortage"] for item in item_checks) if item_checks else max(0.0, needed - total_available)
         budget_risk = 0.0
         if project_budget > 0:
             budget_risk = (project_approved_cost + project_pending_cost) / project_budget * 100
@@ -5356,14 +6244,15 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
             "unit": req['unit'],
             "workPackage": req.get("work_package") or "",
             "items": request_items,
+            "itemChecks": item_checks,
             "totalAvailable": total_available,
             "shortage": shortage,
             "stockMatches": stock_matches,
             "project": project,
-            "projectBudget": project_budget,
-            "projectApprovedCost": project_approved_cost,
-            "projectPendingCost": project_pending_cost,
-            "budgetRiskPercent": budget_risk,
+            "projectBudget": 0 if is_worker else project_budget,
+            "projectApprovedCost": 0 if is_worker else project_approved_cost,
+            "projectPendingCost": 0 if is_worker else project_pending_cost,
+            "budgetRiskPercent": 0 if is_worker else budget_risk,
         }
     except Exception as e:
         import traceback
@@ -5407,10 +6296,9 @@ def get_supplier_offers(current_user: dict = Depends(get_current_user)):
             return []
         package_sql, package_params = package_access_filter(current_user)
         cur.execute(OFFERS_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE project = ANY(%s)" + package_sql + ") ORDER BY id DESC", [projects] + package_params)
-    elif role in ("мастер", "субподрядчик"):
-        package_sql, package_params = package_access_filter(current_user)
-        cur.execute(OFFERS_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE (requested_by_id=%s OR created_by=%s)" + package_sql + ") ORDER BY id DESC",
-                    [current_user.get("id"), current_user.get("name") or ""] + package_params)
+    elif role in WORKER_EXECUTION_ROLES:
+        cur.close(); conn.close()
+        return []
     else:
         cur.close(); conn.close()
         return []
@@ -5422,11 +6310,14 @@ def get_supplier_offers(current_user: dict = Depends(get_current_user)):
 def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, project, selected_suppliers FROM supply_requests WHERE id=%s", (o.requestId,))
+    cur.execute("SELECT id, project, selected_suppliers, status FROM supply_requests WHERE id=%s", (o.requestId,))
     req = cur.fetchone()
     if not req:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Заявка не найдена")
+    if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="КП можно создать только после утверждения заявки директором")
     supplier_id = o.supplierId
     role = _current_user.get("role")
     if role == "поставщик":
@@ -5449,6 +6340,7 @@ def create_supplier_offer(o: SupplierOfferModel, _current_user: dict = Depends(r
     new_id = cur.fetchone()['id']
     cur.execute(OFFERS_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
+    conn.commit()
     conn.close()
     return dict(row)
 
@@ -5483,6 +6375,82 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             raise HTTPException(status_code=403, detail="Недостаточно прав для изменения КП")
         if offer_access.get("project"):
             require_project_or_warehouse_access(_current_user, offer_access.get("project") or "")
+
+    def _offer_line_key(item):
+        return (
+            _norm_key_text((item or {}).get("materialName") or (item or {}).get("name") or ""),
+            _norm_base_unit((item or {}).get("unit") or ""),
+            _supply_work_package((item or {}).get("workPackage") or (item or {}).get("work_package") or ""),
+        )
+
+    def _require_valid_supplier_offer_for_approval():
+        cur.execute("""SELECT o.status, o.total_price, o.price_per_unit, o.items_kp_json,
+                              r.items_json, r.quantity
+                       FROM supplier_offers o
+                       LEFT JOIN supply_requests r ON r.id=o.request_id
+                       WHERE o.id=%s""", (id,))
+        guard = cur.fetchone()
+        if not guard:
+            raise HTTPException(status_code=404, detail="КП не найдено")
+        if (guard.get("status") or "") != "Получено":
+            raise HTTPException(status_code=400, detail="Нельзя утвердить КП, пока поставщик не прислал цены")
+        request_items = _json_list_or_empty(guard.get("items_json"))
+        kp_items = _json_list_or_empty(guard.get("items_kp_json"))
+        total_price = _float_or_zero(guard.get("total_price"))
+        price_per_unit = _float_or_zero(guard.get("price_per_unit"))
+        if request_items:
+            if not kp_items:
+                raise HTTPException(status_code=400, detail="В КП нет постатейных цен по материалам заявки")
+            request_by_key = {}
+            for req_item in request_items:
+                if not isinstance(req_item, dict):
+                    continue
+                request_by_key[_offer_line_key(req_item)] = req_item
+            priced_keys = set()
+            kp_total = 0.0
+            for kp_item in kp_items:
+                if not isinstance(kp_item, dict):
+                    continue
+                key = _offer_line_key(kp_item)
+                req_item = request_by_key.get(key)
+                if not req_item:
+                    continue
+                kp_qty = _float_or_zero(kp_item.get("quantity"))
+                req_qty = _float_or_zero(req_item.get("quantity"))
+                price = _float_or_zero(kp_item.get("pricePerUnit"))
+                line_total = _float_or_zero(kp_item.get("totalPrice"))
+                if price <= 0 or line_total <= 0:
+                    continue
+                if abs(kp_qty - req_qty) > 0.000001:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Количество в КП не совпадает с заявкой: " + str(req_item.get("materialName") or req_item.get("name") or "позиция")
+                    )
+                expected_line_total = round(price * req_qty, 2)
+                if abs(line_total - expected_line_total) > 0.05:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Сумма строки КП не сходится с ценой и количеством: " + str(req_item.get("materialName") or req_item.get("name") or "позиция")
+                    )
+                kp_total += line_total
+                priced_keys.add(key)
+            missing = []
+            for req_item in request_items:
+                if not isinstance(req_item, dict):
+                    continue
+                if _offer_line_key(req_item) not in priced_keys:
+                    missing.append(req_item.get("materialName") or req_item.get("name") or "позиция")
+            if missing:
+                raise HTTPException(status_code=400, detail="В КП нет цены по позициям: " + ", ".join(missing[:5]))
+            if abs(total_price - round(kp_total, 2)) > 0.05:
+                raise HTTPException(status_code=400, detail="Итог КП не совпадает с суммой строк заявки")
+        else:
+            request_qty = _float_or_zero(guard.get("quantity"))
+            if request_qty > 0 and price_per_unit <= 0:
+                raise HTTPException(status_code=400, detail="В КП не указана цена за единицу")
+        if total_price <= 0:
+            raise HTTPException(status_code=400, detail="Нельзя утвердить КП с нулевой суммой")
+
     if action == 'respond':
         # Поставщик отвечает на КП: цена, срок, условия, НДС, PDF, комментарий
         import json as _json
@@ -5518,6 +6486,30 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
             ppu = float(data.get('pricePerUnit') or 0)
             qty_for_total = float(data.get('quantity') or 0)
             total = float(data.get('totalPrice') or (ppu * qty_for_total))
+            cur.execute("""SELECT items_json, material_name, quantity, unit, COALESCE(work_package,'Основная') AS work_package
+                           FROM supply_requests WHERE id=%s""", (offer_access.get("request_id"),))
+            req_line = cur.fetchone()
+            req_items = _json_list_or_empty(req_line.get("items_json") if req_line else None)
+            if not req_items and req_line:
+                req_items = [{
+                    "materialName": req_line.get("material_name") or "",
+                    "quantity": req_line.get("quantity") or qty_for_total,
+                    "unit": req_line.get("unit") or "",
+                    "workPackage": req_line.get("work_package") or "Основная",
+                }]
+            if len(req_items) == 1:
+                req_item = req_items[0]
+                req_qty = _float_or_zero(req_item.get("quantity") or qty_for_total)
+                items_kp_json = _json.dumps([{
+                    "materialName": req_item.get("materialName") or req_item.get("name") or "",
+                    "quantity": req_qty,
+                    "unit": req_item.get("unit") or "",
+                    "workPackage": (req_item.get("workPackage") or req_item.get("work_package") or (req_line.get("work_package") if req_line else "") or "Основная").strip(),
+                    "pricePerUnit": ppu,
+                    "totalPrice": round(ppu * req_qty, 2),
+                    "deliveryDays": int(data.get("deliveryDays") or 0) if data.get("deliveryDays") else None,
+                    "notes": data.get("supplierMessage") or "",
+                }], ensure_ascii=False)
         cur.execute(
             "UPDATE supplier_offers SET status=%s, price_per_unit=%s, total_price=%s, delivery_days=%s, "
             "payment_terms=%s, vat_included=%s, pdf_url=%s, valid_until=%s, supplier_message=%s, "
@@ -5532,6 +6524,14 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
              datetime.now(), id))
     elif action == 'select':
         # Директор выбрал это КП
+        if role not in LEADERSHIP_ROLES:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Утвердить КП может только директор или замдиректора")
+        try:
+            _require_valid_supplier_offer_for_approval()
+        except HTTPException:
+            cur.close(); conn.close()
+            raise
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Утверждено', id))
         # Остальные КП по этой заявке — отклонены
         cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
@@ -5543,11 +6543,28 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
         cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отклонено', id))
     else:
         if 'status' in data:
+            new_status = str(data.get('status') or '').strip()
+            if new_status in ("Утверждено", "Выбрано", "Принято") and role not in LEADERSHIP_ROLES:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Утвердить КП может только директор или замдиректора")
+            if new_status in ("Утверждено", "Выбрано", "Принято"):
+                try:
+                    _require_valid_supplier_offer_for_approval()
+                except HTTPException:
+                    cur.close(); conn.close()
+                    raise
             cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", (data['status'], id))
+            if new_status in ("Утверждено", "Выбрано", "Принято"):
+                cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
+                r = cur.fetchone()
+                if r and r['request_id']:
+                    cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND id<>%s AND status<>%s",
+                        ('Отклонено', r['request_id'], id, 'Отклонено'))
         if 'deliveryStatus' in data:
             cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (data['deliveryStatus'], id))
     cur.execute(OFFERS_SELECT + " WHERE id=%s", (id,))
     row = cur.fetchone()
+    conn.commit()
     conn.close()
     return dict(row) if row else {"ok": True}
 
@@ -5555,20 +6572,26 @@ def update_supplier_offer(id: int, data: dict, _current_user: dict = Depends(req
 def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
     """Директор отправляет запрос КП нескольким поставщикам.
        data: {supplierIds: [1,2,3], aiRecommendedIds: [1,2]}"""
-    supplier_ids = data.get('supplierIds') or []
-    ai_ids = set(data.get('aiRecommendedIds') or [])
+    try:
+        supplier_ids = sorted({int(x) for x in (data.get('supplierIds') or []) if int(x) > 0})
+        ai_ids = {int(x) for x in (data.get('aiRecommendedIds') or []) if int(x) > 0}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Некорректный список поставщиков")
     if not supplier_ids:
         return {"error": "Не выбраны поставщики"}
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     # Получаем количество из заявки для preview total
-    cur.execute("SELECT quantity, project FROM supply_requests WHERE id=%s", (id,))
+    cur.execute("SELECT quantity, project, status FROM supply_requests WHERE id=%s", (id,))
     req = cur.fetchone()
     if not req:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Заявка не найдена")
     if req.get('project'):
         require_project_or_warehouse_access(_current_user, req.get('project') or "")
+    if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Запрашивать КП можно только после утверждения заявки директором")
     qty = float(req['quantity']) if req else 0
     created = []
     for sid in supplier_ids:
@@ -5582,8 +6605,16 @@ def request_kp_from_suppliers(id: int, data: dict, _current_user: dict = Depends
             (id, sid, 'Ожидает ответа', sid in ai_ids))
         created.append(cur.fetchone()['id'])
     # Обновляем статус заявки
-    cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s AND status='Утверждена'",
-        ('КП запрошены', id))
+    cur.execute("""UPDATE supply_requests
+                   SET status=CASE WHEN status='Утверждена' THEN %s ELSE status END,
+                       selected_suppliers=(
+                           SELECT ARRAY(
+                               SELECT DISTINCT unnest(COALESCE(selected_suppliers, '{}'::int[]) || %s::int[])
+                           )
+                       )
+                   WHERE id=%s""",
+        ('КП запрошены', supplier_ids, id))
+    conn.commit()
     conn.close()
     return {"ok": True, "created": len(created), "ids": created}
 
@@ -5778,13 +6809,32 @@ def create_invoice_from_offer(id: int, data: dict, _current_user: dict = Depends
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="нет доступа к КП")
     else:
+        if _current_user.get("role") not in SUPPLY_INTERNAL_ROLES:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Счёт поставщика создаёт снабжение, склад, бухгалтерия или руководство")
         require_project_access(_current_user, offer['project_name'] or "")
+        if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, offer.get("work_package") or "Основная"):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету КП")
     invoice_number = data.get('invoiceNumber') or ''
     invoice_date = data.get('invoiceDate') or None
     amount = float(data.get('amount') or offer['total_price'] or 0)
+    offer_total = _float_or_zero(offer.get('total_price'))
+    if offer_total > 0 and amount > offer_total + max(1.0, offer_total * 0.02):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail=f"Сумма счёта не может быть выше утверждённого КП: {round(offer_total, 2)} ₽")
     vat_amount = float(data.get('vatAmount') or 0)
     file_url = data.get('fileUrl') or data.get('photoUrl') or ''
     description = data.get('description') or ('Материал: '+(offer['material_name'] or ''))
+    cur.execute("""SELECT id FROM supplier_invoices
+                   WHERE offer_id=%s AND COALESCE(status,'') <> 'Аннулирован'
+                   ORDER BY id DESC LIMIT 1""", (id,))
+    existing_invoice = cur.fetchone()
+    if existing_invoice:
+        existing_id = existing_invoice.get('id') if isinstance(existing_invoice, dict) else existing_invoice[0]
+        conn.commit()
+        cur.close(); conn.close()
+        return {"ok": True, "id": existing_id, "alreadyExists": True}
     item_packages = {
         (it.get("workPackage") or it.get("work_package") or offer.get("work_package") or "").strip()
         for it in _json_list_or_empty(offer.get("items_json")) if isinstance(it, dict)
@@ -5911,17 +6961,23 @@ def _add_project_material(cur, name, unit, qty, price, project, work_package="")
     if not name or not project or qty <= 0:
         return
     package_name = (work_package or "").strip()
-    cur.execute("SELECT id FROM materials WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s LIMIT 1", (name, project, package_name))
+    unit_name = _norm_base_unit(unit or "шт") or "шт"
+    cur.execute(f"""SELECT id FROM materials
+                   WHERE name=%s
+                     AND project=%s
+                     AND COALESCE(work_package,'')=%s
+                     AND {_sql_norm_unit('unit')}=%s
+                   LIMIT 1""", (name, project, package_name, unit_name))
     existing = cur.fetchone()
     if existing:
         cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=%s, price=%s WHERE id=%s",
-                    (qty, unit or "", price or 0, existing['id'] if isinstance(existing, dict) else existing[0]))
+                    (qty, unit_name, price or 0, existing['id'] if isinstance(existing, dict) else existing[0]))
     else:
         cur.execute("""INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (name, unit or "шт", qty, price or 0, 0, project, "Закупка", package_name))
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                (name, "приход (поставка)", qty, __import__("datetime").date.today().isoformat(), project, "Снабжение", package_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                    (name, unit_name, qty, price or 0, 0, project, "Закупка", package_name))
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (name, "приход (поставка)", qty, unit_name, __import__("datetime").date.today().isoformat(), project, "Снабжение", package_name, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
 def _create_delivery_quality_records(cur, delivery):
     name = (delivery.get('material_name') or '').strip()
@@ -6061,7 +7117,7 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
     except Exception as e:
-        print("SUPPLY INVOICE MIGRATION ERROR:", str(e))
+        raise HTTPException(status_code=500, detail="Не удалось подготовить поля накладной поставки: " + str(e))
     try:
         cur.execute("SELECT id FROM warehouse_invoices WHERE supply_delivery_id=%s LIMIT 1", (delivery_id,))
         existing = cur.fetchone()
@@ -6089,10 +7145,14 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         "source": "supply_delivery",
         "deliveryId": delivery_id,
         "requestId": delivery.get('request_id'),
-        "workPackage": delivery.get('work_package') or delivery.get('workPackage') or "",
+        "workPackage": _supply_work_package(delivery.get('work_package') or delivery.get('workPackage')),
     }
-    number = delivery.get('waybill_number') or ("Поставка-" + str(delivery_id))
     project = delivery.get('project') or ""
+    items = [item]
+    if project:
+        items = _attach_supply_estimate_control(cur, project, items, exclude_request_id=delivery.get('request_id'))
+        _enforce_supply_estimate_control(items, source="накладная поставки")
+    number = delivery.get('waybill_number') or ("Поставка-" + str(delivery_id))
     try:
         cur.execute("""INSERT INTO warehouse_invoices
                        (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,
@@ -6101,16 +7161,65 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
                     (number, date_value, delivery.get('supplier_id'), delivery.get('supplier_name') or "",
-                     accepted_by or delivery.get('received_by') or "", project, project, "Без НДС",
-                     _json.dumps([item], ensure_ascii=False), total, 0, total,
-                     "Принята", accepted_by or delivery.get('received_by') or "Снабжение",
-                     delivery.get('photo_url') or "", "supply_delivery", delivery_id,
-                     delivery_id, delivery.get('request_id')))
+	                     accepted_by or delivery.get('received_by') or "", project, project, "Без НДС",
+	                     _json.dumps(items, ensure_ascii=False), total, 0, total,
+	                     "Принята", accepted_by or delivery.get('received_by') or "Снабжение",
+	                     delivery.get('photo_url') or "", "supply_delivery", delivery_id,
+	                     delivery_id, delivery.get('request_id')))
         new_id = cur.fetchone()
         return new_id['id'] if isinstance(new_id, dict) else new_id[0]
     except Exception as e:
-        print("SUPPLY INVOICE INSERT ERROR:", str(e))
-        return None
+        raise HTTPException(status_code=500, detail="Не удалось создать накладную по поставке: " + str(e))
+
+def _update_supply_flow_status_after_delivery(cur, request_id=None, offer_id=None):
+    request_id = int(request_id or 0)
+    offer_id = int(offer_id or 0)
+    if not request_id:
+        return
+    cur.execute("""SELECT status, planned_quantity, received_quantity
+                   FROM supply_deliveries
+                   WHERE request_id=%s
+                   ORDER BY id""", (request_id,))
+    delivery_rows = _cursor_rows_as_dicts(cur, cur.fetchall())
+    if not delivery_rows:
+        return
+    statuses = [(r.get("status") or "") for r in delivery_rows]
+    done_statuses = {"Принято", "Проблема"}
+    any_done = any(s in done_statuses for s in statuses)
+    all_done = all(s in done_statuses for s in statuses)
+    any_problem = any(s == "Проблема" for s in statuses)
+    planned_total = sum(max(0.0, _float_or_zero(r.get("planned_quantity"))) for r in delivery_rows)
+    received_total = sum(max(0.0, _float_or_zero(r.get("received_quantity"))) for r in delivery_rows)
+    request_fully_received = planned_total <= 0 or received_total + 0.000001 >= planned_total
+    if all_done and request_fully_received:
+        request_status = "Проблема поставки" if any_problem else "Поставлено"
+    elif any_done:
+        request_status = "Проблема поставки" if any_problem else "Частично поставлено"
+    else:
+        request_status = "В пути"
+    cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", (request_status, request_id))
+
+    if offer_id:
+        cur.execute("""SELECT status, planned_quantity, received_quantity
+                       FROM supply_deliveries
+                       WHERE offer_id=%s
+                       ORDER BY id""", (offer_id,))
+        offer_rows = _cursor_rows_as_dicts(cur, cur.fetchall())
+        if offer_rows:
+            offer_statuses = [(r.get("status") or "") for r in offer_rows]
+            offer_all_done = all(s in done_statuses for s in offer_statuses)
+            offer_any_done = any(s in done_statuses for s in offer_statuses)
+            offer_any_problem = any(s == "Проблема" for s in offer_statuses)
+            offer_planned_total = sum(max(0.0, _float_or_zero(r.get("planned_quantity"))) for r in offer_rows)
+            offer_received_total = sum(max(0.0, _float_or_zero(r.get("received_quantity"))) for r in offer_rows)
+            offer_fully_received = offer_planned_total <= 0 or offer_received_total + 0.000001 >= offer_planned_total
+            if offer_all_done and offer_fully_received:
+                offer_status = "Проблема поставки" if offer_any_problem else "Поставлено"
+            elif offer_any_done:
+                offer_status = "Проблема поставки" if offer_any_problem else "Частично поставлено"
+            else:
+                offer_status = "В пути"
+            cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (offer_status, offer_id))
 
 def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", received_at=None, delivery_id=None, invoice_id=None):
     cable_info = _detect_cable_info(cable_brand)
@@ -6230,10 +7339,9 @@ def list_supply_deliveries(limit: Optional[int] = None, offset: int = 0, current
             return []
         package_sql, package_params = package_access_filter(current_user, "d.work_package")
         cur.execute(DELIVERY_SELECT + " WHERE d.project = ANY(%s)" + package_sql + " ORDER BY d.id DESC" + page_sql, [projects] + package_params + page_params)
-    elif role in ("мастер", "субподрядчик"):
-        package_sql, package_params = package_access_filter(current_user, "d.work_package")
-        cur.execute(DELIVERY_SELECT + " WHERE d.request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY d.id DESC" + page_sql,
-                    [current_user.get("id"), current_user.get("name") or ""] + package_params + page_params)
+    elif role in WORKER_EXECUTION_ROLES:
+        cur.close(); conn.close()
+        return []
     else:
         cur.close(); conn.close()
         return []
@@ -6262,7 +7370,7 @@ def list_supply_claims(current_user: dict = Depends(get_current_user)):
         package_sql, package_params = package_access_filter(current_user, "work_package")
         cur.execute(CLAIM_SELECT + " WHERE project = ANY(%s)" + package_sql + " ORDER BY id DESC",
                     [projects] + package_params)
-    elif role in ("мастер", "субподрядчик"):
+    elif role in WORKER_EXECUTION_ROLES:
         package_sql, package_params = package_access_filter(current_user, "work_package")
         cur.execute(CLAIM_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY id DESC",
                     [current_user.get("id"), current_user.get("name") or ""] + package_params)
@@ -6324,7 +7432,7 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
         return (
             str(item.get("materialName") or item.get("name") or "").strip().lower(),
             str(item.get("unit") or "").strip().lower(),
-            str(item.get("workPackage") or item.get("work_package") or "").strip().lower(),
+            _supply_work_package(item.get("workPackage") or item.get("work_package")).lower(),
         )
 
     request_items = []
@@ -6338,14 +7446,14 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
                 "materialName": name,
                 "quantity": qty,
                 "unit": item.get("unit") or offer.get("unit") or "шт",
-                "workPackage": (item.get("workPackage") or item.get("work_package") or offer.get("work_package") or "").strip(),
+                "workPackage": _supply_work_package(item.get("workPackage") or item.get("work_package") or offer.get("work_package")),
             })
     if not request_items:
         request_items = [{
             "materialName": offer.get("material_name") or "",
             "quantity": _float_or_zero(offer.get("quantity")),
             "unit": offer.get("unit") or "шт",
-            "workPackage": offer.get("work_package") or "",
+            "workPackage": _supply_work_package(offer.get("work_package")),
         }]
 
     kp_by_key = {}
@@ -6379,6 +7487,15 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
         shipped_qty = shipped_by_key.get(key)
         if shipped_qty is None:
             shipped_qty = _float_or_zero(data.get('shippedQuantity')) if single_request and data.get('shippedQuantity') not in (None, "") else planned_qty
+        if shipped_qty <= 0:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Количество к отгрузке должно быть больше нуля")
+        if planned_qty > 0 and shipped_qty > planned_qty + 0.000001:
+            cur.close(); conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Нельзя отгрузить больше заявки: {item.get('materialName') or ''} — заявлено {planned_qty:g}, отгружается {shipped_qty:g}",
+            )
         price_per_unit = _float_or_zero(kp.get("pricePerUnit")) if has_item_kp else 0
         line_total = _float_or_zero(kp.get("totalPrice")) if has_item_kp else 0
         if line_total <= 0 and price_per_unit > 0:
@@ -6387,12 +7504,13 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
             line_total = fallback_line_total if not single_request else fallback_total
         if price_per_unit <= 0 and planned_qty > 0 and line_total > 0:
             price_per_unit = round(line_total / planned_qty, 6)
+        shipped_line_total = round(price_per_unit * shipped_qty, 2) if price_per_unit > 0 else line_total
         vals = (
             offer['request_id'], offer['supplier_id'], offer['supplier_name'] or '',
-            offer['project'] or '', item.get("workPackage") or offer.get('work_package') or '',
+            offer['project'] or '', _supply_work_package(item.get("workPackage") or offer.get('work_package')),
             item.get("materialName") or '',
             planned_qty, shipped_qty, item.get("unit") or offer.get("unit") or '',
-            price_per_unit, line_total,
+            price_per_unit, shipped_line_total,
             data.get('waybillNumber') or '', data.get('waybillDate') or None,
             data.get('vehicleNumber') or '', data.get('driverName') or '',
             data.get('documentUrl') or '', data.get('photoUrl') or '', datetime.now()
@@ -6411,6 +7529,7 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
     cur.execute(DELIVERY_SELECT + " WHERE d.offer_id=%s ORDER BY d.id", (id,))
     rows = [dict(r) for r in cur.fetchall()]
     row = rows[0] if rows else None
+    conn.commit()
     cur.close(); conn.close()
     if len(rows) == 1:
         return row
@@ -6420,14 +7539,25 @@ def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(requi
 def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     from datetime import datetime
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
+    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s FOR UPDATE", (id,))
     delivery = cur.fetchone()
     if not delivery:
+        conn.rollback()
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Поставка не найдена")
     if delivery.get('project'):
-        require_project_or_warehouse_access(_current_user, delivery.get('project') or "")
+        try:
+            require_project_or_warehouse_access(_current_user, delivery.get('project') or "")
+        except Exception:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, delivery.get("work_package") or "Основная"):
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
     if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
         try:
             _create_delivery_quality_records(cur, delivery)
@@ -6453,6 +7583,7 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
         except Exception as e:
             print("DELIVERY RECOVERY SELECT ERROR:", str(e))
             row = None
+        conn.commit()
         cur.close(); conn.close()
         return {
             "ok": True,
@@ -6465,6 +7596,17 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
     planned_qty = _float_or_zero(delivery['planned_quantity'])
     shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
     quality_status = data.get('qualityStatus') or 'Принято'
+    if received_qty < 0:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Принятое количество не может быть отрицательным")
+    if shipped_qty > 0 and received_qty > shipped_qty + 0.000001:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Нельзя принять больше отгруженного: отгружено {shipped_qty:g} {delivery['unit']}, принимается {received_qty:g} {delivery['unit']}",
+        )
     shortage = max(0.0, shipped_qty - received_qty)
     problem = shortage > 0 or quality_status in ('Брак', 'Несоответствие', 'Недостача', 'Частично')
     status = 'Проблема' if problem else 'Принято'
@@ -6477,10 +7619,6 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
                  quality_status, data.get('qualityNotes') or '',
                  shortage, data.get('photoUrl') or '', status, id))
     claim_id = None
-    if received_qty > 0 and quality_status not in ('Брак',):
-        _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
-                              _float_or_zero(delivery['price_per_unit']), delivery['project'],
-                              delivery.get('work_package') or delivery.get('workPackage') or "")
     cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
     updated = cur.fetchone()
     _create_delivery_quality_records(cur, updated)
@@ -6503,13 +7641,16 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
                      data.get('receivedBy') or ''))
         claim_id = cur.fetchone()['id']
         cur.execute("UPDATE supply_deliveries SET claim_id=%s WHERE id=%s", (claim_id, id))
-    cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (status, delivery['offer_id']))
-    cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s",
-                ('Поставлено' if status == 'Принято' else 'Проблема поставки', delivery['request_id']))
     _create_supply_delivery_history(cur, updated, status, received_qty, data.get('receivedBy') or '')
     invoice_id = _ensure_supply_delivery_invoice(cur, updated, received_qty, received_at, data.get('receivedBy') or '')
+    if received_qty > 0 and quality_status not in ('Брак',):
+        _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
+                              _float_or_zero(delivery['price_per_unit']), delivery['project'],
+                              delivery.get('work_package') or delivery.get('workPackage') or "")
+    _update_supply_flow_status_after_delivery(cur, delivery['request_id'], delivery['offer_id'])
     cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
     row = cur.fetchone()
+    conn.commit()
     cur.close(); conn.close()
     _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive")
     return {"ok": True, "delivery": dict(row), "claimId": claim_id, "invoiceId": invoice_id}
@@ -6523,6 +7664,11 @@ def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(
     if not d:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Поставка не найдена")
+    if d.get("project"):
+        require_project_or_warehouse_access(_current_user, d.get("project") or "")
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, d.get("work_package") or "Основная"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
     parsed_items = data.get('parsedItems') or []
     doc_text = data.get('documentText') or ''
     expected = {
@@ -6648,10 +7794,9 @@ def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_use
             return []
         package_sql, package_params = package_access_filter(current_user)
         cur.execute(select_sql + " WHERE project = ANY(%s)" + package_sql + " ORDER BY id DESC" + page_sql, [projects] + package_params + page_params)
-    elif role in ("мастер", "субподрядчик"):
-        package_sql, package_params = package_access_filter(current_user)
-        cur.execute(select_sql + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY id DESC" + page_sql,
-                    [current_user.get("id"), current_user.get("name") or ""] + package_params + page_params)
+    elif role in WORKER_EXECUTION_ROLES:
+        cur.close(); conn.close()
+        return []
     else:
         cur.close(); conn.close()
         return []
@@ -6660,7 +7805,7 @@ def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_use
     return [dict(r) for r in rows]
 
 @app.post("/supply-history")
-def create_supply_history(d: SupplyHistoryModel, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "бухгалтер"))):
+def create_supply_history(d: SupplyHistoryModel, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if d.project:
@@ -6673,16 +7818,28 @@ def create_supply_history(d: SupplyHistoryModel, _current_user: dict = Depends(r
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
                 (d.supplierId,d.materialName,d.quantity,d.unit,d.pricePerUnit,d.totalPrice,d.project,d.date,d.status,d.workPackage or ""))
     row = cur.fetchone()
+    conn.commit()
     conn.close()
     return dict(row)
 
 @app.put("/supply-history/{id}")
-def update_supply_history(id: int, data: dict, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "бухгалтер"))):
+def update_supply_history(id: int, data: dict, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик"))):
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT project, COALESCE(NULLIF(work_package,''),'Основная') AS work_package FROM supply_history WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Запись истории поставок не найдена")
+    if row.get("project"):
+        require_project_or_warehouse_access(_current_user, row.get("project") or "")
+    if not has_package_access(_current_user, row.get("work_package") or "Основная"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
     status = data.get('status','')
     confirmed_by = data.get('confirmedBy','')
     cur.execute("UPDATE supply_history SET status=%s,confirmed_by=%s WHERE id=%s", (status,confirmed_by,id))
+    conn.commit()
     conn.close()
     return {"ok": True}
 
@@ -6715,12 +7872,19 @@ def get_work_journal(limit: Optional[int] = None, offset: int = 0, current_user:
                    FROM work_journal"""
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
-    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
-    if can_see_all_company_data(current_user) or role in ("прораб", "стройконтроль", "технадзор"):
+    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES and role != "прораб" else []
+    scoped_journal_roles = ("прораб", "стройконтроль", "технадзор")
+    if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names:
+        cur.close(); conn.close()
+        return []
+    if can_see_all_company_data(current_user) or role in scoped_journal_roles:
         projects = user_project_names(current_user)
         conditions = []
         params = []
-        if role in ("прораб", "стройконтроль", "технадзор") and projects:
+        if role in scoped_journal_roles and not projects:
+            cur.close(); conn.close()
+            return []
+        if role in scoped_journal_roles and projects:
             conditions.append("project = ANY(%s)")
             params.append(projects)
         if role in PACKAGE_LIMIT_ROLES and package_names:
@@ -6730,12 +7894,14 @@ def get_work_journal(limit: Optional[int] = None, offset: int = 0, current_user:
             cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
         else:
             cur.execute(select_sql + " ORDER BY id DESC" + page_sql, page_params)
-    elif role in ("мастер", "субподрядчик"):
-        conditions = ["(master_id=%s OR LOWER(TRIM(master_name))=LOWER(TRIM(%s)))"]
+    elif role in WORKER_EXECUTION_ROLES:
+        if not package_names:
+            cur.close(); conn.close()
+            return []
+        conditions = ["(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND LOWER(TRIM(master_name))=LOWER(TRIM(%s))))"]
         params = [current_user.get("id"), current_user.get("name") or ""]
-        if package_names:
-            conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
-            params.append(package_names)
+        conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
+        params.append(package_names)
         cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
     elif role == "заказчик":
         projects = user_project_names(current_user)
@@ -6757,6 +7923,12 @@ def get_work_journal(limit: Optional[int] = None, offset: int = 0, current_user:
             row["executionTotal"] = 0
             row["customerPricePerUnit"] = 0
             row["customerTotal"] = 0
+    elif role in WORKER_EXECUTION_ROLES:
+        for row in out:
+            row["customerPricePerUnit"] = 0
+            row["customerTotal"] = 0
+            row["pricePerUnit"] = row.get("executionPricePerUnit") or 0
+            row["total"] = row.get("executionTotal") or 0
     return out
 
 def _parse_materials_used(raw):
@@ -6771,87 +7943,131 @@ def _parse_materials_used(raw):
     except Exception:
         return []
 
-def _personal_material_balance(cur, project: str, person_id, person_name: str, material_name: str, work_package: str = ""):
-    key = (material_name or "").strip().lower()
-    if not key:
+def _row_value(row, index: int, key: str, default=None):
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        return row[index]
+    except Exception:
+        return default
+
+def _stock_row_by_material_key(cur, *, project: str, material_name: str, unit: str = "", work_package: str = "", main_warehouse: bool = False):
+    target_key = _material_control_key_resolved(cur, project, material_name, unit)
+    unit_key = _norm_base_unit(unit or "").strip().lower()
+    unit_filter = f" AND {_sql_norm_unit('unit')}=%s" if unit_key else ""
+    if main_warehouse:
+        cur.execute(f"""SELECT id, name, quantity, unit
+                        FROM warehouse_main
+                        WHERE TRUE {unit_filter}
+                        ORDER BY id DESC
+                        FOR UPDATE""", tuple([unit_key] if unit_key else []))
+    else:
+        package_name = (work_package or "Основная").strip() or "Основная"
+        cur.execute(f"""SELECT id, name, quantity, unit
+                        FROM materials
+                        WHERE project=%s
+                          AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                          {unit_filter}
+                        ORDER BY id DESC
+                        FOR UPDATE""", tuple([project, package_name] + ([unit_key] if unit_key else [])))
+    for row in cur.fetchall() or []:
+        row_name = _row_value(row, 1, "name", "")
+        row_unit = _row_value(row, 3, "unit", unit)
+        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
+            return row
+    return None
+
+def _personal_material_balance(cur, project: str, person_id, person_name: str, material_name: str, work_package: str = "", unit: str = ""):
+    if not (material_name or "").strip():
         return {"issued": 0, "used": 0, "available": 0}
-    package_name = (work_package or "").strip()
-    package_filter = " AND COALESCE(work_package,'')=%s" if package_name else ""
-    cur.execute("""SELECT COALESCE(SUM(quantity),0)
-                   FROM material_transfers
-                   WHERE project_name=%s AND to_person=%s AND signed=TRUE
-                     AND COALESCE(status,'Активна') <> 'Аннулирована'
-                     AND LOWER(TRIM(material_name))=LOWER(TRIM(%s))""" + package_filter,
-                (project, person_name or "", material_name or "", package_name) if package_name else (project, person_name or "", material_name or ""))
-    issued_row = cur.fetchone()
-    issued = float((next(iter(issued_row.values())) if isinstance(issued_row, dict) else ((issued_row or [0])[0])) or 0)
-    package_journal_filter = " AND COALESCE(work_package,'')=%s" if package_name else ""
+    target_key = _material_control_key_resolved(cur, project, material_name, unit)
+    unit_key = _norm_base_unit(unit or "").strip().lower()
+    package_name = (work_package or "Основная").strip() or "Основная"
+    package_filter = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
+    unit_filter = f" AND {_sql_norm_unit('unit')}=%s" if unit_key else ""
+    if person_id:
+        cur.execute("""SELECT material_name, quantity, unit
+                       FROM material_transfers
+                       WHERE project_name=%s
+                         AND (to_user_id=%s OR (to_user_id IS NULL AND LOWER(TRIM(to_person))=LOWER(TRIM(%s))))
+                         AND signed=TRUE
+                         AND COALESCE(status,'Активна') <> 'Аннулирована'
+                         """ + package_filter + unit_filter,
+                    tuple([project, person_id, person_name or "", package_name] + ([unit_key] if unit_key else [])))
+    else:
+        cur.execute("""SELECT material_name, quantity, unit
+                       FROM material_transfers
+                       WHERE project_name=%s
+                         AND LOWER(TRIM(to_person))=LOWER(TRIM(%s))
+                         AND signed=TRUE
+                         AND COALESCE(status,'Активна') <> 'Аннулирована'
+                         """ + package_filter + unit_filter,
+                    tuple([project, person_name or "", package_name] + ([unit_key] if unit_key else [])))
+    issued = 0
+    for row in cur.fetchall() or []:
+        row_name = _row_value(row, 0, "material_name", "")
+        row_unit = _row_value(row, 2, "unit", unit)
+        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
+            issued += float(_row_value(row, 1, "quantity", 0) or 0)
+    package_journal_filter = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
     if person_id:
         cur.execute("""SELECT materials_used FROM work_journal
                        WHERE project=%s
                          AND COALESCE(status,'') <> 'Отклонено'
-                         AND (master_id=%s OR master_name=%s)""" + package_journal_filter,
-                    (project, person_id, person_name or "", package_name) if package_name else (project, person_id, person_name or ""))
+                         AND (COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))""" + package_journal_filter,
+                    (project, person_id, person_name or "", package_name))
     else:
         cur.execute("""SELECT materials_used FROM work_journal
                        WHERE project=%s
                          AND COALESCE(status,'') <> 'Отклонено'
                          AND master_name=%s""" + package_journal_filter,
-                    (project, person_name or "", package_name) if package_name else (project, person_name or ""))
+                    (project, person_name or "", package_name))
     used = 0
     for row in cur.fetchall() or []:
         raw = row.get("materials_used") if isinstance(row, dict) else row[0]
         for m in _parse_materials_used(raw):
-            if (m.get("name") or "").strip().lower() == key:
+            material_unit = _norm_base_unit(m.get("unit") or "").strip().lower()
+            material_name_key = _material_control_key_resolved(cur, project, m.get("name") or "", material_unit or unit)
+            if material_name_key == target_key and (not unit_key or material_unit == unit_key):
                 try:
                     used += float(m.get("quantity") or 0)
                 except Exception:
                     pass
-    cur.execute("""SELECT COALESCE(SUM(quantity),0)
+    cur.execute("""SELECT material, quantity, unit
                    FROM warehouse_history
                    WHERE project=%s
                      AND issued_by=%s
                      AND type=%s
-                     AND LOWER(TRIM(material))=LOWER(TRIM(%s))""" + package_filter,
-                (project, person_name or "", "возврат от мастера", material_name or "", package_name) if package_name else (project, person_name or "", "возврат от мастера", material_name or ""))
-    returned_row = cur.fetchone()
-    returned = float((next(iter(returned_row.values())) if isinstance(returned_row, dict) else ((returned_row or [0])[0])) or 0)
+                     """ + package_filter + unit_filter,
+                tuple([project, person_name or "", "возврат от мастера", package_name] + ([unit_key] if unit_key else [])))
+    returned = 0
+    for row in cur.fetchall() or []:
+        row_name = _row_value(row, 0, "material", "")
+        row_unit = _row_value(row, 2, "unit", unit)
+        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
+            returned += float(_row_value(row, 1, "quantity", 0) or 0)
     return {"issued": issued, "used": used, "returned": returned, "available": issued - used - returned}
 
 def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict, date_value: str, fallback_master_name: str = ""):
     name = material.get("name") or ""
     qty = float(material.get("quantity") or 0)
-    unit = material.get("unit") or ""
-    work_package = (material.get("workPackage") or material.get("work_package") or "").strip()
+    unit = _norm_base_unit(material.get("unit") or "шт") or "шт"
+    work_package = (material.get("workPackage") or material.get("work_package") or "Основная").strip() or "Основная"
     role = actor.get("role") or ""
     actor_id = actor.get("id")
     actor_name = actor.get("name") or fallback_master_name or ""
     if not name or qty <= 0:
         return
-    if role in ("мастер", "субподрядчик"):
-        balance = _personal_material_balance(cur, project, actor_id, actor_name, name, work_package)
-        package_part = (" по пакету «" + work_package + "»") if work_package else ""
-        if balance["issued"] <= 0:
-            raise HTTPException(status_code=400, detail="Материал «"+name+"» не выдан мастеру «"+actor_name+"»"+package_part+" или получение не подтверждено")
-        if balance["available"] < qty:
-            raise HTTPException(status_code=400, detail="У мастера «"+actor_name+"»"+package_part+" доступно "+str(round(balance["available"], 3))+" "+unit+" «"+name+"», запрошено "+str(qty)+". Лишний материал нужно выдать или вернуть/уточнить списание")
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (name, "расход (работа мастера)", qty, date_value or None, project, actor_name, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
-        return
-
-    cur.execute("""SELECT id, quantity FROM materials
-                   WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
-                   ORDER BY id LIMIT 1 FOR UPDATE""", (name, project, work_package))
-    row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=400, detail="Материал «"+name+"» не найден на складе объекта «"+project+"»" + (" по пакету «"+work_package+"»" if work_package else ""))
-    mat_id = row.get("id") if isinstance(row, dict) else row[0]
-    stock_qty = float((row.get("quantity") if isinstance(row, dict) else row[1]) or 0)
-    if stock_qty < qty:
-        raise HTTPException(status_code=400, detail="На складе «"+project+"» только "+str(stock_qty)+" "+unit+" «"+name+"», запрошено "+str(qty))
-    cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, mat_id))
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-        (name, "расход (работа)", qty, date_value or None, project, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+    if role not in WORKER_EXECUTION_ROLES:
+        raise HTTPException(status_code=400, detail="Списание материалов через ЖПР выполняет мастер, субподрядчик или бригадир после выдачи материала. Прораб/директор подтверждают работу, но не списывают материал напрямую со склада объекта.")
+    balance = _personal_material_balance(cur, project, actor_id, actor_name, name, work_package, unit)
+    package_part = (" по пакету «" + work_package + "»") if work_package else ""
+    if balance["issued"] <= 0:
+        raise HTTPException(status_code=400, detail="Материал «"+name+"» не выдан мастеру «"+actor_name+"»"+package_part+" или получение не подтверждено")
+    if balance["available"] < qty:
+        raise HTTPException(status_code=400, detail="У мастера «"+actor_name+"»"+package_part+" доступно "+str(round(balance["available"], 3))+" "+unit+" «"+name+"», запрошено "+str(qty)+". Лишний материал нужно выдать или вернуть/уточнить списание")
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (name, "расход (работа мастера)", qty, unit, date_value or None, project, actor_name, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
 def _work_material_items(raw, fallback_package: str = ""):
     items = []
@@ -6862,30 +8078,123 @@ def _work_material_items(raw, fallback_package: str = ""):
         qty = _float_or_zero(material.get("quantity"))
         if not name or qty <= 0:
             continue
-        work_package = (material.get("workPackage") or material.get("work_package") or fallback_package or "").strip()
+        work_package = (material.get("workPackage") or material.get("work_package") or fallback_package or "Основная").strip() or "Основная"
         items.append({
             **material,
             "name": name,
             "quantity": qty,
-            "unit": material.get("unit") or "шт",
+            "unit": _norm_base_unit(material.get("unit") or "шт") or "шт",
             "workPackage": work_package,
         })
     return items
 
-def _validate_work_material_norm_reasons(items):
+def _server_work_material_norm(cur, material: dict, *, project: str = "", estimate_id=None,
+                               work_name: str = "", section_name: str = "",
+                               work_qty=0, work_unit: str = ""):
+    name = (material.get("name") or "").strip()
+    if not name:
+        return None
+    unit_factor, normalized_work_unit = _estimate_scaled_unit(work_unit or "")
+    qty = _float_or_zero(work_qty) * (unit_factor if unit_factor > 1 else 1)
+    if qty <= 0:
+        return None
+    material_unit = material.get("unit") or material.get("materialUnit") or "шт"
+    try:
+        rules = _load_active_norm_rules(cur, project, estimate_id)
+    except Exception as e:
+        print("SERVER MATERIAL NORM LOAD ERROR:", str(e))
+        return None
+    resolved_name = ""
+    try:
+        resolved_key = _material_control_key_resolved(cur, project, name, material_unit)
+        resolved_name = resolved_key[0] if isinstance(resolved_key, tuple) else ""
+    except Exception:
+        resolved_name = ""
+    material_name_variants = [name]
+    if resolved_name and _norm_key_text(resolved_name) != _norm_key_text(name):
+        material_name_variants.append(resolved_name)
+    matches = [
+        rule for rule in rules
+        if any(
+            _norm_rule_matches(rule, work_name, section_name, variant, normalized_work_unit or work_unit, material_unit)
+            for variant in material_name_variants
+        )
+    ]
+    if not matches:
+        return None
+    rule = matches[0]
+    qty_per_unit = _safe_float(rule.get("qty_per_unit"))
+    if qty_per_unit <= 0:
+        return None
+    norm_qty = qty * qty_per_unit
+    label = rule.get("label") or rule.get("name") or rule.get("rule_key") or "Норма расхода"
+    thickness_base = _safe_float(rule.get("thickness_base_mm"))
+    if thickness_base > 0:
+        thickness = (
+            _safe_float(material.get("normThicknessMm"))
+            or _safe_float(material.get("thicknessMm"))
+            or _safe_float(material.get("thickness_mm"))
+            or _safe_float(rule.get("default_thickness_mm"))
+            or thickness_base
+        )
+        norm_qty *= thickness / thickness_base
+        label += f" · слой {thickness:g} мм"
+    rule_unit = _norm_base_unit(rule.get("material_unit") or material_unit)
+    target_unit = _norm_base_unit(material_unit or rule_unit)
+    if rule_unit and target_unit and rule_unit != target_unit:
+        converted = _convert_norm_material_qty(name, norm_qty, rule_unit, target_unit)
+        if not converted:
+            return None
+        norm_qty, note = converted
+        label += " · " + note
+    norm_qty = _round_norm_qty(norm_qty)
+    return {
+        "normQuantity": norm_qty,
+        "normSource": label,
+        "normRuleId": rule.get("override_id") or rule.get("id"),
+        "normThicknessMm": material.get("normThicknessMm") or material.get("thicknessMm") or material.get("thickness_mm") or "",
+        "autoNorm": True,
+    }
+
+def _validate_work_material_norm_reasons(items, cur=None, *, project: str = "", estimate_id=None,
+                                         work_name: str = "", section_name: str = "",
+                                         work_qty=0, work_unit: str = "", actor_role: str = ""):
     for material in items or []:
         name = (material.get("name") or "").strip()
         qty = _float_or_zero(material.get("quantity"))
+        server_norm = None
+        if cur is not None:
+            server_norm = _server_work_material_norm(
+                cur,
+                material,
+                project=project,
+                estimate_id=estimate_id,
+                work_name=work_name,
+                section_name=section_name,
+                work_qty=work_qty,
+                work_unit=work_unit,
+            )
+        if server_norm:
+            material.update(server_norm)
         norm_qty = _float_or_zero(material.get("normQuantity") or material.get("norm_quantity"))
         if not name or qty <= 0 or norm_qty <= 0:
             continue
         tolerance = max(0.001, norm_qty * 0.10)
         if qty <= norm_qty + tolerance:
             continue
+        over_qty = round(qty - norm_qty, 3)
+        unit = material.get("unit") or "шт"
+        if actor_role in WORKER_EXECUTION_ROLES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Списание материала «" + name + "» выше нормы на "
+                    + str(over_qty) + " " + unit
+                    + ". Исполнитель не может списывать перерасход напрямую: оформите запрос на перерасход для прораба/директора"
+                ),
+            )
         reason = (material.get("overNormReason") or material.get("over_norm_reason") or "").strip()
         if not reason:
-            over_qty = round(qty - norm_qty, 3)
-            unit = material.get("unit") or "шт"
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -6896,7 +8205,7 @@ def _validate_work_material_norm_reasons(items):
             )
 
 def _force_work_material_package(items, work_package: str):
-    target_package = (work_package or "").strip()
+    target_package = (work_package or "Основная").strip() or "Основная"
     for material in items or []:
         current_package = (material.get("workPackage") or material.get("work_package") or "").strip()
         if current_package and current_package != target_package:
@@ -6912,17 +8221,156 @@ def _force_work_material_package(items, work_package: str):
         material.pop("work_package", None)
     return items
 
-def _work_material_key(material: dict):
+def _worker_execution_price_from_estimate(cur, estimate_id, estimate_item_key: str = "", description: str = ""):
+    if not estimate_id:
+        return 0, "no_estimate"
+    cur.execute("SELECT sections_json FROM estimates WHERE id=%s", (estimate_id,))
+    row = cur.fetchone()
+    if not row:
+        return 0, "estimate_not_found"
+    raw_sections = row.get("sections_json") if isinstance(row, dict) else row[0]
+    try:
+        sections = json.loads(raw_sections) if isinstance(raw_sections, str) else (raw_sections or [])
+    except Exception:
+        sections = []
+    target_key = str(estimate_item_key or "").strip().lower()
+    target_name = (description or "").strip().lower()
+    for section in sections or []:
+        for item in (section.get("items") or []):
+            if not isinstance(item, dict):
+                continue
+            item_type = str(item.get("type") or item.get("itemType") or "work").lower()
+            if any(t in item_type for t in ("material", "материал", "equipment", "оборуд", "delivery", "доставка")):
+                continue
+            item_name = (item.get("name") or item.get("description") or "").strip().lower()
+            item_keys = [
+                item.get("id"),
+                item.get("key"),
+                item.get("itemKey"),
+                item.get("estimateItemKey"),
+                item.get("code"),
+            ]
+            key_match = target_key and any(str(k or "").strip().lower() == target_key for k in item_keys)
+            name_match = target_name and item_name == target_name
+            if not key_match and not name_match:
+                continue
+            for field in ("executionPricePerUnit", "priceBrigade", "masterPricePerUnit", "internalPricePerUnit"):
+                price = _float_or_zero(item.get(field))
+                if price > 0:
+                    return price, "estimate:" + field
+            return 0, "estimate_no_execution_price"
+    return 0, "estimate_item_not_found"
+
+def _worker_contract_item_for_work(
+    cur,
+    user: dict,
+    project: str,
+    description: str,
+    unit: str = "",
+    contract_item_id=None,
+    work_package: str = "",
+    estimate_item_key: str = "",
+    estimate_section: str = "",
+):
+    """Find the exact assigned contract line for a worker-submitted estimate work."""
+    if user.get("role") not in WORKER_EXECUTION_ROLES:
+        return None
+    project = (project or "").strip()
+    description = (description or "").strip()
+    unit = (unit or "").strip()
+    work_package = (work_package or "").strip() or "Основная"
+    user_id = user.get("id")
+    user_name = (user.get("name") or "").strip().lower()
+    if not project or not description:
+        raise HTTPException(status_code=400, detail="Для закрытия сметной работы нужен объект и наименование работы")
+
+    base_sql = """SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
+                         bci.price_brigade, bci.done_quantity, bc.project_name, bc.brigade_name,
+                         COALESCE(bci.work_package,'')
+                  FROM brigade_contract_items bci
+                  JOIN brigade_contracts bc ON bc.id=bci.contract_id
+                  WHERE bc.project_name=%s
+                    AND COALESCE(NULLIF(bci.work_package,''),'Основная')=%s
+                    AND COALESCE(bc.status,'') NOT IN ('Аннулирован','Удалён','Удален')
+                    AND (COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(TRIM(COALESCE(bc.brigade_name,'')))=%s))"""
+    params = [project, work_package, user_id, user_name]
+    if contract_item_id:
+        base_sql += " AND bci.id=%s"
+        params.append(contract_item_id)
+    elif (estimate_item_key or "").strip():
+        base_sql += " AND COALESCE(bci.estimate_item_key,'')=%s"
+        params.append((estimate_item_key or "").strip())
+    else:
+        base_sql += " AND LOWER(TRIM(COALESCE(bci.description,'')))=LOWER(TRIM(%s))"
+        params.append(description)
+        if (estimate_section or "").strip():
+            base_sql += " AND LOWER(TRIM(COALESCE(bci.estimate_section,'')))=LOWER(TRIM(%s))"
+            params.append((estimate_section or "").strip())
+        if unit:
+            base_sql += " ORDER BY CASE WHEN LOWER(TRIM(COALESCE(bci.unit,'')))=LOWER(TRIM(%s)) THEN 0 ELSE 1 END, bci.id LIMIT 1"
+            params.append(unit)
+        else:
+            base_sql += " ORDER BY bci.id LIMIT 1"
+    cur.execute(base_sql, tuple(params))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=403,
+            detail="Эта работа не назначена исполнителю в договорных позициях. Назначьте работу через договор/распределение перед закрытием ЖПР.",
+        )
+    return dict(row) if isinstance(row, dict) else {
+        "id": row[0],
+        "contract_id": row[1],
+        "description": row[2],
+        "unit": row[3],
+        "quantity": row[4],
+        "price_brigade": row[5],
+        "done_quantity": row[6],
+        "project_name": row[7],
+        "brigade_name": row[8],
+        "work_package": row[9],
+    }
+
+def _validate_contract_item_capacity(contract_item: dict, requested_qty: float, current_qty: float = 0):
+    plan_qty = _float_or_zero(contract_item.get("quantity"))
+    done_qty = _float_or_zero(contract_item.get("done_quantity"))
+    requested_qty = _float_or_zero(requested_qty)
+    current_qty = _float_or_zero(current_qty)
+    if plan_qty <= 0:
+        raise HTTPException(status_code=400, detail="В договорной позиции нет планового объёма. Сначала исправьте договорную позицию.")
+    available = max(0, plan_qty - done_qty + current_qty)
+    if requested_qty > available + 0.000001:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Нельзя закрыть больше назначенного объёма: доступно {available:g}, отправлено {requested_qty:g}",
+        )
+
+def _sync_contract_item_done(cur, contract_item_id, delta_qty: float):
+    if not contract_item_id or abs(_float_or_zero(delta_qty)) < 0.000001:
+        return
+    cur.execute("""UPDATE brigade_contract_items
+                   SET done_quantity = GREATEST(0, LEAST(COALESCE(quantity,0), COALESCE(done_quantity,0)+%s))
+                   WHERE id=%s""", (_float_or_zero(delta_qty), contract_item_id))
+
+def _work_material_key(material: dict, cur=None, project: str = ""):
+    name = (material.get("name") or "").strip()
+    unit = (material.get("unit") or "").strip()
+    package = (material.get("workPackage") or material.get("work_package") or "").strip().lower()
+    if cur is not None and project:
+        return (
+            _material_control_key_resolved(cur, project, name, unit),
+            package,
+        )
     return (
-        (material.get("name") or "").strip().lower(),
-        (material.get("unit") or "").strip().lower(),
-        (material.get("workPackage") or material.get("work_package") or "").strip().lower(),
+        name.lower(),
+        unit.lower(),
+        package,
     )
 
-def _work_material_map(items):
+def _work_material_map(items, cur=None, project: str = ""):
     mapped = {}
     for material in items or []:
-        key = _work_material_key(material)
+        key = _work_material_key(material, cur, project)
         if not key[0]:
             continue
         current = mapped.get(key)
@@ -6950,30 +8398,38 @@ def _restore_material_work_writeoff(cur, project: str, material: dict, work_row:
     master_id = work_row.get("master_id")
     if not name or qty <= 0:
         return
-    personal_balance = _personal_material_balance(cur, project, master_id, master_name, name, work_package)
+    personal_balance = _personal_material_balance(cur, project, master_id, master_name, name, work_package, unit)
     if personal_balance["issued"] > 0:
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (name, "корректировка списания мастера", qty, date_value or None, project, master_name, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (name, "корректировка списания мастера", qty, unit, date_value or None, project, master_name, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         return
-    cur.execute("""SELECT id FROM materials
-                   WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
-                   ORDER BY id LIMIT 1 FOR UPDATE""", (name, project, work_package))
-    mat = cur.fetchone()
+    mat = _stock_row_by_material_key(
+        cur,
+        project=project,
+        material_name=name,
+        unit=unit,
+        work_package=work_package,
+    )
     if mat:
         mat_id = mat.get("id") if isinstance(mat, dict) else mat[0]
         cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=COALESCE(NULLIF(unit,''),%s) WHERE id=%s", (qty, unit, mat_id))
     else:
         cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                     (name, unit, qty, 0, 0, project, "Возврат", work_package))
-    cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                (name, "возврат (корректировка работы)", qty, date_value or None, project, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+    cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (name, "возврат (корректировка работы)", qty, unit, date_value or None, project, actor_name or master_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
 def _apply_work_material_delta(cur, work_row: dict, old_items, new_items, current_user: dict, date_value: str):
     project = work_row.get("project") or ""
     if not project:
         return
-    old_map = _work_material_map(old_items)
-    new_map = _work_material_map(new_items)
+    if (current_user.get("role") or "") not in WORKER_EXECUTION_ROLES:
+        raise HTTPException(
+            status_code=403,
+            detail="Списание материалов в ЖПР может менять только исполнитель: мастер, субподрядчик или бригадир.",
+        )
+    old_map = _work_material_map(old_items, cur, project)
+    new_map = _work_material_map(new_items, cur, project)
     for key in set(old_map.keys()) | set(new_map.keys()):
         old_material = old_map.get(key) or {}
         new_material = new_map.get(key) or {}
@@ -6986,9 +8442,11 @@ def _apply_work_material_delta(cur, work_row: dict, old_items, new_items, curren
             master_name = work_row.get("master_name") or ""
             master_id = work_row.get("master_id")
             work_package = material.get("workPackage") or material.get("work_package") or work_row.get("work_package") or ""
-            personal_balance = _personal_material_balance(cur, project, master_id, master_name, material.get("name") or "", work_package)
-            actor = {"role": "мастер", "id": master_id, "name": master_name} if personal_balance["issued"] > 0 else current_user
-            _apply_material_work_writeoff(cur, project, material, actor, date_value, master_name)
+            if master_id and str(master_id) != str(current_user.get("id") or ""):
+                raise HTTPException(status_code=403, detail="Нельзя списывать материалы за другого исполнителя")
+            if master_name and master_name != (current_user.get("name") or ""):
+                raise HTTPException(status_code=403, detail="Нельзя списывать материалы за другого исполнителя")
+            _apply_material_work_writeoff(cur, project, material, current_user, date_value, master_name)
         else:
             _restore_material_work_writeoff(cur, project, material, work_row, date_value, current_user.get("name") or "")
 
@@ -7144,7 +8602,7 @@ def _work_journal_sync_row(cur, work_journal_id: int):
         return None
     cur.execute("""SELECT id, master_id, master_name, project, description, surface, unit, quantity,
                           price_per_unit, total, date, status, photo_url, confirmed_by,
-                          room_id, room_name, work_package, estimate_item_key, estimate_id,
+                          room_id, room_name, work_package, estimate_item_key, contract_item_id, estimate_id,
                           section_name, hidden_work, materials_used, project_docs,
                           customer_price_per_unit, customer_total
                    FROM work_journal WHERE id=%s""", (work_journal_id,))
@@ -7185,6 +8643,7 @@ def _sync_hidden_work_act_from_journal(cur, work_row: dict):
     total = work_row.get("customer_total") or work_row.get("total") or 0
     work_date = work_row.get("date") or None
     section_name = work_row.get("section_name") or work_row.get("work_package") or ""
+    work_package = (work_row.get("work_package") or "Основная").strip() or "Основная"
     brigade = work_row.get("master_name") or ""
     materials_used = work_row.get("materials_used") or ""
     project_docs = work_row.get("project_docs") or ""
@@ -7195,11 +8654,11 @@ def _sync_hidden_work_act_from_journal(cur, work_row: dict):
         status = existing.get("status") if isinstance(existing, dict) else existing[1]
         if status not in ("Подписан", "Аннулирован"):
             cur.execute("""UPDATE hidden_works_acts
-                           SET project_name=%s, estimate_id=%s, work_name=%s, section_name=%s,
+                           SET project_name=%s, estimate_id=%s, work_name=%s, section_name=%s, work_package=%s,
                                brigade=%s, quantity=%s, unit=%s, price_per_unit=%s, total=%s,
                                work_date=%s, materials_used=%s, project_docs=%s, work_journal_id=%s
                            WHERE id=%s""",
-                        (project_name, estimate_id, work_name, section_name, brigade, quantity, unit,
+                        (project_name, estimate_id, work_name, section_name, work_package, brigade, quantity, unit,
                          price_per_unit, total, work_date, materials_used, project_docs, work_journal_id, act_id))
         return 0
 
@@ -7210,11 +8669,11 @@ def _sync_hidden_work_act_from_journal(cur, work_row: dict):
     act_number = "АОСР-" + str(next_num) + (("/" + str(estimate_id)) if estimate_id else "")
     cur.execute("""INSERT INTO hidden_works_acts
                    (project_name, estimate_id, act_number, work_name, section_name, brigade,
-                    quantity, unit, price_per_unit, total, work_date, materials_used, project_docs,
+                    work_package, quantity, unit, price_per_unit, total, work_date, materials_used, project_docs,
                     status, work_journal_id)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (project_name, estimate_id, act_number, work_name, section_name, brigade,
-                 quantity, unit, price_per_unit, total, work_date, materials_used, project_docs,
+                 work_package, quantity, unit, price_per_unit, total, work_date, materials_used, project_docs,
                  "Черновик", work_journal_id))
     return 1
 
@@ -7226,53 +8685,126 @@ def _mark_room_work_rejected(cur, work_journal_id: int, confirmed_by: str = ""):
 @app.post("/work-journal")
 def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     require_project_access(_current_user, w.project)
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and (w.workPackage or "") != "Прайс" and not has_package_access(_current_user, w.workPackage):
+    user_role = _current_user.get("role")
+    work_package = (w.workPackage or "Основная").strip() or "Основная"
+    if user_role in PACKAGE_LIMIT_ROLES and not has_work_execution_package_access(_current_user, w.project, work_package):
         raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-    if _current_user.get("role") in ("мастер", "субподрядчик"):
+    if user_role in WORKER_EXECUTION_ROLES:
         if str(w.masterId or "") != str(_current_user.get("id") or "") and (w.masterName or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
             raise HTTPException(status_code=403, detail="Мастер может создавать ЖПР только от своего имени")
+        if not w.roomId and not (w.roomName or "").strip():
+            raise HTTPException(status_code=400, detail="Для закрытия работ исполнителем укажите помещение. Это нужно для контроля обмеров и защиты от дублей.")
     used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
 
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        estimate_work_item = None
+        journal_estimate_id = w.estimateId
+        journal_section_name = w.sectionName
+        journal_description = w.description
+        journal_unit = w.unit
+        journal_work_package = work_package
+        journal_estimate_item_key = w.estimateItemKey
+        if str(journal_estimate_item_key or "").startswith("pricelist:"):
+            journal_estimate_item_key = ""
+        if journal_estimate_id:
+            require_estimate_access(cur, journal_estimate_id, _current_user)
+            estimate_work_item = _load_estimate_work_item(
+                cur,
+                journal_estimate_id,
+                project_name=w.project,
+                work_package=work_package,
+                estimate_item_key=journal_estimate_item_key,
+                section_name=w.sectionName,
+                item_name=w.description,
+            )
+            journal_section_name = estimate_work_item.get("sectionName") or journal_section_name
+            journal_description = estimate_work_item.get("name") or journal_description
+            journal_unit = estimate_work_item.get("unit") or journal_unit
+            journal_work_package = estimate_work_item.get("workPackage") or journal_work_package
+            journal_estimate_item_key = estimate_work_item.get("estimateItemKey") or journal_estimate_item_key
+        elif journal_estimate_item_key:
+            raise HTTPException(status_code=400, detail="Для сметной строки ЖПР нужен estimateId")
+
         _raise_work_journal_duplicate(_work_journal_duplicate(
             cur,
             w.project,
             room_id=w.roomId,
             room_name=w.roomName,
-            estimate_item_key=w.estimateItemKey,
-            description=w.description,
-            work_package=w.workPackage,
+            estimate_item_key=journal_estimate_item_key,
+            description=journal_description,
+            work_package=journal_work_package,
         ))
-        used = _force_work_material_package(used, w.workPackage or "")
-        _validate_work_material_norm_reasons(used)
+        used = _force_work_material_package(used, journal_work_package)
+        _validate_work_material_norm_reasons(
+            used,
+            cur,
+            project=w.project,
+            estimate_id=journal_estimate_id,
+            work_name=journal_description,
+            section_name=journal_section_name,
+            work_qty=w.quantity,
+            work_unit=journal_unit,
+            actor_role=user_role,
+        )
         for m in used:
             _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
 
         import json as _json
         materials_json = _json.dumps(used, ensure_ascii=False) if used else None
-        execution_price = float(w.executionPricePerUnit or w.pricePerUnit or 0)
-        execution_total = float(w.executionTotal or w.total or (float(w.quantity or 0) * execution_price))
-        customer_price = float(w.customerPricePerUnit or w.pricePerUnit or execution_price or 0)
-        customer_total = float(w.customerTotal or w.total or (float(w.quantity or 0) * customer_price))
-        execution_mode = w.executionPriceMode or ("fixed" if w.executionPricePerUnit else "legacy")
+        contract_item_id = w.contractItemId
+        if user_role in WORKER_EXECUTION_ROLES:
+            assigned_item = _worker_contract_item_for_work(
+                cur,
+                _current_user,
+                w.project,
+                journal_description,
+                journal_unit,
+                contract_item_id,
+                journal_work_package,
+                journal_estimate_item_key,
+                journal_section_name,
+            )
+            _validate_contract_item_capacity(assigned_item, w.quantity)
+            contract_item_id = assigned_item.get("id")
+            execution_price = _float_or_zero(assigned_item.get("price_brigade"))
+            if execution_price <= 0:
+                raise HTTPException(status_code=400, detail="Для работы не задана цена исполнителя в договорной позиции")
+            execution_mode = "brigade_contract"
+            execution_total = float(w.quantity or 0) * execution_price
+            customer_price = 0
+            customer_total = 0
+        else:
+            if user_role in FINANCE_ROLES:
+                execution_price = float(w.executionPricePerUnit or 0)
+                execution_total = float(w.executionTotal or (float(w.quantity or 0) * execution_price))
+                customer_price = float(w.customerPricePerUnit or w.pricePerUnit or 0)
+                customer_total = float(w.customerTotal or w.total or (float(w.quantity or 0) * customer_price))
+                execution_mode = w.executionPriceMode or ("fixed" if w.executionPricePerUnit else "not_set")
+            else:
+                execution_price = 0
+                execution_total = 0
+                customer_price = estimate_work_item.get("pricePerUnit") if estimate_work_item else 0
+                customer_total = float(w.quantity or 0) * float(customer_price or 0)
+                execution_mode = "not_set"
         cur.execute("""INSERT INTO work_journal
                        (master_id,master_name,project,description,unit,quantity,price_per_unit,total,date,
                         comment,photo_url,materials_used,
                         estimate_id,section_name,responsible_itr,weather,time_start,time_end,
                         hidden_work,quality_status,normatives,project_docs,
                         work_package,room_id,room_name,surface,estimate_item_name,estimate_item_key,
-                        customer_price_per_unit,customer_total,execution_price_per_unit,execution_total,execution_price_mode)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                    (w.masterId,w.masterName,w.project,w.description,w.unit,w.quantity,execution_price,execution_total,w.date,
+                        contract_item_id,customer_price_per_unit,customer_total,execution_price_per_unit,execution_total,execution_price_mode)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                    (w.masterId,w.masterName,w.project,journal_description,journal_unit,w.quantity,execution_price,execution_total,w.date,
                      w.comment,w.photoUrl,materials_json,
-                     w.estimateId,w.sectionName,w.responsibleItr,w.weather,w.timeStart,w.timeEnd,
+                     journal_estimate_id,journal_section_name,w.responsibleItr,w.weather,w.timeStart,w.timeEnd,
                      w.hiddenWork,w.qualityStatus,w.normatives,w.projectDocs,
-                     w.workPackage,w.roomId,w.roomName,w.surface,w.estimateItemName,w.estimateItemKey,
-                     customer_price,customer_total,execution_price,execution_total,execution_mode))
+                     journal_work_package,w.roomId,w.roomName,w.surface,w.estimateItemName or journal_description,journal_estimate_item_key,
+                     contract_item_id,customer_price,customer_total,execution_price,execution_total,execution_mode))
         row = cur.fetchone()
+        _sync_contract_item_done(cur, contract_item_id, w.quantity)
         _sync_room_work_from_journal(cur, row)
         _sync_hidden_work_act_from_journal(cur, row)
         conn.commit()
@@ -7296,29 +8828,55 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     require_row_project_access(cur, "work_journal", id, _current_user, "project")
     cur.execute("""SELECT project, master_id, master_name, room_id, room_name, description,
-                          estimate_item_key, work_package, status, quantity, date, materials_used
-                   FROM work_journal WHERE id=%s FOR UPDATE""", (id,))
+                          estimate_item_key, work_package, status, quantity, unit, date, materials_used,
+                          contract_item_id, estimate_id, section_name
+		                   FROM work_journal WHERE id=%s FOR UPDATE""", (id,))
     project_row = cur.fetchone()
     project_name = project_row.get("project") if project_row else ""
     role = _current_user.get("role")
     current_work_package = project_row.get("work_package") or "Основная" if project_row else "Основная"
-    requested_work_package = data.get("workPackage", current_work_package)
+    requested_work_package = (data.get("workPackage", current_work_package) or "Основная").strip() or "Основная"
     if role in PACKAGE_LIMIT_ROLES and (
-        not has_package_access(_current_user, current_work_package)
-        or not has_package_access(_current_user, requested_work_package)
+        not has_work_execution_package_access(_current_user, project_name, current_work_package)
+        or not has_work_execution_package_access(_current_user, project_name, requested_work_package)
     ):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-    if role in ("мастер", "субподрядчик"):
+    if role in WORKER_EXECUTION_ROLES:
         master_id = project_row.get("master_id") if project_row else None
         master_name = project_row.get("master_name") if project_row else ""
         if str(master_id or "") != str(_current_user.get("id") or "") and (master_name or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Мастер может менять только свои записи ЖПР")
-        protected_keys = {"status", "confirmedBy", "confirmedAt", "qualityStatus"}
-        if protected_keys.intersection(data.keys()):
+        allowed_worker_keys = {"quantity", "comment", "photoUrl", "materialsUsed", "timeStart", "timeEnd"}
+        forbidden_worker_keys = set(data.keys()) - allowed_worker_keys
+        if forbidden_worker_keys:
             cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Подтверждение и контроль ЖПР доступны прорабу, главному инженеру или руководству")
+            raise HTTPException(
+                status_code=403,
+                detail="Рабочая роль может менять только объем, комментарий, фото, время и списанные материалы ЖПР"
+            )
+    financial_keys = {
+        "pricePerUnit", "total", "customerPricePerUnit", "customerTotal",
+        "executionPricePerUnit", "executionTotal", "executionPriceMode",
+    }
+    if role not in FINANCE_ROLES and any(k in data for k in financial_keys):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Денежные поля ЖПР меняет только директор, замдиректора или бухгалтер. Для исполнителей сумма берётся из договорной позиции.")
+    target_status = str(data.get("status", project_row.get("status") if project_row else "") or "").strip()
+    target_room_id = data.get("roomId", project_row.get("room_id") if project_row else None)
+    target_room_name = data.get("roomName", project_row.get("room_name") if project_row else "")
+    confirm_roles = set(LEADERSHIP_ROLES) | {"прораб", "главный_инженер"}
+    if (
+        str(data.get("status") or "").strip() == "Подтверждено"
+        or "confirmedBy" in data
+        or "confirmedAt" in data
+    ) and role not in confirm_roles:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Подтверждать ЖПР может директор, замдиректора, прораб или главный инженер")
+    if target_status != "Отклонено" and (target_status == "Подтверждено" or (project_row and project_row.get("estimate_item_key"))) and not target_room_id and not str(target_room_name or "").strip():
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Нельзя подтвердить или сохранить сметную работу без помещения")
     if str(data.get("status") or "").strip() == "Отклонено":
         current_status = str(project_row.get("status") or "").strip() if project_row else ""
         if current_status == "Отклонено":
@@ -7346,6 +8904,7 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
         ('confirmedBy', 'confirmed_by'),
         ('confirmedAt', 'confirmed_at'),
         ('comment', 'comment'),
+        ('photoUrl', 'photo_url'),
         ('responsibleItr', 'responsible_itr'),
         ('weather', 'weather'),
         ('timeStart', 'time_start'),
@@ -7377,6 +8936,15 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     new_materials = None
     old_qty = _float_or_zero(project_row.get("quantity") if project_row else 0)
     new_qty = _float_or_zero(data.get("quantity")) if "quantity" in data else old_qty
+    contract_item_id = project_row.get("contract_item_id") if project_row else None
+    contract_item = None
+    if contract_item_id and "quantity" in data:
+        cur.execute("""SELECT id, quantity, done_quantity, price_brigade
+                       FROM brigade_contract_items
+                       WHERE id=%s FOR UPDATE""", (contract_item_id,))
+        contract_item = cur.fetchone()
+        if contract_item:
+            _validate_contract_item_capacity(contract_item, new_qty, old_qty)
     package_changed = "workPackage" in data and (data.get("workPackage") or "") != (project_row.get("work_package") or "")
     if "materialsUsed" in data:
         new_materials = _work_material_items(data.get("materialsUsed"), data.get("workPackage", project_row.get("work_package") if project_row else ""))
@@ -7388,7 +8956,35 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
     if new_materials is not None:
         target_material_package = data.get("workPackage", project_row.get("work_package") if project_row else "")
         new_materials = _force_work_material_package(new_materials, target_material_package or "")
-        _validate_work_material_norm_reasons(new_materials)
+        _validate_work_material_norm_reasons(
+            new_materials,
+            cur,
+            project=project_name,
+            estimate_id=data.get("estimateId") or (project_row.get("estimate_id") if project_row else None),
+            work_name=data.get("description") or (project_row.get("description") if project_row else ""),
+            section_name=data.get("sectionName") or (project_row.get("section_name") if project_row else ""),
+            work_qty=new_qty,
+            work_unit=data.get("unit") or (project_row.get("unit") if project_row else ""),
+            actor_role=_current_user.get("role") or "",
+        )
+    if contract_item_id and contract_item and "quantity" in data:
+        contract_price = _float_or_zero(contract_item.get("price_brigade") if isinstance(contract_item, dict) else contract_item[3])
+        contract_total = round(new_qty * contract_price, 2)
+        if "pricePerUnit" not in data:
+            sets.append("price_per_unit=%s")
+            vals.append(contract_price)
+        if "total" not in data:
+            sets.append("total=%s")
+            vals.append(contract_total)
+        if "executionPricePerUnit" not in data:
+            sets.append("execution_price_per_unit=%s")
+            vals.append(contract_price)
+        if "executionTotal" not in data:
+            sets.append("execution_total=%s")
+            vals.append(contract_total)
+        if "executionPriceMode" not in data:
+            sets.append("execution_price_mode=%s")
+            vals.append("brigade_contract")
     if any(k in data for k in ("roomId", "roomName", "estimateItemKey", "description")):
         _raise_work_journal_duplicate(_work_journal_duplicate(
             cur,
@@ -7410,6 +9006,8 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
             return {"ok": True}
         vals.append(id)
         cur.execute("UPDATE work_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
+        if contract_item_id and "quantity" in data:
+            _sync_contract_item_done(cur, contract_item_id, new_qty - old_qty)
         updated_row = _work_journal_sync_row(cur, id)
         _sync_room_work_from_journal(cur, updated_row)
         _sync_hidden_work_act_from_journal(cur, updated_row)
@@ -7435,7 +9033,7 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         require_row_project_access(cur, "work_journal", id, _current_user, "project")
-        cur.execute("SELECT project, master_id, master_name, date, status, comment, materials_used, work_package FROM work_journal WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT project, master_id, master_name, date, status, comment, materials_used, work_package, quantity, contract_item_id FROM work_journal WHERE id=%s FOR UPDATE", (id,))
         work = cur.fetchone()
         if not work:
             conn.rollback()
@@ -7464,22 +9062,23 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
             master_name = work.get("master_name") or ""
             master_id = work.get("master_id")
             work_package = m.get("workPackage") or m.get("work_package") or work.get("work_package") or ""
-            personal_balance = _personal_material_balance(cur, project_name, master_id, master_name, name, work_package)
+            personal_balance = _personal_material_balance(cur, project_name, master_id, master_name, name, work_package, unit)
             if personal_balance["issued"] > 0:
-                cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (name, "отмена списания мастера", qty, str(work.get("date") or ""), project_name, master_name, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
+                cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (name, "отмена списания мастера", qty, unit, str(work.get("date") or ""), project_name, master_name, _current_user.get("name") or "", work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
                 continue
-            cur.execute("""SELECT id FROM materials
+            cur.execute(f"""SELECT id FROM materials
                            WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (name, project_name, work_package))
+                             AND {_sql_norm_unit('unit')}=%s
+                           ORDER BY id LIMIT 1 FOR UPDATE""", (name, project_name, work_package, unit))
             mat = cur.fetchone()
             if mat:
                 cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)+%s, unit=COALESCE(NULLIF(unit,''),%s) WHERE id=%s", (qty, unit, mat["id"]))
             else:
                 cur.execute("INSERT INTO materials (name, unit, quantity, price, min_quantity, project, category, work_package) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                             (name, unit, qty, 0, 0, project_name, "Возврат", work_package))
-            cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (name, "возврат (удаление работы)", qty, str(work.get("date") or ""), project_name, master_name, work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
+            cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (name, "возврат (удаление работы)", qty, unit, str(work.get("date") or ""), project_name, master_name, work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
         cur.execute("SELECT COUNT(*) AS cnt FROM piecework WHERE work_journal_id=%s", (id,))
         piecework_row = cur.fetchone()
         piecework_count = int((piecework_row.get("cnt") if isinstance(piecework_row, dict) else piecework_row[0]) or 0)
@@ -7491,6 +9090,7 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
             cancel_note += " (" + actor_name + ")"
         new_comment = (old_comment + "\n" + cancel_note).strip() if old_comment else cancel_note
         cur.execute("UPDATE work_journal SET status=%s, comment=%s WHERE id=%s", ("Отклонено", new_comment, id))
+        _sync_contract_item_done(cur, work.get("contract_item_id"), -_float_or_zero(work.get("quantity")))
         _mark_room_work_rejected(cur, id, actor_name)
         conn.commit()
         return {"ok": True, "cancelled": True, "materialsRestored": len(used), "pieceworkPreserved": piecework_count}
@@ -7509,7 +9109,7 @@ def ai_prefill_work_journal(id: int, _current_user: dict = Depends(require_roles
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
-    require_row_project_access(cur, "work_journal", id, _current_user, "project")
+    require_work_journal_actor_access(cur, id, _current_user)
     cur.execute("""SELECT description, section_name, unit, quantity, materials_used, project, hidden_work
                    FROM work_journal WHERE id=%s""", (id,))
     row = cur.fetchone()
@@ -7595,7 +9195,7 @@ def _detect_hidden_by_keywords(name):
     return any(k in n for k in HIDDEN_WORK_KEYWORDS)
 
 @app.post("/estimates/{id}/ai-detect-hidden")
-def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
@@ -7681,15 +9281,41 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
 def get_master_profiles(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if current_user.get("role") in FINANCE_ROLES or current_user.get("role") in ("прораб", "главный_инженер"):
+    def _public_master_profile(row):
+        data = dict(row)
+        for key in ("passport", "inn", "bankAccount", "bankName", "ogrnip"):
+            data.pop(key, None)
+        return data
+    if current_user.get("role") in FINANCE_ROLES:
         cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles")
-    elif current_user.get("role") in ("мастер", "субподрядчик"):
+    elif current_user.get("role") in ("прораб", "главный_инженер"):
+        allowed_projects = user_project_names(current_user)
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("""
+            SELECT mp.id,mp.user_id as "userId",mp.full_name as "fullName",mp.passport,mp.inn,
+                   mp.contract_type as "contractType",mp.bank_account as "bankAccount",
+                   mp.bank_name as "bankName",mp.phone,mp.specialization,mp.ogrnip,
+                   mp.profile_completed as "profileCompleted"
+            FROM master_profiles mp
+            JOIN users u ON u.id=mp.user_id
+            WHERE COALESCE(u.project_name,'') = ANY(%s)
+               OR EXISTS (
+                   SELECT 1 FROM jsonb_array_elements_text(COALESCE(u.assigned_projects,'[]'::jsonb)) ap(project_name)
+                   WHERE ap.project_name = ANY(%s)
+               )
+            ORDER BY mp.id DESC
+        """, (allowed_projects, allowed_projects))
+    elif current_user.get("role") in WORKER_EXECUTION_ROLES:
         cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles WHERE user_id=%s", (current_user.get("id"),))
     else:
         cur.close(); conn.close()
         return []
     rows = cur.fetchall()
     conn.close()
+    if current_user.get("role") in ("прораб", "главный_инженер"):
+        return [_public_master_profile(r) for r in rows]
     return [dict(r) for r in rows]
 
 @app.get("/master-profile/{user_id}")
@@ -7698,11 +9324,31 @@ def get_master_profile(user_id: int, current_user: dict = Depends(get_current_us
         raise HTTPException(status_code=403, detail="Нет доступа к профилю")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    if current_user.get("id") != user_id and current_user.get("role") in ("прораб", "главный_инженер"):
+        allowed_projects = user_project_names(current_user)
+        cur.execute("""
+            SELECT 1 FROM users u
+            WHERE u.id=%s AND (
+                COALESCE(u.project_name,'') = ANY(%s)
+                OR EXISTS (
+                    SELECT 1 FROM jsonb_array_elements_text(COALESCE(u.assigned_projects,'[]'::jsonb)) ap(project_name)
+                    WHERE ap.project_name = ANY(%s)
+                )
+            )
+        """, (user_id, allowed_projects, allowed_projects))
+        if not cur.fetchone():
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к профилю исполнителя другого объекта")
     cur.execute("SELECT id,user_id as \"userId\",full_name as \"fullName\",passport,inn,contract_type as \"contractType\",bank_account as \"bankAccount\",bank_name as \"bankName\",phone,specialization,ogrnip,profile_completed as \"profileCompleted\" FROM master_profiles WHERE user_id=%s", (user_id,))
     row = cur.fetchone()
     conn.close()
     if not row:
         return {"userId": user_id, "fullName": "", "profileCompleted": False}
+    if current_user.get("id") != user_id and current_user.get("role") in ("прораб", "главный_инженер"):
+        data = dict(row)
+        for key in ("passport", "inn", "bankAccount", "bankName", "ogrnip"):
+            data.pop(key, None)
+        return data
     return dict(row)
 
 @app.post("/master-profile")
@@ -7739,8 +9385,8 @@ def get_contracts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES)))
     if allowed_projects is not None:
         where.append("project = ANY(%s)")
         params.append(allowed_projects)
-    if _current_user.get("role") in ("мастер", "субподрядчик"):
-        where.append("(master_id=%s OR master_name=%s)")
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        where.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))")
         params.extend([_current_user.get("id"), _current_user.get("name") or ""])
     q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",contract_type as \"contractType\",contract_number as \"contractNumber\",project,start_date as \"startDate\",end_date as \"endDate\",status FROM contracts"
     if where:
@@ -7786,14 +9432,14 @@ def get_interim_acts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES
     if allowed_projects is not None:
         where.append("project = ANY(%s)")
         params.append(allowed_projects)
-    if _current_user.get("role") in ("мастер", "субподрядчик"):
-        where.append("(master_id=%s OR master_name=%s)")
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        where.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))")
         params.extend([_current_user.get("id"), _current_user.get("name") or ""])
     package_sql, package_params = package_access_filter(_current_user)
     if package_sql:
         where.append("1=1" + package_sql)
         params.extend(package_params)
-    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\" FROM interim_acts"
+    q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\",COALESCE(work_journal_ids,'[]') as \"workJournalIds\" FROM interim_acts"
     if where:
         q += " WHERE " + " AND ".join(where)
     q += " ORDER BY id DESC"
@@ -7802,24 +9448,103 @@ def get_interim_acts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES
     conn.close()
     return [dict(r) for r in rows]
 
+def _confirmed_execution_total_for_act(cur, master_id, master_name, project, work_package, period_start, period_end):
+    package = (work_package or "Основная").strip() or "Основная"
+    name = (master_name or "").strip().lower()
+    cur.execute(
+        """SELECT COALESCE(SUM(COALESCE(execution_total,0)),0)
+           FROM work_journal
+           WHERE project=%s
+             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+             AND status='Подтверждено'
+             AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
+             AND date BETWEEN %s AND %s
+             AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
+        (project, package, period_start, period_end, master_id, master_id, master_id, name),
+    )
+    confirmed_total = float((cur.fetchone() or [0])[0] or 0)
+    cur.execute(
+        """SELECT COALESCE(SUM(COALESCE(total_amount,0)),0)
+           FROM interim_acts
+           WHERE project=%s
+             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+             AND period_start=%s
+             AND period_end=%s
+             AND COALESCE(status,'') <> 'Аннулирован'
+             AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
+        (project, package, period_start, period_end, master_id, master_id, master_id, name),
+    )
+    already_acted = float((cur.fetchone() or [0])[0] or 0)
+    return max(0, confirmed_total - already_acted)
+
 @app.post("/interim-acts")
-def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     require_project_access(_current_user, a.project)
     if not has_package_access(_current_user, a.workPackage or ""):
         raise HTTPException(status_code=403, detail="Нет доступа к этому пакету работ")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    total_amount = float(a.totalAmount or 0)
+    paid_amount = float(a.paidAmount or 0)
+    if _current_user.get("role") not in FINANCE_ROLES and paid_amount > 0:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Оплату по акту указывает только директор, замдиректора или бухгалтер")
+    available_total = _confirmed_execution_total_for_act(cur, a.masterId, a.masterName, a.project, a.workPackage, a.periodStart, a.periodEnd)
+    if total_amount <= 0:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сумма акта должна быть больше нуля")
+    if total_amount > available_total + 0.01:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail=f"Сумма акта превышает подтверждённые работы за период. Доступно к акту: {available_total:.2f} ₽")
+    if paid_amount < 0 or paid_amount > total_amount + 0.01:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Оплата по акту не может быть меньше 0 или больше суммы акта")
+    import json as _json
+    work_journal_ids = [int(x) for x in (a.workJournalIds or []) if str(x).isdigit()]
+    if not work_journal_ids:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Акт должен быть привязан к конкретным подтверждённым работам ЖПР")
+    package = (a.workPackage or "Основная").strip() or "Основная"
+    master_name = (a.masterName or "").strip().lower()
+    cur.execute("""SELECT id, COALESCE(execution_total,0) AS execution_total
+                   FROM work_journal
+                   WHERE id = ANY(%s)
+                     AND project=%s
+                     AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                     AND status='Подтверждено'
+                     AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
+                     AND date BETWEEN %s AND %s
+                     AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
+                (work_journal_ids, a.project, package, a.periodStart, a.periodEnd, a.masterId, a.masterId, a.masterId, master_name))
+    selected_rows = cur.fetchall() or []
+    selected_ids = {int(r["id"]) for r in selected_rows}
+    missing_ids = sorted(set(work_journal_ids) - selected_ids)
+    if missing_ids:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="В акт попали работы не этого исполнителя, пакета или периода: " + ", ".join(map(str, missing_ids[:10])))
+    cur.execute("""SELECT id FROM interim_acts
+                   WHERE COALESCE(status,'') <> 'Аннулирован'
+                     AND COALESCE(work_journal_ids,'[]')::jsonb ?| %s
+                   LIMIT 1""", ([str(x) for x in work_journal_ids],))
+    duplicate_act = cur.fetchone()
+    if duplicate_act:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Одна или несколько работ ЖПР уже включены в другой акт")
+    selected_total = sum(float(r["execution_total"] or 0) for r in selected_rows)
+    if abs(total_amount - selected_total) > 0.01:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail=f"Сумма акта должна равняться выбранным подтверждённым ЖПР: {selected_total:.2f} ₽. Удержания и частичную оплату фиксируйте отдельными полями.")
     cur.execute("""INSERT INTO interim_acts
-                   (master_id,master_name,project,work_package,period_start,period_end,total_amount,paid_amount,contract_id)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                (a.masterId,a.masterName,a.project,a.workPackage or "",a.periodStart,a.periodEnd,a.totalAmount,a.paidAmount,a.contractId))
+                   (master_id,master_name,project,work_package,period_start,period_end,total_amount,paid_amount,contract_id,work_journal_ids)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                (a.masterId,a.masterName,a.project,a.workPackage or "",a.periodStart,a.periodEnd,total_amount,paid_amount,a.contractId,_json.dumps(work_journal_ids, ensure_ascii=False)))
     row = cur.fetchone()
     conn.commit()
     conn.close()
     return dict(row)
 
 @app.put("/interim-acts/{id}")
-def update_interim_act(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def update_interim_act(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "interim_acts", id, _current_user, "project")
@@ -7828,6 +9553,24 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
     if act_row and not has_package_access(_current_user, act_row[0] or "Основная"):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
+    cur.execute("SELECT total_amount, paid_amount, COALESCE(scan_url,'') FROM interim_acts WHERE id=%s", (id,))
+    amount_row = cur.fetchone()
+    total_amount = float((amount_row or [0])[0] or 0)
+    current_paid = float((amount_row or [0, 0])[1] or 0)
+    new_paid = float(data.get("paidAmount", current_paid) or 0)
+    if new_paid < 0 or new_paid > total_amount + 0.01:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Оплата по акту не может быть меньше 0 или больше суммы акта")
+    finance_update_keys = {"paidAmount"}
+    finance_statuses = {"Оплачен", "Частично оплачен", "Оплачен частично"}
+    if _current_user.get("role") not in FINANCE_ROLES and (
+        any(k in data for k in finance_update_keys) or str(data.get("status") or "") in finance_statuses
+    ):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Финансовые поля и оплату акта меняет только директор, замдиректора или бухгалтер")
+    if data.get("status") == "Оплачен" and new_paid <= 0:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Нельзя отметить акт оплаченным без суммы оплаты")
     if 'status' in data:
         cur.execute("UPDATE interim_acts SET status=%s WHERE id=%s", (data['status'],id))
     if 'paidAmount' in data:
@@ -7837,6 +9580,55 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
     conn.commit()
     conn.close()
     return {"ok": True}
+
+@app.post("/interim-acts/{id}/pay")
+def pay_interim_act(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor()
+    try:
+        require_row_project_access(cur, "interim_acts", id, _current_user, "project")
+        cur.execute("""SELECT total_amount, paid_amount, project, COALESCE(work_package,''), master_name
+                       FROM interim_acts WHERE id=%s FOR UPDATE""", (id,))
+        act = cur.fetchone()
+        if not act:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="Акт не найден")
+        project = act[2] or ""
+        work_package = act[3] or "Основная"
+        if not has_package_access(_current_user, work_package):
+            conn.rollback()
+            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
+        total_amount = float(act[0] or 0)
+        current_paid = float(act[1] or 0)
+        amount = float(data.get("amount") or 0)
+        if amount <= 0:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail="Сумма оплаты должна быть больше нуля")
+        next_paid = current_paid + amount
+        if next_paid > total_amount + 0.01:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=f"Оплата превышает сумму акта. Остаток к оплате: {max(0, total_amount-current_paid):.2f} ₽")
+        status = "Оплачен" if next_paid >= total_amount - 0.01 else "Частично оплачен"
+        cur.execute("UPDATE interim_acts SET paid_amount=%s, status=%s WHERE id=%s", (next_paid, status, id))
+        paid_by = data.get("paidBy") or _current_user.get("name") or ""
+        paid_date = data.get("paidDate") or None
+        note = data.get("note") or ("Оплата исполнителю " + (act[4] or "") + " · акт #" + str(id))
+        cur.execute("""INSERT INTO project_payments (project_name,amount,note,date,added_by,work_package)
+                       VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (project, -amount, note, paid_date, paid_by, work_package))
+        payment_id = cur.fetchone()[0]
+        conn.commit()
+        return {"ok": True, "paidAmount": next_paid, "status": status, "projectPaymentId": payment_id}
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
 
 @app.delete("/interim-acts/{id}")
 def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер"))):
@@ -7854,7 +9646,7 @@ def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*LEA
     return {"ok": True}
 
 @app.get("/timesheet/{staff_id}")
-def get_timesheet(staff_id: int, _current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
+def get_timesheet(staff_id: int, _current_user: dict = Depends(require_roles(*STAFF_VIEW_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT day FROM timesheet WHERE staff_id=%s", (staff_id,))
@@ -7876,7 +9668,7 @@ def toggle_timesheet(data: TimesheetModel, _current_user: dict = Depends(require
     return {"ok": True}
 
 @app.get("/timesheet")
-def get_timesheet_all(_current_user: dict = Depends(require_roles(*STAFF_MANAGE_ROLES, "прораб", "главный_инженер"))):
+def get_timesheet_all(_current_user: dict = Depends(require_roles(*STAFF_VIEW_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT staff_id, day FROM timesheet")
@@ -7958,6 +9750,9 @@ def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_
     allowed_projects = visible_project_names(current_user)
     role = current_user.get("role")
     package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
+    if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names:
+        cur.close(); conn.close()
+        return []
     select_sql = "SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",work_journal_id as \"workJournalId\",work_package as \"workPackage\",estimate_item_key as \"estimateItemKey\" FROM room_works"
     conditions = []
     params = []
@@ -7967,8 +9762,8 @@ def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_
             return []
         conditions.append("project = ANY(%s)")
         params.append(allowed_projects)
-    if role in ("мастер", "субподрядчик"):
-        conditions.append("(master_id=%s OR LOWER(TRIM(master_name))=LOWER(TRIM(%s)))")
+    if role in WORKER_EXECUTION_ROLES:
+        conditions.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND LOWER(TRIM(master_name))=LOWER(TRIM(%s))))")
         params.extend([current_user.get("id"), current_user.get("name") or ""])
     if role in PACKAGE_LIMIT_ROLES and package_names:
         conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
@@ -7979,20 +9774,32 @@ def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_
         cur.execute(select_sql + " ORDER BY id DESC")
     rows = cur.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    if role in WORKER_EXECUTION_ROLES:
+        for row in result:
+            row["pricePerUnit"] = 0
+            row["total"] = 0
+    return result
 
 @app.post("/room-works")
 def create_room_work(w: RoomWorkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
     require_project_access(_current_user, w.project)
     if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, w.workPackage or "Основная"):
         raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-    if _current_user.get("role") in ("мастер", "субподрядчик"):
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        if not w.workJournalId:
+            raise HTTPException(status_code=403, detail="Работа по помещению создаётся только через ЖПР")
         own_id = str(_current_user.get("id") or "")
         own_name = (_current_user.get("name") or "").strip().lower()
         if str(w.masterId or "") != own_id and (w.masterName or "").strip().lower() != own_name:
             raise HTTPException(status_code=403, detail="Мастер может создавать только свои работы по помещениям")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    if w.workJournalId:
+        work = require_work_journal_actor_access(cur, w.workJournalId, _current_user)
+        if (work.get("project") or "") != (w.project or ""):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="ЖПР относится к другому объекту")
     _raise_work_journal_duplicate(_room_work_duplicate(
         cur,
         w.project,
@@ -8104,7 +9911,7 @@ def _ai_task_dedupe_from_payload(action_payload: str) -> str:
 def _ai_task_dedupe_key(data: dict) -> str:
     explicit = data.get("dedupeKey") or data.get("dedupe_key") or ""
     if explicit:
-        return str(explicit)[:255]
+        return str(explicit)
     return _ai_task_dedupe_from_payload(data.get("actionPayload") or data.get("action_payload") or "")
 
 def _close_duplicate_ai_tasks(cur, project_name: str, dedupe_key: str, keep_id: int = None, actor: str = "system"):
@@ -8366,7 +10173,7 @@ def _ai_group_from_role(role: str) -> str:
         return "materials"
     if role in ("сметчик",):
         return "estimate"
-    if role in ("прораб", "главный_инженер", "мастер", "субподрядчик"):
+    if role in ("прораб", "главный_инженер", *WORKER_EXECUTION_ROLES):
         return "work_room"
     return "documents"
 
@@ -8761,7 +10568,7 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
             updated += 1
     closed += _close_stale_ai_findings(cur, project_name, ["Помещения", "ЖПР"], active_finding_keys, current_user.get("name") or "ИИ-контроль")
 
-    cur.execute("""SELECT id, sections_json, name, version
+    cur.execute("""SELECT id, sections_json, name, version, COALESCE(work_package,'') AS work_package
                    FROM estimates
                    WHERE project_name=%s
                      AND status='Активная'
@@ -8790,10 +10597,14 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
                 qty = _float_or_zero(item.get("quantity"))
                 unit = item.get("unit") or ""
                 if kind == "material":
-                    key = _material_control_key(name, unit)
+                    if _estimate_material_plan_issue_backend(item, section_name):
+                        continue
+                    qty = _estimate_imported_quantity(item)
+                    work_package = _supply_work_package(item.get("workPackage") or item.get("work_package") or est.get("work_package") or section_name or "Основная")
+                    key = (*_material_control_key(name, unit), work_package)
                     if not key[0] or qty <= 0:
                         continue
-                    row = planned_materials.setdefault(key, {"name": name, "unit": unit, "qty": 0.0, "sum": 0.0})
+                    row = planned_materials.setdefault(key, {"name": name, "unit": unit, "workPackage": work_package, "qty": 0.0, "sum": 0.0})
                     row["qty"] += qty
                     row["sum"] += _estimate_material_sum_backend(item) or _estimate_item_sum_backend(item)
                     material_count += 1
@@ -8824,32 +10635,34 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
             estimate_assignment,
         )
 
-    cur.execute("SELECT name, unit, quantity, price FROM materials WHERE project=%s", (project_name,))
+    cur.execute("SELECT name, unit, quantity, price, COALESCE(work_package,'') AS work_package FROM materials WHERE project=%s", (project_name,))
     stock = {}
     for row in cur.fetchall() or []:
-        key = _material_control_key(row.get("name") or "", row.get("unit") or "")
+        work_package = _supply_work_package(row.get("work_package") or "Основная")
+        key = (*_material_control_key(row.get("name") or "", row.get("unit") or ""), work_package)
         if not key[0]:
             continue
-        item = stock.setdefault(key, {"name": row.get("name") or "", "unit": row.get("unit") or "", "qty": 0.0, "sum": 0.0})
+        item = stock.setdefault(key, {"name": row.get("name") or "", "unit": row.get("unit") or "", "workPackage": work_package, "qty": 0.0, "sum": 0.0})
         qty = _float_or_zero(row.get("quantity"))
         item["qty"] += qty
         item["sum"] += qty * _float_or_zero(row.get("price"))
-    cur.execute("""SELECT material, quantity
+    cur.execute("""SELECT material, quantity, unit, COALESCE(work_package,'') AS work_package
                    FROM warehouse_history
                    WHERE project=%s
                      AND (LOWER(COALESCE(type,'')) LIKE %s OR LOWER(COALESCE(type,'')) LIKE %s)""",
                 (project_name, "%расход%", "%спис%"))
     spent = {}
     for row in cur.fetchall() or []:
-        key = (_norm_key_text(row.get("material") or ""), "")
+        work_package = _supply_work_package(row.get("work_package") or "Основная")
+        key = (*_material_control_key(row.get("material") or "", row.get("unit") or ""), work_package)
         if key[0]:
-            spent[key[0]] = spent.get(key[0], 0.0) + _float_or_zero(row.get("quantity"))
+            spent[key] = spent.get(key, 0.0) + _float_or_zero(row.get("quantity"))
 
     material_assignment = _ai_assignment(cur, project_name, "materials")
     purchase_shortages = []
     for key, need in planned_materials.items():
         stock_row = stock.get(key) or {"qty": 0.0}
-        spent_qty = spent.get(key[0], 0.0)
+        spent_qty = spent.get(key, 0.0)
         delivered_or_available = _float_or_zero(stock_row.get("qty")) + spent_qty
         need_qty = _float_or_zero(need.get("qty"))
         tolerance = max(0.01, need_qty * 0.05)
@@ -8860,6 +10673,7 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
             purchase_shortages.append({
                 "name": need.get("name") or "",
                 "unit": need.get("unit") or "",
+                "workPackage": need.get("workPackage") or key[2],
                 "needQty": need_qty,
                 "haveQty": delivered_or_available,
                 "shortage": shortage,
@@ -8867,14 +10681,14 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
             })
         if need_qty > 0 and spent_qty > need_qty * 1.08:
             over = spent_qty - need_qty
-            dedupe = f"MATERIAL_RULE:norm_over:{key[0]}:{key[1]}"
+            dedupe = f"MATERIAL_RULE:norm_over:{key[0]}:{key[1]}:{key[2]}"
             active_task_keys.add(dedupe)
             _add_ai_task_candidate(
                 tasks, project_name,
                 f"Списание выше сметы: {need.get('name')}",
-                f"Причина: списано {spent_qty:g} {need.get('unit')} при сметной потребности {need_qty:g}. Риск перерасхода: {over:g} {need.get('unit')}.",
+                f"Причина: по разделу «{need.get('workPackage') or key[2]}» списано {spent_qty:g} {need.get('unit')} при сметной потребности {need_qty:g}. Риск перерасхода: {over:g} {need.get('unit')}.",
                 "materials", dedupe,
-                {"type": "material_norm_over_review", "materialName": need.get("name"), "unit": need.get("unit"), "overQuantity": over, "dedupeKey": dedupe},
+                {"type": "material_norm_over_review", "materialName": need.get("name"), "unit": need.get("unit"), "workPackage": need.get("workPackage") or key[2], "overQuantity": over, "dedupeKey": dedupe},
                 estimate_assignment,
                 "Критично",
             )
@@ -8889,7 +10703,7 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
         ]
         for idx, row in enumerate(top_rows[:12], 1):
             lines.append(
-                f"{idx}. {row.get('name')} — не хватает {row.get('shortage'):g} {row.get('unit')} "
+                f"{idx}. {row.get('name')} [{row.get('workPackage') or 'Основная'}] — не хватает {row.get('shortage'):g} {row.get('unit')} "
                 f"(нужно {row.get('needQty'):g}, подтверждено {row.get('haveQty'):g})"
             )
         if len(top_rows) > 12:
@@ -8916,14 +10730,14 @@ def _run_project_ai_control(cur, project_name: str, current_user: dict, reason: 
         )
     for key, have in stock.items():
         if planned_materials and key not in planned_materials and _float_or_zero(have.get("qty")) > 0:
-            dedupe = f"MATERIAL_RULE:outside_estimate:{key[0]}:{key[1]}"
+            dedupe = f"MATERIAL_RULE:outside_estimate:{key[0]}:{key[1]}:{key[2]}"
             active_task_keys.add(dedupe)
             _add_ai_task_candidate(
                 tasks, project_name,
                 f"Материал не найден в смете: {have.get('name')}",
-                f"Причина: на объекте числится {have.get('qty'):g} {have.get('unit')}, но в активной смете такого материала нет. Риск: закупка или списание вне сметы.",
+                f"Причина: на объекте в разделе «{have.get('workPackage') or key[2]}» числится {have.get('qty'):g} {have.get('unit')}, но в активной смете такого материала нет. Риск: закупка или списание вне сметы.",
                 "materials", dedupe,
-                {"type": "material_outside_estimate_review", "materialName": have.get("name"), "unit": have.get("unit"), "quantity": have.get("qty"), "dedupeKey": dedupe},
+                {"type": "material_outside_estimate_review", "materialName": have.get("name"), "unit": have.get("unit"), "workPackage": have.get("workPackage") or key[2], "quantity": have.get("qty"), "dedupeKey": dedupe},
                 material_assignment,
             )
 
@@ -9015,7 +10829,7 @@ def list_ai_findings(project_name: str = None, current_user: dict = Depends(requ
     return [dict(r) for r in rows]
 
 @app.post("/ai-findings")
-def create_ai_finding(data: AiFindingModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "мастер", "субподрядчик"))):
+def create_ai_finding(data: AiFindingModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES))):
     payload = data.dict()
     if not payload.get("projectName"):
         raise HTTPException(status_code=400, detail="projectName required")
@@ -9090,7 +10904,7 @@ def generate_ai_findings(data: dict, current_user: dict = Depends(require_roles(
     return result
 
 @app.post("/ai-control/run")
-def run_ai_control(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец", "мастер", "субподрядчик"))):
+def run_ai_control(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец", *WORKER_EXECUTION_ROLES))):
     project_name = data.get("projectName") or data.get("project_name") or data.get("project") or ""
     if not project_name:
         raise HTTPException(status_code=400, detail="projectName required")
@@ -9155,7 +10969,7 @@ def list_ai_tasks(project_name: str = None, current_user: dict = Depends(require
     return [dict(r) for r in rows]
 
 @app.post("/ai-tasks")
-def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "мастер", "субподрядчик", "снабженец", "кладовщик"))):
+def create_ai_task(data: AiTaskModel, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES, "снабженец", "кладовщик"))):
     payload = data.dict()
     if not payload.get("projectName"):
         raise HTTPException(status_code=400, detail="projectName required")
@@ -9253,10 +11067,10 @@ def get_tools(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES
                        FROM tools
                        WHERE COALESCE(project,'')='' OR project = ANY(%s) OR location = ANY(%s)
                        ORDER BY name""", (allowed_projects, allowed_projects))
-    elif role in ("мастер", "субподрядчик"):
+    elif role in WORKER_EXECUTION_ROLES:
         cur.execute("""SELECT id,name,inventory_number as "inventoryNumber",cost,status,location,project,master_id as "masterId",master_name as "masterName",issue_type as "issueType",photo_url as "photoUrl",notes
                        FROM tools
-                       WHERE master_id=%s OR master_name=%s
+                       WHERE COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s)
                        ORDER BY name""", (current_user.get("id"), current_user.get("name") or ""))
     else:
         cur.close(); conn.close()
@@ -9312,7 +11126,7 @@ def get_tool_history(current_user: dict = Depends(require_roles(*PROJECT_DOCUMEN
                        FROM tool_history
                        WHERE COALESCE(project,'')='' OR project = ANY(%s)
                        ORDER BY id DESC""", (allowed_projects,))
-    elif role in ("мастер", "субподрядчик"):
+    elif role in WORKER_EXECUTION_ROLES:
         cur.execute("""SELECT id,tool_id as "toolId",tool_name as "toolName",action,from_location as "fromLocation",to_location as "toLocation",master_name as "masterName",project,issue_type as "issueType",condition,date,created_by as "createdBy"
                        FROM tool_history
                        WHERE master_name=%s
@@ -10011,7 +11825,7 @@ def update_prescription(id: int, data: dict, current_user: dict = Depends(requir
     require_row_project_access(cur, "prescriptions", id, current_user, "project_name")
     role = current_user.get("role")
     new_status = data.get("status","")
-    if role in ("мастер", "субподрядчик", "кладовщик", "снабженец") and new_status not in ("На проверке", ""):
+    if role in (*WORKER_EXECUTION_ROLES, "кладовщик", "снабженец") and new_status not in ("На проверке", ""):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Можно только отправить предписание на проверку")
     if role == "заказчик":
@@ -10068,6 +11882,7 @@ def get_unexpected_works(current_user: dict = Depends(require_roles(*PROJECT_DOC
     cur = conn.cursor()
     allowed_projects = visible_project_names(current_user)
     role = current_user.get("role")
+    package_sql, package_params = package_access_filter(current_user, "section_name")
     cols = """id,project_name,description,unit,quantity,price,total,added_by,added_by_role,status,
               approved_by,approved_at,notes,photo_url,change_type,estimate_id,section_name,
               estimate_item_name,base_quantity,new_required_quantity,delta_quantity,
@@ -10077,15 +11892,16 @@ def get_unexpected_works(current_user: dict = Depends(require_roles(*PROJECT_DOC
             cur.close(); conn.close()
             return []
         if role == "заказчик":
-            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) AND status = ANY(%s) ORDER BY id DESC", (allowed_projects, list(ESTIMATE_CHANGE_CUSTOMER_STATUSES)))
+            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) AND status = ANY(%s){package_sql} ORDER BY id DESC", [allowed_projects, list(ESTIMATE_CHANGE_CUSTOMER_STATUSES)] + package_params)
         else:
-            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC", (allowed_projects,))
+            cur.execute(f"SELECT {cols} FROM unexpected_works WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано'{package_sql} ORDER BY id DESC", [allowed_projects] + package_params)
     else:
         cur.execute(f"SELECT {cols} FROM unexpected_works WHERE COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
+    hide_money = role in WORKER_EXECUTION_ROLES
     return [{"id":r[0],"projectName":r[1],"description":r[2],"unit":r[3],
-             "quantity":float(r[4] or 0),"price":float(r[5] or 0),"total":float(r[6] or 0),
+             "quantity":float(r[4] or 0),"price":0 if hide_money else float(r[5] or 0),"total":0 if hide_money else float(r[6] or 0),
              "addedBy":r[7],"addedByRole":r[8],"status":r[9],"approvedBy":r[10],
              "approvedAt":r[11],"notes":r[12],"photoUrl":r[13],
              "changeType":r[14] or "Работа вне сметы","estimateId":r[15],
@@ -10096,7 +11912,23 @@ def get_unexpected_works(current_user: dict = Depends(require_roles(*PROJECT_DOC
 
 @app.post("/unexpected-works")
 def create_unexpected_work(data: dict, current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
-    require_project_access(current_user, data.get("projectName", ""))
+    project_name = data.get("projectName", "")
+    require_project_access(current_user, project_name)
+    role = current_user.get("role") or ""
+    section_name = (data.get("sectionName") or data.get("workPackage") or "Основная").strip() or "Основная"
+    if role in PACKAGE_LIMIT_ROLES and not has_package_access(current_user, section_name):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ: " + section_name)
+    price = float(data.get("price", 0) or 0)
+    total = float(data.get("total", 0) or 0)
+    status = data.get("status", "Ожидает согласования")
+    added_by = data.get("addedBy", "") or current_user.get("name", "")
+    added_by_role = data.get("addedByRole", "") or role
+    if role in WORKER_EXECUTION_ROLES:
+        price = 0
+        total = 0
+        status = "Ожидает согласования"
+        added_by = current_user.get("name", "")
+        added_by_role = role
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""INSERT INTO unexpected_works
@@ -10104,12 +11936,12 @@ def create_unexpected_work(data: dict, current_user: dict = Depends(require_role
                     change_type,estimate_id,section_name,estimate_item_name,base_quantity,new_required_quantity,
                     delta_quantity,included_in_estimate_id,reason)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (data.get("projectName",""),data.get("description",""),data.get("unit","шт"),
-         float(data.get("quantity",0)),float(data.get("price",0)),float(data.get("total",0)),
-         data.get("addedBy",""),data.get("addedByRole",""),data.get("status","Ожидает согласования"),
+        (project_name,data.get("description",""),data.get("unit","шт"),
+         float(data.get("quantity",0)),price,total,
+         added_by,added_by_role,status,
          data.get("notes",""),data.get("photoUrl",""),
          data.get("changeType") or "Работа вне сметы", data.get("estimateId") or None,
-         data.get("sectionName",""), data.get("estimateItemName",""),
+         section_name, data.get("estimateItemName",""),
          float(data.get("baseQuantity") or 0), float(data.get("newRequiredQuantity") or 0),
          float(data.get("deltaQuantity") or 0), data.get("includedInEstimateId") or None,
          data.get("reason","")))
@@ -11048,6 +12880,121 @@ async def parse_smeta(file: UploadFile = File(...)):
         return {"error": str(e)}
 
 
+def _worker_estimate_item_kind_for_sanitize(item):
+    kind = str((item or {}).get("itemType") or (item or {}).get("type") or "").strip().lower()
+    if kind:
+        return kind
+    try:
+        price_work = float((item or {}).get("priceWork") or 0)
+        price_material = float((item or {}).get("priceMaterial") or 0)
+    except (TypeError, ValueError):
+        price_work = 0
+        price_material = 0
+    if price_material > 0 and price_work <= 0:
+        return "material"
+    return "work"
+
+
+def _sanitize_worker_estimate_sections(sections, allowed_items=None):
+    money_keys = (
+        "priceWork", "priceMaterial", "totalWork", "totalMaterial", "lineTotal",
+        "currentTotal", "total", "sum", "amount", "totalSum", "workTotal",
+        "materialTotal", "workSum", "materialSum", "currentWork", "currentMaterial",
+        "customerPricePerUnit", "customerTotal", "baseUnitPrice", "baseTotal",
+        "baseWork", "baseMaterial", "basePrice", "baseSum", "baseAmount",
+        "costCoefficient", "coefficient", "index", "indexValue", "currentIndex",
+        "priceBase", "estimatedCost", "resourceCost", "executionPricePerUnit",
+        "internalPricePerUnit", "masterPricePerUnit", "contractorPricePerUnit",
+        "executorPricePerUnit", "executionPriceMode", "executionCoefficient",
+        "masterCoefficient", "contractorCoefficient",
+    )
+    allowed_by_key = set()
+    allowed_by_name = set()
+    if allowed_items is not None:
+        for row in allowed_items or []:
+            item_key = str(row.get("estimate_item_key") or row.get("estimateItemKey") or "").strip()
+            if item_key:
+                allowed_by_key.add(item_key)
+            section_name = str(row.get("estimate_section") or row.get("section") or "").strip().lower()
+            description = str(row.get("description") or row.get("name") or "").strip().lower()
+            if description:
+                allowed_by_name.add((section_name, description))
+    sanitized_sections = []
+    for section in sections or []:
+        if not isinstance(section, dict):
+            continue
+        items = []
+        section_name = str(section.get("name") or "").strip()
+        for item in section.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            if _worker_estimate_item_kind_for_sanitize(item) in ("material", "equipment", "transport", "note", "adjustment"):
+                continue
+            if allowed_items is not None:
+                item_key = str(item.get("estimateItemKey") or item.get("estimate_item_key") or "").strip()
+                name_key = (section_name.lower(), str(item.get("name") or "").strip().lower())
+                if (item_key and item_key not in allowed_by_key) and name_key not in allowed_by_name:
+                    continue
+                if not item_key and name_key not in allowed_by_name:
+                    continue
+            cleaned = dict(item)
+            for key in money_keys:
+                if key in cleaned:
+                    cleaned[key] = 0
+            items.append(cleaned)
+        if items:
+            cleaned_section = dict(section)
+            cleaned_section["items"] = items
+            sanitized_sections.append(cleaned_section)
+    return sanitized_sections
+
+
+def _worker_allowed_estimate_items_for_scopes(cur, user: dict, scopes: list[tuple[str, str]]):
+    if user.get("role") not in WORKER_EXECUTION_ROLES or not scopes:
+        return {}
+    unique_scopes = []
+    seen = set()
+    for project_scope, package_scope in scopes:
+        key = ((project_scope or "").strip(), (package_scope or "Основная").strip() or "Основная")
+        if key[0] and key not in seen:
+            seen.add(key)
+            unique_scopes.append(key)
+    if not unique_scopes:
+        return {}
+    conditions = []
+    params = [user.get("id"), user.get("name") or ""]
+    for project_scope, package_scope in unique_scopes:
+        conditions.append("(bc.project_name=%s AND COALESCE(NULLIF(bci.work_package,''),'Основная')=%s)")
+        params.extend([project_scope, package_scope])
+    cur.execute(f"""SELECT bc.project_name,
+                           COALESCE(NULLIF(bci.work_package,''),'Основная') AS work_package,
+                           COALESCE(bci.estimate_section,'') AS estimate_section,
+                           COALESCE(bci.description,'') AS description,
+                           COALESCE(bci.estimate_item_key,'') AS estimate_item_key
+                    FROM brigade_contract_items bci
+                    JOIN brigade_contracts bc ON bc.id=bci.contract_id
+                    WHERE COALESCE(bc.status,'') <> 'Аннулирован'
+                      AND (COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))
+                      AND ({" OR ".join(conditions)})""", tuple(params))
+    allowed = {}
+    for row in cur.fetchall() or []:
+        project_scope = row[0] if not isinstance(row, dict) else row.get("project_name")
+        package_scope = row[1] if not isinstance(row, dict) else row.get("work_package")
+        estimate_section = row[2] if not isinstance(row, dict) else row.get("estimate_section")
+        description = row[3] if not isinstance(row, dict) else row.get("description")
+        estimate_item_key = row[4] if not isinstance(row, dict) else row.get("estimate_item_key")
+        allowed.setdefault((project_scope or "", package_scope or "Основная"), []).append({
+            "estimate_section": estimate_section or "",
+            "description": description or "",
+            "estimate_item_key": estimate_item_key or "",
+        })
+    return allowed
+
+
+def _sanitize_worker_estimate_total(user: dict, total):
+    return 0 if user.get("role") in WORKER_EXECUTION_ROLES else float(total or 0)
+
+
 @app.get("/estimates")
 def get_estimates(current_user: dict = Depends(get_current_user)):
     conn = get_db()
@@ -11056,7 +13003,7 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
     role = current_user.get("role")
     package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
     restrict_packages = bool(package_names)
-    deny_without_packages = role in ("мастер", "субподрядчик", "бригадир") and not package_names
+    deny_without_packages = role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names
     base_cols = """e.id,e.project_id,e.project_name,e.name,e.version,e.sections_json,
                    COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.work_package,'Основная'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
@@ -11067,103 +13014,85 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
         else:
             cur.execute(f"SELECT {base_cols} FROM estimates e WHERE e.project_name = ANY(%s) AND e.status='Активная' ORDER BY e.id DESC", (allowed_projects,))
     elif allowed_projects is not None and not allowed_projects:
-        cur.execute(f"""SELECT {base_cols} FROM estimates e
-                        WHERE COALESCE(e.is_template,FALSE)=TRUE
-                          AND COALESCE(e.project_name,'')=''
-                        ORDER BY e.id DESC""")
+        if role in WORKER_EXECUTION_ROLES:
+            cur.execute(f"SELECT {base_cols} FROM estimates e WHERE FALSE")
+        else:
+            cur.execute(f"""SELECT {base_cols} FROM estimates e
+                            WHERE COALESCE(e.is_template,FALSE)=TRUE
+                              AND COALESCE(e.project_name,'')=''
+                            ORDER BY e.id DESC""")
+    elif deny_without_packages:
+        cur.execute(f"SELECT {base_cols} FROM estimates e WHERE FALSE")
     elif allowed_projects is None:
         cur.execute(f"SELECT {base_cols} FROM estimates e ORDER BY e.id DESC")
-    elif deny_without_packages:
-        cur.execute(f"""SELECT {base_cols} FROM estimates e
-                        WHERE COALESCE(e.is_template,FALSE)=TRUE
-                          AND COALESCE(e.project_name,'')=''
-                        ORDER BY e.id DESC""")
     else:
         query = f"""SELECT {base_cols} FROM estimates e
-                    WHERE e.project_name = ANY(%s)"""
+                    WHERE (e.project_name = ANY(%s)"""
         params = [allowed_projects]
         if restrict_packages:
             query += " AND COALESCE(NULLIF(e.work_package,''),'Основная') = ANY(%s)"
             params.append(package_names)
-        query += """
-                       OR (COALESCE(e.is_template,FALSE)=TRUE AND COALESCE(e.project_name,'')='')"""
+        query += ") OR (COALESCE(e.is_template,FALSE)=TRUE AND COALESCE(e.project_name,'')=''"
         if restrict_packages:
             query += " AND COALESCE(NULLIF(e.work_package,''),'Основная') = ANY(%s)"
             params.append(package_names)
+        query += ")"
         query += " ORDER BY e.id DESC"
         cur.execute(query, tuple(params))
     rows = cur.fetchall()
+    if role in WORKER_EXECUTION_ROLES or role == "прораб":
+        rows = [r for r in rows if (r[9] or "") == "Активная"]
+    worker_allowed_items_by_scope = {}
+    if role in WORKER_EXECUTION_ROLES and rows:
+        worker_allowed_items_by_scope = _worker_allowed_estimate_items_for_scopes(
+            cur,
+            current_user,
+            [((r[2] or ""), (r[7] or "Основная")) for r in rows],
+        )
     cur.close(); conn.close()
     import json as j
-    def _worker_estimate_item_kind(item):
-        kind = str((item or {}).get("itemType") or (item or {}).get("type") or "").strip().lower()
-        if kind:
-            return kind
-        try:
-            price_work = float((item or {}).get("priceWork") or 0)
-            price_material = float((item or {}).get("priceMaterial") or 0)
-        except (TypeError, ValueError):
-            price_work = 0
-            price_material = 0
-        if price_material > 0 and price_work <= 0:
-            return "material"
-        return "work"
-    def _sanitize_worker_estimate_sections(sections):
-        money_keys = (
-            "priceWork", "priceMaterial", "totalWork", "totalMaterial", "lineTotal",
-            "currentTotal", "total", "sum", "amount", "totalSum", "workTotal",
-            "materialTotal", "workSum", "materialSum", "currentWork", "currentMaterial",
-            "customerPricePerUnit", "customerTotal",
-        )
-        sanitized_sections = []
-        for section in sections or []:
-            if not isinstance(section, dict):
-                continue
-            items = []
-            for item in section.get("items") or []:
-                if not isinstance(item, dict):
-                    continue
-                if _worker_estimate_item_kind(item) in ("material", "equipment", "transport", "note", "adjustment"):
-                    continue
-                cleaned = dict(item)
-                for key in money_keys:
-                    if key in cleaned:
-                        cleaned[key] = 0
-                items.append(cleaned)
-            if items:
-                cleaned_section = dict(section)
-                cleaned_section["items"] = items
-                sanitized_sections.append(cleaned_section)
-        return sanitized_sections
     result = []
     for r in rows:
         try:
             sections = j.loads(r[5]) if r[5] else []
         except:
             sections = []
-        if role in ("мастер", "субподрядчик", "бригадир"):
-            sections = _sanitize_worker_estimate_sections(sections)
+        if role == "бухгалтер":
+            sections = []
+        if role in WORKER_EXECUTION_ROLES:
+            sections = _sanitize_worker_estimate_sections(sections, worker_allowed_items_by_scope.get((r[2] or "", r[7] or "Основная"), []))
         result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","workPackage":r[7] or "Основная","isTemplate":bool(r[8]),"status":r[9] or "Черновик","createdAt":str(r[10]) if r[10] else "","versionCount":int(r[11] or 0),"latestVersionAt":str(r[12]) if r[12] else ""})
     return result
 
 @app.post("/estimates")
-def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
     import json as j
     require_project_access(_current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     status = data.get("status") or "Активная"
     smeta_type = data.get("smetaType") or "Заказчик"
-    work_package = data.get("workPackage") or data.get("work_package") or "Основная"
+    work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
     project_name = data.get("projectName","")
+    if status not in ("Активная", "Черновик"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
+    if status not in ("Активная", "Черновик"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
     if status == "Активная" and _current_user.get("role") not in LEADERSHIP_ROLES:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора. Сохраните смету черновиком.")
-    if status == "Активная" and project_name:
-        cur.execute("""UPDATE estimates SET status='Архив'
+    if status == "Активная":
+        cur.execute("""UPDATE estimates
+                       SET status='Архив'
                        WHERE project_name=%s
                          AND COALESCE(smeta_type,'Заказчик')=%s
-                         AND COALESCE(work_package,'Основная')=%s""",
+                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                         AND status='Активная'""",
                     (project_name, smeta_type, work_package))
     cur.execute("INSERT INTO estimates (project_id,project_name,name,version,sections_json,smeta_type,work_package,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (data.get("projectId"),project_name,data.get("name",""),data.get("version","1.0"),j.dumps(data.get("sections",[]),ensure_ascii=False),smeta_type,work_package,status))
@@ -11174,10 +13103,11 @@ def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*FIN
     return {"id":row[0],"ok":True}
 
 @app.put("/estimates/{id}")
-def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "бригадир"))):
+def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES, *WORKER_EXECUTION_ROLES))):
     import json as j
     from datetime import date as _date
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
     cur.execute("SELECT sections_json, name, version, project_name, COALESCE(smeta_type,'Заказчик'), status, COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (id,))
     prev = cur.fetchone()
@@ -11219,7 +13149,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
             value = _num(it.get(key))
             if value > 0:
                 return customer_price * value, "coefficient:" + key
-        return customer_price, "customer_fallback"
+        return 0, "not_set"
 
     def _sections_equal_except_done(old_list, new_list):
         if len(old_list or []) != len(new_list or []):
@@ -11272,7 +13202,29 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     new_work_package = data.get("workPackage") or data.get("work_package") or prev[6] or "Основная"
     prev_status = prev[5] or "Черновик"
     current_work_package = prev[6] or "Основная"
-    if _current_user.get("role") in ("мастер", "субподрядчик", "бригадир"):
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        allowed_rows = _worker_allowed_estimate_items_for_scopes(cur, _current_user, [(project_name, current_work_package)]).get((project_name, current_work_package), [])
+        allowed_item_keys = set()
+        allowed_item_names = set()
+        for row in allowed_rows or []:
+            row_key = str(row.get("estimate_item_key") or row.get("estimateItemKey") or "").strip()
+            if row_key:
+                allowed_item_keys.add(row_key)
+            row_section = str(row.get("estimate_section") or row.get("section") or "").strip().lower()
+            row_desc = str(row.get("description") or row.get("name") or "").strip().lower()
+            if row_desc:
+                allowed_item_names.add((row_section, row_desc))
+        if not allowed_item_keys and not allowed_item_names:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Исполнителю не назначены строки сметы для закрытия работ")
+
+        def _worker_can_touch_estimate_item(section_name, item):
+            item_key = str((item or {}).get("estimateItemKey") or (item or {}).get("estimate_item_key") or "").strip()
+            if item_key and item_key in allowed_item_keys:
+                return True
+            name_key = (str(section_name or "").strip().lower(), str((item or {}).get("name") or "").strip().lower())
+            return name_key in allowed_item_names
+
         def _is_worker_work_item(item):
             kind = str((item or {}).get("itemType") or (item or {}).get("type") or "").strip().lower()
             if kind in ("material", "equipment", "transport", "note", "adjustment"):
@@ -11290,6 +13242,9 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 keys = []
                 if item_id is not None:
                     keys.append(("id", str(item_id)))
+                item_key = str(item.get("estimateItemKey") or item.get("estimate_item_key") or "").strip()
+                if item_key:
+                    keys.append(("estimateItemKey", item_key))
                 keys.append(("name", section_name, item_name))
                 try:
                     done_value = float(item.get("doneQuantity") or 0)
@@ -11297,7 +13252,8 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     done_value = 0
                 for key in keys:
                     incoming_done[key] = done_value
-                unmatched.append((item_id, section_name, item_name))
+                item_key = str(item.get("estimateItemKey") or item.get("estimate_item_key") or "").strip()
+                unmatched.append((item_id, item_key, section_name, item_name))
         merged_sections = []
         matched = set()
         for section in old_sections or []:
@@ -11313,14 +13269,27 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 keys = []
                 if item_id is not None:
                     keys.append(("id", str(item_id)))
+                item_key = str(item.get("estimateItemKey") or item.get("estimate_item_key") or "").strip()
+                if item_key:
+                    keys.append(("estimateItemKey", item_key))
                 keys.append(("name", section_name, item.get("name", "")))
                 for key in keys:
                     if key in incoming_done:
+                        if not _worker_can_touch_estimate_item(section_name, item):
+                            cur.close(); conn.close()
+                            raise HTTPException(status_code=403, detail="Исполнитель может закрывать только назначенные ему строки сметы")
                         done_value = incoming_done[key]
                         try:
                             qty_value = float(item.get("quantity") or 0)
                         except Exception:
                             qty_value = 0
+                        try:
+                            old_done_value = float(item.get("doneQuantity") or 0)
+                        except Exception:
+                            old_done_value = 0
+                        if done_value + 0.000001 < old_done_value:
+                            cur.close(); conn.close()
+                            raise HTTPException(status_code=403, detail="Исполнитель не может уменьшать уже закрытый объём. Корректировку делает прораб или директор.")
                         if qty_value > 0:
                             done_value = min(done_value, qty_value)
                         merged_item["doneQuantity"] = max(0, done_value)
@@ -11329,8 +13298,10 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 merged_items.append(merged_item)
             merged_section["items"] = merged_items
             merged_sections.append(merged_section)
-        for item_id, section_name, item_name in unmatched:
+        for item_id, item_key, section_name, item_name in unmatched:
             if item_id is not None and ("id", str(item_id)) in matched:
+                continue
+            if item_key and ("estimateItemKey", item_key) in matched:
                 continue
             if ("name", section_name, item_name) in matched:
                 continue
@@ -11342,9 +13313,12 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
         new_status = prev_status
         new_smeta_type = prev[4] or "Заказчик"
         new_work_package = current_work_package
-    elif not _sections_equal_except_done(old_sections, new_sections) and _current_user.get("role") in ("мастер", "субподрядчик"):
+    elif not _sections_equal_except_done(old_sections, new_sections) and _current_user.get("role") in WORKER_EXECUTION_ROLES:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Исполнитель может менять в смете только выполненный объём")
+    if new_status not in ("Активная", "Черновик"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
     if _current_user.get("role") in PACKAGE_LIMIT_ROLES and (
         not has_package_access(_current_user, current_work_package)
         or not has_package_access(_current_user, new_work_package)
@@ -11354,13 +13328,6 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     if new_status == "Активная" and new_status != prev_status and _current_user.get("role") not in LEADERSHIP_ROLES:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора")
-    if new_status == "Активная" and project_name and _current_user.get("role") in LEADERSHIP_ROLES:
-        cur.execute("""UPDATE estimates SET status='Архив'
-                       WHERE id<>%s
-                         AND project_name=%s
-                         AND COALESCE(smeta_type,'Заказчик')=%s
-                         AND COALESCE(work_package,'Основная')=%s""",
-                    (id, project_name, new_smeta_type, new_work_package))
     cur.execute("UPDATE estimates SET name=%s,version=%s,sections_json=%s,smeta_type=%s,work_package=%s,status=%s WHERE id=%s",
         (new_name,new_version,j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_work_package,new_status,id))
 
@@ -11374,7 +13341,7 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     today = _date.today().isoformat()
     journal_added = 0
     acts_added = 0
-    auto_journal_status = "На проверке" if _current_user.get("role") in ("мастер", "субподрядчик") else "Подтверждено"
+    auto_journal_status = "На проверке" if _current_user.get("role") in WORKER_EXECUTION_ROLES else "Подтверждено"
     auto_confirmed_by = "" if auto_journal_status != "Подтверждено" else (_current_user.get("name") or "")
     auto_confirmed_at = today if auto_journal_status == "Подтверждено" else None
     work_journal_materials = data.get("_workJournalMaterials") or {}
@@ -11421,6 +13388,10 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     row["normQuantity"] = norm_qty
                 if m.get("normSource"):
                     row["normSource"] = m.get("normSource")
+                if m.get("normRuleId") or m.get("ruleId"):
+                    row["normRuleId"] = m.get("normRuleId") or m.get("ruleId")
+                if m.get("normThicknessMm") or m.get("thicknessMm"):
+                    row["normThicknessMm"] = m.get("normThicknessMm") or m.get("thicknessMm")
                 if "autoNorm" in m:
                     row["autoNorm"] = bool(m.get("autoNorm"))
                 if "overNorm" in m:
@@ -11453,11 +13424,34 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 room_id = int(journal_params.get("roomId") or 0) or None
             except Exception:
                 room_id = None
+            room_name = journal_params.get("roomName") or ""
+            if _current_user.get("role") in WORKER_EXECUTION_ROLES and not room_id and not str(room_name).strip():
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Для закрытия работы нужно выбрать помещение. Так система не даст задвоить объём и свяжет работу с обмерами.")
             estimate_item_key = journal_params.get("estimateItemKey") or journal_params.get("_estimateItemKey") or (str(id) + ":" + str(section_idx) + ":" + str(item_idx))
             try:
                 work_package_for_journal = journal_params.get("workPackage") or new_work_package
-                if _current_user.get("role") in PACKAGE_LIMIT_ROLES and work_package_for_journal != "Прайс" and not has_package_access(_current_user, work_package_for_journal):
+                if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_work_execution_package_access(_current_user, project_name, work_package_for_journal):
                     raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+                contract_item_id = journal_params.get("contractItemId") or journal_params.get("contract_item_id")
+                if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+                    assigned_item = _worker_contract_item_for_work(
+                        cur,
+                        _current_user,
+                        project_name,
+                        it.get("name",""),
+                        unit,
+                        contract_item_id,
+                        work_package_for_journal,
+                        estimate_item_key,
+                        s.get("name", ""),
+                    )
+                    _validate_contract_item_capacity(assigned_item, delta)
+                    contract_item_id = assigned_item.get("id")
+                    execution_price = _float_or_zero(assigned_item.get("price_brigade"))
+                    if execution_price <= 0:
+                        raise HTTPException(status_code=400, detail="Для работы не задана цена исполнителя в договорной позиции")
+                    execution_mode = "brigade_contract"
                 _raise_work_journal_duplicate(_work_journal_duplicate(
                     cur,
                     project_name,
@@ -11468,7 +13462,17 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                     work_package=work_package_for_journal,
                 ))
                 used_materials = _force_work_material_package(used_materials, work_package_for_journal)
-                _validate_work_material_norm_reasons(used_materials)
+                _validate_work_material_norm_reasons(
+                    used_materials,
+                    cur,
+                    project=project_name,
+                    estimate_id=id,
+                    work_name=it.get("name", ""),
+                    section_name=s.get("name", ""),
+                    work_qty=delta,
+                    work_unit=unit,
+                    actor_role=_current_user.get("role") or "",
+                )
                 for m in used_materials:
                     _apply_material_work_writeoff(cur, project_name, m, _current_user, today, brigade)
                 materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
@@ -11476,29 +13480,34 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                                (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
                                 materials_used, estimate_id, section_name, hidden_work, confirmed_by, confirmed_at,
                                 work_package, room_id, room_name, surface, estimate_item_name, estimate_item_key,
-                                customer_price_per_unit, customer_total, execution_price_per_unit, execution_total, execution_price_mode)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                contract_item_id, customer_price_per_unit, customer_total, execution_price_per_unit, execution_total, execution_price_mode)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                                RETURNING id""",
-                    (_current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, execution_price, round(delta*execution_price,2), today,
-                     auto_journal_status,
-                     "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id),
-                     materials_json, id, s.get("name",""), bool(it.get("hiddenWork")), auto_confirmed_by, auto_confirmed_at,
-                     work_package_for_journal,
-                     room_id,
-                     journal_params.get("roomName") or "",
-                     journal_params.get("surface") or "",
-                     journal_params.get("estimateItemName") or it.get("name",""),
-                     estimate_item_key,
-                     customer_price, round(delta*customer_price,2), execution_price, round(delta*execution_price,2), execution_mode))
+                            (_current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, execution_price, round(delta*execution_price,2), today,
+                             auto_journal_status,
+                             "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id),
+                             materials_json, id, s.get("name",""), bool(it.get("hiddenWork")), auto_confirmed_by, auto_confirmed_at,
+                             work_package_for_journal,
+                             room_id,
+                             room_name,
+                             journal_params.get("surface") or "",
+                             journal_params.get("estimateItemName") or it.get("name",""),
+                             estimate_item_key,
+                             contract_item_id, customer_price, round(delta*customer_price,2), execution_price, round(delta*execution_price,2), execution_mode))
                 work_journal_id = cur.fetchone()[0]
+                _sync_contract_item_done(cur, contract_item_id, delta)
                 work_row = _work_journal_sync_row(cur, work_journal_id)
                 _sync_room_work_from_journal(cur, work_row)
                 acts_added += _sync_hidden_work_act_from_journal(cur, work_row)
                 journal_added += 1
             except HTTPException:
+                conn.rollback()
+                cur.close(); conn.close()
                 raise
             except Exception as e:
-                print("AUTO-JOURNAL ERROR:", str(e))
+                conn.rollback()
+                cur.close(); conn.close()
+                raise HTTPException(status_code=500, detail="Не удалось создать ЖПР по выполненному объёму сметы: " + str(e))
 
             # If item flagged as hidden work — create draft АОСР (Акт освидетельствования скрытых работ)
             if it.get("hiddenWork"):
@@ -11511,11 +13520,12 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                         cur.execute("SELECT COUNT(*) FROM hidden_works_acts WHERE project_name=%s", (project_name,))
                         next_num = (cur.fetchone()[0] or 0) + 1
                         act_number = "АОСР-"+str(next_num)+"/"+str(id)
+                        act_work_package = (work_package_for_journal if 'work_package_for_journal' in locals() else new_work_package) or "Основная"
                         cur.execute("""INSERT INTO hidden_works_acts
-                                       (project_name, estimate_id, act_number, work_name, section_name, brigade,
+                                       (project_name, estimate_id, act_number, work_name, section_name, work_package, brigade,
                                         quantity, unit, price_per_unit, total, work_date, status)
-                                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (project_name, id, act_number, it.get("name",""), s.get("name",""),
+                                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            (project_name, id, act_number, it.get("name",""), s.get("name",""), act_work_package,
                              brigade or "", delta, unit, customer_price, round(delta*customer_price,2), today, "Черновик"))
                         acts_added += 1
                 except Exception as e:
@@ -11559,12 +13569,12 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
     return {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced}
 
 @app.put("/estimates/{id}/status")
-def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
     status = data.get("status") or "Черновик"
-    if status not in ("Активная", "Архив", "Черновик"):
+    if status not in ("Активная", "Черновик"):
         raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
-    if status in ("Активная", "Архив") and _current_user.get("role") not in LEADERSHIP_ROLES:
-        raise HTTPException(status_code=403, detail="Активировать или архивировать смету может только директор или замдиректора")
+    if status == "Активная" and _current_user.get("role") not in LEADERSHIP_ROLES:
+        raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора")
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT project_name, COALESCE(smeta_type,'Заказчик'), COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (id,))
@@ -11574,12 +13584,17 @@ def update_estimate_status(id: int, data: dict, _current_user: dict = Depends(re
         raise HTTPException(status_code=404, detail="Смета не найдена")
     project_name, smeta_type, work_package = row[0] or "", row[1] or "Заказчик", row[2] or "Основная"
     require_project_access(_current_user, project_name)
-    if status == "Активная" and project_name:
-        cur.execute("""UPDATE estimates SET status='Архив'
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
+    if status == "Активная":
+        cur.execute("""UPDATE estimates
+                       SET status='Архив'
                        WHERE id<>%s
                          AND project_name=%s
                          AND COALESCE(smeta_type,'Заказчик')=%s
-                         AND COALESCE(work_package,'Основная')=%s""",
+                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                         AND status='Активная'""",
                     (id, project_name, smeta_type, work_package))
     cur.execute("UPDATE estimates SET status=%s WHERE id=%s", (status, id))
     conn.commit()
@@ -11749,11 +13764,6 @@ def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(r
     new_name = data.get("name") or (name or "Смета") + " — ред. " + str(new_version)
     conn.autocommit = False
     try:
-        cur.execute("""UPDATE estimates SET status='Архив'
-                       WHERE project_name=%s
-                         AND COALESCE(smeta_type,'Заказчик')=%s
-                         AND COALESCE(work_package,'Основная')=%s""",
-                    (project_name, smeta_type, work_package))
         cur.execute("""INSERT INTO estimates
                        (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,'Активная') RETURNING id, created_at""",
@@ -11777,7 +13787,7 @@ def include_estimate_changes(id: int, data: dict, current_user: dict = Depends(r
                          "status": "Активная", "createdAt": str(created_at) if created_at else ""}}
 
 @app.post("/estimates/{id}/reconcile-changes")
-def reconcile_estimate_changes(id: int, data: dict, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def reconcile_estimate_changes(id: int, data: dict, current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
     """Пометить утверждённые изменения как уже вошедшие в существующую новую смету."""
     conn = get_db()
     cur = conn.cursor()
@@ -11838,20 +13848,31 @@ def toggle_estimate_template(id: int, _current_user: dict = Depends(require_role
 
 @app.get("/estimates/{id}/versions")
 def get_estimate_versions(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    if _current_user.get("role") == "бухгалтер":
+        raise HTTPException(status_code=403, detail="Бухгалтер видит закрывающие документы и акты, но не версии клиентской сметы")
     conn = get_db()
     cur = conn.cursor()
     require_estimate_access(cur, id, _current_user)
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        cur.execute("SELECT COALESCE(status,'') FROM estimates WHERE id=%s", (id,))
+        status_row = cur.fetchone()
+        if not status_row or status_row[0] != "Активная":
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Исполнитель видит только активную назначенную смету")
     cur.execute("SELECT id, version_label, total, comment, created_by, created_at FROM estimate_versions WHERE estimate_id=%s ORDER BY id DESC", (id,))
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"versionLabel":r[1] or "","total":float(r[2] or 0),"comment":r[3] or "","createdBy":r[4] or "","createdAt":str(r[5])} for r in rows]
+    return [{"id":r[0],"versionLabel":r[1] or "","total":_sanitize_worker_estimate_total(_current_user, r[2]),"comment":r[3] or "","createdBy":r[4] or "","createdAt":str(r[5])} for r in rows]
 
 @app.get("/estimate-version/{version_id}")
 def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     import json as j
+    if _current_user.get("role") == "бухгалтер":
+        raise HTTPException(status_code=403, detail="Бухгалтер видит закрывающие документы и акты, но не версии клиентской сметы")
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""SELECT ev.id, ev.estimate_id, ev.version_label, ev.sections_json, ev.total, ev.comment, ev.created_by, ev.created_at, e.project_name
+    cur.execute("""SELECT ev.id, ev.estimate_id, ev.version_label, ev.sections_json, ev.total, ev.comment, ev.created_by, ev.created_at,
+                          e.project_name, COALESCE(e.work_package,'Основная') AS work_package, COALESCE(e.status,'') AS estimate_status
                    FROM estimate_versions ev
                    JOIN estimates e ON e.id = ev.estimate_id
                    WHERE ev.id=%s""", (version_id,))
@@ -11860,50 +13881,78 @@ def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(r
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="version not found")
     require_estimate_access(cur, int(r[1]), _current_user)
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES and r[10] != "Активная":
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Исполнитель видит только активную назначенную смету")
+    allowed_items = None
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        allowed_items = _worker_allowed_estimate_items_for_scopes(cur, _current_user, [((r[8] or ""), (r[9] or "Основная"))]).get((r[8] or "", r[9] or "Основная"), [])
     cur.close(); conn.close()
     try:
         sections = j.loads(r[3]) if r[3] else []
     except:
         sections = []
-    return {"id":r[0],"estimateId":r[1],"versionLabel":r[2] or "","sections":sections,"total":float(r[4] or 0),"comment":r[5] or "","createdBy":r[6] or "","createdAt":str(r[7])}
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        sections = _sanitize_worker_estimate_sections(sections, allowed_items or [])
+    return {"id":r[0],"estimateId":r[1],"versionLabel":r[2] or "","sections":sections,"total":_sanitize_worker_estimate_total(_current_user, r[4]),"comment":r[5] or "","createdBy":r[6] or "","createdAt":str(r[7])}
 
 @app.delete("/estimates/{id}")
 def delete_estimate(id: int, hard: bool = False, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    require_row_project_access(cur, "estimates", id, current_user, "project_name")
-    cur.execute("SELECT id,name,project_name FROM estimates WHERE id=%s", (id,))
+    conn.autocommit = False
+    try:
+        require_row_project_access(cur, "estimates", id, current_user, "project_name")
+    except Exception:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise
+    cur.execute("SELECT id,name,project_name,COALESCE(NULLIF(work_package,''),'Основная') AS work_package FROM estimates WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
+        conn.rollback()
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
-    if hard:
-        if current_user.get("role") not in LEADERSHIP_ROLES:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Физически удалить смету может только директор или замдиректора")
-        cur.execute("DELETE FROM estimate_chat_messages WHERE estimate_id=%s", (id,))
-        cur.execute("DELETE FROM estimate_versions WHERE estimate_id=%s", (id,))
-        cur.execute("UPDATE unexpected_works SET estimate_id=NULL WHERE estimate_id=%s", (id,))
-        cur.execute("UPDATE unexpected_works SET included_in_estimate_id=NULL WHERE included_in_estimate_id=%s", (id,))
-        cur.execute("UPDATE work_journal SET estimate_id=NULL WHERE estimate_id=%s", (id,))
-        cur.execute("UPDATE hidden_works_acts SET estimate_id=NULL WHERE estimate_id=%s", (id,))
-        cur.execute("UPDATE material_norm_overrides SET estimate_id=NULL WHERE estimate_id=%s", (id,))
-        cur.execute("DELETE FROM estimates WHERE id=%s", (id,))
-        conn.commit()
+    if not hard:
+        conn.rollback()
         cur.close(); conn.close()
-        log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
-                  action="delete", entity_type="estimate", entity_id=id,
-                  description="Смета физически удалена вручную",
-                  project_name=row.get("project_name") or "")
-        return {"ok": True, "deleted": True}
-    cur.execute("UPDATE estimates SET status='Архив' WHERE id=%s", (id,))
+        raise HTTPException(status_code=400, detail="Для удаления сметы нужен явный режим hard=true")
+    linked_checks = [
+        ("ЖПР", "SELECT COUNT(*) AS cnt FROM work_journal WHERE estimate_id=%s"),
+        ("АОСР", "SELECT COUNT(*) AS cnt FROM hidden_works_acts WHERE estimate_id=%s"),
+        ("договорные позиции", "SELECT COUNT(*) AS cnt FROM brigade_contract_items WHERE estimate_item_key LIKE %s"),
+    ]
+    blockers = []
+    for label, query in linked_checks:
+        param = (str(id) + ":%",) if "LIKE" in query else (id,)
+        cur.execute(query, param)
+        cnt = int((cur.fetchone() or {}).get("cnt") or 0)
+        if cnt:
+            blockers.append(label + ": " + str(cnt))
+    project_name = row.get("project_name") or ""
+    work_package = row.get("work_package") or "Основная"
+    material_linked_checks = [
+        ("заявки снабжения", "SELECT COUNT(*) AS cnt FROM supply_requests WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s", (project_name, work_package)),
+        ("поставки", "SELECT COUNT(*) AS cnt FROM supply_deliveries WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s", (project_name, work_package)),
+        ("склад объекта", "SELECT COUNT(*) AS cnt FROM materials WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s", (project_name, work_package)),
+        ("история склада", "SELECT COUNT(*) AS cnt FROM warehouse_history WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s", (project_name, work_package)),
+        ("накладные объекта", "SELECT COUNT(*) AS cnt FROM warehouse_invoices WHERE project=%s", (project_name,)),
+    ]
+    for label, query, params in material_linked_checks:
+        cur.execute(query, params)
+        cnt = int((cur.fetchone() or {}).get("cnt") or 0)
+        if cnt:
+            blockers.append(label + ": " + str(cnt))
+    if blockers:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Смета уже связана с документами (" + "; ".join(blockers) + "). Удаление запрещено, чтобы не потерять историю объекта.")
+    cur.execute("DELETE FROM estimate_versions WHERE estimate_id=%s", (id,))
+    cur.execute("DELETE FROM estimates WHERE id=%s", (id,))
     conn.commit()
     cur.close(); conn.close()
-    log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
-              action="archive", entity_type="estimate", entity_id=id,
-              description="Смета отправлена в архив вместо физического удаления",
-              project_name=row.get("project_name") or "")
-    return {"ok":True, "archived": True}
+    _run_project_ai_control_safely(row.get("project_name") or "", "estimate:delete")
+    return {"ok": True, "deleted": id}
 
 @app.get("/brigade-contracts")
 def get_brigade_contracts(project_name: str = None, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
@@ -11911,7 +13960,7 @@ def get_brigade_contracts(project_name: str = None, _current_user: dict = Depend
     cur = conn.cursor()
     # plan_amount = сумма договора из позиций; done_amount = выполненное к оплате; paid_amount = зафиксированные оплаты
     base = ("SELECT bc.id,bc.project_id,bc.project_name,bc.brigade_name,bc.contractor_type,bc.contractor_id,"
-            "bc.total_amount,bc.status,bc.signed_at,bc.notes,bc.created_at,bc.pricelist_id,"
+            "bc.total_amount,bc.status,bc.signed_at,bc.notes,bc.created_at,bc.pricelist_id,COALESCE(bc.work_package,''),"
             "COALESCE((SELECT SUM(COALESCE(bci.quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS plan_amount,"
             "COALESCE((SELECT SUM(CASE WHEN COALESCE(bci.quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(bci.done_quantity,0), COALESCE(bci.quantity,0))) * COALESCE(bci.price_brigade,0) ELSE 0 END) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
             "COALESCE((SELECT SUM(COALESCE(bp.amount,0)) FROM brigade_payments bp WHERE bp.contract_id=bc.id),0) AS paid_amount,"
@@ -11931,27 +13980,76 @@ def get_brigade_contracts(project_name: str = None, _current_user: dict = Depend
             return []
         where.append("bc.project_name = ANY(%s)")
         params.append(allowed_projects)
-    if _current_user.get("role") in ("мастер", "субподрядчик"):
-        where.append("(bc.contractor_id=%s OR LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s))")
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        where.append("(COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))")
         params.extend([_current_user.get("id"), _current_user.get("name") or ""])
+    package_names = user_package_names(_current_user) if _current_user.get("role") in PACKAGE_LIMIT_ROLES else []
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES and not package_names:
+        cur.close(); conn.close()
+        return []
+    if package_names:
+        where.append("""EXISTS (
+            SELECT 1 FROM brigade_contract_items bci_scope
+            WHERE bci_scope.contract_id=bc.id
+              AND COALESCE(NULLIF(bci_scope.work_package,''),'Основная') = ANY(%s)
+        )""")
+        params.append(package_names)
     q = base
     if where:
         q += " WHERE " + " AND ".join(where)
     q += " ORDER BY bc.id DESC"
     cur.execute(q, tuple(params))
     rows = cur.fetchall()
+    scoped_item_amounts = {}
+    if rows and package_names:
+        contract_ids = [r[0] for r in rows]
+        cur.execute("""SELECT contract_id,
+                              COALESCE(SUM(COALESCE(quantity,0)*COALESCE(price_brigade,0)),0) AS plan_amount,
+                              COALESCE(SUM(CASE WHEN COALESCE(quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0) ELSE 0 END),0) AS done_amount
+                       FROM brigade_contract_items
+                       WHERE contract_id = ANY(%s)
+                         AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)
+                       GROUP BY contract_id""", (contract_ids, package_names))
+        scoped_item_amounts = {r[0]: {"plan": float(r[1] or 0), "done": float(r[2] or 0)} for r in cur.fetchall()}
     cur.close(); conn.close()
-    return [{"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],
-             "totalAmount":float((r[12] if float(r[12] or 0) > 0 else r[6]) or 0),
+    result = []
+    for r in rows:
+        plan_amount = float(r[13] or 0)
+        done_amount = float(r[14] or 0)
+        if scoped_item_amounts.get(r[0]):
+            plan_amount = scoped_item_amounts[r[0]]["plan"]
+            done_amount = scoped_item_amounts[r[0]]["done"]
+        paid_amount = float(r[15] or 0)
+        total_amount = float((plan_amount if plan_amount > 0 else r[6]) or 0)
+        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"brigadeName":r[3],"contractorType":r[4],"contractorId":r[5],
+             "totalAmount":total_amount,
              "status":r[7],"signedAt":str(r[8]) if r[8] else "","notes":r[9] or "","createdAt":str(r[10]),
-             "pricelistId":r[11],"planAmount":float(r[12] or 0),"doneAmount":float(r[13] or 0),
-             "paidAmount":float(r[14] or 0),"actScanUrl":r[15] or ""} for r in rows]
+             "pricelistId":r[11],"planAmount":plan_amount,"doneAmount":done_amount,
+             "paidAmount":paid_amount,"workPackage":r[12] or "","actScanUrl":r[16] or ""})
+    return result
 
 @app.get("/brigade-payments")
-def get_brigade_payments(contract_id: int = None, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def get_brigade_payments(contract_id: int = None, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, *WORKER_EXECUTION_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    if contract_id:
+    role = _current_user.get("role") or ""
+    if role in WORKER_EXECUTION_ROLES:
+        worker_where = "(COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))"
+        worker_params = [_current_user.get("id"), _current_user.get("name") or ""]
+        if contract_id:
+            cur.execute("SELECT id FROM brigade_contracts bc WHERE bc.id=%s AND " + worker_where + " LIMIT 1",
+                        tuple([contract_id] + worker_params))
+            if not cur.fetchone():
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Нет доступа к оплатам этого договора")
+            cur.execute("SELECT id,contract_id,amount,paid_by,paid_date,note,created_at FROM brigade_payments WHERE contract_id=%s ORDER BY id DESC", (contract_id,))
+        else:
+            cur.execute("""SELECT bp.id,bp.contract_id,bp.amount,bp.paid_by,bp.paid_date,bp.note,bp.created_at
+                           FROM brigade_payments bp
+                           JOIN brigade_contracts bc ON bc.id=bp.contract_id
+                           WHERE """ + worker_where + """
+                           ORDER BY bp.id DESC""", tuple(worker_params))
+    elif contract_id:
         cur.execute("SELECT id,contract_id,amount,paid_by,paid_date,note,created_at FROM brigade_payments WHERE contract_id=%s ORDER BY id DESC", (contract_id,))
     else:
         cur.execute("SELECT id,contract_id,amount,paid_by,paid_date,note,created_at FROM brigade_payments ORDER BY id DESC")
@@ -11963,7 +14061,10 @@ def get_brigade_payments(contract_id: int = None, _current_user: dict = Depends(
 def create_brigade_payment(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT COALESCE(act_scan_url,''), project_name, brigade_name FROM brigade_contracts WHERE id=%s", (data.get("contractId"),))
+    cur.execute("""SELECT COALESCE(act_scan_url,''), project_name, brigade_name,
+                          COALESCE((SELECT SUM(CASE WHEN COALESCE(quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0) ELSE 0 END) FROM brigade_contract_items WHERE contract_id=bc.id),0) AS done_amount,
+                          COALESCE((SELECT SUM(COALESCE(amount,0)) FROM brigade_payments WHERE contract_id=bc.id),0) AS paid_amount
+                   FROM brigade_contracts bc WHERE id=%s""", (data.get("contractId"),))
     contract = cur.fetchone()
     if not contract:
         cur.close(); conn.close()
@@ -11972,6 +14073,15 @@ def create_brigade_payment(data: dict, _current_user: dict = Depends(require_rol
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Оплата заблокирована: загрузите скан подписанного акта")
     amount = float(data.get("amount") or 0)
+    if amount <= 0:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сумма оплаты должна быть больше нуля")
+    done_amount = float(contract[3] or 0)
+    paid_amount = float(contract[4] or 0)
+    available_to_pay = max(0, done_amount - paid_amount)
+    if amount > available_to_pay + 0.01:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail=f"Оплата превышает выполненный неоплаченный объём. Доступно к оплате: {available_to_pay:.2f} ₽")
     paid_by = data.get("paidBy","")
     paid_date = data.get("paidDate") or None
     cur.execute("INSERT INTO brigade_payments (contract_id,amount,paid_by,paid_date,note) VALUES (%s,%s,%s,%s,%s) RETURNING id",
@@ -12030,9 +14140,14 @@ def get_project_documents(project_name: str = None, _current_user: dict = Depend
     side_filter = None
     if _current_user.get("role") == "заказчик":
         side_filter = "customer"
-    elif _current_user.get("role") in ("мастер", "субподрядчик"):
+    elif _current_user.get("role") in WORKER_EXECUTION_ROLES:
         side_filter = "contractor"
     side_sql = " AND side=%s" if side_filter else ""
+    worker_doc_sql = ""
+    worker_doc_params = []
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        worker_doc_sql = " AND (counterparty=%s OR uploaded_by=%s)"
+        worker_doc_params = [_current_user.get("name") or "", _current_user.get("name") or ""]
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
@@ -12040,7 +14155,8 @@ def get_project_documents(project_name: str = None, _current_user: dict = Depend
         params = [project_name]
         if side_filter:
             params.append(side_filter)
-        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name=%s" + side_sql + " ORDER BY id DESC", tuple(params))
+        params.extend(worker_doc_params)
+        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name=%s" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
@@ -12048,12 +14164,20 @@ def get_project_documents(project_name: str = None, _current_user: dict = Depend
         params = [allowed_projects]
         if side_filter:
             params.append(side_filter)
-        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name = ANY(%s)" + side_sql + " ORDER BY id DESC", tuple(params))
+        params.extend(worker_doc_params)
+        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name = ANY(%s)" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
     else:
         params = []
         if side_filter:
             params.append(side_filter)
-        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents" + (" WHERE side=%s" if side_filter else "") + " ORDER BY id DESC", tuple(params))
+        params.extend(worker_doc_params)
+        where_parts = []
+        if side_filter:
+            where_parts.append("side=%s")
+        if worker_doc_sql:
+            where_parts.append(worker_doc_sql.strip()[4:])
+        where_sql = " WHERE " + " AND ".join(where_parts) if where_parts else ""
+        cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents" + where_sql + " ORDER BY id DESC", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1],"side":r[2],"docType":r[3] or "","number":r[4] or "","docDate":str(r[5]) if r[5] else "","counterparty":r[6] or "","signStatus":r[7] or "","scanUrl":r[8] or "","amount":float(r[9] or 0),"notes":r[10] or "","uploadedBy":r[11] or "","createdAt":str(r[12])} for r in rows]
@@ -12461,7 +14585,7 @@ def get_project_letters(project_name: str = None, _current_user: dict = Depends(
     side_filter = None
     if _current_user.get("role") == "заказчик":
         side_filter = "customer"
-    elif _current_user.get("role") in ("мастер", "субподрядчик"):
+    elif _current_user.get("role") in WORKER_EXECUTION_ROLES:
         side_filter = "contractor"
     side_sql = " AND side=%s" if side_filter else ""
     if project_name:
@@ -12581,16 +14705,19 @@ def delete_crm_lead(id: int, _current_user: dict = Depends(require_roles(*LEADER
     return {"ok": True}
 
 @app.post("/brigade-contracts")
-def create_brigade_contract(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def create_brigade_contract(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     require_project_access(_current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
     pricelist_id = data.get("pricelistId") or None
-    cur.execute("INSERT INTO brigade_contracts (project_id,project_name,brigade_name,contractor_type,contractor_id,total_amount,status,notes,pricelist_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("projectId") or None,data.get("projectName",""),data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("contractorId") or None,data.get("totalAmount",0),data.get("status","Черновик"),data.get("notes",""),pricelist_id))
-    conn.commit()
+    work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
+    contractor_user_id = _resolve_staff_or_user_id(cur, data.get("contractorId"), data.get("brigadeName", ""))
+    cur.execute("INSERT INTO brigade_contracts (project_id,project_name,work_package,brigade_name,contractor_type,contractor_id,total_amount,status,notes,pricelist_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("projectId") or None,data.get("projectName",""),work_package,data.get("brigadeName",""),data.get("contractorType","Бригада"),contractor_user_id or None,data.get("totalAmount",0),data.get("status","Черновик"),data.get("notes",""),pricelist_id))
     row = cur.fetchone()
     new_id = row[0]
+    _grant_user_project_package_access(cur, contractor_user_id, data.get("projectName",""), work_package)
+    conn.commit()
     inserted = 0
     if pricelist_id:
         try:
@@ -12601,8 +14728,8 @@ def create_brigade_contract(data: dict, _current_user: dict = Depends(require_ro
             cur.execute("SELECT name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s AND (item_type IS NULL OR item_type='work')", (pl_id_int,))
             for it in cur.fetchall():
                 price = float(it[2] or 0)
-                cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (new_id, it[3] or "", it[0], it[1] or "шт", 0, price, round(price * coef, 2), 0))
+                cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (new_id, it[3] or "", it[0], work_package, "", it[1] or "шт", 0, price, round(price * coef, 2), 0))
                 inserted += 1
             recalc_brigade_contract_total(cur, new_id)
             conn.commit()
@@ -12612,18 +14739,19 @@ def create_brigade_contract(data: dict, _current_user: dict = Depends(require_ro
     return {"id": new_id, "ok": True, "itemsLoaded": inserted}
 
 @app.post("/brigade-contracts/{contract_id}/load-from-pricelist")
-def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = False, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = False, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     import json as _json
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "brigade_contracts", contract_id, _current_user)
-    cur.execute("SELECT pricelist_id, project_name FROM brigade_contracts WHERE id=%s", (contract_id,))
+    cur.execute("SELECT pricelist_id, project_name, COALESCE(NULLIF(work_package,''),'Основная') FROM brigade_contracts WHERE id=%s", (contract_id,))
     r = cur.fetchone()
     if not r or not r[0]:
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="К наряду не привязан прайс-лист")
     pl_id = int(r[0])
     project_name = r[1] or ""
+    contract_work_package = r[2] or "Основная"
 
     cur.execute("SELECT coefficient FROM pricelists WHERE id=%s", (pl_id,))
     cr = cur.fetchone()
@@ -12677,20 +14805,21 @@ def load_brigade_items_from_pricelist(contract_id: int, with_materials: bool = F
                     break
         if qty:
             matched += 1
-        cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-            (contract_id, it[3] or "", it[0], it[1] or "шт", qty, price, round(price * coef, 2), 0))
+        cur.execute("INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (contract_id, it[3] or "", it[0], contract_work_package, "", it[1] or "шт", qty, price, round(price * coef, 2), 0))
         inserted += 1
     recalc_brigade_contract_total(cur, contract_id)
     conn.commit(); cur.close(); conn.close()
     return {"ok": True, "itemsLoaded": inserted, "matchedFromEstimate": matched}
 
 @app.put("/brigade-contracts/{id}")
-def update_brigade_contract(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def update_brigade_contract(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "brigade_contracts", id, _current_user)
-    cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s,pricelist_id=%s,act_scan_url=COALESCE(%s,act_scan_url) WHERE id=%s",
-        (data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("totalAmount",0),data.get("status","Черновик"),data.get("signedAt") or None,data.get("notes",""),data.get("pricelistId") or None,data.get("actScanUrl"),id))
+    work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
+    cur.execute("UPDATE brigade_contracts SET brigade_name=%s,contractor_type=%s,total_amount=%s,status=%s,signed_at=%s,notes=%s,pricelist_id=%s,work_package=COALESCE(NULLIF(%s,''),work_package),act_scan_url=COALESCE(%s,act_scan_url) WHERE id=%s",
+        (data.get("brigadeName",""),data.get("contractorType","Бригада"),data.get("totalAmount",0),data.get("status","Черновик"),data.get("signedAt") or None,data.get("notes",""),data.get("pricelistId") or None,work_package,data.get("actScanUrl"),id))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}
@@ -12710,6 +14839,7 @@ def list_all_brigade_contract_items(project_name: str = None, _current_user: dic
     """Все позиции нарядов сразу — для подсчёта прогресса по бюджету."""
     conn = get_db()
     cur = conn.cursor()
+    hide_customer_money = _current_user.get("role") in WORKER_EXECUTION_ROLES
     allowed_projects = visible_project_names(_current_user)
     where, params = [], []
     if project_name:
@@ -12724,11 +14854,19 @@ def list_all_brigade_contract_items(project_name: str = None, _current_user: dic
             return []
         where.append("bc.project_name = ANY(%s)")
         params.append(allowed_projects)
-    if _current_user.get("role") in ("мастер", "субподрядчик"):
-        where.append("(bc.contractor_id=%s OR LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s))")
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        where.append("(COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))")
         params.extend([_current_user.get("id"), _current_user.get("name") or ""])
+    package_names = user_package_names(_current_user) if _current_user.get("role") in PACKAGE_LIMIT_ROLES else []
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and _current_user.get("role") != "прораб" and not package_names:
+        cur.close(); conn.close()
+        return []
+    if package_names:
+        where.append("COALESCE(NULLIF(bci.work_package,''), NULLIF(bc.work_package,''), 'Основная') = ANY(%s)")
+        params.append(package_names)
     q = """SELECT bci.id, bci.contract_id, bci.description, bci.unit, bci.quantity,
                   bci.price_smeta, bci.price_brigade, bci.done_quantity, bci.estimate_section,
+                  COALESCE(bci.work_package,''), COALESCE(bci.estimate_item_key,''),
                   bc.project_name
            FROM brigade_contract_items bci
            JOIN brigade_contracts bc ON bc.id = bci.contract_id"""
@@ -12739,30 +14877,30 @@ def list_all_brigade_contract_items(project_name: str = None, _current_user: dic
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"contractId":r[1],"name":r[2] or "","unit":r[3] or "",
-             "quantity":float(r[4] or 0),"priceSmeta":float(r[5] or 0),
+             "quantity":float(r[4] or 0),"priceSmeta":0 if hide_customer_money else float(r[5] or 0),
              "priceBrigade":float(r[6] or 0),
              "doneQuantity":max(0, min(float(r[7] or 0), float(r[4] or 0))) if float(r[4] or 0) > 0 else 0,
              "rawDoneQuantity":float(r[7] or 0),
              "hasInvalidDoneQuantity":(float(r[4] or 0) <= 0 and float(r[7] or 0) > 0) or float(r[7] or 0) < 0 or (float(r[4] or 0) > 0 and float(r[7] or 0) > float(r[4] or 0)),
-             "estimateSection":r[8] or "","projectName":r[9] or ""} for r in rows]
+             "estimateSection":r[8] or "","workPackage":r[9] or "","estimateItemKey":r[10] or "","projectName":r[11] or ""} for r in rows]
 
 @app.post("/estimates/{estimate_id}/distribute")
-def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     import json as _json
     assignments = data.get("assignments") or []
-    default_coef = float(data.get("defaultCoefficient") or 0.6)
+    default_coef = float(data.get("defaultCoefficient") or 1.0)
     if not assignments:
         raise HTTPException(status_code=400, detail="Нет распределений")
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT name, project_id, project_name FROM estimates WHERE id=%s", (estimate_id,))
+    require_estimate_access(cur, estimate_id, _current_user)
+    cur.execute("SELECT name, project_id, project_name, COALESCE(work_package,'Основная') FROM estimates WHERE id=%s", (estimate_id,))
     est = cur.fetchone()
     if not est:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
-    estimate_name, project_id, project_name = est[0] or "", est[1], est[2] or ""
-    require_project_access(_current_user, project_name)
+    estimate_name, project_id, project_name, estimate_work_package = est[0] or "", est[1], est[2] or "", est[3] or "Основная"
 
     # group assignments by brigade
     brigades_map = {}
@@ -12770,11 +14908,37 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
         bname = (a.get("brigadeName") or "").strip()
         if not bname:
             continue
-        item_type = str(a.get("itemType") or a.get("type") or "work").lower()
-        if any(t in item_type for t in ("material", "материал", "equipment", "оборудование", "delivery", "доставка", "other", "прочее")):
-            continue
-        if float(a.get("priceSmeta") or a.get("priceWork") or 0) <= 0:
-            continue
+        assigned_package = (a.get("workPackage") or a.get("work_package") or estimate_work_package or "Основная").strip() or "Основная"
+        if assigned_package != (estimate_work_package or "Основная"):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Пакет строки распределения не совпадает с пакетом сметы")
+        estimate_item = _load_estimate_work_item(
+            cur,
+            estimate_id,
+            project_name=project_name,
+            work_package=estimate_work_package,
+            estimate_item_key=a.get("estimateItemKey") or a.get("estimate_item_key") or "",
+            section_name=a.get("section") or a.get("estimateSection") or "",
+            item_name=a.get("name") or a.get("description") or "",
+        )
+        qty = float(estimate_item.get("quantity") or 0)
+        price_smeta = float(estimate_item.get("pricePerUnit") or 0)
+        if qty <= 0:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="В сметной строке нулевой объем: " + (estimate_item.get("name") or ""))
+        if price_smeta <= 0:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="В сметной строке нет цены: " + (estimate_item.get("name") or ""))
+        server_assignment = {
+            **a,
+            "section": estimate_item.get("sectionName") or "",
+            "name": estimate_item.get("name") or "",
+            "unit": estimate_item.get("unit") or "шт",
+            "quantity": qty,
+            "priceSmeta": price_smeta,
+            "workPackage": estimate_item.get("workPackage") or estimate_work_package,
+            "estimateItemKey": estimate_item.get("estimateItemKey") or "",
+        }
         key = bname.lower()
         if key not in brigades_map:
             brigades_map[key] = {
@@ -12782,9 +14946,10 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
                 "contractorType": a.get("contractorType") or "Своя бригада",
                 "contractorId": a.get("contractorId"),
                 "pricelistId": a.get("pricelistId"),
+                "workPackage": estimate_work_package,
                 "items": [],
             }
-        brigades_map[key]["items"].append(a)
+        brigades_map[key]["items"].append(server_assignment)
 
     if not brigades_map:
         cur.close(); conn.close()
@@ -12796,6 +14961,7 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
 
     created = []
     for bdata in brigades_map.values():
+        contractor_user_id = _resolve_staff_or_user_id(cur, bdata.get("contractorId"), bdata.get("brigadeName", ""))
         # find coefficient
         pl_id = bdata.get("pricelistId")
         try:
@@ -12804,28 +14970,29 @@ def distribute_estimate_to_brigades(estimate_id: int, data: dict, _current_user:
             pl_id = None
         coef = pl_coef.get(pl_id, default_coef) if pl_id else default_coef
         # create brigade_contract
-        cur.execute("""INSERT INTO brigade_contracts (project_id, project_name, brigade_name, contractor_type, contractor_id, total_amount, status, notes, pricelist_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-            (project_id or None, project_name, bdata["brigadeName"], bdata["contractorType"], bdata.get("contractorId") or None, 0, "Черновик", "Создан из сметы: " + estimate_name, pl_id))
+        cur.execute("""INSERT INTO brigade_contracts (project_id, project_name, work_package, brigade_name, contractor_type, contractor_id, total_amount, status, notes, pricelist_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (project_id or None, project_name, estimate_work_package, bdata["brigadeName"], bdata["contractorType"], contractor_user_id or None, 0, "Черновик", "Создан из сметы: " + estimate_name, pl_id))
         contract_id = cur.fetchone()[0]
         total = 0
         for it in bdata["items"]:
             qty = float(it.get("quantity") or 0)
             price_smeta = float(it.get("priceSmeta") or it.get("priceWork") or 0)
             price_brigade = round(price_smeta * coef, 2)
-            cur.execute("""INSERT INTO brigade_contract_items (contract_id, estimate_section, description, unit, quantity, price_smeta, price_brigade, done_quantity)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (contract_id, it.get("section",""), it.get("name",""), it.get("unit","шт"), qty, price_smeta, price_brigade, 0))
+            cur.execute("""INSERT INTO brigade_contract_items (contract_id, estimate_section, description, work_package, estimate_item_key, unit, quantity, price_smeta, price_brigade, done_quantity)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (contract_id, it.get("section",""), it.get("name",""), estimate_work_package, it.get("estimateItemKey") or it.get("estimate_item_key") or "", it.get("unit","шт"), qty, price_smeta, price_brigade, 0))
             total += qty * price_brigade
         cur.execute("UPDATE brigade_contracts SET total_amount=%s WHERE id=%s", (round(total, 2), contract_id))
-        created.append({"id": contract_id, "brigadeName": bdata["brigadeName"], "totalAmount": round(total, 2), "itemsCount": len(bdata["items"])})
+        _grant_user_project_package_access(cur, contractor_user_id, project_name, estimate_work_package)
+        created.append({"id": contract_id, "brigadeName": bdata["brigadeName"], "contractorId": contractor_user_id, "totalAmount": round(total, 2), "itemsCount": len(bdata["items"])})
 
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True, "createdContracts": created}
 
 @app.post("/estimates/{estimate_id}/ai-distribute-suggest")
-def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*CONTRACT_ROLES))):
+def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
     import openai as oa
     import json as _json
     brigade_names = data.get("brigadeNames") or []
@@ -12834,12 +15001,12 @@ def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = 
 
     conn = get_db()
     cur = conn.cursor()
+    require_estimate_access(cur, estimate_id, _current_user)
     cur.execute("SELECT name, sections_json, project_name FROM estimates WHERE id=%s", (estimate_id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Смета не найдена")
-    require_project_access(_current_user, row[2] or "")
     try:
         sections = _json.loads(row[1]) if row[1] else []
     except Exception:
@@ -12913,9 +15080,24 @@ def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(r
     cur = conn.cursor()
     require_row_project_access(cur, "brigade_contracts", contract_id, _current_user)
     require_worker_brigade_contract_access(cur, contract_id, _current_user)
-    cur.execute("SELECT id,contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity FROM brigade_contract_items WHERE contract_id=%s ORDER BY id", (contract_id,))
+    package_names = user_package_names(_current_user) if _current_user.get("role") in PACKAGE_LIMIT_ROLES else []
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and _current_user.get("role") != "прораб" and not package_names:
+        cur.close(); conn.close()
+        return []
+    package_sql = ""
+    params = [contract_id]
+    if package_names:
+        package_sql = """ AND COALESCE(NULLIF(bci.work_package,''), NULLIF(bc.work_package,''), 'Основная') = ANY(%s)"""
+        params.append(package_names)
+    cur.execute("""SELECT bci.id,bci.contract_id,bci.estimate_section,bci.description,bci.unit,bci.quantity,
+                          bci.price_smeta,bci.price_brigade,bci.done_quantity,COALESCE(bci.work_package,''),
+                          COALESCE(bci.estimate_item_key,'')
+                   FROM brigade_contract_items bci
+                   JOIN brigade_contracts bc ON bc.id=bci.contract_id
+                   WHERE bci.contract_id=%s""" + package_sql + " ORDER BY bci.id", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
+    hide_customer_money = _current_user.get("role") in WORKER_EXECUTION_ROLES
     def _status(q, done):
         try:
             q = float(q or 0); done = float(done or 0)
@@ -12933,19 +15115,23 @@ def get_brigade_contract_items(contract_id: int, _current_user: dict = Depends(r
             return "В работе"
         return "Не начато"
     return [{"id":r[0],"contractId":r[1],"estimateSection":r[2],"name":r[3],"unit":r[4],
-             "quantity":float(r[5] or 0),"priceSmeta":float(r[6] or 0),"priceBrigade":float(r[7] or 0),
+             "quantity":float(r[5] or 0),"priceSmeta":0 if hide_customer_money else float(r[6] or 0),"priceBrigade":float(r[7] or 0),
              "doneQuantity":max(0, min(float(r[8] or 0), float(r[5] or 0))) if float(r[5] or 0) > 0 else 0,
              "rawDoneQuantity":float(r[8] or 0),
              "hasInvalidDoneQuantity":(float(r[5] or 0) <= 0 and float(r[8] or 0) > 0) or float(r[8] or 0) < 0 or (float(r[5] or 0) > 0 and float(r[8] or 0) > float(r[5] or 0)),
-             "status":_status(r[5], r[8])} for r in rows]
+             "workPackage":r[9] or "", "estimateItemKey":r[10] or "", "status":_status(r[5], r[8])} for r in rows]
 
 @app.post("/brigade-contract-items")
-def create_brigade_contract_item(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def create_brigade_contract_item(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "brigade_contracts", data.get("contractId"), _current_user)
-    cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,description,unit,quantity,price_smeta,price_brigade,done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("contractId"),data.get("estimateSection",""),data.get("name","") or data.get("description",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0)))
+    work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+    cur.execute("INSERT INTO brigade_contract_items (contract_id,estimate_section,description,work_package,estimate_item_key,unit,quantity,price_smeta,price_brigade,done_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("contractId"),data.get("estimateSection",""),data.get("name","") or data.get("description",""),work_package,data.get("estimateItemKey","") or data.get("estimate_item_key",""),data.get("unit",""),data.get("quantity",0),data.get("priceSmeta",0),data.get("priceBrigade",0),data.get("doneQuantity",0)))
     row = cur.fetchone()
     recalc_brigade_contract_total(cur, data.get("contractId"))
     conn.commit()
@@ -12953,15 +15139,20 @@ def create_brigade_contract_item(data: dict, _current_user: dict = Depends(requi
     return {"id":row[0],"ok":True}
 
 @app.put("/brigade-contract-items/{id}")
-def update_brigade_contract_item(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def update_brigade_contract_item(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     require_brigade_item_access(cur, id, _current_user)
+    if "workPackage" in data or "work_package" in data:
+        new_work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
+        if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, new_work_package):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к новому пакету работ")
     quantity = float(data.get("quantity", 0) or 0)
     done_quantity = float(data.get("doneQuantity", 0) or 0)
     done_quantity = max(0, min(done_quantity, quantity)) if quantity > 0 else 0
-    cur.execute("UPDATE brigade_contract_items SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s WHERE id=%s RETURNING contract_id",
-        (quantity,data.get("priceBrigade",0),data.get("priceSmeta",0),done_quantity,id))
+    cur.execute("UPDATE brigade_contract_items SET quantity=%s,price_brigade=%s,price_smeta=%s,done_quantity=%s,work_package=COALESCE(%s,work_package),estimate_item_key=COALESCE(%s,estimate_item_key) WHERE id=%s RETURNING contract_id",
+        (quantity,data.get("priceBrigade",0),data.get("priceSmeta",0),done_quantity,data.get("workPackage", data.get("work_package")),data.get("estimateItemKey", data.get("estimate_item_key")),id))
     row = cur.fetchone()
     if row:
         recalc_brigade_contract_total(cur, row[0])
@@ -13006,8 +15197,29 @@ def create_brigade_act(data: dict, current_user: dict = Depends(require_roles(*F
     require_project_access(current_user, data.get("projectName", ""))
     conn = get_db()
     cur = conn.cursor()
+    contract_id = data.get("contractId")
+    total_amount = float(data.get("totalAmount") or 0)
+    cur.execute("""SELECT bc.project_name, bc.brigade_name,
+                          COALESCE((SELECT SUM(CASE WHEN COALESCE(quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(done_quantity,0), COALESCE(quantity,0))) * COALESCE(price_brigade,0) ELSE 0 END) FROM brigade_contract_items WHERE contract_id=bc.id),0) AS done_amount,
+                          COALESCE((SELECT SUM(COALESCE(total_amount,0)) FROM brigade_acts WHERE contract_id=bc.id AND COALESCE(status,'') <> 'Аннулирован'),0) AS acted_amount
+                   FROM brigade_contracts bc WHERE bc.id=%s""", (contract_id,))
+    contract = cur.fetchone()
+    if not contract:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Договор бригады не найден")
+    if (contract[0] or "") != (data.get("projectName") or ""):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Договор бригады относится к другому объекту")
+    require_project_access(current_user, contract[0] or "")
+    available_to_act = max(0, float(contract[2] or 0) - float(contract[3] or 0))
+    if total_amount <= 0:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сумма акта должна быть больше нуля")
+    if total_amount > available_to_act + 0.01:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail=f"Сумма акта превышает выполненный неактированный объём. Доступно к акту: {available_to_act:.2f} ₽")
     cur.execute("INSERT INTO brigade_acts (contract_id,project_name,brigade_name,period_from,period_to,total_amount,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("contractId"),data.get("projectName",""),data.get("brigadeName",""),data.get("periodFrom") or None,data.get("periodTo") or None,data.get("totalAmount",0),data.get("status","Черновик")))
+        (contract_id, contract[0] or "", contract[1] or data.get("brigadeName",""), data.get("periodFrom") or None, data.get("periodTo") or None, total_amount, data.get("status","Черновик")))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -13020,7 +15232,7 @@ def get_material_transfers(project_name: str = None, current_user: dict = Depend
     active_filter = "COALESCE(status,'Активна') <> 'Аннулирована'"
     role = current_user.get("role")
     package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
-    base_select = "SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at FROM material_transfers"
+    base_select = "SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at,to_user_id FROM material_transfers"
     conditions = [active_filter]
     params = []
     if project_name:
@@ -13035,31 +15247,42 @@ def get_material_transfers(project_name: str = None, current_user: dict = Depend
         conditions.append("project_name = ANY(%s)")
         params.append(projects)
     if role in ("мастер", "субподрядчик", "бригадир"):
-        conditions.append("LOWER(TRIM(to_person))=LOWER(TRIM(%s))")
-        params.append(current_user.get("name") or "")
-    if role in PACKAGE_LIMIT_ROLES and package_names:
+        conditions.append("(to_user_id=%s OR (to_user_id IS NULL AND LOWER(TRIM(to_person))=LOWER(TRIM(%s))))")
+        params.extend([current_user.get("id"), current_user.get("name") or ""])
+    if role in WORKER_EXECUTION_ROLES and not package_names:
+        cur.close(); conn.close()
+        return []
+    if package_names:
         conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
         params.append(package_names)
     cur.execute(base_select + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14])} for r in rows]
+    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14]),"toUserId":r[15]} for r in rows]
 
 @app.post("/material-transfers")
 def create_material_transfer(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
-    from_location = data.get("fromLocation", "Основной склад")
+    from_location = (data.get("fromLocation") or "").strip() or "Основной склад"
     material_name = data.get("materialName", "")
     qty = float(data.get("quantity", 0) or 0)
-    project_name = data.get("projectName", "")
+    unit = _norm_base_unit(data.get("unit") or "шт") or "шт"
+    project_name = (data.get("projectName") or "").strip()
     work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     to_person_role = (data.get("toPersonRole") or data.get("to_person_role") or "").strip().lower()
+    transfer_receiver_roles = ("мастер", "субподрядчик", "бригадир", "бригада")
     if not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите материал и количество больше 0")
-    if to_person_role in ("мастер", "субподрядчик", "бригада", "бригадир"):
-        if not project_name:
-            raise HTTPException(status_code=400, detail="Для выдачи материала мастеру, бригаде или субподрядчику укажите объект")
-        if not work_package:
-            raise HTTPException(status_code=400, detail="Для выдачи материала мастеру, бригаде или субподрядчику укажите пакет работ")
+    if to_person_role not in transfer_receiver_roles:
+        raise HTTPException(status_code=400, detail="Материал можно выдать только мастеру, субподрядчику, бригадиру или бригаде. Прораб управляет выдачей, но не является получателем списания.")
+    if project_name:
+        if from_location == "Основной склад":
+            raise HTTPException(status_code=400, detail="Передача исполнителю идёт только со склада объекта. Сначала переместите материал с основного склада на объект.")
+        if from_location != project_name:
+            raise HTTPException(status_code=400, detail="Источник передачи должен совпадать с объектом: " + project_name)
+    if not project_name:
+        raise HTTPException(status_code=400, detail="Для выдачи материала исполнителю укажите объект")
+    if not work_package:
+        raise HTTPException(status_code=400, detail="Для выдачи материала исполнителю укажите пакет работ")
     if project_name:
         require_project_or_warehouse_access(_current_user, project_name)
     if from_location and from_location != "Основной склад":
@@ -13071,34 +15294,75 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
     conn.autocommit = False
     cur = conn.cursor()
     try:
+        to_person = (data.get("toPerson") or "").strip()
+        to_user_id = data.get("toUserId") or data.get("to_user_id")
+        try:
+            to_user_id = int(to_user_id) if str(to_user_id or "").strip() else None
+        except Exception:
+            to_user_id = None
+        if not to_person:
+            raise HTTPException(status_code=400, detail="Укажите получателя материала")
+        if to_person_role in ("мастер", "субподрядчик", "бригадир"):
+            to_user_id = _resolve_staff_or_user_id(cur, to_user_id, to_person)
+        if to_person_role == "бригада":
+            cur.execute("""SELECT id FROM brigade_contracts
+                           WHERE project_name=%s
+                             AND LOWER(TRIM(COALESCE(brigade_name,'')))=LOWER(TRIM(%s))
+                             AND COALESCE(status,'') NOT IN ('Аннулирован','Аннулирована','Удалён','Удалена')
+                           ORDER BY id DESC LIMIT 1""", (project_name, to_person))
+            if not cur.fetchone():
+                raise HTTPException(status_code=400, detail="Бригада-получатель должна быть действующим договором по объекту «" + project_name + "»")
+        if to_person_role in ("мастер", "субподрядчик", "бригадир"):
+            cur.execute("""SELECT id,name,role,COALESCE(project_name,''),assigned_projects,assigned_packages
+                           FROM users
+                           WHERE ((%s IS NOT NULL AND id=%s) OR (%s IS NULL AND LOWER(TRIM(name))=LOWER(TRIM(%s))))
+                             AND role IN ('мастер','субподрядчик','бригадир')
+                             AND COALESCE(active, TRUE)=TRUE
+                           ORDER BY CASE WHEN id=%s THEN 0 ELSE 1 END, id LIMIT 1""", (to_user_id, to_user_id, to_user_id, to_person, to_user_id))
+            receiver = cur.fetchone()
+            if not receiver:
+                raise HTTPException(status_code=400, detail="Получатель материала должен быть активным пользователем с ролью мастер, субподрядчик или бригадир")
+            to_user_id = receiver[0]
+            to_person = receiver[1] or to_person
+            to_person_role = receiver[2] or to_person_role
+            receiver_projects = set(_safe_project_list(receiver[4]))
+            if receiver[3]:
+                receiver_projects.add(receiver[3])
+            if project_name not in receiver_projects:
+                raise HTTPException(status_code=403, detail="Получатель материала не привязан к объекту «" + project_name + "»")
+            receiver_packages = set(_safe_project_list(receiver[5]))
+            if not receiver_packages or (work_package or "Основная") not in receiver_packages:
+                raise HTTPException(status_code=403, detail="Получатель материала не имеет доступа к пакету «" + (work_package or "Основная") + "»")
         if from_location == "Основной склад":
-            cur.execute("SELECT id, quantity FROM warehouse_main WHERE name=%s FOR UPDATE", (material_name,))
-            row = cur.fetchone()
+            row = _stock_row_by_material_key(cur, project=project_name, material_name=material_name, unit=unit, main_warehouse=True)
             if not row:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
-            stock_id, stock_qty = row[0], float(row[1] or 0)
+            stock_id = _row_value(row, 0, "id")
+            stock_qty = float(_row_value(row, 2, "quantity", 0) or 0)
+            stock_name = _row_value(row, 1, "name", material_name)
             if stock_qty < qty:
                 raise HTTPException(status_code=400, detail="На основном складе только "+str(stock_qty)+", запрошено "+str(qty))
             cur.execute("UPDATE warehouse_main SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
+            material_name = stock_name or material_name
         else:
-            cur.execute("""SELECT id, quantity FROM materials
-                           WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s
-                           ORDER BY id DESC LIMIT 1 FOR UPDATE""", (material_name, from_location, work_package))
-            row = cur.fetchone()
+            row = _stock_row_by_material_key(cur, project=from_location, material_name=material_name, unit=unit, work_package=work_package)
             if not row:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «" + work_package + "»" if work_package else ""))
-            stock_id, stock_qty = row[0], float(row[1] or 0)
+            stock_id = _row_value(row, 0, "id")
+            stock_qty = float(_row_value(row, 2, "quantity", 0) or 0)
+            stock_name = _row_value(row, 1, "name", material_name)
             if stock_qty < qty:
                 raise HTTPException(status_code=400, detail="На складе «"+from_location+"» только "+str(stock_qty)+", запрошено "+str(qty))
             cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
+            material_name = stock_name or material_name
 
         created_by = _current_user.get("name", "") or data.get("createdBy", "")
-        cur.execute("INSERT INTO material_transfers (project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,notes,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (project_name, from_location, data.get("toPerson",""), data.get("toPersonRole",""), work_package, material_name, qty, data.get("unit","шт"), data.get("transferDate") or None, data.get("notes",""), created_by))
+        cur.execute("INSERT INTO material_transfers (project_name,from_location,to_user_id,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,notes,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (project_name, from_location, to_user_id, to_person, to_person_role, work_package, material_name, qty, unit, data.get("transferDate") or None, data.get("notes",""), created_by))
         new_id = cur.fetchone()[0]
 
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-            (material_name, "расход", qty, data.get("transferDate") or None, from_location, created_by, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (material_name, "расход", qty, unit, data.get("transferDate") or None, from_location, created_by, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
         conn.commit()
         _run_project_ai_control_safely(project_name, "material_transfer:create")
@@ -13117,19 +15381,24 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
 def sign_material_transfer(id: int, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT project_name,to_person,signed,COALESCE(status,'Активна') FROM material_transfers WHERE id=%s", (id,))
+    cur.execute("SELECT project_name,to_person,signed,COALESCE(status,'Активна'),COALESCE(NULLIF(work_package,''),'Основная'),to_user_id FROM material_transfers WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         return {"ok": True}
-    project_name, to_person, signed, status = row
+    project_name, to_person, signed, status, work_package, to_user_id = row
     require_project_or_warehouse_access(_current_user, project_name)
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package or "Основная"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
     if status == "Аннулирована":
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Аннулированную передачу нельзя подписать")
-    if (_current_user.get("role") or "") in ("мастер", "субподрядчик") and (to_person or "") != (_current_user.get("name") or ""):
+    current_id = _current_user.get("id")
+    is_target_receiver = (to_user_id and str(to_user_id) == str(current_id)) or (not to_user_id and (to_person or "") == (_current_user.get("name") or ""))
+    if not is_target_receiver:
         cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Можно подтвердить только свою передачу материала")
+        raise HTTPException(status_code=403, detail="Подписать передачу материала может только получатель")
     if signed:
         cur.close(); conn.close()
         return {"ok": True}
@@ -13144,14 +15413,16 @@ def return_material_from_master(data: dict, current_user: dict = Depends(require
     project_name = data.get("projectName", "")
     material_name = data.get("materialName", "")
     qty = float(data.get("quantity", 0) or 0)
-    unit = data.get("unit", "шт")
-    work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
+    unit = _norm_base_unit(data.get("unit") or "шт") or "шт"
+    work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
     if not project_name or not material_name or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите объект, материал и количество больше 0")
-    require_project_access(current_user, project_name)
+    require_project_or_warehouse_access(current_user, project_name)
 
     role = current_user.get("role") or ""
-    if role in ("мастер", "субподрядчик"):
+    if role in PACKAGE_LIMIT_ROLES and not has_package_access(current_user, work_package):
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
+    if role in WORKER_EXECUTION_ROLES:
         person_name = current_user.get("name", "")
         person_id = current_user.get("id")
     else:
@@ -13162,19 +15433,24 @@ def return_material_from_master(data: dict, current_user: dict = Depends(require
     conn.autocommit = False
     cur = conn.cursor()
     try:
-        balance = _personal_material_balance(cur, project_name, person_id, person_name, material_name, work_package)
+        balance = _personal_material_balance(cur, project_name, person_id, person_name, material_name, work_package, unit)
         if balance["available"] < qty:
             raise HTTPException(status_code=400, detail="У мастера «"+person_name+"» доступно к возврату "+str(round(balance["available"], 3))+" "+unit+" «"+material_name+"», запрошено "+str(qty))
 
-        cur.execute("UPDATE materials SET quantity=quantity+%s WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s", (qty, material_name, project_name, work_package))
-        if cur.rowcount == 0:
+        stock_row = _stock_row_by_material_key(cur, project=project_name, material_name=material_name, unit=unit, work_package=work_package)
+        if stock_row:
+            stock_id = _row_value(stock_row, 0, "id")
+            stock_name = _row_value(stock_row, 1, "name", material_name)
+            cur.execute("UPDATE materials SET quantity=quantity+%s WHERE id=%s", (qty, stock_id))
+            material_name = stock_name or material_name
+        else:
             cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (material_name, unit or "шт", qty, 0, 0, project_name, "Возврат от мастера", work_package))
 
         return_date = data.get("date") or None
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (material_name, "возврат от мастера", qty, return_date, project_name, "Склад объекта", person_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (material_name, "возврат от мастера", qty, unit, return_date, project_name, "Склад объекта", person_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         history_id = cur.fetchone()[0]
         conn.commit()
         _run_project_ai_control_safely(project_name, "material_transfer:return")
@@ -13202,7 +15478,10 @@ def delete_material_transfer(id: int, _current_user: dict = Depends(require_role
             return {"ok": True}
 
         project_name, from_location, to_person, material_name, qty, unit, signed, status, work_package = row
+        work_package = (work_package or "Основная").strip() or "Основная"
         require_project_or_warehouse_access(_current_user, project_name or from_location or "")
+        if not has_package_access(_current_user, work_package):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету передачи материала")
         qty = float(qty or 0)
         if status == "Аннулирована":
             conn.rollback()
@@ -13211,23 +15490,23 @@ def delete_material_transfer(id: int, _current_user: dict = Depends(require_role
             raise HTTPException(status_code=400, detail="Подписанную передачу нельзя удалить. Оформите возврат материала отдельной операцией.")
 
         if (from_location or "") == "Основной склад":
-            cur.execute("UPDATE warehouse_main SET quantity=quantity+%s WHERE name=%s", (qty, material_name))
+            cur.execute(f"UPDATE warehouse_main SET quantity=quantity+%s WHERE name=%s AND {_sql_norm_unit('unit')}=%s", (qty, material_name, _norm_base_unit(unit or "шт") or "шт"))
             if cur.rowcount == 0:
                 cur.execute("INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category) VALUES (%s,%s,%s,%s,%s,%s)",
                     (material_name, unit or "шт", qty, 0, 0, "Возврат передачи"))
         else:
-            cur.execute("UPDATE materials SET quantity=quantity+%s WHERE name=%s AND project=%s AND COALESCE(work_package,'')=%s", (qty, material_name, from_location, work_package or ""))
+            cur.execute(f"UPDATE materials SET quantity=quantity+%s WHERE name=%s AND project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s AND {_sql_norm_unit('unit')}=%s", (qty, material_name, from_location, work_package, _norm_base_unit(unit or "шт") or "шт"))
             if cur.rowcount == 0:
                 cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package)
                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (material_name, unit or "шт", qty, 0, 0, from_location or project_name or "", "Возврат передачи", work_package or ""))
+                    (material_name, unit or "шт", qty, 0, 0, from_location or project_name or "", "Возврат передачи", work_package))
 
         cur.execute(
             "UPDATE material_transfers SET status=%s,cancelled_at=NOW(),cancelled_by=%s,cancel_reason=%s WHERE id=%s",
             ("Аннулирована", _current_user.get("name",""), "Отмена неподписанной передачи", id),
         )
-        cur.execute("INSERT INTO warehouse_history (material,type,quantity,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (material_name, "отмена передачи", qty, None, from_location or project_name or "", to_person or "", _current_user.get("name",""), work_package or "", __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+        cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (material_name, "отмена передачи", qty, unit or "шт", None, from_location or project_name or "", to_person or "", _current_user.get("name",""), work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
         conn.commit()
         _run_project_ai_control_safely(project_name or "", "material_transfer:delete")
         return {"ok": True}
@@ -13254,6 +15533,9 @@ def get_supplier_catalog(supplier_id: int = None, current_user: dict = Depends(g
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к каталогу этого поставщика")
         cur.execute("SELECT id,supplier_id,supplier_name,material_name,unit,price,min_quantity,delivery_days,in_stock,notes FROM supplier_catalog WHERE supplier_id=%s ORDER BY material_name", (own_supplier_id,))
+    elif role in WORKER_EXECUTION_ROLES:
+        cur.close(); conn.close()
+        return []
     elif role in SUPPLY_ROLES or role in WAREHOUSE_ROLES or role in FINANCE_ROLES:
         if supplier_id:
             cur.execute("SELECT id,supplier_id,supplier_name,material_name,unit,price,min_quantity,delivery_days,in_stock,notes FROM supplier_catalog WHERE supplier_id=%s ORDER BY material_name", (supplier_id,))
@@ -13330,7 +15612,7 @@ def delete_supplier_catalog(id: int, current_user: dict = Depends(get_current_us
 
 # === Сн.5: история цен на материал ===
 @app.get("/material-price-history")
-def material_price_history(material: str = "", _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def material_price_history(material: str = "", _current_user: dict = Depends(require_roles(*MATERIAL_PRICE_HISTORY_ROLES))):
     """Прошлые цены по материалу: из истории поставок + текущие предложения каталога.
     Помогает снабженцу понять адекватную цену при создании заявки."""
     material = (material or "").strip()
@@ -13544,7 +15826,7 @@ def delete_supplier_document(id: int, current_user: dict = Depends(get_current_u
 
 @app.get("/warehouse-invoices")
 def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in WAREHOUSE_ROLES and not can_see_all_company_data(current_user):
+    if not can_see_warehouse_data(current_user):
         return []
     conn = get_db()
     cur = conn.cursor()
@@ -13604,6 +15886,18 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
         source_id = data.get("sourceId") or None
         supply_delivery_id = data.get("supplyDeliveryId") or None
         supply_request_id = data.get("supplyRequestId") or None
+        if supply_delivery_id or source_type == "supply_delivery":
+            raise HTTPException(status_code=400, detail="Накладная по поставке создаётся автоматически при приёмке поставки. Ручное создание отключено, чтобы не задвоить склад.")
+        if target_project:
+            raise HTTPException(
+                status_code=400,
+                detail="Ручная приходная накладная на объект запрещена. Используйте цепочку снабжения: заявка → КП → поставка → приёмка, либо перемещение с общего склада.",
+            )
+        if _current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Ручную приходную накладную на основной склад может принять директор, замдиректора, снабженец или кладовщик",
+            )
         if supply_delivery_id:
             cur.execute("""SELECT id FROM warehouse_invoices
                            WHERE COALESCE(status,'Принята') <> 'Аннулирована'
@@ -13633,16 +15927,29 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
             duplicate = cur.fetchone()
             if duplicate:
                 raise HTTPException(status_code=409, detail="Такая накладная уже принята. Если это исправление, сначала аннулируйте старую накладную.")
+        items_list = data.get("items", []) or []
+        if not isinstance(items_list, list):
+            items_list = []
+        normalized_invoice_items = []
+        for raw_item in items_list:
+            if not isinstance(raw_item, dict):
+                continue
+            item = dict(raw_item)
+            item["workPackage"] = _supply_work_package(item.get("workPackage") or item.get("work_package") or data.get("workPackage") or data.get("work_package"))
+            normalized_invoice_items.append(item)
+        items_list = normalized_invoice_items
+        if target_project:
+            items_list = _attach_supply_estimate_control(cur, target_project, items_list)
+            _enforce_supply_estimate_control(items_list, source="накладная")
         cur.execute("""INSERT INTO warehouse_invoices
                        (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
                         total_base,total_vat,total_with_vat,status,added_by,photo_url,
                         source_type,source_id,supply_delivery_id,supply_request_id)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
-            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(data.get("items",[]),ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl",""),data.get("sourceType",""),data.get("sourceId") or None,data.get("supplyDeliveryId") or None,data.get("supplyRequestId") or None))
+            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(items_list,ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl",""),data.get("sourceType",""),data.get("sourceId") or None,data.get("supplyDeliveryId") or None,data.get("supplyRequestId") or None))
         invoice_id = cur.fetchone()[0]
 
-        items_list = data.get("items", []) or []
         sup = data.get("supplierName","")
         rcv_date = data.get("date") or None
         accepted_by = data.get("acceptedBy") or data.get("addedBy") or _current_user.get("name","")
@@ -13658,20 +15965,23 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
             qty = _invoice_float(it.get("quantity"), 0)
             if not name or qty <= 0:
                 continue
-            unit = (it.get("unit") or "шт").strip() or "шт"
+            unit = _norm_base_unit(it.get("unit") or "шт") or "шт"
+            it["unit"] = unit
             price = _invoice_float(it.get("price"), 0)
             category = (it.get("category") or "").strip()
-            work_package = (it.get("workPackage") or it.get("work_package") or data.get("workPackage") or data.get("work_package") or "").strip()
-            if restricted_packages and (work_package or "Основная") not in restricted_packages:
-                raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы накладной: " + (work_package or "Основная"))
+            work_package = _supply_work_package(it.get("workPackage") or it.get("work_package") or data.get("workPackage") or data.get("work_package"))
+            it["workPackage"] = work_package
+            if restricted_packages and work_package not in restricted_packages:
+                raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы накладной: " + work_package)
 
             if target_project:
-                cur.execute("""SELECT id FROM materials
+                cur.execute(f"""SELECT id FROM materials
                                WHERE LOWER(name)=LOWER(%s)
                                  AND project=%s
-                                 AND COALESCE(work_package,'')=%s
+                                 AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                                 AND {_sql_norm_unit('unit')}=%s
                                ORDER BY id LIMIT 1 FOR UPDATE""",
-                            (name, target_project, work_package))
+                            (name, target_project, work_package, unit))
                 row = cur.fetchone()
                 if row:
                     cur.execute("""UPDATE materials
@@ -13688,9 +15998,10 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
                                 (name, unit, qty, price, 0, target_project, category, work_package))
                 history_project = target_project
             else:
-                cur.execute("""SELECT id FROM warehouse_main
+                cur.execute(f"""SELECT id FROM warehouse_main
                                WHERE LOWER(name)=LOWER(%s)
-                               ORDER BY id LIMIT 1 FOR UPDATE""", (name,))
+                                 AND {_sql_norm_unit('unit')}=%s
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, unit))
                 row = cur.fetchone()
                 if row:
                     cur.execute("""UPDATE warehouse_main
@@ -13709,9 +16020,9 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
 
             stock_rows_added += 1
             cur.execute("""INSERT INTO warehouse_history
-                              (material,type,quantity,date,project,issued_by,work_package,date_time)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (name, "приход", qty, rcv_date, history_project, accepted_by, work_package, date_time))
+                              (material,type,quantity,unit,date,project,issued_by,work_package,date_time)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (name, "приход", qty, unit, rcv_date, history_project, accepted_by, work_package, date_time))
             history_added += 1
 
             if target_project:
@@ -13749,11 +16060,13 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
     try:
         cur.execute("""SELECT id, COALESCE(project,'') AS project, COALESCE(location,'') AS location,
                               COALESCE(status,'') AS status, items, COALESCE(accepted_by,'') AS accepted_by,
-                              COALESCE(added_by,'') AS added_by, date
+                              COALESCE(added_by,'') AS added_by, date, supply_delivery_id
                        FROM warehouse_invoices WHERE id=%s FOR UPDATE""", (id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Накладная не найдена")
+        if row.get("supply_delivery_id"):
+            raise HTTPException(status_code=409, detail="Накладная создана при приёмке поставки. Исправляйте поставку/претензию, а не удаляйте накладную отдельно.")
         if row.get("status") == "Аннулирована":
             conn.rollback()
             return {"ok": True, "annulled": True, "alreadyAnnulled": True, "stockRowsRestored": 0}
@@ -13775,14 +16088,15 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
                 qty = 0
             if not name or qty <= 0:
                 continue
-            unit = (it.get("unit") or "шт").strip() or "шт"
+            unit = _norm_base_unit(it.get("unit") or "шт") or "шт"
             work_package = (it.get("workPackage") or it.get("work_package") or "").strip()
             if target_project:
-                cur.execute("""SELECT id, quantity FROM materials
+                cur.execute(f"""SELECT id, quantity FROM materials
                                WHERE LOWER(name)=LOWER(%s)
                                  AND project=%s
                                  AND COALESCE(work_package,'')=%s
-                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, target_project, work_package))
+                                 AND {_sql_norm_unit('unit')}=%s
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, target_project, work_package, unit))
                 mat = cur.fetchone()
                 if not mat:
                     raise HTTPException(status_code=409, detail="Нельзя аннулировать накладную: материал «"+name+"» уже отсутствует на складе объекта")
@@ -13791,9 +16105,10 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
                 cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, mat["id"]))
                 history_project = target_project
             else:
-                cur.execute("""SELECT id, quantity FROM warehouse_main
+                cur.execute(f"""SELECT id, quantity FROM warehouse_main
                                WHERE LOWER(name)=LOWER(%s)
-                               ORDER BY id LIMIT 1 FOR UPDATE""", (name,))
+                                 AND {_sql_norm_unit('unit')}=%s
+                               ORDER BY id LIMIT 1 FOR UPDATE""", (name, unit))
                 mat = cur.fetchone()
                 if not mat:
                     raise HTTPException(status_code=409, detail="Нельзя аннулировать накладную: материал «"+name+"» уже отсутствует на основном складе")
@@ -13802,12 +16117,15 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
                 cur.execute("UPDATE warehouse_main SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, mat["id"]))
                 history_project = "Основной склад"
             cur.execute("""INSERT INTO warehouse_history
-                              (material,type,quantity,date,project,issued_by,work_package,date_time)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (name, "сторно прихода по накладной", qty, row.get("date") or None, history_project, actor_name, work_package, date_time))
+                              (material,type,quantity,unit,date,project,issued_by,work_package,date_time)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (name, "сторно прихода по накладной", qty, unit, row.get("date") or None, history_project, actor_name, work_package, date_time))
             restored += 1
-        cur.execute("DELETE FROM material_inspection_journal WHERE invoice_id=%s", (id,))
-        cur.execute("DELETE FROM cable_journal WHERE invoice_id=%s", (id,))
+        cur.execute("""UPDATE material_inspection_journal
+                       SET status=%s, remarks=COALESCE(NULLIF(remarks,''),'') || %s
+                       WHERE invoice_id=%s""",
+                    ("Аннулирована", "\nНакладная аннулирована: приход сторнирован.", id))
+        cur.execute("UPDATE cable_journal SET status=%s WHERE invoice_id=%s", ("Аннулирована", id))
         cur.execute("UPDATE warehouse_invoices SET status=%s WHERE id=%s", ("Аннулирована", id))
         conn.commit()
         _run_project_ai_control_safely(target_project, "warehouse_invoice:annul")
@@ -14259,6 +16577,54 @@ def _norm_base_unit(value: str) -> str:
         return "мешок"
     return text
 
+def _round_norm_qty(qty) -> float:
+    q = _safe_float(qty)
+    if q <= 0:
+        return 0
+    if q >= 100:
+        import math
+        return float(math.ceil(q))
+    if q >= 10:
+        return round(q, 1)
+    return round(q, 2)
+
+def _convert_norm_material_qty(material_name: str, qty, from_unit: str, to_unit: str):
+    import re
+    from_key = _norm_base_unit(from_unit)
+    to_key = _norm_base_unit(to_unit)
+    q = _safe_float(qty)
+    if from_key == to_key:
+        return q, "единицы совпадают"
+    name = _norm_key_text(material_name or "")
+    if {from_key, to_key} == {"т", "кг"}:
+        return (q * 1000, "1 т = 1000 кг") if from_key == "т" else (q / 1000, "1000 кг = 1 т")
+    if any(w in name for w in ("краск", "эмал", "грунтов", "лак")) and {from_key, to_key} == {"л", "кг"}:
+        density = 1.4
+        return (q * density, "1 л ≈ 1.4 кг") if from_key == "л" else (q / density, "1 кг ≈ 0.71 л")
+    if "цемент" in name and {from_key, to_key} == {"мешок", "кг"}:
+        return (q * 50, "1 мешок = 50 кг") if from_key == "мешок" else (q / 50, "50 кг = 1 мешок")
+    if any(w in name for w in ("штукатур", "шпаклев", "шпатлев", "клей", "пескобетон", "стяжк", "смесь")) and {from_key, to_key} == {"мешок", "кг"}:
+        return (q * 25, "1 мешок ≈ 25 кг") if from_key == "мешок" else (q / 25, "25 кг ≈ 1 мешок")
+    if "бетон" in name:
+        if from_key == "м3" and to_key == "т":
+            return q * 2.4, "1 м3 ≈ 2.4 т"
+        if from_key == "т" and to_key == "м3":
+            return q / 2.4, "1 т ≈ 0.42 м3"
+    if any(w in name for w in ("арматур", "арм")) and {from_key, to_key} == {"м", "кг"}:
+        weights = {6: 0.222, 8: 0.395, 10: 0.617, 12: 0.888, 14: 1.21, 16: 1.58, 18: 2.0, 20: 2.47, 22: 2.98, 25: 3.85, 28: 4.83, 32: 6.31}
+        m = re.search(r"(?:Ø|Ф|ф)?\s*(\d{1,2})\s*мм", material_name or "")
+        diameter = int(m.group(1)) if m else None
+        factor = weights.get(diameter)
+        if factor:
+            return (q * factor, f"1 м ≈ {factor:g} кг") if from_key == "м" else (q / factor, f"1 кг ≈ {1/factor:.3f} м")
+    return None
+
+def _sql_norm_unit(column: str = "unit") -> str:
+    # Только для внутренних SQL-фрагментов с заранее заданными именами колонок.
+    if not all(ch.isalnum() or ch in "._" for ch in column):
+        column = "unit"
+    return "LOWER(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(COALESCE(" + column + ",'')),'²','2'),'³','3'),'.',''),' ',''))"
+
 def _estimate_scaled_unit(value: str) -> tuple[int, str]:
     import re
     raw = str(value or "").strip().replace("\xa0", " ")
@@ -14294,6 +16660,28 @@ def _estimate_imported_quantity(item: dict) -> float:
     if inflated or scaled_unit_visible:
         return expected
     return qty
+
+def _estimate_material_plan_issue_backend(item: dict, section_name: str = "") -> str:
+    if _estimate_item_type_backend(item, section_name) != "material":
+        return ""
+    qty = _estimate_imported_quantity(item)
+    unit = _norm_base_unit(item.get("unit") or "")
+    raw_qty_present = any(item.get(key) not in (None, "") for key in ("rawQuantity", "raw_quantity", "quantityFinal", "quantity_final", "quantityBase", "quantity_base"))
+    unit_factor = _safe_float(item.get("unitFactor") or item.get("unit_factor"), 1)
+    unit_scale, _ = _estimate_scaled_unit(item.get("unit") or "")
+    raw_unit_scale, _ = _estimate_scaled_unit(item.get("rawUnit") or item.get("raw_unit") or "")
+    has_scale = unit_factor > 1 or unit_scale > 1 or raw_unit_scale > 1
+    if qty <= 0:
+        return "Количество материала не задано или меньше нуля"
+    if item.get("isImported") and has_scale and not raw_qty_present and abs(_safe_float(item.get("quantity"))) > max(100000, abs(qty) * 100):
+        return "Импортная ресурсная строка потеряла исходный объём. Проверьте строку перед закупкой"
+    if abs(qty) > 10000000:
+        return "Подозрительно большое количество. Проверь импорт сметы и исходную единицу измерения"
+    if unit in ("шт", "компл") and abs(qty) > 1000000:
+        return "Подозрительно большое штучное количество. Проверь ресурсную строку сметы"
+    if not unit or unit == "1":
+        return "Не распознана единица измерения материала"
+    return ""
 
 def _estimate_parent_work_for_material(material: dict, works: list[dict]) -> dict:
     if not material or not works:
@@ -14610,12 +16998,23 @@ def _material_norm_suggestion_row(row):
         "updatedAt": str(row["updated_at"]) if row["updated_at"] else "",
     }
 
+def _cursor_rows_as_dicts(cur, rows, columns=None):
+    if columns is None:
+        columns = [d[0] for d in (cur.description or [])]
+    out = []
+    for row in rows:
+        if isinstance(row, dict):
+            out.append(dict(row))
+        else:
+            out.append({columns[i]: row[i] for i in range(min(len(columns), len(row)))})
+    return out
+
 def _load_active_norm_rules(cur, project_name: str = "", estimate_id: int = None):
     cur.execute("""SELECT id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
                           work_unit, material_unit, qty_per_unit, thickness_base_mm,
                           default_thickness_mm, label
                    FROM material_norms WHERE active=TRUE ORDER BY id""")
-    base_rules = [dict(r) for r in cur.fetchall()]
+    base_rules = _cursor_rows_as_dicts(cur, cur.fetchall())
     if not project_name:
         return base_rules
     params = [project_name]
@@ -14627,8 +17026,7 @@ def _load_active_norm_rules(cur, project_name: str = "", estimate_id: int = None
                     WHERE active=TRUE AND project_name=%s {estimate_clause}
                     ORDER BY CASE WHEN estimate_id IS NULL THEN 1 ELSE 0 END, id DESC""", tuple(params))
     overrides = []
-    for row in cur.fetchall():
-        r = dict(row)
+    for r in _cursor_rows_as_dicts(cur, cur.fetchall()):
         overrides.append({
             "id": r.get("base_norm_id"),
             "override_id": r.get("id"),
@@ -14894,7 +17292,9 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             return list(suggestions.values())
         estimate_where += " AND e.project_name = ANY(%s)"
         estimate_params.append(allowed_projects)
-    cur.execute(f"""SELECT e.id, e.project_name, e.sections_json FROM estimates e {estimate_where} ORDER BY e.id DESC LIMIT 120""", tuple(estimate_params))
+    cur.execute(f"""SELECT e.id, e.project_name, e.sections_json, COALESCE(e.work_package,'Основная') AS work_package
+                    FROM estimates e {estimate_where}
+                    ORDER BY e.id DESC LIMIT 120""", tuple(estimate_params))
     estimate_rows = cur.fetchall()
     if diagnostics is not None:
         diagnostics["activeCustomerEstimates"] = len(estimate_rows)
@@ -14908,7 +17308,11 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
             section_name = section.get("name") or ""
             items = section.get("items") or []
             works = [it for it in items if _estimate_item_type_backend(it, section_name) == "work"]
-            mats = [it for it in items if _estimate_item_type_backend(it, section_name) == "material"]
+            mats = [
+                it for it in items
+                if _estimate_item_type_backend(it, section_name) == "material"
+                and not _estimate_material_plan_issue_backend(it, section_name)
+            ]
             if diagnostics is not None:
                 diagnostics["estimateWorks"] += len(works)
                 diagnostics["estimateMaterials"] += len(mats)
@@ -14948,6 +17352,7 @@ def _generate_material_norm_suggestions(cur, current_user: dict, project_name: s
                 ])
                 suggestions.setdefault(dedupe, {
                     "projectName": est["project_name"] or "",
+                    "workPackage": est.get("work_package") or "Основная",
                     "suggestionType": "estimate_material_without_norm",
                     "severity": "Проверить",
                     "workName": work.get("name") or ("Раздел: " + section_name),
@@ -15082,7 +17487,7 @@ def _find_material_pricelist_price(material_name: str, material_unit: str, price
     return {"price": _safe_float(best.get("price")), "source": best.get("name") or "", "score": best_score}
 
 @app.post("/material-norm-suggestions/create-estimate")
-def create_estimate_from_material_norm_suggestions(data: dict = None, current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def create_estimate_from_material_norm_suggestions(data: dict = None, current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
     import json as _json
     data = data or {}
     project_name = (data.get("projectName") or data.get("project_name") or "").strip()
@@ -15157,9 +17562,11 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
             total_amount += qty * price
         else:
             missing_price_count += 1
+        suggestion_package = _supply_work_package(suggestion.get("workPackage") or work_package)
         section_name = suggestion.get("sectionName") or "Материалы по нормам"
-        rows_by_section.setdefault(section_name, []).append({
-            "id": now_id + sum(len(v) for v in rows_by_section.values()) + 1,
+        section_key = suggestion_package + " / " + section_name
+        rows_by_section.setdefault(section_key, {"name": section_name, "workPackage": suggestion_package, "items": []})["items"].append({
+            "id": now_id + sum(len((v or {}).get("items") or []) for v in rows_by_section.values()) + 1,
             "name": material_name,
             "unit": material_unit,
             "quantity": round(qty, 6),
@@ -15167,6 +17574,7 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
             "priceMaterial": round(price, 2) if price else 0,
             "itemType": "material",
             "resourceRole": "material",
+            "workPackage": suggestion_package,
             "source": "material_norm_suggestion",
             "normSource": source,
             "confidence": confidence,
@@ -15185,11 +17593,14 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
         raise HTTPException(status_code=400, detail="Нет безопасных строк для черновика. Сначала проверьте предложения норм или включите предложения по поиску.")
 
     sections = []
-    for idx, (section_name, items) in enumerate(rows_by_section.items(), start=1):
+    for idx, section_data in enumerate(rows_by_section.values(), start=1):
+        section_name = section_data.get("name") or "Материалы по нормам"
+        section_package = section_data.get("workPackage") or work_package
         sections.append({
             "id": now_id + idx,
             "name": "Материалы по нормам / " + section_name,
-            "items": items,
+            "workPackage": section_package,
+            "items": section_data.get("items") or [],
         })
 
     estimate_name = (data.get("name") or f"Черновик материалов по нормам — {project_name}").strip()
@@ -15201,11 +17612,18 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
         (project["id"], project_name, estimate_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
     estimate_id = cur.fetchone()["id"]
     supply_request = None
+    supply_requests = []
     if data.get("createSupplyRequest") or data.get("create_supply_request"):
         grouped = {}
         for section in sections:
+            section_package = _supply_work_package(section.get("workPackage") or work_package)
             for item in section.get("items") or []:
-                key = _norm_key_text(item.get("name") or "") + "|" + _norm_base_unit(item.get("unit") or "")
+                item_package = _supply_work_package(item.get("workPackage") or section_package)
+                key = "|".join([
+                    item_package,
+                    _norm_key_text(item.get("name") or ""),
+                    _norm_base_unit(item.get("unit") or ""),
+                ])
                 if not key.strip("|"):
                     continue
                 if key not in grouped:
@@ -15213,6 +17631,7 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
                         "materialName": item.get("name") or "",
                         "quantity": 0.0,
                         "unit": item.get("unit") or "шт",
+                        "workPackage": item_package,
                         "pricePerUnit": item.get("priceMaterial") or 0,
                         "estimateId": estimate_id,
                     }
@@ -15229,54 +17648,63 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
                 "materialName": item.get("materialName") or "",
                 "quantity": round(qty, 6),
                 "unit": item.get("unit") or "шт",
-                "workPackage": work_package,
+                "workPackage": _supply_work_package(item.get("workPackage") or work_package),
                 "pricePerUnit": round(price, 2) if price else 0,
                 "totalPrice": round(qty * price, 2) if price else 0,
             })
         if supply_items:
-            request_package = _resolve_supply_request_package(current_user, supply_items, work_package)
-            marker = "NORM_ESTIMATE_REQUEST:" + str(estimate_id)
-            notes = "\n".join([
-                "Пакетная заявка из черновика сметы по нормам.",
-                marker,
-                "Объект: " + project_name,
-                "Смета: " + estimate_name,
-                "ID сметы: " + str(estimate_id),
-                "Позиций: " + str(len(supply_items)),
-                "С ценой: " + str(priced_count),
-                "Без цены: " + str(missing_price_count),
-                "Сумма по найденным ценам: " + str(round(total_amount, 2)),
-            ])
-            agg_name = supply_items[0]["materialName"] + (" и ещё " + str(len(supply_items)-1) + " поз." if len(supply_items) > 1 else "")
-            agg_qty = float(len(supply_items)) if len(supply_items) > 1 else _safe_float(supply_items[0].get("quantity"))
-            agg_unit = "поз." if len(supply_items) > 1 else supply_items[0].get("unit") or "шт"
-            cur.execute(
-                "INSERT INTO supply_requests "
-                "(material_name,quantity,unit,project,work_package,created_by,date,notes,selected_suppliers,"
-                "status,requested_by_role,requested_by_id,urgency,category,items_json) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-                (
-                    agg_name,
-                    agg_qty,
-                    agg_unit,
-                    project_name,
-                    request_package,
-                    current_user.get("name") or "",
-                    dt.date.today().isoformat(),
-                    notes,
-                    [],
-                    "Новая",
-                    current_user.get("role") or "",
-                    current_user.get("id"),
-                    "обычная",
-                    "Нормы материалов",
-                    _json.dumps(supply_items, ensure_ascii=False),
-                ),
-            )
-            supply_id = cur.fetchone()["id"]
-            cur.execute(SUPPLY_SELECT + " WHERE id=%s", (supply_id,))
-            sr = cur.fetchone()
-            supply_request = dict(sr) if sr else {"id": supply_id}
+            supply_items_by_package = {}
+            for item in supply_items:
+                supply_items_by_package.setdefault(_supply_work_package(item.get("workPackage") or work_package), []).append(item)
+            for package_name, package_items in supply_items_by_package.items():
+                request_package = _resolve_supply_request_package(current_user, package_items, package_name)
+                package_items = _attach_supply_estimate_control(cur, project_name, package_items)
+                if project_name != "Основной склад":
+                    _enforce_supply_estimate_control(package_items, source="заявка")
+                marker = "NORM_ESTIMATE_REQUEST:" + str(estimate_id) + ":" + request_package
+                package_total = sum(_safe_float(it.get("quantity")) * _safe_float(it.get("pricePerUnit")) for it in package_items)
+                notes = "\n".join([
+                    "Пакетная заявка из черновика сметы по нормам.",
+                    marker,
+                    "Объект: " + project_name,
+                    "Раздел сметы: " + request_package,
+                    "Смета: " + estimate_name,
+                    "ID сметы: " + str(estimate_id),
+                    "Позиций: " + str(len(package_items)),
+                    "Сумма по найденным ценам: " + str(round(package_total, 2)),
+                ])
+                agg_name = package_items[0]["materialName"] + (" и ещё " + str(len(package_items)-1) + " поз." if len(package_items) > 1 else "")
+                agg_qty = float(len(package_items)) if len(package_items) > 1 else _safe_float(package_items[0].get("quantity"))
+                agg_unit = "поз." if len(package_items) > 1 else package_items[0].get("unit") or "шт"
+                cur.execute(
+                    "INSERT INTO supply_requests "
+                    "(material_name,quantity,unit,project,work_package,created_by,date,notes,selected_suppliers,"
+                    "status,requested_by_role,requested_by_id,urgency,category,items_json) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                    (
+                        agg_name,
+                        agg_qty,
+                        agg_unit,
+                        project_name,
+                        request_package,
+                        current_user.get("name") or "",
+                        dt.date.today().isoformat(),
+                        notes,
+                        [],
+                        "Новая",
+                        current_user.get("role") or "",
+                        current_user.get("id"),
+                        "обычная",
+                        "Нормы материалов",
+                        _json.dumps(package_items, ensure_ascii=False),
+                    ),
+                )
+                supply_id = cur.fetchone()["id"]
+                cur.execute(SUPPLY_SELECT + " WHERE id=%s", (supply_id,))
+                sr = cur.fetchone()
+                created_request = dict(sr) if sr else {"id": supply_id}
+                supply_requests.append(created_request)
+            supply_request = supply_requests[0] if supply_requests else None
     conn.commit()
     cur.close(); conn.close()
     return {
@@ -15297,6 +17725,7 @@ def create_estimate_from_material_norm_suggestions(data: dict = None, current_us
         "skippedNoQuantity": skipped_no_quantity,
         "diagnostics": diagnostics,
         "supplyRequest": supply_request,
+        "supplyRequests": supply_requests,
     }
 
 @app.put("/material-norm-suggestions/{id}")
@@ -15511,7 +17940,7 @@ def list_material_inspections(project_name: str = None, _current_user: dict = De
              "aiFilled":bool(r[18]),"createdAt":str(r[19]),"workPackage":r[20] or ""} for r in rows]
 
 @app.put("/material-inspection/{id}")
-def update_material_inspection(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+def update_material_inspection(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "material_inspection_journal", id, _current_user)
@@ -15556,7 +17985,7 @@ def update_material_inspection(id: int, data: dict, _current_user: dict = Depend
     return {"ok": True}
 
 @app.post("/material-inspection/{id}/ai-suggest")
-def ai_suggest_material_inspection(id: int, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+def ai_suggest_material_inspection(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
@@ -15619,6 +18048,8 @@ def ai_suggest_material_inspection(id: int, _current_user: dict = Depends(requir
 
 @app.get("/cable-journal")
 def list_cable_journal(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        return []
     conn = get_db()
     cur = conn.cursor()
     cols = """id, project_name, invoice_id, cable_brand, cross_section, cores_count,
@@ -15663,7 +18094,7 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
              "aiFilled":bool(r[21]),"createdAt":str(r[22]),"cableType":r[23] or ""} for r in rows]
 
 @app.put("/cable-journal/{id}")
-def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "cable_journal", id, _current_user)
@@ -15710,7 +18141,7 @@ def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(requ
     return {"ok": True}
 
 @app.post("/cable-journal/{id}/ai-suggest")
-def ai_suggest_cable_journal(id: int, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+def ai_suggest_cable_journal(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
@@ -16165,6 +18596,9 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
             return []
         where.append("project_name = ANY(%s)"); params.append(projects)
         packages = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
+        if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not packages:
+            cur.close(); conn.close()
+            return []
         if packages:
             where.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
             params.append(packages)
@@ -16197,6 +18631,8 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
     cur = conn.cursor()
     project_name = data.get("projectName", "")
     invoice_work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
+    offer_id = int(data.get("offerId") or data.get("offer_id") or 0)
+    request_id = int(data.get("requestId") or data.get("request_id") or 0)
     if _current_user.get("role") == "поставщик":
         supplier_id = current_supplier_id(cur, _current_user)
         if not supplier_id:
@@ -16205,27 +18641,76 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
         if not project_name:
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail="объект обязателен")
-        cur.execute("""SELECT 1
-                       FROM supplier_offers o
-                       JOIN supply_requests r ON r.id=o.request_id
-                       WHERE o.supplier_id=%s AND r.project=%s
-                         AND (%s='' OR COALESCE(r.work_package,'')=%s OR COALESCE(r.work_package,'')='')
-                       LIMIT 1""", (supplier_id, project_name, invoice_work_package, invoice_work_package))
-        if not cur.fetchone():
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="нет заявки поставщика по этому объекту")
         data["supplierId"] = supplier_id
     else:
-        require_project_access(_current_user, project_name)
+        if project_name:
+            require_project_access(_current_user, project_name)
+    linked_offer = None
+    if project_name:
+        if not offer_id:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Счёт по объекту создаётся только из утверждённого КП/заявки. Откройте КП поставщика и выставьте счёт оттуда.")
+        cur.execute("""SELECT o.id, o.request_id, o.supplier_id, o.total_price, o.payment_terms,
+                              s.name AS supplier_name, r.project, COALESCE(r.work_package,'') AS work_package,
+                              r.material_name
+                       FROM supplier_offers o
+                       LEFT JOIN suppliers s ON s.id=o.supplier_id
+                       LEFT JOIN supply_requests r ON r.id=o.request_id
+                       WHERE o.id=%s AND o.status=%s
+                       LIMIT 1""", (offer_id, 'Утверждено'))
+        linked_offer = cur.fetchone()
+        if not linked_offer:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Утверждённое КП для счёта не найдено")
+        offer_project = linked_offer[6] if not isinstance(linked_offer, dict) else linked_offer.get("project")
+        offer_request_id = linked_offer[1] if not isinstance(linked_offer, dict) else linked_offer.get("request_id")
+        offer_supplier_id = linked_offer[2] if not isinstance(linked_offer, dict) else linked_offer.get("supplier_id")
+        offer_total = _float_or_zero(linked_offer[3] if not isinstance(linked_offer, dict) else linked_offer.get("total_price"))
+        offer_package = (linked_offer[7] if not isinstance(linked_offer, dict) else linked_offer.get("work_package")) or ""
+        if offer_project != project_name:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="КП относится к другому объекту")
+        if request_id and request_id != offer_request_id:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="КП не относится к указанной заявке")
+        if data.get("supplierId") and int(data.get("supplierId") or 0) != int(offer_supplier_id or 0):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Поставщик счёта не совпадает с поставщиком КП")
+        if invoice_work_package and offer_package and invoice_work_package != offer_package:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Раздел счёта не совпадает с разделом заявки/КП")
+        amount = _float_or_zero(data.get("amount", offer_total))
+        if offer_total > 0 and amount > offer_total + max(1, offer_total * 0.02):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Сумма счёта больше суммы утверждённого КП")
+        cur.execute("""SELECT id FROM supplier_invoices
+                       WHERE offer_id=%s AND COALESCE(status,'') <> 'Аннулирован'
+                       ORDER BY id DESC LIMIT 1""", (offer_id,))
+        existing_invoice = cur.fetchone()
+        if existing_invoice:
+            existing_id = existing_invoice[0] if not isinstance(existing_invoice, dict) else existing_invoice.get("id")
+            cur.close(); conn.close()
+            return {"id": existing_id, "ok": True, "alreadyExists": True}
+        data["amount"] = amount if amount > 0 else offer_total
+        data["supplierId"] = offer_supplier_id
+        data["supplierName"] = linked_offer[5] if not isinstance(linked_offer, dict) else linked_offer.get("supplier_name")
+        data["requestId"] = offer_request_id
+        invoice_work_package = invoice_work_package or offer_package
+        if not data.get("description"):
+            data["description"] = "Материал: " + ((linked_offer[8] if not isinstance(linked_offer, dict) else linked_offer.get("material_name")) or "")
     cur.execute("""INSERT INTO supplier_invoices
                    (supplier_id, supplier_name, project_name, invoice_number, invoice_date,
-                    amount, vat_amount, description, file_url, photo_url, status, work_package)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    amount, vat_amount, description, file_url, photo_url, status,
+                    offer_id, request_id, payment_terms, material_name, work_package)
+	                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                 (data.get("supplierId"), data.get("supplierName",""), project_name,
                  data.get("invoiceNumber",""), data.get("invoiceDate") or None,
                  float(data.get("amount",0)), float(data.get("vatAmount",0)),
                  data.get("description",""), data.get("fileUrl",""), data.get("photoUrl",""),
-                 data.get("status","На утверждении"), invoice_work_package))
+                 data.get("status","На утверждении"), offer_id or None, data.get("requestId") or None,
+                 (linked_offer[4] if linked_offer and not isinstance(linked_offer, dict) else (linked_offer.get("payment_terms") if linked_offer else "")),
+                 (linked_offer[8] if linked_offer and not isinstance(linked_offer, dict) else (linked_offer.get("material_name") if linked_offer else data.get("materialName", ""))),
+                 invoice_work_package))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
@@ -16236,6 +18721,57 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
+    cur.execute("""SELECT si.amount, si.paid_amount, si.work_package, si.offer_id, o.total_price, COALESCE(r.work_package,''),
+                          COALESCE(si.payment_terms, o.payment_terms, '')
+                   FROM supplier_invoices si
+                   LEFT JOIN supplier_offers o ON o.id=si.offer_id
+                   LEFT JOIN supply_requests r ON r.id=o.request_id
+                   WHERE si.id=%s""", (id,))
+    invoice_guard = cur.fetchone()
+    if not invoice_guard:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Счёт не найден")
+    current_amount = _float_or_zero(invoice_guard[0])
+    current_paid = _float_or_zero(invoice_guard[1])
+    offer_id = invoice_guard[3]
+    offer_total = _float_or_zero(invoice_guard[4])
+    offer_package = invoice_guard[5] or ""
+    payment_terms = str(invoice_guard[6] or "").lower()
+    next_amount = _float_or_zero(data.get("amount", current_amount))
+    next_paid = _float_or_zero(data.get("paidAmount", current_paid))
+    next_package = (data.get("workPackage") if "workPackage" in data else invoice_guard[2]) or ""
+    if offer_id:
+        if offer_total > 0 and next_amount > offer_total + max(1, offer_total * 0.02):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Сумма счёта больше суммы утверждённого КП")
+        if offer_package and next_package and next_package != offer_package:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Раздел счёта нельзя менять: он должен совпадать с заявкой/КП")
+        cur.execute("""SELECT
+                              COALESCE(SUM(CASE WHEN status IN ('Принято','Проблема')
+                                                THEN COALESCE(received_quantity,0) * COALESCE(price_per_unit,0)
+                                                ELSE 0 END),0) AS accepted_amount,
+                              SUM(CASE WHEN status IN ('Принято','Проблема') THEN 1 ELSE 0 END) AS received_rows,
+                              SUM(CASE WHEN status='Проблема' THEN 1 ELSE 0 END) AS problem_rows
+                       FROM supply_deliveries
+                       WHERE offer_id=%s""", (offer_id,))
+        delivery_guard = cur.fetchone()
+        accepted_amount = _float_or_zero(delivery_guard[0]) if delivery_guard else 0
+        received_rows = int(delivery_guard[1] or 0) if delivery_guard else 0
+        problem_rows = int(delivery_guard[2] or 0) if delivery_guard else 0
+        is_prepay_terms = any(word in payment_terms for word in ("предоплат", "аванс", "50/50"))
+        if received_rows <= 0 and next_paid > current_paid + 0.01 and not is_prepay_terms:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Постоплатный счёт нельзя оплачивать до приёмки поставки")
+        if received_rows > 0 and next_paid > accepted_amount + max(1.0, accepted_amount * 0.02):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail=f"Оплата выше фактически принятой поставки: принято на {round(accepted_amount, 2)} ₽")
+        if problem_rows > 0 and next_paid > accepted_amount + 0.01:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="По поставке есть претензия. Оплата доступна только в пределах принятого количества")
+    if next_paid > next_amount + 0.01:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Оплаченная сумма не может быть больше суммы счёта")
     fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
                   ('paidAt','paid_at'),('paidBy','paid_by'),('paidNote','paid_note'),
                   ('description','description'),('amount','amount'),('vatAmount','vat_amount'),
@@ -16552,6 +19088,12 @@ def get_project_payments(project_name: str = "", current_user: dict = Depends(ge
         return []
     conn = get_db()
     cur = conn.cursor()
+    if project_name:
+        try:
+            require_project_access(current_user, project_name)
+        except HTTPException:
+            cur.close(); conn.close()
+            return []
     customer_projects = user_project_names(current_user) if role == "заказчик" else None
     if role == "заказчик" and project_name and project_name not in customer_projects:
         cur.close(); conn.close()
@@ -16603,6 +19145,13 @@ def create_project_payment(data: dict, _current_user: dict = Depends(require_rol
     work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     pay_date = data.get("date") or None
     added_by = data.get("addedBy") or data.get("paidBy") or ""
+    if not project_name:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Не указан объект платежа")
+    require_project_access(_current_user, project_name)
+    if not has_package_access(_current_user, work_package or "Основная"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
     if note:
         cur.execute("""SELECT id FROM project_payments
                        WHERE project_name=%s AND COALESCE(work_package,'')=%s AND amount=%s AND COALESCE(note,'')=%s
@@ -16634,6 +19183,10 @@ def delete_project_payment(id: int, _current_user: dict = Depends(require_roles(
     project_name, work_package, amount, note, pay_date, added_by = row
     if project_name:
         require_project_access(_current_user, project_name)
+    if not has_package_access(_current_user, work_package or "Основная"):
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
     amount = amount or 0
     reversal_note = "Сторно платежа #" + str(id)
     if note:
@@ -16762,7 +19315,7 @@ def get_own_expenses(project_name: str = "", employee_name: str = "", current_us
     role = current_user.get("role")
     if can_see_all_company_data(current_user):
         pass
-    elif role in ("мастер", "субподрядчик"):
+    elif role in WORKER_EXECUTION_ROLES:
         where.append("(employee_id=%s OR employee_name=%s)")
         params.extend([current_user.get("id"), current_user.get("name") or ""])
     else:
@@ -16884,7 +19437,7 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
     area = data.get("area")
     smeta_type = data.get("smetaType") or "Заказчик"
     status = data.get("status") or "Активная"
-    work_package = data.get("workPackage") or data.get("work_package") or "Основная"
+    work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
     version = data.get("version") or "1.0"
     if not description:
         raise HTTPException(status_code=400, detail="Опишите объект — поле обязательно")
@@ -16904,6 +19457,16 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
                     pricelist_id = r[1]
         except Exception:
             pass
+        if not project_name:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="Объект не найден")
+        require_project_access(_current_user, project_name)
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
+    if status == "Активная" and _current_user.get("role") not in LEADERSHIP_ROLES:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора. Сохраните смету черновиком.")
     if pricelist_id:
         cur.execute("SELECT id, name, unit, price, category FROM pricelist_items WHERE pricelist_id=%s ORDER BY category, name LIMIT 400", (int(pricelist_id),))
         pricelist_items = [{"id": r[0], "name": r[1], "unit": r[2], "price": float(r[3] or 0), "category": r[4] or ""} for r in cur.fetchall()]
@@ -17011,12 +19574,6 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
         sections.append({"id": int(_time.time()*1000) + i, "name": str(s.get("name") or ("Раздел " + str(i+1))), "items": items})
 
     final_name = (parsed.get("name") or name_hint or "Сгенерированная смета")
-    if status == "Активная" and project_name:
-        cur.execute("""UPDATE estimates SET status='Архив'
-                       WHERE project_name=%s
-                         AND COALESCE(smeta_type,'Заказчик')=%s
-                         AND COALESCE(work_package,'Основная')=%s""",
-                    (project_name, smeta_type, work_package))
     cur.execute("""INSERT INTO estimates
                    (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
@@ -17049,6 +19606,7 @@ def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_ro
     conn.autocommit = False
     cur = conn.cursor()
     try:
+        require_estimate_access(cur, int(estimate_id), _current_user)
         cur.execute("SELECT name, sections_json FROM estimates WHERE id=%s", (int(estimate_id),))
         row = cur.fetchone()
         if not row:
@@ -17085,10 +19643,13 @@ def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_ro
                     skipped += 1
                     continue
                 seen.add(key)
-                unit = str(it.get("unit") or "шт")
+                raw_unit = str(it.get("unit") or "шт")
+                unit_factor, normalized_unit = _estimate_scaled_unit(raw_unit)
+                unit = normalized_unit or raw_unit
                 price_work = _safe_float(it.get("priceWork"))
-                qty = _safe_float(it.get("quantity"))
-                is_imported = bool(it.get("isImported"))
+                qty = _estimate_imported_quantity(it)
+                if qty <= 0:
+                    qty = _safe_float(it.get("quantity"))
                 imported_total = _safe_float(
                     it.get("totalWork")
                     or it.get("workTotal")
@@ -17096,13 +19657,13 @@ def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_ro
                     or it.get("currentTotal")
                     or it.get("total")
                 )
-                if is_imported and qty > 0 and imported_total > 0:
+                if qty > 0 and imported_total > 0:
                     if price_work <= 0 or abs(price_work - imported_total) <= max(1, abs(imported_total) * 0.001):
                         price = imported_total / qty
                     else:
                         price = price_work
                 else:
-                    price = price_work
+                    price = price_work / unit_factor if unit_factor > 1 else price_work
                 price = round(price, 2)
                 if price <= 0:
                     skipped += 1
@@ -17244,35 +19805,49 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
               conclusion, comments, materials_used, project_docs,
               photos, certificates, city, ai_filled,
               paid_status, paid_amount, paid_at, paid_by, paid_note,
-              work_journal_id, created_at"""
+              work_journal_id, COALESCE(NULLIF(work_package,''),'Основная') AS work_package, created_at"""
     allowed_projects = visible_project_names(current_user)
     role = current_user.get("role")
-    if role not in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик", "прораб", "стройконтроль", "технадзор", "заказчик"):
+    if role not in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик", "прораб", "стройконтроль", "технадзор", "заказчик", *WORKER_EXECUTION_ROLES):
         cur.close(); conn.close()
         return []
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name=%s ORDER BY id DESC", (project_name,))
+        package_sql, package_params = package_access_filter(current_user, "work_package")
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name=%s{package_sql} ORDER BY id DESC", [project_name] + package_params)
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
+        package_sql, package_params = package_access_filter(current_user, "work_package")
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name = ANY(%s){package_sql} ORDER BY id DESC", [allowed_projects] + package_params)
     else:
         cur.execute(f"SELECT {cols} FROM hidden_works_acts ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     result = []
+    actor_name_key = (current_user.get("name") or "").strip().lower()
     for r in rows:
         signed_customer = r[13] or ""
         signed_supervisor = r[14] or ""
         signed_contractor = r[15] or ""
         signed_subcontractor = r[16] or ""
+        if role in WORKER_EXECUTION_ROLES:
+            own_names = {
+                str(r[6] or "").strip().lower(),
+                str(signed_contractor or "").strip().lower(),
+                str(signed_subcontractor or "").strip().lower(),
+            }
+            if actor_name_key not in own_names:
+                continue
+        price_per_unit = 0 if role in WORKER_EXECUTION_ROLES else float(r[9] or 0)
+        total = 0 if role in WORKER_EXECUTION_ROLES else float(r[10] or 0)
+        paid_amount = 0 if role in WORKER_EXECUTION_ROLES else float(r[30] or 0)
         result.append({"id":r[0],"projectName":r[1],"estimateId":r[2],"actNumber":r[3],"workName":r[4],
-             "sectionName":r[5],"brigade":r[6],"quantity":float(r[7] or 0),"unit":r[8],
-             "pricePerUnit":float(r[9] or 0),"total":float(r[10] or 0),"workDate":str(r[11]) if r[11] else "",
+             "sectionName":r[5],"workPackage":r[35] or "Основная","brigade":r[6],"quantity":float(r[7] or 0),"unit":r[8],
+             "pricePerUnit":price_per_unit,"total":total,"workDate":str(r[11]) if r[11] else "",
              "status":hidden_work_effective_status(r[12], signed_customer, signed_supervisor, signed_contractor, signed_subcontractor),
              "signedCustomer":signed_customer,"signedSupervisor":signed_supervisor,
              "signedContractor":signed_contractor,"signedSubcontractor":signed_subcontractor,
@@ -17282,17 +19857,55 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
              "materialsUsed":r[23] or "","projectDocs":r[24] or "",
              "photos":r[25] or "","certificates":r[26] or "","city":r[27] or "",
              "aiFilled":bool(r[28]),
-             "paidStatus":r[29] or "Не оплачен","paidAmount":float(r[30] or 0),
-             "paidAt":str(r[31]) if r[31] else "","paidBy":r[32] or "","paidNote":r[33] or "",
+             "paidStatus":"" if role in WORKER_EXECUTION_ROLES else (r[29] or "Не оплачен"),"paidAmount":paid_amount,
+             "paidAt":"" if role in WORKER_EXECUTION_ROLES else (str(r[31]) if r[31] else ""),"paidBy":"" if role in WORKER_EXECUTION_ROLES else (r[32] or ""),"paidNote":"" if role in WORKER_EXECUTION_ROLES else (r[33] or ""),
              "workJournalId":r[34],
-             "createdAt":str(r[35])})
+             "createdAt":str(r[36])})
     return result
 
 @app.put("/hidden-works-acts/{act_id}")
-def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_CONTENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES))):
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
+    if _current_user.get("role") in PACKAGE_LIMIT_ROLES:
+        require_hidden_work_actor_access(cur, act_id, _current_user)
+    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        cur.execute("""SELECT brigade, signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
+                              signed_customer_at, signed_supervisor_at, signed_contractor_at, signed_subcontractor_at,
+                              conclusion, comments, project_docs, materials_used, photos, certificates, city, status
+                       FROM hidden_works_acts WHERE id=%s""", (act_id,))
+        own_row = cur.fetchone()
+        if not own_row:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="АОСР не найден")
+        actor_key = (_current_user.get("name") or "").strip().lower()
+        own_names = {
+            str(own_row[0] or "").strip().lower(),
+            str(own_row[3] or "").strip().lower(),
+            str(own_row[4] or "").strip().lower(),
+        }
+        if actor_key not in own_names:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Исполнитель может подписывать только свой АОСР")
+        data = {
+            "status": own_row[16] or "Черновик",
+            "signedCustomer": own_row[1] or "",
+            "signedSupervisor": own_row[2] or "",
+            "signedContractor": own_row[3] or "",
+            "signedSubcontractor": (_current_user.get("name") or own_row[4] or ""),
+            "signedCustomerAt": own_row[5] or None,
+            "signedSupervisorAt": own_row[6] or None,
+            "signedContractorAt": own_row[7] or None,
+            "signedSubcontractorAt": data.get("signedSubcontractorAt") or __import__("datetime").date.today().isoformat(),
+            "conclusion": own_row[9] or "",
+            "comments": data.get("comments", own_row[10] or ""),
+            "projectDocs": own_row[11] or "",
+            "materialsUsed": own_row[12] or "",
+            "photos": own_row[13] or "",
+            "certificates": own_row[14] or "",
+            "city": own_row[15] or "",
+        }
     # Снапшот текущего состояния перед изменением (версионирование)
     try:
         cur.execute("SELECT row_to_json(t) FROM hidden_works_acts t WHERE id=%s", (act_id,))
@@ -17373,6 +19986,7 @@ def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(requi
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
+    require_hidden_work_actor_access(cur, act_id, _current_user)
     cur.execute("""SELECT work_name, section_name, brigade, materials_used, unit, quantity, project_name
                    FROM hidden_works_acts WHERE id=%s""", (act_id,))
     row = cur.fetchone()
@@ -17452,6 +20066,8 @@ def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(requi
 
 @app.get("/estimates/{estimate_id}/chat-history")
 def get_estimate_chat(estimate_id: int, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") in WORKER_EXECUTION_ROLES:
+        raise HTTPException(status_code=403, detail="Исполнители не имеют доступа к чату сметы")
     conn = get_db()
     cur = conn.cursor()
     require_estimate_access(cur, estimate_id, current_user)
@@ -17463,6 +20079,8 @@ def get_estimate_chat(estimate_id: int, current_user: dict = Depends(get_current
 @app.post("/estimate-chat")
 def estimate_chat(data: dict, current_user: dict = Depends(get_current_user)):
     import openai as oa
+    if current_user.get("role") in WORKER_EXECUTION_ROLES:
+        raise HTTPException(status_code=403, detail="Исполнители не имеют доступа к чату сметы")
     estimate_id = data.get("estimateId")
     user_message = (data.get("message") or "").strip()
     context = (data.get("context") or "").strip()

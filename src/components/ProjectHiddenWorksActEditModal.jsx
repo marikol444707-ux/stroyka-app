@@ -84,6 +84,10 @@ export default function ProjectHiddenWorksActEditModal({
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.detail || data.error || 'Не удалось сохранить акт');
+      return;
+    }
     const newStatus = data.status || act.status;
     const updated = {...act, status: newStatus, aiFilled: false};
     setHiddenActs(prev => prev.map(item => item.id === act.id ? updated : item));

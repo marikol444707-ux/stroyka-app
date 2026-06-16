@@ -8,6 +8,8 @@ const emptyUser = {
   role: 'прораб',
   projectId: '',
   projectName: '',
+  assignedProjects: [],
+  assignedPackages: [],
   active: true,
 };
 
@@ -23,6 +25,7 @@ function UsersPage({
   users,
   user,
   projects,
+  estimatesList = [],
   ROLES,
   ROLE_LABELS,
   ROLE_GROUPS,
@@ -64,6 +67,8 @@ function UsersPage({
       role: u.role,
       projectId: u.projectId || '',
       projectName: u.projectName || '',
+      assignedProjects: Array.isArray(u.assignedProjects) ? u.assignedProjects : [],
+      assignedPackages: Array.isArray(u.assignedPackages) ? u.assignedPackages : [],
       active: u.active !== false,
     });
     setShowForm(true);
@@ -77,7 +82,34 @@ function UsersPage({
 
   const updateProject = (projectId) => {
     const project = projects.find(p => p.id === Number(projectId));
-    setNewUser({...newUser, projectId, projectName: project ? project.name : ''});
+    const projectName = project ? project.name : '';
+    const assignedProjects = projectName ? [projectName] : [];
+    setNewUser({...newUser, projectId, projectName, assignedProjects, assignedPackages: []});
+  };
+  const projectScopedRoles = ['прораб','главный_инженер','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
+  const packageScopedRoles = ['прораб','мастер','субподрядчик','бригадир'];
+  const projectPackageOptions = Array.from(new Set(
+    (estimatesList || [])
+      .filter(e => (e.projectName || e.project_name || e.project || '') === (newUser.projectName || ''))
+      .map(e => (e.workPackage || e.work_package || 'Основная').trim() || 'Основная')
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b, 'ru'));
+  const toggleAssignedPackage = (pkg) => {
+    const current = Array.isArray(newUser.assignedPackages) ? newUser.assignedPackages : [];
+    const next = current.includes(pkg) ? current.filter(x => x !== pkg) : [...current, pkg];
+    setNewUser({...newUser, assignedPackages: next});
+  };
+  const handleRoleChange = (role) => {
+    const keepProject = projectScopedRoles.includes(role);
+    const keepPackages = packageScopedRoles.includes(role);
+    setNewUser({
+      ...newUser,
+      role,
+      projectId: keepProject ? newUser.projectId : '',
+      projectName: keepProject ? newUser.projectName : '',
+      assignedProjects: keepProject ? (newUser.assignedProjects || []) : [],
+      assignedPackages: keepPackages ? (newUser.assignedPackages || []) : [],
+    });
   };
 
   return (
@@ -99,8 +131,28 @@ function UsersPage({
             <input type="text" placeholder={editingItem?'Новый пароль (если меняем)':'Пароль *'} value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/>
             <button onClick={generatePassword} title="Сгенерировать и скопировать пароль" style={{...btnG,padding:'6px 10px',margin:0}}><RefreshCw size={13}/></button>
           </div>
-          <select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})} style={{...inp,marginBottom:0}}>{Object.keys(ROLES).map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
-          {['заказчик','технадзор'].includes(newUser.role)&&(<select value={newUser.projectId} onChange={e=>updateProject(e.target.value)} style={{...inp,marginBottom:0}}><option value=''>Привязать к проекту *</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)}
+          <select value={newUser.role} onChange={e=>handleRoleChange(e.target.value)} style={{...inp,marginBottom:0}}>{Object.keys(ROLES).map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
+          {projectScopedRoles.includes(newUser.role)&&(<select value={newUser.projectId} onChange={e=>updateProject(e.target.value)} style={{...inp,marginBottom:0}}><option value=''>Привязать к проекту *</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)}
+          {packageScopedRoles.includes(newUser.role)&&newUser.projectName&&(
+            <div style={{gridColumn:'span 2',border:'1.5px solid '+C.border,borderRadius:'10px',padding:'10px',backgroundColor:C.bg}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
+                <b style={{color:C.text,fontSize:'12px'}}>Пакеты работ по объекту</b>
+                <span style={{color:C.textSec,fontSize:'11px'}}>{(newUser.assignedPackages||[]).length || (newUser.role==='прораб' ? 'все для прораба' : 0)} выбрано</span>
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'8px'}}>
+                {projectPackageOptions.map(pkg => (
+                  <label key={pkg} style={{display:'inline-flex',alignItems:'center',gap:'6px',border:'1.5px solid '+((newUser.assignedPackages||[]).includes(pkg)?C.accent:C.border),borderRadius:'999px',padding:'6px 10px',color:C.text,fontSize:'12px',cursor:'pointer'}}>
+                    <input type='checkbox' checked={(newUser.assignedPackages||[]).includes(pkg)} onChange={()=>toggleAssignedPackage(pkg)} style={{width:'14px',height:'14px'}}/>
+                    {pkg}
+                  </label>
+                ))}
+                {projectPackageOptions.length===0&&<span style={{color:C.textSec,fontSize:'12px'}}>По объекту пока нет активных смет с пакетами работ.</span>}
+              </div>
+              <p style={{margin:'8px 0 0',color:C.textSec,fontSize:'11px'}}>
+                Мастер, субподрядчик и бригадир видят только выбранные пакеты. Прораб без выбора получает все активные пакеты объекта автоматически.
+              </p>
+            </div>
+          )}
           {editingItem&&(<select value={newUser.active===false?'off':'on'} onChange={e=>setNewUser({...newUser,active:e.target.value==='on'})} style={{...inp,marginBottom:0}}><option value='on'>Аккаунт активен</option><option value='off'>Аккаунт отключён</option></select>)}
         </div>
         <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveUser} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>

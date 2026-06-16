@@ -79,11 +79,16 @@ export default function ProjectWorkJournalEditModal({
       sectionName: journal.sectionName || '',
       hiddenWork: !!journal.hiddenWork,
     };
-    await fetch(API + '/work-journal/' + journal.id, {
+    const res = await fetch(API + '/work-journal/' + journal.id, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || data.error || 'Не удалось сохранить запись журнала');
+      return;
+    }
     setWorkJournal(prev => prev.map(item => item.id === journal.id ? {...item, ...body, aiFilled: false} : item));
     setEditingJournal(null);
   };

@@ -40,9 +40,12 @@ export default function MasterCabinetPage(props) {
     appendPhotos,
     applySupplyTemplate,
     badge,
+    brigadeContracts = [],
+    brigadeContractItems,
     buildActContent,
     buildCableJournalContent,
     buildContractContent,
+    buildHiddenActContent,
     btnB,
     btnG,
     btnGr,
@@ -63,7 +66,6 @@ export default function MasterCabinetPage(props) {
     denormalizeMeasure,
     doPrint,
     estimateDoneDrafts,
-    estimateItemDoneTotal,
     estimateWorkKey,
     estimateWorkMaterials,
     estimateWorkParams,
@@ -73,6 +75,7 @@ export default function MasterCabinetPage(props) {
     fmtMeasure,
     getNotifPage,
     handleLogout,
+    hiddenActs,
     inp,
     interimActs,
     isMobile,
@@ -174,6 +177,8 @@ export default function MasterCabinetPage(props) {
     fetchPriceHint,
     removeEstimateWorkMaterial,
     removeSelectedWorkMaterial,
+    setEditingAct,
+    setHiddenActs,
   } = props;
 
   if (showProfileForm) {
@@ -244,7 +249,7 @@ export default function MasterCabinetPage(props) {
   const myConfirmed = myJournal.filter(work => work.status === 'Подтверждено');
   const myPending = myJournal.filter(work => !work.status || work.status === 'На проверке');
   const myRejected = myJournal.filter(work => work.status === 'Отклонено');
-  const workExecutionTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? work.total ?? 0);
+  const workExecutionTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const sumConfirmed = myConfirmed.reduce((sum, work) => sum + workExecutionTotal(work), 0);
   const sumPending = myPending.reduce((sum, work) => sum + workExecutionTotal(work), 0);
   const sumRejected = myRejected.reduce((sum, work) => sum + workExecutionTotal(work), 0);
@@ -258,11 +263,20 @@ export default function MasterCabinetPage(props) {
   const myMaterialBalances = myMaterialProjectNames.flatMap(projectName => personalMaterialRowsForProject(projectName, user.name, user.id));
   const myPendingMaterialTransfers = materialTransfers.filter(transfer => transfer.toPerson === user.name && !transfer.signed);
   const categories = [...new Set(pricelistItems.map(item => item.category))];
-  const myContract = contracts.find(contract => contract.masterId === user.id);
-  const myActs = interimActs.filter(act => act.masterId === user.id);
+  const userNameKey = String(user?.name || '').trim().toLowerCase();
+  const myContract = [...(contracts || []), ...(brigadeContracts || [])].find(contract =>
+    Number(contract.masterId || contract.master_id || contract.contractorId || contract.contractor_id) === Number(user.id) ||
+    String(contract.brigadeName || contract.masterName || '').trim().toLowerCase() === userNameKey
+  );
+  const myActs = interimActs.filter(act => Number(act.masterId || act.master_id) === Number(user.id) || String(act.masterName || act.master_name || '').trim().toLowerCase() === userNameKey);
   const masterProjectOptions = selectableActiveProjects(projects);
   const selectedMasterProject = masterProjectOptions.find(project => project.id === Number(masterProjectId)) || projects.find(project => project.id === Number(masterProjectId));
   const projectRooms = masterProjectId ? rooms.filter(room => room.project === (selectedMasterProject?.name || '')) : [];
+  const selectedProjectHasActiveCustomerEstimate = !!selectedMasterProject && (estimatesList || []).some(estimate =>
+    (estimate.projectName || estimate.project_name) === selectedMasterProject.name &&
+    String(estimate.status || 'Активная').toLowerCase() === 'активная' &&
+    String(estimate.smetaType || estimate.smeta_type || 'Заказчик') === 'Заказчик'
+  );
   const userAssignedPackages = Array.isArray(user?.assignedPackages)
     ? user.assignedPackages.filter(Boolean)
     : (Array.isArray(user?.assigned_packages) ? user.assigned_packages.filter(Boolean) : []);
@@ -496,13 +510,35 @@ export default function MasterCabinetPage(props) {
               {masterProjectId && (() => {
                 const projectName = projects.find(project => project.id === Number(masterProjectId))?.name || '';
                 const projectEstimates = estimatesList.filter(estimate => estimate.projectName === projectName);
+                const assignedContractItems = Array.isArray(brigadeContractItems) ? brigadeContractItems : [];
                 const myItems = [];
                 projectEstimates.forEach(estimate => (estimate.sections || []).forEach((section, sectionIndex) => (section.items || []).forEach((item, itemIndex) => {
                   if (!estimateIsActive(estimate) || estimateItemIsMaterial(item)) return;
                   const packageAllowed = userAssignedPackages.length > 0 && userAssignedPackages.includes(estimatePackageName(estimate));
                   const namedToMe = item.brigadeName && (item.brigadeName === user.name || (user.brigade && item.brigadeName === user.brigade));
-                  if (packageAllowed || namedToMe) {
-                    myItems.push({ estId: estimate.id, estName: estimate.name, workPackage: estimatePackageName(estimate), sectionIdx: sectionIndex, itemIdx: itemIndex, section: section.name, ...item });
+                  const itemName = String(item.name || '').trim().toLowerCase();
+                  const itemUnit = String(item.unit || '').trim().toLowerCase();
+                  const assignedContractItem = assignedContractItems.find(contractItem => {
+                    const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
+                    const contractUnit = String(contractItem.unit || '').trim().toLowerCase();
+                    const contractProject = String(contractItem.projectName || contractItem.project_name || '').trim();
+                    const contractPackage = String(contractItem.workPackage || contractItem.work_package || '').trim();
+                    const sameProject = !contractProject || contractProject === projectName;
+                    const samePackage = contractPackage && contractPackage === estimatePackageName(estimate);
+                    return sameProject && samePackage && contractName && contractName === itemName && (!itemUnit || !contractUnit || contractUnit === itemUnit);
+                  });
+                  if ((assignedContractItems.length > 0 && assignedContractItem) || (assignedContractItems.length === 0 && (packageAllowed || namedToMe))) {
+                    myItems.push({
+                      ...item,
+                      estId: estimate.id,
+                      estName: estimate.name,
+                      workPackage: estimatePackageName(estimate),
+                      sectionIdx: sectionIndex,
+                      itemIdx: itemIndex,
+                      section: section.name,
+                      contractItemId: assignedContractItem?.id || null,
+                      executionPricePerUnit: assignedContractItem?.priceBrigade || item.executionPricePerUnit,
+                    });
                   }
                 })));
                 if (myItems.length === 0) return null;
@@ -527,8 +563,9 @@ export default function MasterCabinetPage(props) {
                       const usedMap = {};
                       usedMaterials.forEach(material => { usedMap[materialNameKey(material.name)] = material; });
                       const suggestions = project ? materialSuggestionsForWork(project.name, item.name, item.section, item.workPackage) : [];
-                      const executionUnitPrice = Number(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit || item.contractorPricePerUnit || item.priceWork || item.price || 0);
+                      const executionUnitPrice = Number(item.executionPricePerUnit || item.internalPricePerUnit || item.masterPricePerUnit || item.contractorPricePerUnit || 0);
                       const deltaEarning = Math.round(delta * executionUnitPrice);
+                      const missingExecutionPrice = executionUnitPrice <= 0;
                       return (
                         <div key={index} style={{ padding: '10px', marginBottom: '6px', backgroundColor: C.bgWhite, borderRadius: '8px', border: '1px solid ' + C.border }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
@@ -572,8 +609,8 @@ export default function MasterCabinetPage(props) {
                                 style={{ ...inp, marginBottom: 0, width: '78px', fontSize: '12px', padding: '4px 6px' }}
                               />
                             )}
-                            <span style={{ fontSize: '11px', color: C.success, fontWeight: '600', whiteSpace: 'nowrap' }}>{(deltaEarning > 0 ? deltaEarning : Math.round(estimateItemDoneTotal(item))).toLocaleString('ru-RU') + ' ₽'}</span>
-                            <button onClick={() => submitEstimateWorkDone(item, draft)} disabled={delta <= 0} style={{ ...(delta > 0 ? btnO : btnG), padding: '5px 9px', fontSize: '11px', opacity: delta > 0 ? 1 : 0.65 }}>
+                            <span style={{ fontSize: '11px', color: missingExecutionPrice ? C.warning : C.success, fontWeight: '600', whiteSpace: 'nowrap' }}>{missingExecutionPrice ? 'цена не назначена' : deltaEarning.toLocaleString('ru-RU') + ' ₽'}</span>
+                            <button onClick={() => submitEstimateWorkDone(item, draft)} disabled={delta <= 0 || missingExecutionPrice} style={{ ...(!missingExecutionPrice && delta > 0 ? btnO : btnG), padding: '5px 9px', fontSize: '11px', opacity: (!missingExecutionPrice && delta > 0) ? 1 : 0.65 }}>
                               Отправить
                             </button>
                           </div>
@@ -611,7 +648,7 @@ export default function MasterCabinetPage(props) {
                                         type="button"
                                         key={key}
                                         disabled={!hasStock}
-                                        onClick={() => checked ? removeEstimateWorkMaterial(workKey, suggestion.name) : upsertEstimateWorkMaterial(workKey, { name: suggestion.name, unit, workPackage: item.workPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, writeQty)}
+                                        onClick={() => checked ? removeEstimateWorkMaterial(workKey, suggestion.name) : upsertEstimateWorkMaterial(workKey, { name: suggestion.name, unit, workPackage: item.workPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '', normRuleId: norm?.ruleId || '', normThicknessMm: estimateWorkParams[workKey]?.thicknessMm || '' }, writeQty)}
                                         style={{ padding: '4px 7px', borderRadius: '7px', border: '1px solid ' + (checked ? C.accentBorder : status.border), backgroundColor: checked ? C.accentLight : status.bg, color: hasStock ? (checked ? C.accent : status.color) : C.textMuted, cursor: hasStock ? 'pointer' : 'not-allowed', fontSize: '10px', fontWeight: '600' }}
                                       >
                                         {(checked ? '✓ ' : '') + suggestion.name + (norm ? ' · норма ' + fmtMeasure(norm.quantity, unit) + (writeQty && toNum(writeQty) < toNum(norm.quantity) ? ' · доступно ' + fmtMeasure(writeQty, unit) : '') : (hasStock ? ' · ' + fmtMeasure(available.quantity, available.unit) : ''))}
@@ -634,7 +671,7 @@ export default function MasterCabinetPage(props) {
                                     const over = checked && toNum(selected.quantity) > stock;
                                     return (
                                       <div key={material.id} style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr) auto', gap: '6px', alignItems: 'center', fontSize: '11px', padding: '5px 6px', border: '1px solid ' + (over ? C.dangerBorder : checked ? C.accentBorder : C.border), borderRadius: '7px' }}>
-                                        <input type="checkbox" checked={checked} onChange={e => e.target.checked ? upsertEstimateWorkMaterial(workKey, { name: material.name, unit: material.unit || 'шт', workPackage: item.workPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, norm ? capMaterialWriteoffQty(project.name, material.name, norm.quantity, item.workPackage) : '') : removeEstimateWorkMaterial(workKey, material.name)} style={{ width: '14px', height: '14px', accentColor: C.accent }} />
+                                        <input type="checkbox" checked={checked} onChange={e => e.target.checked ? upsertEstimateWorkMaterial(workKey, { name: material.name, unit: material.unit || 'шт', workPackage: item.workPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '', normRuleId: norm?.ruleId || '', normThicknessMm: estimateWorkParams[workKey]?.thicknessMm || '' }, norm ? capMaterialWriteoffQty(project.name, material.name, norm.quantity, item.workPackage) : '') : removeEstimateWorkMaterial(workKey, material.name)} style={{ width: '14px', height: '14px', accentColor: C.accent }} />
                                         <span style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                           {material.name}
                                           <span style={{ color: over ? C.danger : C.textSec }}>
@@ -661,7 +698,13 @@ export default function MasterCabinetPage(props) {
                 );
               })()}
 
-              {pricelistItems.length > 0 && !selectedBrigadeContract && (
+              {pricelistItems.length > 0 && !selectedBrigadeContract && selectedProjectHasActiveCustomerEstimate && (
+                <div style={{ padding: '12px', border: '1.5px solid ' + C.warningBorder, borderRadius: '10px', backgroundColor: C.warningLight, color: C.text, fontSize: '12px', marginTop: '12px' }}>
+                  По объекту есть активная заказная смета. Работы закрываются только по назначенным сметным позициям, прайс-режим скрыт.
+                </div>
+              )}
+
+              {pricelistItems.length > 0 && !selectedBrigadeContract && !selectedProjectHasActiveCustomerEstimate && (
                 <>
                   {categories.map(category => (
                     <div key={category} style={{ marginBottom: '15px' }}>
@@ -785,7 +828,7 @@ export default function MasterCabinetPage(props) {
                                                 type="button"
                                                 key={'sug-' + key}
                                                 disabled={!hasStock}
-                                                onClick={() => checked ? removeSelectedWorkMaterial(item.id, suggestion.name) : upsertSelectedWorkMaterial(item.id, { name: suggestion.name, unit, workPackage: scopedPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, writeQty)}
+                                                onClick={() => checked ? removeSelectedWorkMaterial(item.id, suggestion.name) : upsertSelectedWorkMaterial(item.id, { name: suggestion.name, unit, workPackage: scopedPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '', normRuleId: norm?.ruleId || '', normThicknessMm: selectedWorks[item.id]?.thicknessMm || '' }, writeQty)}
                                                 style={{ padding: '5px 8px', borderRadius: '8px', border: '1px solid ' + (checked ? C.accentBorder : status.border), backgroundColor: checked ? C.accentLight : status.bg, color: hasStock ? (checked ? C.accent : status.color) : C.textMuted, cursor: hasStock ? 'pointer' : 'not-allowed', fontSize: '10px', fontWeight: '600' }}
                                               >
                                                 {(checked ? '✓ ' : '') + suggestion.name + ' · ' + (norm ? 'норма ' + fmtMeasure(norm.quantity, unit) + (writeQty && toNum(writeQty) < toNum(norm.quantity) ? ' · доступно ' + fmtMeasure(writeQty, unit) : '') : (hasStock ? 'доступно ' + fmtMeasure(available.quantity, available.unit) : isPersonalMaterialRole() ? 'не выдано мне' : 'нет на объекте'))}
@@ -809,7 +852,7 @@ export default function MasterCabinetPage(props) {
                                             const status = hint ? materialControlStatus(hint) : null;
                                             return (
                                               <div key={material.id} style={{ display: 'grid', gridTemplateColumns: '18px minmax(0,1fr) auto', alignItems: 'center', gap: '8px', padding: '7px 8px', backgroundColor: checked ? C.bgWhite : 'transparent', border: '1px solid ' + (over ? C.dangerBorder : checked ? C.accentBorder : C.border), borderRadius: '8px', fontSize: '11px' }}>
-                                                <input type="checkbox" checked={checked} onChange={e => e.target.checked ? upsertSelectedWorkMaterial(item.id, { name: material.name, unit: material.unit || 'шт', workPackage: scopedPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '' }, norm ? capMaterialWriteoffQty(project.name, material.name, norm.quantity, scopedPackage) : '') : removeSelectedWorkMaterial(item.id, material.name)} style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: C.accent }} />
+                                                <input type="checkbox" checked={checked} onChange={e => e.target.checked ? upsertSelectedWorkMaterial(item.id, { name: material.name, unit: material.unit || 'шт', workPackage: scopedPackage || '', autoNorm: !!norm, normQuantity: norm?.normQuantity || '', normSource: norm?.normSource || '', normRuleId: norm?.ruleId || '', normThicknessMm: selectedWorks[item.id]?.thicknessMm || '' }, norm ? capMaterialWriteoffQty(project.name, material.name, norm.quantity, scopedPackage) : '') : removeSelectedWorkMaterial(item.id, material.name)} style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: C.accent }} />
                                                 <div style={{ minWidth: 0 }}>
                                                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                                                     <b style={{ color: C.text, overflow: 'hidden', textOverflow: 'ellipsis' }}>{material.name}</b>
@@ -934,12 +977,17 @@ export default function MasterCabinetPage(props) {
             API={API}
             C={C}
             btnB={btnB}
+            btnG={btnG}
             btnO={btnO}
             buildActContent={buildActContent}
             buildContractContent={buildContractContent}
+            buildHiddenActContent={buildHiddenActContent}
             card={card}
             doPrint={doPrint}
+            editingHiddenAct={props.editingAct}
             fileSrc={fileSrc}
+            hiddenActs={hiddenActs}
+            inp={inp}
             masterProfile={masterProfile}
             masterProfiles={masterProfiles}
             myActs={myActs}
@@ -948,6 +996,8 @@ export default function MasterCabinetPage(props) {
             pdConsents={pdConsents}
             PD_CONSENT_TEXT={PD_CONSENT_TEXT}
             refreshData={props.refreshData}
+            setEditingHiddenAct={setEditingAct}
+            setHiddenActs={setHiddenActs}
             showPreview={showPreview}
             uploadPhoto={uploadPhoto}
             user={user}

@@ -112,14 +112,14 @@ export default function SupplyPage({
   uploadPhoto,
 }) {
   const role = user.role;
-  const canCreate = ['мастер', 'субподрядчик', 'прораб', 'директор', 'зам_директора', 'кладовщик', 'снабженец'].includes(role);
+  const canCreate = ['мастер', 'субподрядчик', 'бригадир', 'прораб', 'директор', 'зам_директора', 'кладовщик', 'снабженец'].includes(role);
   const canConfirmProrab = role === 'прораб' || isLeadership();
   const canApprove = isLeadership();
   const canViewSuppliers = ['директор', 'зам_директора', 'прораб', 'кладовщик', 'снабженец', 'бухгалтер'].includes(role);
   const canViewDeliveries = ['директор', 'зам_директора', 'прораб', 'кладовщик', 'снабженец', 'бухгалтер'].includes(role);
 
   let tabs = [];
-  if (role === 'мастер' || role === 'субподрядчик') {
+  if (['мастер','субподрядчик','бригадир'].includes(role)) {
     tabs = [{ id: 'mine', label: '📋 Мои заявки' }];
   } else if (role === 'прораб') {
     tabs = [
@@ -162,7 +162,7 @@ export default function SupplyPage({
 
   let list = supplyRequests || [];
   const curTab = tabs.find(tab => tab.id === supplyTab) ? supplyTab : tabs[0].id;
-  if (role === 'мастер' || role === 'субподрядчик') {
+  if (['мастер','субподрядчик','бригадир'].includes(role)) {
     list = list.filter(request => request.createdBy === user.name || request.requestedById === user.id);
   } else if (role === 'прораб') {
     if (curTab === 'inbox') list = list.filter(request => request.status === 'Новая');
