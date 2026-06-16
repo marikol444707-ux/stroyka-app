@@ -19900,9 +19900,18 @@ def create_own_expense(data: dict, current_user: dict = Depends(require_roles(*O
     conn = get_db()
     cur = conn.cursor()
     employee_name, employee_id, telegram_id, telegram_chat_id = _resolve_own_expense_employee(cur, data, current_user)
-    description = data.get("description", "")
-    amount = data.get("amount", 0)
+    description = str(data.get("description") or "").strip()
+    amount = _safe_float(data.get("amount"), None)
+    if not description:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Укажите описание траты")
+    if amount is None or amount <= 0:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Сумма траты должна быть больше нуля")
     date_value = data.get("date") or None
+    category = data.get("category") or "other"
+    if not project_name:
+        category = OWN_EXPENSE_NO_PROJECT_CATEGORY
     cur.execute(
         """
         INSERT INTO own_expenses
@@ -19918,7 +19927,7 @@ def create_own_expense(data: dict, current_user: dict = Depends(require_roles(*O
             amount,
             data.get("photoUrl", ""),
             date_value,
-            data.get("category", "other"),
+            category,
             telegram_id,
             telegram_chat_id,
         ),
