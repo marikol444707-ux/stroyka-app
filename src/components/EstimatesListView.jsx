@@ -33,6 +33,7 @@ export default function EstimatesListView({
   showPreview,
   buildEstimateDiffContent,
   isLeadership,
+  canHardDeleteEstimate,
 }) {
   const normal = (estimatesList || []).filter(e => !isGlobalEstimateTemplate(e) || e.status === 'Активная');
   const templates = (estimatesList || []).filter(e => isGlobalEstimateTemplate(e) && e.status !== 'Активная');
@@ -109,6 +110,7 @@ export default function EstimatesListView({
           showPreview={showPreview}
           buildEstimateDiffContent={buildEstimateDiffContent}
           isLeadership={isLeadership}
+          canHardDeleteEstimate={canHardDeleteEstimate}
         />
       ))}
       <EstimateTemplatesList

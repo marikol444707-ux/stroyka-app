@@ -10419,6 +10419,8 @@ def _estimate_material_sum_backend(item: dict) -> float:
     if raw in ("adjustment", "корректировка", "note", "примечание"):
         return 0.0
     qty = _float_or_zero(item.get("quantity"))
+    if qty <= 0 and raw in ("material", "материал", "materials", "материалы", "equipment", "оборудование", "delivery", "доставка", "transport"):
+        return 0.0
     if item.get("isImported"):
         total_material = _float_or_zero(item.get("totalMaterial") or item.get("materialTotal") or item.get("materialSum"))
         line_total = _float_or_zero(item.get("lineTotal") or item.get("currentTotal") or item.get("total") or item.get("sum") or item.get("amount") or item.get("totalSum"))
@@ -13982,6 +13984,8 @@ def get_estimate_version_detail(version_id: int, _current_user: dict = Depends(r
 
 @app.delete("/estimates/{id}")
 def delete_estimate(id: int, hard: bool = False, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    if current_user.get("role") != "директор":
+        raise HTTPException(status_code=403, detail="Безвозвратно удалять смету может только директор. Для работы используйте снятие активности или статус черновика.")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     conn.autocommit = False

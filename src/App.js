@@ -189,6 +189,8 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   const nameTransportShouldWin = nameLooksTransport && !nameStartsWithWork;
   const weakExplicitMaterial = explicitKnown === 'material' && (codeLooksWork || nameLooksStrongWork);
   const weakExplicitWork = explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameMaterialShouldWin || nameEquipmentShouldWin || nameTransportShouldWin || toNum(it.quantity) < 0);
+  if (toNum(it.quantity) <= 0 && ['material','equipment','transport'].includes(explicitKnown)) return 'adjustment';
+  if (toNum(it.quantity) <= 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
   if (explicitKnown && !weakExplicitWork && !weakExplicitMaterial) return explicitKnown;
   if (weakExplicitMaterial) return 'work';
   if (explicit.includes('коррект') || explicit.includes('adjust')) return 'adjustment';
@@ -198,7 +200,7 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   if (explicit.includes('проч') || explicit.includes('наклад')) return 'overhead';
   if (explicit.includes('работ') && !weakExplicitWork) return 'work';
   if (codeLooksWork || nameLooksStrongWork) return 'work';
-  if (it.isImported && toNum(it.quantity) < 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
+  if (it.isImported && toNum(it.quantity) <= 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
   if (toNum(it.priceMaterial)>0 && toNum(it.priceWork)===0) return 'material';
   if (codeLooksResource && !nameLooksStrongWork) return 'material';
   if (nameTransportShouldWin && !nameLooksWork) return 'transport';
@@ -507,7 +509,7 @@ const estimateImportedMaterialTotal = (it, itemType) => {
   return ['material','equipment','transport'].includes(itemType) && !totalWork ? total : 0;
 };
 const estimateItemWorkSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) ? 0 : (it?.isImported ? estimateImportedWorkTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceWork)); };
-const estimateItemMaterialSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) ? 0 : (it?.isImported ? estimateImportedMaterialTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceMaterial)); };
+const estimateItemMaterialSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) || (['material','equipment','transport'].includes(itemType) && toNum(it?.quantity)<=0) ? 0 : (it?.isImported ? estimateImportedMaterialTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceMaterial)); };
 const estimateItemTotal = (it) => estimateItemWorkSum(it) + estimateItemMaterialSum(it);
 const estimateItemDoneTotal = (it) => {
   const q = toNum(it?.quantity);
@@ -4514,7 +4516,7 @@ function App() {
   const deleteEstimateRemote = async (est) => {
     if (!est?.id) return;
     const title = est.name || 'смету';
-    if (!window.confirm('Удалить смету "' + title + '" безвозвратно? Если смета уже связана с ЖПР, АОСР или договорными позициями, сервер не даст удалить ее, чтобы не потерять историю объекта.')) return;
+    if (!window.confirm('Удалить смету "' + title + '" безвозвратно? Это действие доступно только директору. Если смета уже связана с ЖПР, АОСР, договорными позициями или материалами, сервер не даст удалить ее, чтобы не потерять историю объекта.')) return;
     const res = await fetch(API + '/estimates/' + est.id + '?hard=true', {method: 'DELETE'});
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -4733,6 +4735,7 @@ function App() {
     activeEstimates.forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
       const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (!isEstimateMaterialItem(it, s.name)) return;
+      if (toNum(estimateImportedPlanMeasure(it).qty) <= 0) return;
       if (estimateMaterialPlanIssue(it, s.name)) return;
       const sectionLabel = (estimatePackage(est)!=='Основная'?estimatePackage(est)+' / ':'')+(s.name||'');
       const planMeasure = estimateImportedPlanMeasure(it);
@@ -4869,6 +4872,7 @@ function App() {
       .forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(rawIt=>{
       const it = normalizeEstimateWorkingItem(rawIt, s.name);
       if (isEstimateMaterialItem(it, s.name)) {
+        if (toNum(estimateImportedPlanMeasure(it).qty) <= 0) return;
         const r = ensure(it.name, it.unit, estimatePackage(est));
         if (!r) return;
         const planMeasure = estimateImportedPlanMeasure(it);
@@ -8906,6 +8910,7 @@ function App() {
     return html;
   };
   const isLeadership = () => ['директор','зам_директора'].includes(user?user.role:'');
+  const isDirector = () => (user ? user.role : '') === 'директор';
   const canUseDirectorAgent = () => ['директор','system_owner'].includes(user?user.role:'');
   const isProrab = () => ['директор','зам_директора','прораб','главный_инженер'].includes(user?user.role:'');
   const isMasterRole = () => ['мастер','субподрядчик','бригадир'].includes(user?user.role:'');
@@ -14331,6 +14336,7 @@ function App() {
                   showPreview={showPreview}
                   buildEstimateDiffContent={buildEstimateDiffContent}
                   isLeadership={isLeadership}
+                  canHardDeleteEstimate={isDirector}
                 />
               </div>)}
             </div>)}
