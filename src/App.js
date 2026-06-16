@@ -9360,7 +9360,12 @@ function App() {
     }
   };
 
-  const deleteStaff = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/staff/'+id,{method:'DELETE'}); await refreshData(); } };
+  const deleteStaff = async (id) => {
+    if (window.confirm('Отключить сотрудника? Запись останется в истории, доступ в систему будет выключен.')) {
+      await fetch(API+'/staff/'+id,{method:'DELETE'});
+      await refreshData();
+    }
+  };
 
   const addPiecework = async () => {
     if (!newPiecework.staffId||!newPiecework.description||!newPiecework.quantity||!newPiecework.pricePerUnit) return;

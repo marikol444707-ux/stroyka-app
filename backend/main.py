@@ -4662,7 +4662,12 @@ def delete_staff(id: int, _current_user: dict = Depends(require_roles(*STAFF_MAN
             str(staff_row.get("email_work") or "").strip().lower(),
             str(staff_row.get("email_personal") or "").strip().lower(),
         ]) - {""})
-        cur.execute("DELETE FROM staff WHERE id=%s", (id,))
+        cur.execute("""
+            UPDATE staff
+               SET status='Уволен',
+                   fired_date=COALESCE(fired_date, CURRENT_DATE)
+             WHERE id=%s
+        """, (id,))
         disabled_users = 0
         if emails:
             cur.execute("""
@@ -4675,7 +4680,7 @@ def delete_staff(id: int, _current_user: dict = Depends(require_roles(*STAFF_MAN
             """, (emails,))
             disabled_users = cur.rowcount
         conn.commit()
-        return {"ok": True, "disabledUsers": disabled_users}
+        return {"ok": True, "status": "Уволен", "disabledUsers": disabled_users}
     except HTTPException:
         conn.rollback()
         raise
