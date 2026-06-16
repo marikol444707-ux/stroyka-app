@@ -189,8 +189,8 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   const nameTransportShouldWin = nameLooksTransport && !nameStartsWithWork;
   const weakExplicitMaterial = explicitKnown === 'material' && (codeLooksWork || nameLooksStrongWork);
   const weakExplicitWork = explicitKnown === 'work' && !nameLooksStrongWork && (codeLooksResource || nameMaterialShouldWin || nameEquipmentShouldWin || nameTransportShouldWin || toNum(it.quantity) < 0);
-  if (toNum(it.quantity) <= 0 && ['material','equipment','transport'].includes(explicitKnown)) return 'adjustment';
-  if (toNum(it.quantity) <= 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
+  if (toNum(it.quantity) < 0 && ['material','equipment','transport'].includes(explicitKnown)) return 'adjustment';
+  if (toNum(it.quantity) < 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
   if (explicitKnown && !weakExplicitWork && !weakExplicitMaterial) return explicitKnown;
   if (weakExplicitMaterial) return 'work';
   if (explicit.includes('коррект') || explicit.includes('adjust')) return 'adjustment';
@@ -200,7 +200,7 @@ const normalizeEstimateItemType = (it={}, sectionName='') => {
   if (explicit.includes('проч') || explicit.includes('наклад')) return 'overhead';
   if (explicit.includes('работ') && !weakExplicitWork) return 'work';
   if (codeLooksWork || nameLooksStrongWork) return 'work';
-  if (it.isImported && toNum(it.quantity) <= 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
+  if (it.isImported && toNum(it.quantity) < 0 && (codeLooksResource || nameLooksMaterial || nameLooksEquipment || nameLooksTransport) && !nameLooksStrongWork) return 'adjustment';
   if (toNum(it.priceMaterial)>0 && toNum(it.priceWork)===0) return 'material';
   if (codeLooksResource && !nameLooksStrongWork) return 'material';
   if (nameTransportShouldWin && !nameLooksWork) return 'transport';
@@ -14202,10 +14202,12 @@ function App() {
                   if(showEstimateIssuesOnly&&typedItems.length===0) return null;
                   const works=typedItems.filter(i=>i._type==='work');
                   const mats=typedItems.filter(i=>i._type==='material');
-                  const others=typedItems.filter(i=>!['work','material'].includes(i._type));
+                  const adjustments=typedItems.filter(i=>i._type==='adjustment');
+                  const others=typedItems.filter(i=>!['work','material','adjustment'].includes(i._type));
                   const total=allItems.reduce((s,i)=>s+sumOf(i),0);
                   const totalW=works.reduce((s,i)=>s+sumOf(i),0);
                   const totalM=mats.reduce((s,i)=>s+sumOf(i),0);
+                  const totalAdjustment=adjustments.reduce((s,i)=>s+sumOf(i),0);
                   const totalOther=others.reduce((s,i)=>s+sumOf(i),0);
                   const removeAt=(idx)=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).filter((_,i)=>i!==idx)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
                   const updateItemPatch=(idx,patch,saveNow=false)=>{
@@ -14298,6 +14300,7 @@ function App() {
 	                  <div style={{padding:'12px 16px'}}>
 	                    {renderGroup('Работы','🔨',works,totalW,C.accent)}
 	                    {renderGroup('Материалы','📦',mats,totalM,C.info)}
+	                    {adjustments.length>0&&renderGroup('Корректировки / исключения','↕️',adjustments,totalAdjustment,C.warning)}
 	                    {renderGroup('Оборудование / доставка / прочее','⚙️',others,totalOther,C.textSec)}
 	                    <div style={{display:'grid',gridTemplateColumns:'minmax(420px,3fr) 140px 160px 160px 54px',gap:'8px',marginTop:'10px',alignItems:'center',overflowX:'auto'}}>
 	                      <input placeholder="Добавить строку вручную: название *" value={newEstimateItem.sectionId===section.id?newEstimateItem.name:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
