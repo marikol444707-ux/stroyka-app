@@ -6340,9 +6340,15 @@ function App() {
           const matchingMaterials = materialsInSection.filter(m=>materialNormMatchesMaterial(rule, m.name, m.unit, it.name+' '+section.name));
           matchingMaterials.forEach(m=>coveredMaterialKeys.add(materialNameKey(m.name)));
           const material = matchingMaterials[0];
-          const materialQty = toNum(material?.quantity);
+          const positiveMaterialQty = matchingMaterials.reduce((sum,m)=>sum+Math.max(0,toNum(m.quantity)),0);
+          const negativeMaterialQty = matchingMaterials.reduce((sum,m)=>sum+Math.min(0,toNum(m.quantity)),0);
+          const materialQty = positiveMaterialQty || toNum(material?.quantity);
+          const requiredQty = toNum(req?.quantity);
+          const shortageQty = requiredQty>0 ? Math.max(0, roundNormQty(requiredQty - positiveMaterialQty)) : 0;
+          const hasPositiveMaterial = positiveMaterialQty > 0;
+          const hasOnlyNegativeMaterial = matchingMaterials.length>0 && !hasPositiveMaterial && negativeMaterialQty < 0;
           const materialStatus = material
-            ? (materialQty>0 ? (rule.scope==='estimate'?'Поправка сметы':rule.scope==='project'?'Поправка объекта':'Норма применена') : materialQty<0 ? 'Некорректное количество' : 'Материал без количества')
+            ? (hasOnlyNegativeMaterial ? 'Некорректное количество' : hasPositiveMaterial ? (shortageQty>0?'Нехватка материала по норме':(rule.scope==='estimate'?'Поправка сметы':rule.scope==='project'?'Поправка объекта':'Норма применена')) : 'Материал без количества')
             : 'Нет материала в смете';
           rows.push({
             key:[est.id,section.name,itemIdx,rule.ruleKey||rule.id].join('|'),
@@ -6358,15 +6364,24 @@ function App() {
             workQty,
             workUnit,
             status: materialStatus,
-            severity: material ? (materialQty>0?'success':'warning') : 'info',
-            message: material ? (materialQty>0?'Работа покрыта нормой и материал найден в разделе сметы':materialQty<0?'Материал найден в разделе сметы, но количество отрицательное — нужна правка сметы':'Материал найден в разделе сметы, но количество не заполнено или равно 0') : 'Норма есть, но строка материала в этом разделе сметы не найдена',
+            severity: material ? (shortageQty>0 || hasOnlyNegativeMaterial || !hasPositiveMaterial ? 'warning':'success') : 'info',
+            message: material
+              ? (hasOnlyNegativeMaterial
+                ? 'Материал найден в разделе сметы, но количество отрицательное — это корректировка, она не закрывает потребность по норме'
+                : !hasPositiveMaterial
+                  ? 'Материал найден в разделе сметы, но количество не заполнено или равно 0'
+                  : shortageQty>0
+                    ? 'Материала в смете меньше, чем требуется по норме'
+                    : 'Работа покрыта нормой и материал найден в разделе сметы')
+              : 'Норма есть, но строка материала в этом разделе сметы не найдена',
             rule,
             hasEstimateMaterial: !!material,
             materialName: material?.name || materialTitleForNormRule(rule),
             materialQty,
             materialUnit: material?.unit || rule.materialUnit || '',
-            requiredQty: req?.quantity || 0,
+            requiredQty,
             requiredUnit: req?.unit || rule.materialUnit || '',
+            shortageQty,
             qtyPerUnit: rule.qtyPerUnit,
           });
         });
@@ -6383,7 +6398,7 @@ function App() {
     if (['Норма применена','Поправка объекта','Поправка сметы'].includes(status)) return {color:C.success,bg:C.successLight,border:C.successBorder};
     if (status==='Норма не нужна') return {color:C.textSec,bg:C.bgGray,border:C.border};
     if (status==='Некорректное количество') return {color:C.danger,bg:C.dangerLight,border:C.dangerBorder};
-    if (status==='Нет нормы' || status==='Материал без работы' || status==='Материал без количества') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
+    if (status==='Нет нормы' || status==='Материал без работы' || status==='Материал без количества' || status==='Нехватка материала по норме') return {color:C.warning,bg:C.warningLight,border:C.warningBorder};
     return {color:C.info,bg:C.infoLight,border:C.infoBorder};
   };
   const materialNormCoverageSpecText = (row) => {
@@ -6413,6 +6428,7 @@ function App() {
     const spec = materialNormCoverageSpecText(row);
     if (spec) pieces.push(spec);
     if (row.status === 'Нет материала в смете') pieces.push('подходящая строка материала в этом разделе не найдена');
+    if (row.status === 'Нехватка материала по норме') pieces.push('не хватает '+fmtMeasure(row.shortageQty||0,row.requiredUnit||row.materialUnit||row.rule.materialUnit));
     if (row.status === 'Некорректное количество') pieces.push('количество материала в смете отрицательное или некорректное');
     if (row.status === 'Материал без количества') pieces.push('материал найден, но количество в смете пустое или 0');
     if (!pieces.length) return base;
@@ -6420,14 +6436,15 @@ function App() {
   };
   const materialNormCoveragePriority = (status) => ({
     'Некорректное количество': 0,
-    'Нет материала в смете': 1,
-    'Материал без количества': 2,
-    'Нет нормы': 3,
-    'Материал без работы': 4,
-    'Поправка объекта': 5,
-    'Поправка сметы': 5,
-    'Норма применена': 6,
-    'Норма не нужна': 7,
+    'Нехватка материала по норме': 1,
+    'Нет материала в смете': 2,
+    'Материал без количества': 3,
+    'Нет нормы': 4,
+    'Материал без работы': 5,
+    'Поправка объекта': 6,
+    'Поправка сметы': 6,
+    'Норма применена': 7,
+    'Норма не нужна': 8,
   }[status] ?? 9);
   const materialNormCoverageDisplayRows = (rows=[]) => [...rows].sort((a,b)=>{
     const pa = materialNormCoveragePriority(a.status);
@@ -6446,6 +6463,7 @@ function App() {
     'Материал / норма': r.materialName || materialTitleForNormRule(r.rule) || '',
     'Потребность': r.requiredQty ? fmtMeasure(r.requiredQty,r.requiredUnit) : '',
     'В смете': r.materialQty ? fmtMeasure(r.materialQty,r.materialUnit) : '',
+    'Нехватка': r.shortageQty ? fmtMeasure(r.shortageQty,r.requiredUnit||r.materialUnit) : '',
     'Код нормы': r.rule?.ruleKey || r.rule?.id || '',
     Комментарий: materialNormCoverageComment(r),
   }));
@@ -6455,16 +6473,17 @@ function App() {
     const skippedCount = rows.filter(r=>r.status==='Норма не нужна').length;
     const missingCount = rows.filter(r=>r.status==='Нет нормы').length;
     const unlinkedCount = rows.filter(r=>r.status==='Материал без работы').length;
+    const shortageCount = rows.filter(r=>r.status==='Нехватка материала по норме').length;
     const infoCount = rows.filter(r=>r.status==='Нет материала в смете').length;
     const zeroQtyCount = rows.filter(r=>r.status==='Материал без количества').length;
     const invalidQtyCount = rows.filter(r=>r.status==='Некорректное количество').length;
     const req = companyRequisites||{};
     const orgName = req.fullName||req.shortName||companyName||'_____';
-    let html = '<style>.mn-tbl{border-collapse:collapse;width:100%;font-size:10.5px;margin:8px 0}.mn-tbl th,.mn-tbl td{border:1px solid #333;padding:5px 6px;vertical-align:top}.mn-tbl th{background:#f3f4f6}.mn-ok{background:#dcfce7}.mn-info{background:#dbeafe}.mn-skip{background:#f3f4f6}.mn-warn{background:#fef3c7}.mn-danger{background:#fee2e2}.mn-note{font-size:10px;color:#555}.mn-summary{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;margin:10px 0}.mn-summary div{border:1px solid #333;padding:6px;text-align:center}.mn-summary b{display:block;font-size:14px}</style>';
+    let html = '<style>.mn-tbl{border-collapse:collapse;width:100%;font-size:10.5px;margin:8px 0}.mn-tbl th,.mn-tbl td{border:1px solid #333;padding:5px 6px;vertical-align:top}.mn-tbl th{background:#f3f4f6}.mn-ok{background:#dcfce7}.mn-info{background:#dbeafe}.mn-skip{background:#f3f4f6}.mn-warn{background:#fef3c7}.mn-danger{background:#fee2e2}.mn-note{font-size:10px;color:#555}.mn-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px;margin:10px 0}.mn-summary div{border:1px solid #333;padding:6px;text-align:center}.mn-summary b{display:block;font-size:14px}</style>';
     html += '<h2 style="text-align:center;margin:6px 0">ВЕДОМОСТЬ ПОКРЫТИЯ СМЕТЫ НОРМАМИ МАТЕРИАЛОВ</h2>';
     html += '<p style="text-align:center;font-size:11px;color:#444">контроль связки: работа сметы → норма расхода → материал сметы</p>';
     html += '<p style="font-size:12px"><b>Объект:</b> '+docEsc(projectName||'')+' · <b>Организация:</b> '+docEsc(orgName)+' · <b>Дата:</b> '+new Date().toLocaleDateString('ru-RU')+'</p>';
-    html += '<div class="mn-summary"><div><span>Покрыто</span><b>'+okCount+'</b></div><div><span>Без материалов</span><b>'+skippedCount+'</b></div><div><span>Нет нормы</span><b>'+missingCount+'</b></div><div><span>Материал без работы</span><b>'+unlinkedCount+'</b></div><div><span>Некорректно</span><b>'+invalidQtyCount+'</b></div><div><span>Без количества</span><b>'+zeroQtyCount+'</b></div><div><span>Нет материала</span><b>'+infoCount+'</b></div><div><span>Всего</span><b>'+rows.length+'</b></div></div>';
+    html += '<div class="mn-summary"><div><span>Покрыто</span><b>'+okCount+'</b></div><div><span>Без материалов</span><b>'+skippedCount+'</b></div><div><span>Нет нормы</span><b>'+missingCount+'</b></div><div><span>Нехватка</span><b>'+shortageCount+'</b></div><div><span>Материал без работы</span><b>'+unlinkedCount+'</b></div><div><span>Некорректно</span><b>'+invalidQtyCount+'</b></div><div><span>Без количества</span><b>'+zeroQtyCount+'</b></div><div><span>Нет материала</span><b>'+infoCount+'</b></div><div><span>Всего</span><b>'+rows.length+'</b></div></div>';
     if (!rows.length) {
       html += '<p style="text-align:center;color:#888;font-size:12px;padding:16px">Нет активной сметы заказчика или нет строк для проверки.</p>';
       return html;
@@ -6592,7 +6611,7 @@ function App() {
     setAiTasks(prev=>[data,...(prev||[])]);
     setMaterialNormNotice({tone:'success',title:'Поручение создано',text:'Сметчику поставлена задача уточнить материал или подтвердить, что он не нужен.'});
   };
-  const estimateNormReviewIssueStatuses = ['Некорректное количество','Нет материала в смете','Материал без количества','Материал без работы','Нет нормы'];
+  const estimateNormReviewIssueStatuses = ['Некорректное количество','Нехватка материала по норме','Нет материала в смете','Материал без количества','Материал без работы','Нет нормы'];
   const estimateNormReviewMarker = (estimateId) => 'ESTIMATE_NORM_REVIEW:'+String(estimateId||'');
   const estimateQualityReviewMarker = (estimateId) => 'ESTIMATE_QUALITY_REVIEW:'+String(estimateId||'');
   const estimateDiffReviewMarker = (baseEstimateId, nextEstimateId) => 'ESTIMATE_DIFF_REVIEW:'+String(baseEstimateId||'')+':'+String(nextEstimateId||'');
@@ -7696,17 +7715,18 @@ function App() {
     return (supplyRequests||[]).some(req=>req.project===row?.projectName && isActiveSupplyRequestStatus(req.status) && String(req.notes||'').includes(marker));
   };
   const materialNormCanCreateSupply = (row) => (
-    row?.allowDirectSupplyRequest === true
+    ['Нет материала в смете','Материал без количества','Некорректное количество','Нехватка материала по норме'].includes(row?.status)
     && row?.rule
-    && toNum(row?.requiredQty)>0
+    && toNum(row?.shortageQty || row?.requiredQty)>0
   );
   const materialNormSupplyNotes = (rows, summaryTitle='Создано из ведомости «Вся смета по нормам»: материал нужен по норме, но отсутствует в смете или указан без количества.') => {
     const lines = [summaryTitle];
     rows.forEach((row,idx)=>{
       const materialName = row.materialName || materialTitleForNormRule(row.rule) || 'материал';
+      const requestQty = toNum(row.shortageQty || row.requiredQty);
       lines.push(
         '',
-        '#'+(idx+1)+' '+materialName+' — '+(row.requiredQty?fmtMeasure(row.requiredQty,row.requiredUnit):'количество не рассчитано'),
+        '#'+(idx+1)+' '+materialName+' — '+(requestQty?fmtMeasure(requestQty,row.requiredUnit):'количество не рассчитано'),
         materialNormSupplyMarker(row),
         'Объект: '+(row.projectName||''),
         'Смета: '+(row.estimateName||''),
@@ -7727,7 +7747,8 @@ function App() {
     if (name === null) return;
     const cleanName = name.trim();
     if (!cleanName) { alert('Название материала не может быть пустым'); return; }
-    const qtyRaw = window.prompt('Количество к заявке:', String(row.requiredQty || ''));
+    const defaultQty = toNum(row.shortageQty || row.requiredQty);
+    const qtyRaw = window.prompt('Количество к заявке:', String(defaultQty || ''));
     if (qtyRaw === null) return;
     const qty = toNum(qtyRaw);
     if (qty <= 0) { alert('Количество должно быть больше 0'); return; }
@@ -7778,7 +7799,7 @@ function App() {
       const workPackage = row.packageName || row.workPackage || '';
       const key = materialNameKey(materialName)+'|'+unit+'|'+workPackage;
       if (!byKey[key]) byKey[key] = {materialName, quantity:0, unit, workPackage};
-      byKey[key].quantity += toNum(row.requiredQty);
+      byKey[key].quantity += toNum(row.shortageQty || row.requiredQty);
     });
     const items = Object.values(byKey).map(it=>({...it, workPackage:it.workPackage || 'Основная', quantity:Number(it.quantity.toFixed(4))}));
     if (!items.length) { alert('Не удалось собрать позиции заявки'); return; }

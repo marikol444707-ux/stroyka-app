@@ -45,6 +45,7 @@ export default function MaterialNormCoveragePanel({
   const skippedCount=rows.filter(r=>r.status==='Норма не нужна').length;
   const missingCount=rows.filter(r=>r.status==='Нет нормы').length;
   const unlinkedCount=rows.filter(r=>r.status==='Материал без работы').length;
+  const shortageCount=rows.filter(r=>r.status==='Нехватка материала по норме').length;
   const invalidQtyCount=rows.filter(r=>r.status==='Некорректное количество').length;
   const zeroQtyCount=rows.filter(r=>r.status==='Материал без количества').length;
   const infoCount=rows.filter(r=>r.status==='Нет материала в смете').length;
@@ -78,6 +79,7 @@ export default function MaterialNormCoveragePanel({
         skippedCount={skippedCount}
         missingCount={missingCount}
         unlinkedCount={unlinkedCount}
+        shortageCount={shortageCount}
         invalidQtyCount={invalidQtyCount}
         zeroQtyCount={zeroQtyCount}
         infoCount={infoCount}
@@ -94,6 +96,7 @@ export default function MaterialNormCoveragePanel({
             <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Материал / норма</span>
             <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'12px',overflow:'hidden',textOverflow:'ellipsis'}}>{r.materialName||'—'}</p>
             {r.requiredQty>0&&<p style={{color:C.success,margin:'2px 0 0',fontSize:'11px',fontWeight:'700'}}>{'Потребность: '+fmtMeasure(r.requiredQty,r.requiredUnit)}</p>}
+            {r.shortageQty>0&&<p style={{color:C.warning,margin:'2px 0 0',fontSize:'11px',fontWeight:'700'}}>{'Не хватает: '+fmtMeasure(r.shortageQty,r.requiredUnit||r.materialUnit)}</p>}
           </div>
           <div>
             <span style={{color:C.textMuted,fontSize:'10px',textTransform:'uppercase'}}>Смета</span>
