@@ -80,6 +80,13 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
       "/supply-requests"
       "/supply-history"
       "/own-expenses"
+      "/work-journal"
+      "/hidden-works-acts"
+      "/interim-acts"
+      "/project-payments"
+      "/unexpected-works"
+      "/supervisor-acts"
+      "/expenses"
       "/ai-tasks"
     )
     for path in "${protected_paths[@]}"; do
