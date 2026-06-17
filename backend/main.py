@@ -9923,7 +9923,7 @@ def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require
         raise HTTPException(status_code=400, detail="В акт попали работы не этого исполнителя, пакета или периода: " + ", ".join(map(str, missing_ids[:10])))
     cur.execute("""SELECT id FROM interim_acts
                    WHERE COALESCE(status,'') <> 'Аннулирован'
-                     AND COALESCE(work_journal_ids,'[]')::jsonb ?| %s
+                     AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ?| %s
                    LIMIT 1""", ([str(x) for x in work_journal_ids],))
     duplicate_act = cur.fetchone()
     if duplicate_act:
@@ -9999,7 +9999,7 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
         cur.execute("""SELECT id FROM interim_acts
                        WHERE id<>%s
                          AND COALESCE(status,'') <> 'Аннулирован'
-                         AND COALESCE(work_journal_ids,'[]')::jsonb ?| %s
+                         AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ?| %s
                        LIMIT 1""", (id, [str(x) for x in work_journal_ids]))
         duplicate_act = cur.fetchone()
         if duplicate_act:
