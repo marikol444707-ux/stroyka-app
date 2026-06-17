@@ -19847,10 +19847,13 @@ def _own_expense_telegram_value(data: dict, *keys: str) -> str:
             return str(value).strip()
     return ""
 
+def _safe_compare_secret(left: str, right: str) -> bool:
+    return hmac.compare_digest(str(left or "").encode("utf-8"), str(right or "").encode("utf-8"))
+
 def require_telegram_bot_token(x_telegram_bot_token: Optional[str] = Header(default=None)) -> dict:
     if not TELEGRAM_BOT_API_TOKEN:
         raise HTTPException(status_code=503, detail="TELEGRAM_BOT_API_TOKEN не настроен")
-    if not x_telegram_bot_token or not hmac.compare_digest(x_telegram_bot_token, TELEGRAM_BOT_API_TOKEN):
+    if not x_telegram_bot_token or not _safe_compare_secret(x_telegram_bot_token, TELEGRAM_BOT_API_TOKEN):
         raise HTTPException(status_code=403, detail="Недостаточно прав Telegram-бота")
     return {"role": "telegram_bot", "name": "Telegram Bot"}
 
