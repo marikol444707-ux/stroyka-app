@@ -5689,6 +5689,26 @@ SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,proj
                  "created_at as \"createdAt\" "
                  "FROM supply_requests")
 
+def _sanitize_estimate_control_money(value):
+    if isinstance(value, dict):
+        return {
+            key: _sanitize_estimate_control_money(val)
+            for key, val in value.items()
+            if key not in ("plannedSum", "plannedWorkSum")
+        }
+    if isinstance(value, list):
+        return [_sanitize_estimate_control_money(item) for item in value]
+    return value
+
+def _supply_response_for_role(row, user: dict):
+    data = dict(row) if row else {}
+    if (user.get("role") or "") not in WORKER_EXECUTION_ROLES:
+        return data
+    items = _json_list_or_empty(data.get("itemsJson"))
+    if items:
+        data["itemsJson"] = json.dumps(_sanitize_estimate_control_money(items), ensure_ascii=False)
+    return data
+
 def _ensure_supply_runtime_columns(cur):
     """Поднимает колонки снабжения для старых баз, где миграция могла не пройти."""
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
@@ -6169,7 +6189,7 @@ def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_us
         return []
     rows = cur.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return [_supply_response_for_role(r, current_user) for r in rows]
 
 @app.post("/supply-requests")
 def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
@@ -6235,7 +6255,7 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     cur.execute(SUPPLY_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
     conn.close()
-    return dict(row)
+    return _supply_response_for_role(row, _current_user)
 
 @app.put("/supply-requests/{id}")
 def update_supply_request(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
@@ -6328,7 +6348,7 @@ def update_supply_request(id: int, data: dict, _current_user: dict = Depends(req
     cur.execute(SUPPLY_SELECT + " WHERE id=%s", (id,))
     row = cur.fetchone()
     conn.close()
-    return dict(row) if row else {"ok": True}
+    return _supply_response_for_role(row, _current_user) if row else {"ok": True}
 
 @app.delete("/supply-requests/{id}")
 def delete_supply_request(id: int, rollback_received: bool = False, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик", "прораб"))):
@@ -20145,8 +20165,35 @@ def create_telegram_own_expense(data: dict, _bot: dict = Depends(require_telegra
 def update_own_expense(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE own_expenses SET status=%s,approved_by=%s WHERE id=%s",
-        (data.get("status","Ожидает"),data.get("approvedBy",""),id))
+    status = data.get("status", "Ожидает")
+    cur.execute(
+        """
+        UPDATE own_expenses
+           SET status=%s, approved_by=%s
+         WHERE id=%s
+     RETURNING project_name, employee_name, description, amount, date
+        """,
+        (status, data.get("approvedBy", ""), id),
+    )
+    row = cur.fetchone()
+    if not row:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Трата не найдена")
+    if status == "Отклонено":
+        cur.execute("DELETE FROM expenses WHERE own_expense_id=%s", (id,))
+        cur.execute("UPDATE own_expenses SET expense_id=NULL WHERE id=%s", (id,))
+    else:
+        project_name, employee_name, description, amount, date_value = row
+        _sync_own_expense_to_finance_expense(
+            cur,
+            id,
+            project_name or "",
+            description or "",
+            amount or 0,
+            date_value,
+            employee_name or "",
+        )
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}

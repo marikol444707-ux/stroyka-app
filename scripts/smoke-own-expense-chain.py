@@ -230,6 +230,18 @@ def main():
             "PUT",
             f"/own-expenses/{own_expense_id}",
             token=director_token,
+            data={"status": "Отклонено", "approvedBy": "Codex smoke"},
+            expected=200,
+        )
+        _, expense_rows = api_json("GET", f"/expenses?{query}", token=director_token, expected=200)
+        rejected_expense = find_by_id(expense_rows, expense_id)
+        if rejected_expense:
+            raise SystemExit(f"FAIL reject sync: отклонённая трата осталась в расходах объекта: {rejected_expense}")
+
+        api_json(
+            "PUT",
+            f"/own-expenses/{own_expense_id}",
+            token=director_token,
             data={"status": "Возмещено", "approvedBy": "Codex smoke"},
             expected=200,
         )
@@ -237,14 +249,25 @@ def main():
         own_row = find_by_id(own_rows, own_expense_id)
         if not own_row or own_row.get("status") != "Возмещено":
             raise SystemExit(f"FAIL status update: {own_row}")
+        _, expense_rows = api_json("GET", f"/expenses?{query}", token=director_token, expected=200)
+        restored_expense = next((row for row in expense_rows if str(row.get("ownExpenseId")) == str(own_expense_id)), None)
+        if not restored_expense:
+            raise SystemExit("FAIL reimburse sync: возмещённая трата не вернулась в расходы объекта")
 
         print(json.dumps({
             "ok": True,
             "projectName": worker["projectName"],
             "worker": worker["email"],
             "ownExpenseId": own_expense_id,
-            "expenseId": expense_id,
-            "checked": ["web own-expenses create", "own_expenses list", "expenses sync", "status update"],
+            "expenseId": restored_expense.get("id"),
+            "checked": [
+                "web own-expenses create",
+                "own_expenses list",
+                "expenses sync",
+                "reject removes linked expense",
+                "reimburse restores linked expense",
+                "status update",
+            ],
         }, ensure_ascii=False, indent=2))
     finally:
         if own_expense_id:
