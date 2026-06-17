@@ -16,8 +16,10 @@ import time
 import datetime as dt
 import mimetypes
 import re
+import smtplib
 import urllib.parse
 import urllib.request
+from email.message import EmailMessage
 
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 if os.path.exists(_env_path):
@@ -29,6 +31,12 @@ if os.path.exists(_env_path):
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except Exception:
+        return default
+
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
 VK_TOKEN = os.getenv("VK_TOKEN", "")
@@ -36,6 +44,14 @@ AUTH_SECRET = os.getenv("AUTH_SECRET") or (os.getenv("DB_PASSWORD", "password") 
 AUTH_TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "86400"))
 AI_CONTROL_RUN_TOKEN = os.getenv("AI_CONTROL_RUN_TOKEN", "").strip()
 TELEGRAM_BOT_API_TOKEN = os.getenv("TELEGRAM_BOT_API_TOKEN", "").strip()
+APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "https://stroyka26.pro").rstrip("/")
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = _env_int("SMTP_PORT", 465 if os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes") else 587)
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
+SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() in ("1", "true", "yes")
+SMTP_SSL = os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes")
 
 def _env_list(name: str, default: list[str]) -> list[str]:
     raw = os.getenv(name, "")
@@ -3831,6 +3847,47 @@ def _close_password_reset_task(cur, user_id):
           AND status NOT IN ('Закрыто','Отклонено')
     """, (SYSTEM_PROJECT_NAME, _password_reset_dedupe_key(user_id)))
 
+def _smtp_configured() -> bool:
+    return bool(SMTP_HOST and SMTP_PORT and SMTP_FROM)
+
+def _send_email(to_email: str, subject: str, text: str) -> bool:
+    if not _smtp_configured():
+        return False
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = to_email
+    msg.set_content(text)
+    try:
+        if SMTP_SSL:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20) as smtp:
+                if SMTP_USER and SMTP_PASSWORD:
+                    smtp.login(SMTP_USER, SMTP_PASSWORD)
+                smtp.send_message(msg)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as smtp:
+                if SMTP_TLS:
+                    smtp.starttls()
+                if SMTP_USER and SMTP_PASSWORD:
+                    smtp.login(SMTP_USER, SMTP_PASSWORD)
+                smtp.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"SMTP SEND ERROR to {to_email}: {e}")
+        return False
+
+def _send_password_reset_email(email: str, user_name: str, code: str, expires) -> bool:
+    expires_text = expires.strftime("%d.%m.%Y %H:%M")
+    body = (
+        f"Здравствуйте, {user_name or 'пользователь'}.\n\n"
+        "Для входа в СтройКа был запрошен сброс пароля.\n\n"
+        f"Код восстановления: {code}\n"
+        f"Действует до: {expires_text}\n\n"
+        f"Откройте {APP_PUBLIC_URL} и введите этот код в форме восстановления пароля.\n"
+        "Если вы не запрашивали сброс, просто проигнорируйте письмо."
+    )
+    return _send_email(email, "Код восстановления пароля СтройКа", body)
+
 @app.post("/password-reset-request")
 def password_reset_request(data: dict):
     """Генерирует 6-значный код для восстановления пароля. Действителен 30 минут."""
@@ -3852,12 +3909,16 @@ def password_reset_request(data: dict):
     _upsert_password_reset_task(cur, row[0], row[1], email, code, expires)
     conn.commit()
     cur.close(); conn.close()
-    # В реальной системе тут отправляется email/SMS. Пока код видит директор в системной задаче.
+    email_sent = _send_password_reset_email(email, row[1] or "", code, expires)
     print(f"PASSWORD RESET CODE for {email}: {code} (valid 30 min)")
     log_audit(user_name=row[1] or "—", user_role="—",
               action="password_reset_request", entity_type="user", entity_id=row[0],
-              description="Запрошен код восстановления пароля")
-    response = {"ok": True, "message": "Код восстановления создан. Если почта не подключена, его выдаст директор."}
+              description="Запрошен код восстановления пароля" + ("; email отправлен" if email_sent else "; email не отправлен"))
+    response = {
+        "ok": True,
+        "message": "Код восстановления отправлен на email" if email_sent else "Код восстановления создан. Если почта не подключена, его выдаст директор.",
+        "emailSent": email_sent,
+    }
     if os.getenv("SHOW_RESET_CODE", "").lower() in ("1", "true", "yes"):
         response["_devCode"] = code
     return response
