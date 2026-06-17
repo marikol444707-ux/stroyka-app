@@ -115,7 +115,8 @@ def choose_scope():
     packages = [row["package"] for row in cur.fetchall() if row["package"]]
     cur.close()
     conn.close()
-    assigned_package = os.getenv("ROLE_PACKAGE_ASSIGNED", "").strip() or (packages[0] if packages else "Основная")
+    real_packages = [p for p in packages if not str(p).strip().lower().startswith("codex qa")]
+    assigned_package = os.getenv("ROLE_PACKAGE_ASSIGNED", "").strip() or (real_packages[0] if real_packages else (packages[0] if packages else "Основная"))
     forbidden_package = next((p for p in packages if p != assigned_package), "__CODEX_FORBIDDEN_PACKAGE__")
     return {
         "projectId": project["id"],
