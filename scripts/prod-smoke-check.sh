@@ -79,6 +79,7 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
       "/materials"
       "/supply-requests"
       "/supply-history"
+      "/own-expenses"
       "/ai-tasks"
     )
     for path in "${protected_paths[@]}"; do
@@ -90,6 +91,25 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
         failures+=("$path got=$code expected=200")
       fi
     done
+
+    telegram_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/telegram/own-expenses" -H 'Content-Type: application/json' -d '{"telegramId":"smoke","description":"smoke","amount":1}' || true)"
+    if [[ "$telegram_code" == "403" || "$telegram_code" == "503" ]]; then
+      echo "OK   /telegram/own-expenses protected $telegram_code"
+    else
+      echo "FAIL /telegram/own-expenses unprotected got=$telegram_code expected=403/503"
+      failures+=("/telegram/own-expenses unprotected got=$telegram_code")
+    fi
+
+    if [[ -n "${SMOKE_TELEGRAM_BOT_TOKEN:-}" ]]; then
+      telegram_valid_code="$(curl -skS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/telegram/own-expenses" -H 'Content-Type: application/json' -H "X-Telegram-Bot-Token: $SMOKE_TELEGRAM_BOT_TOKEN" -d '{"telegramId":"__smoke_missing_employee__","description":"smoke","amount":1}' || true)"
+      if [[ "$telegram_valid_code" == "404" ]]; then
+        echo "OK   /telegram/own-expenses route $telegram_valid_code"
+      else
+        echo "FAIL /telegram/own-expenses route got=$telegram_valid_code expected=404"
+        failures+=("/telegram/own-expenses route got=$telegram_valid_code expected=404")
+      fi
+    fi
+
     status_body="$(curl -skS "$BASE_URL/system-status?api_errors_since=$SMOKE_STARTED_TS" -H "Authorization: Bearer $token" || true)"
     api_errors="$(printf '%s' "$status_body" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(len(data.get("apiErrors", [])))' 2>/dev/null || true)"
     if [[ -n "$api_errors" ]]; then
