@@ -9848,10 +9848,15 @@ def get_interim_acts(_current_user: dict = Depends(require_roles(*CONTRACT_ROLES
     return [dict(r) for r in rows]
 
 def _confirmed_execution_total_for_act(cur, master_id, master_name, project, work_package, period_start, period_end):
+    def scalar(row, key="total"):
+        if not row:
+            return 0
+        return row.get(key, 0) if isinstance(row, dict) else row[0]
+
     package = (work_package or "Основная").strip() or "Основная"
     name = (master_name or "").strip().lower()
     cur.execute(
-        """SELECT COALESCE(SUM(COALESCE(execution_total,0)),0)
+        """SELECT COALESCE(SUM(COALESCE(execution_total,0)),0) AS total
            FROM work_journal
            WHERE project=%s
              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
@@ -9861,9 +9866,9 @@ def _confirmed_execution_total_for_act(cur, master_id, master_name, project, wor
              AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
         (project, package, period_start, period_end, master_id, master_id, master_id, name),
     )
-    confirmed_total = float((cur.fetchone() or [0])[0] or 0)
+    confirmed_total = float(scalar(cur.fetchone()) or 0)
     cur.execute(
-        """SELECT COALESCE(SUM(COALESCE(total_amount,0)),0)
+        """SELECT COALESCE(SUM(COALESCE(total_amount,0)),0) AS total
            FROM interim_acts
            WHERE project=%s
              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
@@ -9873,7 +9878,7 @@ def _confirmed_execution_total_for_act(cur, master_id, master_name, project, wor
              AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
         (project, package, period_start, period_end, master_id, master_id, master_id, name),
     )
-    already_acted = float((cur.fetchone() or [0])[0] or 0)
+    already_acted = float(scalar(cur.fetchone()) or 0)
     return max(0, confirmed_total - already_acted)
 
 @app.post("/interim-acts")
