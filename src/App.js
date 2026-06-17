@@ -9042,8 +9042,9 @@ function App() {
   };
   const projectPaymentInAmount = (pay) => Math.max(0, projectPaymentSignedAmount(pay));
   const formatSignedRub = (amount) => (amount>=0?'+':'-') + Math.round(Math.abs(amount)).toLocaleString('ru-RU') + ' ₽';
-  // Стоимость материалов на объекте (то что закуплено и привезено)
-  const matCost = (n) => (materials||[]).filter(m=>m.project===n).reduce((s,m)=>s+Number(m.quantity||0)*Number(m.price||0),0);
+  // Стоимость материалов на объекте: факт прихода по накладным/поставкам, а не текущий остаток.
+  // Остаток уменьшается при выдаче/списании, но себестоимость объекта от этого исчезать не должна.
+  const matCost = (n) => Number(materialControlSummaryForProject(n)?.suppliedSum || 0);
   // Себестоимость работ: что должны бригадам (по priceBrigade × doneQuantity) + зарплата + сдельщина
   const labCost = (n) => {
     const fromBrigades = (allBrigadeItems||[]).filter(it=>it.projectName===n&&Number(it.doneQuantity||0)>0).reduce((s,it)=>s+Number(it.doneQuantity||0)*Number(it.priceBrigade||0),0);
