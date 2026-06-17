@@ -17,10 +17,9 @@ import psycopg2.extras
 ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / "backend" / ".env"
 BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
-TEST_EMAIL = os.getenv("TELEGRAM_SMOKE_USER_EMAIL", "telegram-smoke@stroyka.local")
-TEST_NAME = os.getenv("TELEGRAM_SMOKE_USER_NAME", "CODEX QA Telegram")
-TEST_ROLE = os.getenv("TELEGRAM_SMOKE_USER_ROLE", "мастер")
-TEST_TELEGRAM_ID = os.getenv("TELEGRAM_SMOKE_ID", f"codex-smoke-{int(dt.datetime.now().timestamp())}")
+TEST_EMAIL = os.getenv("OWN_EXPENSE_SMOKE_USER_EMAIL", "own-expense-smoke@stroyka.local")
+TEST_NAME = os.getenv("OWN_EXPENSE_SMOKE_USER_NAME", "CODEX QA Мои траты")
+TEST_ROLE = os.getenv("OWN_EXPENSE_SMOKE_USER_ROLE", "мастер")
 
 
 def load_env():
@@ -58,16 +57,14 @@ def hash_password(password: str) -> str:
     return f"pbkdf2_sha256$260000${salt}${digest}"
 
 
-def api_json(method, path, token=None, data=None, headers=None, expected=None):
+def api_json(method, path, token=None, data=None, expected=None):
     body = None
-    request_headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json"}
     if token:
-        request_headers["Authorization"] = f"Bearer {token}"
-    if headers:
-        request_headers.update(headers)
+        headers["Authorization"] = f"Bearer {token}"
     if data is not None:
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(BASE_URL + path, data=body, headers=request_headers, method=method)
+    req = urllib.request.Request(BASE_URL + path, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=40) as resp:
             status = resp.status
@@ -92,20 +89,18 @@ def require_env(name):
     return value
 
 
-def login():
-    email = require_env("SMOKE_EMAIL")
-    password = require_env("SMOKE_PASSWORD")
+def login(email, password):
     _, body = api_json("POST", "/login", data={"email": email, "password": password}, expected=200)
     token = body.get("authToken")
     if not token:
-        raise SystemExit("FAIL login: authToken не получен")
+        raise SystemExit(f"FAIL login {email}: authToken не получен")
     return token
 
 
-def prepare_temp_telegram_user():
+def prepare_temp_worker():
     conn = psycopg2.connect(**db_config())
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    project_name = os.getenv("TELEGRAM_SMOKE_PROJECT", "").strip()
+    project_name = os.getenv("OWN_EXPENSE_SMOKE_PROJECT", "").strip()
     if project_name:
         cur.execute("SELECT id, name FROM projects WHERE name=%s LIMIT 1", (project_name,))
     else:
@@ -114,9 +109,10 @@ def prepare_temp_telegram_user():
     if not project:
         cur.close()
         conn.close()
-        raise SystemExit("FAIL: нет активного объекта для Telegram smoke")
+        raise SystemExit("FAIL: нет активного объекта для smoke «Мои траты»")
 
-    password_hash = hash_password(secrets.token_urlsafe(12))
+    password = secrets.token_urlsafe(12)
+    password_hash = hash_password(password)
     assigned_projects = json.dumps([project["name"]], ensure_ascii=False)
     cur.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1", (TEST_EMAIL,))
     existing = cur.fetchone()
@@ -132,8 +128,6 @@ def prepare_temp_telegram_user():
                    project_name=%s,
                    assigned_projects=%s::jsonb,
                    assigned_packages='[]'::jsonb,
-                   telegram_id=%s,
-                   telegram_chat_id=NULL,
                    active=TRUE,
                    failed_login_count=0,
                    locked_until=NULL
@@ -147,7 +141,6 @@ def prepare_temp_telegram_user():
                 project["id"],
                 project["name"],
                 assigned_projects,
-                TEST_TELEGRAM_ID,
                 existing["id"],
             ),
         )
@@ -156,9 +149,9 @@ def prepare_temp_telegram_user():
         cur.execute(
             """
             INSERT INTO users
-                (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,telegram_id,active)
+                (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active)
             VALUES
-                (%s,%s,%s,%s,%s,%s,%s::jsonb,'[]'::jsonb,%s,TRUE)
+                (%s,%s,%s,%s,%s,%s,%s::jsonb,'[]'::jsonb,TRUE)
             RETURNING id
             """,
             (
@@ -169,14 +162,13 @@ def prepare_temp_telegram_user():
                 project["id"],
                 project["name"],
                 assigned_projects,
-                TEST_TELEGRAM_ID,
             ),
         )
         user_id = cur.fetchone()["id"]
     conn.commit()
     cur.close()
     conn.close()
-    return {"id": user_id, "name": TEST_NAME, "email": TEST_EMAIL, "telegramId": TEST_TELEGRAM_ID, "projectName": project["name"]}
+    return {"id": user_id, "name": TEST_NAME, "email": TEST_EMAIL, "password": password, "projectName": project["name"]}
 
 
 def find_by_id(rows, row_id):
@@ -187,27 +179,26 @@ def find_by_id(rows, row_id):
 
 
 def main():
-    bot_token = env_value("SMOKE_TELEGRAM_BOT_TOKEN") or env_value("TELEGRAM_BOT_API_TOKEN")
-    if not bot_token:
-        raise SystemExit("Нужно задать SMOKE_TELEGRAM_BOT_TOKEN или TELEGRAM_BOT_API_TOKEN")
-
-    director_token = login()
-    temp_user = prepare_temp_telegram_user()
-    description = f"codex telegram smoke {dt.datetime.now(dt.UTC).isoformat(timespec='seconds')}"
-    amount = 12.34
+    director_email = require_env("SMOKE_EMAIL")
+    director_password = require_env("SMOKE_PASSWORD")
+    director_token = login(director_email, director_password)
+    worker = prepare_temp_worker()
+    worker_token = login(worker["email"], worker["password"])
+    description = f"codex web own expense smoke {dt.datetime.now(dt.UTC).isoformat(timespec='seconds')}"
+    amount = 23.45
     own_expense_id = None
 
     try:
         _, created = api_json(
             "POST",
-            "/telegram/own-expenses",
+            "/own-expenses",
+            token=worker_token,
             data={
-                "telegramId": temp_user["telegramId"],
-                "projectName": temp_user["projectName"],
+                "projectName": worker["projectName"],
                 "description": description,
                 "amount": amount,
+                "category": "other",
             },
-            headers={"X-Telegram-Bot-Token": bot_token},
             expected=200,
         )
         own_expense_id = created.get("id")
@@ -215,31 +206,45 @@ def main():
         if not own_expense_id or not expense_id:
             raise SystemExit(f"FAIL create: не получены id/expenseId: {created}")
 
-        query = urllib.parse.urlencode({"project_name": temp_user["projectName"]})
+        query = urllib.parse.urlencode({"project_name": worker["projectName"]})
         _, own_rows = api_json("GET", f"/own-expenses?{query}", token=director_token, expected=200)
         own_row = find_by_id(own_rows, own_expense_id)
         if not own_row:
             raise SystemExit("FAIL own-expenses: созданная трата не найдена")
+        if own_row.get("employeeName") != TEST_NAME:
+            raise SystemExit(f"FAIL own-expenses employee: {own_row}")
         if abs(float(own_row.get("amount") or 0) - amount) > 0.001:
             raise SystemExit(f"FAIL own-expenses amount: {own_row}")
 
-        query = urllib.parse.urlencode({"project": temp_user["projectName"]})
+        query = urllib.parse.urlencode({"project": worker["projectName"]})
         _, expense_rows = api_json("GET", f"/expenses?{query}", token=director_token, expected=200)
         expense_row = find_by_id(expense_rows, expense_id)
         if not expense_row:
             raise SystemExit("FAIL expenses: синхронный расход объекта не найден")
         if abs(float(expense_row.get("amount") or 0) - amount) > 0.001:
             raise SystemExit(f"FAIL expenses amount: {expense_row}")
-        if "Моя трата" not in (expense_row.get("note") or ""):
-            raise SystemExit(f"FAIL expenses note: {expense_row}")
+        if expense_row.get("source") != "own_expense" or str(expense_row.get("ownExpenseId")) != str(own_expense_id):
+            raise SystemExit(f"FAIL expenses source link: {expense_row}")
+
+        api_json(
+            "PUT",
+            f"/own-expenses/{own_expense_id}",
+            token=director_token,
+            data={"status": "Возмещено", "approvedBy": "Codex smoke"},
+            expected=200,
+        )
+        _, own_rows = api_json("GET", f"/own-expenses?{urllib.parse.urlencode({'project_name': worker['projectName']})}", token=director_token, expected=200)
+        own_row = find_by_id(own_rows, own_expense_id)
+        if not own_row or own_row.get("status") != "Возмещено":
+            raise SystemExit(f"FAIL status update: {own_row}")
 
         print(json.dumps({
             "ok": True,
-            "projectName": temp_user["projectName"],
-            "telegramUser": temp_user["email"],
+            "projectName": worker["projectName"],
+            "worker": worker["email"],
             "ownExpenseId": own_expense_id,
             "expenseId": expense_id,
-            "checked": ["telegram endpoint", "own_expenses", "expenses sync"],
+            "checked": ["web own-expenses create", "own_expenses list", "expenses sync", "status update"],
         }, ensure_ascii=False, indent=2))
     finally:
         if own_expense_id:

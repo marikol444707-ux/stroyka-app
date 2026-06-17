@@ -19,6 +19,7 @@
     "build": "react-scripts build",
     "smoke:prod": "bash scripts/prod-smoke-check.sh",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
+    "smoke:own-expense": "python3 scripts/smoke-own-expense-chain.py",
     "check:smeta": "python3 scripts/check-smeta-parser.py",
     "test": "react-scripts test",
     "eject": "react-scripts eject"

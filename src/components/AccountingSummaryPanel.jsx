@@ -16,12 +16,17 @@ export default function AccountingSummaryPanel({
   const activeProjectsCount = (projects || []).filter(project => project.status === 'В работе').length;
   const totalBudget = (projects || []).reduce((sum, project) => sum + Number(project.budget || 0), 0);
   const totalPayIn = (projectPayments || []).reduce((sum, payment) => sum + projectPaymentInAmount(payment), 0);
-  const totalOwnExpenses = (ownExpenses || []).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const pendingOwnExpenses = (ownExpenses || [])
+    .filter(expense => expense.status === 'Ожидает')
+    .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const reimbursedOwnExpenses = (ownExpenses || [])
+    .filter(expense => expense.status === 'Возмещено')
+    .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const totalAccountable = (accountablePayments || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const totalSuppliers = (supplierInvoices || []).reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
   const totalBrigades = (brigadeContracts || []).reduce((sum, contract) => sum + Number(contract.paidAmount || 0), 0);
   const totalPiecework = (piecework || []).reduce((sum, row) => sum + Number(row.total || 0), 0);
-  const totalExpenses = totalOwnExpenses + totalAccountable + totalSuppliers + totalBrigades;
+  const totalExpenses = totalAccountable + totalSuppliers + totalBrigades;
   const netProfit = totalPayIn - totalExpenses;
 
   const cards = [
@@ -30,7 +35,8 @@ export default function AccountingSummaryPanel({
     { label: 'Поступило от заказчиков', value: Math.round(totalPayIn).toLocaleString('ru-RU') + ' ₽', color: C.success },
     { label: 'Оплачено поставщикам', value: Math.round(totalSuppliers).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     { label: 'Оплачено бригадам', value: Math.round(totalBrigades).toLocaleString('ru-RU') + ' ₽', color: C.warning },
-    { label: 'Возмещения сотрудникам', value: Math.round(totalOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.warning },
+    { label: 'К возмещению сотрудникам', value: Math.round(pendingOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.warning },
+    { label: 'Возмещено сотрудникам', value: Math.round(reimbursedOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.textSec },
     { label: 'Подотчётные на руках', value: Math.round(totalAccountable).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     ...(isLeadership ? [{ label: 'Всего расходов', value: Math.round(totalExpenses).toLocaleString('ru-RU') + ' ₽', color: C.danger }] : []),
     ...(isLeadership ? [{ label: 'Чистая прибыль', value: Math.round(netProfit).toLocaleString('ru-RU') + ' ₽', color: netProfit >= 0 ? C.success : C.danger }] : []),

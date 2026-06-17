@@ -9062,8 +9062,8 @@ function App() {
     unexpectedWorksList.filter(u=>u.projectName===pn&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId).forEach(u=>{r['unexpected']=(r['unexpected']||0)+u.total;});
     // Подотчётные траты (только потраченное)
     accountablePayments.filter(ac=>ac.projectName===pn).forEach(ac=>{r['accountable']=(r['accountable']||0)+Number(ac.spentAmount||0);});
-    // Возмещения своих трат — по указанной категории, fallback на accountable
-    ownExpenses.filter(e=>e.projectName===pn&&e.status==='Возмещено').forEach(e=>{const c=e.category||'accountable';r[c]=(r[c]||0)+Number(e.amount||0);});
+    // Own expenses are synced into manualExpenses through /expenses.
+    // Do not add ownExpenses here again, otherwise reimbursed employee costs are double-counted.
     return r;
   };
   const lowStock = materials.filter(m=>m.minQuantity&&m.quantity<m.minQuantity);

@@ -20003,7 +20003,7 @@ def get_own_expenses(project_name: str = "", employee_name: str = "", current_us
     role = current_user.get("role")
     if role in OWN_EXPENSE_REVIEW_ROLES:
         pass
-    elif role in WORKER_EXECUTION_ROLES:
+    elif role in WORKER_EXECUTION_ROLES or role in ("прораб", "главный_инженер", "сметчик", "кладовщик", "снабженец"):
         where.append("(employee_id=%s OR employee_name=%s)")
         params.extend([current_user.get("id"), current_user.get("name") or ""])
     else:
@@ -20166,12 +20166,12 @@ def get_expenses(project: str = "", _current_user: dict = Depends(require_roles(
     conn = get_db()
     cur = conn.cursor()
     if project:
-        cur.execute("SELECT id,project,category,amount,note,date,added_by FROM expenses WHERE project=%s ORDER BY id DESC", (project,))
+        cur.execute("SELECT id,project,category,amount,note,date,added_by,own_expense_id,source FROM expenses WHERE project=%s ORDER BY id DESC", (project,))
     else:
-        cur.execute("SELECT id,project,category,amount,note,date,added_by FROM expenses ORDER BY id DESC")
+        cur.execute("SELECT id,project,category,amount,note,date,added_by,own_expense_id,source FROM expenses ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"project":r[1],"category":r[2],"amount":float(r[3] or 0),"note":r[4] or "","date":str(r[5]) if r[5] else "","addedBy":r[6] or ""} for r in rows]
+    return [{"id":r[0],"project":r[1],"category":r[2],"amount":float(r[3] or 0),"note":r[4] or "","date":str(r[5]) if r[5] else "","addedBy":r[6] or "","ownExpenseId":r[7],"source":r[8] or ""} for r in rows]
 
 @app.post("/expenses")
 def create_expense(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):

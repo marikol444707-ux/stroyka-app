@@ -111,7 +111,6 @@ export default function AccountingPaymentsPanel({
       };
     }
     allMovesByProject[projectName].ownExp.push(expense);
-    allMovesByProject[projectName].totalOut += Number(expense.amount || 0);
   });
   (accountablePayments || []).forEach(payment => {
     const projectName = payment.projectName || 'Без объекта';
