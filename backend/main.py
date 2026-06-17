@@ -35,6 +35,7 @@ VK_TOKEN = os.getenv("VK_TOKEN", "")
 AUTH_SECRET = os.getenv("AUTH_SECRET") or (os.getenv("DB_PASSWORD", "password") + "|stroyka-auth")
 AUTH_TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "86400"))
 AI_CONTROL_RUN_TOKEN = os.getenv("AI_CONTROL_RUN_TOKEN", "").strip()
+TELEGRAM_BOT_API_TOKEN = os.getenv("TELEGRAM_BOT_API_TOKEN", "").strip()
 
 def _env_list(name: str, default: list[str]) -> list[str]:
     raw = os.getenv(name, "")
@@ -19785,6 +19786,72 @@ def _own_expense_telegram_value(data: dict, *keys: str) -> str:
             return str(value).strip()
     return ""
 
+def require_telegram_bot_token(x_telegram_bot_token: Optional[str] = Header(default=None)) -> dict:
+    if not TELEGRAM_BOT_API_TOKEN:
+        raise HTTPException(status_code=503, detail="TELEGRAM_BOT_API_TOKEN не настроен")
+    if not x_telegram_bot_token or not hmac.compare_digest(x_telegram_bot_token, TELEGRAM_BOT_API_TOKEN):
+        raise HTTPException(status_code=403, detail="Недостаточно прав Telegram-бота")
+    return {"role": "telegram_bot", "name": "Telegram Bot"}
+
+def _find_employee_by_telegram(cur, telegram_id: str, telegram_chat_id: str) -> Optional[dict]:
+    if not telegram_id and not telegram_chat_id:
+        return None
+    cur.execute(
+        """
+        SELECT id,name,role,project_name,assigned_projects,assigned_packages
+          FROM users
+         WHERE COALESCE(active,TRUE)=TRUE
+           AND ((%s<>'' AND telegram_id=%s)
+             OR (%s<>'' AND telegram_chat_id=%s))
+         ORDER BY id
+         LIMIT 1
+        """,
+        (telegram_id, telegram_id, telegram_chat_id, telegram_chat_id),
+    )
+    row = cur.fetchone()
+    if row:
+        return {
+            "source": "users",
+            "id": row[0],
+            "name": row[1] or "",
+            "role": row[2] or "",
+            "projectName": row[3] or "",
+            "assignedProjects": _safe_project_list(row[4]),
+            "assignedPackages": _safe_project_list(row[5]),
+        }
+
+    cur.execute(
+        """
+        SELECT id,name,role,project
+          FROM staff
+         WHERE (%s<>'' AND telegram_id=%s)
+            OR (%s<>'' AND telegram_chat_id=%s)
+         ORDER BY id
+         LIMIT 1
+        """,
+        (telegram_id, telegram_id, telegram_chat_id, telegram_chat_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "source": "staff",
+        "id": row[0],
+        "name": row[1] or "",
+        "role": row[2] or "",
+        "projectName": row[3] or "",
+        "assignedProjects": [row[3]] if row[3] else [],
+        "assignedPackages": [],
+    }
+
+def _telegram_employee_has_project_access(employee: dict, project_name: str) -> bool:
+    if not project_name:
+        return True
+    role = employee.get("role") or ""
+    if role in FINANCE_ROLES or role in LEADERSHIP_ROLES:
+        return True
+    return project_name in user_project_names(employee)
+
 def _resolve_own_expense_employee(cur, data: dict, current_user: dict) -> tuple[str, int, str, str]:
     telegram_id = _own_expense_telegram_value(data, "telegramId", "telegram_id", "tgId", "tg_id")
     telegram_chat_id = _own_expense_telegram_value(data, "telegramChatId", "telegram_chat_id", "chatId", "chat_id")
@@ -19937,6 +20004,78 @@ def create_own_expense(data: dict, current_user: dict = Depends(require_roles(*O
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True, "id": own_expense_id, "expenseId": expense_id}
+
+@app.post("/telegram/own-expenses")
+def create_telegram_own_expense(data: dict, _bot: dict = Depends(require_telegram_bot_token)):
+    telegram_id = _own_expense_telegram_value(data, "telegramId", "telegram_id", "tgId", "tg_id")
+    telegram_chat_id = _own_expense_telegram_value(data, "telegramChatId", "telegram_chat_id", "chatId", "chat_id")
+    if not telegram_id and not telegram_chat_id:
+        raise HTTPException(status_code=400, detail="Нужен telegram_id или telegram_chat_id")
+
+    description = str(data.get("description") or data.get("text") or "").strip()
+    amount = _safe_float(data.get("amount"), None)
+    if not description:
+        raise HTTPException(status_code=400, detail="Укажите описание траты")
+    if amount is None or amount <= 0:
+        raise HTTPException(status_code=400, detail="Сумма траты должна быть больше нуля")
+
+    project_name = (data.get("projectName") or data.get("project") or "").strip()
+    conn = get_db()
+    cur = conn.cursor()
+    employee = _find_employee_by_telegram(cur, telegram_id, telegram_chat_id)
+    if not employee:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Сотрудник с таким Telegram не найден")
+    if project_name and not _telegram_employee_has_project_access(employee, project_name):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="У сотрудника нет доступа к объекту")
+
+    date_value = data.get("date") or None
+    category = data.get("category") or "other"
+    if not project_name:
+        category = OWN_EXPENSE_NO_PROJECT_CATEGORY
+
+    cur.execute(
+        """
+        INSERT INTO own_expenses
+            (project_name,employee_name,employee_id,description,amount,photo_url,date,category,telegram_id,telegram_chat_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id
+        """,
+        (
+            project_name,
+            employee["name"],
+            employee["id"],
+            description,
+            amount,
+            data.get("photoUrl", ""),
+            date_value,
+            category,
+            telegram_id,
+            telegram_chat_id,
+        ),
+    )
+    own_expense_id = cur.fetchone()[0]
+    expense_id = _sync_own_expense_to_finance_expense(
+        cur,
+        own_expense_id,
+        project_name,
+        description,
+        amount,
+        date_value,
+        employee["name"],
+    )
+    conn.commit()
+    cur.close(); conn.close()
+    return {
+        "ok": True,
+        "id": own_expense_id,
+        "expenseId": expense_id,
+        "employeeName": employee["name"],
+        "employeeSource": employee["source"],
+        "projectName": project_name,
+        "category": category,
+    }
 
 @app.put("/own-expenses/{id}")
 def update_own_expense(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
