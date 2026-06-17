@@ -286,6 +286,28 @@ def main():
         if not created["contractItemId"]:
             raise SystemExit(f"FAIL contract item create: {item}")
 
+        missing_room_status, missing_room_body = api_json(
+            "POST",
+            "/work-journal",
+            token=worker_token,
+            data={
+                "masterId": worker["id"],
+                "masterName": worker["name"],
+                "project": worker["projectName"],
+                "description": description,
+                "unit": "м2",
+                "quantity": qty,
+                "date": today,
+                "comment": f"CODEX QA smoke no room {stamp}",
+                "hiddenWork": True,
+                "qualityStatus": "На проверке",
+                "workPackage": TEST_PACKAGE,
+                "contractItemId": created["contractItemId"],
+            },
+        )
+        if missing_room_status != 400:
+            raise SystemExit(f"FAIL work journal room guard: got {missing_room_status}, expected 400. Body: {missing_room_body}")
+
         _, work = api_json(
             "POST",
             "/work-journal",
@@ -313,6 +335,30 @@ def main():
             raise SystemExit(f"FAIL work journal create: {work}")
         if abs(float(work.get("executionTotal") or work.get("total") or 0) - total) > 0.01:
             raise SystemExit(f"FAIL work execution total: {work}")
+
+        duplicate_status, duplicate_body = api_json(
+            "POST",
+            "/work-journal",
+            token=worker_token,
+            data={
+                "masterId": worker["id"],
+                "masterName": worker["name"],
+                "project": worker["projectName"],
+                "description": description,
+                "unit": "м2",
+                "quantity": 1,
+                "date": today,
+                "comment": f"CODEX QA smoke duplicate {stamp}",
+                "hiddenWork": True,
+                "qualityStatus": "На проверке",
+                "workPackage": TEST_PACKAGE,
+                "roomName": room_name,
+                "surface": "Стены",
+                "contractItemId": created["contractItemId"],
+            },
+        )
+        if duplicate_status != 409:
+            raise SystemExit(f"FAIL work journal duplicate guard: got {duplicate_status}, expected 409. Body: {duplicate_body}")
 
         api_json(
             "PUT",
@@ -386,7 +432,9 @@ def main():
             "checked": [
                 "temporary worker access",
                 "brigade contract and line",
+                "worker cannot create work_journal without room",
                 "worker creates work_journal with room",
+                "worker cannot duplicate same work in same room",
                 "director confirms work_journal",
                 "hidden_works_act auto-created from hidden work",
                 "interim_act created only from confirmed work_journal",
