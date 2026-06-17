@@ -150,12 +150,7 @@ export default function AccountingPaymentsPanel({
     allMovesByProject[projectName].supplierInv.push(invoice);
     const paid = Number(invoice.paidAmount || 0);
     const total = Number(invoice.totalAmount || 0);
-    if (invoice.status === 'Оплачен') {
-      allMovesByProject[projectName].totalOut += total;
-    } else {
-      allMovesByProject[projectName].totalOut += paid;
-      allMovesByProject[projectName].supplyDebt += Math.max(0, total - paid);
-    }
+    allMovesByProject[projectName].supplyDebt += Math.max(0, total - paid);
   });
   (interimActs || []).forEach(act => {
     const projectName = act.project || 'Без объекта';
@@ -176,7 +171,6 @@ export default function AccountingPaymentsPanel({
     const paid = Number(act.paidAmount || 0);
     const total = Number(act.totalAmount || 0);
     allMovesByProject[projectName].actsPaid.push(act);
-    allMovesByProject[projectName].totalOut += paid;
     if (paid < total) allMovesByProject[projectName].actsDebt += (total - paid);
   });
 

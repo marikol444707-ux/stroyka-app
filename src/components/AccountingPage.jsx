@@ -293,6 +293,7 @@ export default function AccountingPage(props) {
           accountingDocProject={accountingDocProject}
           setAccountingDocProject={setAccountingDocProject}
           projects={projects}
+          projectPayments={projectPayments}
           projectPlanDone={projectPlanDone}
           ownExpenses={ownExpenses}
           accountablePayments={accountablePayments}

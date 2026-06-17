@@ -13,9 +13,24 @@ export default function AccountingSummaryPanel({
   piecework,
   isLeadership,
 }) {
+  const projectPaymentSignedAmount = (payment) => {
+    const amount = Number(payment?.amount || 0);
+    const note = String(payment?.note || '').trim().toLowerCase();
+    const outgoing = amount < 0 ||
+      note.startsWith('оплата счёта') ||
+      note.startsWith('оплата бригаде') ||
+      note.startsWith('возмещение') ||
+      note.startsWith('выплата исполнителю');
+    return outgoing ? -Math.abs(amount) : Math.max(0, amount);
+  };
+
   const activeProjectsCount = (projects || []).filter(project => project.status === 'В работе').length;
   const totalBudget = (projects || []).reduce((sum, project) => sum + Number(project.budget || 0), 0);
   const totalPayIn = (projectPayments || []).reduce((sum, payment) => sum + projectPaymentInAmount(payment), 0);
+  const totalProjectPaymentsOut = (projectPayments || []).reduce((sum, payment) => {
+    const signed = projectPaymentSignedAmount(payment);
+    return signed < 0 ? sum + Math.abs(signed) : sum;
+  }, 0);
   const pendingOwnExpenses = (ownExpenses || [])
     .filter(expense => expense.status === 'Ожидает')
     .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
@@ -26,7 +41,7 @@ export default function AccountingSummaryPanel({
   const totalSuppliers = (supplierInvoices || []).reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
   const totalBrigades = (brigadeContracts || []).reduce((sum, contract) => sum + Number(contract.paidAmount || 0), 0);
   const totalPiecework = (piecework || []).reduce((sum, row) => sum + Number(row.total || 0), 0);
-  const totalExpenses = totalAccountable + totalSuppliers + totalBrigades;
+  const totalExpenses = totalAccountable + totalProjectPaymentsOut;
   const netProfit = totalPayIn - totalExpenses;
 
   const cards = [
@@ -35,6 +50,7 @@ export default function AccountingSummaryPanel({
     { label: 'Поступило от заказчиков', value: Math.round(totalPayIn).toLocaleString('ru-RU') + ' ₽', color: C.success },
     { label: 'Оплачено поставщикам', value: Math.round(totalSuppliers).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     { label: 'Оплачено бригадам', value: Math.round(totalBrigades).toLocaleString('ru-RU') + ' ₽', color: C.warning },
+    { label: 'Платежи по журналу', value: Math.round(totalProjectPaymentsOut).toLocaleString('ru-RU') + ' ₽', color: C.danger },
     { label: 'К возмещению сотрудникам', value: Math.round(pendingOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     { label: 'Возмещено сотрудникам', value: Math.round(reimbursedOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.textSec },
     { label: 'Подотчётные на руках', value: Math.round(totalAccountable).toLocaleString('ru-RU') + ' ₽', color: C.warning },

@@ -328,6 +328,7 @@ STAFF_MANAGE_ROLES = ("директор", "зам_директора")
 STAFF_FULL_VIEW_ROLES = (*STAFF_MANAGE_ROLES, "бухгалтер")
 STAFF_VIEW_ROLES = (*STAFF_MANAGE_ROLES, "бухгалтер", "прораб", "главный_инженер")
 PRICELIST_MANAGE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
+PRICELIST_VIEW_ROLES = (*PRICELIST_MANAGE_ROLES, "бухгалтер", "снабженец", "кладовщик", "технадзор", "стройконтроль")
 OWN_EXPENSE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "бригадир", "кладовщик", "снабженец")
 OWN_EXPENSE_REVIEW_ROLES = ("директор", "зам_директора", "бухгалтер")
 SUPPLIER_INVOICE_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "кладовщик", "снабженец", "поставщик")
@@ -5234,7 +5235,8 @@ def delete_user(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP
 def get_pricelists(_current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+    role = _current_user.get("role")
+    if role in WORKER_EXECUTION_ROLES:
         projects = user_project_names(_current_user)
         if not projects:
             cur.close(); conn.close()
@@ -5249,6 +5251,9 @@ def get_pricelists(_current_user: dict = Depends(get_current_user)):
                                AND e.status='Активная'
                                AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'
                          )""", (projects,))
+    elif role not in PRICELIST_VIEW_ROLES:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к прайс-листам")
     else:
         cur.execute("SELECT id,name,description,for_who as \"forWho\",coefficient FROM pricelists")
     rows = cur.fetchall()
@@ -5302,7 +5307,8 @@ def copy_pricelist(id: int, data: CopyPricelistModel, _current_user: dict = Depe
 
 @app.get("/pricelists/{id}/items")
 def get_pricelist_items(id: int, _current_user: dict = Depends(get_current_user)):
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+    role = _current_user.get("role")
+    if role in WORKER_EXECUTION_ROLES:
         projects = user_project_names(_current_user)
         if not projects:
             raise HTTPException(status_code=403, detail="Нет доступа к прайс-листу")
@@ -5321,6 +5327,8 @@ def get_pricelist_items(id: int, _current_user: dict = Depends(get_current_user)
         cur.close(); conn.close()
         if not allowed:
             raise HTTPException(status_code=403, detail="Исполнители видят только прайс, привязанный к объекту без активной сметы заказчика")
+    elif role not in PRICELIST_VIEW_ROLES:
+        raise HTTPException(status_code=403, detail="Нет доступа к прайс-листу")
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT id,pricelist_id as \"pricelistId\",name,unit,price,category,specialization FROM pricelist_items WHERE pricelist_id=%s ORDER BY category,name", (id,))
@@ -13543,7 +13551,11 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
         if not allowed_projects:
             cur.execute(f"SELECT {base_cols} FROM estimates e WHERE FALSE")
         else:
-            cur.execute(f"SELECT {base_cols} FROM estimates e WHERE e.project_name = ANY(%s) AND e.status='Активная' ORDER BY e.id DESC", (allowed_projects,))
+            cur.execute(f"""SELECT {base_cols} FROM estimates e
+                            WHERE e.project_name = ANY(%s)
+                              AND e.status='Активная'
+                              AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'
+                            ORDER BY e.id DESC""", (allowed_projects,))
     elif allowed_projects is not None and not allowed_projects:
         if role in WORKER_EXECUTION_ROLES:
             cur.execute(f"SELECT {base_cols} FROM estimates e WHERE FALSE")

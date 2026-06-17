@@ -12,6 +12,7 @@ export default function AccountingDocumentsPanel({
   accountingDocProject,
   setAccountingDocProject,
   projects,
+  projectPayments,
   projectPlanDone,
   ownExpenses,
   accountablePayments,
@@ -42,6 +43,16 @@ export default function AccountingDocumentsPanel({
   buildActContent,
 }) {
   const selectedProject = accountingDocProject ? (projects || []).find(project => project.name === accountingDocProject) : null;
+  const projectPaymentSignedAmount = (payment) => {
+    const amount = Number(payment?.amount || 0);
+    const note = String(payment?.note || '').trim().toLowerCase();
+    const outgoing = amount < 0 ||
+      note.startsWith('оплата счёта') ||
+      note.startsWith('оплата бригаде') ||
+      note.startsWith('возмещение') ||
+      note.startsWith('выплата исполнителю');
+    return outgoing ? -Math.abs(amount) : Math.max(0, amount);
+  };
 
   const handleDocAction = (doc, project) => {
     if (doc === 'Паспорт') showPreview(buildPassportContent(project), 'Паспорт объекта');
@@ -90,11 +101,19 @@ export default function AccountingDocumentsPanel({
 
     const planDone = projectPlanDone(selectedProject);
     const budget = Number(selectedProject.budget || 0);
-    const ownExp = (ownExpenses || []).filter(expense => expense.projectName === accountingDocProject).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const ownExp = (ownExpenses || [])
+      .filter(expense => expense.projectName === accountingDocProject && expense.status === 'Возмещено')
+      .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
     const accExp = (accountablePayments || []).filter(payment => payment.projectName === accountingDocProject).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const supExp = (supplierInvoices || []).filter(invoice => invoice.projectName === accountingDocProject).reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
     const brigExp = (brigadeContracts || []).filter(contract => contract.projectName === accountingDocProject).reduce((sum, contract) => sum + Number(contract.paidAmount || 0), 0);
-    const factCost = ownExp + accExp + supExp + brigExp;
+    const paymentJournalOut = (projectPayments || [])
+      .filter(payment => payment.projectName === accountingDocProject)
+      .reduce((sum, payment) => {
+        const signed = projectPaymentSignedAmount(payment);
+        return signed < 0 ? sum + Math.abs(signed) : sum;
+      }, 0);
+    const factCost = accExp + paymentJournalOut;
     const margin = planDone.done - factCost;
     const materialControl = materialControlSummaryForProject(accountingDocProject);
     const materialRiskRows = materialControl.outsideRows.length + materialControl.stockMismatchRows.length;
@@ -160,7 +179,7 @@ export default function AccountingDocumentsPanel({
             <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Маржа</p><b style={{ color: margin >= 0 ? C.success : C.danger, fontSize: '14px' }}>{Math.round(margin).toLocaleString('ru-RU') + ' ₽'}</b></div>
           </div>
           <p style={{ color: C.textMuted, fontSize: '10px', margin: '8px 0 0', lineHeight: 1.4 }}>
-            Факт = свои расходы ({Math.round(ownExp).toLocaleString('ru-RU') + ' ₽'}) + подотчётные ({Math.round(accExp).toLocaleString('ru-RU') + ' ₽'}) + поставщики ({Math.round(supExp).toLocaleString('ru-RU') + ' ₽'}) + бригады ({Math.round(brigExp).toLocaleString('ru-RU') + ' ₽'})
+            Факт = платежный журнал ({Math.round(paymentJournalOut).toLocaleString('ru-RU') + ' ₽'}) + подотчётные ({Math.round(accExp).toLocaleString('ru-RU') + ' ₽'}). Расшифровка: возмещения ({Math.round(ownExp).toLocaleString('ru-RU') + ' ₽'}), поставщики ({Math.round(supExp).toLocaleString('ru-RU') + ' ₽'}), бригады ({Math.round(brigExp).toLocaleString('ru-RU') + ' ₽'}).
           </p>
         </div>
 
