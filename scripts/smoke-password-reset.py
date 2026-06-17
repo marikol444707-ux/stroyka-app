@@ -162,7 +162,7 @@ def check_reset_task_closed(user_id):
          ORDER BY updated_at DESC, id DESC
          LIMIT 1
         """,
-        (f"password_reset:{user_id}",),
+        (f"PASSWORD_RESET:{user_id}",),
     )
     row = cur.fetchone()
     cur.close()

@@ -3877,7 +3877,14 @@ def _send_email(to_email: str, subject: str, text: str) -> bool:
         print(f"SMTP SEND ERROR to {to_email}: {e}")
         return False
 
+def _should_skip_password_reset_email(email: str) -> bool:
+    """Do not call external SMTP for local smoke/service accounts."""
+    normalized = (email or "").strip().lower()
+    return normalized.endswith(".local") or normalized.endswith("@stroyka.local")
+
 def _send_password_reset_email(email: str, user_name: str, code: str, expires) -> bool:
+    if _should_skip_password_reset_email(email):
+        return False
     expires_text = expires.strftime("%d.%m.%Y %H:%M")
     body = (
         f"Здравствуйте, {user_name or 'пользователь'}.\n\n"
