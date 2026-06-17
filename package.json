@@ -21,6 +21,7 @@
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:own-expense": "python3 scripts/smoke-own-expense-chain.py",
     "smoke:work-doc-chain": "python3 scripts/smoke-work-doc-chain.py",
+    "smoke:password-reset": "python3 scripts/smoke-password-reset.py",
     "check:smeta": "python3 scripts/check-smeta-parser.py",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
