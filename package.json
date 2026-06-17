@@ -23,7 +23,8 @@
     "smoke:work-doc-chain": "python3 scripts/smoke-work-doc-chain.py",
     "check:smeta": "python3 scripts/check-smeta-parser.py",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "smoke:role-package": "python3 scripts/smoke-role-package-access.py"
   },
   "eslintConfig": {
     "extends": [
