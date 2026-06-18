@@ -283,6 +283,14 @@ cd /var/www/stroyka-app && git pull --ff-only && bash deploy.sh
 journalctl -u stroyka -n 80 --no-pager
 ```
 
+Server deploy + базовый прогон нескольких цепочек:
+
+```bash
+cd /var/www/stroyka-app && git pull --ff-only && bash deploy.sh
+read -s PASS
+SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:core-chains
+```
+
 Data check:
 
 ```bash
