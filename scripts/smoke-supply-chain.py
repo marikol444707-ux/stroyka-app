@@ -174,6 +174,15 @@ def estimate_sections(raw):
     return parsed if isinstance(parsed, list) else []
 
 
+def is_synthetic_material_name(name):
+    text = norm_text(name)
+    return (
+        text.startswith("материалы по позиции")
+        or text.startswith("комплектация укрупненной работы")
+        or text.startswith("комплектация укрупнённой работы")
+    )
+
+
 def iter_candidate_materials():
     preferred_project = os.getenv("SUPPLY_SMOKE_PROJECT", "").strip()
     conn = db_conn()
@@ -203,6 +212,8 @@ def iter_candidate_materials():
     conn.close()
 
     seen = set()
+    primary_candidates = []
+    fallback_candidates = []
     for row in rows:
         package = (row.get("work_package") or "Основная").strip() or "Основная"
         if package.startswith("CODEX QA"):
@@ -224,7 +235,7 @@ def iter_candidate_materials():
                     continue
                 seen.add(key)
                 smoke_qty = min(TEST_QTY_DEFAULT, qty)
-                yield {
+                candidate = {
                     "projectName": project["name"],
                     "projectId": project["id"],
                     "estimateId": row["id"],
@@ -235,6 +246,12 @@ def iter_candidate_materials():
                     "plannedQuantity": qty,
                     "quantity": round(smoke_qty, 6),
                 }
+                if is_synthetic_material_name(name):
+                    fallback_candidates.append(candidate)
+                else:
+                    primary_candidates.append(candidate)
+    yield from primary_candidates
+    yield from fallback_candidates
 
 
 def create_supplier(token, stamp):
@@ -544,7 +561,7 @@ def main():
     admin_email = require_env("SMOKE_EMAIL")
     admin_password = require_env("SMOKE_PASSWORD")
     token = login(admin_email, admin_password)
-    stamp = dt.datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d%H%M%S")
     created = {}
     try:
         supplier_id = create_supplier(token, stamp)
