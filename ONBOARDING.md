@@ -125,7 +125,7 @@
 
 ### A. Контроль после изменений
 
-- Последний продовый smoke после расширения строительной цепочки: 2026-06-17, версия `993a4d639ab3`, `apiErrorsShown=0`. Проверены `/projects`, `/users`, `/estimates`, `/materials`, `/supply-requests`, `/supply-history`, `/own-expenses`, `/work-journal`, `/hidden-works-acts`, `/interim-acts`, `/project-payments`, `/unexpected-works`, `/supervisor-acts`, `/expenses`, `/ai-tasks`, защита `/telegram/own-expenses`.
+- Последний обязательный prod/core smoke: 2026-06-18, версия `f2fd158b109b`, `apiErrorsShown=0`, `smoke:core-chains` прошел 6/6: production API, персонал/доступы, роли/пакеты, ЖПР/АОСР/акт/оплата, снабжение/приход, веб-траты. Опциональные Telegram-траты и восстановление пароля не запускались, потому что не были заданы `SMOKE_TELEGRAM_BOT_TOKEN` и `SMOKE_INCLUDE_PASSWORD_RESET`.
 - После каждого деплоя проверять `npm run smoke:prod` с логином директора и разбирать новые `apiErrorsShown`, если число растет.
 - Для быстрой проверки нескольких цепочек после крупных правок использовать `npm run smoke:core-chains`: production API, персонал/доступы, роли/пакеты, ЖПР/АОСР/акты/оплаты, снабжение/приход, веб-траты.
 - После действий с боевой БД проверять, что объект `Кисловодск Лицей 4`, активные сметы, сотрудники и пользователи не пропали.
