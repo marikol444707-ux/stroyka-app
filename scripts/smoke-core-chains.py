@@ -4,9 +4,12 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
 
 
 CHAIN_STEPS = [
@@ -65,6 +68,37 @@ def require_env():
         raise SystemExit("Нужно задать: " + ", ".join(missing))
 
 
+def preflight_login():
+    payload = json.dumps(
+        {
+            "email": os.getenv("SMOKE_EMAIL", ""),
+            "password": os.getenv("SMOKE_PASSWORD", ""),
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        BASE_URL + "/login",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            status = resp.status
+            text = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        text = exc.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        raise SystemExit(f"Preflight login не прошел: {exc}")
+
+    if status != 200:
+        raise SystemExit(
+            "Preflight login не прошел, цепочки не запускаю, чтобы не заблокировать аккаунт. "
+            f"HTTP {status}: {text[:300]}"
+        )
+
+
 def run_step(step):
     started = time.monotonic()
     print(f"\n=== {step['name']}: {step['title']} ===", flush=True)
@@ -94,6 +128,7 @@ def run_step(step):
 
 def main():
     require_env()
+    preflight_login()
     steps = list(CHAIN_STEPS)
     skipped = []
     for step in OPTIONAL_STEPS:
