@@ -22,6 +22,7 @@
     "smoke:own-expense": "python3 scripts/smoke-own-expense-chain.py",
     "smoke:work-doc-chain": "python3 scripts/smoke-work-doc-chain.py",
     "smoke:supply-chain": "python3 scripts/smoke-supply-chain.py",
+    "smoke:core-chains": "python3 scripts/smoke-core-chains.py",
     "smoke:password-reset": "python3 scripts/smoke-password-reset.py",
     "smoke:staff-access": "python3 scripts/smoke-staff-access.py",
     "check:smeta": "python3 scripts/check-smeta-parser.py",

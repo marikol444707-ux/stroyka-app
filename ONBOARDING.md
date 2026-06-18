@@ -127,6 +127,7 @@
 
 - Последний продовый smoke после расширения строительной цепочки: 2026-06-17, версия `993a4d639ab3`, `apiErrorsShown=0`. Проверены `/projects`, `/users`, `/estimates`, `/materials`, `/supply-requests`, `/supply-history`, `/own-expenses`, `/work-journal`, `/hidden-works-acts`, `/interim-acts`, `/project-payments`, `/unexpected-works`, `/supervisor-acts`, `/expenses`, `/ai-tasks`, защита `/telegram/own-expenses`.
 - После каждого деплоя проверять `npm run smoke:prod` с логином директора и разбирать новые `apiErrorsShown`, если число растет.
+- Для быстрой проверки нескольких цепочек после крупных правок использовать `npm run smoke:core-chains`: production API, персонал/доступы, роли/пакеты, ЖПР/АОСР/акты/оплаты, снабжение/приход, веб-траты.
 - После действий с боевой БД проверять, что объект `Кисловодск Лицей 4`, активные сметы, сотрудники и пользователи не пропали.
 - Проверять реальные входы сотрудников, созданных из карточки персонала.
 
@@ -210,6 +211,14 @@ Production smoke:
 ```bash
 SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD='***' npm run smoke:prod
 ```
+
+Core chains smoke после крупных правок:
+
+```bash
+SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD='***' npm run smoke:core-chains
+```
+
+Скрипт последовательно прогоняет базовый production smoke, доступы персонала, ограничения ролей по пакетам, ЖПР/АОСР/акт/оплату, снабжение/приход материалов и веб-цепочку «Мои траты». Telegram и восстановление пароля подключаются дополнительно через `SMOKE_TELEGRAM_BOT_TOKEN` и `SMOKE_INCLUDE_PASSWORD_RESET=1`.
 
 Telegram smoke после подключения бота:
 
