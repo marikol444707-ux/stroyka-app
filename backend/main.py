@@ -16815,11 +16815,10 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
         if supply_delivery_id or source_type == "supply_delivery":
             raise HTTPException(status_code=400, detail="Накладная по поставке создаётся автоматически при приёмке поставки. Ручное создание отключено, чтобы не задвоить склад.")
         if target_project:
-            raise HTTPException(
-                status_code=400,
-                detail="Ручная приходная накладная на объект запрещена. Используйте цепочку снабжения: заявка → КП → поставка → приёмка, либо перемещение с общего склада.",
-            )
-        if _current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
+            source_type = source_type or "manual_project_invoice"
+        else:
+            source_type = source_type or "manual_main_invoice"
+        if not target_project and _current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
             raise HTTPException(
                 status_code=403,
                 detail="Ручную приходную накладную на основной склад может принять директор, замдиректора, снабженец или кладовщик",
@@ -16873,7 +16872,7 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
                         source_type,source_id,supply_delivery_id,supply_request_id)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
-            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(items_list,ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl",""),data.get("sourceType",""),data.get("sourceId") or None,data.get("supplyDeliveryId") or None,data.get("supplyRequestId") or None))
+            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(items_list,ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl",""),source_type,source_id,supply_delivery_id,supply_request_id))
         invoice_id = cur.fetchone()[0]
 
         sup = data.get("supplierName","")

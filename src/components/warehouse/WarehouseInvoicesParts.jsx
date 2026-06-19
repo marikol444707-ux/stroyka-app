@@ -148,6 +148,11 @@ export function WarehouseInvoiceForm({
             <option value="Основной склад">Основной склад</option>
             {(projects || []).map(project => <option key={project.id} value={project.name}>{project.name}</option>)}
           </select>
+          {invoiceProject && (
+            <p style={{color:C.textSec,fontSize:'12px',lineHeight:1.45,margin:'6px 0 0'}}>
+              Ручной приход на объект разрешён для прямых закупок и распоряжений директора. Позиции попадут в материалы объекта, журнал движения и сметный контроль; поставки по заявке принимайте через цепочку снабжения, чтобы не задвоить приход.
+            </p>
+          )}
         </div>
       </div>
 
@@ -289,6 +294,7 @@ export function WarehouseInvoiceCard({
           <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat+' · позиций: '+items.length}</p>
           {inv.status && <p style={{color:inv.status==='Аннулирована'?C.danger:C.textSec,margin:'2px 0 0',fontSize:'11px',fontWeight:'700'}}>{'Статус: '+inv.status}</p>}
           {isSupplyDeliveryInvoice(inv) && <p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Из поставки снабжения #{inv.supplyDeliveryId||inv.sourceId}{inv.supplyRequestId?' · заявка #'+inv.supplyRequestId:''}</p>}
+          {inv.sourceType === 'manual_project_invoice' && <p style={{color:C.info,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Ручной приход на объект · прямой заказ / распоряжение директора</p>}
           {invoiceRows.reconstructed && <p style={{color:C.warning,margin:'2px 0 0',fontSize:'11px'}}>Строки восстановлены из {invoiceRows.source}</p>}
           {inv.location !== 'Основной склад' && estimateControl.length > 0 && (
             <p style={{color:estimateIssues.length?C.warning:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'800'}}>

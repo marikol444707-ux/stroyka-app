@@ -444,7 +444,7 @@ def assert_visible_chain(token, candidate, delivery_id, invoice_id):
     if not matched_history:
         raise RuntimeError("История снабжения не содержит принятую поставку")
 
-    status, blocked = api_json(
+    _, manual_invoice = api_json(
         "POST",
         "/warehouse-invoices",
         token=token,
@@ -466,9 +466,19 @@ def assert_visible_chain(token, candidate, delivery_id, invoice_id):
             "totalVat": 0,
             "totalWithVat": round(TEST_PRICE * candidate["quantity"], 2),
         },
+        expected=200,
     )
-    if status != 400:
-        raise RuntimeError(f"Ручная приходная накладная на объект не заблокирована: got {status}, body={blocked}")
+    manual_invoice_id = manual_invoice.get("id")
+    if not manual_invoice_id:
+        raise RuntimeError("Ручная приходная накладная на объект не вернула id")
+
+    _, invoices_after_manual = api_json("GET", "/warehouse-invoices", token=token, expected=200)
+    saved_manual_invoice = next((r for r in invoices_after_manual if int(r.get("id") or 0) == int(manual_invoice_id)), None)
+    if not saved_manual_invoice:
+        raise RuntimeError("Ручная приходная накладная на объект не видна в /warehouse-invoices")
+    if saved_manual_invoice.get("sourceType") != "manual_project_invoice":
+        raise RuntimeError("Ручная приходная накладная на объект сохранена без sourceType=manual_project_invoice")
+    return manual_invoice_id
 
 
 def cleanup(created):
@@ -481,7 +491,7 @@ def cleanup(created):
         project_name = created.get("projectName")
         package = created.get("workPackage")
         unit = created.get("unit")
-        qty = as_float(created.get("quantity"))
+        qty = as_float(created.get("quantity")) + as_float(created.get("manualQuantity"))
 
         if material_name and project_name and qty > 0:
             remaining = qty
@@ -511,6 +521,7 @@ def cleanup(created):
 
         ids = {
             "invoiceId": created.get("invoiceId"),
+            "manualInvoiceId": created.get("manualInvoiceId"),
             "deliveryId": created.get("deliveryId"),
             "offerId": created.get("offerId"),
             "requestId": created.get("requestId"),
@@ -518,6 +529,8 @@ def cleanup(created):
         }
         if ids["invoiceId"]:
             cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["invoiceId"],))
+        if ids["manualInvoiceId"]:
+            cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["manualInvoiceId"],))
         if ids["deliveryId"]:
             cur.execute("DELETE FROM material_inspection_journal WHERE delivery_id=%s", (ids["deliveryId"],))
             cur.execute("DELETE FROM cable_journal WHERE delivery_id=%s", (ids["deliveryId"],))
@@ -540,6 +553,17 @@ def cleanup(created):
                    AND COALESCE(work_package,'')=%s
                    AND issued_by='Снабжение'
                    AND type='приход (поставка)'
+                """,
+                (material_name, project_name, package or ""),
+            )
+            cur.execute(
+                """
+                DELETE FROM warehouse_history
+                 WHERE material=%s
+                   AND project=%s
+                   AND COALESCE(work_package,'')=%s
+                   AND issued_by='CODEX QA'
+                   AND type='приход'
                 """,
                 (material_name, project_name, package or ""),
             )
@@ -580,7 +604,9 @@ def main():
         delivery_id, invoice_id = ship_and_receive(token, candidate, offer_id, stamp)
         created["deliveryId"] = delivery_id
         created["invoiceId"] = invoice_id
-        assert_visible_chain(token, candidate, delivery_id, invoice_id)
+        manual_invoice_id = assert_visible_chain(token, candidate, delivery_id, invoice_id)
+        created["manualInvoiceId"] = manual_invoice_id
+        created["manualQuantity"] = candidate["quantity"]
         print(json.dumps({
             "ok": True,
             "projectName": candidate["projectName"],
@@ -592,6 +618,7 @@ def main():
             "offerId": offer_id,
             "deliveryId": delivery_id,
             "invoiceId": invoice_id,
+            "manualInvoiceId": manual_invoice_id,
             "checked": [
                 "positive estimate material selected",
                 "supply request passed estimate control",
@@ -600,7 +627,7 @@ def main():
                 "receipt created automatic invoice",
                 "receipt updated project materials",
                 "receipt wrote supply history",
-                "manual object warehouse invoice is blocked",
+                "manual director object invoice is allowed and controlled",
             ],
         }, ensure_ascii=False, indent=2))
     except Exception as exc:
