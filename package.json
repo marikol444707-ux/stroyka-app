@@ -23,6 +23,8 @@
     "smoke:work-doc-chain": "python3 scripts/smoke-work-doc-chain.py",
     "smoke:supply-chain": "python3 scripts/smoke-supply-chain.py",
     "smoke:core-chains": "python3 scripts/smoke-core-chains.py",
+    "smoke:optional-chains": "python3 scripts/smoke-optional-chains.py",
+    "smoke:role-matrix": "python3 scripts/smoke-role-matrix.py",
     "smoke:password-reset": "python3 scripts/smoke-password-reset.py",
     "smoke:staff-access": "python3 scripts/smoke-staff-access.py",
     "check:smeta": "python3 scripts/check-smeta-parser.py",
