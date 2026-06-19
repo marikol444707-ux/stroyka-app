@@ -28,6 +28,8 @@
     "smoke:role-matrix": "python3 scripts/smoke-role-matrix.py",
     "smoke:password-reset": "python3 scripts/smoke-password-reset.py",
     "smoke:staff-access": "python3 scripts/smoke-staff-access.py",
+    "smoke:norms-dry-run": "python3 scripts/smoke-norms-dry-run.py",
+    "smoke:estimate-norms": "python3 scripts/smoke-estimate-norms.py",
     "check:smeta": "python3 scripts/check-smeta-parser.py",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
