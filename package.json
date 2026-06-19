@@ -32,6 +32,7 @@
     "smoke:estimate-norms": "python3 scripts/smoke-estimate-norms.py",
     "smoke:work-roles": "python3 scripts/smoke-work-roles.py",
     "smoke:accounting-prod": "python3 scripts/smoke-accounting-prod.py",
+    "smoke:preprod": "python3 scripts/smoke-preprod.py",
     "check:smeta": "python3 scripts/check-smeta-parser.py",
     "test": "react-scripts test",
     "eject": "react-scripts eject",

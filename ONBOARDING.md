@@ -133,6 +133,7 @@
 - Для блока смет/норм запускать `npm run smoke:estimate-norms`: локально проверяет XLSX-парсер, если есть папка `~/Desktop/Kislovodsk`, и на проде делает dry-run норм материалов без записи в БД.
 - Для блоков работ и ролей запускать `npm run smoke:work-roles`: ЖПР/АОСР/акт/оплата, ограничения пакетов, карточка сотрудника/доступ и матрица ролей.
 - Для блоков бухгалтерии и продакшен-готовности запускать `npm run smoke:accounting-prod`: поставка/накладная, акт исполнителя/оплата, мои траты/возмещение, восстановление пароля и Telegram при наличии токена.
+- Для полного pre-prod прогона запускать `npm run smoke:preprod`: последовательно закрывает A-G через data guard, сметы/нормы, работы/роли, бухгалтерию/prod-ready.
 - Проверять реальные входы сотрудников, созданных из карточки персонала.
 
 ### B. Сметы: только хвосты, не переписывать заново
@@ -202,6 +203,7 @@
 - PWA push или Telegram для поручений, предписаний, проверок, поставок и перерасхода.
 - Полноценное мобильное приложение делать после стабилизации PWA и API.
 - Продолжить рефакторинг `src/App.js` и `backend/main.py`, не смешивая рефакторинг с изменением бизнес-логики.
+- Добавлен единый pre-prod smoke `npm run smoke:preprod`: это верхнеуровневый запуск перед живым тестом/продакшеном, который объединяет блоки A-G и делает один preflight-вход перед цепочками.
 
 ## Проверка перед закрытием пункта
 
@@ -359,6 +361,15 @@ SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" SMOKE_TELEGRAM_BOT_TOKEN='
 ```
 
 Скрипт объединяет `smoke:prod`, `smoke:data-guard`, `smoke:supply-chain`, `smoke:work-doc-chain`, `smoke:own-expense`, `smoke:password-reset` и при наличии токена `smoke:telegram-expense`.
+
+Полный pre-prod прогон перед живым тестом:
+
+```bash
+read -s PASS
+SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:preprod
+```
+
+Скрипт последовательно запускает `smoke:data-guard`, `smoke:estimate-norms`, `smoke:work-roles` и `smoke:accounting-prod`. Если нужен Telegram-контур, добавить `SMOKE_TELEGRAM_BOT_TOKEN`.
 
 Server deploy:
 
