@@ -11,6 +11,7 @@ export default function MasterSupplyPage({
   btnG,
   btnR,
   badge,
+  isMobile = false,
   role,
   user,
   showSupplyForm,
@@ -121,6 +122,7 @@ export default function MasterSupplyPage({
           btnR={btnR}
           badge={badge}
           list={myReqs}
+          isMobile={isMobile}
           user={user}
           statusColors={statusColors}
           supplyCollapsedProjects={supplyCollapsedProjects}

@@ -11,6 +11,7 @@ function SupplyRequestsList(props) {
     card,
     badge,
     list,
+    isMobile = false,
     supplyCollapsedProjects,
     setSupplyCollapsedProjects,
   } = props;
@@ -30,6 +31,7 @@ function SupplyRequestsList(props) {
     <>
       {Array.from(byProject.entries()).map(([project, requests]) => {
         const collapsed = supplyCollapsedProjects[project];
+        const visibleRequests = isMobile ? requests.slice(0, 20) : requests;
         return (
           <div key={project} style={{ marginBottom: '12px' }}>
             <SupplyRequestsProjectHeader
@@ -46,13 +48,18 @@ function SupplyRequestsList(props) {
             />
             {!collapsed && (
               <div style={{ paddingLeft: '12px', borderLeft: '2px solid ' + C.border, marginLeft: '8px' }}>
-                {requests.map(request => (
+                {visibleRequests.map(request => (
                   <SupplyRequestCard
                     key={request.id}
                     {...props}
                     request={request}
                   />
                 ))}
+                {visibleRequests.length < requests.length && (
+                  <div style={{padding:'10px 12px',color:C.textMuted,fontSize:'11px',textAlign:'center'}}>
+                    Показаны последние {visibleRequests.length} из {requests.length}. Используйте поиск или откройте на компьютере для полного списка.
+                  </div>
+                )}
               </div>
             )}
           </div>

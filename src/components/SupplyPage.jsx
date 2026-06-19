@@ -12,6 +12,7 @@ export default function SupplyPage({
   C,
   card,
   inp,
+  isMobile = false,
   tblH,
   tblC,
   btnO,
@@ -355,6 +356,7 @@ export default function SupplyPage({
           btnR={btnR}
           badge={badge}
           list={list}
+          isMobile={isMobile}
           user={user}
           statusColors={statusColors}
           supplyCollapsedProjects={supplyCollapsedProjects}

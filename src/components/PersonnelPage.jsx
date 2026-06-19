@@ -31,6 +31,7 @@ export default function PersonnelPage({
   fmtMeasure,
   inp,
   interimActs,
+  isMobile = false,
   listSearch,
   masterProfiles,
   masterRatings,
@@ -111,6 +112,9 @@ export default function PersonnelPage({
   };
   const accessProjectRoles = ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
   const packageAccessRoles = ['мастер','субподрядчик','бригадир','прораб','главный_инженер'];
+  const filteredStaff = staff.filter(s=>matchSearch(listSearch,s.name,s.role,s.project,s.specialization));
+  const visibleStaffLimit = isMobile ? 40 : filteredStaff.length;
+  const visibleStaff = filteredStaff.slice(0, visibleStaffLimit);
   return (
     <div>
       <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
@@ -396,7 +400,7 @@ export default function PersonnelPage({
               </tr>
             </thead>
             <tbody>
-              {staff.filter(s=>matchSearch(listSearch,s.name,s.role,s.project,s.specialization)).map(s=>{
+              {visibleStaff.map(s=>{
                 const hasAccess=findUserForStaff(s);
                 const isExp=expandedStaffId===s.id;
                 return (
@@ -509,6 +513,11 @@ export default function PersonnelPage({
               })}
             </tbody>
           </table>
+          {visibleStaff.length < filteredStaff.length&&(
+            <div style={{padding:'12px',color:C.textMuted,fontSize:'12px',textAlign:'center'}}>
+              Показаны первые {visibleStaff.length} из {filteredStaff.length}. Уточните поиск, чтобы быстрее найти сотрудника.
+            </div>
+          )}
         </div>
       )}
 
@@ -526,7 +535,7 @@ export default function PersonnelPage({
                 </tr>
               </thead>
               <tbody>
-                {staff.map(s=>(
+                {visibleStaff.map(s=>(
                   <tr key={s.id}>
                     <td style={tblC}><b style={{fontSize:'12px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.role}</p></td>
                     {daysInMonth.map(d=>(
@@ -542,6 +551,11 @@ export default function PersonnelPage({
                 ))}
               </tbody>
             </table>
+            {visibleStaff.length < filteredStaff.length&&(
+              <div style={{padding:'12px',color:C.textMuted,fontSize:'12px',textAlign:'center'}}>
+                Показаны первые {visibleStaff.length} из {filteredStaff.length}. Уточните поиск для нужной бригады или сотрудника.
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -558,7 +572,7 @@ export default function PersonnelPage({
               Чтобы начислить оплату мастеру или субподрядчику, исполнитель закрывает работу в ЖПР с помещением, руководитель подтверждает, затем бухгалтерия формирует акт закрытия.
             </p>
           </div>
-          {staff.map(s=>{
+          {visibleStaff.map(s=>{
             const sWorks=piecework.filter(p=>Number(p.staffId)===s.id);
             const sTotal=sWorks.reduce((ss,p)=>ss+p.total,0);
             if(sWorks.length===0) return null;

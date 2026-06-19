@@ -1029,6 +1029,7 @@ export default function MasterCabinetPage(props) {
             btnG={btnG}
             btnR={btnR}
             badge={badge}
+            isMobile={isMobile}
             role={user.role}
             user={user}
             showSupplyForm={showSupplyForm}

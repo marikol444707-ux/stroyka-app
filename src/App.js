@@ -13960,6 +13960,7 @@ function App() {
                 C={C}
                 card={card}
                 inp={inp}
+                isMobile={isMobile}
                 tblH={tblH}
                 tblC={tblC}
                 btnO={btnO}
@@ -14267,6 +14268,7 @@ function App() {
               fmtMeasure={fmtMeasure}
               inp={inp}
               interimActs={interimActs}
+              isMobile={isMobile}
               listSearch={listSearch}
               masterProfiles={masterProfiles}
               masterRatings={masterRatings}
