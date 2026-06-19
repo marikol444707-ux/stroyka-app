@@ -12214,8 +12214,11 @@ function App() {
               <div style={{display:'flex',gap:'10px',marginTop:'15px'}}><button onClick={saveProject} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
             </div>)}
             {visibleProjects((showArchive?projects.filter(pr=>pr.archived):projects.filter(pr=>!pr.archived))).map(p=>{
-              const cat=expByCategory(p.name);const _bs=projectBudgetSpent(p);const total=_bs.total;const economy=projectEconomy(p);
+              const _bs=projectBudgetSpent(p);const total=_bs.total;
               const isOpen=expandedProject===p.id;
+              const shouldRenderProjectOverview=isOpen&&activeProjectTab==='Общее';
+              const cat=shouldRenderProjectOverview&&isFinanceRole()?expByCategory(p.name):{};
+              const economy=shouldRenderProjectOverview&&isFinanceRole()?projectEconomy(p):null;
               const statusColors={'Планирование':[C.info,C.infoLight,C.infoBorder],'В работе':[C.success,C.successLight,C.successBorder],'Завершён':[C.textSec,C.bgGray,C.border],'Заморожен':[C.warning,C.warningLight,C.warningBorder]};
               return(<div key={p.id} style={{...card,marginBottom:'12px',overflow:'visible'}}>
                 <ProjectCardHeader
@@ -12248,7 +12251,15 @@ function App() {
 		                        {EXPENSE_CATEGORIES.map(c=>(<div key={c.id} style={{padding:'12px',backgroundColor:C.bg,borderRadius:'10px',border:'1.5px solid '+C.border}}><p style={{margin:'0 0 4px',fontSize:'11px',color:C.textSec}}>{c.label}</p><b style={{fontSize:'14px',color:c.color}}>{(cat[c.id]||0).toLocaleString()+' ₽'}</b></div>))}
 		                      </div>)}
 		                      {isFinanceRole()&&<ProjectEconomyPanel C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} project={p} economy={economy} isMobile={isMobile} onOpenFinance={()=>setActiveProjectTab('Финансы')} onOpenJournal={()=>setActiveProjectTab('Производство работ')} onOpenMaterials={()=>setActiveProjectTab('Материалы')} onOpenEstimate={()=>setActiveProjectTab('Смета')} showPreview={showPreview} />}
-		                      <ProjectObjectLinksPanel C={C} card={card} items={projectObjectLinks(p)} isMobile={isMobile} onOpen={(tab)=>tab&&setActiveProjectTab(tab)} />
+		                      {(()=>{const linksKey=['project-object-links',p.id||p.name].join(':');const showLinks=!isMobile||mobileExpandedRenderLists[linksKey];if(!showLinks){return(<div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+                              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                                <div>
+                                  <b style={{color:C.text,fontSize:'14px'}}>🧭 Связи объекта</b>
+                                  <p style={{margin:'4px 0 0',color:C.textSec,fontSize:'12px',lineHeight:1.4}}>Сметы, журналы, материалы и документы загружаются по запросу.</p>
+                                </div>
+                                <button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[linksKey]:true}))} style={{...btnB,padding:'8px 12px',fontSize:'12px'}}>Показать</button>
+                              </div>
+                            </div>);}return <ProjectObjectLinksPanel C={C} card={card} items={projectObjectLinks(p)} isMobile={isMobile} onOpen={(tab)=>tab&&setActiveProjectTab(tab)} />;})()}
                           {isLeadership()&&(()=>{const siteDraft=projectSiteDraft(p);return(<div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:siteDraft.publicShowOnSite?C.successLight:C.bgWhite,border:'1.5px solid '+(siteDraft.publicShowOnSite?C.successBorder:C.border)}}>
                             <div style={{display:'flex',justifyContent:'space-between',gap:'12px',alignItems:'flex-start',flexWrap:'wrap',marginBottom:'12px'}}>
                               <div>
