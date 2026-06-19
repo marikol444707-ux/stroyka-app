@@ -232,13 +232,13 @@ npm run smoke:optional-chains
 Без Telegram-токена прогонит только восстановление пароля. С Telegram:
 
 ```bash
-SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD='***' SMOKE_TELEGRAM_BOT_TOKEN='***' npm run smoke:optional-chains
+SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD='***' SMOKE_TELEGRAM_BOT_TOKEN='123456:ABC...' npm run smoke:optional-chains
 ```
 
 Telegram smoke после подключения бота:
 
 ```bash
-SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD='***' SMOKE_TELEGRAM_BOT_TOKEN='***' npm run smoke:prod
+SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD='***' SMOKE_TELEGRAM_BOT_TOKEN='123456:ABC...' npm run smoke:prod
 ```
 
 Ожидаемое поведение `/telegram/own-expenses`: без `X-Telegram-Bot-Token` endpoint должен вернуть `403` или `503`, с правильным токеном и несуществующим Telegram ID должен вернуть `404`. Если возвращает `200/201` без токена — это критичная дыра.

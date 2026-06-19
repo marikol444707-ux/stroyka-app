@@ -92,6 +92,20 @@ def require_env(name):
     return value
 
 
+def require_telegram_token():
+    token = env_value("SMOKE_TELEGRAM_BOT_TOKEN") or env_value("TELEGRAM_BOT_API_TOKEN")
+    token = (token or "").strip()
+    if not token:
+        raise SystemExit("Нужно задать SMOKE_TELEGRAM_BOT_TOKEN или TELEGRAM_BOT_API_TOKEN")
+    if "ТОКЕН" in token.upper() or token in {"***", "...", "token", "TOKEN"}:
+        raise SystemExit("SMOKE_TELEGRAM_BOT_TOKEN содержит пример/заглушку. Вставь реальный токен BotFather вида 123456:ABC...")
+    try:
+        token.encode("latin-1")
+    except UnicodeEncodeError:
+        raise SystemExit("SMOKE_TELEGRAM_BOT_TOKEN должен быть реальным ASCII-токеном BotFather, без кириллицы и текста-заглушки")
+    return token
+
+
 def login():
     email = require_env("SMOKE_EMAIL")
     password = require_env("SMOKE_PASSWORD")
@@ -187,9 +201,7 @@ def find_by_id(rows, row_id):
 
 
 def main():
-    bot_token = env_value("SMOKE_TELEGRAM_BOT_TOKEN") or env_value("TELEGRAM_BOT_API_TOKEN")
-    if not bot_token:
-        raise SystemExit("Нужно задать SMOKE_TELEGRAM_BOT_TOKEN или TELEGRAM_BOT_API_TOKEN")
+    bot_token = require_telegram_token()
 
     director_token = login()
     temp_user = prepare_temp_telegram_user()
