@@ -906,8 +906,15 @@ const aiNoticeText = {fontSize:'13px',color:'#064e3b',lineHeight:1.45,fontWeight
 const tbl = {width:'100%',borderCollapse:'collapse',fontSize:'13px'};
 const tblH = {padding:'8px 12px',backgroundColor:C.bg,color:C.textSec,fontWeight:'600',fontSize:'11px',textTransform:'uppercase',borderBottom:'1.5px solid '+C.border,textAlign:'left'};
 const tblC = {padding:'8px 12px',borderBottom:'1px solid '+C.border,color:C.text,fontSize:'13px'};
+const detectMobileLayout = () => {
+  if (typeof window === 'undefined') return false;
+  const width = window.visualViewport?.width || window.innerWidth || 0;
+  const coarsePointer = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+  const mobileUa = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+  return width < 768 || ((coarsePointer || mobileUa) && width < 1100);
+};
 function App() {
-  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
+  const [isMobile, setIsMobile] = useState(detectMobileLayout);
   const [isCompactHeader, setIsCompactHeader] = useState(typeof window !== 'undefined' && window.innerWidth < 1180);
   const mobileLoadedScopesRef = useRef(new Set());
   const mobileApiRequestsRef = useRef(new Map());
@@ -918,11 +925,16 @@ function App() {
   }, [darkMode]);
   useEffect(() => {
     const onResize = () => {
-      setIsMobile(window.innerWidth < 768);
+      setIsMobile(detectMobileLayout());
       setIsCompactHeader(window.innerWidth < 1180);
     };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    window.visualViewport?.addEventListener('resize', onResize);
+    onResize();
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.visualViewport?.removeEventListener('resize', onResize);
+    };
   }, []);
   // Регистрация по ссылке: проверяем URL ?invite=CODE и переходим на форму регистрации
   useEffect(() => {
@@ -1097,8 +1109,12 @@ function App() {
   const [showScannedInvoiceForm, setShowScannedInvoiceForm] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
 
-  const openReceiveInvoice = (preselectedLocation) => {
+  const openReceiveInvoice = (preselectedLocation, options = {}) => {
     setNewInvoice({number:'',date:new Date().toISOString().split('T')[0],supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:user?.name||'',location:preselectedLocation||'',project:preselectedLocation&&preselectedLocation!=='Основной склад'?preselectedLocation:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}],supplier:'',totalWithVat:0});
+    if (options.scanFirst) {
+      setShowScanInvoice(true);
+      return;
+    }
     setShowReceiveDialog(true);
   };
   const openSystemStatus = async () => {
@@ -1547,6 +1563,15 @@ function App() {
     setActivityLog(prev=>{const updated=[entry,...prev].slice(0,100);localStorage.setItem('activityLog',JSON.stringify(updated));return updated;});
   };
 
+  const loadAuditLog = async () => {
+    try {
+      const data = await fetch(API + '/audit-log?limit=200').then(r => r.ok ? r.json() : []);
+      setAuditLog(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setAuditLog([]);
+    }
+  };
+
   useEffect(() => {
     const handleOutside = (e) => {
       const target = e.target;
@@ -1587,6 +1612,12 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  useEffect(() => {
+    if (!user || activePage !== 'activitylog') return;
+    loadAuditLog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, activePage]);
 
   const roleFlags = () => {
     const role = user?.role || '';
@@ -1843,6 +1874,10 @@ function App() {
       setCompanyRequisites(cr || {});
       setCompanyDocuments(Array.isArray(cd)?cd:[]);
     });
+    if (page === 'activitylog') return loadMobileScopeOnce('mobile:activitylog', async () => {
+      const aud = (isLeadershipRole || isFinanceRole) ? await getApi('/audit-log?limit=200') : [];
+      setAuditLog(Array.isArray(aud) ? aud : []);
+    });
     if (page === 'companychat') return loadMobileScopeOnce('mobile:chat', async () => {
       const msgs = await getApi('/messages');
       setCompanyMessages(Array.isArray(msgs)?msgs:[]);
@@ -1878,7 +1913,7 @@ function App() {
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
 
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,ma,mno,mns] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get('/materials'),
@@ -1936,6 +1971,7 @@ function App() {
         canSeeProjectDocs ? get('/material-aliases') : skip([]),
         canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),
         canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
+        (isLeadershipRole || isFinanceRole) ? get('/audit-log?limit=200') : skip([]),
       ]);
       setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
@@ -1945,7 +1981,7 @@ function App() {
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -13878,7 +13914,7 @@ function App() {
             {projects.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><FolderKanban size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Проектов нет — создайте первый!</p></div>}
           </div>)}
           {activePage==='clients'&&(
-            <ClientsPage C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} clients={clients} projects={projects} showForm={showForm} setShowForm={setShowForm} editingItem={editingItem} setEditingItem={setEditingItem} newClient={newClient} setNewClient={setNewClient} saveClient={saveClient} listSearch={listSearch} setListSearch={setListSearch} expandedClient={expandedClient} setExpandedClient={setExpandedClient} deleteClient={deleteClient} matchSearch={matchSearch}/>
+            <ClientsPage C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} clients={clients} projects={projects} showForm={showForm} setShowForm={setShowForm} editingItem={editingItem} setEditingItem={setEditingItem} newClient={newClient} setNewClient={setNewClient} saveClient={saveClient} listSearch={listSearch} setListSearch={setListSearch} expandedClient={expandedClient} setExpandedClient={setExpandedClient} deleteClient={deleteClient} matchSearch={matchSearch} isMobile={isMobile}/>
           )}
 
           {activePage==='warehouse'&&(
@@ -14165,7 +14201,7 @@ function App() {
               setAccountingTab={setAccountingTab}
               setShowForm={setShowForm}
               isLeadership={isLeadership()}
-              loadAuditLog={() => fetch(API+'/audit-log').then(r=>r.json()).then(d=>setAuditLog(Array.isArray(d)?d:[])).catch(()=>{})}
+              loadAuditLog={loadAuditLog}
               btnO={btnO}
               btnG={btnG}
               C={C}
@@ -14909,11 +14945,11 @@ function App() {
           )}
 
           {activePage==='crm'&&(
-            <CrmPage C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm}/>
+            <CrmPage C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm} isMobile={isMobile}/>
           )}
 
           {activePage==='activitylog'&&(
-            <ActivityLogPage C={C} tbl={tbl} tblH={tblH} tblC={tblC} activityLog={activityLog} roleLabels={ROLE_LABELS}/>
+            <ActivityLogPage C={C} tbl={tbl} tblH={tblH} tblC={tblC} activityLog={activityLog} auditLog={auditLog} roleLabels={ROLE_LABELS}/>
           )}
 
           {activePage==='companychat'&&(
@@ -14942,9 +14978,9 @@ function App() {
     {showVersionHistory&&<EstimateVersionHistoryModal showVersionHistory={showVersionHistory} setShowVersionHistory={setShowVersionHistory} selectedEstimate={selectedEstimate} estimateVersions={estimateVersions} selectedVersionsToCompare={selectedVersionsToCompare} setSelectedVersionsToCompare={setSelectedVersionsToCompare} isMobile={isMobile} C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} API={API} user={user} setSelectedEstimate={setSelectedEstimate} setEstimatesList={setEstimatesList} showPreview={showPreview} buildEstimateDiffContent={buildEstimateDiffContent} estimateItemTotal={estimateItemTotal} setShowAiChat={setShowAiChat} setAiMessages={setAiMessages} setAiLoading={setAiLoading}/>}
     {showReceiveDialog&&<ReceiveMaterialDialog showReceiveDialog={showReceiveDialog} setShowReceiveDialog={setShowReceiveDialog} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnB={btnB} btnG={btnG}/>}
     {showScannedInvoiceForm&&<ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} getProjectWorkPackageOptions={getProjectWorkPackageOptions} getProjectEstimateWorkOptions={getProjectEstimateWorkOptions} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>}
-    {showScanInvoice&&<ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} setNewInvoice={setNewInvoice}/>}
+    {showScanInvoice&&<ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects}/>}
     {showOwnExpenseForm&&<OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>}
-    {showQuickActions&&<QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setExpandedProject={setExpandedProject} setActiveProjectTab={setActiveProjectTab} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>}
+    {showQuickActions&&<QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setSelectedWarehouseProject={setSelectedWarehouseProject} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>}
     </React.Suspense>
     <SystemStatusModal
       show={showSystemStatus}

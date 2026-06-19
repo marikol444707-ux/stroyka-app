@@ -12,9 +12,12 @@ export default function ScanInvoiceModal({
   setScanningInvoice,
   API,
   user,
+  newInvoice,
   setNewInvoice,
+  projects = [],
 }) {
   if (!showScanInvoice) return null;
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
 
   const toNumber = (value) => {
     if (value === null || value === undefined || value === '') return 0;
@@ -49,15 +52,42 @@ export default function ScanInvoiceModal({
     return 'С НДС 22%';
   };
 
+  const targetLocation = newInvoice?.location || 'Основной склад';
+  const updateLocation = (location) => {
+    setNewInvoice(prev => ({
+      ...prev,
+      location,
+      project: location && location !== 'Основной склад' ? location : '',
+    }));
+  };
+
+  const uploadInvoicePhoto = async (file, location) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const projectName = location && location !== 'Основной склад' ? location : 'Основной склад';
+    fd.append('projectName', projectName);
+    fd.append('context', 'warehouse-invoices');
+    try {
+      const resp = await fetch(API + '/upload-photo', {method:'POST', body:fd});
+      const data = await resp.json().catch(() => ({}));
+      return data.url || '';
+    } catch (_e) {
+      return '';
+    }
+  };
+
   const scan = async (file) => {
     if(!file) return;
     setScanningInvoice(true);
+    const location = targetLocation || 'Основной склад';
+    const project = location !== 'Основной склад' ? location : '';
     const base64 = await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.readAsDataURL(file);});
     try {
-      const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:base64})});
+      const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:base64, target:'warehouse', location, project})});
       const data = await resp.json();
       if(!data.ok) throw new Error(data.error||'Ошибка');
       const parsed = data.data;
+      const photoUrl = await uploadInvoicePhoto(file, location);
       const today = new Date().toISOString().split('T')[0];
       const totalWithVat = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
       const totalBase = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
@@ -78,16 +108,19 @@ export default function ScanInvoiceModal({
         };
       });
       setNewInvoice(prev=>({...prev,
+        location,
+        project,
         number:parsed.number || parsed.invoiceNumber || parsed.invoice_number || prev.number || '',
         supplier:parsed.supplier||'',
         newSupplierName:parsed.supplier||'',
         isNewSupplier:true,
         date:normalizeDate(parsed.date || parsed.invoiceDate || parsed.invoice_date) || today,
-        acceptedBy:user.name,
+        acceptedBy:user?.name || '',
         vat:detectVat(parsed),
         totalBase,
         totalVat,
         totalWithVat,
+        photos: photoUrl ? [...(prev.photos || []), photoUrl] : (prev.photos || []),
         items:normalizedItems.length ? normalizedItems : prev.items
       }));
       setShowScanInvoice(false);
@@ -101,8 +134,13 @@ export default function ScanInvoiceModal({
 
   return (
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
+      <div className='mobile-modal' style={{...card,padding:isMobile?'16px':'20px',width:isMobile?'calc(100vw - 24px)':'340px',margin:isMobile?'12px':'20px',maxHeight:isMobile?'calc(100dvh - 24px)':'90vh',overflowY:'auto',boxSizing:'border-box'}}>
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>📷 Сканировать накладную</b>
+        <label style={{display:'block',color:C.textSec,fontSize:'12px',fontWeight:700,marginBottom:'6px'}}>Куда принять</label>
+        <select value={targetLocation} onChange={e=>updateLocation(e.target.value)} style={{width:'100%',boxSizing:'border-box',marginBottom:'12px',padding:'12px 14px',borderRadius:'12px',border:'1.5px solid '+C.border,backgroundColor:C.bg,color:C.text,fontSize:'14px'}}>
+          <option value='Основной склад'>📦 Основной склад</option>
+          {projects.map(p=><option key={p.id || p.name} value={p.name}>🏗️ {p.name}</option>)}
+        </select>
         <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
           <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={e=>scan(e.target.files[0])}/>
           <div style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:'30px',textAlign:'center',cursor:'pointer'}}>

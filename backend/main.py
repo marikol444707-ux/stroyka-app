@@ -4720,6 +4720,7 @@ def create_warehouse_movement(m: WarehouseMovementModel, _current_user: dict = D
             }]
             _attach_supply_estimate_control(cur, to_location, movement_control_items)
             _enforce_supply_estimate_control(movement_control_items, source="перемещение")
+            work_package = _supply_work_package(movement_control_items[0].get("workPackage") or work_package)
 
         if to_location == "Основной склад":
             cur.execute(f"""SELECT id FROM warehouse_main
@@ -6132,6 +6133,130 @@ def _material_control_key_resolved(cur, project: str, name: str, unit: str = "")
         print("MATERIAL ALIAS CONTROL ERROR:", str(e))
     return _material_control_key(raw_name, raw_unit)
 
+_MATERIAL_MATCH_STOPWORDS = {
+    "гост", "ту", "сорт", "марка", "тип", "вид", "цвет", "размер", "разм",
+    "мм", "см", "м", "шт", "кг", "л", "т", "для", "при", "под", "над", "без",
+    "основная", "объект", "материал", "материалы", "позиция", "работы", "работа",
+}
+
+def _material_match_tokens(name: str) -> set[str]:
+    text = _norm_key_text(name or "")
+    tokens: set[str] = set()
+    for raw in text.split():
+        token = raw.strip()
+        if len(token) < 2 or token in _MATERIAL_MATCH_STOPWORDS:
+            continue
+        if token.isdigit() and len(token) <= 1:
+            continue
+        if re.fullmatch(r"\d{4,}", token) and token.startswith(("13", "20")):
+            continue
+        stem = token
+        if stem.startswith("керамогран"):
+            tokens.update({"керамогранит", "гранит", "керамическ"})
+        elif stem.startswith("керамич"):
+            tokens.add("керамическ")
+        elif stem.startswith("гранит"):
+            tokens.add("гранит")
+        elif stem.startswith("гкл") or stem.startswith("гипсокарт"):
+            tokens.update({"гкл", "гипсокартон"})
+        elif stem.startswith("гвл") or stem.startswith("гипсовол"):
+            tokens.update({"гвл", "гипсоволокно"})
+        elif stem.startswith("цемент"):
+            tokens.add("цемент")
+        elif stem.startswith("песк"):
+            tokens.add("песок")
+        elif stem.startswith("бетон"):
+            tokens.add("бетон")
+        elif stem.startswith("глаз"):
+            tokens.add("глазур")
+        elif stem.startswith("матов") or stem.startswith("неполир"):
+            tokens.add("матов")
+        elif stem.startswith("полир"):
+            tokens.add("полир")
+        elif stem.startswith("плит"):
+            tokens.add("плитка")
+        elif stem.startswith("кле"):
+            tokens.add("клей")
+        elif stem.startswith("грунт"):
+            tokens.add("грунтовка")
+        elif stem.startswith("штукатур"):
+            tokens.add("штукатурка")
+        elif stem.startswith("шпатлев") or stem.startswith("шпаклев"):
+            tokens.add("шпатлевка")
+        elif stem.startswith("профил"):
+            tokens.add("профиль")
+        elif stem.startswith("саморез"):
+            tokens.add("саморез")
+        elif stem.startswith("кабел"):
+            tokens.add("кабель")
+        elif stem.startswith("провод"):
+            tokens.add("провод")
+        elif stem.startswith("труб"):
+            tokens.add("труба")
+        elif stem.startswith("радиатор"):
+            tokens.add("радиатор")
+        elif stem.startswith("скреп"):
+            tokens.add("скрепа")
+        elif stem.startswith("дюб"):
+            tokens.add("дюбель")
+        elif stem.startswith("клин"):
+            tokens.add("клин")
+        elif stem.startswith("кроншт"):
+            tokens.add("кронштейн")
+        elif stem.startswith("направл"):
+            tokens.add("направляющая")
+        else:
+            tokens.add(stem)
+    return tokens
+
+def _material_name_match_score(left: str, right: str) -> float:
+    left_key = _norm_key_text(left or "")
+    right_key = _norm_key_text(right or "")
+    if not left_key or not right_key:
+        return 0.0
+    if left_key == right_key:
+        return 1.0
+    if len(left_key) >= 10 and len(right_key) >= 10 and (left_key in right_key or right_key in left_key):
+        return 0.92
+    left_tokens = _material_match_tokens(left_key)
+    right_tokens = _material_match_tokens(right_key)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    common = left_tokens.intersection(right_tokens)
+    if not common:
+        return 0.0
+    # Типовые накладные часто называют один и тот же материал иначе, чем ГРАНД:
+    # "керамогранит" против "гранит керамический", "ГКЛ" против "лист гипсокартонный".
+    strong_families = {
+        "керамогранит", "гранит", "керамическ", "гкл", "гипсокартон", "гвл",
+        "гипсоволокно", "грунтовка", "штукатурка", "шпатлевка", "профиль",
+        "кабель", "провод", "труба", "радиатор", "скрепа", "дюбель",
+        "кронштейн", "направляющая", "цемент", "бетон", "песок",
+    }
+    if {"гранит", "керамическ"}.issubset(common):
+        return 0.86
+    if {"гкл", "гипсокартон"}.intersection(left_tokens) and {"гкл", "гипсокартон"}.intersection(right_tokens):
+        return 0.84
+    if {"гвл", "гипсоволокно"}.intersection(left_tokens) and {"гвл", "гипсоволокно"}.intersection(right_tokens):
+        return 0.84
+    strong_common = common.intersection(strong_families)
+    score = len(common) / max(1, min(len(left_tokens), len(right_tokens)))
+    long_common = [t for t in common if len(t) >= 6]
+    if strong_common and len(common) >= 2:
+        return min(0.82, max(score + 0.2, 0.62))
+    if len(common) >= 3 and score >= 0.45:
+        return min(0.9, score + 0.15)
+    if len(common) >= 2 and long_common and score >= 0.4:
+        return min(0.82, score + 0.1)
+    if len(long_common) >= 1 and score >= 0.65:
+        return min(0.72, score)
+    return score if score >= 0.7 else 0.0
+
+def _material_units_compatible(unit_a: str = "", unit_b: str = "") -> bool:
+    base_a = _norm_base_unit(unit_a or "")
+    base_b = _norm_base_unit(unit_b or "")
+    return not base_a or not base_b or base_a == base_b
+
 def _supply_material_estimate_control(cur, project: str, material_name: str, unit: str = "", work_package: str = "", exclude_request_id=None, exclude_stock_qty: float = 0.0):
     project = (project or "").strip()
     material_name = (material_name or "").strip()
@@ -6141,9 +6266,13 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
     target_key = _material_control_key_resolved(cur, project, material_name, unit)
     planned_qty = planned_sum = 0.0
     matched_rows = 0
+    fuzzy_matched_rows = 0
+    matched_package = package
     params = [project]
     package_clause = ""
-    if package:
+    # Если пользователь принял накладную/перемещение без явного пакета, не блокируем
+    # сразу по "Основная": сначала пробуем найти материал во всех активных пакетах.
+    if package and package != "Основная":
         package_clause = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
         params.append(package)
     cur.execute("""SELECT id, name, sections_json, COALESCE(work_package,'Основная') AS work_package
@@ -6163,7 +6292,11 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                     continue
                 item_name = (item.get("name") or "").strip()
                 item_unit = item.get("unit") or ""
-                if _material_control_key_resolved(cur, project, item_name, item_unit) != target_key:
+                item_key = _material_control_key_resolved(cur, project, item_name, item_unit)
+                exact_match = item_key == target_key
+                fuzzy_score = 0.0 if exact_match else _material_name_match_score(material_name, item_name)
+                fuzzy_match = (not exact_match) and fuzzy_score >= 0.55 and _material_units_compatible(unit, item_unit)
+                if not exact_match and not fuzzy_match:
                     continue
                 qty = _estimate_imported_quantity(item)
                 if qty <= 0:
@@ -6171,13 +6304,21 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                 planned_qty += qty
                 planned_sum += _estimate_material_sum_backend(item) or _estimate_item_sum_backend(item)
                 matched_rows += 1
+                if fuzzy_match:
+                    fuzzy_matched_rows += 1
+                matched_package = est.get("work_package") or package
 
     stock_qty = 0.0
+    stock_packages = [matched_package]
+    if matched_package != "Основная":
+        stock_packages.append("Основная")
     cur.execute("""SELECT name, unit, quantity FROM materials
-                   WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная')=%s""",
-                (project, package))
+                   WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)""",
+                (project, stock_packages))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
-        if _material_control_key_resolved(cur, project, row.get("name"), row.get("unit")) == target_key:
+        if _material_control_key_resolved(cur, project, row.get("name"), row.get("unit")) == target_key or (
+            _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("name")) >= 0.55
+        ):
             stock_qty += _float_or_zero(row.get("quantity"))
 
     transferred_qty = 0.0
@@ -6187,9 +6328,11 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                    FROM material_transfers
                    WHERE project_name=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                     AND COALESCE(status,'Активна') <> 'Аннулирована'""", (project, package))
+                     AND COALESCE(status,'Активна') <> 'Аннулирована'""", (project, matched_package))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
-        if _material_control_key_resolved(cur, project, row.get("material_name"), row.get("unit")) == target_key:
+        if _material_control_key_resolved(cur, project, row.get("material_name"), row.get("unit")) == target_key or (
+            _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("material_name")) >= 0.55
+        ):
             qty = _float_or_zero(row.get("quantity"))
             transferred_qty += qty
             if row.get("signed"):
@@ -6202,9 +6345,11 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                    FROM warehouse_history
                    WHERE project=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                     AND LOWER(COALESCE(type,'')) LIKE %s""", (project, package, "возврат от мастера%"))
+                     AND LOWER(COALESCE(type,'')) LIKE %s""", (project, matched_package, "возврат от мастера%"))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
-        if _material_control_key_resolved(cur, project, row.get("material"), row.get("unit")) == target_key:
+        if _material_control_key_resolved(cur, project, row.get("material"), row.get("unit")) == target_key or (
+            _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("material")) >= 0.55
+        ):
             returned_qty += _float_or_zero(row.get("quantity"))
 
     written_off_qty = 0.0
@@ -6213,18 +6358,20 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                    WHERE project=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                      AND COALESCE(status,'') NOT IN ('Аннулировано','Отклонено')
-                     AND COALESCE(materials_used,'') <> ''""", (project, package))
+                     AND COALESCE(materials_used,'') <> ''""", (project, matched_package))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
         for item in _json_list_or_empty(row.get("materials_used")):
             if not isinstance(item, dict):
                 continue
             item_name = item.get("name") or item.get("materialName") or ""
             item_unit = item.get("unit") or unit
-            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key:
+            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key or (
+                _material_units_compatible(unit, item_unit) and _material_name_match_score(material_name, item_name) >= 0.55
+            ):
                 written_off_qty += _float_or_zero(item.get("quantity"))
 
     requested_qty = 0.0
-    request_params = [project, package]
+    request_params = [project, matched_package]
     request_exclude_clause = ""
     if exclude_request_id:
         request_exclude_clause = " AND id<>%s"
@@ -6242,7 +6389,7 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                 "materialName": row.get("material_name") or "",
                 "quantity": row.get("quantity") or 0,
                 "unit": row.get("unit") or "",
-                "workPackage": row.get("work_package") or package,
+                "workPackage": row.get("work_package") or matched_package,
             }]
         for item in raw_items:
             if not isinstance(item, dict):
@@ -6250,9 +6397,11 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
             item_name = item.get("materialName") or item.get("name") or ""
             item_unit = item.get("unit") or row.get("unit") or unit
             item_package = _supply_work_package(item.get("workPackage") or item.get("work_package") or row.get("work_package"))
-            if item_package != package:
+            if item_package != matched_package:
                 continue
-            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key:
+            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key or (
+                _material_units_compatible(unit, item_unit) and _material_name_match_score(material_name, item_name) >= 0.55
+            ):
                 item_qty = _float_or_zero(item.get("quantity"))
                 delivered_qty = 0.0
                 cur.execute("""SELECT material_name, unit, received_quantity, COALESCE(work_package,'Основная') AS work_package
@@ -6263,7 +6412,9 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                     delivery_package = _supply_work_package(delivery_row.get("work_package"))
                     if delivery_package != item_package:
                         continue
-                    if _material_control_key_resolved(cur, project, delivery_row.get("material_name"), delivery_row.get("unit")) == target_key:
+                    if _material_control_key_resolved(cur, project, delivery_row.get("material_name"), delivery_row.get("unit")) == target_key or (
+                        _material_units_compatible(unit, delivery_row.get("unit")) and _material_name_match_score(material_name, delivery_row.get("material_name")) >= 0.55
+                    ):
                         delivered_qty += _float_or_zero(delivery_row.get("received_quantity"))
                 requested_qty += max(0.0, item_qty - delivered_qty)
 
@@ -6286,7 +6437,9 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
         "coveredQty": round(covered_qty, 6),
         "requestedQty": round(requested_qty, 6),
         "remainingQty": round(remaining, 6),
-        "workPackage": package,
+        "workPackage": matched_package,
+        "requestedWorkPackage": package,
+        "matchedByFuzzy": fuzzy_matched_rows,
     }
 
 def _supply_linked_work_estimate_control(cur, project: str, item: dict, work_package: str = ""):
@@ -6385,6 +6538,10 @@ def _attach_supply_estimate_control(cur, project: str, items: list, exclude_requ
             if linked_work:
                 control.update(linked_work)
                 control["matchedRows"] = control.get("matchedRows") or 0
+        control_package = _supply_work_package(control.get("workPackage") or item.get("workPackage") or item.get("work_package"))
+        item_package = _supply_work_package(item.get("workPackage") or item.get("work_package"))
+        if control_package and item_package == "Основная" and control_package != item_package:
+            item["workPackage"] = control_package
         qty = _float_or_zero(item.get("quantity"))
         remaining_after = control["remainingQty"] - qty
         control["requestQty"] = round(qty, 6)
@@ -8650,12 +8807,21 @@ def _stock_row_by_material_key(cur, *, project: str, material_name: str, unit: s
     target_key = _material_control_key_resolved(cur, project, material_name, unit)
     unit_key = _norm_base_unit(unit or "").strip().lower()
     unit_filter = f" AND {_sql_norm_unit('unit')}=%s" if unit_key else ""
+    def _row_matches(row):
+        row_name = _row_value(row, 1, "name", "")
+        row_unit = _row_value(row, 3, "unit", unit)
+        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
+            return True
+        return _material_units_compatible(unit, row_unit) and _material_name_match_score(material_name, row_name) >= 0.55
     if main_warehouse:
         cur.execute(f"""SELECT id, name, quantity, unit
                         FROM warehouse_main
                         WHERE TRUE {unit_filter}
                         ORDER BY id DESC
                         FOR UPDATE""", tuple([unit_key] if unit_key else []))
+        for row in cur.fetchall() or []:
+            if _row_matches(row):
+                return row
     else:
         package_name = (work_package or "Основная").strip() or "Основная"
         cur.execute(f"""SELECT id, name, quantity, unit
@@ -8665,11 +8831,19 @@ def _stock_row_by_material_key(cur, *, project: str, material_name: str, unit: s
                           {unit_filter}
                         ORDER BY id DESC
                         FOR UPDATE""", tuple([project, package_name] + ([unit_key] if unit_key else [])))
-    for row in cur.fetchall() or []:
-        row_name = _row_value(row, 1, "name", "")
-        row_unit = _row_value(row, 3, "unit", unit)
-        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
-            return row
+        for row in cur.fetchall() or []:
+            if _row_matches(row):
+                return row
+        if package_name != "Основная":
+            cur.execute(f"""SELECT id, name, quantity, unit
+                            FROM materials
+                            WHERE project=%s
+                              {unit_filter}
+                            ORDER BY CASE WHEN COALESCE(NULLIF(work_package,''),'Основная')='Основная' THEN 0 ELSE 1 END, id DESC
+                            FOR UPDATE""", tuple([project] + ([unit_key] if unit_key else [])))
+            for row in cur.fetchall() or []:
+                if _row_matches(row):
+                    return row
     return None
 
 def _personal_material_balance(cur, project: str, person_id, person_name: str, material_name: str, work_package: str = "", unit: str = ""):
@@ -16236,6 +16410,15 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
                 receiver_projects.add(receiver[3])
             if project_name not in receiver_projects:
                 raise HTTPException(status_code=403, detail="Получатель материала не привязан к объекту «" + project_name + "»")
+            if work_package == "Основная":
+                preview_control_items = [{
+                    "materialName": material_name,
+                    "quantity": qty,
+                    "unit": unit,
+                    "workPackage": work_package,
+                }]
+                _attach_supply_estimate_control(cur, project_name, preview_control_items)
+                work_package = _supply_work_package(preview_control_items[0].get("workPackage") or work_package)
             receiver_packages = set(_safe_project_list(receiver[5]))
             if not receiver_packages or (work_package or "Основная") not in receiver_packages:
                 raise HTTPException(status_code=403, detail="Получатель материала не имеет доступа к пакету «" + (work_package or "Основная") + "»")
@@ -16273,6 +16456,7 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
                 exclude_stock_by_key={control_key: qty},
             )
             _enforce_supply_estimate_control(transfer_control_items, source="выдача исполнителю")
+            work_package = _supply_work_package(transfer_control_items[0].get("workPackage") or work_package)
             cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
             material_name = stock_name or material_name
 
@@ -16790,13 +16974,12 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19]})
     return result
 
-@app.post("/warehouse-invoices")
-def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def _create_warehouse_invoice_record(data: dict, current_user: dict):
     import json as j
     target_location = (data.get("location") or "").strip()
     target_project = (data.get("project") or "").strip() or (target_location if target_location and target_location != "Основной склад" else "")
     if target_project:
-        require_project_or_warehouse_access(_current_user, target_project)
+        require_project_or_warehouse_access(current_user, target_project)
 
     def _invoice_float(value, default=0.0):
         try:
@@ -16818,7 +17001,7 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
             source_type = source_type or "manual_project_invoice"
         else:
             source_type = source_type or "manual_main_invoice"
-        if not target_project and _current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
+        if not target_project and current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
             raise HTTPException(
                 status_code=403,
                 detail="Ручную приходную накладную на основной склад может принять директор, замдиректора, снабженец или кладовщик",
@@ -16877,13 +17060,13 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
 
         sup = data.get("supplierName","")
         rcv_date = data.get("date") or None
-        accepted_by = data.get("acceptedBy") or data.get("addedBy") or _current_user.get("name","")
+        accepted_by = data.get("acceptedBy") or data.get("addedBy") or current_user.get("name","")
         date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
         inspections_added = 0
         cables_added = 0
         stock_rows_added = 0
         history_added = 0
-        restricted_packages = user_package_names(_current_user) if _current_user.get("role") in PACKAGE_LIMIT_ROLES else []
+        restricted_packages = user_package_names(current_user) if current_user.get("role") in PACKAGE_LIMIT_ROLES else []
 
         for it in items_list:
             name = (it.get("name") or "").strip()
@@ -16975,6 +17158,10 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
         cur.close(); conn.close()
     _run_project_ai_control_safely(target_project, "warehouse_invoice:create")
     return {"id": invoice_id, "ok": True, "stockRowsAdded": stock_rows_added, "historyAdded": history_added, "inspectionsAdded": inspections_added, "cablesAdded": cables_added}
+
+@app.post("/warehouse-invoices")
+def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+    return _create_warehouse_invoice_record(data, _current_user)
 
 @app.delete("/warehouse-invoices/{id}")
 def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "кладовщик", "снабженец"))):
@@ -20254,6 +20441,65 @@ def require_telegram_bot_token(x_telegram_bot_token: Optional[str] = Header(defa
         raise HTTPException(status_code=403, detail="Недостаточно прав Telegram-бота")
     return {"role": "telegram_bot", "name": "Telegram Bot"}
 
+TELEGRAM_WAREHOUSE_INTENT_WORDS = (
+    "warehouse",
+    "warehouse_invoice",
+    "invoice",
+    "stock",
+    "receipt",
+    "склад",
+    "наклад",
+    "приход",
+    "материал",
+)
+
+def _telegram_payload_requests_warehouse(data: dict) -> bool:
+    for key in ("intent", "action", "type", "destination", "mode", "context", "target", "flow"):
+        value = str(data.get(key) or "").strip().lower()
+        if value and any(word in value for word in TELEGRAM_WAREHOUSE_INTENT_WORDS):
+            return True
+    return False
+
+def _normalize_telegram_invoice_payload(data: dict, employee: dict) -> dict:
+    source = data.get("data") if isinstance(data.get("data"), dict) else data
+    payload = dict(source)
+    if not payload.get("items") and isinstance(source.get("positions"), list):
+        payload["items"] = source.get("positions")
+    if not payload.get("number"):
+        payload["number"] = source.get("invoiceNumber") or source.get("invoice_number") or source.get("documentNumber") or ""
+    if not payload.get("date"):
+        payload["date"] = source.get("invoiceDate") or source.get("invoice_date") or source.get("documentDate") or None
+    if not payload.get("supplierName"):
+        payload["supplierName"] = source.get("supplier") or source.get("supplier_name") or source.get("seller") or ""
+    if not payload.get("photoUrl"):
+        payload["photoUrl"] = source.get("photoUrl") or source.get("fileUrl") or data.get("photoUrl") or data.get("fileUrl") or ""
+    if not payload.get("totalWithVat"):
+        payload["totalWithVat"] = source.get("total_with_vat") or source.get("total") or source.get("amount") or 0
+    if not payload.get("totalVat"):
+        payload["totalVat"] = source.get("total_vat") or source.get("vatAmount") or 0
+    if not payload.get("totalBase"):
+        payload["totalBase"] = source.get("total_base") or 0
+    normalized_items = []
+    for raw_item in payload.get("items") or []:
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
+        if not item.get("name"):
+            item["name"] = item.get("title") or item.get("material") or item.get("product") or item.get("sourceText") or ""
+        if not item.get("quantity"):
+            item["quantity"] = item.get("qty") or item.get("count") or item.get("amount") or 0
+        if not item.get("unit"):
+            item["unit"] = item.get("measure") or item.get("uom") or "шт"
+        if not item.get("price"):
+            item["price"] = item.get("priceWithVat") or item.get("unitPriceWithVat") or item.get("unitPrice") or 0
+        if not item.get("total"):
+            item["total"] = item.get("lineTotalWithVat") or item.get("lineTotal") or 0
+        normalized_items.append(item)
+    payload["items"] = normalized_items
+    payload["acceptedBy"] = payload.get("acceptedBy") or employee.get("name") or ""
+    payload["addedBy"] = payload.get("addedBy") or employee.get("name") or ""
+    return payload
+
 def _find_employee_by_telegram(cur, telegram_id: str, telegram_chat_id: str) -> Optional[dict]:
     if not telegram_id and not telegram_chat_id:
         return None
@@ -20472,6 +20718,11 @@ def create_telegram_own_expense(data: dict, _bot: dict = Depends(require_telegra
     telegram_chat_id = _own_expense_telegram_value(data, "telegramChatId", "telegram_chat_id", "chatId", "chat_id")
     if not telegram_id and not telegram_chat_id:
         raise HTTPException(status_code=400, detail="Нужен telegram_id или telegram_chat_id")
+    if _telegram_payload_requests_warehouse(data):
+        raise HTTPException(
+            status_code=400,
+            detail="Это складская накладная. Отправьте её в /telegram/warehouse-invoices, а не в мои траты.",
+        )
 
     description = str(data.get("description") or data.get("text") or "").strip()
     amount = _safe_float(data.get("amount"), None)
@@ -20537,6 +20788,52 @@ def create_telegram_own_expense(data: dict, _bot: dict = Depends(require_telegra
         "projectName": project_name,
         "category": category,
     }
+
+@app.post("/telegram/warehouse-invoices")
+def create_telegram_warehouse_invoice(data: dict, _bot: dict = Depends(require_telegram_bot_token)):
+    telegram_id = _own_expense_telegram_value(data, "telegramId", "telegram_id", "tgId", "tg_id")
+    telegram_chat_id = _own_expense_telegram_value(data, "telegramChatId", "telegram_chat_id", "chatId", "chat_id")
+    if not telegram_id and not telegram_chat_id:
+        raise HTTPException(status_code=400, detail="Нужен telegram_id или telegram_chat_id")
+
+    conn = get_db()
+    cur = conn.cursor()
+    employee = _find_employee_by_telegram(cur, telegram_id, telegram_chat_id)
+    cur.close(); conn.close()
+    if not employee:
+        raise HTTPException(status_code=404, detail="Сотрудник с таким Telegram не найден")
+    if employee.get("role") not in WAREHOUSE_ROLES:
+        raise HTTPException(status_code=403, detail="У сотрудника нет прав принимать складские накладные")
+
+    source = data.get("data") if isinstance(data.get("data"), dict) else data
+    project_name = (
+        source.get("projectName")
+        or source.get("project")
+        or data.get("projectName")
+        or data.get("project")
+        or ""
+    ).strip()
+    location = (source.get("location") or data.get("location") or project_name or "Основной склад").strip()
+    target_project = project_name or (location if location and location != "Основной склад" else "")
+    if target_project and not _telegram_employee_has_project_access(employee, target_project):
+        raise HTTPException(status_code=403, detail="У сотрудника нет доступа к объекту")
+
+    payload = _normalize_telegram_invoice_payload(data, employee)
+    payload["location"] = location or "Основной склад"
+    payload["project"] = target_project
+    payload["sourceType"] = payload.get("sourceType") or ("telegram_project_invoice" if target_project else "telegram_main_invoice")
+    payload["sourceId"] = payload.get("sourceId") or data.get("telegramMessageId") or data.get("messageId") or data.get("fileUniqueId") or None
+    payload["workPackage"] = _supply_work_package(payload.get("workPackage") or payload.get("work_package") or source.get("workPackage") or source.get("work_package"))
+
+    result = _create_warehouse_invoice_record(payload, employee)
+    result.update({
+        "employeeName": employee.get("name", ""),
+        "employeeSource": employee.get("source", ""),
+        "projectName": target_project,
+        "location": payload["location"],
+        "sourceType": payload["sourceType"],
+    })
+    return result
 
 @app.put("/own-expenses/{id}")
 def update_own_expense(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
@@ -21372,18 +21669,24 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
                     "content": [
                         {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"},
                         {"type": "input_text", "text": (
-                            "Распознай приходную накладную. Верни только JSON без markdown. "
+                            "Распознай приходную накладную или товарный чек для склада. Верни только JSON без markdown. "
+                            "Не путай складскую накладную с личной тратой. Не выдумывай позиции: если строка товара читается плохо, "
+                            "заполни confidence меньше 0.6 и sourceText исходным фрагментом. Если виден только итог без списка товаров, "
+                            "верни пустой items и documentType='other'. "
                             "Формат: {"
+                            "\"documentType\":\"warehouse_invoice|receipt|other\",\"confidence\":0..1,"
                             "\"number\":строка,\"date\":\"YYYY-MM-DD или исходная дата\",\"supplier\":строка,"
                             "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\",\"vatRate\":0|20|22,"
                             "\"totalBase\":число_без_НДС,\"totalVat\":сумма_НДС,\"totalWithVat\":итого_с_НДС,"
-                            "\"items\":[{\"name\":строка,\"quantity\":число,\"unit\":строка,"
+                            "\"items\":[{\"sourceText\":исходная_строка,\"article\":артикул_если_есть,\"name\":строка,\"quantity\":число,\"unit\":строка,"
+                            "\"vatRate\":0|20|22,"
                             "\"price\":цена_за_единицу_с_НДС_если_НДС_есть_иначе_цена_как_в_документе,"
                             "\"priceWithVat\":цена_за_единицу_с_НДС,\"lineTotal\":сумма_строки,\"lineTotalWithVat\":сумма_строки_с_НДС}]"
                             "}. Если в документе есть строки 'Итого с НДС', 'Всего с учетом НДС', "
                             "'Всего к оплате' или 'Сумма с НДС' — положи это значение в totalWithVat. "
-                            "Если есть 'в том числе НДС' — положи сумму в totalVat. "
-                            "Не округляй крупные суммы до тысяч и не теряй НДС."
+                            "Если есть 'в том числе НДС' — положи сумму в totalVat. Если цена дана без НДС и есть НДС, "
+                            "посчитай priceWithVat и lineTotalWithVat. Если цена дана только итогом строки, посчитай цену за единицу через количество. "
+                            "Не округляй крупные суммы до тысяч, не теряй НДС, сохраняй единицы измерения как в документе."
                         )}
                     ]
                 }

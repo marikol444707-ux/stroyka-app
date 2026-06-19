@@ -30,7 +30,7 @@ export default function WarehouseMainStockPanel({
         margin:'0 auto 15px',
         flexWrap:'wrap',
         justifyContent:isMobile?'center':'flex-start',
-        maxWidth:isMobile?'420px':'100%',
+        maxWidth:isMobile?'min(720px,100%)':'100%',
       }}>
         <button onClick={() => openReceiveInvoice('Основной склад')} style={{...btnO,justifyContent:'center',width:isMobile?'100%':undefined,maxWidth:isMobile?'320px':undefined}}><Plus size={14}/>Принять материал</button>
         <button onClick={() => exportToExcel((warehouseMain || []).map(material => ({
@@ -47,7 +47,7 @@ export default function WarehouseMainStockPanel({
       </div>
 
       {isMobile ? (
-        <div style={{display:'grid',gap:'10px',width:'100%',maxWidth:'420px',margin:'0 auto'}}>
+        <div style={{display:'grid',gap:'10px',width:'100%',maxWidth:'min(720px,100%)',margin:'0 auto'}}>
           {rows.map(material => {
             const low = material.minQuantity && material.quantity < material.minQuantity;
             return (
@@ -67,7 +67,7 @@ export default function WarehouseMainStockPanel({
                   </div>
                   <button onClick={() => deleteMainMaterial(material.id)} style={{...btnR,padding:'7px 9px',flex:'0 0 auto'}}><Trash2 size={13}/></button>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:'8px'}}>
+                <div style={{display:'grid',gridTemplateColumns:isMobile && rows.length ? 'repeat(auto-fit,minmax(130px,1fr))' : 'repeat(2,minmax(0,1fr))',gap:'8px'}}>
                   <div>
                     <span style={{display:'block',color:C.textMuted,fontSize:'10px',textTransform:'uppercase',fontWeight:700}}>Кол-во</span>
                     <b style={{display:'block',color:C.text,fontSize:'13px',overflowWrap:'anywhere'}}>{material.quantity+' '+material.unit}</b>

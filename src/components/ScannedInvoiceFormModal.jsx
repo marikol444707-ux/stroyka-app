@@ -104,6 +104,11 @@ export default function ScannedInvoiceFormModal({
       <div className='mobile-modal' style={{...card,padding:isMobile?'14px':'20px',width:isMobile?'calc(100vw - 24px)':'520px',margin:isMobile?'0 auto':'20px',maxHeight:isMobile?'calc(100dvh - 24px)':'90vh',borderRadius:isMobile?'16px':card.borderRadius,overflowY:'auto',overflowX:'hidden',paddingBottom:isMobile?'24px':'20px',boxSizing:'border-box'}}>
         <b style={{color:C.text,fontSize:isMobile?'21px':'15px',display:'block',marginBottom:'4px'}}>📋 Накладная</b>
         <p style={{color:C.textSec,fontSize:isMobile?'16px':'12px',margin:'0 0 12px'}}>Проверьте данные и сохраните</p>
+        {(newInvoice.photos || []).length > 0 && (
+          <div style={{border:'1.5px solid '+C.success,borderRadius:'12px',padding:isMobile?'10px 12px':'8px 10px',marginBottom:'10px',backgroundColor:'rgba(16,185,129,0.12)',color:C.success,fontSize:isMobile?'14px':'12px',fontWeight:700}}>
+            📎 Фото накладной прикреплено: {(newInvoice.photos || []).length}
+          </div>
+        )}
         <input placeholder='Номер накладной *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inputStyle}/>
         <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>setNewInvoice({...newInvoice,supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inputStyle}/>
         <select value={newInvoice.location||''} onChange={e=>updateLocation(e.target.value)} style={inputStyle}>

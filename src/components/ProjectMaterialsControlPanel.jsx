@@ -282,8 +282,8 @@ export default function ProjectMaterialsControlPanel({
             </button>
           )}
         </div>
-        <div style={{overflow: 'auto', maxHeight: isMobile ? '58vh' : '68vh', border: '1px solid ' + C.border, borderRadius: '10px'}}>
-          <table style={{...tbl, fontSize: '11px', minWidth: '1420px'}}>
+        <div style={{overflow: 'auto', maxHeight: isMobile ? '58vh' : '68vh', maxWidth: '100%', WebkitOverflowScrolling: 'touch', border: '1px solid ' + C.border, borderRadius: '10px'}}>
+          <table style={{...tbl, fontSize: isMobile ? '10px' : '11px', minWidth: isMobile ? '980px' : '1420px'}}>
             <thead>
               <tr>
                 <th style={headCell}>Материал</th>

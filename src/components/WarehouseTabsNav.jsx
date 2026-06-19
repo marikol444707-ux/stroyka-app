@@ -16,12 +16,12 @@ export default function WarehouseTabsNav({warehouseTab, setWarehouseTab, setShow
   return (
     <div style={{
       display:isMobile?'grid':'flex',
-      gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':undefined,
+      gridTemplateColumns:isMobile?'repeat(auto-fit,minmax(140px,1fr))':undefined,
       gap:isMobile?'8px':'8px',
       margin:'0 auto 20px',
       flexWrap:'wrap',
       width:'100%',
-      maxWidth:isMobile?'420px':'100%',
+      maxWidth:isMobile?'min(720px,100%)':'100%',
       justifyContent:isMobile?'center':'flex-start',
     }}>
       {WAREHOUSE_TABS.map(([tab, label]) => (

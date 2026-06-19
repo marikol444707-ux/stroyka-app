@@ -156,7 +156,7 @@ export default function WarehouseObjectsPanel({
           </div>
           {renderMaterialReconciliationPanel(selectedWarehouseProject, { limit: 25, title: '📊 Контроль материалов объекта' })}
           {isMobile ? (
-            <div style={{ display: 'grid', gap: '10px', width: '100%', maxWidth: '420px', margin: '0 auto' }}>
+            <div style={{ display: 'grid', gap: '10px', width: '100%', maxWidth: 'min(720px,100%)', margin: '0 auto' }}>
               {displayedProjectMaterials.map(material => {
                 const workPackage = material.workPackage || material.work_package || '';
                 const quantity = Number(material.quantity || 0);
@@ -192,7 +192,7 @@ export default function WarehouseObjectsPanel({
                         </button>
                       )}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '8px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: '8px' }}>
                       <div>
                         <div style={{ fontSize: '10px', color: C.textSec, textTransform: 'uppercase', letterSpacing: '.03em' }}>Кол-во</div>
                         <b style={{ color: C.text, fontSize: '13px', overflowWrap: 'anywhere' }}>{material.quantity} {material.unit}</b>
@@ -270,7 +270,7 @@ export default function WarehouseObjectsPanel({
           onClick={() => setShowTransferForm(false)}
           style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
-          <div onClick={event => event.stopPropagation()} className="mobile-modal" style={{ ...card, padding: '20px', width: 'min(560px,92vw)', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div onClick={event => event.stopPropagation()} className="mobile-modal" style={{ ...card, padding: isMobile ? '14px' : '20px', width: isMobile ? 'calc(100vw - 24px)' : 'min(560px,92vw)', maxWidth: '720px', maxHeight: isMobile ? 'calc(100dvh - 24px)' : '90vh', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <b style={{ color: C.text, fontSize: '16px' }}>🚚 Передать материал — {selectedWarehouseProject}</b>
               <button onClick={() => setShowTransferForm(false)} style={{ ...btnG, padding: '4px 8px' }}>
@@ -283,7 +283,7 @@ export default function WarehouseObjectsPanel({
             <p style={{ fontSize: '12px', color: C.textSec, marginBottom: '6px' }}>Выберите материал:</p>
             <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1.5px solid ' + C.border, borderRadius: '8px', padding: '8px', marginBottom: '10px' }}>
               {transferSourceMaterials.map((material, index) => (
-                <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', borderBottom: '1px solid ' + C.border }}>
+                <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', borderBottom: '1px solid ' + C.border, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                   <input
                     type='checkbox'
                     checked={newTransfer.materialName === material.name && (newTransfer.workPackage || '') === ((material.workPackage || material.work_package || ''))}
@@ -296,19 +296,19 @@ export default function WarehouseObjectsPanel({
                     })}
                     style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                   />
-                  <span style={{ flex: 1, fontSize: '12px', color: C.text }}>
+                  <span style={{ flex: '1 1 180px', minWidth: 0, fontSize: '12px', color: C.text, overflowWrap: 'anywhere' }}>
                     {material.name}
                     {(material.workPackage || material.work_package) && <span style={{ color: C.textSec }}> · 📁 {material.workPackage || material.work_package}</span>}
                   </span>
-                  <span style={{ fontSize: '11px', color: C.textSec }}>Остаток: {material.quantity} {material.unit}</span>
+                  <span style={{ fontSize: '11px', color: C.textSec, flex: isMobile ? '0 0 100%' : '0 0 auto', paddingLeft: isMobile ? '24px' : 0 }}>Остаток: {material.quantity} {material.unit}</span>
                 </div>
               ))}
             </div>
             {newTransfer.materialName && (
               <>
-                <div className='mobile-two-cols' style={{ display: 'grid', gridTemplateColumns: '1fr 120px auto', gap: '8px', alignItems: 'center', marginBottom: '10px', padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>
+                <div className='mobile-two-cols' style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 120px auto', gap: '8px', alignItems: 'center', marginBottom: '10px', padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>
                   <b style={{ fontSize: '13px', color: C.text, minWidth: 0, overflowWrap: 'anywhere' }}>{newTransfer.materialName}</b>
-                  <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={event => setNewTransfer({ ...newTransfer, quantity: event.target.value })} style={{ ...inp, marginBottom: 0, width: '120px' }} />
+                  <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={event => setNewTransfer({ ...newTransfer, quantity: event.target.value })} style={{ ...inp, marginBottom: 0, width: isMobile ? '100%' : '120px' }} />
                   <span style={{ fontSize: '12px', color: C.textSec }}>{newTransfer.unit}</span>
                 </div>
                 {(() => {
