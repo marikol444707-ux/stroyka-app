@@ -175,6 +175,14 @@ def apply_cleanup(cur, *, disable_users=False):
         ["id", "material_name", "project", "work_package", "status"],
         "COALESCE(status,'') NOT IN ('Отменена','Отменена с откатом','Отклонена')",
     )
+    materials = update_matching(
+        cur,
+        "materials",
+        "quantity=0",
+        ["name", "project", "category"],
+        ["id", "name", "project", "category", "quantity"],
+        "COALESCE(quantity,0)<>0",
+    )
     staff = update_matching(
         cur,
         "staff",
@@ -246,6 +254,7 @@ def apply_cleanup(cur, *, disable_users=False):
     return {
         "estimatesChanged": estimates,
         "supplyRequestsChanged": supply_requests,
+        "materialsChanged": materials,
         "staffChanged": staff,
         "warehouseInvoicesChanged": warehouse_invoices,
         "workJournalChanged": work_journal,
