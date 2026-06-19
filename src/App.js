@@ -3369,6 +3369,31 @@ function App() {
   };
 
   const deleteLead = async (id) => { await fetch(API+'/crm-leads/'+id,{method:'DELETE'}); const ls=await fetch(API+'/crm-leads').then(r=>r.json()); setLeads(Array.isArray(ls)?ls:[]); };
+  const createProjectFromLead = async (lead) => {
+    if (!lead?.id) return;
+    if (lead.projectId) {
+      notify('По этой заявке объект уже создан', 'project');
+      return;
+    }
+    const projectName = window.prompt('Название объекта:', lead.name || ('Заявка #'+lead.id));
+    if (projectName === null) return;
+    const cleanName = String(projectName || '').trim();
+    if (!cleanName) return alert('Укажите название объекта');
+    const res = await fetch(API+'/crm-leads/'+lead.id+'/create-project', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({projectName:cleanName,budget:Number(lead.budget)||0})
+    });
+    const data = await res.json().catch(()=>({}));
+    if (!res.ok) return alert(data.detail || 'Не удалось создать объект из заявки');
+    const [ls, ps] = await Promise.all([
+      fetch(API+'/crm-leads').then(r=>r.json()).catch(()=>[]),
+      fetch(API+'/projects').then(r=>r.json()).catch(()=>[])
+    ]);
+    setLeads(Array.isArray(ls)?ls:[]);
+    setProjects(Array.isArray(ps)?ps:[]);
+    notify((data.alreadyExists?'Объект уже был создан: ':'Создан объект: ')+(data.project?.name||cleanName), 'project');
+  };
   const ratemaster = (masterId, rating) => { const updated={...masterRatings,[masterId]:rating}; setMasterRatings(updated); localStorage.setItem('masterRatings',JSON.stringify(updated)); };
 	  const confirmMaterialReceipt = async (transferId) => {
 	    await fetch(API+'/material-transfers/'+transferId+'/sign',{method:'PUT'});
@@ -14798,7 +14823,7 @@ function App() {
           )}
 
           {activePage==='crm'&&(
-            <CrmPage C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm}/>
+            <CrmPage C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm}/>
           )}
 
           {activePage==='activitylog'&&(

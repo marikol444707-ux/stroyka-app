@@ -10,6 +10,7 @@ export default function CrmPage({
   btnO,
   btnR,
   card,
+  createProjectFromLead,
   deleteLead,
   editingItem,
   inp,
@@ -38,8 +39,7 @@ export default function CrmPage({
           onCancel={()=>{setShowForm(false);setEditingItem(null);}}
         />
       )}
-      <CrmStageBoard C={C} card={card} btnG={btnG} btnR={btnR} crmStages={CRM_STAGES} leads={leads} saveLead={saveLead} deleteLead={deleteLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm}/>
+      <CrmStageBoard C={C} card={card} btnG={btnG} btnR={btnR} crmStages={CRM_STAGES} leads={leads} saveLead={saveLead} deleteLead={deleteLead} createProjectFromLead={createProjectFromLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm}/>
     </div>
   );
 }
-
