@@ -10721,11 +10721,12 @@ function App() {
     }
   };
 
-  const searchResults = globalSearch.length>=2 ? [
-    ...projects.filter(p=>p.name.toLowerCase().includes(globalSearch.toLowerCase())).map(p=>({icon:'📋',title:p.name,subtitle:p.client,page:'projects'})),
-    ...clients.filter(c=>c.name.toLowerCase().includes(globalSearch.toLowerCase())).map(c=>({icon:'👥',title:c.name,subtitle:c.phone,page:'clients'})),
-    ...materials.filter(m=>m.name.toLowerCase().includes(globalSearch.toLowerCase())).map(m=>({icon:'📦',title:m.name,subtitle:m.quantity+' '+m.unit,page:'warehouse'})),
-    ...tools.filter(t=>t.name.toLowerCase().includes(globalSearch.toLowerCase())).map(t=>({icon:'🔧',title:t.name,subtitle:t.status,page:'warehouse'})),
+  const searchTerm = globalSearch.trim().toLowerCase();
+  const searchResults = (!isMobile && searchTerm.length>=2) ? [
+    ...projects.filter(p=>String(p.name||'').toLowerCase().includes(searchTerm)).map(p=>({icon:'📋',title:p.name,subtitle:p.client,page:'projects'})),
+    ...clients.filter(c=>String(c.name||'').toLowerCase().includes(searchTerm)).map(c=>({icon:'👥',title:c.name,subtitle:c.phone,page:'clients'})),
+    ...materials.filter(m=>String(m.name||'').toLowerCase().includes(searchTerm)).map(m=>({icon:'📦',title:m.name,subtitle:m.quantity+' '+m.unit,page:'warehouse'})),
+    ...tools.filter(t=>String(t.name||'').toLowerCase().includes(searchTerm)).map(t=>({icon:'🔧',title:t.name,subtitle:t.status,page:'warehouse'})),
   ].slice(0,8) : [];
 
   const pageFallback = (
