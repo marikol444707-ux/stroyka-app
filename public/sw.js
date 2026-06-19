@@ -1,4 +1,5 @@
-const CACHE_NAME = 'stroyka-shell-v2';
+const CACHE_NAME = 'stroyka-shell-v3';
+const STATIC_CACHE_LIMIT = 90;
 const SHELL_URLS = [
   '/',
   '/index.html',
@@ -55,6 +56,13 @@ function isStaticRequest(url) {
   return STATIC_PATHS.some(path => url.pathname === path || url.pathname.startsWith(path));
 }
 
+function trimCache(cache) {
+  return cache.keys().then(keys => {
+    if (keys.length <= STATIC_CACHE_LIMIT) return undefined;
+    return Promise.all(keys.slice(0, keys.length - STATIC_CACHE_LIMIT).map(key => cache.delete(key)));
+  });
+}
+
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
@@ -80,8 +88,9 @@ self.addEventListener('fetch', event => {
     event.respondWith(
       caches.match(request)
         .then(cached => cached || fetch(request).then(response => {
+          if (!response || !response.ok) return response;
           const copy = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+          caches.open(CACHE_NAME).then(cache => cache.put(request, copy).then(() => trimCache(cache)));
           return response;
         }))
     );
