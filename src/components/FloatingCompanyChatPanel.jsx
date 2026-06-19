@@ -12,6 +12,7 @@ export default function FloatingCompanyChatPanel({
   uploadPhoto,
 }) {
   if (!showChatPanel) return null;
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
   const send = () => {
     if (companyChatInput?.trim()) {
       sendCompanyChatMessage(companyChatInput);
@@ -22,7 +23,7 @@ export default function FloatingCompanyChatPanel({
   return (
     <>
       <div onMouseDown={e=>{e.preventDefault();setShowChatPanel(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:399}}/>
-      <div style={{position:'fixed',bottom:'70px',right:'12px',width:'340px',height:'460px',backgroundColor:'#0f172a',borderRadius:'16px',zIndex:400,display:'flex',flexDirection:'column',boxShadow:'0 8px 32px rgba(0,0,0,0.5)',border:'1px solid rgba(148,163,184,0.18)'}}>
+      <div style={{position:'fixed',bottom:isMobile?'72px':'70px',left:isMobile?'12px':undefined,right:'12px',width:isMobile?'auto':'340px',maxWidth:'calc(100vw - 24px)',height:isMobile?'min(70dvh, 520px)':'460px',backgroundColor:'#0f172a',borderRadius:'16px',zIndex:400,display:'flex',flexDirection:'column',boxShadow:'0 8px 32px rgba(0,0,0,0.5)',border:'1px solid rgba(148,163,184,0.18)',boxSizing:'border-box',overflow:'hidden'}}>
         <div style={{padding:'16px',borderBottom:'1px solid rgba(148,163,184,0.18)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <b style={{color:'#f8fafc',fontSize:'16px'}}>💬 Чат</b>
           <button onClick={()=>setShowChatPanel(false)} style={{background:'none',border:'none',cursor:'pointer',color:'#94a3b8'}}><X size={20}/></button>
@@ -39,7 +40,7 @@ export default function FloatingCompanyChatPanel({
           ))}
           {companyMessages.length===0&&<div style={{textAlign:'center',color:'#94a3b8',padding:'30px',fontSize:'14px'}}>Нет сообщений</div>}
         </div>
-        <div style={{padding:'12px',borderTop:'1px solid rgba(148,163,184,0.18)',display:'flex',gap:'8px'}}>
+        <div style={{padding:'12px',borderTop:'1px solid rgba(148,163,184,0.18)',display:'flex',gap:'8px',minWidth:0}}>
           <label style={{padding:'8px',background:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'10px',cursor:'pointer',display:'flex',alignItems:'center'}}>
             <Camera size={16} color='#94a3b8'/>
             <input type='file' accept='image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'company-chat'});sendCompanyChatMessage('[Фото]',url);}}}/>
@@ -48,7 +49,7 @@ export default function FloatingCompanyChatPanel({
             <FileText size={16} color='#94a3b8'/>
             <input type='file' accept='.pdf,.doc,.docx' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){sendCompanyChatMessage('[Документ] '+e.target.files[0].name,'');}}}/>
           </label>
-          <input placeholder="Сообщение..." value={companyChatInput||''} onChange={e=>setCompanyChatInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&companyChatInput?.trim()) send();}} style={{flex:1,padding:'10px 14px',backgroundColor:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'12px',color:'#f8fafc',fontSize:'13px',outline:'none'}}/>
+          <input placeholder="Сообщение..." value={companyChatInput||''} onChange={e=>setCompanyChatInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&companyChatInput?.trim()) send();}} style={{flex:1,minWidth:0,padding:'10px 14px',backgroundColor:'rgba(30,41,59,0.8)',border:'1px solid rgba(148,163,184,0.18)',borderRadius:'12px',color:'#f8fafc',fontSize:'13px',outline:'none'}}/>
           <button onClick={send} style={{padding:'10px 16px',backgroundColor:'#ea580c',border:'none',borderRadius:'12px',color:'white',cursor:'pointer'}}><MessageSquare size={16}/></button>
         </div>
       </div>

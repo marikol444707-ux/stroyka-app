@@ -100,8 +100,8 @@ export default function ScannedInvoiceFormModal({
   const displayVat = Number(newInvoice.totalVat||0);
 
   return (
-    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:isMobile?'stretch':'center',justifyContent:'center'}}>
-      <div className='mobile-modal' style={{...card,padding:isMobile?'14px':'20px',width:isMobile?'100vw':'520px',margin:isMobile?0:'20px',maxHeight:isMobile?'100vh':'90vh',borderRadius:isMobile?0:card.borderRadius,overflowY:'auto',paddingBottom:isMobile?'92px':'20px',boxSizing:'border-box'}}>
+    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:isMobile?'center':'center',justifyContent:'center',padding:isMobile?'12px':0,boxSizing:'border-box'}}>
+      <div className='mobile-modal' style={{...card,padding:isMobile?'14px':'20px',width:isMobile?'calc(100vw - 24px)':'520px',margin:isMobile?'0 auto':'20px',maxHeight:isMobile?'calc(100dvh - 24px)':'90vh',borderRadius:isMobile?'16px':card.borderRadius,overflowY:'auto',overflowX:'hidden',paddingBottom:isMobile?'24px':'20px',boxSizing:'border-box'}}>
         <b style={{color:C.text,fontSize:isMobile?'21px':'15px',display:'block',marginBottom:'4px'}}>📋 Накладная</b>
         <p style={{color:C.textSec,fontSize:isMobile?'16px':'12px',margin:'0 0 12px'}}>Проверьте данные и сохраните</p>
         <input placeholder='Номер накладной *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inputStyle}/>
@@ -127,11 +127,11 @@ export default function ScannedInvoiceFormModal({
               <option value=''>{invoiceProject ? 'Раздел' : 'Склад'}</option>
               {packageOptions.map(pkg=><option key={pkg} value={pkg}>{pkg}</option>)}
             </select>
-            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 0.8fr':'1fr',gap:isMobile?'8px':'4px'}}>
+            <div className='mobile-two-cols' style={{display:'grid',gridTemplateColumns:isMobile?'1fr 0.8fr':'1fr',gap:isMobile?'8px':'4px'}}>
               <input placeholder='Кол.' type='number' step='any' inputMode='decimal' value={item.quantity} onChange={e=>updateItem(idx,{quantity:e.target.value})} style={itemInputStyle}/>
               <select value={item.unit||'шт'} onChange={e=>updateItem(idx,{unit:e.target.value})} style={itemSelectStyle}>{units.map(u=><option key={u}>{u}</option>)}</select>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'1fr',gap:isMobile?'8px':'4px'}}>
+            <div className='mobile-two-cols' style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'1fr',gap:isMobile?'8px':'4px'}}>
               <input placeholder='Цена с НДС' type='number' step='any' inputMode='decimal' value={item.price} onChange={e=>updateItem(idx,{price:e.target.value})} style={itemInputStyle}/>
               <input placeholder='Сумма строки' type='number' step='any' inputMode='decimal' value={item.lineTotal||''} onChange={e=>updateItem(idx,{lineTotal:e.target.value})} style={itemInputStyle}/>
             </div>
@@ -154,7 +154,7 @@ export default function ScannedInvoiceFormModal({
             {displayVat > 0 && <div>НДС: {displayVat.toLocaleString()} ₽</div>}
           </div>
         )}
-        <div style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:isMobile?'wrap':'nowrap'}}>
+        <div className='mobile-actions' style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:isMobile?'wrap':'nowrap'}}>
           <button onClick={save} style={{...btnO,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><Check size={14}/>Сохранить</button>
           <button onClick={()=>setShowScannedInvoiceForm(false)} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><X size={14}/>Отмена</button>
         </div>

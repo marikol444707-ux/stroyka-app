@@ -36,7 +36,7 @@ export default function ManualExpenseModal({
         <input placeholder='Сумма (₽) *' type='number' step='any' inputMode='decimal' value={newManualExpense.amount} onChange={e=>setNewManualExpense({...newManualExpense,amount:e.target.value})} style={inp}/>
         <input placeholder='Примечание' value={newManualExpense.note} onChange={e=>setNewManualExpense({...newManualExpense,note:e.target.value})} style={inp}/>
         <input type='date' value={newManualExpense.date} onChange={e=>setNewManualExpense({...newManualExpense,date:e.target.value})} style={inp}/>
-        <div style={{display:'flex',gap:'8px'}}>
+        <div className='mobile-actions' style={{display:'flex',gap:'8px'}}>
           <button onClick={submit} style={btnO}><Check size={14}/>Добавить</button>
           <button onClick={()=>setAddExpenseProject('')} style={btnG}><X size={14}/>Отмена</button>
         </div>

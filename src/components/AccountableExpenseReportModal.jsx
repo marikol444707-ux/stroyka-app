@@ -72,7 +72,7 @@ export default function AccountableExpenseReportModal({
             })()}
           </label>
         </div>
-        <div style={{display:'flex',gap:'8px'}}>
+        <div className='mobile-actions' style={{display:'flex',gap:'8px'}}>
           <button onClick={submit} style={btnO}><Check size={14}/>Отправить</button>
           <button onClick={reset} style={btnG}><X size={14}/>Отмена</button>
         </div>

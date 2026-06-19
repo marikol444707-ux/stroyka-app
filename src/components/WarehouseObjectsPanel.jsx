@@ -155,44 +155,104 @@ export default function WarehouseObjectsPanel({
             </button>
           </div>
           {renderMaterialReconciliationPanel(selectedWarehouseProject, { limit: 25, title: '📊 Контроль материалов объекта' })}
-          <table style={tbl}>
-            <thead>
-              <tr>
-                <th style={tblH}>Наименование</th>
-                <th style={tblH}>Кат.</th>
-                <th style={tblH}>Кол-во</th>
-                <th style={tblH}>Цена</th>
-                <th style={tblH}>Сумма</th>
-                <th style={tblH}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedProjectMaterials.map(material => (
-                <tr key={material.id} style={{ backgroundColor: material.minQuantity && material.quantity < material.minQuantity ? C.dangerLight : 'transparent' }}>
-                  <td style={tblC}>
-                    <b style={{ fontSize: '13px' }}>{material.name}</b>
-                    {(material.workPackage || material.work_package) && (
-                      <div style={{ fontSize: '10px', color: C.textSec, marginTop: '3px' }}>
-                        📁 {material.workPackage || material.work_package}
+          {isMobile ? (
+            <div style={{ display: 'grid', gap: '10px', width: '100%', maxWidth: '420px', margin: '0 auto' }}>
+              {displayedProjectMaterials.map(material => {
+                const workPackage = material.workPackage || material.work_package || '';
+                const quantity = Number(material.quantity || 0);
+                const price = Number(material.price || 0);
+                const total = quantity * price;
+                const isLow = material.minQuantity && quantity < Number(material.minQuantity || 0);
+                return (
+                  <div
+                    key={material.id}
+                    style={{
+                      backgroundColor: isLow ? C.dangerLight : C.bgWhite,
+                      border: '1.5px solid ' + (isLow ? C.dangerBorder : C.border),
+                      borderRadius: '12px',
+                      padding: '12px',
+                      display: 'grid',
+                      gap: '10px',
+                      minWidth: 0,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <b style={{ display: 'block', color: C.text, fontSize: '14px', lineHeight: 1.25, overflowWrap: 'anywhere' }}>{material.name}</b>
+                        {workPackage && (
+                          <div style={{ fontSize: '11px', color: C.textSec, marginTop: '4px', overflowWrap: 'anywhere' }}>
+                            📁 {workPackage}
+                          </div>
+                        )}
+                        <span style={{ display: 'block', color: C.textSec, fontSize: '12px', marginTop: '3px' }}>{material.category || 'Без категории'}</span>
                       </div>
-                    )}
-                    {material.minQuantity && material.quantity < material.minQuantity && <span style={{ ...badge(C.danger, C.dangerLight, C.dangerBorder), marginLeft: '6px', fontSize: '10px' }}>Мало!</span>}
-                  </td>
-                  <td style={{ ...tblC, fontSize: '11px', color: C.textSec }}>{material.category || '—'}</td>
-                  <td style={tblC}>{material.quantity + ' ' + material.unit}</td>
-                  <td style={tblC}>{Number(material.price || 0).toLocaleString() + ' ₽'}</td>
-                  <td style={{ ...tblC, fontWeight: '600' }}>{(Number(material.price || 0) * Number(material.quantity || 0)).toLocaleString() + ' ₽'}</td>
-                  <td style={tblC}>
-                    {canDeleteProjectMaterial && (
-                      <button onClick={() => deleteMaterial(material.id)} style={{ ...btnR, padding: '3px 7px' }}>
-                        <Trash2 size={11} />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      {canDeleteProjectMaterial && (
+                        <button onClick={() => deleteMaterial(material.id)} style={{ ...btnR, flex: '0 0 auto', padding: '8px 10px' }}>
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '10px', color: C.textSec, textTransform: 'uppercase', letterSpacing: '.03em' }}>Кол-во</div>
+                        <b style={{ color: C.text, fontSize: '13px', overflowWrap: 'anywhere' }}>{material.quantity} {material.unit}</b>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10px', color: C.textSec, textTransform: 'uppercase', letterSpacing: '.03em' }}>Цена</div>
+                        <b style={{ color: C.text, fontSize: '13px', overflowWrap: 'anywhere' }}>{price.toLocaleString()} ₽</b>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '10px', color: C.textSec, textTransform: 'uppercase', letterSpacing: '.03em' }}>Сумма</div>
+                        <b style={{ color: C.success, fontSize: '13px', overflowWrap: 'anywhere' }}>{total.toLocaleString()} ₽</b>
+                      </div>
+                    </div>
+                    {isLow && <span style={{ ...badge(C.danger, C.dangerLight, C.dangerBorder), justifySelf: 'start', fontSize: '11px' }}>Мало!</span>}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ width: '100%', overflowX: 'auto' }}>
+              <table style={tbl}>
+                <thead>
+                  <tr>
+                    <th style={tblH}>Наименование</th>
+                    <th style={tblH}>Кат.</th>
+                    <th style={tblH}>Кол-во</th>
+                    <th style={tblH}>Цена</th>
+                    <th style={tblH}>Сумма</th>
+                    <th style={tblH}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedProjectMaterials.map(material => (
+                    <tr key={material.id} style={{ backgroundColor: material.minQuantity && material.quantity < material.minQuantity ? C.dangerLight : 'transparent' }}>
+                      <td style={tblC}>
+                        <b style={{ fontSize: '13px' }}>{material.name}</b>
+                        {(material.workPackage || material.work_package) && (
+                          <div style={{ fontSize: '10px', color: C.textSec, marginTop: '3px' }}>
+                            📁 {material.workPackage || material.work_package}
+                          </div>
+                        )}
+                        {material.minQuantity && material.quantity < material.minQuantity && <span style={{ ...badge(C.danger, C.dangerLight, C.dangerBorder), marginLeft: '6px', fontSize: '10px' }}>Мало!</span>}
+                      </td>
+                      <td style={{ ...tblC, fontSize: '11px', color: C.textSec }}>{material.category || '—'}</td>
+                      <td style={tblC}>{material.quantity + ' ' + material.unit}</td>
+                      <td style={tblC}>{Number(material.price || 0).toLocaleString() + ' ₽'}</td>
+                      <td style={{ ...tblC, fontWeight: '600' }}>{(Number(material.price || 0) * Number(material.quantity || 0)).toLocaleString() + ' ₽'}</td>
+                      <td style={tblC}>
+                        {canDeleteProjectMaterial && (
+                          <button onClick={() => deleteMaterial(material.id)} style={{ ...btnR, padding: '3px 7px' }}>
+                            <Trash2 size={11} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {hiddenProjectMaterials > 0 && (
             <button
               type="button"
@@ -210,7 +270,7 @@ export default function WarehouseObjectsPanel({
           onClick={() => setShowTransferForm(false)}
           style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
-          <div onClick={event => event.stopPropagation()} style={{ ...card, padding: '20px', width: 'min(560px,92vw)', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div onClick={event => event.stopPropagation()} className="mobile-modal" style={{ ...card, padding: '20px', width: 'min(560px,92vw)', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <b style={{ color: C.text, fontSize: '16px' }}>🚚 Передать материал — {selectedWarehouseProject}</b>
               <button onClick={() => setShowTransferForm(false)} style={{ ...btnG, padding: '4px 8px' }}>
@@ -246,8 +306,8 @@ export default function WarehouseObjectsPanel({
             </div>
             {newTransfer.materialName && (
               <>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '10px', padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>
-                  <b style={{ fontSize: '13px', color: C.text, flex: 1 }}>{newTransfer.materialName}</b>
+                <div className='mobile-two-cols' style={{ display: 'grid', gridTemplateColumns: '1fr 120px auto', gap: '8px', alignItems: 'center', marginBottom: '10px', padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>
+                  <b style={{ fontSize: '13px', color: C.text, minWidth: 0, overflowWrap: 'anywhere' }}>{newTransfer.materialName}</b>
                   <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={event => setNewTransfer({ ...newTransfer, quantity: event.target.value })} style={{ ...inp, marginBottom: 0, width: '120px' }} />
                   <span style={{ fontSize: '12px', color: C.textSec }}>{newTransfer.unit}</span>
                 </div>
@@ -349,7 +409,7 @@ export default function WarehouseObjectsPanel({
                   : 'Для выдачи мастеру, бригадиру или субподрядчику выберите пакет работ.'}
               </div>
             )}
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div className='mobile-actions' style={{ display: 'flex', gap: '8px' }}>
               <button
                 onClick={async () => {
                   if (!canSaveObjectTransfer) {

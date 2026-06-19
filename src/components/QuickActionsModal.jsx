@@ -23,6 +23,7 @@ export default function QuickActionsModal({
   setShowAiAssistant,
 }) {
   if (!showQuickActions) return null;
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
 
   const iconBg = (color) => `rgba(${color==='#f97316'?'249,115,22':color==='#22c55e'?'34,197,94':color==='#3b82f6'?'59,130,246':color==='#f59e0b'?'245,158,11':color==='#8b5cf6'?'139,92,246':color==='#10b981'?'16,185,129':color==='#06b6d4'?'6,182,212':'249,115,22'},.15)`;
   const actions = [
@@ -38,12 +39,12 @@ export default function QuickActionsModal({
 
   return (<>
     <div onMouseDown={e=>{e.preventDefault();setShowQuickActions(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700}}/>
-    <div style={{position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',backgroundColor:C.bgWhite,borderRadius:'18px',padding:'20px',zIndex:1701,boxShadow:'0 12px 50px rgba(0,0,0,0.4)',width:'min(520px, 92vw)',maxHeight:'85vh',overflowY:'auto',border:'1.5px solid '+C.border}}>
+    <div style={{position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',backgroundColor:C.bgWhite,borderRadius:'18px',padding:isMobile?'16px':'20px',zIndex:1701,boxShadow:'0 12px 50px rgba(0,0,0,0.4)',width:isMobile?'calc(100vw - 24px)':'min(520px, 92vw)',maxWidth:'calc(100vw - 24px)',maxHeight:'calc(100dvh - 24px)',overflowY:'auto',overflowX:'hidden',border:'1.5px solid '+C.border,boxSizing:'border-box'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
         <b style={{color:C.text,fontSize:'16px'}}>⚡ Быстрые действия</b>
         <button onClick={()=>setShowQuickActions(false)} style={{...btnG,padding:'4px 10px'}}><X size={14}/></button>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:'10px'}}>
+      <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(auto-fit,minmax(110px,1fr))',gap:'10px'}}>
         {actions.map((btn,i)=>(
           <div key={i} onClick={btn.action} style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'14px 8px',borderRadius:'14px',cursor:'pointer',backgroundColor:C.bg,border:'1.5px solid '+C.border,transition:'all 0.15s'}}>
             <div style={{width:'48px',height:'48px',borderRadius:'14px',background:iconBg(btn.color),display:'flex',alignItems:'center',justifyContent:'center',marginBottom:'8px',color:btn.color}}>{btn.icon}</div>

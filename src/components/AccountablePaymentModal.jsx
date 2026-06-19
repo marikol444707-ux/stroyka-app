@@ -38,13 +38,13 @@ export default function AccountablePaymentModal({
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>💵 Выдать подотчёт</b>
         {newAccountable.projectName?<p style={{color:C.textSec,fontSize:'12px',margin:'0 0 12px'}}>{'Объект: '+newAccountable.projectName}</p>:<select value={newAccountable.projectName||''} onChange={e=>setNewAccountable({...newAccountable,projectName:e.target.value})} style={inp}><option value=''>Выберите проект *</option>{projects.map(pr=><option key={pr.id} value={pr.name}>{pr.name}</option>)}</select>}
         <select value={newAccountable.givenTo} onChange={e=>setNewAccountable({...newAccountable,givenTo:e.target.value})} style={inp}><option value=''>Кому выдать *</option>{users.filter(u=>['прораб','мастер','снабженец','кладовщик'].includes(u.role)).map(u=><option key={u.id} value={u.name}>{u.name}</option>)}</select>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+        <div className='mobile-two-cols' style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
           <input placeholder='Сумма *' type='number' step='any' inputMode='decimal' value={newAccountable.amount} onChange={e=>setNewAccountable({...newAccountable,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
           <select value={newAccountable.paymentMethod} onChange={e=>setNewAccountable({...newAccountable,paymentMethod:e.target.value})} style={{...inp,marginBottom:0}}>{['Наличные','Перевод на карту','Корпоративная карта','Через кассу'].map(m=><option key={m}>{m}</option>)}</select>
         </div>
         <input placeholder='Назначение' value={newAccountable.purpose} onChange={e=>setNewAccountable({...newAccountable,purpose:e.target.value})} style={inp}/>
         <input type='date' value={newAccountable.date} onChange={e=>setNewAccountable({...newAccountable,date:e.target.value})} style={inp}/>
-        <div style={{display:'flex',gap:'8px'}}>
+        <div className='mobile-actions' style={{display:'flex',gap:'8px'}}>
           <button onClick={submit} style={btnO}><Check size={14}/>Выдать</button>
           <button onClick={reset} style={btnG}><X size={14}/>Отмена</button>
         </div>

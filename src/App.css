@@ -175,14 +175,43 @@ button { touch-action: manipulation; }
 }
 
 .mobile-modal {
-  width: min(640px, 95vw) !important;
-  max-width: 95vw !important;
-  max-height: 92vh !important;
-  margin: 12px !important;
+  width: min(640px, calc(100vw - 24px)) !important;
+  max-width: calc(100vw - 24px) !important;
+  max-height: calc(100dvh - 24px) !important;
+  margin: 12px auto !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
 }
 @media (max-width: 768px) {
-  .mobile-modal { width: 95vw !important; height: auto !important; max-height: 92vh !important; }
-  .mobile-modal.estimate-chat-modal { height: calc(100vh - 24px) !important; }
+  body {
+    overflow-x: hidden;
+  }
+  .mobile-modal {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    height: auto !important;
+    max-height: calc(100dvh - 24px) !important;
+    padding-left: min(18px, 4vw) !important;
+    padding-right: min(18px, 4vw) !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .mobile-modal.estimate-chat-modal { height: calc(100dvh - 24px) !important; }
+  .mobile-modal input,
+  .mobile-modal select,
+  .mobile-modal textarea,
+  .mobile-modal button {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+  .mobile-modal .mobile-actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+  .mobile-modal .mobile-two-cols {
+    grid-template-columns: 1fr !important;
+  }
   .grid-2-mobile-1 { grid-template-columns: 1fr !important; }
   .grid-3-mobile-1 { grid-template-columns: 1fr !important; }
 }

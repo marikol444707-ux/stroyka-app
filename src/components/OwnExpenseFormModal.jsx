@@ -78,7 +78,7 @@ export default function OwnExpenseFormModal({
         {showInfo&&(<div style={{padding:'10px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
           ℹ️ После отправки трата попадёт бухгалтеру/директору на возмещение.
         </div>)}
-        <div style={{display:'flex',gap:'8px'}}>
+        <div className='mobile-actions' style={{display:'flex',gap:'8px'}}>
           <button onClick={submit} style={btnO}><Check size={14}/>Отправить</button>
           <button onClick={reset} style={btnG}><X size={14}/>Отмена</button>
         </div>
