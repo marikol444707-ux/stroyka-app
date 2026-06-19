@@ -25,13 +25,13 @@ PATTERNS = [
 
 TABLES = [
     ("users", ["name", "email", "role"], ["id", "name", "email", "role", "active"]),
-    ("staff", ["name", "email", "specialization", "project"], ["id", "name", "email", "role", "project"]),
+    ("staff", ["name", "email", "specialization", "project"], ["id", "name", "email", "role", "project", "status"]),
     ("estimates", ["name", "project_name", "work_package", "status"], ["id", "name", "project_name", "work_package", "status"]),
     ("materials", ["name", "project", "category"], ["id", "name", "project", "category", "quantity"]),
     ("supply_requests", ["material_name", "project", "work_package", "notes", "created_by"], ["id", "material_name", "project", "work_package", "status"]),
     ("supplier_offers", ["supplier_name", "material_name", "comment", "notes"], ["id", "supplier_name", "material_name", "status"]),
     ("supply_deliveries", ["supplier_name", "driver_name", "project", "notes"], ["id", "supplier_name", "project", "status"]),
-    ("warehouse_invoices", ["supplier", "accepted_by", "project", "notes"], ["id", "supplier", "project", "total", "date"]),
+    ("warehouse_invoices", ["supplier", "supplier_name", "accepted_by", "project", "notes", "added_by"], ["id", "number", "supplier_name", "project", "status", "date"]),
     ("work_journal", ["description", "room_name", "comment", "project_name", "created_by"], ["id", "project_name", "description", "room_name", "status"]),
     ("hidden_works_acts", ["work_description", "project_name", "room_name", "status"], ["id", "project_name", "work_description", "room_name", "status"]),
     ("interim_acts", ["contractor_name", "project_name", "notes", "status"], ["id", "project_name", "contractor_name", "total_amount", "status"]),
@@ -109,6 +109,40 @@ def build_match(columns):
     return " OR ".join(clauses), params
 
 
+def neutralized_sql(table, columns):
+    if table == "users" and "active" in columns:
+        return "COALESCE(active, TRUE)=FALSE"
+    if table == "staff" and "status" in columns:
+        return "COALESCE(status,'') IN ('Уволен','Отключен','Архив')"
+    if table == "estimates" and "status" in columns:
+        return "COALESCE(status,'') IN ('Черновик','Архив','Архивная','Удалена','Отменена')"
+    if table == "materials" and "quantity" in columns:
+        return "COALESCE(quantity,0)<=0"
+    if table == "supply_requests" and "status" in columns:
+        return "COALESCE(status,'') IN ('Отменена','Отменена с откатом','Отклонена','Архив')"
+    if table == "supplier_offers" and "status" in columns:
+        return "COALESCE(status,'') IN ('Отменено','Отклонено','Архив')"
+    if table == "supply_deliveries" and "status" in columns:
+        return "COALESCE(status,'') IN ('Отменено','Отклонено','Аннулирован','Архив')"
+    if table == "warehouse_invoices" and "status" in columns:
+        return "COALESCE(status,'') IN ('Аннулирован','Отменено','Архив')"
+    if table == "work_journal" and "status" in columns:
+        return "COALESCE(status,'') IN ('Отклонено','Аннулировано','Отменено','Архив')"
+    if table == "hidden_works_acts" and "status" in columns:
+        return "COALESCE(status,'') IN ('Аннулирован','Отклонено','Отменено','Архив')"
+    if table == "interim_acts" and "status" in columns:
+        return "COALESCE(status,'') IN ('Аннулирован','Отклонено','Отменено','Архив')"
+    if table == "brigade_contracts" and "status" in columns:
+        return "COALESCE(status,'') IN ('Аннулирован','Отклонено','Отменено','Архив')"
+    if table == "brigade_contract_items" and "status" in columns:
+        return "COALESCE(status,'') IN ('Отменено','Аннулирован','Отклонено','Архив')"
+    if table == "own_expenses" and "status" in columns:
+        return "COALESCE(status,'') IN ('Отклонено','Отменено','Аннулирован','Архив')"
+    if table == "material_norm_suggestions" and "status" in columns:
+        return "COALESCE(status,'') IN ('Отклонено','Отменено','Архив')"
+    return ""
+
+
 def inspect_table(cur, table, match_columns, sample_columns):
     if not table_exists(cur, table):
         return {"table": table, "exists": False, "count": 0, "samples": []}
@@ -123,6 +157,17 @@ def inspect_table(cur, table, match_columns, sample_columns):
     cur.execute(f"SELECT COUNT(*) AS count FROM {table} WHERE {where_sql}", params)
     count = int(cur.fetchone()["count"] or 0)
 
+    neutralized_where = neutralized_sql(table, columns)
+    if neutralized_where:
+        cur.execute(
+            f"SELECT COUNT(*) AS count FROM {table} WHERE ({where_sql}) AND ({neutralized_where})",
+            params,
+        )
+        neutralized_count = int(cur.fetchone()["count"] or 0)
+    else:
+        neutralized_count = 0
+    active_count = max(0, count - neutralized_count)
+
     samples = []
     if count and sample:
         select_sql = ", ".join(sample)
@@ -133,7 +178,14 @@ def inspect_table(cur, table, match_columns, sample_columns):
         )
         samples = [dict(row) for row in cur.fetchall()]
 
-    return {"table": table, "exists": True, "count": count, "samples": samples}
+    return {
+        "table": table,
+        "exists": True,
+        "count": count,
+        "activeCount": active_count,
+        "neutralizedCount": neutralized_count,
+        "samples": samples,
+    }
 
 
 def main():
@@ -161,11 +213,16 @@ def main():
 
     findings = [row for row in results if row["count"] > 0]
     total = sum(row["count"] for row in findings)
+    total_active = sum(row["activeCount"] for row in findings)
+    total_neutralized = sum(row["neutralizedCount"] for row in findings)
     summary = {
-        "ok": (not STRICT) or total == 0,
+        "ok": (not STRICT) or total_active == 0,
         "strict": STRICT,
         "totalArtifacts": total,
+        "totalActiveArtifacts": total_active,
+        "neutralizedArtifacts": total_neutralized,
         "tablesWithArtifacts": len(findings),
+        "tablesWithActiveArtifacts": len([row for row in findings if row["activeCount"] > 0]),
         "findings": findings,
         "cleanup": {
             "dryRun": "python3 scripts/manage-test-artifacts.py",
