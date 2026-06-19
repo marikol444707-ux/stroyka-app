@@ -38,6 +38,7 @@ export default function WarehouseInvoicesPanel({
   VAT_OPTIONS,
   UNITS,
   MATERIAL_CATEGORIES,
+  isMobile = false,
 }) {
   const invoiceItems = newInvoice.items || [];
   const invoiceTotal = invoiceItems.reduce((sum, item) => sum + (Number(item.lineTotal || 0) || Number(item.quantity || 0) * Number(item.price || 0)), 0);
@@ -153,6 +154,7 @@ export default function WarehouseInvoicesPanel({
           VAT_OPTIONS={VAT_OPTIONS}
           UNITS={UNITS}
           MATERIAL_CATEGORIES={MATERIAL_CATEGORIES}
+          isMobile={isMobile}
         />
       )}
 
@@ -183,6 +185,7 @@ export default function WarehouseInvoicesPanel({
             tbl={tbl}
             tblH={tblH}
             tblC={tblC}
+            isMobile={isMobile}
           />
         );
       })}

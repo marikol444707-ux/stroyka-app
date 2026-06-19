@@ -267,6 +267,7 @@ export default function WarehousePage(props) {
           VAT_OPTIONS={VAT_OPTIONS}
           UNITS={UNITS}
           MATERIAL_CATEGORIES={MATERIAL_CATEGORIES}
+          isMobile={isMobile}
         />
       )}
 

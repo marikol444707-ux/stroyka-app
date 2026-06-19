@@ -31,6 +31,7 @@ export function WarehouseInvoiceForm({
   VAT_OPTIONS,
   UNITS,
   MATERIAL_CATEGORIES,
+  isMobile = false,
 }) {
   const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
   const packageOptions = invoiceProject && typeof getProjectWorkPackageOptions === 'function'
@@ -45,6 +46,12 @@ export function WarehouseInvoiceForm({
   const invoiceVatAmount = vatRateValue > 0
     ? Math.round((invoiceTotal - invoiceBaseAmount) * 100) / 100
     : 0;
+  const compactInput = {...inp,marginBottom:0,fontSize:isMobile?'16px':'12px',width:'100%',minWidth:0,boxSizing:'border-box'};
+  const formGridStyle = {display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:isMobile?'8px':'10px'};
+  const spanAll = isMobile ? undefined : 'span 2';
+  const itemGridStyle = isMobile
+    ? {display:'grid',gridTemplateColumns:'1fr',gap:'8px',marginBottom:'10px',padding:'10px',borderRadius:'12px',border:'1.5px solid '+C.border,backgroundColor:C.bg,minWidth:0}
+    : {display:'grid',gridTemplateColumns:'minmax(180px,2.5fr) 0.8fr 0.8fr 0.9fr minmax(120px,1.2fr) minmax(130px,1.4fr) minmax(180px,1.8fr) auto',gap:'6px',marginBottom:'8px',alignItems:'center'};
 
   const setItem = (idx, patch) => {
     const items = [...invoiceItems];
@@ -119,32 +126,32 @@ export function WarehouseInvoiceForm({
   };
 
   return (
-    <div style={{...card,padding:'20px',marginBottom:'20px'}}>
+    <div style={{...card,padding:isMobile?'14px':'20px',marginBottom:'20px',overflow:'hidden'}}>
       <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Новая приходная накладная</h3>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-        <input placeholder="Номер накладной *" value={newInvoice.number} onChange={event => setNewInvoice({...newInvoice, number: event.target.value})} style={{...inp,marginBottom:0}}/>
-        <input type="date" value={newInvoice.date} onChange={event => setNewInvoice({...newInvoice, date: event.target.value})} style={{...inp,marginBottom:0}}/>
-        <div style={{gridColumn:'span 2'}}>
+      <div style={formGridStyle}>
+        <input placeholder="Номер накладной *" value={newInvoice.number} onChange={event => setNewInvoice({...newInvoice, number: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
+        <input type="date" value={newInvoice.date} onChange={event => setNewInvoice({...newInvoice, date: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
+        <div style={{gridColumn:spanAll,minWidth:0}}>
           <label style={{fontSize:'12px',color:C.textSec,display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px',cursor:'pointer'}}>
             <input type="checkbox" checked={newInvoice.isNewSupplier} onChange={event => setNewInvoice({...newInvoice, isNewSupplier: event.target.checked})} style={{accentColor:C.accent}}/>
             Новый поставщик
           </label>
           {newInvoice.isNewSupplier ? (
-            <input placeholder="Название поставщика *" value={newInvoice.newSupplierName} onChange={event => setNewInvoice({...newInvoice, newSupplierName: event.target.value})} style={inp}/>
+            <input placeholder="Название поставщика *" value={newInvoice.newSupplierName} onChange={event => setNewInvoice({...newInvoice, newSupplierName: event.target.value})} style={{...inp,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
           ) : (
-            <select value={newInvoice.supplierId} onChange={event => setNewInvoice({...newInvoice, supplierId: event.target.value})} style={inp}>
+            <select value={newInvoice.supplierId} onChange={event => setNewInvoice({...newInvoice, supplierId: event.target.value})} style={{...inp,width:'100%',minWidth:0,boxSizing:'border-box'}}>
               <option value="">Выберите поставщика</option>
               {(suppliers || []).map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
             </select>
           )}
         </div>
-        <input placeholder="Принял" value={newInvoice.acceptedBy} onChange={event => setNewInvoice({...newInvoice, acceptedBy: event.target.value})} style={{...inp,marginBottom:0}}/>
-        <select value={newInvoice.vat} onChange={event => setNewInvoice({...newInvoice, vat: event.target.value})} style={{...inp,marginBottom:0}}>
+        <input placeholder="Принял" value={newInvoice.acceptedBy} onChange={event => setNewInvoice({...newInvoice, acceptedBy: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box'}}/>
+        <select value={newInvoice.vat} onChange={event => setNewInvoice({...newInvoice, vat: event.target.value})} style={{...inp,marginBottom:0,width:'100%',minWidth:0,boxSizing:'border-box'}}>
           {VAT_OPTIONS.map(value => <option key={value}>{value}</option>)}
         </select>
-        <div style={{gridColumn:'span 2'}}>
+        <div style={{gridColumn:spanAll,minWidth:0}}>
           <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'5px'}}>Куда оприходовать:</label>
-          <select value={newInvoice.location} onChange={event => updateLocation(event.target.value)} style={inp}>
+          <select value={newInvoice.location} onChange={event => updateLocation(event.target.value)} style={{...inp,width:'100%',minWidth:0,boxSizing:'border-box'}}>
             <option value="Основной склад">Основной склад</option>
             {(projects || []).map(project => <option key={project.id} value={project.name}>{project.name}</option>)}
           </select>
@@ -173,28 +180,59 @@ export function WarehouseInvoiceForm({
 
       <b style={{color:C.text,fontSize:'13px',display:'block',marginTop:'15px',marginBottom:'10px'}}>Позиции накладной:</b>
       {invoiceItems.map((item, idx) => (
-        <div key={idx} style={{display:'grid',gridTemplateColumns:'minmax(180px,2.5fr) 0.8fr 0.8fr 0.9fr minmax(120px,1.2fr) minmax(130px,1.4fr) minmax(180px,1.8fr) auto',gap:'6px',marginBottom:'8px',alignItems:'center'}}>
-          <input placeholder="Наименование товара *" value={item.name} onChange={event => setItem(idx, {name: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-          <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={item.quantity} onChange={event => setItem(idx, {quantity: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-          <select value={item.unit} onChange={event => setItem(idx, {unit: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>
-            {UNITS.map(unit => <option key={unit}>{unit}</option>)}
-          </select>
-          <input placeholder="Цена ₽" type="number" step="any" inputMode="decimal" value={item.price} onChange={event => setItem(idx, {price: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
-          <select value={item.category} onChange={event => setItem(idx, {category: event.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>
-            <option value="">Категория</option>
-            {MATERIAL_CATEGORIES.map(category => <option key={category}>{category}</option>)}
-          </select>
-          <select value={item.workPackage || ''} onChange={event => setItem(idx, {workPackage: event.target.value, estimateWorkValue:'', estimateId:'', estimateItemKey:'', parentWorkKey:'', parentWorkName:'', parentWorkSourceCode:'', sectionName:''})} disabled={!invoiceProject} style={{...inp,marginBottom:0,fontSize:'12px',opacity:invoiceProject?1:0.65}}>
-            <option value="">{invoiceProject ? 'Раздел сметы' : 'Только для объекта'}</option>
-            {packageOptions.map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
-          </select>
-          <select value={item.estimateWorkValue || ''} onChange={event => setItemWork(idx, event.target.value)} disabled={!invoiceProject} style={{...inp,marginBottom:0,fontSize:'12px',opacity:invoiceProject?1:0.65}}>
-            <option value="">{invoiceProject ? 'Работа сметы, если нет материала' : 'Работа сметы'}</option>
-            {workOptionsForItem(item).map(work => (
-              <option key={work.value} value={work.value}>{work.label}</option>
-            ))}
-          </select>
-          <button onClick={() => removeItem(idx)} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
+        <div key={idx} style={itemGridStyle}>
+          <input placeholder="Наименование товара *" value={item.name} onChange={event => setItem(idx, {name: event.target.value})} style={compactInput}/>
+          {isMobile ? (
+            <>
+              <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 96px',gap:'8px'}}>
+                <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={item.quantity} onChange={event => setItem(idx, {quantity: event.target.value})} style={compactInput}/>
+                <select value={item.unit} onChange={event => setItem(idx, {unit: event.target.value})} style={compactInput}>
+                  {UNITS.map(unit => <option key={unit}>{unit}</option>)}
+                </select>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:'8px'}}>
+                <input placeholder="Цена ₽" type="number" step="any" inputMode="decimal" value={item.price} onChange={event => setItem(idx, {price: event.target.value})} style={compactInput}/>
+                <select value={item.category} onChange={event => setItem(idx, {category: event.target.value})} style={compactInput}>
+                  <option value="">Категория</option>
+                  {MATERIAL_CATEGORIES.map(category => <option key={category}>{category}</option>)}
+                </select>
+              </div>
+              <select value={item.workPackage || ''} onChange={event => setItem(idx, {workPackage: event.target.value, estimateWorkValue:'', estimateId:'', estimateItemKey:'', parentWorkKey:'', parentWorkName:'', parentWorkSourceCode:'', sectionName:''})} disabled={!invoiceProject} style={{...compactInput,opacity:invoiceProject?1:0.65}}>
+                <option value="">{invoiceProject ? 'Раздел сметы' : 'Только для объекта'}</option>
+                {packageOptions.map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
+              </select>
+              <select value={item.estimateWorkValue || ''} onChange={event => setItemWork(idx, event.target.value)} disabled={!invoiceProject} style={{...compactInput,opacity:invoiceProject?1:0.65}}>
+                <option value="">{invoiceProject ? 'Работа сметы, если нет материала' : 'Работа сметы'}</option>
+                {workOptionsForItem(item).map(work => (
+                  <option key={work.value} value={work.value}>{work.label}</option>
+                ))}
+              </select>
+              <button onClick={() => removeItem(idx)} style={{...btnR,padding:'8px 10px',width:'100%',justifyContent:'center'}}><X size={12}/>Удалить строку</button>
+            </>
+          ) : (
+            <>
+              <input placeholder="Кол-во *" type="number" step="any" inputMode="decimal" value={item.quantity} onChange={event => setItem(idx, {quantity: event.target.value})} style={compactInput}/>
+              <select value={item.unit} onChange={event => setItem(idx, {unit: event.target.value})} style={compactInput}>
+                {UNITS.map(unit => <option key={unit}>{unit}</option>)}
+              </select>
+              <input placeholder="Цена ₽" type="number" step="any" inputMode="decimal" value={item.price} onChange={event => setItem(idx, {price: event.target.value})} style={compactInput}/>
+              <select value={item.category} onChange={event => setItem(idx, {category: event.target.value})} style={compactInput}>
+                <option value="">Категория</option>
+                {MATERIAL_CATEGORIES.map(category => <option key={category}>{category}</option>)}
+              </select>
+              <select value={item.workPackage || ''} onChange={event => setItem(idx, {workPackage: event.target.value, estimateWorkValue:'', estimateId:'', estimateItemKey:'', parentWorkKey:'', parentWorkName:'', parentWorkSourceCode:'', sectionName:''})} disabled={!invoiceProject} style={{...compactInput,opacity:invoiceProject?1:0.65}}>
+                <option value="">{invoiceProject ? 'Раздел сметы' : 'Только для объекта'}</option>
+                {packageOptions.map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
+              </select>
+              <select value={item.estimateWorkValue || ''} onChange={event => setItemWork(idx, event.target.value)} disabled={!invoiceProject} style={{...compactInput,opacity:invoiceProject?1:0.65}}>
+                <option value="">{invoiceProject ? 'Работа сметы, если нет материала' : 'Работа сметы'}</option>
+                {workOptionsForItem(item).map(work => (
+                  <option key={work.value} value={work.value}>{work.label}</option>
+                ))}
+              </select>
+              <button onClick={() => removeItem(idx)} style={{...btnR,padding:'5px 8px'}}><X size={12}/></button>
+            </>
+          )}
         </div>
       ))}
 
@@ -208,14 +246,14 @@ export function WarehouseInvoiceForm({
           </div>
           <div style={{display:'grid',gap:'6px'}}>
             {draftEstimateControl.filter(row => row.name).map(row => (
-              <div key={row.index} style={{display:'grid',gridTemplateColumns:'minmax(160px,1fr) auto minmax(180px,auto)',gap:'8px',alignItems:'center',fontSize:'11px',color:C.text}}>
-                <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.name}>
+              <div key={row.index} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(160px,1fr) auto minmax(180px,auto)',gap:'8px',alignItems:'center',fontSize:'11px',color:C.text,minWidth:0}}>
+                <span style={{overflow:'hidden',textOverflow:isMobile?'clip':'ellipsis',whiteSpace:isMobile?'normal':'nowrap',overflowWrap:'anywhere'}} title={row.name}>
                   {row.name}
                   {row.canonicalName && row.canonicalName !== row.name ? ' → ' + row.canonicalName : ''}
                   {row.planSourceCount ? ' · ' + row.planSourceCount + ' строк сметы' : ''}
                 </span>
                 {renderControlBadge(row)}
-                <span style={{color:C.textSec,textAlign:'right'}}>
+                <span style={{color:C.textSec,textAlign:isMobile?'left':'right',overflowWrap:'anywhere'}}>
                   {'План '+row.planText+' · накл. '+(row.incomingText||'—')+' · после '+row.afterText+(row.shortageText && row.shortageText !== '—' ? ' · докупить '+row.shortageText : '')+(row.overText && row.overText !== '—' ? ' · сверх '+row.overText : '')+(row.priceOverText && row.priceOverText !== '—' ? ' · дороже '+row.priceOverText : '')}
                 </span>
               </div>
@@ -253,9 +291,9 @@ export function WarehouseInvoiceForm({
         )}
       </div>
 
-      <div style={{display:'flex',gap:'8px'}}>
-        <button onClick={saveInvoiceNew} style={btnO}><Check size={14}/>Сохранить и оприходовать</button>
-        <button onClick={() => setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
+      <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+        <button onClick={saveInvoiceNew} style={{...btnO, ...(isMobile ? {flex:'1 1 100%',justifyContent:'center'} : {})}}><Check size={14}/>Сохранить и оприходовать</button>
+        <button onClick={() => setShowForm(false)} style={{...btnG, ...(isMobile ? {flex:'1 1 100%',justifyContent:'center'} : {})}}><X size={14}/>Отмена</button>
       </div>
     </div>
   );
@@ -282,13 +320,14 @@ export function WarehouseInvoiceCard({
   tbl,
   tblH,
   tblC,
+  isMobile = false,
 }) {
   const items = invoiceRows.items;
 
   return (
-    <div style={{...card,padding:'16px',marginBottom:'10px'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-        <div>
+    <div style={{...card,padding:isMobile?'14px':'16px',marginBottom:'10px',overflow:'hidden'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexDirection:isMobile?'column':'row'}}>
+        <div style={{minWidth:0}}>
           <b style={{color:C.text,fontSize:'14px'}}>{'Накладная № '+inv.number}</b>
           <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{inv.date+' · '+inv.supplierName+' · '+(inv.location==='Основной склад'?'Основной склад':inv.project||'')}</p>
           <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat+' · позиций: '+items.length}</p>
@@ -310,55 +349,92 @@ export function WarehouseInvoiceCard({
             </p>
           )}
         </div>
-        <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+        <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',width:isMobile?'100%':undefined,justifyContent:isMobile?'space-between':'flex-start'}}>
           <b style={{color:C.success,fontSize:'14px'}}>{(inv.totalWithVat||inv.totalBase||0).toLocaleString()+' ₽'}</b>
-          <button onClick={() => showPreview(buildInvoiceContent(inv),'Накладная № '+inv.number)} style={btnB} title="Печать"><Eye size={13}/></button>
-          <button onClick={() => setShowQRModal({title:'QR накладной №'+inv.number,data:window.location.origin+'/?invoice='+inv.id})} style={btnG} title="QR-код накладной — отсканировав, можно быстро открыть на телефоне на стройке"><QrCode size={13}/></button>
+          <div style={{display:'flex',gap:'6px'}}>
+            <button onClick={() => showPreview(buildInvoiceContent(inv),'Накладная № '+inv.number)} style={btnB} title="Печать"><Eye size={13}/></button>
+            <button onClick={() => setShowQRModal({title:'QR накладной №'+inv.number,data:window.location.origin+'/?invoice='+inv.id})} style={btnG} title="QR-код накладной — отсканировав, можно быстро открыть на телефоне на стройке"><QrCode size={13}/></button>
+          </div>
         </div>
       </div>
 
       {items.length > 0 ? (
         <details style={{marginTop:'10px'}}>
           <summary style={{cursor:'pointer',color:C.accent,fontSize:'12px',fontWeight:'600',padding:'4px 0'}}>📋 Показать материалы ({items.length})</summary>
-          <div style={{marginTop:'8px',overflowX:'auto'}}>
-            <table style={{...tbl,fontSize:'11px',minWidth:'1260px'}}>
-              <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План</th><th style={tblH}>До</th><th style={tblH}>Накладная</th><th style={tblH}>После</th><th style={tblH}>Докупить / сверх</th><th style={tblH}>Цена</th><th style={tblH}>Действие</th></tr></thead>
-              <tbody>
-                {items.map((item, index) => {
-                  const rowSum = Number(item.total || 0) || Number((item.quantity || 0) * (item.price || 0));
-                  const ctrl = estimateControl[index] || {};
-                  return (
-                    <tr key={index}>
-                      <td style={tblC}>
-                        <b style={{fontSize:'11px'}}>{item.name || ''}</b>
-                        {ctrl.canonicalName && ctrl.canonicalName !== item.name && <p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Смета: {ctrl.canonicalName}</p>}
-                        {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
-                        {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}
-                        {ctrl.workRefs?.length > 0 && <p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {ctrl.workRefs.slice(0,2).join('; ')}{ctrl.workRefs.length > 2 ? '…' : ''}</p>}
-                        {ctrl.isCompositeWorkMaterial && <p style={{color:C.info,fontSize:'10px',margin:'2px 0 0',fontWeight:700}}>Комплектация укрупненной работы</p>}
-                        {item.parentWorkName && !(ctrl.workRefs||[]).includes(item.parentWorkName) && <p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Комплектация: {item.parentWorkName}</p>}
-                      </td>
-                      <td style={tblC}>{item.unit || ''}</td>
-                      <td style={tblC}>{item.quantity || 0}</td>
-                      <td style={tblC}>{rowSum.toLocaleString('ru-RU')+' ₽'}</td>
-                      <td style={tblC}>{renderControlBadge(ctrl)}</td>
-                      <td style={tblC}>{ctrl.planText || '—'}</td>
-                      <td style={tblC}>{ctrl.beforeText || '—'}</td>
-                      <td style={{...tblC,color:C.info}}>{ctrl.incomingText || item.quantity + ' ' + (item.unit || '')}</td>
-                      <td style={{...tblC,color:ctrl.severity==='danger'?C.danger:C.text}}>{ctrl.afterText || '—'}</td>
-                      <td style={{...tblC,color:ctrl.overText && ctrl.overText !== '—' ? C.danger : ctrl.shortageText && ctrl.shortageText !== '—' ? C.warning : C.success}}>
-                        {ctrl.overText && ctrl.overText !== '—' ? 'сверх '+ctrl.overText : ctrl.shortageText && ctrl.shortageText !== '—' ? 'докупить '+ctrl.shortageText : 'закрыто'}
-                      </td>
-                      <td style={{...tblC,color:ctrl.priceOverText && ctrl.priceOverText !== '—' ? C.warning : C.textSec}}>
-                        {(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+(ctrl.priceOverText && ctrl.priceOverText !== '—' ? ' · +'+ctrl.priceOverText : '')}
-                      </td>
-                      <td style={tblC}>{renderInvoiceControlActions ? (renderInvoiceControlActions(inv, ctrl, item) || <span style={{color:C.textMuted}}>—</span>) : <span style={{color:C.textMuted}}>—</span>}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          {isMobile ? (
+            <div style={{display:'grid',gap:'10px',marginTop:'8px'}}>
+              {items.map((item, index) => {
+                const rowSum = Number(item.total || 0) || Number((item.quantity || 0) * (item.price || 0));
+                const ctrl = estimateControl[index] || {};
+                return (
+                  <div key={index} style={{border:'1.5px solid '+C.border,borderRadius:'12px',backgroundColor:C.bg,padding:'10px',minWidth:0}}>
+                    <div style={{display:'flex',justifyContent:'space-between',gap:'8px',alignItems:'flex-start',marginBottom:'8px'}}>
+                      <b style={{fontSize:'12px',color:C.text,overflowWrap:'anywhere'}}>{item.name || ''}</b>
+                      {renderControlBadge(ctrl)}
+                    </div>
+                    {ctrl.canonicalName && ctrl.canonicalName !== item.name && <p style={{color:C.info,fontSize:'11px',margin:'2px 0 0'}}>Смета: {ctrl.canonicalName}</p>}
+                    {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
+                    {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}
+                    {ctrl.workRefs?.length > 0 && <p style={{color:C.accent,fontSize:'11px',margin:'2px 0 0'}}>Работы: {ctrl.workRefs.slice(0,2).join('; ')}{ctrl.workRefs.length > 2 ? '…' : ''}</p>}
+                    {ctrl.isCompositeWorkMaterial && <p style={{color:C.info,fontSize:'11px',margin:'2px 0 0',fontWeight:700}}>Комплектация укрупненной работы</p>}
+                    {item.parentWorkName && !(ctrl.workRefs||[]).includes(item.parentWorkName) && <p style={{color:C.accent,fontSize:'11px',margin:'2px 0 0'}}>Комплектация: {item.parentWorkName}</p>}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'10px',fontSize:'12px'}}>
+                      <span style={{color:C.textSec}}>Кол-во<br/><b style={{color:C.text}}>{item.quantity || 0} {item.unit || ''}</b></span>
+                      <span style={{color:C.textSec}}>Сумма<br/><b style={{color:C.success}}>{rowSum.toLocaleString('ru-RU')+' ₽'}</b></span>
+                      <span style={{color:C.textSec}}>План<br/><b style={{color:C.text}}>{ctrl.planText || '—'}</b></span>
+                      <span style={{color:C.textSec}}>После<br/><b style={{color:ctrl.severity==='danger'?C.danger:C.text}}>{ctrl.afterText || '—'}</b></span>
+                      <span style={{color:C.textSec}}>Накладная<br/><b style={{color:C.info}}>{ctrl.incomingText || item.quantity + ' ' + (item.unit || '')}</b></span>
+                      <span style={{color:C.textSec}}>Цена<br/><b style={{color:ctrl.priceOverText && ctrl.priceOverText !== '—' ? C.warning : C.text}}>{ctrl.invoicePriceText||'—'}</b></span>
+                    </div>
+                    <div style={{marginTop:'8px',fontSize:'12px',color:ctrl.overText && ctrl.overText !== '—' ? C.danger : ctrl.shortageText && ctrl.shortageText !== '—' ? C.warning : C.success,fontWeight:'800'}}>
+                      {ctrl.overText && ctrl.overText !== '—' ? 'Сверх сметы: '+ctrl.overText : ctrl.shortageText && ctrl.shortageText !== '—' ? 'Докупить: '+ctrl.shortageText : 'Закрыто по смете'}
+                    </div>
+                    <div style={{marginTop:'8px'}}>{renderInvoiceControlActions ? (renderInvoiceControlActions(inv, ctrl, item) || <span style={{color:C.textMuted,fontSize:'12px'}}>—</span>) : <span style={{color:C.textMuted,fontSize:'12px'}}>—</span>}</div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{marginTop:'8px',overflowX:'auto'}}>
+              <table style={{...tbl,fontSize:'11px',minWidth:'1260px'}}>
+                <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План</th><th style={tblH}>До</th><th style={tblH}>Накладная</th><th style={tblH}>После</th><th style={tblH}>Докупить / сверх</th><th style={tblH}>Цена</th><th style={tblH}>Действие</th></tr></thead>
+                <tbody>
+                  {items.map((item, index) => {
+                    const rowSum = Number(item.total || 0) || Number((item.quantity || 0) * (item.price || 0));
+                    const ctrl = estimateControl[index] || {};
+                    return (
+                      <tr key={index}>
+                        <td style={tblC}>
+                          <b style={{fontSize:'11px'}}>{item.name || ''}</b>
+                          {ctrl.canonicalName && ctrl.canonicalName !== item.name && <p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Смета: {ctrl.canonicalName}</p>}
+                          {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
+                          {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}
+                          {ctrl.workRefs?.length > 0 && <p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Работы: {ctrl.workRefs.slice(0,2).join('; ')}{ctrl.workRefs.length > 2 ? '…' : ''}</p>}
+                          {ctrl.isCompositeWorkMaterial && <p style={{color:C.info,fontSize:'10px',margin:'2px 0 0',fontWeight:700}}>Комплектация укрупненной работы</p>}
+                          {item.parentWorkName && !(ctrl.workRefs||[]).includes(item.parentWorkName) && <p style={{color:C.accent,fontSize:'10px',margin:'2px 0 0'}}>Комплектация: {item.parentWorkName}</p>}
+                        </td>
+                        <td style={tblC}>{item.unit || ''}</td>
+                        <td style={tblC}>{item.quantity || 0}</td>
+                        <td style={tblC}>{rowSum.toLocaleString('ru-RU')+' ₽'}</td>
+                        <td style={tblC}>{renderControlBadge(ctrl)}</td>
+                        <td style={tblC}>{ctrl.planText || '—'}</td>
+                        <td style={tblC}>{ctrl.beforeText || '—'}</td>
+                        <td style={{...tblC,color:C.info}}>{ctrl.incomingText || item.quantity + ' ' + (item.unit || '')}</td>
+                        <td style={{...tblC,color:ctrl.severity==='danger'?C.danger:C.text}}>{ctrl.afterText || '—'}</td>
+                        <td style={{...tblC,color:ctrl.overText && ctrl.overText !== '—' ? C.danger : ctrl.shortageText && ctrl.shortageText !== '—' ? C.warning : C.success}}>
+                          {ctrl.overText && ctrl.overText !== '—' ? 'сверх '+ctrl.overText : ctrl.shortageText && ctrl.shortageText !== '—' ? 'докупить '+ctrl.shortageText : 'закрыто'}
+                        </td>
+                        <td style={{...tblC,color:ctrl.priceOverText && ctrl.priceOverText !== '—' ? C.warning : C.textSec}}>
+                          {(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+(ctrl.priceOverText && ctrl.priceOverText !== '—' ? ' · +'+ctrl.priceOverText : '')}
+                        </td>
+                        <td style={tblC}>{renderInvoiceControlActions ? (renderInvoiceControlActions(inv, ctrl, item) || <span style={{color:C.textMuted}}>—</span>) : <span style={{color:C.textMuted}}>—</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </details>
       ) : (
         <div style={{marginTop:'10px',padding:'10px 12px',borderRadius:'10px',border:'1.5px solid '+C.warningBorder,backgroundColor:C.warningLight,color:C.warning,fontSize:'12px',fontWeight:'700'}}>
