@@ -22,11 +22,6 @@ import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import ProjectScheduleSummaryPanel from './components/ProjectScheduleSummaryPanel';
-import ProjectWorkJournalEditModal from './components/ProjectWorkJournalEditModal';
-import ProjectWorkJournalTableModal from './components/ProjectWorkJournalTableModal';
-import ProjectMaterialInspectionEditModal from './components/ProjectMaterialInspectionEditModal';
-import ProjectCableJournalEditModal from './components/ProjectCableJournalEditModal';
-import ProjectHiddenWorksActEditModal from './components/ProjectHiddenWorksActEditModal';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
@@ -49,35 +44,8 @@ import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsPanel from './components/MaterialNormSuggestionsPanel';
 import PublicSitePage from './components/PublicSitePage';
 import MobileBottomNav from './components/MobileBottomNav';
-import SverkaModal from './components/SverkaModal';
-import AiChatModal from './components/AiChatModal';
-import SupplierInviteModal from './components/SupplierInviteModal';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
-import RequestKpModal from './components/RequestKpModal';
-import ReimburseModal from './components/ReimburseModal';
-import AccountableExpenseReportModal from './components/AccountableExpenseReportModal';
-import ManualExpenseModal from './components/ManualExpenseModal';
-import AccountablePaymentModal from './components/AccountablePaymentModal';
-import EstimateDistributeModal from './components/EstimateDistributeModal';
-import PricelistFromEstimateModal from './components/PricelistFromEstimateModal';
-import GeneratePricelistModal from './components/GeneratePricelistModal';
-import GenerateEstimateModal from './components/GenerateEstimateModal';
-import ToolIssueModal from './components/ToolIssueModal';
-import ToolReturnModal from './components/ToolReturnModal';
-import BrigadePaymentModal from './components/BrigadePaymentModal';
-import ActPaymentModal from './components/ActPaymentModal';
-import AiAssistantDrawer from './components/AiAssistantDrawer';
-import ReceiveMaterialDialog from './components/ReceiveMaterialDialog';
-import ScannedInvoiceFormModal from './components/ScannedInvoiceFormModal';
-import ScanInvoiceModal from './components/ScanInvoiceModal';
-import QuickActionsModal from './components/QuickActionsModal';
-import OwnExpenseFormModal from './components/OwnExpenseFormModal';
-import QrModal from './components/QrModal';
-import RejectEntryModal from './components/RejectEntryModal';
 import MobileMenuSheet from './components/MobileMenuSheet';
-import FloatingCompanyChatPanel from './components/FloatingCompanyChatPanel';
-import EstimateChatModal from './components/EstimateChatModal';
-import EstimateVersionHistoryModal from './components/EstimateVersionHistoryModal';
 import AppSidebar from './components/AppSidebar';
 import AppHeaderBar from './components/AppHeaderBar';
 import DashboardTopBar from './components/DashboardTopBar';
@@ -87,7 +55,6 @@ import DashboardSupplyPanel from './components/DashboardSupplyPanel';
 import DashboardRisksPanel from './components/DashboardRisksPanel';
 import DashboardProductionSummaryPanel from './components/DashboardProductionSummaryPanel';
 import DashboardActivityPanel from './components/DashboardActivityPanel';
-import ConfirmWorkAcceptanceModal from './components/ConfirmWorkAcceptanceModal';
 import { resolveEstimatePackage } from './utils/estimatePackage';
 import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollText, BarChart3, Handshake, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
@@ -112,6 +79,39 @@ const CrmPage = React.lazy(() => import('./components/CrmPage'));
 const ActivityLogPage = React.lazy(() => import('./components/ActivityLogPage'));
 const CompanyChatPage = React.lazy(() => import('./components/CompanyChatPage'));
 const SystemOwnerCabinet = React.lazy(() => import('./components/SystemOwnerCabinet'));
+const ProjectWorkJournalEditModal = React.lazy(() => import('./components/ProjectWorkJournalEditModal'));
+const ProjectWorkJournalTableModal = React.lazy(() => import('./components/ProjectWorkJournalTableModal'));
+const ProjectMaterialInspectionEditModal = React.lazy(() => import('./components/ProjectMaterialInspectionEditModal'));
+const ProjectCableJournalEditModal = React.lazy(() => import('./components/ProjectCableJournalEditModal'));
+const ProjectHiddenWorksActEditModal = React.lazy(() => import('./components/ProjectHiddenWorksActEditModal'));
+const SverkaModal = React.lazy(() => import('./components/SverkaModal'));
+const AiChatModal = React.lazy(() => import('./components/AiChatModal'));
+const SupplierInviteModal = React.lazy(() => import('./components/SupplierInviteModal'));
+const RequestKpModal = React.lazy(() => import('./components/RequestKpModal'));
+const ReimburseModal = React.lazy(() => import('./components/ReimburseModal'));
+const AccountableExpenseReportModal = React.lazy(() => import('./components/AccountableExpenseReportModal'));
+const ManualExpenseModal = React.lazy(() => import('./components/ManualExpenseModal'));
+const AccountablePaymentModal = React.lazy(() => import('./components/AccountablePaymentModal'));
+const EstimateDistributeModal = React.lazy(() => import('./components/EstimateDistributeModal'));
+const PricelistFromEstimateModal = React.lazy(() => import('./components/PricelistFromEstimateModal'));
+const GeneratePricelistModal = React.lazy(() => import('./components/GeneratePricelistModal'));
+const GenerateEstimateModal = React.lazy(() => import('./components/GenerateEstimateModal'));
+const ToolIssueModal = React.lazy(() => import('./components/ToolIssueModal'));
+const ToolReturnModal = React.lazy(() => import('./components/ToolReturnModal'));
+const BrigadePaymentModal = React.lazy(() => import('./components/BrigadePaymentModal'));
+const ActPaymentModal = React.lazy(() => import('./components/ActPaymentModal'));
+const AiAssistantDrawer = React.lazy(() => import('./components/AiAssistantDrawer'));
+const ReceiveMaterialDialog = React.lazy(() => import('./components/ReceiveMaterialDialog'));
+const ScannedInvoiceFormModal = React.lazy(() => import('./components/ScannedInvoiceFormModal'));
+const ScanInvoiceModal = React.lazy(() => import('./components/ScanInvoiceModal'));
+const QuickActionsModal = React.lazy(() => import('./components/QuickActionsModal'));
+const OwnExpenseFormModal = React.lazy(() => import('./components/OwnExpenseFormModal'));
+const QrModal = React.lazy(() => import('./components/QrModal'));
+const RejectEntryModal = React.lazy(() => import('./components/RejectEntryModal'));
+const FloatingCompanyChatPanel = React.lazy(() => import('./components/FloatingCompanyChatPanel'));
+const EstimateChatModal = React.lazy(() => import('./components/EstimateChatModal'));
+const EstimateVersionHistoryModal = React.lazy(() => import('./components/EstimateVersionHistoryModal'));
+const ConfirmWorkAcceptanceModal = React.lazy(() => import('./components/ConfirmWorkAcceptanceModal'));
 const loadStoredUser = () => {
   if (typeof window === 'undefined') return null;
   try {
@@ -11996,7 +11996,8 @@ function App() {
     <div style={{display:'flex',height:'100vh',backgroundColor:C.bg,position:'relative',overflow:'hidden'}}>
       {previewContent&&<PreviewModal content={previewContent} title={previewTitle} onClose={()=>setPreviewContent(null)} onPrint={doPrint}/>}
       <ImagePreviewModal src={showPhotoModal} onClose={()=>setShowPhotoModal(null)}/>
-      <ProjectHiddenWorksActEditModal
+      <React.Suspense fallback={null}>
+      {editingAct&&<ProjectHiddenWorksActEditModal
         act={editingAct}
         setEditingAct={setEditingAct}
         setHiddenActs={setHiddenActs}
@@ -12015,8 +12016,8 @@ function App() {
         aiNotice={aiNotice}
         aiNoticeIcon={aiNoticeIcon}
         aiNoticeText={aiNoticeText}
-      />
-      <ProjectWorkJournalEditModal
+      />}
+      {editingJournal&&<ProjectWorkJournalEditModal
         journal={editingJournal}
         setEditingJournal={setEditingJournal}
         setWorkJournal={setWorkJournal}
@@ -12036,8 +12037,8 @@ function App() {
         aiNotice={aiNotice}
         aiNoticeIcon={aiNoticeIcon}
         aiNoticeText={aiNoticeText}
-      />
-      <ProjectWorkJournalTableModal
+      />}
+      {showJournalTableModal&&<ProjectWorkJournalTableModal
         projectName={showJournalTableModal}
         workJournal={workJournal}
         journalFilter={journalFilter}
@@ -12057,8 +12058,8 @@ function App() {
         tblC={tblC}
         btnB={btnB}
         btnG={btnG}
-      />
-      <ProjectMaterialInspectionEditModal
+      />}
+      {editingInspection&&<ProjectMaterialInspectionEditModal
         inspection={editingInspection}
         setEditingInspection={setEditingInspection}
         setMaterialInspections={setMaterialInspections}
@@ -12073,8 +12074,8 @@ function App() {
         aiNotice={aiNotice}
         aiNoticeIcon={aiNoticeIcon}
         aiNoticeText={aiNoticeText}
-      />
-      <ProjectCableJournalEditModal
+      />}
+      {editingCable&&<ProjectCableJournalEditModal
         cable={editingCable}
         setEditingCable={setEditingCable}
         setCableJournal={setCableJournal}
@@ -12091,15 +12092,16 @@ function App() {
         aiNotice={aiNotice}
         aiNoticeIcon={aiNoticeIcon}
         aiNoticeText={aiNoticeText}
-      />
-      <QrModal showQRModal={showQRModal} setShowQRModal={setShowQRModal} generateQR={generateQR} C={C} btnG={btnG}/>
-      <RejectEntryModal rejectingEntry={rejectingEntry} rejectComment={rejectComment} setRejectComment={setRejectComment} setRejectingEntry={setRejectingEntry} rejectJ={rejectJ} C={C} card={card} inp={inp} btnR={btnR} btnG={btnG}/>
-      <ConfirmWorkAcceptanceModal confirmingEntry={confirmingEntry} confirmAcceptedQty={confirmAcceptedQty} setConfirmAcceptedQty={setConfirmAcceptedQty} confirmComment={confirmComment} setConfirmComment={setConfirmComment} setConfirmingEntry={setConfirmingEntry} confirmJ={confirmJ} normalizeMeasure={normalizeMeasure} toNum={toNum} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}/>
-      <ToolIssueModal showIssueToolModal={showIssueToolModal} setShowIssueToolModal={setShowIssueToolModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} issueToolData={issueToolData} setIssueToolData={setIssueToolData} masterProfiles={masterProfiles} projects={projects} issueTool={issueTool}/>
-      <ToolReturnModal showReturnToolModal={showReturnToolModal} setShowReturnToolModal={setShowReturnToolModal} C={C} card={card} inp={inp} btnG={btnG} btnGr={btnGr} returnToolCondition={returnToolCondition} setReturnToolCondition={setReturnToolCondition} returnTool={returnTool}/>
-      <BrigadePaymentModal showBrigadePayModal={showBrigadePayModal} setShowBrigadePayModal={setShowBrigadePayModal} selectedBrigadeContract={selectedBrigadeContract} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newBrigadePayment={newBrigadePayment} setNewBrigadePayment={setNewBrigadePayment} saveBrigadePayment={saveBrigadePayment}/>
-      <ActPaymentModal showPayActModal={showPayActModal} setShowPayActModal={setShowPayActModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newPayment={newPayment} setNewPayment={setNewPayment} paymentTypes={PAYMENT_TYPES} financeUsers={financeUsers} roleLabels={ROLE_LABELS} saveActPayment={saveActPayment} actPayments={actPayments}/>
-      <AiAssistantDrawer showAiAssistant={showAiAssistant} setShowAiAssistant={setShowAiAssistant} C={C} inp={inp} btnG={btnG} btnO={btnO} aiChat={aiChat} aiLoading={aiLoading} aiMessage={aiMessage} setAiMessage={setAiMessage} sendAiMessage={sendAiMessage} chatEndRef={chatEndRef}/>
+      />}
+      {showQRModal&&<QrModal showQRModal={showQRModal} setShowQRModal={setShowQRModal} generateQR={generateQR} C={C} btnG={btnG}/>}
+      {rejectingEntry&&<RejectEntryModal rejectingEntry={rejectingEntry} rejectComment={rejectComment} setRejectComment={setRejectComment} setRejectingEntry={setRejectingEntry} rejectJ={rejectJ} C={C} card={card} inp={inp} btnR={btnR} btnG={btnG}/>}
+      {confirmingEntry&&<ConfirmWorkAcceptanceModal confirmingEntry={confirmingEntry} confirmAcceptedQty={confirmAcceptedQty} setConfirmAcceptedQty={setConfirmAcceptedQty} confirmComment={confirmComment} setConfirmComment={setConfirmComment} setConfirmingEntry={setConfirmingEntry} confirmJ={confirmJ} normalizeMeasure={normalizeMeasure} toNum={toNum} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}/>}
+      {showIssueToolModal&&<ToolIssueModal showIssueToolModal={showIssueToolModal} setShowIssueToolModal={setShowIssueToolModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} issueToolData={issueToolData} setIssueToolData={setIssueToolData} masterProfiles={masterProfiles} projects={projects} issueTool={issueTool}/>}
+      {showReturnToolModal&&<ToolReturnModal showReturnToolModal={showReturnToolModal} setShowReturnToolModal={setShowReturnToolModal} C={C} card={card} inp={inp} btnG={btnG} btnGr={btnGr} returnToolCondition={returnToolCondition} setReturnToolCondition={setReturnToolCondition} returnTool={returnTool}/>}
+      {showBrigadePayModal&&<BrigadePaymentModal showBrigadePayModal={showBrigadePayModal} setShowBrigadePayModal={setShowBrigadePayModal} selectedBrigadeContract={selectedBrigadeContract} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newBrigadePayment={newBrigadePayment} setNewBrigadePayment={setNewBrigadePayment} saveBrigadePayment={saveBrigadePayment}/>}
+      {showPayActModal&&<ActPaymentModal showPayActModal={showPayActModal} setShowPayActModal={setShowPayActModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newPayment={newPayment} setNewPayment={setNewPayment} paymentTypes={PAYMENT_TYPES} financeUsers={financeUsers} roleLabels={ROLE_LABELS} saveActPayment={saveActPayment} actPayments={actPayments}/>}
+      {showAiAssistant&&<AiAssistantDrawer showAiAssistant={showAiAssistant} setShowAiAssistant={setShowAiAssistant} C={C} inp={inp} btnG={btnG} btnO={btnO} aiChat={aiChat} aiLoading={aiLoading} aiMessage={aiMessage} setAiMessage={setAiMessage} sendAiMessage={sendAiMessage} chatEndRef={chatEndRef}/>}
+      </React.Suspense>
 
       <AppSidebar isMobile={isMobile} sidebarRef={sidebarRef} sidebarVisible={sidebarVisible} setSidebarVisible={setSidebarVisible} C={C} user={user} roleLabels={ROLE_LABELS} roleColor={roleColor} menuItems={menuItems} supplyRequests={supplyRequests} isLeadership={isLeadership} isMasterRole={isMasterRole} activePage={activePage} navigateTo={navigateTo} handleLogout={handleLogout}/>
 
@@ -14905,28 +14907,30 @@ function App() {
           </React.Suspense>
         </div>
       </div>
-    <SverkaModal sverkaModal={sverkaModal} setSverkaModal={setSverkaModal} btnO={btnO}/>
-    <AiChatModal showAiChat={showAiChat} isMobile={isMobile} C={C} inp={inp} btnO={btnO} aiMessages={aiMessages} aiLoading={aiLoading} aiInput={aiInput} setAiInput={setAiInput} setShowAiChat={setShowAiChat} onSend={sendAiAssistantMessage}/>
       <MobileBottomNav activePage={activePage} isMobile={isMobile} unreadMessagesCount={unreadMessagesCount} menuItems={menuItems} navigateTo={navigateTo} setActivePage={setActivePage} setShowMobileMenu={setShowMobileMenu} setShowQuickActions={setShowQuickActions} setShowChatPanel={setShowChatPanel}/>
-      <SupplierInviteModal showSupplierInviteModal={showSupplierInviteModal} setShowSupplierInviteModal={setShowSupplierInviteModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatedInviteLink={generatedInviteLink} setGeneratedInviteLink={setGeneratedInviteLink} supplierInviteForm={supplierInviteForm} setSupplierInviteForm={setSupplierInviteForm} suppliers={suppliers} supplierCategories={SUPPLIER_CATEGORIES} createSupplierInvite={createSupplierInvite}/>
+    <React.Suspense fallback={null}>
+    {sverkaModal&&<SverkaModal sverkaModal={sverkaModal} setSverkaModal={setSverkaModal} btnO={btnO}/>}
+    {showAiChat&&<AiChatModal showAiChat={showAiChat} isMobile={isMobile} C={C} inp={inp} btnO={btnO} aiMessages={aiMessages} aiLoading={aiLoading} aiInput={aiInput} setAiInput={setAiInput} setShowAiChat={setShowAiChat} onSend={sendAiAssistantMessage}/>}
+      {showSupplierInviteModal&&<SupplierInviteModal showSupplierInviteModal={showSupplierInviteModal} setShowSupplierInviteModal={setShowSupplierInviteModal} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatedInviteLink={generatedInviteLink} setGeneratedInviteLink={setGeneratedInviteLink} supplierInviteForm={supplierInviteForm} setSupplierInviteForm={setSupplierInviteForm} suppliers={suppliers} supplierCategories={SUPPLIER_CATEGORIES} createSupplierInvite={createSupplierInvite}/>}
 
-      <RequestKpModal showRequestKpModal={showRequestKpModal} setShowRequestKpModal={setShowRequestKpModal} C={C} card={card} btnG={btnG} btnO={btnO} badge={badge} supplyRequests={supplyRequests} parseSupplyItems={parseSupplyItems} renderSupplyRequestOrigin={renderSupplyRequestOrigin} requestKpLoading={requestKpLoading} suggestedSuppliers={suggestedSuppliers} selectedSupplierIds={selectedSupplierIds} setSelectedSupplierIds={setSelectedSupplierIds} sendKpRequest={sendKpRequest}/>
+      {showRequestKpModal&&<RequestKpModal showRequestKpModal={showRequestKpModal} setShowRequestKpModal={setShowRequestKpModal} C={C} card={card} btnG={btnG} btnO={btnO} badge={badge} supplyRequests={supplyRequests} parseSupplyItems={parseSupplyItems} renderSupplyRequestOrigin={renderSupplyRequestOrigin} requestKpLoading={requestKpLoading} suggestedSuppliers={suggestedSuppliers} selectedSupplierIds={selectedSupplierIds} setSelectedSupplierIds={setSelectedSupplierIds} sendKpRequest={sendKpRequest}/>}
 
-      <ReimburseModal showReimburseModal={showReimburseModal} setShowReimburseModal={setShowReimburseModal} C={C} card={card} btnG={btnG} btnO={btnO} btnR={btnR} ownExpenses={ownExpenses} users={users} staff={staff} roleLabels={ROLE_LABELS} expenseCategories={EXPENSE_CATEGORIES} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} API={API} user={user} loadAll={loadAll}/>
-    <AccountableExpenseReportModal reportingPayment={reportingPayment} setReportingPayment={setReportingPayment} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} expenseCategories={EXPENSE_CATEGORIES} newExpense={newExpense} setNewExpense={setNewExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} expenseSubmitting={expenseSubmitting} setExpenseSubmitting={setExpenseSubmitting} API={API} user={user} loadAll={loadAll}/>
-    <ManualExpenseModal addExpenseProject={addExpenseProject} setAddExpenseProject={setAddExpenseProject} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newManualExpense={newManualExpense} setNewManualExpense={setNewManualExpense} isFinanceRole={isFinanceRole} expenseCategories={EXPENSE_CATEGORIES} API={API} user={user} loadAll={loadAll}/>
-    <AccountablePaymentModal showAccountableForm={showAccountableForm} setShowAccountableForm={setShowAccountableForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} users={users} newAccountable={newAccountable} setNewAccountable={setNewAccountable} API={API} user={user} loadAll={loadAll}/>
-    <EstimateDistributeModal showDistribute={showDistribute} setShowDistribute={setShowDistribute} selectedEstimate={selectedEstimate} distributing={distributing} setDistributing={setDistributing} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnB={btnB} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists} staff={staff} distributeAssignments={distributeAssignments} setDistributeAssignments={setDistributeAssignments} API={API} loadAll={loadAll}/>
-    <PricelistFromEstimateModal showFromEstimate={showFromEstimate} setShowFromEstimate={setShowFromEstimate} creatingFromEstimate={creatingFromEstimate} setCreatingFromEstimate={setCreatingFromEstimate} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} fromEstimateForm={fromEstimateForm} setFromEstimateForm={setFromEstimateForm} estimatesList={estimatesList} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>
-    <GeneratePricelistModal showGeneratePricelist={showGeneratePricelist} setShowGeneratePricelist={setShowGeneratePricelist} generatingPricelist={generatingPricelist} setGeneratingPricelist={setGeneratingPricelist} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatePricelistForm={generatePricelistForm} setGeneratePricelistForm={setGeneratePricelistForm} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>
-    <GenerateEstimateModal showGenerateEstimate={showGenerateEstimate} setShowGenerateEstimate={setShowGenerateEstimate} generating={generating} setGenerating={setGenerating} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generateForm={generateForm} setGenerateForm={setGenerateForm} projects={projects} pricelists={pricelists} estimatePackages={ESTIMATE_PACKAGES} nextEstimateVersionFor={nextEstimateVersionFor} API={API} enrichEstimateMeasurementBasis={enrichEstimateMeasurementBasis} estimatesList={estimatesList} setEstimatesList={setEstimatesList} setSelectedEstimate={setSelectedEstimate} activeEstimateFromList={activeEstimateFromList} isGlobalEstimateTemplate={isGlobalEstimateTemplate} sameEstimateGroup={sameEstimateGroup} applyEstimateActivationState={applyEstimateActivationState} queueEstimateDiffReviewTask={queueEstimateDiffReviewTask} autoReconcileEstimateChanges={autoReconcileEstimateChanges} queueEstimateQualityReviewTask={queueEstimateQualityReviewTask} queueEstimateNormReviewTask={queueEstimateNormReviewTask}/>
-    <EstimateChatModal showEstimateChat={showEstimateChat} setShowEstimateChat={setShowEstimateChat} selectedEstimate={selectedEstimate} C={C} card={card} inp={inp} btnG={btnG} btnO={btnO} isMobile={isMobile} darkMode={darkMode} API={API} estimateChatMessages={estimateChatMessages} setEstimateChatMessages={setEstimateChatMessages} estimateChatLoading={estimateChatLoading} estimateChatInput={estimateChatInput} setEstimateChatInput={setEstimateChatInput} sendEstimateChatMessage={sendEstimateChatMessage}/>
-    <EstimateVersionHistoryModal showVersionHistory={showVersionHistory} setShowVersionHistory={setShowVersionHistory} selectedEstimate={selectedEstimate} estimateVersions={estimateVersions} selectedVersionsToCompare={selectedVersionsToCompare} setSelectedVersionsToCompare={setSelectedVersionsToCompare} isMobile={isMobile} C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} API={API} user={user} setSelectedEstimate={setSelectedEstimate} setEstimatesList={setEstimatesList} showPreview={showPreview} buildEstimateDiffContent={buildEstimateDiffContent} estimateItemTotal={estimateItemTotal} setShowAiChat={setShowAiChat} setAiMessages={setAiMessages} setAiLoading={setAiLoading}/>
-    <ReceiveMaterialDialog showReceiveDialog={showReceiveDialog} setShowReceiveDialog={setShowReceiveDialog} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnB={btnB} btnG={btnG}/>
-    <ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} getProjectWorkPackageOptions={getProjectWorkPackageOptions} getProjectEstimateWorkOptions={getProjectEstimateWorkOptions} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>
-    <ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} setNewInvoice={setNewInvoice}/>
-    <OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>
-    <QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setExpandedProject={setExpandedProject} setActiveProjectTab={setActiveProjectTab} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>
+      {showReimburseModal&&<ReimburseModal showReimburseModal={showReimburseModal} setShowReimburseModal={setShowReimburseModal} C={C} card={card} btnG={btnG} btnO={btnO} btnR={btnR} ownExpenses={ownExpenses} users={users} staff={staff} roleLabels={ROLE_LABELS} expenseCategories={EXPENSE_CATEGORIES} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} API={API} user={user} loadAll={loadAll}/>}
+    {reportingPayment&&<AccountableExpenseReportModal reportingPayment={reportingPayment} setReportingPayment={setReportingPayment} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} expenseCategories={EXPENSE_CATEGORIES} newExpense={newExpense} setNewExpense={setNewExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} expenseSubmitting={expenseSubmitting} setExpenseSubmitting={setExpenseSubmitting} API={API} user={user} loadAll={loadAll}/>}
+    {addExpenseProject&&<ManualExpenseModal addExpenseProject={addExpenseProject} setAddExpenseProject={setAddExpenseProject} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newManualExpense={newManualExpense} setNewManualExpense={setNewManualExpense} isFinanceRole={isFinanceRole} expenseCategories={EXPENSE_CATEGORIES} API={API} user={user} loadAll={loadAll}/>}
+    {showAccountableForm&&<AccountablePaymentModal showAccountableForm={showAccountableForm} setShowAccountableForm={setShowAccountableForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} users={users} newAccountable={newAccountable} setNewAccountable={setNewAccountable} API={API} user={user} loadAll={loadAll}/>}
+    {showDistribute&&<EstimateDistributeModal showDistribute={showDistribute} setShowDistribute={setShowDistribute} selectedEstimate={selectedEstimate} distributing={distributing} setDistributing={setDistributing} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnB={btnB} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists} staff={staff} distributeAssignments={distributeAssignments} setDistributeAssignments={setDistributeAssignments} API={API} loadAll={loadAll}/>}
+    {showFromEstimate&&<PricelistFromEstimateModal showFromEstimate={showFromEstimate} setShowFromEstimate={setShowFromEstimate} creatingFromEstimate={creatingFromEstimate} setCreatingFromEstimate={setCreatingFromEstimate} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} fromEstimateForm={fromEstimateForm} setFromEstimateForm={setFromEstimateForm} estimatesList={estimatesList} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>}
+    {showGeneratePricelist&&<GeneratePricelistModal showGeneratePricelist={showGeneratePricelist} setShowGeneratePricelist={setShowGeneratePricelist} generatingPricelist={generatingPricelist} setGeneratingPricelist={setGeneratingPricelist} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generatePricelistForm={generatePricelistForm} setGeneratePricelistForm={setGeneratePricelistForm} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>}
+    {showGenerateEstimate&&<GenerateEstimateModal showGenerateEstimate={showGenerateEstimate} setShowGenerateEstimate={setShowGenerateEstimate} generating={generating} setGenerating={setGenerating} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} generateForm={generateForm} setGenerateForm={setGenerateForm} projects={projects} pricelists={pricelists} estimatePackages={ESTIMATE_PACKAGES} nextEstimateVersionFor={nextEstimateVersionFor} API={API} enrichEstimateMeasurementBasis={enrichEstimateMeasurementBasis} estimatesList={estimatesList} setEstimatesList={setEstimatesList} setSelectedEstimate={setSelectedEstimate} activeEstimateFromList={activeEstimateFromList} isGlobalEstimateTemplate={isGlobalEstimateTemplate} sameEstimateGroup={sameEstimateGroup} applyEstimateActivationState={applyEstimateActivationState} queueEstimateDiffReviewTask={queueEstimateDiffReviewTask} autoReconcileEstimateChanges={autoReconcileEstimateChanges} queueEstimateQualityReviewTask={queueEstimateQualityReviewTask} queueEstimateNormReviewTask={queueEstimateNormReviewTask}/>}
+    {showEstimateChat&&<EstimateChatModal showEstimateChat={showEstimateChat} setShowEstimateChat={setShowEstimateChat} selectedEstimate={selectedEstimate} C={C} card={card} inp={inp} btnG={btnG} btnO={btnO} isMobile={isMobile} darkMode={darkMode} API={API} estimateChatMessages={estimateChatMessages} setEstimateChatMessages={setEstimateChatMessages} estimateChatLoading={estimateChatLoading} estimateChatInput={estimateChatInput} setEstimateChatInput={setEstimateChatInput} sendEstimateChatMessage={sendEstimateChatMessage}/>}
+    {showVersionHistory&&<EstimateVersionHistoryModal showVersionHistory={showVersionHistory} setShowVersionHistory={setShowVersionHistory} selectedEstimate={selectedEstimate} estimateVersions={estimateVersions} selectedVersionsToCompare={selectedVersionsToCompare} setSelectedVersionsToCompare={setSelectedVersionsToCompare} isMobile={isMobile} C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} API={API} user={user} setSelectedEstimate={setSelectedEstimate} setEstimatesList={setEstimatesList} showPreview={showPreview} buildEstimateDiffContent={buildEstimateDiffContent} estimateItemTotal={estimateItemTotal} setShowAiChat={setShowAiChat} setAiMessages={setAiMessages} setAiLoading={setAiLoading}/>}
+    {showReceiveDialog&&<ReceiveMaterialDialog showReceiveDialog={showReceiveDialog} setShowReceiveDialog={setShowReceiveDialog} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnB={btnB} btnG={btnG}/>}
+    {showScannedInvoiceForm&&<ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} getProjectWorkPackageOptions={getProjectWorkPackageOptions} getProjectEstimateWorkOptions={getProjectEstimateWorkOptions} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>}
+    {showScanInvoice&&<ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} setNewInvoice={setNewInvoice}/>}
+    {showOwnExpenseForm&&<OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>}
+    {showQuickActions&&<QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setExpandedProject={setExpandedProject} setActiveProjectTab={setActiveProjectTab} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>}
+    </React.Suspense>
     <SystemStatusModal
       show={showSystemStatus}
       systemStatus={systemStatus}
@@ -14938,7 +14942,11 @@ function App() {
       btnG={btnG}
     />
     <MobileMenuSheet showMobileMenu={showMobileMenu} setShowMobileMenu={setShowMobileMenu} menuItems={menuItems} activePage={activePage} setActivePage={setActivePage} C={C}/>
-    <FloatingCompanyChatPanel showChatPanel={showChatPanel} setShowChatPanel={setShowChatPanel} companyMessages={companyMessages} user={user} companyChatInput={companyChatInput} setCompanyChatInput={setCompanyChatInput} sendCompanyChatMessage={sendCompanyChatMessage} uploadPhoto={uploadPhoto}/>
+    {showChatPanel&&(
+      <React.Suspense fallback={null}>
+        <FloatingCompanyChatPanel showChatPanel={showChatPanel} setShowChatPanel={setShowChatPanel} companyMessages={companyMessages} user={user} companyChatInput={companyChatInput} setCompanyChatInput={setCompanyChatInput} sendCompanyChatMessage={sendCompanyChatMessage} uploadPhoto={uploadPhoto}/>
+      </React.Suspense>
+    )}
 
     </div>
   );
