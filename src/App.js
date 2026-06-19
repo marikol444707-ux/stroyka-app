@@ -13282,6 +13282,7 @@ function App() {
                         buildRowsForPackage={(workPackage)=>materialReconciliationRows(p.name, workPackage)}
                         buildNormRowsForPackage={(workPackage)=>estimateWorkNormRequirementRows(p.name, workPackage)}
                         buildNormCtrlForPackage={(workPackage)=>materialNormControlSummaryForProject(p.name, workPackage)}
+                        isMobile={isMobile}
                         C={C}
                         card={card}
                         tbl={tbl}
@@ -14487,7 +14488,7 @@ function App() {
                   setNewEstimateSection={setNewEstimateSection}
                   onAdd={()=>{if(!newEstimateSection.name) return;const section={id:Date.now(),name:newEstimateSection.name,items:[]};const updated={...selectedEstimate,sections:[...(selectedEstimate.sections||[]),section]};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));setNewEstimateSection({name:''});}}
                 />
-	                {(()=>{const allSections=(selectedEstimate.sections||[]).map((section,si)=>({section,si}));const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const sectionLimit=8;const limitSections=isMobile&&!showEstimateIssuesOnly&&!mobileExpandedRenderLists[sectionListKey];const visibleSections=limitSections?allSections.slice(0,sectionLimit):allSections;const hiddenSections=allSections.length-visibleSections.length;return(<>
+	                {(()=>{const allSections=(selectedEstimate.sections||[]).map((section,si)=>({section,si}));const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const sectionLimit=isMobile?5:8;const limitSections=isMobile&&!showEstimateIssuesOnly&&!mobileExpandedRenderLists[sectionListKey];const visibleSections=limitSections?allSections.slice(0,sectionLimit):allSections;const hiddenSections=allSections.length-visibleSections.length;return(<>
 	                {visibleSections.map(({section,si})=>{
                   const itemKind=(it)=>normalizeEstimateItemType(it, section.name);
                   const sumOf=(it)=>estimateItemTotal(it);
@@ -14552,7 +14553,7 @@ function App() {
                   const canEditExecutionPrice=['директор','зам_директора'].includes(user?.role);
                   const markSectionBasis=()=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map(it=>isEstimateWorkItem(it,s.name)?{...it,measurementBasis:estimateMeasurementBasisOf(it,s.name)}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
 	                  const renderGroup=(title,emoji,list,groupTotal,accent)=>{
-	                    const mobileGroupLimit=showEstimateIssuesOnly?100:60;
+	                    const mobileGroupLimit=showEstimateIssuesOnly?80:35;
 	                    const listKey=['estimate',selectedEstimate.id,si,title].join(':');
 	                    const groupRows=isMobile&&!mobileExpandedRenderLists[listKey]?list.slice(0,mobileGroupLimit):list;
 	                    const hiddenRows=list.length-groupRows.length;

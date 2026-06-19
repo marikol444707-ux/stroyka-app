@@ -31,6 +31,7 @@ export default function ProjectMaterialsControlPanel({
   buildMaterialRequirementContent,
   onIssueMaterial,
   onCreateSupplyForRows,
+  isMobile = false,
 }) {
   const [query, setQuery] = React.useState('');
   const [filter, setFilter] = React.useState('all');
@@ -116,7 +117,9 @@ export default function ProjectMaterialsControlPanel({
   React.useEffect(() => {
     setShowAllRows(false);
   }, [queryKey, filter, rows.length, workPackage]);
-  const rowLimit = queryKey || filter !== 'all' ? 240 : 120;
+  const rowLimit = isMobile
+    ? (queryKey || filter !== 'all' ? 90 : 45)
+    : (queryKey || filter !== 'all' ? 240 : 120);
   const displayedRows = showAllRows ? visibleRows : visibleRows.slice(0, rowLimit);
   const hiddenRows = Math.max(0, visibleRows.length - displayedRows.length);
   const visibleToBuyRows = visibleRows.filter(r => Number(r.toBuy || 0) > 0 && Number(r.invalidPlanCount || 0) <= 0);
@@ -125,7 +128,7 @@ export default function ProjectMaterialsControlPanel({
     acc[unit] = (acc[unit] || 0) + Number(r.toBuy || 0);
     return acc;
   }, {})).slice(0, 4).map(([unit, qty]) => qty.toLocaleString('ru-RU', {maximumFractionDigits: 3}) + ' ' + unit).join(' · ');
-  const normRowLimit = 12;
+  const normRowLimit = isMobile ? 8 : 12;
   const displayedNormRows = showAllNormRows ? normRows : normRows.slice(0, normRowLimit);
   const hiddenNormRows = Math.max(0, normRows.length - displayedNormRows.length);
   const displayedNormProblemRows = showAllNormProblemRows ? normProblemRows : normProblemRows.slice(0, normRowLimit);
@@ -276,7 +279,7 @@ export default function ProjectMaterialsControlPanel({
             </button>
           )}
         </div>
-        <div style={{overflow: 'auto', maxHeight: '68vh', border: '1px solid ' + C.border, borderRadius: '10px'}}>
+        <div style={{overflow: 'auto', maxHeight: isMobile ? '58vh' : '68vh', border: '1px solid ' + C.border, borderRadius: '10px'}}>
           <table style={{...tbl, fontSize: '11px', minWidth: '1420px'}}>
             <thead>
               <tr>
