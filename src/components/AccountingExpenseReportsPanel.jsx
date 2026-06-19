@@ -17,7 +17,10 @@ export default function AccountingExpenseReportsPanel({
   expenseReports,
   user,
   badge,
+  isMobile = false,
 }) {
+  const visibleExpenseReports = isMobile ? expenseReports.slice(0, 40) : expenseReports;
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '8px' }}>
@@ -100,7 +103,7 @@ export default function AccountingExpenseReportsPanel({
         </div>
       ) : (
         <div>
-          {expenseReports.map(report => (
+          {visibleExpenseReports.map(report => (
             <div key={report.id} style={{ ...card, padding: '14px', marginBottom: '8px', borderLeft: '3px solid ' + (report.status === 'Утверждён' ? C.success : report.status === 'Отклонён' ? C.danger : C.warning) }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: '200px' }}>
@@ -162,6 +165,11 @@ export default function AccountingExpenseReportsPanel({
               </div>
             </div>
           ))}
+          {visibleExpenseReports.length < expenseReports.length && (
+            <div style={{ ...card, padding: '12px', textAlign: 'center', color: C.textMuted, fontSize: '11px' }}>
+              Показаны первые {visibleExpenseReports.length} из {expenseReports.length}. Полный список доступен на компьютере.
+            </div>
+          )}
         </div>
       )}
     </div>

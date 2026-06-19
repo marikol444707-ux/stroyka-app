@@ -50,11 +50,13 @@ export default function WarehouseOperationsPanel({
   buildInventoryDoc,
   refreshData,
   user,
+  isMobile = false,
 }) {
   if (warehouseTab === 'move') {
     const sourceMaterials = newMovement.fromLocation === 'Основной склад'
       ? warehouseMain
       : materials.filter(material => material.project === newMovement.fromLocation);
+    const visibleSourceMaterials = isMobile ? sourceMaterials.slice(0, 40) : sourceMaterials;
     const movementMaterialKey = (material = {}) => [
       material.id || '',
       material.name || '',
@@ -108,7 +110,7 @@ export default function WarehouseOperationsPanel({
           <b style={{ color: C.text, fontSize: '13px', display: 'block', marginBottom: '10px' }}>
             Выберите материалы:
           </b>
-          {sourceMaterials.map(material => {
+          {visibleSourceMaterials.map(material => {
             const materialKey = movementMaterialKey(material);
             const selected = newMovement.selectedMaterials?.find(item => movementMaterialKey(item) === materialKey);
             return (
@@ -176,6 +178,11 @@ export default function WarehouseOperationsPanel({
               </div>
             );
           })}
+          {visibleSourceMaterials.length < sourceMaterials.length && (
+            <div style={{ padding: '10px 12px', color: C.textMuted, fontSize: '11px', textAlign: 'center' }}>
+              Показаны первые {visibleSourceMaterials.length} из {sourceMaterials.length}. Для полного списка откройте склад на компьютере или уточните источник перемещения.
+            </div>
+          )}
 
           <input
             placeholder="Примечание"

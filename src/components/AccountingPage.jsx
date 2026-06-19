@@ -118,6 +118,7 @@ export default function AccountingPage(props) {
     tbl,
     tblH,
     tblC,
+    isMobile,
   } = props;
 
   return (
@@ -357,6 +358,7 @@ export default function AccountingPage(props) {
 
       {accountingTab === 'expenses' && (
         <AccountingExpenseReportsPanel
+          isMobile={isMobile}
           C={C}
           card={card}
           inp={inp}

@@ -13850,6 +13850,7 @@ function App() {
 
           {activePage==='warehouse'&&(
             <WarehousePage
+              isMobile={isMobile}
               warehouseTab={warehouseTab}
               setWarehouseTab={setWarehouseTab}
               setShowForm={setShowForm}
@@ -14126,6 +14127,7 @@ function App() {
 
           {activePage==='accounting'&&(
             <AccountingPage
+              isMobile={isMobile}
               accountingTab={accountingTab}
               setAccountingTab={setAccountingTab}
               setShowForm={setShowForm}

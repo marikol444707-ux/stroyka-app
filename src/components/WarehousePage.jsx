@@ -111,6 +111,7 @@ export default function WarehousePage(props) {
     inventory,
     buildInventoryDoc,
     refreshData,
+    isMobile,
   } = props;
 
   return (
@@ -283,6 +284,7 @@ export default function WarehousePage(props) {
 
       {['move', 'tools', 'inventory'].includes(warehouseTab) && (
         <WarehouseOperationsPanel
+          isMobile={isMobile}
           warehouseTab={warehouseTab}
           C={C}
           card={card}
