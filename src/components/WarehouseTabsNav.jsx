@@ -12,11 +12,20 @@ const WAREHOUSE_TABS = [
   ['warehouses', 'Склады'],
 ];
 
-export default function WarehouseTabsNav({warehouseTab, setWarehouseTab, setShowForm, btnO, btnG}) {
+export default function WarehouseTabsNav({warehouseTab, setWarehouseTab, setShowForm, btnO, btnG, isMobile}) {
   return (
-    <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
+    <div style={{
+      display:isMobile?'grid':'flex',
+      gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':undefined,
+      gap:isMobile?'8px':'8px',
+      margin:'0 auto 20px',
+      flexWrap:'wrap',
+      width:'100%',
+      maxWidth:isMobile?'420px':'100%',
+      justifyContent:isMobile?'center':'flex-start',
+    }}>
       {WAREHOUSE_TABS.map(([tab, label]) => (
-        <button key={tab} onClick={() => {setWarehouseTab(tab);setShowForm(false);}} style={{...(warehouseTab===tab?btnO:btnG),fontSize:'12px',padding:'7px 14px'}}>
+        <button key={tab} onClick={() => {setWarehouseTab(tab);setShowForm(false);}} style={{...(warehouseTab===tab?btnO:btnG),fontSize:isMobile?'12px':'12px',padding:isMobile?'9px 8px':'7px 14px',justifyContent:'center',width:isMobile?'100%':undefined,minWidth:0}}>
           {label}
         </button>
       ))}

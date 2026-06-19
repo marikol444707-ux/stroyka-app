@@ -115,13 +115,14 @@ export default function WarehousePage(props) {
   } = props;
 
   return (
-    <div>
+    <div style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
       <WarehouseTabsNav
         warehouseTab={warehouseTab}
         setWarehouseTab={setWarehouseTab}
         setShowForm={setShowForm}
         btnO={btnO}
         btnG={btnG}
+        isMobile={isMobile}
       />
 
       {warehouseTab === 'control' && (
@@ -225,6 +226,7 @@ export default function WarehousePage(props) {
           tblH={tblH}
           tblC={tblC}
           badge={badge}
+          isMobile={isMobile}
         />
       )}
 
