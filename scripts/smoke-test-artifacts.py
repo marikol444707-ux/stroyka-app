@@ -37,7 +37,7 @@ TABLES = [
     ("interim_acts", ["contractor_name", "project_name", "notes", "status"], ["id", "project_name", "contractor_name", "total_amount", "status"]),
     ("project_payments", ["project_name", "paid_by", "note"], ["id", "project_name", "amount", "paid_by", "note"]),
     ("brigade_contracts", ["project_name", "brigade_name", "notes"], ["id", "project_name", "brigade_name", "total_amount", "status"]),
-    ("brigade_contract_items", ["description", "room_name", "work_package"], ["id", "contract_id", "description", "work_package", "amount"]),
+    ("brigade_contract_items", ["description", "room_name", "work_package"], ["id", "contract_id", "description", "work_package", "status"]),
     ("expenses", ["description", "category", "project", "paid_by"], ["id", "project", "category", "amount", "description"]),
     ("own_expenses", ["description", "category", "project_name", "user_email"], ["id", "project_name", "user_email", "amount", "status"]),
     ("material_norm_suggestions", ["work_name", "material_name", "project_name", "source"], ["id", "project_name", "work_name", "material_name", "status"]),

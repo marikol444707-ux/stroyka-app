@@ -223,14 +223,16 @@ def apply_cleanup(cur, *, disable_users=False):
         ["id", "project_name", "brigade_name", "total_amount", "status"],
         "COALESCE(status,'') <> 'Аннулирован'",
     )
-    brigade_contract_items = update_matching(
-        cur,
-        "brigade_contract_items",
-        "status='Отменено'",
-        ["description", "work_package"],
-        ["id", "contract_id", "description", "work_package", "status"],
-        "COALESCE(status,'') <> 'Отменено'",
-    )
+    brigade_contract_items = []
+    if table_exists(cur, "brigade_contract_items") and "status" in existing_columns(cur, "brigade_contract_items"):
+        brigade_contract_items = update_matching(
+            cur,
+            "brigade_contract_items",
+            "status='Отменено'",
+            ["description", "work_package"],
+            ["id", "contract_id", "description", "work_package", "status"],
+            "COALESCE(status,'') <> 'Отменено'",
+        )
     users = []
     if disable_users:
         users = update_matching(

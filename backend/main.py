@@ -2760,6 +2760,7 @@ def init_db():
         ALTER TABLE brigade_contract_items ALTER COLUMN description TYPE TEXT;
         ALTER TABLE brigade_contract_items ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE brigade_contract_items ADD COLUMN IF NOT EXISTS estimate_item_key VARCHAR(255) DEFAULT '';
+        ALTER TABLE brigade_contract_items ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Не начато';
         CREATE TABLE IF NOT EXISTS pd_consents (
             id SERIAL PRIMARY KEY,
             user_id INT UNIQUE,
