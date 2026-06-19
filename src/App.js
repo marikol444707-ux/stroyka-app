@@ -1623,11 +1623,10 @@ function App() {
     const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
     const shouldLoadUsersAtBoot = isLeadershipRole || isFinanceRole;
     const [
-      p,u,msgs,sr,ait,oe,pp,wm,wj
+      p,u,sr,ait,oe,pp,wm,wj
     ] = await Promise.all([
       role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
       shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
-      getApi('/messages'),
       isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
       canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
       isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
@@ -1637,7 +1636,6 @@ function App() {
     ]);
     setProjects(Array.isArray(p)?p:[]);
     setUsers(Array.isArray(u)?u:[]);
-    setCompanyMessages(Array.isArray(msgs)?msgs:[]);
     setSupplyRequests(Array.isArray(sr)?sr:[]);
     setAiTasks(Array.isArray(ait)?ait:[]);
     setOwnExpenses(Array.isArray(oe)?oe:[]);
