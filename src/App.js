@@ -6,9 +6,6 @@ import { API, installAuthFetch } from './api';
 import { CRM_STAGES, DOOR_PURPOSES, DOOR_TYPES, ESTIMATE_CHANGE_APPROVED_STATUSES, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES, EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, REVEAL_MATERIALS, STAGE_STATUSES, SUPPLIER_CATEGORIES, SURFACES, TOOL_STATUSES, UNITS, VAT_OPTIONS, WEATHER_CONDITIONS, WINDOW_TYPES } from './constants/catalogs';
 import { ROLES, ROLE_GROUPS, ROLE_LABELS } from './constants/roles';
 import SystemStatusModal from './components/SystemStatusModal';
-import UsersPage from './components/UsersPage';
-import SupplyPage from './components/SupplyPage';
-import SuppliersPage from './components/SuppliersPage';
 import ProjectCardHeader from './components/ProjectCardHeader';
 import ProjectTabsNav from './components/ProjectTabsNav';
 import ProjectMaterialsControlPanel from './components/ProjectMaterialsControlPanel';
@@ -32,8 +29,6 @@ import ProjectCableJournalEditModal from './components/ProjectCableJournalEditMo
 import ProjectHiddenWorksActEditModal from './components/ProjectHiddenWorksActEditModal';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
-import WarehousePage from './components/WarehousePage';
-import AccountingPage from './components/AccountingPage';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
 import EstimatesListToolbar from './components/EstimatesListToolbar';
 import EstimateSearchResults from './components/EstimateSearchResults';
@@ -52,22 +47,9 @@ import EstimateSectionHeader from './components/EstimateSectionHeader';
 import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsPanel from './components/MaterialNormSuggestionsPanel';
-import MasterCabinetPage from './components/MasterCabinetPage';
-import PersonnelPage from './components/PersonnelPage';
-import SupervisorCabinetPage from './components/SupervisorCabinetPage';
-import CustomerCabinetPage from './components/CustomerCabinetPage';
 import PublicSitePage from './components/PublicSitePage';
-import WeatherPage from './components/WeatherPage';
-import ClientsPage from './components/ClientsPage';
-import PricelistsPage from './components/PricelistsPage';
-import MyExpensesPage from './components/MyExpensesPage';
-import SettingsPage from './components/SettingsPage';
-import AnalyticsPage from './components/AnalyticsPage';
-import CrmPage from './components/CrmPage';
-import ActivityLogPage from './components/ActivityLogPage';
 import MobileBottomNav from './components/MobileBottomNav';
 import SverkaModal from './components/SverkaModal';
-import CompanyChatPage from './components/CompanyChatPage';
 import AiChatModal from './components/AiChatModal';
 import SupplierInviteModal from './components/SupplierInviteModal';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
@@ -106,11 +88,30 @@ import DashboardRisksPanel from './components/DashboardRisksPanel';
 import DashboardProductionSummaryPanel from './components/DashboardProductionSummaryPanel';
 import DashboardActivityPanel from './components/DashboardActivityPanel';
 import ConfirmWorkAcceptanceModal from './components/ConfirmWorkAcceptanceModal';
-import SystemOwnerCabinet from './components/SystemOwnerCabinet';
 import { resolveEstimatePackage } from './utils/estimatePackage';
 import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollText, BarChart3, Handshake, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
 installAuthFetch();
+
+const UsersPage = React.lazy(() => import('./components/UsersPage'));
+const SupplyPage = React.lazy(() => import('./components/SupplyPage'));
+const SuppliersPage = React.lazy(() => import('./components/SuppliersPage'));
+const WarehousePage = React.lazy(() => import('./components/WarehousePage'));
+const AccountingPage = React.lazy(() => import('./components/AccountingPage'));
+const MasterCabinetPage = React.lazy(() => import('./components/MasterCabinetPage'));
+const PersonnelPage = React.lazy(() => import('./components/PersonnelPage'));
+const SupervisorCabinetPage = React.lazy(() => import('./components/SupervisorCabinetPage'));
+const CustomerCabinetPage = React.lazy(() => import('./components/CustomerCabinetPage'));
+const WeatherPage = React.lazy(() => import('./components/WeatherPage'));
+const ClientsPage = React.lazy(() => import('./components/ClientsPage'));
+const PricelistsPage = React.lazy(() => import('./components/PricelistsPage'));
+const MyExpensesPage = React.lazy(() => import('./components/MyExpensesPage'));
+const SettingsPage = React.lazy(() => import('./components/SettingsPage'));
+const AnalyticsPage = React.lazy(() => import('./components/AnalyticsPage'));
+const CrmPage = React.lazy(() => import('./components/CrmPage'));
+const ActivityLogPage = React.lazy(() => import('./components/ActivityLogPage'));
+const CompanyChatPage = React.lazy(() => import('./components/CompanyChatPage'));
+const SystemOwnerCabinet = React.lazy(() => import('./components/SystemOwnerCabinet'));
 const loadStoredUser = () => {
   if (typeof window === 'undefined') return null;
   try {
@@ -10729,9 +10730,22 @@ function App() {
     ...tools.filter(t=>t.name.toLowerCase().includes(globalSearch.toLowerCase())).map(t=>({icon:'🔧',title:t.name,subtitle:t.status,page:'warehouse'})),
   ].slice(0,8) : [];
 
+  const pageFallback = (
+    <div style={{padding:isMobile?'18px':'24px',color:C.text}}>
+      <div style={{...card,padding:'18px',display:'flex',alignItems:'center',gap:'10px'}}>
+        <span style={{fontSize:'18px'}}>⏳</span>
+        <div>
+          <div style={{fontWeight:800}}>Загружаю раздел</div>
+          <div style={{color:C.textSec,fontSize:'13px',marginTop:'3px'}}>Подгружаю только нужный экран, чтобы приложение быстрее открывалось на телефоне.</div>
+        </div>
+      </div>
+    </div>
+  );
+
   const financeUsers = users.filter(u=>['директор','зам_директора','бухгалтер'].includes(u.role));
   if (isMasterRole()) {
     return (
+      <React.Suspense fallback={pageFallback}>
       <MasterCabinetPage
         API={API}
         C={C}
@@ -10893,6 +10907,7 @@ function App() {
         workJournal={workJournal}
         workNeedsThicknessParam={workNeedsThicknessParam}
       />
+      </React.Suspense>
     );
   }
 
@@ -10952,7 +10967,7 @@ function App() {
 
   // Кабинет владельца платформы (system_owner) — SaaS admin
   if (user && user.role === 'system_owner') {
-    return <SystemOwnerCabinet user={user} setUser={setUser} C={C} card={card} btnO={btnO} btnG={btnG} btnGr={btnGr} btnR={btnR} inp={inp} badge={badge} API={API}/>;
+    return <React.Suspense fallback={pageFallback}><SystemOwnerCabinet user={user} setUser={setUser} C={C} card={card} btnO={btnO} btnG={btnG} btnGr={btnGr} btnR={btnR} inp={inp} badge={badge} API={API}/></React.Suspense>;
   }
 
   // Кабинет поставщика
@@ -11502,6 +11517,7 @@ function App() {
   // Кабинет технадзора
   if (user && user.role === 'технадзор') {
     return (
+      <React.Suspense fallback={pageFallback}>
       <SupervisorCabinetPage
         user={user}
         projects={projects}
@@ -11549,12 +11565,14 @@ function App() {
         setPreviewContent={setPreviewContent}
         doPrint={doPrint}
       />
+      </React.Suspense>
     );
   }
 
   // Кабинет заказчика
   if (user && user.role === 'заказчик') {
     return (
+      <React.Suspense fallback={pageFallback}>
       <CustomerCabinetPage
         user={user}
         projects={projects}
@@ -11603,6 +11621,7 @@ function App() {
         setPreviewContent={setPreviewContent}
         doPrint={doPrint}
       />
+      </React.Suspense>
     );
   }
 
@@ -12070,6 +12089,7 @@ function App() {
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%',minWidth:0,marginLeft:isMobile?0:'240px'}}>
         <AppHeaderBar C={C} activePage={activePage} isCompactHeader={isCompactHeader} isMobile={isMobile} setSidebarVisible={setSidebarVisible} allMenuItems={allMenuItems} globalSearch={globalSearch} setGlobalSearch={setGlobalSearch} setShowSearch={setShowSearch} showSearch={showSearch} searchResults={searchResults} navigateTo={navigateTo} inp={inp} darkMode={darkMode} setDarkMode={setDarkMode} setShowQuickActions={setShowQuickActions} user={user} openSystemStatus={openSystemStatus} setShowChatPanel={setShowChatPanel} unreadMessagesCount={unreadMessagesCount} showNotifications={showNotifications} toggleNotifications={toggleNotifications} unreadNotifications={unreadNotifications} btnG={btnG} btnO={btnO} myNotifications={myNotifications} notifications={notifications} markMyNotificationsRead={markMyNotificationsRead} closeNotifications={closeNotifications} getNotifPage={getNotifPage} setShowNotifications={setShowNotifications} setNotifications={setNotifications} setUser={setUser} API={API}/>
         <div style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':C.bg,padding:activePage==='dashboard'?'0':'24px'}}>
+          <React.Suspense fallback={pageFallback}>
           {activePage==='dashboard'&&(()=>{
             if(!initialDataLoaded){
               return (
@@ -14841,6 +14861,7 @@ function App() {
           {activePage==='companychat'&&(
             <CompanyChatPage C={C} card={card} inp={inp} btnO={btnO} companyMessages={companyMessages} user={user} roleColor={roleColor} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} companyChatMessage={companyChatMessage} setCompanyChatMessage={setCompanyChatMessage} uploadPhoto={uploadPhoto} sendCompanyChatMessage={sendCompanyChatMessage}/>
           )}
+          </React.Suspense>
         </div>
       </div>
     <SverkaModal sverkaModal={sverkaModal} setSverkaModal={setSverkaModal} btnO={btnO}/>
