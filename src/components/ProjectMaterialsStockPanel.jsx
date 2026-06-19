@@ -4,12 +4,14 @@ export default function ProjectMaterialsStockPanel({
   projectName,
   materials = [],
   warehouseMain = [],
+  isMobile = false,
   C,
   card,
 }) {
   const [search, setSearch] = React.useState('');
   const [workPackage, setWorkPackage] = React.useState('');
   const [positiveOnly, setPositiveOnly] = React.useState(true);
+  const [visibleLimit, setVisibleLimit] = React.useState(48);
 
   const objectMaterials = React.useMemo(
     () => materials.filter(m => m.project === projectName),
@@ -40,6 +42,14 @@ export default function ProjectMaterialsStockPanel({
       return true;
     });
   }, [objectMaterials, positiveOnly, search, workPackage]);
+
+  React.useEffect(() => {
+    setVisibleLimit(isMobile ? 48 : 120);
+  }, [isMobile, projectName, positiveOnly, search, workPackage]);
+
+  const shownMaterials = filteredMaterials.slice(0, visibleLimit);
+  const hiddenMaterials = Math.max(0, filteredMaterials.length - shownMaterials.length);
+  const loadStep = isMobile ? 48 : 120;
 
   const mainStockMap = {};
 
@@ -139,8 +149,9 @@ export default function ProjectMaterialsStockPanel({
           Ничего не найдено. Измените поиск, пакет работ или режим отображения остатков.
         </div>
       ) : (
+        <>
         <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: '8px'}}>
-          {filteredMaterials.map(m => {
+          {shownMaterials.map(m => {
             const onMain = mainStockMap[m.name] || 0;
             const qty = Number(m.quantity || 0);
             const low = m.minQuantity && qty < Number(m.minQuantity);
@@ -188,6 +199,31 @@ export default function ProjectMaterialsStockPanel({
             );
           })}
         </div>
+        {hiddenMaterials > 0 && (
+          <button
+            type="button"
+            onClick={() => setVisibleLimit(limit => Math.min(filteredMaterials.length, limit + loadStep))}
+            style={{
+              width: '100%',
+              justifyContent: 'center',
+              marginTop: '10px',
+              padding: '9px 12px',
+              borderRadius: '10px',
+              border: '1.5px solid ' + C.border,
+              backgroundColor: C.bgWhite,
+              color: C.textSec,
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontWeight: '700'
+            }}
+          >
+            Показать ещё {Math.min(hiddenMaterials, loadStep)} материалов
+          </button>
+        )}
+        <p style={{color: C.textMuted, fontSize: '11px', margin: '8px 0 0'}}>
+          Показано {shownMaterials.length} из {filteredMaterials.length}.
+        </p>
+        </>
       )}
     </div>
   );

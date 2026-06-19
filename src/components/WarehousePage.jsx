@@ -203,6 +203,7 @@ export default function WarehousePage(props) {
           setWarehouseMain={setWarehouseMain}
           setMaterials={setMaterials}
           notify={notify}
+          isMobile={isMobile}
         />
       )}
 

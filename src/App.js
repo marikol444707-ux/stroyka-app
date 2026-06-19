@@ -13354,6 +13354,7 @@ function App() {
                         projectName={p.name}
                         materials={materials}
                         warehouseMain={warehouseMain}
+                        isMobile={isMobile}
                         C={C}
                         card={card}
                       />
@@ -14597,7 +14598,9 @@ function App() {
 	                  const renderGroup=(title,emoji,list,groupTotal,accent)=>{
 	                    const mobileGroupLimit=showEstimateIssuesOnly?80:35;
 	                    const listKey=['estimate',selectedEstimate.id,si,title].join(':');
-	                    const groupRows=isMobile&&!mobileExpandedRenderLists[listKey]?list.slice(0,mobileGroupLimit):list;
+                      const mobileListState=mobileExpandedRenderLists[listKey];
+                      const mobileVisibleLimit=mobileListState===true?list.length:Number(mobileListState||mobileGroupLimit);
+	                    const groupRows=isMobile?list.slice(0,mobileVisibleLimit):list;
 	                    const hiddenRows=list.length-groupRows.length;
 	                    return(<div style={{marginBottom:'10px'}}>
 	                    <EstimateItemGroupHeader title={title} emoji={emoji} count={list.length} total={groupTotal} accent={accent}/>
@@ -14630,7 +14633,7 @@ function App() {
                         <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
 	                      </tr>);})}
 	                    </tbody></table></div>):(<EstimateItemGroupEmpty C={C}/>)}
-	                    {hiddenRows>0&&<button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[listKey]:true}))} style={{...btnB,width:'100%',justifyContent:'center',marginTop:'8px',fontSize:'12px'}}>Показать ещё {hiddenRows} строк</button>}
+	                    {hiddenRows>0&&<button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[listKey]:Math.min(list.length,mobileVisibleLimit+mobileGroupLimit)}))} style={{...btnB,width:'100%',justifyContent:'center',marginTop:'8px',fontSize:'12px'}}>Показать ещё {Math.min(hiddenRows,mobileGroupLimit)} строк</button>}
 	                  </div>);
 	                  };
                   return(<div key={section.id} style={{...card,marginBottom:'12px'}}>

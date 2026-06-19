@@ -38,6 +38,7 @@ export default function ProjectMaterialsControlPanel({
   const [showAllRows, setShowAllRows] = React.useState(false);
   const [showAllNormRows, setShowAllNormRows] = React.useState(false);
   const [showAllNormProblemRows, setShowAllNormProblemRows] = React.useState(false);
+  const [rowDisplayLimit, setRowDisplayLimit] = React.useState(null);
   const [expandedRows, setExpandedRows] = React.useState({});
   const [workPackage, setWorkPackage] = React.useState('');
   const toggleExpandedRow = (key) => setExpandedRows(prev => ({...prev, [key]: !prev[key]}));
@@ -116,11 +117,13 @@ export default function ProjectMaterialsControlPanel({
   });
   React.useEffect(() => {
     setShowAllRows(false);
+    setRowDisplayLimit(null);
   }, [queryKey, filter, rows.length, workPackage]);
   const rowLimit = isMobile
     ? (queryKey || filter !== 'all' ? 90 : 45)
     : (queryKey || filter !== 'all' ? 240 : 120);
-  const displayedRows = showAllRows ? visibleRows : visibleRows.slice(0, rowLimit);
+  const activeRowLimit = showAllRows ? visibleRows.length : (rowDisplayLimit || rowLimit);
+  const displayedRows = visibleRows.slice(0, activeRowLimit);
   const hiddenRows = Math.max(0, visibleRows.length - displayedRows.length);
   const visibleToBuyRows = visibleRows.filter(r => Number(r.toBuy || 0) > 0 && Number(r.invalidPlanCount || 0) <= 0);
   const visibleToBuyUnits = Object.entries(visibleToBuyRows.reduce((acc, r) => {
@@ -502,8 +505,18 @@ export default function ProjectMaterialsControlPanel({
           </table>
           {visibleRows.length === 0 && <p style={{color: C.textMuted, fontSize: '12px', textAlign: 'center', padding: '14px'}}>По фильтру ничего не найдено.</p>}
         </div>
-        <ShowMoreButton hiddenRows={hiddenRows} onClick={() => setShowAllRows(true)} btnB={btnB}>
-          Показать ещё {hiddenRows} материалов
+        <ShowMoreButton
+          hiddenRows={hiddenRows}
+          onClick={() => {
+            if (isMobile) {
+              setRowDisplayLimit(limit => Math.min(visibleRows.length, (limit || rowLimit) + rowLimit));
+              return;
+            }
+            setShowAllRows(true);
+          }}
+          btnB={btnB}
+        >
+          Показать ещё {isMobile ? Math.min(hiddenRows, rowLimit) : hiddenRows} материалов
         </ShowMoreButton>
         <p style={{color: C.textMuted, fontSize: '11px', margin: '8px 0 0'}}>
           Показано {displayedRows.length} из {visibleRows.length}{visibleRows.length !== rows.length ? ' найденных' : ''}. Заявку можно создать прямо в колонке «Статус».

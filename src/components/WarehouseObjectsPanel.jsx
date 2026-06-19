@@ -44,7 +44,9 @@ export default function WarehouseObjectsPanel({
   getProjectWorkPackageOptions,
   setMaterials,
   notify,
+  isMobile = false,
 }) {
+  const [visibleObjectRows, setVisibleObjectRows] = React.useState(60);
   const projectMaterials = (projectName) => (materials || []).filter(material => material.project === projectName);
   const canDeleteProjectMaterial = ['директор', 'зам_директора', 'кладовщик', 'снабженец'].includes(user?.role);
   const transferSourceMaterials = (materials || []).filter(material => material.project === selectedWarehouseProject);
@@ -67,6 +69,13 @@ export default function WarehouseObjectsPanel({
   const transferMissingPackage = transferNeedsPackage && !(newTransfer.workPackage || '').trim();
   const transferOverStock = !!newTransfer.materialName && selectedTransferQty > selectedTransferStockQty;
   const canSaveObjectTransfer = !!newTransfer.materialName && selectedTransferQty > 0 && !!newTransfer.toPerson && !transferMissingPackage && !transferOverStock;
+  React.useEffect(() => {
+    setVisibleObjectRows(isMobile ? 60 : 180);
+  }, [isMobile, selectedWarehouseProject]);
+  const selectedProjectMaterials = projectMaterials(selectedWarehouseProject);
+  const displayedProjectMaterials = selectedProjectMaterials.slice(0, visibleObjectRows);
+  const hiddenProjectMaterials = Math.max(0, selectedProjectMaterials.length - displayedProjectMaterials.length);
+  const objectRowsStep = isMobile ? 60 : 180;
 
   return (
     <div>
@@ -128,7 +137,7 @@ export default function WarehouseObjectsPanel({
             )}
             <button
               onClick={() => exportToExcel(
-                projectMaterials(selectedWarehouseProject).map(material => ({
+                selectedProjectMaterials.map(material => ({
                   Наименование: material.name,
                   Пакет: material.workPackage || material.work_package || '',
                   Единица: material.unit,
@@ -158,7 +167,7 @@ export default function WarehouseObjectsPanel({
               </tr>
             </thead>
             <tbody>
-              {projectMaterials(selectedWarehouseProject).map(material => (
+              {displayedProjectMaterials.map(material => (
                 <tr key={material.id} style={{ backgroundColor: material.minQuantity && material.quantity < material.minQuantity ? C.dangerLight : 'transparent' }}>
                   <td style={tblC}>
                     <b style={{ fontSize: '13px' }}>{material.name}</b>
@@ -184,6 +193,15 @@ export default function WarehouseObjectsPanel({
               ))}
             </tbody>
           </table>
+          {hiddenProjectMaterials > 0 && (
+            <button
+              type="button"
+              onClick={() => setVisibleObjectRows(limit => Math.min(selectedProjectMaterials.length, limit + objectRowsStep))}
+              style={{...btnG, width: '100%', justifyContent: 'center', marginTop: '10px'}}
+            >
+              Показать ещё {Math.min(hiddenProjectMaterials, objectRowsStep)} материалов
+            </button>
+          )}
         </div>
       )}
 
