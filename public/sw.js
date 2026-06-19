@@ -1,4 +1,4 @@
-const CACHE_NAME = 'stroyka-shell-v1';
+const CACHE_NAME = 'stroyka-shell-v2';
 const SHELL_URLS = [
   '/',
   '/index.html',

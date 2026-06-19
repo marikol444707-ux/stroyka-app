@@ -1618,19 +1618,21 @@ function App() {
   };
 
   const loadMobileInitial = async () => loadMobileScopeOnce('mobile:init', async () => {
-    const {role,isLeadershipRole,isFinanceRole,isSupplyRole,isWarehouseRole,isInternalRole,canSeeProjectDocs} = roleFlags();
+    const {role,isLeadershipRole,isFinanceRole,isSupplyRole,isInternalRole,canSeeProjectDocs} = roleFlags();
+    const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
+    const shouldLoadUsersAtBoot = isLeadershipRole || isFinanceRole;
     const [
       p,u,msgs,sr,ait,oe,pp,wm,wj
     ] = await Promise.all([
       role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
-      role === 'system_owner' ? Promise.resolve([]) : getApi('/users'),
+      shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
       getApi('/messages'),
       isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
       canSeeProjectDocs ? getApi('/ai-tasks') : Promise.resolve([]),
       isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
       isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
-      (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-main') : Promise.resolve([]),
-      role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
+      role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
+      isWorkerRole ? getApi('/work-journal') : Promise.resolve([]),
     ]);
     setProjects(Array.isArray(p)?p:[]);
     setUsers(Array.isArray(u)?u:[]);
@@ -1641,10 +1643,6 @@ function App() {
     setProjectPayments(Array.isArray(pp)?pp:[]);
     setWarehouseMain(Array.isArray(wm)?wm:[]);
     setWorkJournal(Array.isArray(wj)?wj:[]);
-    if (isLeadershipRole) {
-      const ic = await getApi('/invite-codes');
-      setInviteCodes(Array.isArray(ic)?ic:[]);
-    }
     setInitialDataLoaded(true);
   });
 
@@ -1760,18 +1758,20 @@ function App() {
       setSupplyTemplates(Array.isArray(stpl)?stpl:[]);
     });
     if (['personnel','users'].includes(page)) return loadMobileScopeOnce('mobile:people', async () => {
-      const [s,pw,u,mp,ts,pdc] = await Promise.all([
+      const [s,pw,u,mp,ts,pdc,ic] = await Promise.all([
         (isInternalRole || isFinanceRole) ? getApi('/staff') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/piecework') : Promise.resolve([]),
         role === 'system_owner' ? Promise.resolve([]) : getApi('/users'),
         (isInternalRole || isFinanceRole) ? getApi('/master-profiles') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/timesheet') : Promise.resolve([]),
         (isLeadershipRole || isFinanceRole) ? getApi('/pd-consents') : Promise.resolve([]),
+        isLeadershipRole ? getApi('/invite-codes') : Promise.resolve([]),
       ]);
       setStaff(Array.isArray(s)?s:[]); setPiecework(Array.isArray(pw)?pw:[]);
       setUsers(Array.isArray(u)?u:[]); setMasterProfiles(Array.isArray(mp)?mp:[]);
       if (Array.isArray(ts)) setTimesheet(Object.fromEntries(ts.map(t=>[t.staffId+'-'+t.day, true])));
       setPdConsents(Array.isArray(pdc)?pdc:[]);
+      setInviteCodes(Array.isArray(ic)?ic:[]);
     });
     if (page === 'accounting') return loadMobileScopeOnce('mobile:accounting', async () => {
       const [pp,acp,oe,me,ct,ia,expR,supI,cd,sp,s,pw,u,bc] = await Promise.all([
@@ -1851,9 +1851,17 @@ function App() {
   };
 
   useEffect(() => {
-    if (user && isMobile) loadMobilePageData(activePage);
+    if (!user || !isMobile) return undefined;
+    if (!initialDataLoaded) return undefined;
+    const run = () => loadMobilePageData(activePage);
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(run, {timeout: 1200});
+      return () => window.cancelIdleCallback?.(id);
+    }
+    const id = setTimeout(run, 250);
+    return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, isMobile, activePage]);
+  }, [user, isMobile, activePage, initialDataLoaded]);
 
   const loadAll = async () => {
     try {
