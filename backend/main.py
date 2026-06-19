@@ -439,6 +439,20 @@ def visible_project_names(user: dict) -> Optional[List[str]]:
         return None
     return user_project_names(user)
 
+def scoped_project_filter(user: dict, column: str):
+    allowed = visible_project_names(user)
+    if allowed is None:
+        return "", []
+    if not allowed:
+        return " AND FALSE", []
+    return f" AND {column} = ANY(%s)", [allowed]
+
+def scoped_project_where(user: dict, column: str):
+    sql, params = scoped_project_filter(user, column)
+    if sql.startswith(" AND "):
+        return " WHERE " + sql[5:], params
+    return sql, params
+
 def can_see_system_tasks(user: dict) -> bool:
     return user.get("role") in LEADERSHIP_ROLES or user.get("role") == "system_owner"
 
@@ -4181,6 +4195,11 @@ def get_materials(current_user: dict = Depends(get_current_user)):
             return []
         package_sql, package_params = package_access_filter(current_user)
         cur.execute(base + " WHERE project = ANY(%s)" + package_sql, [projects] + package_params)
+    elif role in ("снабженец", "кладовщик"):
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute(base + " WHERE project = ANY(%s)", [projects])
     elif can_see_warehouse_data(current_user):
         cur.execute(base)
     elif projects:
@@ -4347,6 +4366,12 @@ def get_warehouse_movements(current_user: dict = Depends(get_current_user)):
             query += " AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)"
             params.append(package_names)
         cur.execute(query + " ORDER BY id DESC", tuple(params))
+    elif current_user.get("role") in ("снабженец", "кладовщик"):
+        projects = user_project_names(current_user)
+        if not projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements WHERE (from_location = ANY(%s) OR to_location = ANY(%s)) ORDER BY id DESC", (projects, projects))
     elif current_user.get("role") in WAREHOUSE_ROLES or current_user.get("role") in FINANCE_ROLES:
         cur.execute("SELECT id,material_name as \"materialName\",from_location as \"fromLocation\",to_location as \"toLocation\",quantity,unit,work_package as \"workPackage\",date,created_by as \"createdBy\",notes FROM warehouse_movements ORDER BY id DESC")
     else:
@@ -6177,8 +6202,11 @@ def get_supply_requests(limit: Optional[int] = None, offset: int = 0, current_us
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
-    if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
+    if can_see_all_company_data(current_user):
         cur.execute(SUPPLY_SELECT + " ORDER BY id DESC" + page_sql, page_params)
+    elif role in ("снабженец", "кладовщик"):
+        project_sql, project_params = scoped_project_where(current_user, "project")
+        cur.execute(SUPPLY_SELECT + project_sql + " ORDER BY id DESC" + page_sql, project_params + page_params)
     elif role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
         if not supplier_id:
@@ -7711,8 +7739,11 @@ def list_supply_deliveries(limit: Optional[int] = None, offset: int = 0, current
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
-    if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
+    if can_see_all_company_data(current_user):
         cur.execute(DELIVERY_SELECT + " ORDER BY d.id DESC" + page_sql, page_params)
+    elif role in ("снабженец", "кладовщик"):
+        project_sql, project_params = scoped_project_where(current_user, "d.project")
+        cur.execute(DELIVERY_SELECT + project_sql + " ORDER BY d.id DESC" + page_sql, project_params + page_params)
     elif role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
         if not supplier_id:
@@ -8168,8 +8199,11 @@ def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_use
                   "price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,"
                   "confirmed_by as \"confirmedBy\",COALESCE(work_package,'') as \"workPackage\" "
                   "FROM supply_history")
-    if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
+    if can_see_all_company_data(current_user):
         cur.execute(select_sql + " ORDER BY id DESC" + page_sql, page_params)
+    elif role in ("снабженец", "кладовщик"):
+        project_sql, project_params = scoped_project_where(current_user, "project")
+        cur.execute(select_sql + project_sql + " ORDER BY id DESC" + page_sql, project_params + page_params)
     elif role == "поставщик":
         supplier_id = current_supplier_id(cur, current_user)
         if not supplier_id:
@@ -16404,6 +16438,12 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
     cur = conn.cursor()
     package_names = user_package_names(current_user) if current_user.get("role") in PACKAGE_LIMIT_ROLES else []
     if current_user.get("role") == "прораб":
+        allowed_projects = user_project_names(current_user)
+        if not allowed_projects:
+            cur.close(); conn.close()
+            return []
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+    elif current_user.get("role") in ("снабженец", "кладовщик"):
         allowed_projects = user_project_names(current_user)
         if not allowed_projects:
             cur.close(); conn.close()

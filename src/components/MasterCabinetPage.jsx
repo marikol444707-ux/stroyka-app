@@ -270,7 +270,18 @@ export default function MasterCabinetPage(props) {
     String(contract.brigadeName || contract.masterName || '').trim().toLowerCase() === userNameKey
   );
   const myActs = interimActs.filter(act => Number(act.masterId || act.master_id) === Number(user.id) || String(act.masterName || act.master_name || '').trim().toLowerCase() === userNameKey);
-  const masterProjectOptions = selectableActiveProjects(projects);
+  const userAssignedProjectNames = [
+    ...(Array.isArray(user?.assignedProjects) ? user.assignedProjects : []),
+    ...(Array.isArray(user?.assigned_projects) ? user.assigned_projects : []),
+    user?.projectName,
+    user?.project_name,
+  ].map(name => String(name || '').trim()).filter(Boolean);
+  const activeProjectRows = (projects || []).filter(project => !project.archived && project.status !== 'Завершён');
+  const parentProjectOptions = typeof selectableActiveProjects === 'function' ? selectableActiveProjects(projects) : activeProjectRows;
+  const directAssignedProjectOptions = userAssignedProjectNames.length
+    ? activeProjectRows.filter(project => userAssignedProjectNames.includes(project.name))
+    : [];
+  const masterProjectOptions = directAssignedProjectOptions.length ? directAssignedProjectOptions : parentProjectOptions;
   const selectedMasterProject = masterProjectOptions.find(project => project.id === Number(masterProjectId)) || projects.find(project => project.id === Number(masterProjectId));
   const projectRooms = masterProjectId ? rooms.filter(room => room.project === (selectedMasterProject?.name || '')) : [];
   const visibleEstimatesList = typeof visibleEstimatesForCurrentUser === 'function'
