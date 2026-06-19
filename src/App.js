@@ -56,6 +56,7 @@ import MasterCabinetPage from './components/MasterCabinetPage';
 import PersonnelPage from './components/PersonnelPage';
 import SupervisorCabinetPage from './components/SupervisorCabinetPage';
 import CustomerCabinetPage from './components/CustomerCabinetPage';
+import PublicSitePage from './components/PublicSitePage';
 import WeatherPage from './components/WeatherPage';
 import ClientsPage from './components/ClientsPage';
 import PricelistsPage from './components/PricelistsPage';
@@ -122,6 +123,13 @@ const loadStoredUser = () => {
     localStorage.removeItem('user');
     return null;
   }
+};
+const initialGuestPage = () => {
+  if (typeof window === 'undefined') return 'site';
+  const path = window.location.pathname.toLowerCase();
+  if (path.includes('register')) return 'register';
+  if (path.includes('login')) return 'login';
+  return 'site';
 };
 // Парсинг чисел с поддержкой запятой как разделителя (русская локаль): "0,027" → 0.027
 const toNum = (v) => { if(v===null||v===undefined||v==='') return 0; const s=String(v).replace(',', '.').replace(/\s+/g,''); const n=Number(s); return isNaN(n)?0:n; };
@@ -930,7 +938,7 @@ function App() {
     } catch(_) {}
   }, []);
   const [user, setUser] = useState(loadStoredUser);
-  const [page, setPage] = useState('login');
+  const [page, setPage] = useState(initialGuestPage);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [regName, setRegName] = useState('');
@@ -1013,6 +1021,7 @@ function App() {
   const [allBrigadePayments, setAllBrigadePayments] = useState([]);
   const [projectDocuments, setProjectDocuments] = useState([]);
   const [newProjectDoc, setNewProjectDoc] = useState({side:'customer',docType:'Договор',number:'',docDate:'',counterparty:'',signStatus:'Не подписан',scanUrl:'',amount:'',notes:''});
+  const [sitePublicationDrafts, setSitePublicationDrafts] = useState({});
   const [showDocForm, setShowDocForm] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [projectMeasurements, setProjectMeasurements] = useState([]);
@@ -9354,6 +9363,72 @@ function App() {
   };
 
   const editProject = (p) => { setEditingItem(p); setNewProject({...p}); setShowForm(true); };
+  const siteListText = (value) => Array.isArray(value) ? value.join('\n') : String(value || '');
+  const projectSiteDraft = (p) => sitePublicationDrafts[p.id] || {
+    publicShowOnSite: !!p.publicShowOnSite,
+    publicIsLive: !!p.publicIsLive,
+    publicStatus: p.publicStatus || 'Черновик',
+    publicTitle: p.publicTitle || p.name || '',
+    publicCategory: p.publicCategory || 'house',
+    publicLocation: p.publicLocation || '',
+    publicArea: p.publicArea || '',
+    publicYear: p.publicYear || String(new Date().getFullYear()),
+    publicStage: p.publicStage || p.status || '',
+    publicProgress: p.publicProgress ?? p.progress ?? 0,
+    publicPriceLabel: p.publicPriceLabel || '',
+    publicTerm: p.publicTerm || p.deadline || '',
+    publicSummary: p.publicSummary || '',
+    publicResult: p.publicResult || '',
+    publicPassport: p.publicPassport || '',
+    publicTagsText: siteListText(p.publicTags),
+    publicImagesText: siteListText(p.publicImages),
+    publicOriginalImagesText: siteListText(p.publicOriginalImages),
+    publicEnhancedImagesText: siteListText(p.publicEnhancedImages),
+    publicMainImageUrl: p.publicMainImageUrl || '',
+    publicAiStatus: p.publicAiStatus || 'Не обработано',
+    publicAiNotes: p.publicAiNotes || '',
+  };
+  const updateProjectSiteDraft = (projectId, patch) => {
+    setSitePublicationDrafts(prev => ({...prev, [projectId]: {...projectSiteDraft(projects.find(pr=>pr.id===projectId) || {id:projectId}), ...patch}}));
+  };
+  const saveProjectSitePublication = async (p) => {
+    const d = projectSiteDraft(p);
+    try {
+      await readApiResult(await fetch(API+'/projects/'+p.id+'/site-publication', {
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          publicShowOnSite: !!d.publicShowOnSite,
+          publicIsLive: !!d.publicIsLive,
+          publicStatus: d.publicStatus || 'Черновик',
+          publicTitle: d.publicTitle || p.name,
+          publicCategory: d.publicCategory || 'house',
+          publicLocation: d.publicLocation || '',
+          publicArea: d.publicArea || '',
+          publicYear: d.publicYear || '',
+          publicStage: d.publicStage || '',
+          publicProgress: Number(d.publicProgress || 0),
+          publicPriceLabel: d.publicPriceLabel || '',
+          publicTerm: d.publicTerm || '',
+          publicSummary: d.publicSummary || '',
+          publicResult: d.publicResult || '',
+          publicPassport: d.publicPassport || '',
+          publicTags: d.publicTagsText || '',
+          publicImages: d.publicImagesText || '',
+          publicOriginalImages: d.publicOriginalImagesText || '',
+          publicEnhancedImages: d.publicEnhancedImagesText || '',
+          publicMainImageUrl: d.publicMainImageUrl || '',
+          publicAiStatus: d.publicAiStatus || 'Не обработано',
+          publicAiNotes: d.publicAiNotes || '',
+        })
+      }));
+      setSitePublicationDrafts(prev => { const next = {...prev}; delete next[p.id]; return next; });
+      await refreshData();
+      notify('Публикация объекта обновлена: '+p.name, 'project');
+    } catch (err) {
+      alert('Не удалось сохранить публикацию: '+(err.message||err));
+    }
+  };
   const addTask = async (p) => { if (!newTask) return; await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:[...(p.tasks||[]),newTask]})}); await refreshData(); setNewTask(''); };
   const removeTask = async (p,i) => { await fetch(API+'/projects/'+p.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,tasks:p.tasks.filter((_,idx)=>idx!==i)})}); await refreshData(); };
 
@@ -10815,7 +10890,10 @@ function App() {
         />
       );
     }
-    return <LoginPage email={email} setEmail={setEmail} password={password} setPassword={setPassword} handleLogin={handleLogin} loginError={loginError} setLoginError={setLoginError} setPage={setPage}/>;
+    if (page==='login') {
+      return <LoginPage email={email} setEmail={setEmail} password={password} setPassword={setPassword} handleLogin={handleLogin} loginError={loginError} setLoginError={setLoginError} setPage={setPage}/>;
+    }
+    return <PublicSitePage onLogin={() => { setLoginError(''); setPage('login'); }} />;
   }
 
   const allMenuItems = [
@@ -12118,6 +12196,52 @@ function App() {
 		                      </div>)}
 		                      {isFinanceRole()&&<ProjectEconomyPanel C={C} card={card} btnB={btnB} btnG={btnG} btnO={btnO} project={p} economy={economy} isMobile={isMobile} onOpenFinance={()=>setActiveProjectTab('Финансы')} onOpenJournal={()=>setActiveProjectTab('Производство работ')} onOpenMaterials={()=>setActiveProjectTab('Материалы')} onOpenEstimate={()=>setActiveProjectTab('Смета')} showPreview={showPreview} />}
 		                      <ProjectObjectLinksPanel C={C} card={card} items={projectObjectLinks(p)} isMobile={isMobile} onOpen={(tab)=>tab&&setActiveProjectTab(tab)} />
+                          {isLeadership()&&(()=>{const siteDraft=projectSiteDraft(p);return(<div style={{...card,padding:'16px',marginBottom:'12px',backgroundColor:siteDraft.publicShowOnSite?C.successLight:C.bgWhite,border:'1.5px solid '+(siteDraft.publicShowOnSite?C.successBorder:C.border)}}>
+                            <div style={{display:'flex',justifyContent:'space-between',gap:'12px',alignItems:'flex-start',flexWrap:'wrap',marginBottom:'12px'}}>
+                              <div>
+                                <b style={{color:C.text,fontSize:'14px'}}>🌐 Публикация на сайте</b>
+                                <p style={{margin:'4px 0 0',color:C.textSec,fontSize:'12px',lineHeight:1.45}}>Наружу уйдут только эти публичные поля и выбранные фото. Внутренние деньги, документы и клиентские данные не публикуются.</p>
+                              </div>
+                              <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                                <label style={{...badge(siteDraft.publicShowOnSite?C.success:C.textSec,siteDraft.publicShowOnSite?C.successLight:C.bg,C.border),cursor:'pointer'}}>
+                                  <input type="checkbox" checked={!!siteDraft.publicShowOnSite} onChange={e=>updateProjectSiteDraft(p.id,{publicShowOnSite:e.target.checked})} style={{margin:0}}/> Показывать
+                                </label>
+                                <label style={{...badge(siteDraft.publicIsLive?C.info:C.textSec,siteDraft.publicIsLive?C.infoLight:C.bg,C.border),cursor:'pointer'}}>
+                                  <input type="checkbox" checked={!!siteDraft.publicIsLive} onChange={e=>updateProjectSiteDraft(p.id,{publicIsLive:e.target.checked})} style={{margin:0}}/> Живой объект
+                                </label>
+                              </div>
+                            </div>
+                            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(4,1fr)',gap:'10px'}}>
+                              <input placeholder="Публичное название" value={siteDraft.publicTitle||''} onChange={e=>updateProjectSiteDraft(p.id,{publicTitle:e.target.value})} style={{...inp,marginBottom:0}}/>
+                              <select value={siteDraft.publicCategory||'house'} onChange={e=>updateProjectSiteDraft(p.id,{publicCategory:e.target.value})} style={{...inp,marginBottom:0}}>
+                                <option value="house">Дом</option><option value="repair">Ремонт</option><option value="commerce">Коммерция</option><option value="reconstruction">Реконструкция</option>
+                              </select>
+                              <input placeholder="Город / район" value={siteDraft.publicLocation||''} onChange={e=>updateProjectSiteDraft(p.id,{publicLocation:e.target.value})} style={{...inp,marginBottom:0}}/>
+                              <input placeholder="Площадь, например 142 м2" value={siteDraft.publicArea||''} onChange={e=>updateProjectSiteDraft(p.id,{publicArea:e.target.value})} style={{...inp,marginBottom:0}}/>
+                              <input placeholder="Год" value={siteDraft.publicYear||''} onChange={e=>updateProjectSiteDraft(p.id,{publicYear:e.target.value})} style={{...inp,marginBottom:0}}/>
+                              <input placeholder="Этап для сайта" value={siteDraft.publicStage||''} onChange={e=>updateProjectSiteDraft(p.id,{publicStage:e.target.value})} style={{...inp,marginBottom:0}}/>
+                              <input placeholder="Прогресс %" type="number" min="0" max="100" value={siteDraft.publicProgress||0} onChange={e=>updateProjectSiteDraft(p.id,{publicProgress:e.target.value})} style={{...inp,marginBottom:0}}/>
+                              <input placeholder="Срок, например 5 месяцев" value={siteDraft.publicTerm||''} onChange={e=>updateProjectSiteDraft(p.id,{publicTerm:e.target.value})} style={{...inp,marginBottom:0}}/>
+                              <input placeholder="Бюджет для сайта, если можно показывать" value={siteDraft.publicPriceLabel||''} onChange={e=>updateProjectSiteDraft(p.id,{publicPriceLabel:e.target.value})} style={{...inp,marginBottom:0}}/>
+                              <input placeholder="Теги через запятую" value={siteDraft.publicTagsText||''} onChange={e=>updateProjectSiteDraft(p.id,{publicTagsText:e.target.value})} style={{...inp,marginBottom:0}}/>
+                              <select value={siteDraft.publicAiStatus||'Не обработано'} onChange={e=>updateProjectSiteDraft(p.id,{publicAiStatus:e.target.value})} style={{...inp,marginBottom:0}}>
+                                <option>Не обработано</option><option>Нужно улучшить</option><option>AI-версия готова</option><option>Проверено директором</option>
+                              </select>
+                              <input placeholder="Главное фото URL" value={siteDraft.publicMainImageUrl||''} onChange={e=>updateProjectSiteDraft(p.id,{publicMainImageUrl:e.target.value})} style={{...inp,marginBottom:0}}/>
+                            </div>
+                            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'10px',marginTop:'10px'}}>
+                              <textarea placeholder="Короткое описание для сайта" value={siteDraft.publicSummary||''} onChange={e=>updateProjectSiteDraft(p.id,{publicSummary:e.target.value})} style={{...inp,minHeight:'70px',marginBottom:0}}/>
+                              <textarea placeholder="Что сделали / результат" value={siteDraft.publicResult||''} onChange={e=>updateProjectSiteDraft(p.id,{publicResult:e.target.value})} style={{...inp,minHeight:'70px',marginBottom:0}}/>
+                              <textarea placeholder="Что есть в цифровом паспорте" value={siteDraft.publicPassport||''} onChange={e=>updateProjectSiteDraft(p.id,{publicPassport:e.target.value})} style={{...inp,minHeight:'70px',marginBottom:0}}/>
+                              <textarea placeholder="Заметки по AI-фото: что улучшить, что скрыть, какие фото выбрать" value={siteDraft.publicAiNotes||''} onChange={e=>updateProjectSiteDraft(p.id,{publicAiNotes:e.target.value})} style={{...inp,minHeight:'70px',marginBottom:0}}/>
+                              <textarea placeholder="Оригинальные фото, по одной ссылке в строке" value={siteDraft.publicOriginalImagesText||''} onChange={e=>updateProjectSiteDraft(p.id,{publicOriginalImagesText:e.target.value})} style={{...inp,minHeight:'88px',marginBottom:0}}/>
+                              <textarea placeholder="AI-фото для сайта, по одной ссылке в строке" value={siteDraft.publicEnhancedImagesText||''} onChange={e=>updateProjectSiteDraft(p.id,{publicEnhancedImagesText:e.target.value})} style={{...inp,minHeight:'88px',marginBottom:0}}/>
+                            </div>
+                            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'12px',alignItems:'center'}}>
+                              <button onClick={()=>saveProjectSitePublication(p)} style={btnO}><Check size={14}/>Сохранить публикацию</button>
+                              <span style={{fontSize:'12px',color:C.textSec}}>AI-фото пока сохраняем как подготовленную версию. Реальную обработку подключим отдельным шагом.</span>
+                            </div>
+                          </div>);})()}
 		                      {(()=>{const wj=(workJournal||[]).filter(w=>w.project===p.name);const pending=wj.filter(w=>!w.status||w.status==='На проверке'||w.status==='Автоматически из сметы');const confirmed=wj.filter(w=>w.status==='Подтверждено');const rejected=wj.filter(w=>w.status==='Отклонено');const last7=wj.filter(w=>{if(!w.date) return false;const d=new Date(w.date);return (Date.now()-d.getTime())<7*24*3600*1000;});const sumConfirmed=confirmed.reduce((s,w)=>s+workExecutionTotal(w),0);return(<div style={{...card,padding:'14px',marginBottom:'12px',backgroundColor:pending.length>0?C.warningLight:C.bg,border:'1.5px solid '+(pending.length>0?C.warningBorder:C.border)}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px',flexWrap:'wrap',gap:'8px'}}>
                           <b style={{color:C.text,fontSize:'13px'}}>👷 Работы от мастеров {pending.length>0&&<span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:C.warning,color:'white',fontSize:'11px',marginLeft:'4px'}}>{pending.length+' на проверке'}</span>}</b>

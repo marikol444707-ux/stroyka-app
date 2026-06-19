@@ -1693,12 +1693,6 @@ def init_db():
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_by JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_projects JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_packages JSONB DEFAULT '[]'::jsonb;
-        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2) DEFAULT 0;
-        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS offer_id INT;
-        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS request_id INT;
-        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100);
-        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS material_name VARCHAR(255);
-        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         CREATE TABLE IF NOT EXISTS tb_journal (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -1737,6 +1731,29 @@ def init_db():
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS warranty_start_date DATE;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS warranty_end_date DATE;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS warranty_contact VARCHAR(255);
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_show_on_site BOOLEAN DEFAULT FALSE;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_is_live BOOLEAN DEFAULT FALSE;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_status VARCHAR(100) DEFAULT 'Черновик';
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_title VARCHAR(255);
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_category VARCHAR(100);
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_location VARCHAR(255);
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_area VARCHAR(100);
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_year VARCHAR(20);
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_stage VARCHAR(100);
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_progress INT DEFAULT 0;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_price_label VARCHAR(100);
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_term VARCHAR(100);
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_summary TEXT;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_result TEXT;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_passport TEXT;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_tags JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_images JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_original_images JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_enhanced_images JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_main_image_url TEXT;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_ai_status VARCHAR(100) DEFAULT 'Не обработано';
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_ai_notes TEXT;
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_updated_at TIMESTAMP;
         CREATE TABLE IF NOT EXISTS expense_reports (
             id SERIAL PRIMARY KEY,
             employee_id INT,
@@ -1777,6 +1794,12 @@ def init_db():
             paid_note TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2) DEFAULT 0;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS offer_id INT;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS request_id INT;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100);
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS material_name VARCHAR(255);
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         CREATE TABLE IF NOT EXISTS inspection_orders (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -3318,6 +3341,90 @@ class ProjectModel(BaseModel):
     floors: int = 1
     liters: str = ""
 
+PROJECT_PUBLIC_SELECT = """
+COALESCE(public_show_on_site,false) as "publicShowOnSite",
+COALESCE(public_is_live,false) as "publicIsLive",
+COALESCE(public_status,'Черновик') as "publicStatus",
+COALESCE(public_title,'') as "publicTitle",
+COALESCE(public_category,'') as "publicCategory",
+COALESCE(public_location,'') as "publicLocation",
+COALESCE(public_area,'') as "publicArea",
+COALESCE(public_year,'') as "publicYear",
+COALESCE(public_stage,'') as "publicStage",
+COALESCE(public_progress,0) as "publicProgress",
+COALESCE(public_price_label,'') as "publicPriceLabel",
+COALESCE(public_term,'') as "publicTerm",
+COALESCE(public_summary,'') as "publicSummary",
+COALESCE(public_result,'') as "publicResult",
+COALESCE(public_passport,'') as "publicPassport",
+COALESCE(public_tags,'[]'::jsonb) as "publicTags",
+COALESCE(public_images,'[]'::jsonb) as "publicImages",
+COALESCE(public_original_images,'[]'::jsonb) as "publicOriginalImages",
+COALESCE(public_enhanced_images,'[]'::jsonb) as "publicEnhancedImages",
+COALESCE(public_main_image_url,'') as "publicMainImageUrl",
+COALESCE(public_ai_status,'Не обработано') as "publicAiStatus",
+COALESCE(public_ai_notes,'') as "publicAiNotes",
+public_updated_at as "publicUpdatedAt"
+"""
+
+def _site_list_value(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, tuple):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(x).strip() for x in parsed if str(x).strip()]
+        except Exception:
+            pass
+        return [x.strip() for x in raw.replace("\n", ",").split(",") if x.strip()]
+    return []
+
+def _site_int(value, default=0):
+    try:
+        return int(float(value or 0))
+    except Exception:
+        return default
+
+def _public_site_project(row: dict) -> dict:
+    enhanced = _site_list_value(row.get("publicEnhancedImages"))
+    images = enhanced or _site_list_value(row.get("publicImages")) or _site_list_value(row.get("publicOriginalImages"))
+    main = (row.get("publicMainImageUrl") or "").strip()
+    if main and main not in images:
+        images = [main] + images
+    if not images:
+        images = ["https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=84"]
+    progress = _site_int(row.get("publicProgress"), _site_int(row.get("progress"), 0))
+    return {
+        "id": row.get("id"),
+        "projectId": row.get("id"),
+        "projectName": row.get("name") or "",
+        "title": row.get("publicTitle") or row.get("name") or "",
+        "category": row.get("publicCategory") or "house",
+        "location": row.get("publicLocation") or "",
+        "area": row.get("publicArea") or "",
+        "year": row.get("publicYear") or "",
+        "stage": row.get("publicStage") or row.get("status") or "",
+        "progress": max(0, min(100, progress)),
+        "price": row.get("publicPriceLabel") or "",
+        "term": row.get("publicTerm") or row.get("deadline") or "",
+        "summary": row.get("publicSummary") or "",
+        "result": row.get("publicResult") or "",
+        "passport": row.get("publicPassport") or "",
+        "tags": _site_list_value(row.get("publicTags")),
+        "images": images,
+        "isLive": bool(row.get("publicIsLive")),
+        "aiStatus": row.get("publicAiStatus") or "Не обработано",
+        "aiNotes": row.get("publicAiNotes") or "",
+    }
+
 class ClientModel(BaseModel):
     name: str
     phone: str = ""
@@ -4058,12 +4165,12 @@ def get_projects(current_user: dict = Depends(get_current_user)):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     allowed_projects = visible_project_names(current_user)
     if allowed_projects is None:
-        cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,warranty_start_date as \"warrantyStartDate\",warranty_end_date as \"warrantyEndDate\",warranty_contact as \"warrantyContact\",COALESCE(archived,false) as archived,archived_at as \"archivedAt\" FROM projects")
+        cur.execute(f"""SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as "pricelistId",floors,liters,warranty_start_date as "warrantyStartDate",warranty_end_date as "warrantyEndDate",warranty_contact as "warrantyContact",COALESCE(archived,false) as archived,archived_at as "archivedAt",{PROJECT_PUBLIC_SELECT} FROM projects""")
     elif not allowed_projects:
         cur.close(); conn.close()
         return []
     else:
-        cur.execute("SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,warranty_start_date as \"warrantyStartDate\",warranty_end_date as \"warrantyEndDate\",warranty_contact as \"warrantyContact\",COALESCE(archived,false) as archived,archived_at as \"archivedAt\" FROM projects WHERE name = ANY(%s)", (allowed_projects,))
+        cur.execute(f"""SELECT id,name,client,status,budget,deadline,progress,tasks,pricelist_id as "pricelistId",floors,liters,warranty_start_date as "warrantyStartDate",warranty_end_date as "warrantyEndDate",warranty_contact as "warrantyContact",COALESCE(archived,false) as archived,archived_at as "archivedAt",{PROJECT_PUBLIC_SELECT} FROM projects WHERE name = ANY(%s)""", (allowed_projects,))
     rows = cur.fetchall()
     conn.close()
     out = []
@@ -4082,13 +4189,95 @@ def get_projects(current_user: dict = Depends(get_current_user)):
 def create_project(p: ProjectModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as \"pricelistId\",floors,liters,COALESCE(archived,false) as archived,archived_at as \"archivedAt\"",
+    cur.execute(f"""INSERT INTO projects (name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,name,client,status,budget,deadline,progress,tasks,pricelist_id as "pricelistId",floors,liters,COALESCE(archived,false) as archived,archived_at as "archivedAt",{PROJECT_PUBLIC_SELECT}""",
                 (p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
     row = cur.fetchone()
     log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
               action="create", entity_type="project", entity_id=row["id"], description="Создан объект", project_name=row["name"])
     conn.close()
     return dict(row)
+
+@app.get("/site/projects")
+def get_site_projects():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(f"""
+        SELECT id,name,status,deadline,progress,{PROJECT_PUBLIC_SELECT}
+        FROM projects
+        WHERE COALESCE(public_show_on_site,false)=true
+          AND COALESCE(archived,false)=false
+        ORDER BY COALESCE(public_is_live,false) DESC, public_updated_at DESC NULLS LAST, id DESC
+        LIMIT 60
+    """)
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [_public_site_project(dict(r)) for r in rows]
+
+@app.put("/projects/{id}/site-publication")
+def update_project_site_publication(id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id,name,status,deadline,progress FROM projects WHERE id=%s", (id,))
+    project_row = cur.fetchone()
+    if not project_row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Объект не найден")
+    require_project_access(current_user, project_row.get("name") or "")
+    fields = [
+        ("publicShowOnSite", "public_show_on_site"),
+        ("publicIsLive", "public_is_live"),
+        ("publicStatus", "public_status"),
+        ("publicTitle", "public_title"),
+        ("publicCategory", "public_category"),
+        ("publicLocation", "public_location"),
+        ("publicArea", "public_area"),
+        ("publicYear", "public_year"),
+        ("publicStage", "public_stage"),
+        ("publicProgress", "public_progress"),
+        ("publicPriceLabel", "public_price_label"),
+        ("publicTerm", "public_term"),
+        ("publicSummary", "public_summary"),
+        ("publicResult", "public_result"),
+        ("publicPassport", "public_passport"),
+        ("publicMainImageUrl", "public_main_image_url"),
+        ("publicAiStatus", "public_ai_status"),
+        ("publicAiNotes", "public_ai_notes"),
+    ]
+    sets, vals = [], []
+    for js_key, db_col in fields:
+        if js_key in data:
+            v = data.get(js_key)
+            if db_col == "public_progress":
+                v = max(0, min(100, _site_int(v)))
+            if db_col in ("public_title", "public_stage") and v is None:
+                v = ""
+            sets.append(db_col + "=%s")
+            vals.append(v)
+    for js_key, db_col in (
+        ("publicTags", "public_tags"),
+        ("publicImages", "public_images"),
+        ("publicOriginalImages", "public_original_images"),
+        ("publicEnhancedImages", "public_enhanced_images"),
+    ):
+        if js_key in data:
+            sets.append(db_col + "=%s::jsonb")
+            vals.append(json.dumps(_site_list_value(data.get(js_key)), ensure_ascii=False))
+    if data.get("publicShowOnSite") and not str(data.get("publicTitle") or "").strip():
+        if "publicTitle" not in data:
+            sets.append("public_title=%s")
+            vals.append(project_row.get("name") or "")
+    if sets:
+        sets.append("public_updated_at=NOW()")
+        vals.append(id)
+        cur.execute("UPDATE projects SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    cur.execute(f"""SELECT id,name,status,deadline,progress,{PROJECT_PUBLIC_SELECT} FROM projects WHERE id=%s""", (id,))
+    row = cur.fetchone()
+    conn.commit()
+    cur.close(); conn.close()
+    log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
+              action="update", entity_type="project_site_publication", entity_id=id,
+              description="Обновлена публикация объекта на сайт", project_name=project_row.get("name") or "")
+    return {"ok": True, "project": dict(row), "siteProject": _public_site_project(dict(row))}
 
 @app.put("/projects/{id}")
 def update_project(id: int, data: dict, current_user: dict = Depends(require_roles(*PROJECT_CARD_WRITE_ROLES))):

@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 
-const API = process.env.REACT_APP_API_URL || (window.location.hostname==='localhost'?'http://localhost:8001':'');
+const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const API = process.env.REACT_APP_API_URL || (isLocalHost ? 'http://localhost:8001' : '');
 
 const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginError, setLoginError, setPage}) => {
   const [forgotMode, setForgotMode] = useState(false);
@@ -75,6 +76,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginEr
 
   return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
+      <button onClick={()=>{setPage('site');setLoginError('');}} style={{position:'fixed',top:'18px',left:'18px',zIndex:2,padding:'10px 14px',borderRadius:'12px',border:'1px solid rgba(255,255,255,.18)',background:'rgba(15,23,42,.72)',color:'#e5e7eb',fontSize:'13px',fontWeight:'700',cursor:'pointer',backdropFilter:'blur(12px)'}}>На сайт СтройКа</button>
       <div style={{position:'absolute',width:'260px',height:'260px',borderRadius:'50%',background:'rgba(234,88,12,.35)',filter:'blur(70px)',top:'-90px',left:'-70px',pointerEvents:'none'}}/>
       <div style={{position:'absolute',width:'260px',height:'260px',borderRadius:'50%',background:'rgba(59,130,246,.18)',filter:'blur(70px)',bottom:'-90px',right:'-70px',pointerEvents:'none'}}/>
       <div style={{width:'100%',maxWidth:'400px',position:'relative',overflow:'hidden',borderRadius:'34px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',boxShadow:'0 30px 100px rgba(0,0,0,.55)'}}>
