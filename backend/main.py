@@ -6137,6 +6137,7 @@ _MATERIAL_MATCH_STOPWORDS = {
     "гост", "ту", "сорт", "марка", "тип", "вид", "цвет", "размер", "разм",
     "мм", "см", "м", "шт", "кг", "л", "т", "для", "при", "под", "над", "без",
     "основная", "объект", "материал", "материалы", "позиция", "работы", "работа",
+    "комплект", "комплекта", "комплектов", "изделие", "изделия", "серия",
 }
 
 def _material_match_tokens(name: str) -> set[str]:
@@ -6187,14 +6188,40 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("профиль")
         elif stem.startswith("саморез"):
             tokens.add("саморез")
+        elif stem.startswith("шуруп"):
+            tokens.add("саморез")
+        elif stem.startswith("анкер"):
+            tokens.add("анкер")
+        elif stem.startswith("болт"):
+            tokens.add("болт")
+        elif stem.startswith("гайк"):
+            tokens.add("гайка")
+        elif stem.startswith("шайб"):
+            tokens.add("шайба")
         elif stem.startswith("кабел"):
             tokens.add("кабель")
         elif stem.startswith("провод"):
             tokens.add("провод")
+        elif stem.startswith("светиль") or stem.startswith("табло"):
+            tokens.add("светильник")
+        elif stem.startswith("розет"):
+            tokens.add("розетка")
+        elif stem.startswith("выключ"):
+            tokens.add("выключатель")
+        elif stem.startswith("втул"):
+            tokens.add("втулка")
+        elif stem.startswith("хомут"):
+            tokens.add("хомут")
+        elif stem.startswith("скоб"):
+            tokens.add("скоба")
         elif stem.startswith("труб"):
             tokens.add("труба")
         elif stem.startswith("радиатор"):
             tokens.add("радиатор")
+        elif stem.startswith("кран"):
+            tokens.add("кран")
+        elif stem.startswith("креп"):
+            tokens.add("крепеж")
         elif stem.startswith("скреп"):
             tokens.add("скрепа")
         elif stem.startswith("дюб"):
@@ -6232,6 +6259,9 @@ def _material_name_match_score(left: str, right: str) -> float:
         "гипсоволокно", "грунтовка", "штукатурка", "шпатлевка", "профиль",
         "кабель", "провод", "труба", "радиатор", "скрепа", "дюбель",
         "кронштейн", "направляющая", "цемент", "бетон", "песок",
+        "саморез", "анкер", "болт", "гайка", "шайба", "светильник",
+        "розетка", "выключатель", "втулка", "хомут", "скоба", "крепеж",
+        "кран", "клей", "плитка",
     }
     if {"гранит", "керамическ"}.issubset(common):
         return 0.86
@@ -6551,7 +6581,13 @@ def _attach_supply_estimate_control(cur, project: str, items: list, exclude_requ
         item["estimateControl"] = control
     return items
 
-def _enforce_supply_estimate_control(items: list, *, source: str = "заявка"):
+def _enforce_supply_estimate_control(
+    items: list,
+    *,
+    source: str = "заявка",
+    allow_manual_project_override: bool = False,
+    override_by: str = "",
+):
     blockers = []
     for item in items or []:
         if not isinstance(item, dict):
@@ -6572,6 +6608,17 @@ def _enforce_supply_estimate_control(items: list, *, source: str = "заявка
             remaining = _float_or_zero(control.get("remainingQty"))
             blockers.append(f"{name} ({package}) — запрошено {qty:g} {unit}, по смете осталось {remaining:g} {unit}")
     if blockers:
+        if allow_manual_project_override:
+            for item in items or []:
+                if not isinstance(item, dict):
+                    continue
+                control = item.get("estimateControl") or {}
+                if control.get("status") in ("no_active_estimate", "no_estimate_material", "over_estimate_need"):
+                    control["manualProjectInvoiceOverride"] = True
+                    control["manualProjectInvoiceOverrideBy"] = override_by or "Система"
+                    control["manualProjectInvoiceWarning"] = "Ручной приход на объект принят как прямой заказ/вне цепочки снабжения. Позиция остается под контролем сметы."
+                    item["estimateControl"] = control
+            return
         prefix = "Заявка" if source == "заявка" else ("Перемещение" if source == "перемещение" else ("Выдача исполнителю" if source == "выдача исполнителю" else "Накладная"))
         raise HTTPException(
             status_code=400,
@@ -17048,7 +17095,16 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
         items_list = normalized_invoice_items
         if target_project:
             items_list = _attach_supply_estimate_control(cur, target_project, items_list)
-            _enforce_supply_estimate_control(items_list, source="накладная")
+            manual_project_invoice_override = (
+                source_type == "manual_project_invoice"
+                and current_user.get("role") in MAIN_WAREHOUSE_WRITE_ROLES
+            )
+            _enforce_supply_estimate_control(
+                items_list,
+                source="накладная",
+                allow_manual_project_override=manual_project_invoice_override,
+                override_by=current_user.get("name") or current_user.get("email") or "",
+            )
         cur.execute("""INSERT INTO warehouse_invoices
                        (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
                         total_base,total_vat,total_with_vat,status,added_by,photo_url,

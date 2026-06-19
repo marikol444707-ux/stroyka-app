@@ -444,6 +444,7 @@ def assert_visible_chain(token, candidate, delivery_id, invoice_id):
     if not matched_history:
         raise RuntimeError("История снабжения не содержит принятую поставку")
 
+    manual_material_name = f"CODEX QA прямой заказ директора {delivery_id}"
     _, manual_invoice = api_json(
         "POST",
         "/warehouse-invoices",
@@ -456,7 +457,7 @@ def assert_visible_chain(token, candidate, delivery_id, invoice_id):
             "location": candidate["projectName"],
             "project": candidate["projectName"],
             "items": [{
-                "name": candidate["materialName"],
+                "name": manual_material_name,
                 "quantity": candidate["quantity"],
                 "unit": candidate["unit"],
                 "price": TEST_PRICE,
@@ -478,7 +479,21 @@ def assert_visible_chain(token, candidate, delivery_id, invoice_id):
         raise RuntimeError("Ручная приходная накладная на объект не видна в /warehouse-invoices")
     if saved_manual_invoice.get("sourceType") != "manual_project_invoice":
         raise RuntimeError("Ручная приходная накладная на объект сохранена без sourceType=manual_project_invoice")
-    return manual_invoice_id
+    saved_items = saved_manual_invoice.get("items") or []
+    saved_manual_item = next((i for i in saved_items if isinstance(i, dict) and norm_text(i.get("name")) == norm_text(manual_material_name)), None)
+    if not saved_manual_item:
+        raise RuntimeError("Ручная приходная накладная не сохранила прямой материал директора")
+    estimate_control = saved_manual_item.get("estimateControl") or {}
+    if not estimate_control.get("manualProjectInvoiceOverride"):
+        raise RuntimeError("Ручная приходная накладная на объект не получила контрольную пометку manualProjectInvoiceOverride")
+    _, materials_after_manual = api_json("GET", "/materials", token=token, expected=200)
+    if not any(
+        norm_text(r.get("name")) == norm_text(manual_material_name)
+        and (r.get("project") or "") == candidate["projectName"]
+        for r in materials_after_manual
+    ):
+        raise RuntimeError("Прямой материал директора не попал на склад объекта")
+    return manual_invoice_id, manual_material_name
 
 
 def cleanup(created):
@@ -487,37 +502,42 @@ def cleanup(created):
         conn = db_conn()
         conn.autocommit = False
         cur = conn.cursor()
-        material_name = created.get("materialName")
+        material_names = [created.get("materialName"), created.get("manualMaterialName")]
         project_name = created.get("projectName")
         package = created.get("workPackage")
         unit = created.get("unit")
-        qty = as_float(created.get("quantity")) + as_float(created.get("manualQuantity"))
+        qty_by_name = {
+            created.get("materialName"): as_float(created.get("quantity")),
+            created.get("manualMaterialName"): as_float(created.get("manualQuantity")),
+        }
 
-        if material_name and project_name and qty > 0:
-            remaining = qty
-            cur.execute(
-                """
-                SELECT id, COALESCE(quantity,0) AS quantity
-                  FROM materials
-                 WHERE LOWER(name)=LOWER(%s)
-                   AND project=%s
-                   AND COALESCE(work_package,'')=%s
-                   AND LOWER(COALESCE(unit,''))=LOWER(%s)
-                 ORDER BY id DESC
-                """,
-                (material_name, project_name, package or "", unit or ""),
-            )
-            for row_id, row_qty in cur.fetchall():
-                if remaining <= 0:
-                    break
-                row_qty = as_float(row_qty)
-                take = min(row_qty, remaining)
-                new_qty = row_qty - take
-                if new_qty <= 0.0000001:
-                    cur.execute("DELETE FROM materials WHERE id=%s", (row_id,))
-                else:
-                    cur.execute("UPDATE materials SET quantity=%s WHERE id=%s", (new_qty, row_id))
-                remaining -= take
+        for material_name in [n for n in material_names if n]:
+            qty = qty_by_name.get(material_name, 0)
+            if material_name and project_name and qty > 0:
+                remaining = qty
+                cur.execute(
+                    """
+                    SELECT id, COALESCE(quantity,0) AS quantity
+                      FROM materials
+                     WHERE LOWER(name)=LOWER(%s)
+                       AND project=%s
+                       AND COALESCE(work_package,'')=%s
+                       AND LOWER(COALESCE(unit,''))=LOWER(%s)
+                     ORDER BY id DESC
+                    """,
+                    (material_name, project_name, package or "", unit or ""),
+                )
+                for row_id, row_qty in cur.fetchall():
+                    if remaining <= 0:
+                        break
+                    row_qty = as_float(row_qty)
+                    take = min(row_qty, remaining)
+                    new_qty = row_qty - take
+                    if new_qty <= 0.0000001:
+                        cur.execute("DELETE FROM materials WHERE id=%s", (row_id,))
+                    else:
+                        cur.execute("UPDATE materials SET quantity=%s WHERE id=%s", (new_qty, row_id))
+                    remaining -= take
 
         ids = {
             "invoiceId": created.get("invoiceId"),
@@ -544,29 +564,30 @@ def cleanup(created):
             cur.execute("DELETE FROM supplier_offers WHERE id=%s", (ids["offerId"],))
         if ids["requestId"]:
             cur.execute("DELETE FROM supply_requests WHERE id=%s", (ids["requestId"],))
-        if material_name and project_name:
-            cur.execute(
-                """
-                DELETE FROM warehouse_history
-                 WHERE material=%s
-                   AND project=%s
-                   AND COALESCE(work_package,'')=%s
-                   AND issued_by='Снабжение'
-                   AND type='приход (поставка)'
-                """,
-                (material_name, project_name, package or ""),
-            )
-            cur.execute(
-                """
-                DELETE FROM warehouse_history
-                 WHERE material=%s
-                   AND project=%s
-                   AND COALESCE(work_package,'')=%s
-                   AND issued_by='CODEX QA'
-                   AND type='приход'
-                """,
-                (material_name, project_name, package or ""),
-            )
+        for material_name in [n for n in material_names if n]:
+            if material_name and project_name:
+                cur.execute(
+                    """
+                    DELETE FROM warehouse_history
+                     WHERE material=%s
+                       AND project=%s
+                       AND COALESCE(work_package,'')=%s
+                       AND issued_by='Снабжение'
+                       AND type='приход (поставка)'
+                    """,
+                    (material_name, project_name, package or ""),
+                )
+                cur.execute(
+                    """
+                    DELETE FROM warehouse_history
+                     WHERE material=%s
+                       AND project=%s
+                       AND COALESCE(work_package,'')=%s
+                       AND issued_by='CODEX QA'
+                       AND type='приход'
+                    """,
+                    (material_name, project_name, package or ""),
+                )
         if ids["supplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierId"], TEST_SUPPLIER_PREFIX + "%"))
         conn.commit()
@@ -604,8 +625,9 @@ def main():
         delivery_id, invoice_id = ship_and_receive(token, candidate, offer_id, stamp)
         created["deliveryId"] = delivery_id
         created["invoiceId"] = invoice_id
-        manual_invoice_id = assert_visible_chain(token, candidate, delivery_id, invoice_id)
+        manual_invoice_id, manual_material_name = assert_visible_chain(token, candidate, delivery_id, invoice_id)
         created["manualInvoiceId"] = manual_invoice_id
+        created["manualMaterialName"] = manual_material_name
         created["manualQuantity"] = candidate["quantity"]
         print(json.dumps({
             "ok": True,
@@ -619,6 +641,7 @@ def main():
             "deliveryId": delivery_id,
             "invoiceId": invoice_id,
             "manualInvoiceId": manual_invoice_id,
+            "manualMaterial": manual_material_name,
             "checked": [
                 "positive estimate material selected",
                 "supply request passed estimate control",
@@ -627,7 +650,7 @@ def main():
                 "receipt created automatic invoice",
                 "receipt updated project materials",
                 "receipt wrote supply history",
-                "manual director object invoice is allowed and controlled",
+                "manual director object invoice is allowed, controlled and written to object warehouse",
             ],
         }, ensure_ascii=False, indent=2))
     except Exception as exc:
