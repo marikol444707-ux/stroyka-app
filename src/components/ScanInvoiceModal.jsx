@@ -16,6 +16,39 @@ export default function ScanInvoiceModal({
 }) {
   if (!showScanInvoice) return null;
 
+  const toNumber = (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    const normalized = String(value)
+      .replace(/\s+/g, '')
+      .replace(/[₽руб.]/gi, '')
+      .replace(',', '.')
+      .replace(/[^\d.-]/g, '');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const normalizeDate = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const ru = text.match(/(\d{1,2})[.\-/\s]+(\d{1,2})[.\-/\s]+(\d{2,4})/);
+    if (!ru) return '';
+    const year = ru[3].length === 2 ? `20${ru[3]}` : ru[3];
+    return `${year}-${ru[2].padStart(2, '0')}-${ru[1].padStart(2, '0')}`;
+  };
+
+  const detectVat = (parsed = {}) => {
+    const rawVat = String(parsed.vat || parsed.tax || parsed.vatType || '').toLowerCase();
+    const rate = toNumber(parsed.vatRate ?? parsed.vat_rate ?? parsed.vatPercent ?? parsed.vat_percent);
+    const vatAmount = toNumber(parsed.totalVat ?? parsed.total_vat ?? parsed.vatAmount ?? parsed.vat_amount);
+    const hasVat = parsed.vatIncluded === true || parsed.hasVat === true || vatAmount > 0 || rate > 0 || /ндс/.test(rawVat);
+    if (!hasVat || /без\s*ндс/.test(rawVat)) return 'Без НДС';
+    if (Math.abs(rate - 20) < 0.5 || /20\s*%/.test(rawVat)) return 'С НДС 20%';
+    return 'С НДС 22%';
+  };
+
   const scan = async (file) => {
     if(!file) return;
     setScanningInvoice(true);
@@ -26,19 +59,26 @@ export default function ScanInvoiceModal({
       if(!data.ok) throw new Error(data.error||'Ошибка');
       const parsed = data.data;
       const today = new Date().toISOString().split('T')[0];
+      const totalWithVat = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
+      const totalBase = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
+      const totalVat = toNumber(parsed.totalVat ?? parsed.total_vat ?? parsed.vatAmount ?? parsed.vat_amount);
       setNewInvoice(prev=>({...prev,
+        number:parsed.number || parsed.invoiceNumber || parsed.invoice_number || prev.number || '',
         supplier:parsed.supplier||'',
         newSupplierName:parsed.supplier||'',
         isNewSupplier:true,
-        date:today,
+        date:normalizeDate(parsed.date || parsed.invoiceDate || parsed.invoice_date) || today,
         acceptedBy:user.name,
-        vat:'Без НДС',
-        totalWithVat:parsed.total||0,
+        vat:detectVat(parsed),
+        totalBase,
+        totalVat,
+        totalWithVat,
         items:(parsed.items||[]).map(item=>({
           name:item.name||'',
-          quantity:String(item.quantity||''),
+          quantity:String(toNumber(item.quantity)),
           unit:item.unit||'шт',
-          price:String(item.price||''),
+          price:String(toNumber(item.priceWithVat ?? item.price_with_vat ?? item.price ?? item.unitPrice ?? item.unit_price)),
+          lineTotal:String(toNumber(item.lineTotalWithVat ?? item.line_total_with_vat ?? item.lineTotal ?? item.line_total ?? item.total)),
           category:'',
           workPackage:''
         }))

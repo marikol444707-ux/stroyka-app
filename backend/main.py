@@ -21372,11 +21372,24 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
                     "role": "user",
                     "content": [
                         {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"},
-                        {"type": "input_text", "text": "Распознай накладную. Верни JSON: {supplier:строка, items:[{name:строка,quantity:число,unit:строка,price:число}], total:число}. Только JSON без комментариев."}
+                        {"type": "input_text", "text": (
+                            "Распознай приходную накладную. Верни только JSON без markdown. "
+                            "Формат: {"
+                            "\"number\":строка,\"date\":\"YYYY-MM-DD или исходная дата\",\"supplier\":строка,"
+                            "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\",\"vatRate\":0|20|22,"
+                            "\"totalBase\":число_без_НДС,\"totalVat\":сумма_НДС,\"totalWithVat\":итого_с_НДС,"
+                            "\"items\":[{\"name\":строка,\"quantity\":число,\"unit\":строка,"
+                            "\"price\":цена_за_единицу_с_НДС_если_НДС_есть_иначе_цена_как_в_документе,"
+                            "\"priceWithVat\":цена_за_единицу_с_НДС,\"lineTotal\":сумма_строки,\"lineTotalWithVat\":сумма_строки_с_НДС}]"
+                            "}. Если в документе есть строки 'Итого с НДС', 'Всего с учетом НДС', "
+                            "'Всего к оплате' или 'Сумма с НДС' — положи это значение в totalWithVat. "
+                            "Если есть 'в том числе НДС' — положи сумму в totalVat. "
+                            "Не округляй крупные суммы до тысяч и не теряй НДС."
+                        )}
                     ]
                 }
             ],
-            max_output_tokens=1000
+            max_output_tokens=2500
         )
         answer = response.output_text
         import json

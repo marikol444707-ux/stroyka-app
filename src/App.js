@@ -2148,8 +2148,16 @@ function App() {
   };
 
   const calcVat = (total, vatType) => {
-    if (vatType==='С НДС 22%') return {base:Math.round(total/1.22*100)/100, vat:Math.round(total/1.22*0.22*100)/100, total};
-    return {base:total, vat:0, total};
+    const amount = Number(total || 0);
+    const match = String(vatType || '').match(/НДС\s*(\d+(?:[,.]\d+)?)%/i);
+    if (match) {
+      const rate = Number(match[1].replace(',', '.')) / 100;
+      if (rate > 0) {
+        const base = Math.round(amount / (1 + rate) * 100) / 100;
+        return {base, vat:Math.round((amount - base) * 100) / 100, total:amount};
+      }
+    }
+    return {base:amount, vat:0, total:amount};
   };
 
   const calcWindowArea = (w) => Number(w.width||0)*Number(w.height||0);
@@ -2334,8 +2342,17 @@ function App() {
     const validItems = newInvoice.items
       .filter(i=>i.name&&i.quantity)
       .map(i=>({...i, workPackage:i.workPackage || i.work_package || defaultWorkPackage}));
-    const totalBefore = validItems.reduce((s,i)=>s+Number(i.quantity)*Number(i.price||0),0);
-    const vatCalc = calcVat(totalBefore, newInvoice.vat);
+    const rowsTotal = validItems.reduce((s,i)=>s+Number(i.quantity)*Number(i.price||0),0);
+    const declaredTotal = Number(newInvoice.totalWithVat||0);
+    const declaredBase = Number(newInvoice.totalBase||0);
+    const declaredVat = Number(newInvoice.totalVat||0);
+    const totalBefore = declaredTotal > 0 ? declaredTotal : rowsTotal;
+    const calculatedVat = calcVat(totalBefore, newInvoice.vat);
+    const vatCalc = {
+      base: declaredBase > 0 ? declaredBase : calculatedVat.base,
+      vat: declaredVat > 0 ? declaredVat : calculatedVat.vat,
+      total: totalBefore,
+    };
     const photoUrl = newInvoice.photos && newInvoice.photos.length>0 ? newInvoice.photos[0] : '';
     const inv = {id:Date.now(),number:newInvoice.number,date:newInvoice.date,supplierId:Number(supplierId)||0,supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',acceptedBy:newInvoice.acceptedBy||user.name,location:newInvoice.location,project:newInvoice.project,vat:newInvoice.vat,photoUrl,photos:newInvoice.photos||[],items:validItems,totalBase:vatCalc.base,totalVat:vatCalc.vat,totalWithVat:vatCalc.total,status:'Принята',addedBy:user.name};
     const savedInv = {...inv,project:newInvoice.location!=='Основной склад'?newInvoice.location:''};
@@ -3328,7 +3345,8 @@ function App() {
       html += '<tr><td>'+(i+1)+'</td><td>'+item.name+'</td><td>'+(item.category||'—')+'</td><td>'+item.quantity+'</td><td>'+item.unit+'</td><td>'+rowSum.toLocaleString()+'</td><td>'+(ctrl.planText||'—')+'</td><td>'+(ctrl.beforeText||'—')+'</td><td>'+(ctrl.afterText||'—')+'</td><td>'+ctrlText+'</td></tr>';
     });
     html += '<tr><td colspan="9">Итого без НДС:</td><td>'+vatCalc.base.toLocaleString()+' руб.</td></tr>';
-    if (inv.vat==='С НДС 22%') html += '<tr><td colspan="9">НДС 22%:</td><td>'+vatCalc.vat.toLocaleString()+' руб.</td></tr><tr><td colspan="9"><b>Итого с НДС:</b></td><td><b>'+vatCalc.total.toLocaleString()+' руб.</b></td></tr>';
+    const invoiceVatRate = String(inv.vat||'').match(/НДС\s*(\d+(?:[,.]\d+)?)%/i);
+    if (invoiceVatRate) html += '<tr><td colspan="9">НДС '+invoiceVatRate[1].replace(',', '.')+'%:</td><td>'+vatCalc.vat.toLocaleString()+' руб.</td></tr><tr><td colspan="9"><b>Итого с НДС:</b></td><td><b>'+vatCalc.total.toLocaleString()+' руб.</b></td></tr>';
     html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Поставщик</div></div><div class="sig"><div class="sig-line">Принял: '+inv.acceptedBy+'</div></div></div>';
     const grouped = estimateControlRows.filter(r=>(r.planDetails||[]).length>1);
     if (grouped.length>0) {

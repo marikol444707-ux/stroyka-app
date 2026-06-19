@@ -37,6 +37,11 @@ export function WarehouseInvoiceForm({
     ? getProjectWorkPackageOptions(invoiceProject)
     : [];
   const defaultWorkPackage = packageOptions.length === 1 ? packageOptions[0] : '';
+  const vatRateMatch = String(newInvoice.vat || '').match(/НДС\s*(\d+(?:[,.]\d+)?)%/i);
+  const vatRateValue = vatRateMatch ? Number(vatRateMatch[1].replace(',', '.')) : 0;
+  const invoiceVatAmount = vatRateValue > 0
+    ? Math.round((invoiceTotal - (invoiceTotal / (1 + vatRateValue / 100))) * 100) / 100
+    : 0;
 
   const setItem = (idx, patch) => {
     const items = [...invoiceItems];
@@ -226,11 +231,11 @@ export function WarehouseInvoiceForm({
           <span style={{color:C.textSec,fontSize:'13px'}}>Итого без НДС:</span>
           <b style={{color:C.text,fontSize:'13px'}}>{invoiceTotal.toLocaleString()+' ₽'}</b>
         </div>
-        {newInvoice.vat === 'С НДС 22%' && (
+        {vatRateValue > 0 && (
           <>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:'4px'}}>
-              <span style={{color:C.textSec,fontSize:'13px'}}>НДС 22%:</span>
-              <b style={{color:C.text,fontSize:'13px'}}>{Math.round(invoiceTotal / 1.22 * 0.22).toLocaleString()+' ₽'}</b>
+              <span style={{color:C.textSec,fontSize:'13px'}}>НДС {vatRateValue}%:</span>
+              <b style={{color:C.text,fontSize:'13px'}}>{invoiceVatAmount.toLocaleString()+' ₽'}</b>
             </div>
             <div style={{display:'flex',justifyContent:'space-between'}}>
               <b style={{color:C.text,fontSize:'13px'}}>Итого с НДС:</b>
