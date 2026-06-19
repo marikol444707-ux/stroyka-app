@@ -4265,6 +4265,24 @@ def create_site_lead(data: dict, request: Request):
             (name, phone, email, source, budget, notes, "Новый", "Сайт", created_at),
         )
         new_id = cur.fetchone()[0]
+        action_payload = json.dumps({
+            "type": "open_page",
+            "page": "crm",
+            "leadId": new_id,
+            "source": "site",
+        }, ensure_ascii=False)
+        cur.execute("""
+            INSERT INTO ai_tasks (
+                finding_id, project_name, title, description, assigned_role, assigned_to,
+                status, due_date, action_label, action_payload, dedupe_key, created_at, updated_at
+            ) VALUES (NULL,%s,%s,%s,'директор','','Новое',NULL,'Открыть CRM',%s,%s,NOW(),NOW())
+        """, (
+            SYSTEM_PROJECT_NAME,
+            "Новая заявка с сайта: " + name,
+            "Телефон: " + phone + (("\nEmail: " + email) if email else "") + (("\n\n" + notes) if notes else ""),
+            action_payload,
+            "SITE_LEAD:" + str(new_id),
+        ))
         conn.commit()
         _PUBLIC_LEAD_LAST_SUBMIT[client_ip] = now
     finally:
