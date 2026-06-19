@@ -52,6 +52,8 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
 SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() in ("1", "true", "yes")
 SMTP_SSL = os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes")
+PUBLIC_LEAD_RATE_LIMIT_SECONDS = _env_int("PUBLIC_LEAD_RATE_LIMIT_SECONDS", 30)
+_PUBLIC_LEAD_LAST_SUBMIT: dict[str, float] = {}
 
 def _env_list(name: str, default: list[str]) -> list[str]:
     raw = os.getenv(name, "")
@@ -3425,6 +3427,29 @@ def _public_site_project(row: dict) -> dict:
         "aiNotes": row.get("publicAiNotes") or "",
     }
 
+def _public_text(value, limit: int = 255) -> str:
+    return str(value or "").strip()[:limit]
+
+def _public_lead_notes(data: dict) -> str:
+    parts = []
+    comment = _public_text(data.get("comment") or data.get("notes"), 1200)
+    if comment:
+        parts.append("Комментарий: " + comment)
+    calc = data.get("calculation") if isinstance(data.get("calculation"), dict) else {}
+    if calc:
+        calc_parts = [
+            _public_text(calc.get("typeLabel"), 80),
+            _public_text(calc.get("summary"), 300),
+            _public_text(calc.get("rangeText"), 120),
+        ]
+        compact = " · ".join([x for x in calc_parts if x])
+        if compact:
+            parts.append("Расчёт сайта: " + compact)
+    page = _public_text(data.get("page"), 120)
+    if page:
+        parts.append("Страница: " + page)
+    return "\n".join(parts)[:4000]
+
 class ClientModel(BaseModel):
     name: str
     phone: str = ""
@@ -4212,6 +4237,39 @@ def get_site_projects():
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [_public_site_project(dict(r)) for r in rows]
+
+@app.post("/site/leads")
+def create_site_lead(data: dict, request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    last = _PUBLIC_LEAD_LAST_SUBMIT.get(client_ip, 0)
+    if PUBLIC_LEAD_RATE_LIMIT_SECONDS > 0 and now - last < PUBLIC_LEAD_RATE_LIMIT_SECONDS:
+        raise HTTPException(status_code=429, detail="Заявка уже отправлена. Попробуйте чуть позже.")
+
+    phone = _public_text(data.get("phone"), 80)
+    if not phone:
+        raise HTTPException(status_code=422, detail="Укажите телефон")
+
+    name = _public_text(data.get("name") or "Заявка с сайта", 255)
+    email = _public_text(data.get("email"), 255)
+    source = _public_text(data.get("source") or "Сайт", 255)
+    budget = data.get("budget") or 0
+    notes = _public_lead_notes(data)
+    created_at = dt.datetime.utcnow().strftime("%Y-%m-%d")
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO crm_leads (name,phone,email,source,budget,notes,stage,created_by,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (name, phone, email, source, budget, notes, "Новый", "Сайт", created_at),
+        )
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        _PUBLIC_LEAD_LAST_SUBMIT[client_ip] = now
+    finally:
+        cur.close(); conn.close()
+    return {"ok": True, "id": new_id}
 
 @app.put("/projects/{id}/site-publication")
 def update_project_site_publication(id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):

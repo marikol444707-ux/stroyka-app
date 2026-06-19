@@ -264,6 +264,8 @@ const PublicSitePage = ({ onLogin }) => {
   });
   const [lead, setLead] = useState({ name: '', phone: '', comment: '' });
   const [sent, setSent] = useState(false);
+  const [leadSending, setLeadSending] = useState(false);
+  const [leadError, setLeadError] = useState('');
   const [siteProjects, setSiteProjects] = useState(publicProjects);
   const [projectCategory, setProjectCategory] = useState('all');
   const [selectedProjectId, setSelectedProjectId] = useState(publicProjects[0].id);
@@ -468,9 +470,38 @@ const PublicSitePage = ({ onLogin }) => {
     if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const submitLead = (event) => {
+  const submitLead = async (event) => {
     event.preventDefault();
-    setSent(true);
+    if (leadSending) return;
+    setLeadError('');
+    setLeadSending(true);
+    try {
+      const response = await fetch(API + '/site/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...lead,
+          source: 'Сайт',
+          budget: result.max || result.min || 0,
+          page: 'public-site',
+          calculation: {
+            typeLabel: result.typeLabel,
+            summary: result.summary,
+            rangeText: `${formatMoney(result.min)} - ${formatMoney(result.max)} ₽`,
+          },
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || 'Не удалось отправить заявку');
+      }
+      setSent(true);
+      setLead({ name: '', phone: '', comment: '' });
+    } catch (error) {
+      setLeadError(error.message || 'Не удалось отправить заявку');
+    } finally {
+      setLeadSending(false);
+    }
   };
 
   return (
@@ -1012,8 +1043,11 @@ const PublicSitePage = ({ onLogin }) => {
             Комментарий
             <textarea value={lead.comment} onChange={(event) => setLead({ ...lead, comment: event.target.value })} placeholder="Адрес, сроки, что нужно построить" />
           </label>
-          <button className="public-primary" type="submit">Отправить заявку</button>
-          {sent && <p className="public-form-success">Заявка подготовлена. Следующим этапом подключим сохранение в CRM.</p>}
+          <button className="public-primary" type="submit" disabled={leadSending}>
+            {leadSending ? 'Отправляем...' : 'Отправить заявку'}
+          </button>
+          {sent && <p className="public-form-success">Заявка отправлена в CRM. Менеджер или директор увидит её в разделе заявок.</p>}
+          {leadError && <p className="public-form-error">{leadError}</p>}
         </form>
       </section>
     </main>
