@@ -2342,7 +2342,7 @@ function App() {
     const validItems = newInvoice.items
       .filter(i=>i.name&&i.quantity)
       .map(i=>({...i, workPackage:i.workPackage || i.work_package || defaultWorkPackage}));
-    const rowsTotal = validItems.reduce((s,i)=>s+Number(i.quantity)*Number(i.price||0),0);
+    const rowsTotal = validItems.reduce((s,i)=>s+(Number(i.lineTotal||0)||Number(i.quantity)*Number(i.price||0)),0);
     const declaredTotal = Number(newInvoice.totalWithVat||0);
     const declaredBase = Number(newInvoice.totalBase||0);
     const declaredVat = Number(newInvoice.totalVat||0);
@@ -3317,8 +3317,13 @@ function App() {
     const estimateControlRows = warehouseInvoiceEstimateControl(inv);
     const estimateControlIssues = estimateControlRows.filter(r=>['danger','warning'].includes(r.severity));
     const rowsTotal = invoiceRows.items.reduce((s,it)=>s+(Number(it.total||0)||Number(it.quantity||0)*Number(it.price||0)),0);
-    const invoiceAmount = Number(inv.totalBase||0) || Number(inv.totalWithVat||0) || rowsTotal;
-    const vatCalc = calcVat(invoiceAmount, inv.vat||'Без НДС');
+    const invoiceAmount = Number(inv.totalWithVat||0) || Number(inv.totalBase||0) || rowsTotal;
+    const calculatedVat = calcVat(invoiceAmount, inv.vat||'Без НДС');
+    const vatCalc = {
+      base: Number(inv.totalBase||0) || calculatedVat.base,
+      vat: Number(inv.totalVat||0) || calculatedVat.vat,
+      total: invoiceAmount,
+    };
     const qrUrl = generateQR(window.location.origin+'/?invoice='+inv.id+'&number='+inv.number);
     let html = '<h2 style="text-align:center">ПРИХОДНАЯ НАКЛАДНАЯ № '+inv.number+'</h2>';
     html += '<p style="text-align:center">'+(req.fullName||req.shortName||companyName||'_____')+'</p>';

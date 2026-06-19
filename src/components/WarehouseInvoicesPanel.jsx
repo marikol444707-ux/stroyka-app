@@ -40,7 +40,7 @@ export default function WarehouseInvoicesPanel({
   MATERIAL_CATEGORIES,
 }) {
   const invoiceItems = newInvoice.items || [];
-  const invoiceTotal = invoiceItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0), 0);
+  const invoiceTotal = invoiceItems.reduce((sum, item) => sum + (Number(item.lineTotal || 0) || Number(item.quantity || 0) * Number(item.price || 0)), 0);
   const materialEstimates = (estimatesList || []).filter(est => est.projectName === newInvoice.location && est.smetaType === 'Материалы');
   const draftEstimateControl = warehouseInvoiceEstimateControl ? warehouseInvoiceEstimateControl(newInvoice) : [];
   const draftControlIssues = draftEstimateControl.filter(row => ['danger', 'warning'].includes(row.severity));

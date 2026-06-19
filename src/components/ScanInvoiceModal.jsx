@@ -62,6 +62,21 @@ export default function ScanInvoiceModal({
       const totalWithVat = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
       const totalBase = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
       const totalVat = toNumber(parsed.totalVat ?? parsed.total_vat ?? parsed.vatAmount ?? parsed.vat_amount);
+      const normalizedItems = (parsed.items || []).map(item => {
+        const quantity = toNumber(item.quantity);
+        const lineTotal = toNumber(item.lineTotalWithVat ?? item.line_total_with_vat ?? item.lineTotal ?? item.line_total ?? item.total);
+        const rawPrice = toNumber(item.priceWithVat ?? item.price_with_vat ?? item.price ?? item.unitPrice ?? item.unit_price);
+        const price = rawPrice > 0 ? rawPrice : (quantity > 0 && lineTotal > 0 ? lineTotal / quantity : 0);
+        return {
+          name:item.name||'',
+          quantity:String(quantity),
+          unit:item.unit||'шт',
+          price:String(price),
+          lineTotal:String(lineTotal || quantity * price),
+          category:'',
+          workPackage:''
+        };
+      });
       setNewInvoice(prev=>({...prev,
         number:parsed.number || parsed.invoiceNumber || parsed.invoice_number || prev.number || '',
         supplier:parsed.supplier||'',
@@ -73,15 +88,7 @@ export default function ScanInvoiceModal({
         totalBase,
         totalVat,
         totalWithVat,
-        items:(parsed.items||[]).map(item=>({
-          name:item.name||'',
-          quantity:String(toNumber(item.quantity)),
-          unit:item.unit||'шт',
-          price:String(toNumber(item.priceWithVat ?? item.price_with_vat ?? item.price ?? item.unitPrice ?? item.unit_price)),
-          lineTotal:String(toNumber(item.lineTotalWithVat ?? item.line_total_with_vat ?? item.lineTotal ?? item.line_total ?? item.total)),
-          category:'',
-          workPackage:''
-        }))
+        items:normalizedItems.length ? normalizedItems : prev.items
       }));
       setShowScanInvoice(false);
       setShowScannedInvoiceForm(true);

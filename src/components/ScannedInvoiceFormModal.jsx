@@ -95,8 +95,9 @@ export default function ScannedInvoiceFormModal({
     fontSize:isMobile ? '15px' : '11px',
     padding:isMobile ? '10px 12px' : '6px 4px',
   };
-  const itemsTotal = (newInvoice.items||[]).reduce((s,i)=>s+Number(i.quantity||0)*Number(i.price||0),0);
+  const itemsTotal = (newInvoice.items||[]).reduce((s,i)=>s+(Number(i.lineTotal||0)||Number(i.quantity||0)*Number(i.price||0)),0);
   const displayTotal = Number(newInvoice.totalWithVat||0) || itemsTotal;
+  const displayVat = Number(newInvoice.totalVat||0);
 
   return (
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:isMobile?'stretch':'center',justifyContent:'center'}}>
@@ -120,18 +121,23 @@ export default function ScannedInvoiceFormModal({
         </div>
         <b style={{color:C.text,fontSize:isMobile?'17px':'13px',display:'block',marginBottom:'8px'}}>Позиции:</b>
         {(newInvoice.items||[]).map((item,idx)=>(
-          <div key={idx} style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr 1fr 52px':'2fr 1.2fr 0.7fr 0.7fr 1fr 36px',gap:isMobile?'8px':'4px',marginBottom:isMobile?'12px':'6px',padding:isMobile?'10px':0,border:isMobile?'1px solid '+C.border:'none',borderRadius:isMobile?'12px':0}}>
-            <input placeholder='Название' value={item.name} onChange={e=>updateItem(idx,{name:e.target.value})} style={{...itemInputStyle,gridColumn:isMobile?'1 / span 4':undefined}}/>
-            <select value={item.workPackage || ''} onChange={e=>updateItem(idx,{workPackage:e.target.value, estimateWorkValue:'', estimateId:'', estimateItemKey:'', parentWorkKey:'', parentWorkName:'', parentWorkSourceCode:'', sectionName:''})} disabled={!invoiceProject} style={{...itemSelectStyle,gridColumn:isMobile?'1 / span 4':undefined,opacity:invoiceProject?1:0.65}}>
+          <div key={idx} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'2fr 1.2fr 0.7fr 0.7fr 1fr 36px',gap:isMobile?'8px':'4px',marginBottom:isMobile?'12px':'6px',padding:isMobile?'10px':0,border:isMobile?'1px solid '+C.border:'none',borderRadius:isMobile?'12px':0}}>
+            <input placeholder='Название' value={item.name} onChange={e=>updateItem(idx,{name:e.target.value})} style={itemInputStyle}/>
+            <select value={item.workPackage || ''} onChange={e=>updateItem(idx,{workPackage:e.target.value, estimateWorkValue:'', estimateId:'', estimateItemKey:'', parentWorkKey:'', parentWorkName:'', parentWorkSourceCode:'', sectionName:''})} disabled={!invoiceProject} style={{...itemSelectStyle,opacity:invoiceProject?1:0.65}}>
               <option value=''>{invoiceProject ? 'Раздел' : 'Склад'}</option>
               {packageOptions.map(pkg=><option key={pkg} value={pkg}>{pkg}</option>)}
             </select>
-            <input placeholder='Кол.' type='number' step='any' inputMode='decimal' value={item.quantity} onChange={e=>updateItem(idx,{quantity:e.target.value})} style={itemInputStyle}/>
-            <select value={item.unit||'шт'} onChange={e=>updateItem(idx,{unit:e.target.value})} style={itemSelectStyle}>{units.map(u=><option key={u}>{u}</option>)}</select>
-            <input placeholder='Цена' type='number' step='any' inputMode='decimal' value={item.price} onChange={e=>updateItem(idx,{price:e.target.value})} style={itemInputStyle}/>
+            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 0.8fr':'1fr',gap:isMobile?'8px':'4px'}}>
+              <input placeholder='Кол.' type='number' step='any' inputMode='decimal' value={item.quantity} onChange={e=>updateItem(idx,{quantity:e.target.value})} style={itemInputStyle}/>
+              <select value={item.unit||'шт'} onChange={e=>updateItem(idx,{unit:e.target.value})} style={itemSelectStyle}>{units.map(u=><option key={u}>{u}</option>)}</select>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'1fr',gap:isMobile?'8px':'4px'}}>
+              <input placeholder='Цена с НДС' type='number' step='any' inputMode='decimal' value={item.price} onChange={e=>updateItem(idx,{price:e.target.value})} style={itemInputStyle}/>
+              <input placeholder='Сумма строки' type='number' step='any' inputMode='decimal' value={item.lineTotal||''} onChange={e=>updateItem(idx,{lineTotal:e.target.value})} style={itemInputStyle}/>
+            </div>
             <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push({name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage});setNewInvoice({...newInvoice,items});}} style={{...btnR,padding:isMobile?'8px':'4px 6px',fontSize:'11px',alignSelf:'stretch',justifyContent:'center'}}><X size={isMobile?16:12}/></button>
             {invoiceProject && (
-              <select value={item.estimateWorkValue || ''} onChange={e=>updateItemWork(idx, e.target.value)} style={{...itemSelectStyle,gridColumn:isMobile?'1 / span 4':'1 / span 6'}}>
+              <select value={item.estimateWorkValue || ''} onChange={e=>updateItemWork(idx, e.target.value)} style={{...itemSelectStyle,gridColumn:isMobile?undefined:'1 / span 6'}}>
                 <option value=''>Работа сметы, если материал не выделен отдельной строкой</option>
                 {workOptionsForItem(item).map(work=><option key={work.value} value={work.value}>{work.label}</option>)}
               </select>
@@ -142,6 +148,12 @@ export default function ScannedInvoiceFormModal({
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'8px 0'}}>
           <b style={{color:C.text,fontSize:isMobile?'18px':'13px'}}>Итого: {displayTotal.toLocaleString()} ₽</b>
         </div>
+        {(displayVat > 0 || Number(newInvoice.totalBase||0) > 0) && (
+          <div style={{color:C.textSec,fontSize:isMobile?'13px':'11px',lineHeight:1.45,margin:'-4px 0 8px'}}>
+            {Number(newInvoice.totalBase||0) > 0 && <div>Без НДС: {Number(newInvoice.totalBase||0).toLocaleString()} ₽</div>}
+            {displayVat > 0 && <div>НДС: {displayVat.toLocaleString()} ₽</div>}
+          </div>
+        )}
         <div style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:isMobile?'wrap':'nowrap'}}>
           <button onClick={save} style={{...btnO,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><Check size={14}/>Сохранить</button>
           <button onClick={()=>setShowScannedInvoiceForm(false)} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><X size={14}/>Отмена</button>

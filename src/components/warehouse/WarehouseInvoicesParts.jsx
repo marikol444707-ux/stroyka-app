@@ -39,8 +39,11 @@ export function WarehouseInvoiceForm({
   const defaultWorkPackage = packageOptions.length === 1 ? packageOptions[0] : '';
   const vatRateMatch = String(newInvoice.vat || '').match(/НДС\s*(\d+(?:[,.]\d+)?)%/i);
   const vatRateValue = vatRateMatch ? Number(vatRateMatch[1].replace(',', '.')) : 0;
+  const invoiceBaseAmount = vatRateValue > 0
+    ? Math.round((invoiceTotal / (1 + vatRateValue / 100)) * 100) / 100
+    : invoiceTotal;
   const invoiceVatAmount = vatRateValue > 0
-    ? Math.round((invoiceTotal - (invoiceTotal / (1 + vatRateValue / 100))) * 100) / 100
+    ? Math.round((invoiceTotal - invoiceBaseAmount) * 100) / 100
     : 0;
 
   const setItem = (idx, patch) => {
@@ -229,7 +232,7 @@ export function WarehouseInvoiceForm({
       <div style={{backgroundColor:C.bg,borderRadius:'10px',padding:'12px',marginBottom:'15px',border:'1.5px solid '+C.border}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:'4px'}}>
           <span style={{color:C.textSec,fontSize:'13px'}}>Итого без НДС:</span>
-          <b style={{color:C.text,fontSize:'13px'}}>{invoiceTotal.toLocaleString()+' ₽'}</b>
+          <b style={{color:C.text,fontSize:'13px'}}>{invoiceBaseAmount.toLocaleString()+' ₽'}</b>
         </div>
         {vatRateValue > 0 && (
           <>
