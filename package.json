@@ -18,6 +18,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "smoke:prod": "bash scripts/prod-smoke-check.sh",
+    "smoke:data-guard": "python3 scripts/smoke-data-guard.py",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:own-expense": "python3 scripts/smoke-own-expense-chain.py",
     "smoke:work-doc-chain": "python3 scripts/smoke-work-doc-chain.py",

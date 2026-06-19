@@ -19,6 +19,11 @@ CHAIN_STEPS = [
         "command": ["bash", "scripts/prod-smoke-check.sh"],
     },
     {
+        "name": "data-guard",
+        "title": "Защита живого объекта, смет, сотрудников и пользователей",
+        "command": ["python3", "scripts/smoke-data-guard.py"],
+    },
+    {
         "name": "staff-access",
         "title": "Персонал -> системный доступ -> ограничения по объекту/пакету",
         "command": ["python3", "scripts/smoke-staff-access.py"],
