@@ -12125,8 +12125,11 @@ function App() {
             const _projProgress=projectRealProgress;
             const avgProg=dashboardProjects.length?Math.round(dashboardProjects.reduce((s,p)=>s+_projProgress(p),0)/dashboardProjects.length):0;
             // Выполнено = работы (max сметы/журнала) + материалы + утв.доп.соглашения по всем проектам
-            const _bsAll=dashboardProjects.map(p=>projectBudgetSpent(p));
-            const totalDone=_bsAll.reduce((s,bs)=>s+bs.total,0);
+            const dashboardBudgetSpent = dashboardProjects.map(p=>({projectId:p.id,projectName:p.name,spent:projectBudgetSpent(p)}));
+            const dashboardBudgetSpentById = new Map(dashboardBudgetSpent.map(x=>[String(x.projectId),x.spent]));
+            const dashboardBudgetSpentByName = new Map(dashboardBudgetSpent.map(x=>[x.projectName,x.spent]));
+            const totalDone=dashboardBudgetSpent.reduce((s,x)=>s+Number(x.spent?.total||0),0);
+            const dashboardProjectPreviewLimit=isMobile?3:5;
             const showSupplyDashboard = ['директор','зам_директора','бухгалтер','прораб','кладовщик','снабженец'].includes(user.role);
             const supplyPendingRequests = (supplyRequests||[]).filter(r=>{
               if (user.role==='прораб') return r.status==='Новая';
@@ -12156,10 +12159,10 @@ function App() {
               <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} setActivePage={setActivePage} navigateTo={navigateTo} setAccountingTab={setAccountingTab}/>
               <DashboardDirectorAiPanel isLeadership={isLeadership} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={setDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={askDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={setDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>
               <DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>
-              <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:'16px'}}>
+              <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1.3fr 0.7fr',gap:'16px'}}>
                 <div style={{background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'20px',backdropFilter:'blur(24px)'}}>
                   <h2 style={{margin:'0 0 16px',fontSize:'18px',color:'#f8fafc'}}>Ключевые объекты</h2>
-                  {dashboardProjects.slice(0,5).map(p=>{const bs=projectBudgetSpent(p);const factTotal=bs.total;const realProg=_projProgress(p);return(
+                  {dashboardProjects.slice(0,dashboardProjectPreviewLimit).map(p=>{const bs=dashboardBudgetSpentById.get(String(p.id))||dashboardBudgetSpentByName.get(p.name)||{works:0,materials:0,unexpected:0,total:0};const factTotal=bs.total;const realProg=_projProgress(p);return(
                     <div key={p.id} onClick={()=>{setExpandedProject(p.id);navigateTo('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
                         <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
@@ -12176,6 +12179,11 @@ function App() {
                       <div style={{marginTop:'10px',padding:'8px 12px',borderRadius:'12px',background:'rgba(234,88,12,.12)',border:'1px solid rgba(234,88,12,.24)',color:'#fed7aa',fontSize:'12px',fontWeight:'700'}}>{realProg<40?'⚠️ AI: низкий темп':realProg>80?'✅ AI: близко к сдаче':'🔵 AI: темп в норме'}</div>
                     </div>
                   );})}
+                  {isMobile&&dashboardProjects.length>dashboardProjectPreviewLimit&&(
+                    <button type="button" onClick={()=>navigateTo('projects')} style={{...btnG,width:'100%',justifyContent:'center',marginTop:'8px',borderColor:'rgba(148,163,184,.28)',background:'rgba(30,41,59,.72)',color:'#e2e8f0'}}>
+                      Показать все объекты ({dashboardProjects.length})
+                    </button>
+                  )}
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
                   <DashboardRisksPanel risks={risks} setShowReimburseModal={setShowReimburseModal} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab}/>
