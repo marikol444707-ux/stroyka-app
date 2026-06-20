@@ -17253,6 +17253,9 @@ def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_r
 @app.post("/workflow/invoice/preview")
 def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workflow_token)):
     """Safe Workflow entrypoint: validate/preview invoice data without writing stock."""
+    document = data.get("document") if isinstance(data.get("document"), dict) else {}
+    totals = data.get("totals") if isinstance(data.get("totals"), dict) else {}
+
     photos = data.get("photos") or data.get("photoUrls") or data.get("images") or data.get("pages") or []
     if isinstance(photos, str):
         photos = [photos]
@@ -17288,9 +17291,26 @@ def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workf
         status = "needs_review"
         warnings.append("Передано больше 8 страниц. Сейчас безопасный лимит распознавания — 8 фото.")
 
-    total_base = _float_or_zero(data.get("totalBase") or data.get("total_base"))
-    total_vat = _float_or_zero(data.get("totalVat") or data.get("total_vat"))
-    total_with_vat = _float_or_zero(data.get("totalWithVat") or data.get("total_with_vat") or data.get("total"))
+    total_base = _float_or_zero(
+        data.get("totalBase")
+        or data.get("total_base")
+        or totals.get("totalBase")
+        or totals.get("total_base")
+    )
+    total_vat = _float_or_zero(
+        data.get("totalVat")
+        or data.get("total_vat")
+        or totals.get("totalVat")
+        or totals.get("total_vat")
+    )
+    total_with_vat = _float_or_zero(
+        data.get("totalWithVat")
+        or data.get("total_with_vat")
+        or data.get("total")
+        or totals.get("totalWithVat")
+        or totals.get("total_with_vat")
+        or totals.get("total")
+    )
     if total_with_vat and total_base and total_vat and abs((total_base + total_vat) - total_with_vat) > 2:
         status = "needs_review"
         warnings.append("Итог с НДС не сходится с суммой без НДС и НДС.")
@@ -17313,9 +17333,25 @@ def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workf
             "confidence": _float_or_zero(raw_item.get("confidence") or 0),
             "needsReview": bool(raw_item.get("needsReview") or raw_item.get("needs_review")),
         })
+    items_total = sum(item["lineTotal"] for item in normalized_items)
+    if not total_with_vat and items_total:
+        total_with_vat = round(items_total, 2)
+
+    vat_label = str(data.get("vat") or document.get("vat") or "").strip()
+    vat_rate = 0
+    if "20" in vat_label:
+        vat_rate = 20
+    elif "10" in vat_label:
+        vat_rate = 10
+    if total_with_vat and vat_rate and not total_base and not total_vat:
+        total_base = round(total_with_vat / (1 + vat_rate / 100), 2)
+        total_vat = round(total_with_vat - total_base, 2)
+
     if len(items) > 300:
         status = "needs_review"
         warnings.append("В накладной больше 300 позиций. Вернули первые 300 для безопасного предпросмотра.")
+
+    pages_detected = int(_float_or_zero(data.get("pagesDetected") or document.get("pagesDetected")) or len(photos))
 
     return {
         "ok": True,
@@ -17323,11 +17359,11 @@ def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workf
         "route": "warehouse_invoice",
         "document": {
             "type": "invoice_preview",
-            "number": data.get("number") or data.get("invoiceNumber") or "",
-            "date": data.get("date") or data.get("invoiceDate") or "",
-            "supplierName": data.get("supplierName") or data.get("supplier") or "",
-            "vat": data.get("vat") or "",
-            "pagesDetected": len(photos),
+            "number": data.get("number") or data.get("invoiceNumber") or document.get("number") or document.get("invoiceNumber") or "",
+            "date": data.get("date") or data.get("invoiceDate") or document.get("date") or document.get("invoiceDate") or "",
+            "supplierName": data.get("supplierName") or data.get("supplier") or document.get("supplierName") or document.get("supplier") or "",
+            "vat": vat_label,
+            "pagesDetected": pages_detected,
         },
         "projectName": project_name,
         "warehouseTarget": warehouse_target,

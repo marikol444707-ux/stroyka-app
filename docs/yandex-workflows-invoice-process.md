@@ -198,7 +198,22 @@ POST /workflow/invoice/preview
   "projectName": "Кисловодск Лицей 4",
   "warehouseTarget": "object",
   "selectedAction": "receive_to_warehouse",
-  "photos": [],
+  "photos": ["test-page-1.jpg", "test-page-2.jpg"],
+  "document": {
+    "number": "140563",
+    "date": "2026-06-19",
+    "supplierName": "АО КПК Ставропольстройопторг",
+    "vat": "НДС 20%"
+  },
+  "items": [
+    {
+      "name": "Керамогранит глазурованный матовый 600x600",
+      "quantity": 368.64,
+      "unit": "м2",
+      "price": 875,
+      "lineTotal": 322560
+    }
+  ],
   "user": {
     "role": "директор",
     "name": "Workflow test"
@@ -206,9 +221,10 @@ POST /workflow/invoice/preview
 }
 ```
 
-Ожидаемый первый результат: HTTP 200, `route=warehouse_invoice`,
-`status=needs_review`, предупреждение что фото не переданы. Это нормально:
-мы проверяем связку Workflow -> backend без записи в базу.
+Ожидаемый первый результат: HTTP 200, `route=warehouse_invoice`, `status=ok`,
+`document.number=140563`, `document.pagesDetected=2`, одна позиция в `items`,
+`totals.totalWithVat=322560`. Это проверяет связку Workflow -> backend без
+записи в базу.
 
 Сохранение остается через существующий endpoint:
 
