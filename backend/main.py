@@ -44,6 +44,7 @@ AUTH_SECRET = os.getenv("AUTH_SECRET") or (os.getenv("DB_PASSWORD", "password") 
 AUTH_TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "86400"))
 AI_CONTROL_RUN_TOKEN = os.getenv("AI_CONTROL_RUN_TOKEN", "").strip()
 TELEGRAM_BOT_API_TOKEN = os.getenv("TELEGRAM_BOT_API_TOKEN", "").strip()
+WORKFLOW_TOKEN = os.getenv("WORKFLOW_TOKEN", "").strip() or os.getenv("STROYKA_WORKFLOW_TOKEN", "").strip()
 APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "https://stroyka26.pro").rstrip("/")
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = _env_int("SMTP_PORT", 465 if os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes") else 587)
@@ -309,6 +310,13 @@ def get_ai_control_runner(
     if AI_CONTROL_RUN_TOKEN and x_ai_control_token and hmac.compare_digest(x_ai_control_token, AI_CONTROL_RUN_TOKEN):
         return _ai_system_user()
     return get_current_user(authorization)
+
+def require_workflow_token(x_workflow_token: Optional[str] = Header(default=None)) -> dict:
+    if not WORKFLOW_TOKEN:
+        raise HTTPException(status_code=503, detail="WORKFLOW_TOKEN не настроен")
+    if not x_workflow_token or not hmac.compare_digest(x_workflow_token.encode("utf-8"), WORKFLOW_TOKEN.encode("utf-8")):
+        raise HTTPException(status_code=403, detail="Недостаточно прав Workflow")
+    return {"role": "workflow", "name": "Yandex Workflow"}
 
 LEADERSHIP_ROLES = ("директор", "зам_директора")
 SYSTEM_PROJECT_NAME = "Система"
@@ -17241,6 +17249,99 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
 @app.post("/warehouse-invoices")
 def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     return _create_warehouse_invoice_record(data, _current_user)
+
+@app.post("/workflow/invoice/preview")
+def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workflow_token)):
+    """Safe Workflow entrypoint: validate/preview invoice data without writing stock."""
+    photos = data.get("photos") or data.get("photoUrls") or data.get("images") or data.get("pages") or []
+    if isinstance(photos, str):
+        photos = [photos]
+    if not isinstance(photos, list):
+        photos = []
+    photos = [str(photo).strip() for photo in photos if str(photo or "").strip()]
+
+    items = data.get("items") or data.get("positions") or []
+    if not isinstance(items, list):
+        items = []
+
+    project_name = (
+        data.get("projectName")
+        or data.get("project")
+        or data.get("project_name")
+        or ""
+    )
+    warehouse_target = (data.get("warehouseTarget") or data.get("target") or "object").strip() or "object"
+    selected_action = (data.get("selectedAction") or data.get("action") or "receive_to_warehouse").strip()
+    warnings = []
+    status = "ok"
+
+    if selected_action not in ("receive_to_warehouse", "warehouse_invoice", "stock_receipt"):
+        status = "needs_review"
+        warnings.append("Маршрут не похож на складскую накладную. Проверьте, что документ не ушел в мои траты.")
+    if warehouse_target in ("object", "project") and not str(project_name).strip():
+        status = "needs_review"
+        warnings.append("Для прихода на объект нужно указать объект.")
+    if not photos:
+        status = "needs_review"
+        warnings.append("Фото накладной не переданы. Workflow подключен, но распознавание не запускалось.")
+    if len(photos) > 8:
+        status = "needs_review"
+        warnings.append("Передано больше 8 страниц. Сейчас безопасный лимит распознавания — 8 фото.")
+
+    total_base = _float_or_zero(data.get("totalBase") or data.get("total_base"))
+    total_vat = _float_or_zero(data.get("totalVat") or data.get("total_vat"))
+    total_with_vat = _float_or_zero(data.get("totalWithVat") or data.get("total_with_vat") or data.get("total"))
+    if total_with_vat and total_base and total_vat and abs((total_base + total_vat) - total_with_vat) > 2:
+        status = "needs_review"
+        warnings.append("Итог с НДС не сходится с суммой без НДС и НДС.")
+
+    normalized_items = []
+    for idx, raw_item in enumerate(items[:300], start=1):
+        if not isinstance(raw_item, dict):
+            continue
+        qty = _float_or_zero(raw_item.get("quantity") or raw_item.get("qty"))
+        price = _float_or_zero(raw_item.get("price") or raw_item.get("priceWithVat") or raw_item.get("price_with_vat"))
+        line_total = _float_or_zero(raw_item.get("lineTotalWithVat") or raw_item.get("lineTotal") or raw_item.get("total"))
+        normalized_items.append({
+            "row": idx,
+            "name": str(raw_item.get("name") or raw_item.get("title") or "").strip(),
+            "quantity": qty,
+            "unit": _norm_base_unit(raw_item.get("unit") or "шт") or "шт",
+            "price": price,
+            "lineTotal": line_total or (qty * price if qty and price else 0),
+            "page": raw_item.get("page") or raw_item.get("pageNumber") or None,
+            "confidence": _float_or_zero(raw_item.get("confidence") or 0),
+            "needsReview": bool(raw_item.get("needsReview") or raw_item.get("needs_review")),
+        })
+    if len(items) > 300:
+        status = "needs_review"
+        warnings.append("В накладной больше 300 позиций. Вернули первые 300 для безопасного предпросмотра.")
+
+    return {
+        "ok": True,
+        "status": status,
+        "route": "warehouse_invoice",
+        "document": {
+            "type": "invoice_preview",
+            "number": data.get("number") or data.get("invoiceNumber") or "",
+            "date": data.get("date") or data.get("invoiceDate") or "",
+            "supplierName": data.get("supplierName") or data.get("supplier") or "",
+            "vat": data.get("vat") or "",
+            "pagesDetected": len(photos),
+        },
+        "projectName": project_name,
+        "warehouseTarget": warehouse_target,
+        "selectedAction": selected_action,
+        "items": normalized_items,
+        "totals": {
+            "totalBase": total_base,
+            "totalVat": total_vat,
+            "totalWithVat": total_with_vat,
+        },
+        "photos": photos,
+        "warnings": warnings,
+        "message": "Workflow подключен. Это предпросмотр без записи в склад и без создания трат.",
+    }
 
 @app.delete("/warehouse-invoices/{id}")
 def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "кладовщик", "снабженец"))):
