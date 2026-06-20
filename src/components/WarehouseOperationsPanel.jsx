@@ -70,8 +70,8 @@ export default function WarehouseOperationsPanel({
         <h3 style={{ color: C.text, marginBottom: '15px', fontSize: '15px', fontWeight: '700' }}>
           Перемещение материалов
         </h3>
-        <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+        <div style={{ ...card, padding: isMobile ? '14px' : '20px', marginBottom: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
             <div>
               <label style={{ fontSize: '12px', color: C.textSec, display: 'block', marginBottom: '5px' }}>
                 Откуда:
@@ -123,36 +123,43 @@ export default function WarehouseOperationsPanel({
                   border: '1.5px solid ' + (selected ? C.accent : C.border),
                   backgroundColor: selected ? C.accentLight : C.bgWhite,
                   display: 'flex',
+                  flexDirection: isMobile ? 'column' : 'row',
                   alignItems: 'center',
+                  ...(isMobile ? {alignItems:'stretch'} : {}),
                   gap: '10px',
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={!!selected}
-                  onChange={e => {
-                    if (e.target.checked) {
+                <label style={{display:'flex',alignItems:'flex-start',gap:'10px',minWidth:0,cursor:'pointer'}}>
+                  <input
+                    type="checkbox"
+                    checked={!!selected}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setNewMovement(prev => ({
+                          ...prev,
+                          selectedMaterials: [...(prev.selectedMaterials || []), { ...material, quantity: '' }],
+                        }));
+                        return;
+                      }
                       setNewMovement(prev => ({
                         ...prev,
-                        selectedMaterials: [...(prev.selectedMaterials || []), { ...material, quantity: '' }],
+                        selectedMaterials: (prev.selectedMaterials || []).filter(item => movementMaterialKey(item) !== materialKey),
                       }));
-                      return;
-                    }
-                    setNewMovement(prev => ({
-                      ...prev,
-                      selectedMaterials: (prev.selectedMaterials || []).filter(item => movementMaterialKey(item) !== materialKey),
-                    }));
-                  }}
-                  style={{ width: '16px', height: '16px', accentColor: C.accent }}
-                />
-                <span style={{ flex: 1, fontSize: '13px', color: C.text }}>
-                  {material.name + ' (есть: ' + material.quantity + ' ' + material.unit + ')'}
-                  {(material.workPackage || material.work_package) && (
-                    <small style={{ display: 'block', color: C.textSec, marginTop: '2px' }}>
-                      Пакет: {material.workPackage || material.work_package}
+                    }}
+                    style={{ width: '16px', height: '16px', accentColor: C.accent, flex:'0 0 auto', marginTop:'2px' }}
+                  />
+                  <span style={{ flex: 1, minWidth:0, fontSize: '13px', color: C.text, overflowWrap:'anywhere', lineHeight:'1.35' }}>
+                    {material.name}
+                    <small style={{ display: 'block', color: C.textSec, marginTop: '3px' }}>
+                      Есть: {material.quantity} {material.unit}
                     </small>
-                  )}
-                </span>
+                    {(material.workPackage || material.work_package) && (
+                      <small style={{ display: 'block', color: C.textSec, marginTop: '2px' }}>
+                        Пакет: {material.workPackage || material.work_package}
+                      </small>
+                    )}
+                  </span>
+                </label>
                 {selected && (
                   <input
                     placeholder="Кол-во"
@@ -167,7 +174,8 @@ export default function WarehouseOperationsPanel({
                       )),
                     }))}
                     style={{
-                      width: '100px',
+                      width: isMobile ? '100%' : '100px',
+                      boxSizing:'border-box',
                       padding: '5px 8px',
                       border: '1.5px solid ' + C.accent,
                       borderRadius: '6px',
@@ -190,7 +198,7 @@ export default function WarehouseOperationsPanel({
             onChange={e => setNewMovement({ ...newMovement, notes: e.target.value })}
             style={{ ...inp, marginTop: '10px' }}
           />
-          <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap:'wrap' }}>
             <button
               onClick={async () => {
                 await applyWarehouseMovement();
@@ -199,18 +207,33 @@ export default function WarehouseOperationsPanel({
                   'Накладная М-11'
                 );
               }}
-              style={btnO}
+              style={{...btnO,...(isMobile ? {flex:'1 1 100%',justifyContent:'center'} : {})}}
             >
               <Check size={14} />
               Переместить и распечатать
             </button>
-            <button onClick={applyWarehouseMovement} style={btnG}>Переместить</button>
+            <button onClick={applyWarehouseMovement} style={{...btnG,...(isMobile ? {flex:'1 1 100%',justifyContent:'center'} : {})}}>Переместить</button>
           </div>
         </div>
 
         <h3 style={{ color: C.text, marginBottom: '10px', fontSize: '14px', fontWeight: '700' }}>
           История перемещений
         </h3>
+        {isMobile ? (
+          <div style={{display:'grid',gap:'10px'}}>
+            {warehouseMovements.slice(0, 20).map((movement, index) => (
+              <div key={index} style={{padding:'12px',borderRadius:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,display:'grid',gap:'8px'}}>
+                <b style={{color:C.text,fontSize:'13px',lineHeight:'1.35',overflowWrap:'anywhere'}}>{movement.materialName}</b>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',fontSize:'12px',color:C.textSec}}>
+                  <span style={{overflowWrap:'anywhere'}}><b style={{color:C.text}}>Откуда:</b> {movement.fromLocation || '—'}</span>
+                  <span style={{overflowWrap:'anywhere'}}><b style={{color:C.text}}>Куда:</b> {movement.toLocation || '—'}</span>
+                  <span><b style={{color:C.text}}>Кол-во:</b> {movement.quantity} {movement.unit}</span>
+                  <span><b style={{color:C.text}}>Дата:</b> {movement.date || '—'}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
         <table style={tbl}>
           <thead>
             <tr>
@@ -233,6 +256,7 @@ export default function WarehouseOperationsPanel({
             ))}
           </tbody>
         </table>
+        )}
       </div>
     );
   }

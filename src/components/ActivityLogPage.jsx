@@ -14,8 +14,30 @@ const auditActionText = (entry) => {
   return `${action}${description ? ` — ${description}` : ''}${project}`;
 };
 
-export default function ActivityLogPage({C, tbl, tblH, tblC, activityLog, auditLog, roleLabels}) {
+export default function ActivityLogPage({C, tbl, tblH, tblC, activityLog, auditLog, roleLabels, isMobile = false}) {
   const rows = Array.isArray(auditLog) && auditLog.length ? auditLog : (Array.isArray(activityLog) ? activityLog : []);
+  if (isMobile) {
+    return (
+      <div style={{paddingBottom:'84px'}}>
+        <h3 style={{color:C.text,margin:'0 0 14px',fontSize:'20px',fontWeight:'800'}}>Журнал активности</h3>
+        {rows.length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Журнал пуст</p>}
+        <div style={{display:'grid',gap:'10px'}}>
+          {rows.map((e,i)=>(
+            <div key={e.id || i} style={{backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'14px',padding:'14px',boxSizing:'border-box'}}>
+              <div style={{color:C.text,fontSize:'14px',fontWeight:'800',lineHeight:1.35,overflowWrap:'anywhere'}}>
+                {auditActionText(e)}
+              </div>
+              <div style={{marginTop:'10px',display:'grid',gridTemplateColumns:'1fr',gap:'6px',color:C.textSec,fontSize:'12px',lineHeight:1.3}}>
+                <span><b style={{color:C.textMuted}}>Пользователь:</b> {e.userName || e.user || '—'}</span>
+                <span><b style={{color:C.textMuted}}>Роль:</b> {roleLabels[e.userRole] || roleLabels[e.role] || e.userRole || e.role || '—'}</span>
+                <span><b style={{color:C.textMuted}}>Время:</b> {formatAuditTime(e.createdAt || e.time)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div>
       <h3 style={{color:C.text,marginBottom:'20px',fontSize:'16px',fontWeight:'700'}}>Журнал активности</h3>

@@ -53,7 +53,7 @@ export default function ScanInvoiceModal({
     return 'С НДС 22%';
   };
 
-  const targetLocation = newInvoice?.location || 'Основной склад';
+  const targetLocation = newInvoice?.location || '';
   const updateLocation = (location) => {
     setNewInvoice(prev => ({
       ...prev,
@@ -80,8 +80,12 @@ export default function ScanInvoiceModal({
   const scan = async (fileList) => {
     const files = Array.from(fileList || []).filter(Boolean).slice(0, 8);
     if(!files.length) return;
+    if (!targetLocation) {
+      alert('Сначала выберите, куда принять накладную: основной склад или объект.');
+      return;
+    }
     setScanningInvoice(true);
-    const location = targetLocation || 'Основной склад';
+    const location = targetLocation;
     const project = location !== 'Основной склад' ? location : '';
     try {
       const normalizedPages = await normalizeInvoiceImageFiles(files);
@@ -146,6 +150,7 @@ export default function ScanInvoiceModal({
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>📷 Сканировать накладную</b>
         <label style={{display:'block',color:C.textSec,fontSize:'12px',fontWeight:700,marginBottom:'6px'}}>Куда принять</label>
         <select value={targetLocation} onChange={e=>updateLocation(e.target.value)} style={{width:'100%',boxSizing:'border-box',marginBottom:'12px',padding:'12px 14px',borderRadius:'12px',border:'1.5px solid '+C.border,backgroundColor:C.bg,color:C.text,fontSize:'14px'}}>
+          <option value=''>Выберите склад или объект *</option>
           <option value='Основной склад'>📦 Основной склад</option>
           {projects.map(p=><option key={p.id || p.name} value={p.name}>🏗️ {p.name}</option>)}
         </select>

@@ -6164,16 +6164,30 @@ def _material_match_tokens(name: str) -> set[str]:
         stem = token
         if stem.startswith("керамогран"):
             tokens.update({"керамогранит", "гранит", "керамическ"})
+        elif stem.startswith("livorno") or stem.startswith("ливорн"):
+            tokens.update({"livorno", "керамогранит", "плитка"})
+        elif stem.startswith("axima") or stem.startswith("аксима"):
+            tokens.update({"axima", "керамогранит", "плитка"})
         elif stem.startswith("керамич"):
             tokens.add("керамическ")
         elif stem.startswith("гранит"):
             tokens.add("гранит")
+        elif stem.startswith("металлочереп") or stem.startswith("черепиц"):
+            tokens.update({"металлочерепица", "черепица", "кровля"})
+        elif stem.startswith("монтер") or stem.startswith("monter"):
+            tokens.update({"монтеррей", "металлочерепица", "черепица", "кровля"})
         elif stem.startswith("гкл") or stem.startswith("гипсокарт"):
             tokens.update({"гкл", "гипсокартон"})
         elif stem.startswith("гвл") or stem.startswith("гипсовол"):
             tokens.update({"гвл", "гипсоволокно"})
         elif stem.startswith("цемент"):
             tokens.add("цемент")
+        elif stem.startswith("смес"):
+            tokens.add("смесь")
+        elif stem.startswith("ротб"):
+            tokens.update({"ротбанд", "штукатурка", "смесь"})
+        elif stem.startswith("кнауф") or stem.startswith("knauf"):
+            tokens.add("кнауф")
         elif stem.startswith("песк"):
             tokens.add("песок")
         elif stem.startswith("бетон"):
@@ -6196,6 +6210,18 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("шпатлевка")
         elif stem.startswith("профил"):
             tokens.add("профиль")
+        elif stem.startswith("угол"):
+            tokens.add("уголок")
+        elif stem.startswith("подвес"):
+            tokens.add("подвес")
+        elif stem.startswith("маяк") or stem.startswith("маяч"):
+            tokens.add("маяк")
+        elif stem.startswith("рейк"):
+            tokens.add("рейка")
+        elif stem.startswith("лент"):
+            tokens.add("лента")
+        elif stem.startswith("серпян"):
+            tokens.add("серпянка")
         elif stem.startswith("саморез"):
             tokens.add("саморез")
         elif stem.startswith("шуруп"):
@@ -6214,6 +6240,8 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("провод")
         elif stem.startswith("светиль") or stem.startswith("табло"):
             tokens.add("светильник")
+        elif stem.startswith("ламп"):
+            tokens.add("лампа")
         elif stem.startswith("розет"):
             tokens.add("розетка")
         elif stem.startswith("выключ"):
@@ -6228,6 +6256,16 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("труба")
         elif stem.startswith("радиатор"):
             tokens.add("радиатор")
+        elif stem.startswith("фитинг"):
+            tokens.add("фитинг")
+        elif stem.startswith("муфт"):
+            tokens.add("муфта")
+        elif stem.startswith("клапан"):
+            tokens.add("клапан")
+        elif stem.startswith("американ"):
+            tokens.add("американка")
+        elif stem.startswith("воздухоотв"):
+            tokens.add("воздухоотводчик")
         elif stem.startswith("кран"):
             tokens.add("кран")
         elif stem.startswith("креп"):
@@ -6242,6 +6280,22 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("кронштейн")
         elif stem.startswith("направл"):
             tokens.add("направляющая")
+        elif stem.startswith("доск"):
+            tokens.add("доска")
+        elif stem.startswith("брус"):
+            tokens.add("брус")
+        elif stem.startswith("фанер"):
+            tokens.add("фанера")
+        elif stem.startswith("осп") or stem.startswith("osb"):
+            tokens.add("осп")
+        elif stem.startswith("армат"):
+            tokens.add("арматура")
+        elif stem.startswith("гвозд"):
+            tokens.add("гвоздь")
+        elif stem.startswith("шпил"):
+            tokens.add("шпилька")
+        elif stem.startswith("перф"):
+            tokens.add("перфолента")
         else:
             tokens.add(stem)
     return tokens
@@ -6271,8 +6325,19 @@ def _material_name_match_score(left: str, right: str) -> float:
         "кронштейн", "направляющая", "цемент", "бетон", "песок",
         "саморез", "анкер", "болт", "гайка", "шайба", "светильник",
         "розетка", "выключатель", "втулка", "хомут", "скоба", "крепеж",
-        "кран", "клей", "плитка",
+        "кран", "клей", "плитка", "металлочерепица", "черепица", "кровля",
+        "монтеррей", "livorno", "axima", "смесь", "ротбанд", "кнауф",
+        "уголок", "подвес", "маяк", "рейка", "лента", "серпянка",
+        "лампа", "фитинг", "муфта", "клапан", "американка", "воздухоотводчик",
+        "доска", "брус", "фанера", "осп", "арматура", "гвоздь", "шпилька",
+        "перфолента",
     }
+    if {"металлочерепица", "черепица"}.intersection(left_tokens) and {"металлочерепица", "черепица"}.intersection(right_tokens):
+        return 0.84
+    if {"керамогранит", "плитка"}.intersection(left_tokens) and {"керамогранит", "плитка"}.intersection(right_tokens) and {"livorno", "axima", "гранит", "керамическ", "матов", "глазур"}.intersection(common):
+        return 0.86
+    if {"ротбанд", "кнауф", "смесь"}.intersection(left_tokens) and {"ротбанд", "кнауф", "смесь"}.intersection(right_tokens) and {"штукатурка", "смесь", "ротбанд", "кнауф"}.intersection(common):
+        return 0.84
     if {"гранит", "керамическ"}.issubset(common):
         return 0.86
     if {"гкл", "гипсокартон"}.intersection(left_tokens) and {"гкл", "гипсокартон"}.intersection(right_tokens):
@@ -6330,6 +6395,14 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                     continue
                 if _estimate_material_plan_issue_backend(item, section_name):
                     continue
+                raw_qty = _float_or_zero(item.get("quantity"))
+                imported_qty = _estimate_imported_quantity(item)
+                imported_line_total = _estimate_import_line_total_backend(item)
+                material_sum = _estimate_material_sum_backend(item)
+                if raw_qty <= 0 and imported_qty <= 0:
+                    continue
+                if raw_qty < 0 or imported_qty < 0 or imported_line_total < 0 or material_sum < 0:
+                    continue
                 item_name = (item.get("name") or "").strip()
                 item_unit = item.get("unit") or ""
                 item_key = _material_control_key_resolved(cur, project, item_name, item_unit)
@@ -6338,11 +6411,11 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                 fuzzy_match = (not exact_match) and fuzzy_score >= 0.55 and _material_units_compatible(unit, item_unit)
                 if not exact_match and not fuzzy_match:
                     continue
-                qty = _estimate_imported_quantity(item)
+                qty = imported_qty
                 if qty <= 0:
-                    qty = _float_or_zero(item.get("quantity"))
+                    qty = raw_qty
                 planned_qty += qty
-                planned_sum += _estimate_material_sum_backend(item) or _estimate_item_sum_backend(item)
+                planned_sum += material_sum if material_sum > 0 else _estimate_item_sum_backend(item)
                 matched_rows += 1
                 if fuzzy_match:
                     fuzzy_matched_rows += 1
@@ -13131,7 +13204,7 @@ async def parse_smeta(file: UploadFile = File(...)):
         work_prefixes = ["ГЭСНм", "ФЕРм", "ТЕРм", "ГЭСНи", "ФЕРи", "ГЭСНр", "ФЕРр", "ТЕРр", "ГЭСН", "ФЕР", "ТЕР"]
         material_prefixes = ["ФСБЦ", "ФССЦ", "ТССЦ", "ТССЦпг", "ТЦ_", "ТЦ-", "КАЦ", "МАТ"]
         work_words = ("монтаж", "демонтаж", "установка", "устройство", "прокладка", "разбор", "разборка", "сборка", "замена", "подключение", "снятие", "очистка", "ремонт", "отбивка", "облицов", "окраск", "шпатлев", "шпаклев", "грунтов", "стяжк", "укладка")
-        material_words = ("материал", "труба", "кабель", "провод", "смесь", "раствор", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "краска", "акрил", "грунтовка", "цемент", "бетон", "кирпич", "блок", "лист", "профиль", "саморез", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "линолеум", "арматур", "битум", "бризол", "лак", "мастик", "утеплитель", "рубероид", "пвх", "уголок", "уголк", "угол", "панель", "плинтус", "наличник", "дюбел", "втулк", "скреп", "крепеж")
+        material_words = ("материал", "труба", "кабель", "провод", "смесь", "раствор", "ротбанд", "кнауф", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "краска", "акрил", "грунтовка", "цемент", "бетон", "кирпич", "блок", "лист", "профиль", "саморез", "шуруп", "анкер", "болт", "гайк", "шайб", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "livorno", "ливорно", "axima", "аксима", "линолеум", "арматур", "битум", "бризол", "лак", "мастик", "утеплитель", "рубероид", "пвх", "уголок", "уголк", "угол", "подвес", "маяк", "рейк", "лента", "серпян", "панель", "плинтус", "наличник", "дюбел", "втулк", "скреп", "крепеж", "металлочереп", "черепиц", "монтеррей", "кровл", "кроншт", "направл", "фитинг", "муфт", "клапан", "американ", "воздухоотвод", "радиатор", "светиль", "ламп", "розет", "выключ", "доска", "брус", "фанер", "осп", "osb", "гвозд", "шпил", "перфолента")
         lsr_service_tokens = (
             "итого", "всего", "в том числе", "объем=", "объём=",
             "фот", "средства на оплату труда", "нормативные затраты труда",
@@ -17868,7 +17941,7 @@ def _estimate_item_type_backend(item: dict, section_name: str = "") -> str:
     raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").lower()
     text = _norm_key_text((item.get("name") or "") + " " + section_name)
     source_code = str(item.get("sourceCode") or item.get("obosn") or item.get("code") or "").strip()
-    material_markers = ("смесь", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "краска", "акрил", "грунтовка", "грунтовк", "кабель", "провод", "гофра", "лист гкл", "профиль", "саморез", "кирпич", "бетон", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "пвх", "уголок", "панель", "плинтус", "наличник")
+    material_markers = ("смесь", "ротбанд", "кнауф", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "краска", "акрил", "грунтовка", "грунтовк", "кабель", "провод", "гофра", "лист гкл", "профиль", "саморез", "шуруп", "анкер", "болт", "гайк", "шайб", "кирпич", "бетон", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "livorno", "ливорно", "axima", "аксима", "пвх", "уголок", "подвес", "маяк", "рейк", "лента", "серпян", "панель", "плинтус", "наличник", "металлочереп", "черепиц", "монтеррей", "кровл", "кроншт", "направл", "фитинг", "муфт", "клапан", "американ", "воздухоотвод", "радиатор", "светиль", "ламп", "розет", "выключ", "доска", "брус", "фанер", "осп", "osb", "гвозд", "шпил", "перфолента")
     strong_work_markers = ("монтаж", "установка", "устройство", "демонтаж", "разбор", "разборка", "прокладка", "замена", "подключение", "снятие", "очистка", "ремонт", "облицовка", "окраска", "кладка", "стяжка", "отбивка", "отбивк", "грунтование")
     source_looks_work = bool(re.match(r"^(ГЭСН|ФЕР|ТЕР)", source_code, re.I))
     source_looks_resource = bool(re.match(r"^\d{2,}[-/]\d+", source_code) or re.match(r"^\d{3,}$", source_code) or re.match(r"^(ТЦ_|ФСБЦ|ФССЦ)", source_code, re.I))

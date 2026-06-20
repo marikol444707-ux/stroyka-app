@@ -36,15 +36,16 @@ export default function NotificationsDropdown({
   const dropdownStyle = isMobile
     ? {
         position: 'fixed',
-        top: 'calc(env(safe-area-inset-top, 0px) + 104px)',
-        left: 'max(12px, env(safe-area-inset-left, 0px))',
-        right: 'max(12px, env(safe-area-inset-right, 0px))',
-        width: 'auto',
-        maxWidth: 'none',
-        maxHeight: 'min(62vh, 520px)',
+        top: 'calc(env(safe-area-inset-top, 0px) + 92px)',
+        left: '12px',
+        right: '12px',
+        width: 'calc(100vw - 24px)',
+        maxWidth: 'calc(100vw - 24px)',
+        maxHeight: 'min(68vh, calc(100dvh - 116px))',
         transform: 'none',
         boxSizing: 'border-box',
         overscrollBehavior: 'contain',
+        WebkitOverflowScrolling: 'touch',
       }
     : {
         position: 'absolute',

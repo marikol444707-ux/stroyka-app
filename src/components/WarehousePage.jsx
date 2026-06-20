@@ -283,6 +283,7 @@ export default function WarehousePage(props) {
           tblH={tblH}
           tblC={tblC}
           badge={badge}
+          isMobile={isMobile}
         />
       )}
 

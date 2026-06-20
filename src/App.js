@@ -897,7 +897,8 @@ function App() {
 
   const loadAuditLog = async () => {
     try {
-      const data = await fetch(API + '/audit-log?limit=200').then(r => r.ok ? r.json() : []);
+      const token = localStorage.getItem('authToken');
+      const data = await fetch(API + '/audit-log?limit=200', token ? {headers: {Authorization: 'Bearer ' + token}} : undefined).then(r => r.ok ? r.json() : []);
       setAuditLog(Array.isArray(data) ? data : []);
     } catch (e) {
       setAuditLog([]);
@@ -966,7 +967,8 @@ function App() {
 
   const getApi = (path, fallback = []) => {
     if (mobileApiRequestsRef.current.has(path)) return mobileApiRequestsRef.current.get(path);
-    const request = fetch(API + path)
+    const token = localStorage.getItem('authToken');
+    const request = fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
       .then(r => r.ok ? r.json() : fallback)
       .catch(() => fallback)
       .finally(() => mobileApiRequestsRef.current.delete(path));
@@ -1240,7 +1242,8 @@ function App() {
       const isProjectRole = role && !['поставщик','system_owner'].includes(role);
       const isInternalRole = ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик','мастер','субподрядчик','бригадир','кладовщик','снабженец','менеджер_crm','стройконтроль'].includes(role);
       const canSeeProjectDocs = isProjectRole || ['технадзор','заказчик'].includes(role);
-      const get = (path, fallback = []) => fetch(API + path)
+      const token = localStorage.getItem('authToken');
+      const get = (path, fallback = []) => fetch(API + path, token ? {headers: {Authorization: 'Bearer ' + token}} : undefined)
         .then(r => r.ok ? r.json() : fallback)
         .catch(() => fallback);
       const skip = (fallback = []) => Promise.resolve(fallback);
@@ -8196,7 +8199,19 @@ function App() {
     transfers.forEach(t=>{const k=(t.materialName||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:t.materialName,unit:t.unit||'',limit:0,issued:0};byMat[k].issued+=Number(t.quantity||0);});
     // Лимит = только строки сметы, явно распознанные как материалы.
     const project=projects.find(p=>p.name===projectName)||{};
-    activeEstimatesForProject(project, 'Заказчик').forEach(est=>linkEstimateResourcesToWorks(_sectionsOfEst(est)).forEach(s=>(s.items||[]).forEach(rawIt=>{const it=normalizeEstimateWorkingItem(rawIt,s.name);if(isEstimateMaterialItem(it, s.name)){const norm=normalizeMeasure(it.quantity,it.unit);const k=(it.name||'').trim().toLowerCase();if(!k)return;if(!byMat[k])byMat[k]={name:it.name,unit:norm.unit||it.unit||'',limit:0,issued:0};if(!byMat[k].unit&&norm.unit)byMat[k].unit=norm.unit;byMat[k].limit+=Number(norm.qty||0);}})));
+    activeEstimatesForProject(project, 'Заказчик').forEach(est=>linkEstimateResourcesToWorks(_sectionsOfEst(est)).forEach(s=>(s.items||[]).forEach(rawIt=>{
+      const it=normalizeEstimateWorkingItem(rawIt,s.name);
+      if(!isEstimateMaterialItem(it, s.name)) return;
+      if(estimateMaterialPlanIssue(it, s.name)) return;
+      const planMeasure=estimateImportedPlanMeasure(it);
+      const limit=toNum(planMeasure.qty);
+      if(limit<=0) return;
+      const k=(it.name||'').trim().toLowerCase();
+      if(!k)return;
+      if(!byMat[k])byMat[k]={name:it.name,unit:planMeasure.unit||it.unit||'',limit:0,issued:0};
+      if(!byMat[k].unit&&planMeasure.unit)byMat[k].unit=planMeasure.unit;
+      byMat[k].limit+=limit;
+    })));
     const rows=Object.values(byMat).sort((a,b)=>(b.issued/b.limit||0)-(a.issued/a.limit||0));
     let html='<style>.m8-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.m8-tbl th,.m8-tbl td{border:1px solid #333;padding:5px 6px}.m8-tbl th{background:#f3f4f6}.m8-over{background:#fee2e2}.m8-ok{background:#dcfce7}</style>';
     html+='<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-8</h3>';
@@ -8392,10 +8407,15 @@ function App() {
     const planByName = {};
     activeEstimatesForProject(project, 'Заказчик').forEach(est=>_sectionsOfEst(est).forEach(s=>(s.items||[]).forEach(it=>{
       if (isEstimateMaterialItem(it, s.name)) {
+        if (estimateMaterialPlanIssue(it, s.name)) return;
+        const planMeasure = estimateImportedPlanMeasure(it);
+        const planQty = toNum(planMeasure.qty);
+        if (planQty <= 0) return;
         const key = (it.name||'').trim().toLowerCase();
         if (!key) return;
-        if (!planByName[key]) planByName[key] = {name:it.name||'', unit:it.unit||'', plan:0, issued:0, fact:0};
-        planByName[key].plan += Number(it.quantity||0);
+        if (!planByName[key]) planByName[key] = {name:it.name||'', unit:planMeasure.unit||it.unit||'', plan:0, issued:0, fact:0};
+        if (!planByName[key].unit && planMeasure.unit) planByName[key].unit = planMeasure.unit;
+        planByName[key].plan += planQty;
       }
     })));
     // Выдано мастерам — отдельная колонка: это ещё не факт производственного списания.
@@ -11793,10 +11813,11 @@ function App() {
                           const pct=plan>0?Math.min(100,Math.round(done/plan*100)):0;
                           return {name:it.name,section:it.section,unit:it.unit,plan,done,left,pct};
                         });
-                        const matPlan=smetaItems.filter(i=>isEstimateMaterialItem(i,i.section)).map(it=>{
-                          const plan=Number(it.quantity||0);
+                        const matPlan=smetaItems.filter(i=>isEstimateMaterialItem(i,i.section)&&!estimateMaterialPlanIssue(i,i.section)&&toNum(estimateImportedPlanMeasure(i).qty)>0).map(it=>{
+                          const planMeasure=estimateImportedPlanMeasure(it);
+                          const plan=toNum(planMeasure.qty);
                           const bought=projMaterials.filter(m=>matchScore(m.name,it.name)>=0.4).reduce((s,m)=>s+Number(m.quantity||0),0);
-                          return {name:it.name,unit:it.unit,plan,bought,need:Math.max(0,plan-bought)};
+                          return {name:it.name,unit:planMeasure.unit||it.unit,plan,bought,need:Math.max(0,plan-bought)};
                         });
                         const fmt=(n)=>Number(n||0).toLocaleString('ru-RU');
                         const payload={
@@ -14281,7 +14302,7 @@ function App() {
           )}
 
           {activePage==='activitylog'&&(
-            <ActivityLogPage C={C} tbl={tbl} tblH={tblH} tblC={tblC} activityLog={activityLog} auditLog={auditLog} roleLabels={ROLE_LABELS}/>
+            <ActivityLogPage C={C} tbl={tbl} tblH={tblH} tblC={tblC} activityLog={activityLog} auditLog={auditLog} roleLabels={ROLE_LABELS} isMobile={isMobile}/>
           )}
 
           {activePage==='companychat'&&(

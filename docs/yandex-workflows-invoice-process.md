@@ -70,9 +70,9 @@
   "vat": {
     "included": true,
     "rate": 20,
-    "totalWithoutVat": 322560,
-    "vatAmount": 64512,
-    "totalWithVat": 387072
+    "totalWithoutVat": 268800,
+    "vatAmount": 53760,
+    "totalWithVat": 322560
   },
   "items": [
     {
@@ -80,8 +80,8 @@
       "quantity": 368.64,
       "unit": "м2",
       "price": 875,
-      "sumWithoutVat": 322560,
-      "sumWithVat": 387072,
+      "sumWithoutVat": 268800,
+      "sumWithVat": 322560,
       "matchedEstimateMaterial": "Керамогранит керамический многоцветный",
       "matchConfidence": 0.82,
       "materialAliasStatus": "candidate"
@@ -163,6 +163,10 @@
   - НДС;
   - итог с НДС;
   - итог без НДС.
+- Для входящих накладных считаем `lineTotal` итогом строки с НДС, если в
+  документе указано `НДС 20%` или `НДС 10%`.
+- Если пришел только итог с НДС, backend раскладывает его обратно:
+  `totalBase = totalWithVat / 1.20`, `totalVat = totalWithVat - totalBase`.
 - Если расхождение больше допустимого порога, вернуть `needs_review`.
 
 ### 7. Return result
@@ -225,6 +229,32 @@ POST /workflow/invoice/preview
 `document.number=140563`, `document.pagesDetected=2`, одна позиция в `items`,
 `totals.totalWithVat=322560`. Это проверяет связку Workflow -> backend без
 записи в базу.
+
+Проверка с сервера после деплоя:
+
+```bash
+cd /var/www/stroyka-app
+npm run smoke:workflow-invoice
+```
+
+Smoke проверяет, что endpoint закрыт `X-Workflow-Token`, многостраничная
+накладная возвращается как складская накладная, а НДС 20% раскладывается на
+базу и сумму НДС.
+
+## Следующий шаг в Workflow
+
+После `invoice-preview` добавляется `Switch`:
+
+- если `$.invoice-preview.status == "ok"` — показать результат пользователю в
+  форме накладной;
+- если `$.invoice-preview.status == "needs_review"` — отправить в ручную
+  проверку, без записи в склад;
+- если `$.invoice-preview.route != "warehouse_invoice"` — остановить процесс,
+  чтобы документ не попал в `Мои траты`.
+
+Автосохранение в склад пока не включать. Сохранение остается пользовательским
+действием в СтройКе, потому что реальное OCR-фото может ошибиться в названии,
+НДС, единицах или объекте.
 
 Сохранение остается через существующий endpoint:
 
