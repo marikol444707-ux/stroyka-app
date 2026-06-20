@@ -1722,7 +1722,7 @@ function App() {
       total: totalBefore,
     };
     const photoUrl = newInvoice.photos && newInvoice.photos.length>0 ? newInvoice.photos[0] : '';
-    const inv = {id:Date.now(),number:newInvoice.number,date:newInvoice.date,supplierId:Number(supplierId)||0,supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',acceptedBy:newInvoice.acceptedBy||user.name,location:newInvoice.location,project:newInvoice.project,vat:newInvoice.vat,photoUrl,photos:newInvoice.photos||[],items:validItems,totalBase:vatCalc.base,totalVat:vatCalc.vat,totalWithVat:vatCalc.total,status:'Принята',addedBy:user.name};
+    const inv = {id:Date.now(),number:newInvoice.number,date:newInvoice.date,supplierId:Number(supplierId)||0,supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',acceptedBy:newInvoice.acceptedBy||user.name,location:newInvoice.location,project:newInvoice.project,vat:newInvoice.vat,photoUrl,photos:newInvoice.photos||[],pagesCount:newInvoice.pagesCount||((newInvoice.photos||[]).length||1),items:validItems,totalBase:vatCalc.base,totalVat:vatCalc.vat,totalWithVat:vatCalc.total,status:'Принята',addedBy:user.name};
     const savedInv = {...inv,project:newInvoice.location!=='Основной склад'?newInvoice.location:''};
     const invoiceRes = await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(savedInv)});
     if (!invoiceRes.ok) {

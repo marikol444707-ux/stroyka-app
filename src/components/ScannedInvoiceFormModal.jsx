@@ -107,6 +107,7 @@ export default function ScannedInvoiceFormModal({
         {(newInvoice.photos || []).length > 0 && (
           <div style={{border:'1.5px solid '+C.success,borderRadius:'12px',padding:isMobile?'10px 12px':'8px 10px',marginBottom:'10px',backgroundColor:'rgba(16,185,129,0.12)',color:C.success,fontSize:isMobile?'14px':'12px',fontWeight:700}}>
             📎 Фото накладной прикреплено: {(newInvoice.photos || []).length}
+            {Number(newInvoice.pagesCount || 0) > 1 ? ` · страниц: ${newInvoice.pagesCount}` : ''}
           </div>
         )}
         <input placeholder='Номер накладной *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inputStyle}/>

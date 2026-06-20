@@ -2567,6 +2567,8 @@ def init_db():
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT;
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT;
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS photo_urls TEXT;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS pages_count INT DEFAULT 1;
         CREATE TABLE IF NOT EXISTS warehouses (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -8044,15 +8046,17 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         cur.execute("""INSERT INTO warehouse_invoices
                        (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,
                         items,total_base,total_vat,total_with_vat,status,added_by,photo_url,
-                        source_type,source_id,supply_delivery_id,supply_request_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
                     (number, date_value, delivery.get('supplier_id'), delivery.get('supplier_name') or "",
 	                     accepted_by or delivery.get('received_by') or "", project, project, "Без НДС",
 	                     _json.dumps(items, ensure_ascii=False), total, 0, total,
 	                     "Принята", accepted_by or delivery.get('received_by') or "Снабжение",
 	                     delivery.get('photo_url') or "", "supply_delivery", delivery_id,
-	                     delivery_id, delivery.get('request_id')))
+	                     delivery_id, delivery.get('request_id'),
+                         _json.dumps(([delivery.get('photo_url')] if delivery.get('photo_url') else []), ensure_ascii=False),
+                         1))
         new_id = cur.fetchone()
         return new_id['id'] if isinstance(new_id, dict) else new_id[0]
     except Exception as e:
@@ -16987,15 +16991,15 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
     elif current_user.get("role") in ("снабженец", "кладовщик"):
         allowed_projects = user_project_names(current_user)
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
     else:
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id FROM warehouse_invoices ORDER BY id DESC")
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count FROM warehouse_invoices ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     result = []
@@ -17018,7 +17022,13 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
                 total_base = sum(_float_or_zero(item.get("quantity") or 0) * _float_or_zero(item.get("price") or item.get("pricePerUnit") or 0) for item in items)
             total_vat = 0
             total_with_vat = total_base
-        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19]})
+        try:
+            photo_urls = _json_list_or_empty(r[20])
+        except Exception:
+            photo_urls = []
+        if not photo_urls and r[15]:
+            photo_urls = [r[15]]
+        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19]})
     return result
 
 def _create_warehouse_invoice_record(data: dict, current_user: dict):
@@ -17105,13 +17115,26 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
                 allow_manual_project_override=manual_project_invoice_override,
                 override_by=current_user.get("name") or current_user.get("email") or "",
             )
+        photo_urls = data.get("photos") or data.get("photoUrls") or []
+        if isinstance(photo_urls, str):
+            try:
+                photo_urls = j.loads(photo_urls)
+            except Exception:
+                photo_urls = [x.strip() for x in photo_urls.split(",") if x.strip()]
+        if not isinstance(photo_urls, list):
+            photo_urls = []
+        photo_urls = [str(x).strip() for x in photo_urls if str(x or "").strip()]
+        first_photo_url = (data.get("photoUrl") or (photo_urls[0] if photo_urls else "") or "").strip()
+        if first_photo_url and first_photo_url not in photo_urls:
+            photo_urls.insert(0, first_photo_url)
+        pages_count = int(data.get("pagesCount") or data.get("pages_count") or len(photo_urls) or 1)
         cur.execute("""INSERT INTO warehouse_invoices
                        (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
                         total_base,total_vat,total_with_vat,status,added_by,photo_url,
-                        source_type,source_id,supply_delivery_id,supply_request_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
-            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(items_list,ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),data.get("photoUrl",""),source_type,source_id,supply_delivery_id,supply_request_id))
+            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(items_list,ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),first_photo_url,source_type,source_id,supply_delivery_id,supply_request_id,j.dumps(photo_urls,ensure_ascii=False),pages_count))
         invoice_id = cur.fetchone()[0]
 
         sup = data.get("supplierName","")
@@ -21710,11 +21733,47 @@ def clear_estimate_chat(estimate_id: int, current_user: dict = Depends(require_r
 @app.post("/scan-invoice")
 def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     import openai as oa
+    import json
     FOLDER_ID = YANDEX_FOLDER_ID
     API_KEY = YANDEX_API_KEY
-    base64_image = data.get("image", "")
+    images = data.get("images") or data.get("pages") or []
+    if isinstance(images, str):
+        images = [images]
+    if not isinstance(images, list):
+        images = []
+    if data.get("image"):
+        images = [data.get("image")] + images
+    images = [str(img).strip() for img in images if str(img or "").strip()]
+    if not images:
+        return {"ok": False, "error": "Нет изображения накладной"}
+    images = images[:8]
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     try:
+        content = []
+        for idx, base64_image in enumerate(images, start=1):
+            content.append({"type": "input_text", "text": f"Страница накладной {idx} из {len(images)}"})
+            content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"})
+        content.append({"type": "input_text", "text": (
+            "Распознай приходную накладную или товарный чек для склада. Если страниц несколько, это один документ: "
+            "объедини позиции со всех страниц в один items, номер/дату/поставщика бери из шапки, итог — с последней страницы или строки итого. "
+            "Верни только JSON без markdown. Не путай складскую накладную с личной тратой. Не выдумывай позиции: если строка товара читается плохо, "
+            "заполни confidence меньше 0.6 и sourceText исходным фрагментом. Если виден только итог без списка товаров, "
+            "верни пустой items и documentType='other'. "
+            "Формат: {"
+            "\"documentType\":\"warehouse_invoice|receipt|other\",\"confidence\":0..1,\"pagesCount\":число_страниц,"
+            "\"number\":строка,\"date\":\"YYYY-MM-DD или исходная дата\",\"supplier\":строка,"
+            "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\",\"vatRate\":0|20|22,"
+            "\"totalBase\":число_без_НДС,\"totalVat\":сумма_НДС,\"totalWithVat\":итого_с_НДС,"
+            "\"items\":[{\"page\":номер_страницы,\"sourceText\":исходная_строка,\"article\":артикул_если_есть,\"name\":строка,\"quantity\":число,\"unit\":строка,"
+            "\"vatRate\":0|20|22,"
+            "\"price\":цена_за_единицу_с_НДС_если_НДС_есть_иначе_цена_как_в_документе,"
+            "\"priceWithVat\":цена_за_единицу_с_НДС,\"lineTotal\":сумма_строки,\"lineTotalWithVat\":сумма_строки_с_НДС}]"
+            "}. Если в документе есть строки 'Итого с НДС', 'Всего с учетом НДС', "
+            "'Всего к оплате' или 'Сумма с НДС' — положи это значение в totalWithVat. "
+            "Если есть 'в том числе НДС' — положи сумму в totalVat. Если цена дана без НДС и есть НДС, "
+            "посчитай priceWithVat и lineTotalWithVat. Если цена дана только итогом строки, посчитай цену за единицу через количество. "
+            "Не округляй крупные суммы до тысяч, не теряй НДС, сохраняй единицы измерения как в документе."
+        )})
         response = client.responses.create(
             model=f"gpt://{FOLDER_ID}/qwen3.6-35b-a3b/latest",
             temperature=0.1,
@@ -21722,37 +21781,32 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
             input=[
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"},
-                        {"type": "input_text", "text": (
-                            "Распознай приходную накладную или товарный чек для склада. Верни только JSON без markdown. "
-                            "Не путай складскую накладную с личной тратой. Не выдумывай позиции: если строка товара читается плохо, "
-                            "заполни confidence меньше 0.6 и sourceText исходным фрагментом. Если виден только итог без списка товаров, "
-                            "верни пустой items и documentType='other'. "
-                            "Формат: {"
-                            "\"documentType\":\"warehouse_invoice|receipt|other\",\"confidence\":0..1,"
-                            "\"number\":строка,\"date\":\"YYYY-MM-DD или исходная дата\",\"supplier\":строка,"
-                            "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\",\"vatRate\":0|20|22,"
-                            "\"totalBase\":число_без_НДС,\"totalVat\":сумма_НДС,\"totalWithVat\":итого_с_НДС,"
-                            "\"items\":[{\"sourceText\":исходная_строка,\"article\":артикул_если_есть,\"name\":строка,\"quantity\":число,\"unit\":строка,"
-                            "\"vatRate\":0|20|22,"
-                            "\"price\":цена_за_единицу_с_НДС_если_НДС_есть_иначе_цена_как_в_документе,"
-                            "\"priceWithVat\":цена_за_единицу_с_НДС,\"lineTotal\":сумма_строки,\"lineTotalWithVat\":сумма_строки_с_НДС}]"
-                            "}. Если в документе есть строки 'Итого с НДС', 'Всего с учетом НДС', "
-                            "'Всего к оплате' или 'Сумма с НДС' — положи это значение в totalWithVat. "
-                            "Если есть 'в том числе НДС' — положи сумму в totalVat. Если цена дана без НДС и есть НДС, "
-                            "посчитай priceWithVat и lineTotalWithVat. Если цена дана только итогом строки, посчитай цену за единицу через количество. "
-                            "Не округляй крупные суммы до тысяч, не теряй НДС, сохраняй единицы измерения как в документе."
-                        )}
-                    ]
+                    "content": content
                 }
             ],
-            max_output_tokens=2500
+            max_output_tokens=min(7000, 2500 + len(images) * 900)
         )
         answer = response.output_text
-        import json
         clean = answer.replace("```json","").replace("```","").strip()
         parsed = json.loads(clean)
+        page_items = []
+        if isinstance(parsed.get("pages"), list):
+            for page_idx, page in enumerate(parsed.get("pages") or [], start=1):
+                if not isinstance(page, dict):
+                    continue
+                for item in page.get("items") or []:
+                    if isinstance(item, dict):
+                        item = dict(item)
+                        item.setdefault("page", page.get("page") or page_idx)
+                        page_items.append(item)
+        if page_items and not parsed.get("items"):
+            parsed["items"] = page_items
+        parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
+        if not parsed.get("totalWithVat"):
+            try:
+                parsed["totalWithVat"] = sum(float(str((item.get("lineTotalWithVat") or item.get("lineTotal") or 0)).replace(" ", "").replace(",", ".")) for item in (parsed.get("items") or []) if isinstance(item, dict))
+            except Exception:
+                parsed["totalWithVat"] = 0
         print("SCAN OK:", parsed)
         return {"ok": True, "data": parsed}
     except Exception as e:
