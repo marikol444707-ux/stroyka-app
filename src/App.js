@@ -4,6 +4,17 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import { API, installAuthFetch } from './api';
 import { CRM_STAGES, DOOR_PURPOSES, DOOR_TYPES, ESTIMATE_CHANGE_APPROVED_STATUSES, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES, EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, REVEAL_MATERIALS, STAGE_STATUSES, SUPPLIER_CATEGORIES, SURFACES, TOOL_STATUSES, UNITS, VAT_OPTIONS, WEATHER_CONDITIONS, WINDOW_TYPES } from './constants/catalogs';
+import {
+  ESTIMATE_ITEM_TYPE_BY_ID,
+  ESTIMATE_MEASUREMENT_BASE_BY_ID,
+  ESTIMATE_STRONG_WORK_TOKENS,
+  ESTIMATE_TYPE_TOKENS,
+  ESTIMATE_WORK_ACTION_TOKENS,
+  ESTIMATE_WORK_START_TOKENS,
+  PROJECT_MEASUREMENT_DOC_TYPES,
+  PROJECT_MEASUREMENT_SOURCE_TYPES,
+  PROJECT_MEASUREMENT_STATUSES,
+} from './constants/estimateConstants';
 import { ROLES, ROLE_GROUPS, ROLE_LABELS } from './constants/roles';
 import SystemStatusModal from './components/SystemStatusModal';
 import ProjectCardHeader from './components/ProjectCardHeader';
@@ -52,6 +63,7 @@ import DashboardTopBar from './components/DashboardTopBar';
 import DashboardStatsGrid from './components/DashboardStatsGrid';
 import DashboardRisksPanel from './components/DashboardRisksPanel';
 import { resolveEstimatePackage } from './utils/estimatePackage';
+import { _normalizeUnit, denormalizeMeasure, fmtMeasure, normalizeMeasure, toNum } from './utils/measureUtils';
 import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollText, BarChart3, Handshake, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
 installAuthFetch();
@@ -132,23 +144,12 @@ const initialGuestPage = () => {
   if (path.includes('login')) return 'login';
   return 'site';
 };
-// Парсинг чисел с поддержкой запятой как разделителя (русская локаль): "0,027" → 0.027
-const toNum = (v) => { if(v===null||v===undefined||v==='') return 0; const s=String(v).replace(',', '.').replace(/\s+/g,''); const n=Number(s); return isNaN(n)?0:n; };
 const isEstimatePricelist = (pl={}) => {
   const name = String(pl.name || '').toLowerCase();
   const description = String(pl.description || '').toLowerCase();
   return name.startsWith('прайс из') || description.includes('создан из сметы');
 };
 const estimateIssueDomId = (estimateId, sectionIdx, itemIdx) => 'estimate-row-'+String(estimateId||'new')+'-'+String(sectionIdx)+'-'+String(itemIdx);
-const ESTIMATE_ITEM_TYPES = [
-  {id:'work', label:'Работа', icon:'🔨'},
-  {id:'material', label:'Материал', icon:'📦'},
-  {id:'equipment', label:'Оборудование', icon:'⚙️'},
-  {id:'transport', label:'Доставка/механизм', icon:'🚚'},
-  {id:'overhead', label:'Прочее', icon:'📄'},
-  {id:'adjustment', label:'Корректировка', icon:'↕️'}
-];
-const ESTIMATE_ITEM_TYPE_BY_ID = ESTIMATE_ITEM_TYPES.reduce((acc, t) => { acc[t.id] = t; return acc; }, {});
 const estimateTextKey = (value) => String(value||'').toLowerCase().replace(/ё/g,'е').replace(/[.,;:()[\]{}«»"'`]/g,' ').replace(/[-–—]/g,' ').replace(/\s+/g,' ').trim();
 const estimateTextHasAny = (text, tokens=[]) => {
   const t = estimateTextKey(text);
@@ -166,16 +167,6 @@ const estimateWorkKeyForItem = (item={}, sectionName='', index='') => {
   const base = [sectionName, code || item.name || '', index].filter(v=>String(v||'').trim()).join('|');
   return estimateTextKey(base).replace(/[^a-zа-я0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,160);
 };
-const ESTIMATE_TYPE_TOKENS = {
-  work: ['работ','монтаж','демонтаж','установка','устройство','прокладка','разбор','сборка','кладка','штукатур','шпатлев','шпаклев','окраск','грунтов','облицов','стяжк','бетонир','заливка','укладка','замена','подключение','пусконалад','сверление','бурение','пробивка','нарезка','очистка','подготовка','герметизация','изоляция','армирование'],
-  material: ['материал','труба','трубопровод','фитинг','муфта','угольник','уголок','уголк','угол','тройник','переход','хомут','кабель','провод','гофра','короб','лоток','автомат','розетка','выключатель','светильник','лампа','щит','кирпич','блок','бетон','цемент','пескобетон','смесь','штукатурка','штукатурк','шпатлевка','шпатлевк','шпаклевка','шпаклевк','клей','затирка','грунтовка','грунтовк','краска','краситель','акрил','эмаль','лист','гкл','профиль','саморез','сверло','круг','герметик','пена','гвозд','дюбель','плитка','плитк','керамическ','керамогранит','гранит','пвх','потолочная плита','панель','плинтус','наличник','полотно','дверной блок','оконный блок'],
-  equipment: ['оборудование','прибор','аппарат','станция','насос','котел','радиатор','конвектор','вентилятор','решетка','механизм','инструмент','аренда','леса','подмости'],
-  transport: ['доставка','перевозка','транспорт','вывоз','погрузка','разгрузка','экспедирование'],
-  overhead: ['накладн','прочие','непредвид','коэффициент','сметная прибыль','заготовительно складские','компенсация','страхование']
-};
-const ESTIMATE_WORK_ACTION_TOKENS = ['монтаж','демонтаж','установка','устройство','прокладка','разбор','разборка','сборка','кладка','штукатур','шпатлев','шпаклев','окраск','грунтов','облицов','стяжк','бетонир','заливка','укладка','замена','подключение','снятие','очистка','ремонт','изготовление','нанесение','армирование','отбивк'];
-const ESTIMATE_STRONG_WORK_TOKENS = ['штукатурка стен','шпаклевка стен','шпатлевка стен','грунтовка стен','окраска стен','облицовка стен'];
-const ESTIMATE_WORK_START_TOKENS = ['монтаж','демонтаж','установка','устройство','прокладка','разбор','разборка','сборка','замена','подключение','снятие','очистка','ремонт','изготовление','нанесение','армирование','бетонирование','облицовка','окраска','кладка','стяжка','штукатурка','шпаклевка','шпатлевка','грунтование','отбивка'];
 const estimateCodeLooksResource = (value) => {
   const raw = String(value||'').trim();
   return /^\d{2,}[-/]\d+/.test(raw) || /^\d{3,}$/.test(raw) || /^тц[_-]/i.test(raw) || /^фс[сб]ц/i.test(raw);
@@ -269,30 +260,7 @@ const inferEstimateUnit = (it={}, sectionName='') => {
   if (itemType !== 'material' && estimateTextHasAny(text, ['поверхност','фасад','стен','перегород','потолк','потолоч','обои','облицов','окраск','штукатур','шпатлев','шпаклев','грунтов','плитк','керамогранит','гранит','линолеум','покрытие пола','полы','пола','гкл','гипсокартон','сетка'])) return '100 м2';
   return 'шт';
 };
-const ESTIMATE_MEASUREMENT_BASES = [
-  {id:'manual', label:'Ручной объём', icon:'✍️'},
-  {id:'wall_net_area', label:'Стены чистые', icon:'🧱'},
-  {id:'wall_gross_area', label:'Стены общие', icon:'🏗️'},
-  {id:'wall_ceiling_area', label:'Стены+потолок', icon:'📏'},
-  {id:'floor_area', label:'Пол', icon:'⬛'},
-  {id:'ceiling_area', label:'Потолок', icon:'⬆️'},
-  {id:'window_reveals', label:'Оконные откосы', icon:'🪟'},
-  {id:'door_reveals', label:'Дверные откосы', icon:'🚪'},
-  {id:'opening_reveals', label:'Откосы окон/дверей', icon:'📐'},
-  {id:'window_area', label:'Окна, м2', icon:'🪟'},
-  {id:'door_area', label:'Двери, м2', icon:'🚪'},
-  {id:'openings_area', label:'Окна+двери, м2', icon:'🚪'},
-  {id:'window_count', label:'Окна, шт', icon:'🪟'},
-  {id:'door_count', label:'Двери, шт', icon:'🚪'},
-  {id:'linear', label:'Погонные метры', icon:'📏'},
-  {id:'point', label:'Точки/приборы', icon:'📍'},
-  {id:'demolition', label:'Демонтаж', icon:'🔨'}
-];
-const ESTIMATE_MEASUREMENT_BASE_BY_ID = ESTIMATE_MEASUREMENT_BASES.reduce((acc,b)=>{acc[b.id]=b;return acc;},{});
 const estimateMeasurementBasisMeta = (basis) => ESTIMATE_MEASUREMENT_BASE_BY_ID[basis] || ESTIMATE_MEASUREMENT_BASE_BY_ID.manual;
-const PROJECT_MEASUREMENT_SOURCE_TYPES = ['Проект','Фактический ручной','Фактический из фото','Экспликация','Ведомость окон/дверей','Уточнённый'];
-const PROJECT_MEASUREMENT_DOC_TYPES = ['Проект','Обмер','Экспликация','Ведомость окон','Ведомость дверей','Фото обмера','Рукописный обмер','Прочее'];
-const PROJECT_MEASUREMENT_STATUSES = ['Черновик','На проверке','Принято','Отклонено'];
 const suggestEstimateMeasurementBasis = (it={}, sectionName='') => {
   const text = estimateTextKey([sectionName, it.section, it.name].filter(Boolean).join(' '));
   const inferredUnit = inferEstimateUnit(it, sectionName);
@@ -547,30 +515,6 @@ const estimateItemDoneTotal = (it) => {
   if (it?.isImported) return q > 0 ? (d / q) * estimateItemTotal(it) : 0;
   return d * (toNum(it?.priceWork) + toNum(it?.priceMaterial));
 };
-// Нормализация ГЭСН-единиц: «100 м²» × 0.23 → «м²» × 23, «1000 шт» × 0.5 → «шт» × 500.
-// В рабочей смете храним нормальный объём, исходник импорта — в rawUnit/rawQuantity.
-const normalizeMeasure = (qty, unit) => {
-  if(!unit) return {qty: toNum(qty), unit: unit||'', factor: 1};
-  // Ищем число-множитель в начале строки: "100 м²", "1000 шт", "10 м³", "100м2"
-  const m = String(unit).trim().match(/^(\d{2,})\s*(.+)$/);
-  if(!m) return {qty: toNum(qty), unit, factor: 1};
-  const factor = parseInt(m[1], 10);
-  if(factor < 10) return {qty: toNum(qty), unit, factor: 1};
-  return {qty: toNum(qty) * factor, unit: m[2].trim(), factor};
-};
-// Обратное преобразование: пользователь ввёл 23 м², а unit смета «100 м²» — сохраняем 0.23
-const denormalizeMeasure = (qty, unit) => {
-  const {factor} = normalizeMeasure(1, unit);
-  if(factor <= 1) return toNum(qty);
-  return toNum(qty) / factor;
-};
-// Красивое форматирование "qty unit" с автонормализацией
-const fmtMeasure = (qty, unit) => {
-  const n = normalizeMeasure(qty, unit);
-  const q = n.qty;
-  const qStr = Math.abs(q - Math.round(q)) < 0.001 ? String(Math.round(q)) : q.toLocaleString('ru-RU', {maximumFractionDigits: 3});
-  return qStr + ' ' + (n.unit||'');
-};
 const estimateLineTotalSourceLabel = (source) => ({
   current_total: 'сумма из сметы',
   direct_total: 'сумма из строки',
@@ -741,26 +685,6 @@ const EMPTY_MATERIAL_NORM_FORM = {
 // === Конвертация единиц для строительных материалов ===
 // Арматура: вес погонного метра в зависимости от диаметра (ГОСТ 5781-82)
 const REBAR_KG_PER_M = { 6:0.222, 8:0.395, 10:0.617, 12:0.888, 14:1.21, 16:1.58, 18:2.0, 20:2.47, 22:2.98, 25:3.85, 28:4.83, 32:6.31 };
-const _normalizeUnit = (u) => {
-  const raw = (u||'').toLowerCase().trim().replace(/[²]/g,'2').replace(/[³]/g,'3');
-  const x = raw.replace(/^\d{2,}\s*/, '').replace(/\s+/g,'');
-  if (x.startsWith('м2') || x.startsWith('квм')) return 'м2';
-  if (x.startsWith('м3') || x.startsWith('кубм')) return 'м3';
-  if (x.startsWith('м.п') || x.startsWith('пог.м') || x.startsWith('погм') || x.startsWith('п.м') || x.startsWith('пм')) return 'м';
-  if (x.startsWith('шт')) return 'шт';
-  if (x.startsWith('кг')) return 'кг';
-  if (x.startsWith('тонн') || x.startsWith('тонна') || x.startsWith('тонны')) return 'т';
-  if (['кг','kg','килограмм','килограмма','килограммов'].includes(x)) return 'кг';
-  if (['м','м.п','пог.м','погм','п.м','пм','метр','метра','метров'].includes(x)) return 'м';
-  if (['л','литр','литра','литров','l'].includes(x)) return 'л';
-  if (['мешок','мешка','мешков','меш'].includes(x)) return 'мешок';
-  if (['м3','м³','куб.м','кубм','куб'].includes(x)) return 'м3';
-  if (['м2','м²','кв.м','квм'].includes(x)) return 'м2';
-  if (['т','тонн','тонна','тонны'].includes(x)) return 'т';
-  if (['шт','штук','штука','штуки','шт.'].includes(x)) return 'шт';
-  if (['компл','комплект','комплекта','комплектов'].includes(x)) return 'компл';
-  return x;
-};
 const _rebarDiameter = (name) => { const m = (name||'').match(/[ØФø]?\s*(\d{1,2})\s*мм/i); return m ? Number(m[1]) : null; };
 // Возвращает {qty, factor, note} или null если конверсия не известна
 const convertUnits = (materialName, qty, fromUnit, toUnit) => {
