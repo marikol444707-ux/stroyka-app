@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Check, Upload, X } from 'lucide-react';
 import { API } from '../api';
+import { invoiceImageAccept, normalizeInvoiceImageFile } from '../utils/invoiceImages';
 
 function SupplyDeliveriesPanel({
   C,
@@ -47,15 +48,15 @@ function SupplyDeliveriesPanel({
     if (!file) return;
     setDeliveryAiLoadingId(delivery.id);
     try {
-      const base64 = await new Promise(resolve => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.readAsDataURL(file);
-      });
+      const normalized = await normalizeInvoiceImageFile(file);
       const resp = await fetch(API+'/scan-invoice',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({image:base64}),
+        body:JSON.stringify({image:{
+          data: normalized.base64,
+          mimeType: normalized.mimeType,
+          name: normalized.originalName,
+        }}),
       });
       const parsed = await resp.json();
       const items = parsed?.data?.items || [];
@@ -68,8 +69,8 @@ function SupplyDeliveriesPanel({
           qualityNotes:'AI распознал: '+(match.name||'')+' '+(match.quantity||'')+' '+(match.unit||''),
         }));
       }
-    } catch(_) {
-      setDeliveryAiResultById(prev=>({...prev,[delivery.id]:'Не удалось распознать накладную'}));
+    } catch(error) {
+      setDeliveryAiResultById(prev=>({...prev,[delivery.id]:error?.message || 'Не удалось распознать накладную'}));
     }
     setDeliveryAiLoadingId(null);
     event.target.value='';
@@ -120,7 +121,7 @@ function SupplyDeliveriesPanel({
                 <span style={badge(stC,stBg,stBd)}>{delivery.status}</span>
                 <label style={{...btnG,padding:'5px 10px',fontSize:'11px',cursor:'pointer'}}>
                   <Bot size={11}/>AI накладная
-                  <input type='file' accept='image/*' style={{display:'none'}} onChange={event=>scanInvoice(event, delivery)}/>
+                  <input type='file' accept={invoiceImageAccept} capture='environment' style={{display:'none'}} onChange={event=>scanInvoice(event, delivery)}/>
                 </label>
                 {canReceive && <button onClick={()=>startReceiving(delivery, isReceiving)} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Принять</button>}
                 {linkedInvoice && <button onClick={()=>showPreview(buildInvoiceContent(linkedInvoice),'Накладная № '+linkedInvoice.number)} style={{...btnB,padding:'5px 10px',fontSize:'11px'}}>Печать накл.</button>}

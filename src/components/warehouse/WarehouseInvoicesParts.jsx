@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, Eye, Plus, QrCode, Upload, X } from 'lucide-react';
+import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../../utils/invoiceImages';
 
 export function WarehouseInvoiceForm({
   newInvoice,
@@ -120,9 +121,16 @@ export function WarehouseInvoiceForm({
 
   const addPhotos = async (event) => {
     const files = Array.from(event.target.files || []);
+    if (!files.length) return;
     const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : 'Основной склад';
-    const urls = await Promise.all(files.map(file => uploadPhoto(file, {projectName: invoiceProject, context: 'warehouse-invoices'})));
-    setNewInvoice(prev => ({...prev, photos: [...(prev.photos || []), ...urls.filter(Boolean)]}));
+    try {
+      const normalizedPages = await normalizeInvoiceImageFiles(files);
+      const urls = await Promise.all(normalizedPages.map(page => uploadPhoto(page.uploadFile, {projectName: invoiceProject, context: 'warehouse-invoices'})));
+      setNewInvoice(prev => ({...prev, photos: [...(prev.photos || []), ...urls.filter(Boolean)]}));
+    } catch (error) {
+      alert(error?.message || 'Не удалось подготовить фото накладной');
+    }
+    event.target.value = '';
   };
 
   return (
@@ -265,7 +273,7 @@ export function WarehouseInvoiceForm({
       <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'15px',flexWrap:'wrap'}}>
         <label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 14px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}>
           <Upload size={13}/>Добавить фото
-          <input type="file" accept="image/*" multiple style={{display:'none'}} onChange={addPhotos}/>
+          <input type="file" accept={invoiceImageAccept} multiple capture="environment" style={{display:'none'}} onChange={addPhotos}/>
         </label>
         {(newInvoice.photos || []).map((url, index) => (
           <img key={index} src={fileSrc(url)} alt="" onClick={() => setShowPhotoModal(fileSrc(url))} style={{width:'48px',height:'48px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/>

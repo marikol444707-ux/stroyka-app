@@ -1,5 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../utils/invoiceImages';
 
 export default function ScanInvoiceModal({
   showScanInvoice,
@@ -76,25 +77,24 @@ export default function ScanInvoiceModal({
     }
   };
 
-  const readFileAsBase64 = (file) => new Promise(res=>{
-    const r=new FileReader();
-    r.onload=()=>res(String(r.result || '').split(',')[1] || '');
-    r.readAsDataURL(file);
-  });
-
   const scan = async (fileList) => {
     const files = Array.from(fileList || []).filter(Boolean).slice(0, 8);
     if(!files.length) return;
     setScanningInvoice(true);
     const location = targetLocation || 'Основной склад';
     const project = location !== 'Основной склад' ? location : '';
-    const images = await Promise.all(files.map(readFileAsBase64));
     try {
+      const normalizedPages = await normalizeInvoiceImageFiles(files);
+      const images = normalizedPages.map(page => ({
+        data: page.base64,
+        mimeType: page.mimeType,
+        name: page.originalName,
+      }));
       const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images, target:'warehouse', location, project})});
       const data = await resp.json();
       if(!data.ok) throw new Error(data.error||'Ошибка');
       const parsed = data.data;
-      const uploadedPhotos = (await Promise.all(files.map(file => uploadInvoicePhoto(file, location)))).filter(Boolean);
+      const uploadedPhotos = (await Promise.all(normalizedPages.map(page => uploadInvoicePhoto(page.uploadFile, location)))).filter(Boolean);
       const today = new Date().toISOString().split('T')[0];
       const totalWithVat = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
       const totalBase = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
@@ -135,7 +135,7 @@ export default function ScanInvoiceModal({
       setShowScannedInvoiceForm(true);
       alert(files.length > 1 ? `Накладная распознана: ${files.length} стр. Проверьте данные.` : 'Накладная распознана! Проверьте данные.');
     } catch(e){
-      alert('Не удалось распознать. Попробуйте ещё раз.');
+      alert(e?.message || 'Не удалось распознать. Попробуйте ещё раз.');
     }
     setScanningInvoice(false);
   };
@@ -150,7 +150,7 @@ export default function ScanInvoiceModal({
           {projects.map(p=><option key={p.id || p.name} value={p.name}>🏗️ {p.name}</option>)}
         </select>
         <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
-          <input type='file' accept='image/*' multiple style={{display:'none'}} onChange={e=>scan(e.target.files)}/>
+          <input type='file' accept={invoiceImageAccept} multiple capture='environment' style={{display:'none'}} onChange={e=>scan(e.target.files)}/>
           <div style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:'30px',textAlign:'center',cursor:'pointer'}}>
             {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт страницы накладной...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📷</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите фото накладной</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>Можно выбрать 1-8 страниц, ИИ соберёт их в одну накладную</p></div>}
           </div>

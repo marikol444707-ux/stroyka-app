@@ -20669,11 +20669,44 @@ TELEGRAM_WAREHOUSE_INTENT_WORDS = (
     "материал",
 )
 
+def _flatten_telegram_payload_values(value, depth=0):
+    if depth > 3:
+        return []
+    if isinstance(value, dict):
+        result = []
+        for item in value.values():
+            result.extend(_flatten_telegram_payload_values(item, depth + 1))
+        return result
+    if isinstance(value, list):
+        result = []
+        for item in value[:20]:
+            result.extend(_flatten_telegram_payload_values(item, depth + 1))
+        return result
+    if value is None:
+        return []
+    return [str(value)]
+
 def _telegram_payload_requests_warehouse(data: dict) -> bool:
-    for key in ("intent", "action", "type", "destination", "mode", "context", "target", "flow"):
+    direct_keys = (
+        "intent", "action", "selectedAction", "type", "kind", "route",
+        "destination", "mode", "context", "target", "flow", "warehouseTarget",
+        "documentType", "document_type", "caption", "text", "description",
+    )
+    for key in direct_keys:
         value = str(data.get(key) or "").strip().lower()
         if value and any(word in value for word in TELEGRAM_WAREHOUSE_INTENT_WORDS):
             return True
+    source = data.get("data") if isinstance(data.get("data"), dict) else {}
+    for key in direct_keys:
+        value = str(source.get(key) or "").strip().lower()
+        if value and any(word in value for word in TELEGRAM_WAREHOUSE_INTENT_WORDS):
+            return True
+    route_values = " ".join(_flatten_telegram_payload_values({
+        key: data.get(key) for key in ("items", "positions", "photos", "files", "warehouse", "invoice")
+        if key in data
+    })).lower()
+    if route_values and any(word in route_values for word in ("наклад", "склад", "приход", "warehouse", "invoice")):
+        return True
     return False
 
 def _normalize_telegram_invoice_payload(data: dict, employee: dict) -> dict:
@@ -21867,6 +21900,47 @@ def clear_estimate_chat(estimate_id: int, current_user: dict = Depends(require_r
     cur.close(); conn.close()
     return {"ok": True}
 
+def _normalize_invoice_scan_image_entry(entry):
+    mime_type = "image/jpeg"
+    filename = ""
+    if isinstance(entry, dict):
+        raw = (
+            entry.get("data")
+            or entry.get("base64")
+            or entry.get("image")
+            or entry.get("imageData")
+            or ""
+        )
+        mime_type = str(
+            entry.get("mimeType")
+            or entry.get("mime")
+            or entry.get("contentType")
+            or mime_type
+        ).strip() or mime_type
+        filename = str(entry.get("name") or entry.get("filename") or "").lower()
+    else:
+        raw = str(entry or "")
+
+    raw = str(raw or "").strip()
+    if raw.startswith("data:"):
+        header, _, payload = raw.partition(",")
+        header = header[5:]
+        if ";" in header:
+            mime_type = header.split(";", 1)[0] or mime_type
+        raw = payload.strip()
+
+    mime_lower = mime_type.lower()
+    if "heic" in mime_lower or "heif" in mime_lower or filename.endswith((".heic", ".heif")):
+        raise HTTPException(
+            status_code=422,
+            detail="HEIC/HEIF нужно преобразовать в JPEG/PNG перед распознаванием накладной.",
+        )
+    if not raw:
+        return None
+    if not mime_type.lower().startswith("image/"):
+        mime_type = "image/jpeg"
+    return {"data": raw, "mimeType": mime_type}
+
 @app.post("/scan-invoice")
 def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     import openai as oa
@@ -21874,22 +21948,22 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
     FOLDER_ID = YANDEX_FOLDER_ID
     API_KEY = YANDEX_API_KEY
     images = data.get("images") or data.get("pages") or []
-    if isinstance(images, str):
+    if isinstance(images, (str, dict)):
         images = [images]
     if not isinstance(images, list):
         images = []
     if data.get("image"):
         images = [data.get("image")] + images
-    images = [str(img).strip() for img in images if str(img or "").strip()]
+    images = [_normalize_invoice_scan_image_entry(img) for img in images[:8]]
+    images = [img for img in images if img]
     if not images:
         return {"ok": False, "error": "Нет изображения накладной"}
-    images = images[:8]
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     try:
         content = []
-        for idx, base64_image in enumerate(images, start=1):
+        for idx, image in enumerate(images, start=1):
             content.append({"type": "input_text", "text": f"Страница накладной {idx} из {len(images)}"})
-            content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"})
+            content.append({"type": "input_image", "image_url": f"data:{image['mimeType']};base64,{image['data']}"})
         content.append({"type": "input_text", "text": (
             "Распознай приходную накладную или товарный чек для склада. Если страниц несколько, это один документ: "
             "объедини позиции со всех страниц в один items, номер/дату/поставщика бери из шапки, итог — с последней страницы или строки итого. "
