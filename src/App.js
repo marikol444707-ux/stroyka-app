@@ -893,6 +893,18 @@ function App() {
   const addActivity = (action) => {
     const entry = {id:Date.now(),action,user:user?user.name:'',role:user?user.role:'',time:new Date().toLocaleString('ru-RU')};
     setActivityLog(prev=>{const updated=[entry,...prev].slice(0,100);localStorage.setItem('activityLog',JSON.stringify(updated));return updated;});
+    try {
+      const token = localStorage.getItem('authToken');
+      if (token && user) {
+        fetch(API + '/audit-log', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + token},
+          body: JSON.stringify({action, entityType: 'ui', description: action})
+        }).then((res) => {
+          if (res.ok && activePage === 'activitylog') loadAuditLog();
+        }).catch(() => {});
+      }
+    } catch {}
   };
 
   const loadAuditLog = async () => {

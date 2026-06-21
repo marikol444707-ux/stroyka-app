@@ -36,14 +36,15 @@ export default function NotificationsDropdown({
   const dropdownStyle = isMobile
     ? {
         position: 'fixed',
-        top: 'calc(env(safe-area-inset-top, 0px) + 92px)',
-        left: '12px',
-        right: '12px',
-        width: 'calc(100vw - 24px)',
-        maxWidth: 'calc(100vw - 24px)',
-        maxHeight: 'min(68vh, calc(100dvh - 116px))',
+        top: 'calc(env(safe-area-inset-top, 0px) + 76px)',
+        left: 'max(10px, env(safe-area-inset-left, 0px))',
+        right: 'max(10px, env(safe-area-inset-right, 0px))',
+        width: 'auto',
+        maxWidth: 'none',
+        maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - 96px)',
         transform: 'none',
         boxSizing: 'border-box',
+        contain: 'layout paint',
         overscrollBehavior: 'contain',
         WebkitOverflowScrolling: 'touch',
       }
@@ -86,7 +87,7 @@ export default function NotificationsDropdown({
         {unreadNotifications>0&&<span style={{position:'absolute',top:'-4px',right:'-4px',backgroundColor:C.danger||'#ef4444',color:'white',borderRadius:'50%',padding:'1px 5px',fontSize:'10px',fontWeight:'700'}}>{unreadNotifications>99?'99+':unreadNotifications}</span>}
       </button>
       {showNotifications&&(
-        <div style={{...dropdownStyle,backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:isMobile?'16px':'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.18)',zIndex:3000,overflowY:'auto',overflowX:'hidden'}}>
+        <div style={{...dropdownStyle,backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:isMobile?'16px':'14px',boxShadow:'0 8px 40px rgba(0,0,0,0.18)',zIndex:isMobile?5000:3000,overflowY:'auto',overflowX:'hidden'}}>
           <div style={{padding:isMobile?'12px':'14px 18px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:isMobile?'wrap':'nowrap'}}>
             <b style={{color:C.text,fontSize:isMobile?'13px':'14px',minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{title}</b>
             <div style={{display:'flex',gap:'6px',alignItems:'center',marginLeft:'auto',flexShrink:0}}>

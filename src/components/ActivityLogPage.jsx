@@ -14,8 +14,24 @@ const auditActionText = (entry) => {
   return `${action}${description ? ` — ${description}` : ''}${project}`;
 };
 
+const mergeRows = (auditLog, activityLog) => {
+  const rows = [
+    ...(Array.isArray(auditLog) ? auditLog : []),
+    ...(Array.isArray(activityLog) ? activityLog : []),
+  ];
+  const seen = new Set();
+  return rows.filter((entry, index) => {
+    const key = entry.userName || entry.user || entry.userRole || entry.role
+      ? `${entry.action || ''}|${entry.description || ''}|${entry.userName || entry.user || ''}|${entry.createdAt || entry.time || ''}`
+      : `id:${entry.id || index}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 export default function ActivityLogPage({C, tbl, tblH, tblC, activityLog, auditLog, roleLabels, isMobile = false}) {
-  const rows = Array.isArray(auditLog) && auditLog.length ? auditLog : (Array.isArray(activityLog) ? activityLog : []);
+  const rows = mergeRows(auditLog, activityLog);
   if (isMobile) {
     return (
       <div style={{paddingBottom:'84px'}}>
