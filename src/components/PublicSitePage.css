@@ -1053,6 +1053,19 @@
   padding: 0 !important;
 }
 
+.public-consent-link {
+  border: 0;
+  background: transparent;
+  color: var(--site-green);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .public-form-success {
   color: var(--site-green) !important;
   font-weight: 800;

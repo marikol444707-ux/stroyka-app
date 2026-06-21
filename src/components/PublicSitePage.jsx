@@ -18,6 +18,12 @@ import { API } from '../api';
 import './PublicSitePage.css';
 
 const PUBLIC_CONSENT_VERSION = 'public-site-pd-v1-2026-06-21';
+const PUBLIC_SITE_OPERATOR = {
+  name: 'СтройКа',
+  site: 'stroyka26.pro',
+  privacyEmail: 'privacy@stroyka26.pro',
+  leadEmail: 'info@stroyka26.pro',
+};
 
 const workTypes = [
   { value: 'house', label: 'Дом', short: 'Строительство', description: 'Коробка, тёплый контур, инженерия, под ключ' },
@@ -493,6 +499,12 @@ const PublicSitePage = ({ onLogin }) => {
           budget: result.max || result.min || 0,
           page: 'public-site',
           legalSource: typeof window !== 'undefined' ? window.location.href : 'public-site',
+          referrer: typeof document !== 'undefined' ? document.referrer : '',
+          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+          submittedAt: new Date().toISOString(),
+          utm: typeof window !== 'undefined'
+            ? Object.fromEntries(new URLSearchParams(window.location.search).entries())
+            : {},
           consentAccepted: leadConsent,
           consentVersion: PUBLIC_CONSENT_VERSION,
           website: leadWebsite,
@@ -1075,7 +1087,18 @@ const PublicSitePage = ({ onLogin }) => {
             />
             <span>
               Даю согласие на обработку имени, телефона, комментария и параметров расчёта
-              для ответа на заявку. С политикой обработки персональных данных ознакомлен.
+              для ответа на заявку. С{' '}
+              <button
+                className="public-consent-link"
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  scrollTo('privacy');
+                }}
+              >
+                политикой обработки персональных данных
+              </button>{' '}
+              ознакомлен.
             </span>
           </label>
           <button className="public-primary" type="submit" disabled={leadSending || !leadConsent}>
@@ -1091,8 +1114,8 @@ const PublicSitePage = ({ onLogin }) => {
           <p className="public-eyebrow dark">Юридическая информация</p>
           <h2>Политика обработки персональных данных</h2>
           <p>
-            Этот раздел нужен для публичного запуска сайта и приёма заявок.
-            Перед рекламой заполните реквизиты оператора: ИНН, ОГРН/ОГРНИП, юридический адрес и рабочий email.
+            Заявки с сайта передаются в CRM только для обратной связи, расчёта и подготовки предложения.
+            Полные реквизиты исполнителя фиксируются в договоре и коммерческом предложении.
           </p>
         </div>
         <div className="public-legal-grid">
@@ -1114,7 +1137,7 @@ const PublicSitePage = ({ onLogin }) => {
             <h3>Согласие</h3>
             <p>
               Заявка отправляется только после отметки согласия. Отозвать согласие можно
-              через контакт оператора, указанный в реквизитах сайта.
+              через контакт оператора, указанный в этом разделе.
             </p>
           </article>
           <article>
@@ -1131,9 +1154,10 @@ const PublicSitePage = ({ onLogin }) => {
           Итоговая цена, сроки, состав работ и материалов фиксируются в договоре и смете.
         </div>
         <div className="public-requisites">
-          <span>Оператор: заполнить перед запуском рекламы</span>
-          <span>ИНН/ОГРН: заполнить</span>
-          <span>Email для обращений по ПД: заполнить</span>
+          <span>Оператор: {PUBLIC_SITE_OPERATOR.name}</span>
+          <span>Сайт: {PUBLIC_SITE_OPERATOR.site}</span>
+          <span>По персональным данным: {PUBLIC_SITE_OPERATOR.privacyEmail}</span>
+          <span>Заявки: {PUBLIC_SITE_OPERATOR.leadEmail}</span>
         </div>
       </section>
     </main>

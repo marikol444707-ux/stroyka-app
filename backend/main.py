@@ -3442,6 +3442,12 @@ def _public_site_project(row: dict) -> dict:
 def _public_text(value, limit: int = 255) -> str:
     return str(value or "").strip()[:limit]
 
+def _public_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return _public_text(forwarded.split(",")[0], 80)
+    return _public_text(request.client.host if request.client else "unknown", 80)
+
 def _public_lead_notes(data: dict) -> str:
     parts = []
     comment = _public_text(data.get("comment") or data.get("notes"), 1200)
@@ -3460,6 +3466,21 @@ def _public_lead_notes(data: dict) -> str:
     page = _public_text(data.get("page"), 120)
     if page:
         parts.append("Страница: " + page)
+    referrer = _public_text(data.get("referrer"), 255)
+    if referrer:
+        parts.append("Referrer: " + referrer)
+    submitted_at = _public_text(data.get("submittedAt"), 80)
+    if submitted_at:
+        parts.append("Время отправки формы: " + submitted_at)
+    utm = data.get("utm") if isinstance(data.get("utm"), dict) else {}
+    if utm:
+        utm_parts = []
+        for key in ("utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"):
+            value = _public_text(utm.get(key), 120)
+            if value:
+                utm_parts.append(key + "=" + value)
+        if utm_parts:
+            parts.append("UTM: " + " · ".join(utm_parts))
     return "\n".join(parts)[:4000]
 
 class ClientModel(BaseModel):
@@ -4252,7 +4273,7 @@ def get_site_projects():
 
 @app.post("/site/leads")
 def create_site_lead(data: dict, request: Request):
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _public_client_ip(request)
     now = time.time()
     last = _PUBLIC_LEAD_LAST_SUBMIT.get(client_ip, 0)
     if PUBLIC_LEAD_RATE_LIMIT_SECONDS > 0 and now - last < PUBLIC_LEAD_RATE_LIMIT_SECONDS:
@@ -4276,7 +4297,7 @@ def create_site_lead(data: dict, request: Request):
     notes = _public_lead_notes(data)
     consent_version = _public_text(data.get("consentVersion"), 120)
     legal_source = _public_text(data.get("legalSource") or data.get("page"), 255)
-    user_agent = _public_text(request.headers.get("user-agent"), 255)
+    user_agent = _public_text(data.get("userAgent") or request.headers.get("user-agent"), 255)
     legal_notes = [
         "Согласие ПД: принято",
         "Версия согласия: " + (consent_version or "не указана"),
