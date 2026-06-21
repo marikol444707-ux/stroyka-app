@@ -1,5 +1,10 @@
 User-agent: *
 Allow: /
+Allow: /llms.txt
+Allow: /features.html
+Allow: /contacts.html
+Allow: /privacy.html
+Allow: /terms.html
 Disallow: /api/
 Disallow: /login
 Disallow: /register

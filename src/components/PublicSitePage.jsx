@@ -1158,6 +1158,9 @@ const PublicSitePage = ({ onLogin }) => {
           <span>Сайт: {PUBLIC_SITE_OPERATOR.site}</span>
           <span>По персональным данным: {PUBLIC_SITE_OPERATOR.privacyEmail}</span>
           <span>Заявки: {PUBLIC_SITE_OPERATOR.leadEmail}</span>
+          <span><a href="/privacy.html">Политика</a></span>
+          <span><a href="/terms.html">Условия</a></span>
+          <span><a href="/contacts.html">Контакты</a></span>
         </div>
       </section>
     </main>

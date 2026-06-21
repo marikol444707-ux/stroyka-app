@@ -1,0 +1,141 @@
+body {
+  margin: 0;
+  color: #111827;
+  background: #f8fafc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+a {
+  color: #0f5f4a;
+}
+
+.page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 18px 56px;
+}
+
+.topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 36px;
+}
+
+.brand {
+  color: #111827;
+  font-size: 25px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.brand strong {
+  color: #f97316;
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.nav a {
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #111827;
+  background: #ffffff;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.hero,
+.card {
+  border: 1px solid #dfe7e4;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 42px rgba(16, 24, 40, 0.08);
+}
+
+.hero {
+  padding: clamp(24px, 5vw, 48px);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: #0f5f4a;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(34px, 7vw, 56px);
+  line-height: 1;
+}
+
+h2 {
+  margin: 0 0 14px;
+  font-size: clamp(24px, 4vw, 34px);
+}
+
+h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+p,
+li {
+  color: #475467;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.card {
+  padding: 20px;
+}
+
+.notice {
+  border-left: 4px solid #f97316;
+  background: #fff7ed;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  margin-top: 28px;
+  color: #667085;
+  font-size: 14px;
+}
+
+@media (max-width: 720px) {
+  .topline {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .nav a {
+    text-align: center;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

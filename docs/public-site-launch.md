@@ -8,6 +8,7 @@
 - Форма заявки создает лид в CRM и задачу директору.
 - В заявке фиксируются согласие на обработку персональных данных, страница, IP, User-Agent, referrer и UTM-метки.
 - Есть `robots.txt`, `sitemap.xml`, `llms.txt`, PWA manifest, SEO/OG-мета и JSON-LD для поисковиков, мессенджеров и AI-агентов.
+- Есть статические публичные страницы для индексации без входа в ERP: `/features.html`, `/contacts.html`, `/privacy.html`, `/terms.html`.
 
 ## Перед рекламой и публикацией
 
@@ -31,6 +32,10 @@ SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:prod
 curl -sSI https://stroyka26.pro/ | head -20
 curl -sS https://stroyka26.pro/sitemap.xml | head -20
 curl -sS https://stroyka26.pro/llms.txt | head -40
+curl -sSI https://stroyka26.pro/features.html | head -10
+curl -sSI https://stroyka26.pro/contacts.html | head -10
+curl -sSI https://stroyka26.pro/privacy.html | head -10
+curl -sSI https://stroyka26.pro/terms.html | head -10
 ```
 
 ## Деплой

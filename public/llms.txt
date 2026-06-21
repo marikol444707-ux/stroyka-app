@@ -35,6 +35,10 @@ URL: https://stroyka26.pro/
 ## Публичные страницы
 
 Основная публичная страница: https://stroyka26.pro/
+Возможности: https://stroyka26.pro/features.html
+Контакты: https://stroyka26.pro/contacts.html
+Политика персональных данных: https://stroyka26.pro/privacy.html
+Условия использования: https://stroyka26.pro/terms.html
 
 На публичной странице можно прочитать описание продукта и отправить заявку на связь. Заявка не дает доступ к ERP-данным.
 
