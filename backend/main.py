@@ -4258,6 +4258,13 @@ def create_site_lead(data: dict, request: Request):
     if PUBLIC_LEAD_RATE_LIMIT_SECONDS > 0 and now - last < PUBLIC_LEAD_RATE_LIMIT_SECONDS:
         raise HTTPException(status_code=429, detail="Заявка уже отправлена. Попробуйте чуть позже.")
 
+    if _public_text(data.get("website") or data.get("honeypot"), 255):
+        _PUBLIC_LEAD_LAST_SUBMIT[client_ip] = now
+        return {"ok": True, "id": None, "status": "accepted"}
+
+    if data.get("consentAccepted") is not True:
+        raise HTTPException(status_code=422, detail="Нужно согласие на обработку персональных данных")
+
     phone = _public_text(data.get("phone"), 80)
     if not phone:
         raise HTTPException(status_code=422, detail="Укажите телефон")
@@ -4267,6 +4274,17 @@ def create_site_lead(data: dict, request: Request):
     source = _public_text(data.get("source") or "Сайт", 255)
     budget = data.get("budget") or 0
     notes = _public_lead_notes(data)
+    consent_version = _public_text(data.get("consentVersion"), 120)
+    legal_source = _public_text(data.get("legalSource") or data.get("page"), 255)
+    user_agent = _public_text(request.headers.get("user-agent"), 255)
+    legal_notes = [
+        "Согласие ПД: принято",
+        "Версия согласия: " + (consent_version or "не указана"),
+        "Источник согласия: " + (legal_source or "не указан"),
+        "IP: " + client_ip,
+        "User-Agent: " + (user_agent or "не указан"),
+    ]
+    notes = (notes + ("\n\n" if notes else "") + "\n".join(legal_notes))[:4000]
     created_at = dt.datetime.utcnow().strftime("%Y-%m-%d")
 
     conn = get_db()

@@ -17,6 +17,8 @@ import {
 import { API } from '../api';
 import './PublicSitePage.css';
 
+const PUBLIC_CONSENT_VERSION = 'public-site-pd-v1-2026-06-21';
+
 const workTypes = [
   { value: 'house', label: 'Дом', short: 'Строительство', description: 'Коробка, тёплый контур, инженерия, под ключ' },
   { value: 'repair', label: 'Ремонт', short: 'Отделка', description: 'Квартира, дом, офис, состояние и набор работ' },
@@ -263,6 +265,8 @@ const PublicSitePage = ({ onLogin }) => {
     inspectionNeeded: true,
   });
   const [lead, setLead] = useState({ name: '', phone: '', comment: '' });
+  const [leadConsent, setLeadConsent] = useState(false);
+  const [leadWebsite, setLeadWebsite] = useState('');
   const [sent, setSent] = useState(false);
   const [leadSending, setLeadSending] = useState(false);
   const [leadError, setLeadError] = useState('');
@@ -474,6 +478,10 @@ const PublicSitePage = ({ onLogin }) => {
     event.preventDefault();
     if (leadSending) return;
     setLeadError('');
+    if (!leadConsent) {
+      setLeadError('Подтвердите согласие на обработку персональных данных.');
+      return;
+    }
     setLeadSending(true);
     try {
       const response = await fetch(API + '/site/leads', {
@@ -484,6 +492,10 @@ const PublicSitePage = ({ onLogin }) => {
           source: 'Сайт',
           budget: result.max || result.min || 0,
           page: 'public-site',
+          legalSource: typeof window !== 'undefined' ? window.location.href : 'public-site',
+          consentAccepted: leadConsent,
+          consentVersion: PUBLIC_CONSENT_VERSION,
+          website: leadWebsite,
           calculation: {
             typeLabel: result.typeLabel,
             summary: result.summary,
@@ -497,6 +509,8 @@ const PublicSitePage = ({ onLogin }) => {
       }
       setSent(true);
       setLead({ name: '', phone: '', comment: '' });
+      setLeadConsent(false);
+      setLeadWebsite('');
     } catch (error) {
       setLeadError(error.message || 'Не удалось отправить заявку');
     } finally {
@@ -517,6 +531,7 @@ const PublicSitePage = ({ onLogin }) => {
             <button type="button" onClick={() => scrollTo('objects')}>Объекты</button>
             <button type="button" onClick={() => scrollTo('passport')}>Контроль</button>
             <button type="button" onClick={() => scrollTo('suppliers')}>Поставщикам</button>
+            <button type="button" onClick={() => scrollTo('privacy')}>Политика</button>
           </nav>
           <button className="public-login" type="button" onClick={onLogin}>Вход в ERP</button>
         </header>
@@ -1031,6 +1046,15 @@ const PublicSitePage = ({ onLogin }) => {
           </p>
         </div>
         <form className="public-request-form" onSubmit={submitLead}>
+          <label className="public-honeypot" aria-hidden="true">
+            Сайт
+            <input
+              value={leadWebsite}
+              onChange={(event) => setLeadWebsite(event.target.value)}
+              autoComplete="off"
+              tabIndex={-1}
+            />
+          </label>
           <label>
             Имя
             <input value={lead.name} onChange={(event) => setLead({ ...lead, name: event.target.value })} placeholder="Как к вам обращаться" />
@@ -1043,12 +1067,74 @@ const PublicSitePage = ({ onLogin }) => {
             Комментарий
             <textarea value={lead.comment} onChange={(event) => setLead({ ...lead, comment: event.target.value })} placeholder="Адрес, сроки, что нужно построить" />
           </label>
-          <button className="public-primary" type="submit" disabled={leadSending}>
+          <label className="public-consent">
+            <input
+              type="checkbox"
+              checked={leadConsent}
+              onChange={(event) => setLeadConsent(event.target.checked)}
+            />
+            <span>
+              Даю согласие на обработку имени, телефона, комментария и параметров расчёта
+              для ответа на заявку. С политикой обработки персональных данных ознакомлен.
+            </span>
+          </label>
+          <button className="public-primary" type="submit" disabled={leadSending || !leadConsent}>
             {leadSending ? 'Отправляем...' : 'Отправить заявку'}
           </button>
           {sent && <p className="public-form-success">Заявка отправлена в CRM. Менеджер или директор увидит её в разделе заявок.</p>}
           {leadError && <p className="public-form-error">{leadError}</p>}
         </form>
+      </section>
+
+      <section id="privacy" className="public-section public-legal">
+        <div className="public-section-head">
+          <p className="public-eyebrow dark">Юридическая информация</p>
+          <h2>Политика обработки персональных данных</h2>
+          <p>
+            Этот раздел нужен для публичного запуска сайта и приёма заявок.
+            Перед рекламой заполните реквизиты оператора: ИНН, ОГРН/ОГРНИП, юридический адрес и рабочий email.
+          </p>
+        </div>
+        <div className="public-legal-grid">
+          <article>
+            <h3>Что обрабатываем</h3>
+            <p>
+              Имя, телефон, комментарий к заявке, параметры предварительного расчёта,
+              технические данные отправки формы и источник заявки.
+            </p>
+          </article>
+          <article>
+            <h3>Зачем</h3>
+            <p>
+              Чтобы ответить на обращение, подготовить расчёт, связать заявку с CRM
+              и не потерять историю общения с клиентом.
+            </p>
+          </article>
+          <article>
+            <h3>Согласие</h3>
+            <p>
+              Заявка отправляется только после отметки согласия. Отозвать согласие можно
+              через контакт оператора, указанный в реквизитах сайта.
+            </p>
+          </article>
+          <article>
+            <h3>Реклама</h3>
+            <p>
+              Рекламные сообщения и массовые рассылки не отправляются без отдельного
+              согласия пользователя.
+            </p>
+          </article>
+        </div>
+        <div className="public-legal-note">
+          <strong>Не является публичной офертой.</strong>
+          Предварительные расчёты на сайте носят информационный характер.
+          Итоговая цена, сроки, состав работ и материалов фиксируются в договоре и смете.
+        </div>
+        <div className="public-requisites">
+          <span>Оператор: заполнить перед запуском рекламы</span>
+          <span>ИНН/ОГРН: заполнить</span>
+          <span>Email для обращений по ПД: заполнить</span>
+        </div>
       </section>
     </main>
   );
