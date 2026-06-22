@@ -4565,6 +4565,15 @@ def create_material(m: MaterialModel, _current_user: dict = Depends(require_role
                 (m.name,unit,m.quantity,m.price,m.minQuantity,m.project,m.category,work_package))
     row = cur.fetchone()
     conn.commit()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        "create",
+        "interim_act",
+        row.get("id"),
+        ("Акт исполнителя: " + str(row.get("master_name") or "") + ", сумма " + str(row.get("total_amount") or ""))[:250],
+        row.get("project") or "",
+    )
     conn.close()
     return dict(row)
 
@@ -5181,6 +5190,15 @@ def create_staff(s: StaffModel, _current_user: dict = Depends(require_roles(*STA
         new_id = cur.fetchone()[0]
         access = _sync_staff_access(cur, s)
         conn.commit()
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            "create",
+            "staff",
+            new_id,
+            ("Создан сотрудник: " + str(s.name or "") + ", роль " + str(s.role or ""))[:250],
+            s.project or "",
+        )
         return {"id": new_id, "ok": True, "access": access}
     except HTTPException:
         conn.rollback()
@@ -5209,6 +5227,15 @@ def update_staff(id: int, s: StaffModel, _current_user: dict = Depends(require_r
             raise HTTPException(status_code=404, detail="Сотрудник не найден")
         access = _sync_staff_access(cur, s)
         conn.commit()
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            "update",
+            "staff",
+            id,
+            ("Обновлен сотрудник: " + str(s.name or "") + ", роль " + str(s.role or ""))[:250],
+            s.project or "",
+        )
         return {"ok": True, "access": access}
     except HTTPException:
         conn.rollback()
@@ -5225,7 +5252,7 @@ def delete_staff(id: int, _current_user: dict = Depends(require_roles(*STAFF_MAN
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT name,email_work,email_personal FROM staff WHERE id=%s", (id,))
+        cur.execute("SELECT name,role,COALESCE(project,'') AS project,email_work,email_personal FROM staff WHERE id=%s", (id,))
         staff_row = cur.fetchone()
         if not staff_row:
             conn.rollback()
@@ -5252,6 +5279,15 @@ def delete_staff(id: int, _current_user: dict = Depends(require_roles(*STAFF_MAN
             """, (emails,))
             disabled_users = cur.rowcount
         conn.commit()
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            "deactivate",
+            "staff",
+            id,
+            ("Сотрудник уволен/отключен: " + str(staff_row.get("name") or "") + ", роль " + str(staff_row.get("role") or ""))[:250],
+            staff_row.get("project") or "",
+        )
         return {"ok": True, "status": "Уволен", "disabledUsers": disabled_users}
     except HTTPException:
         conn.rollback()
@@ -5493,7 +5529,7 @@ def update_assigned_projects(id: int, data: dict, _current_user: dict = Depends(
         return {"ok": False, "error": "assignedPackages must be array"}
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT role, COALESCE(project_name,'') AS project_name FROM users WHERE id=%s", (id,))
+    cur.execute("SELECT name,email,role, COALESCE(project_name,'') AS project_name FROM users WHERE id=%s", (id,))
     user_row = cur.fetchone()
     if not user_row:
         cur.close(); conn.close()
@@ -5502,6 +5538,22 @@ def update_assigned_projects(id: int, data: dict, _current_user: dict = Depends(
     cur.execute("UPDATE users SET assigned_projects=%s::jsonb, assigned_packages=%s::jsonb WHERE id=%s",
                 (_j.dumps(projects_list), _j.dumps(packages_list), id))
     conn.commit()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        "access_update",
+        "user",
+        id,
+        (
+            "Обновлены доступы пользователя: "
+            + str(user_row.get("name") or user_row.get("email") or id)
+            + "; объектов "
+            + str(len(projects_list))
+            + ", пакетов "
+            + str(len(packages_list))
+        )[:250],
+        ", ".join([str(p) for p in projects_list[:3]]) or user_row.get("project_name") or "",
+    )
     cur.close(); conn.close()
     return {"ok": True}
 
@@ -5522,6 +5574,15 @@ def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADE
                     ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages), u.active is not False))
         row = cur.fetchone()
         conn.commit()
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            "create",
+            "user",
+            row.get("id"),
+            ("Создан пользователь: " + str(row.get("name") or "") + " (" + str(row.get("email") or "") + "), роль " + str(row.get("role") or ""))[:250],
+            row.get("project_name") or "",
+        )
         cur.close()
         conn.close()
         return dict(row)
@@ -5555,6 +5616,15 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
             conn.rollback()
             raise HTTPException(status_code=404, detail="Пользователь не найден")
         conn.commit()
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            "update",
+            "user",
+            id,
+            ("Обновлен пользователь: " + str((u.name or "").strip()) + " (" + email + "), роль " + str(u.role or ""))[:250],
+            u.projectName or "",
+        )
     except HTTPException:
         cur.close()
         conn.close()
@@ -5574,6 +5644,13 @@ def delete_user(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP
         raise HTTPException(status_code=400, detail="Нельзя отключить свой аккаунт")
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT name,email,role,COALESCE(project_name,'') FROM users WHERE id=%s", (id,))
+    user_row = cur.fetchone()
+    if not user_row:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
     cur.execute("UPDATE users SET active=FALSE, locked_until=NULL WHERE id=%s", (id,))
     if cur.rowcount == 0:
         conn.rollback()
@@ -5581,6 +5658,15 @@ def delete_user(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP
         conn.close()
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     conn.commit()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        "deactivate",
+        "user",
+        id,
+        ("Отключен пользователь: " + str(user_row[0] or user_row[1] or "") + ", роль " + str(user_row[2] or ""))[:250],
+        user_row[3] or "",
+    )
     cur.close()
     conn.close()
     return {"ok": True}
@@ -6953,7 +7039,17 @@ def create_supply_request(r: SupplyRequestModel, _current_user: dict = Depends(r
     new_id = cur.fetchone()['id']
     cur.execute(SUPPLY_SELECT + " WHERE id=%s", (new_id,))
     row = cur.fetchone()
+    conn.commit()
     conn.close()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        "create",
+        "supply_request",
+        new_id,
+        ("Заявка снабжения: " + str(agg_name or "") + ", " + str(agg_qty) + " " + str(agg_unit or "") + ", статус " + str(initial_status or ""))[:250],
+        project_name,
+    )
     return _supply_response_for_role(row, _current_user)
 
 @app.put("/supply-requests/{id}")
@@ -7046,7 +7142,18 @@ def update_supply_request(id: int, data: dict, _current_user: dict = Depends(req
         raise HTTPException(status_code=400, detail="Статус заявки меняется только через действия confirm_prorab / approve_director / reject / cancel")
     cur.execute(SUPPLY_SELECT + " WHERE id=%s", (id,))
     row = cur.fetchone()
+    conn.commit()
     conn.close()
+    audit_action = str(action or data.get("status") or "update")
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        audit_action,
+        "supply_request",
+        id,
+        ("Заявка снабжения обновлена: " + str((row or {}).get("materialName") or (row or {}).get("material_name") or "") + ", статус " + str((row or {}).get("status") or ""))[:250],
+        ((row or {}).get("project") or req.get("project") or ""),
+    )
     return _supply_response_for_role(row, _current_user) if row else {"ok": True}
 
 @app.delete("/supply-requests/{id}")
@@ -7111,6 +7218,15 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
         if not rollback_received:
             cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ("Отменена", id))
             conn.commit()
+            log_audit(
+                _current_user.get("name", ""),
+                _current_user.get("role", ""),
+                "cancel",
+                "supply_request",
+                id,
+                ("Заявка снабжения отменена: " + str(req.get("material_name") or "") + ", статус " + str(req.get("status") or ""))[:250],
+                req.get("project") or "",
+            )
             return {"ok": True, "cancelled": True, "deliveriesKept": len(deliveries)}
 
         restored = 0
@@ -7146,6 +7262,15 @@ def delete_supply_request(id: int, rollback_received: bool = False, _current_use
 
         cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ("Отменена с откатом", id))
         conn.commit()
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            "rollback",
+            "supply_request",
+            id,
+            ("Заявка снабжения отменена с откатом: " + str(req.get("material_name") or "") + ", восстановлено " + str(restored))[:250],
+            req.get("project") or "",
+        )
         return {"ok": True, "cancelled": True, "deliveriesKept": len(deliveries), "materialsRolledBack": restored}
     except HTTPException:
         conn.rollback()
@@ -7971,6 +8096,173 @@ def _float_or_zero(v):
         return float(str(v or 0).replace(" ", "").replace(",", "."))
     except Exception:
         return 0.0
+
+def _invoice_number_value(value) -> float:
+    """Parse money/quantity from invoice OCR without turning units like 'м2' into 2."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return 0.0
+    text = (
+        text.replace("\xa0", " ")
+        .replace("₽", "")
+        .replace("руб.", "")
+        .replace("руб", "")
+        .replace("Р", "")
+    )
+    match = re.search(r"-?\d[\d\s.,]*", text)
+    if not match:
+        return 0.0
+    raw = match.group(0).replace(" ", "")
+    if "," in raw and "." in raw:
+        if raw.rfind(",") > raw.rfind("."):
+            raw = raw.replace(".", "").replace(",", ".")
+        else:
+            raw = raw.replace(",", "")
+    else:
+        raw = raw.replace(",", ".")
+    try:
+        return float(raw)
+    except Exception:
+        return 0.0
+
+def _invoice_vat_rate(payload: dict) -> float:
+    document = payload.get("document") if isinstance(payload.get("document"), dict) else {}
+    vat_label = str(
+        payload.get("vat")
+        or payload.get("vatType")
+        or payload.get("tax")
+        or document.get("vat")
+        or ""
+    ).lower()
+    rate = _invoice_number_value(
+        payload.get("vatRate")
+        or payload.get("vat_rate")
+        or payload.get("vatPercent")
+        or payload.get("vat_percent")
+        or document.get("vatRate")
+        or document.get("vat_rate")
+    )
+    if rate:
+        return rate
+    if "22" in vat_label:
+        return 22
+    if "20" in vat_label:
+        return 20
+    if "10" in vat_label:
+        return 10
+    return 0
+
+def _normalize_invoice_totals_payload(payload: dict) -> dict:
+    payload = dict(payload or {})
+    totals = payload.get("totals") if isinstance(payload.get("totals"), dict) else {}
+    document = payload.get("document") if isinstance(payload.get("document"), dict) else {}
+
+    normalized_items = []
+    raw_items = payload.get("items") or payload.get("positions") or []
+    if not isinstance(raw_items, list):
+        raw_items = []
+    for idx, raw_item in enumerate(raw_items[:500], start=1):
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
+        qty = _invoice_number_value(item.get("quantity") or item.get("qty"))
+        price = _invoice_number_value(
+            item.get("priceWithVat")
+            or item.get("price_with_vat")
+            or item.get("price")
+            or item.get("unitPrice")
+            or item.get("unit_price")
+        )
+        line_total = _invoice_number_value(
+            item.get("lineTotalWithVat")
+            or item.get("line_total_with_vat")
+            or item.get("lineTotal")
+            or item.get("line_total")
+            or item.get("total")
+            or item.get("amount")
+            or item.get("sum")
+        )
+        if not line_total and qty and price:
+            line_total = round(qty * price, 2)
+        if not price and qty and line_total:
+            price = round(line_total / qty, 4)
+        item["row"] = item.get("row") or idx
+        item["name"] = str(item.get("name") or item.get("title") or item.get("materialName") or "").strip()
+        item["quantity"] = qty
+        item["unit"] = _norm_base_unit(item.get("unit") or "шт") or "шт"
+        item["price"] = price
+        item["lineTotal"] = line_total
+        normalized_items.append(item)
+
+    items_total = round(sum(_invoice_number_value(item.get("lineTotal")) for item in normalized_items), 2)
+    total_base = _invoice_number_value(
+        payload.get("totalBase")
+        or payload.get("total_base")
+        or payload.get("totalWithoutVat")
+        or payload.get("total_without_vat")
+        or totals.get("totalBase")
+        or totals.get("total_base")
+        or totals.get("totalWithoutVat")
+        or totals.get("total_without_vat")
+    )
+    total_vat = _invoice_number_value(
+        payload.get("totalVat")
+        or payload.get("total_vat")
+        or payload.get("vatAmount")
+        or payload.get("vat_amount")
+        or totals.get("totalVat")
+        or totals.get("total_vat")
+        or totals.get("vatAmount")
+        or totals.get("vat_amount")
+    )
+    total_with_vat = _invoice_number_value(
+        payload.get("totalWithVat")
+        or payload.get("total_with_vat")
+        or payload.get("grandTotal")
+        or payload.get("grand_total")
+        or payload.get("total")
+        or payload.get("amount")
+        or totals.get("totalWithVat")
+        or totals.get("total_with_vat")
+        or totals.get("grandTotal")
+        or totals.get("grand_total")
+        or totals.get("total")
+        or totals.get("amount")
+    )
+    if not total_with_vat and items_total:
+        total_with_vat = items_total
+    if not total_with_vat and total_base and total_vat:
+        total_with_vat = round(total_base + total_vat, 2)
+
+    vat_label = str(payload.get("vat") or payload.get("tax") or document.get("vat") or "").strip()
+    vat_label_lower = vat_label.lower()
+    vat_rate = _invoice_vat_rate(payload)
+    no_vat = "без" in vat_label_lower and "ндс" in vat_label_lower
+    if no_vat:
+        total_vat = 0
+        if total_with_vat and not total_base:
+            total_base = total_with_vat
+    elif total_with_vat and total_vat and not total_base:
+        total_base = round(total_with_vat - total_vat, 2)
+    elif total_with_vat and vat_rate and not total_base and not total_vat:
+        total_base = round(total_with_vat / (1 + vat_rate / 100), 2)
+        total_vat = round(total_with_vat - total_base, 2)
+    elif total_base and vat_rate and not total_vat and not total_with_vat:
+        total_vat = round(total_base * vat_rate / 100, 2)
+        total_with_vat = round(total_base + total_vat, 2)
+
+    if not vat_label:
+        vat_label = "Без НДС" if not vat_rate and not total_vat else f"С НДС {int(vat_rate or 20)}%"
+    payload["items"] = normalized_items
+    payload["totalBase"] = round(total_base, 2)
+    payload["totalVat"] = round(total_vat, 2)
+    payload["totalWithVat"] = round(total_with_vat, 2)
+    payload["vat"] = vat_label
+    return payload
 
 def _json_list_or_empty(value):
     import json as _json
@@ -9927,6 +10219,15 @@ def create_work_journal(w: WorkJournalModel, _current_user: dict = Depends(requi
         _sync_room_work_from_journal(cur, row)
         _sync_hidden_work_act_from_journal(cur, row)
         conn.commit()
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            "create",
+            "work_journal",
+            row.get("id"),
+            ("ЖПР: " + str(row.get("description") or journal_description or "") + "; объем " + str(row.get("quantity") or w.quantity or "") + " " + str(row.get("unit") or journal_unit or ""))[:250],
+            w.project,
+        )
         _run_project_ai_control_safely(w.project, "work_journal:create")
         return dict(row)
     except HTTPException:
@@ -10131,6 +10432,16 @@ def update_work_journal(id: int, data: dict, _current_user: dict = Depends(requi
         _sync_room_work_from_journal(cur, updated_row)
         _sync_hidden_work_act_from_journal(cur, updated_row)
         conn.commit()
+        audit_action = str(data.get("status") or "update").strip() or "update"
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            audit_action,
+            "work_journal",
+            id,
+            ("ЖПР обновлен: " + str(updated_row.get("description") or "") + "; статус " + str(updated_row.get("status") or ""))[:250],
+            project_name,
+        )
         _run_project_ai_control_safely(project_name, "work_journal:update")
         return {"ok": True}
     except HTTPException:
@@ -10152,7 +10463,7 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         require_row_project_access(cur, "work_journal", id, _current_user, "project")
-        cur.execute("SELECT project, master_id, master_name, date, status, comment, materials_used, work_package, quantity, contract_item_id FROM work_journal WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT project, master_id, master_name, date, status, comment, materials_used, work_package, quantity, contract_item_id, description FROM work_journal WHERE id=%s FOR UPDATE", (id,))
         work = cur.fetchone()
         if not work:
             conn.rollback()
@@ -10212,6 +10523,15 @@ def delete_work_journal(id: int, _current_user: dict = Depends(require_roles(*LE
         _sync_contract_item_done(cur, work.get("contract_item_id"), -_float_or_zero(work.get("quantity")))
         _mark_room_work_rejected(cur, id, actor_name)
         conn.commit()
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            "cancel",
+            "work_journal",
+            id,
+            ("ЖПР отменен: " + str(work.get("description") or "") + "; мастер " + str(work.get("master_name") or ""))[:250],
+            work.get("project") or "",
+        )
         return {"ok": True, "cancelled": True, "materialsRestored": len(used), "pieceworkPreserved": piecework_count}
     except HTTPException:
         conn.rollback()
@@ -10750,6 +11070,15 @@ def update_interim_act(id: int, data: dict, _current_user: dict = Depends(requir
     if 'scanUrl' in data:
         cur.execute("UPDATE interim_acts SET scan_url=%s WHERE id=%s", (data['scanUrl'],id))
     conn.commit()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        str(data.get("status") or "update"),
+        "interim_act",
+        id,
+        ("Акт исполнителя обновлен: " + str(master_name or "") + ", статус " + str(data.get("status") or current_status or ""))[:250],
+        project or "",
+    )
     conn.close()
     return {"ok": True}
 
@@ -10791,6 +11120,15 @@ def pay_interim_act(id: int, data: dict, _current_user: dict = Depends(require_r
                     (project, -amount, note, paid_date, paid_by, work_package))
         payment_id = cur.fetchone()[0]
         conn.commit()
+        log_audit(
+            _current_user.get("name", ""),
+            _current_user.get("role", ""),
+            "pay",
+            "interim_act",
+            id,
+            ("Оплата акта исполнителя: " + str(amount) + " ₽, статус " + str(status))[:250],
+            project,
+        )
         return {"ok": True, "paidAmount": next_paid, "status": status, "projectPaymentId": payment_id}
     except HTTPException:
         conn.rollback()
@@ -10807,13 +11145,22 @@ def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*LEA
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "interim_acts", id, _current_user, "project")
-    cur.execute("SELECT COALESCE(work_package,'') FROM interim_acts WHERE id=%s", (id,))
+    cur.execute("SELECT COALESCE(work_package,''), COALESCE(project,''), COALESCE(master_name,'') FROM interim_acts WHERE id=%s", (id,))
     act_row = cur.fetchone()
     if act_row and not has_package_access(_current_user, act_row[0] or "Основная"):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
     cur.execute("UPDATE interim_acts SET status='Аннулирован' WHERE id=%s", (id,))
     conn.commit()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        "cancel",
+        "interim_act",
+        id,
+        ("Акт исполнителя аннулирован: " + str(act_row[2] if act_row else ""))[:250],
+        (act_row[1] if act_row else "") or "",
+    )
     conn.close()
     return {"ok": True}
 
@@ -10834,8 +11181,22 @@ def toggle_timesheet(data: TimesheetModel, _current_user: dict = Depends(require
     existing = cur.fetchone()
     if existing:
         cur.execute("DELETE FROM timesheet WHERE staff_id=%s AND day=%s", (data.staffId,data.day))
+        action = "timesheet_remove"
     else:
         cur.execute("INSERT INTO timesheet (staff_id,day) VALUES (%s,%s)", (data.staffId,data.day))
+        action = "timesheet_add"
+    cur.execute("SELECT name, COALESCE(project,'') FROM staff WHERE id=%s", (data.staffId,))
+    staff_row = cur.fetchone()
+    conn.commit()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        action,
+        "timesheet",
+        data.staffId,
+        ("Табель: " + str(staff_row[0] if staff_row else data.staffId) + ", день " + str(data.day))[:250],
+        (staff_row[1] if staff_row else "") or "",
+    )
     conn.close()
     return {"ok": True}
 
@@ -17328,6 +17689,12 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
                 material_match = []
         if not isinstance(material_match, list):
             material_match = []
+        normalized_invoice = _normalize_invoice_totals_payload({**data, "items": items_list})
+        items_list = normalized_invoice.get("items") or items_list
+        invoice_vat = normalized_invoice.get("vat") or data.get("vat") or "Без НДС"
+        total_base = normalized_invoice.get("totalBase", 0)
+        total_vat = normalized_invoice.get("totalVat", 0)
+        total_with_vat = normalized_invoice.get("totalWithVat", 0)
         cur.execute("""INSERT INTO warehouse_invoices
                        (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
                         total_base,total_vat,total_with_vat,status,added_by,photo_url,
@@ -17335,7 +17702,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
                         warehouse_target,selected_action,material_match_json)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
-            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(items_list,ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),first_photo_url,source_type,source_id,supply_delivery_id,supply_request_id,j.dumps(photo_urls,ensure_ascii=False),pages_count,warehouse_target,selected_action,j.dumps(material_match,ensure_ascii=False)))
+            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,invoice_vat,j.dumps(items_list,ensure_ascii=False),total_base,total_vat,total_with_vat,data.get("status","Принята"),data.get("addedBy",""),first_photo_url,source_type,source_id,supply_delivery_id,supply_request_id,j.dumps(photo_urls,ensure_ascii=False),pages_count,warehouse_target,selected_action,j.dumps(material_match,ensure_ascii=False)))
         invoice_id = cur.fetchone()[0]
 
         sup = data.get("supplierName","")
@@ -17484,32 +17851,21 @@ def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workf
         status = "needs_review"
         warnings.append("Передано больше 8 страниц. Сейчас безопасный лимит распознавания — 8 фото.")
 
-    total_base = _float_or_zero(
-        data.get("totalBase")
-        or data.get("total_base")
-        or totals.get("totalBase")
-        or totals.get("total_base")
-    )
-    total_vat = _float_or_zero(
-        data.get("totalVat")
-        or data.get("total_vat")
-        or totals.get("totalVat")
-        or totals.get("total_vat")
-    )
-    total_with_vat = _float_or_zero(
-        data.get("totalWithVat")
-        or data.get("total_with_vat")
-        or data.get("total")
-        or totals.get("totalWithVat")
-        or totals.get("total_with_vat")
-        or totals.get("total")
-    )
+    invoice_preview = _normalize_invoice_totals_payload({
+        **data,
+        "document": document,
+        "totals": totals,
+        "items": items,
+    })
+    total_base = invoice_preview.get("totalBase", 0)
+    total_vat = invoice_preview.get("totalVat", 0)
+    total_with_vat = invoice_preview.get("totalWithVat", 0)
     if total_with_vat and total_base and total_vat and abs((total_base + total_vat) - total_with_vat) > 2:
         status = "needs_review"
         warnings.append("Итог с НДС не сходится с суммой без НДС и НДС.")
 
     normalized_items = []
-    for idx, raw_item in enumerate(items[:300], start=1):
+    for idx, raw_item in enumerate((invoice_preview.get("items") or [])[:300], start=1):
         if not isinstance(raw_item, dict):
             continue
         qty = _float_or_zero(raw_item.get("quantity") or raw_item.get("qty"))
@@ -17526,19 +17882,7 @@ def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workf
             "confidence": _float_or_zero(raw_item.get("confidence") or 0),
             "needsReview": bool(raw_item.get("needsReview") or raw_item.get("needs_review")),
         })
-    items_total = sum(item["lineTotal"] for item in normalized_items)
-    if not total_with_vat and items_total:
-        total_with_vat = round(items_total, 2)
-
-    vat_label = str(data.get("vat") or document.get("vat") or "").strip()
-    vat_rate = 0
-    if "20" in vat_label:
-        vat_rate = 20
-    elif "10" in vat_label:
-        vat_rate = 10
-    if total_with_vat and vat_rate and not total_base and not total_vat:
-        total_base = round(total_with_vat / (1 + vat_rate / 100), 2)
-        total_vat = round(total_with_vat - total_base, 2)
+    vat_label = str(invoice_preview.get("vat") or data.get("vat") or document.get("vat") or "").strip()
 
     if len(items) > 300:
         status = "needs_review"
@@ -19920,16 +20264,69 @@ def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(require_
     return {"ok": True, "instructionText": answer.strip()}
 
 @app.get("/audit-log")
-def list_audit_log(limit: int = 200, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер"))):
+def list_audit_log(
+    limit: int = 200,
+    offset: int = 0,
+    search: str = "",
+    user_name: str = "",
+    user_role: str = "",
+    action: str = "",
+    entity_type: str = "",
+    project_name: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "бухгалтер")),
+):
+    limit = max(1, min(int(limit or 200), 500))
+    offset = max(0, int(offset or 0))
+    where = []
+    params = []
+
+    def add_like(column, value):
+        value = (value or "").strip()
+        if value:
+            where.append(f"COALESCE({column}, '') ILIKE %s")
+            params.append("%" + value + "%")
+
+    add_like("user_name", user_name)
+    add_like("user_role", user_role)
+    add_like("action", action)
+    add_like("entity_type", entity_type)
+    add_like("project_name", project_name)
+
+    search = (search or "").strip()
+    if search:
+        where.append("""(
+            COALESCE(user_name, '') ILIKE %s OR
+            COALESCE(user_role, '') ILIKE %s OR
+            COALESCE(action, '') ILIKE %s OR
+            COALESCE(entity_type, '') ILIKE %s OR
+            COALESCE(description, '') ILIKE %s OR
+            COALESCE(project_name, '') ILIKE %s
+        )""")
+        params.extend(["%" + search + "%"] * 6)
+
+    if date_from:
+        where.append("created_at >= %s")
+        params.append(date_from)
+    if date_to:
+        where.append("created_at < (%s::date + INTERVAL '1 day')")
+        params.append(date_to)
+
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, user_id, user_name, user_role, action, entity_type, entity_id, description, project_name, created_at FROM audit_log ORDER BY id DESC LIMIT %s", (limit,))
+    cur.execute(
+        "SELECT id, user_id, user_name, user_role, action, entity_type, entity_id, description, project_name, created_at "
+        f"FROM audit_log{where_sql} ORDER BY created_at DESC, id DESC LIMIT %s OFFSET %s",
+        tuple(params + [limit, offset]),
+    )
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [{"id":r[0],"userId":r[1],"userName":r[2] or "","userRole":r[3] or "",
              "action":r[4] or "","entityType":r[5] or "","entityId":r[6],
              "description":r[7] or "","projectName":r[8] or "",
-             "createdAt":str(r[9])} for r in rows]
+             "createdAt":r[9].isoformat() if hasattr(r[9], "isoformat") else str(r[9])} for r in rows]
 
 @app.get("/inspection-orders")
 def list_inspection_orders(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
@@ -22206,11 +22603,8 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
         if page_items and not parsed.get("items"):
             parsed["items"] = page_items
         parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
-        if not parsed.get("totalWithVat"):
-            try:
-                parsed["totalWithVat"] = sum(float(str((item.get("lineTotalWithVat") or item.get("lineTotal") or 0)).replace(" ", "").replace(",", ".")) for item in (parsed.get("items") or []) if isinstance(item, dict))
-            except Exception:
-                parsed["totalWithVat"] = 0
+        parsed = _normalize_invoice_totals_payload(parsed)
+        parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
         print("SCAN OK:", parsed)
         return {"ok": True, "data": parsed}
     except Exception as e:

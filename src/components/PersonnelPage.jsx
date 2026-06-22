@@ -164,8 +164,28 @@ export default function PersonnelPage({
   };
   const accessProjectRoles = ['прораб','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
   const packageAccessRoles = ['мастер','субподрядчик','бригадир','прораб','главный_инженер'];
+  const formGrid2 = {display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'10px'};
+  const formGrid3 = {display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr',gap:'10px'};
+  const fullWidthInput = {...inp,marginBottom:0,gridColumn:isMobile?'auto':'span 2'};
+  const staffProfileGrid = {display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fit,minmax(200px,1fr))',gap:'10px',marginBottom:'14px'};
+  const staffProfileDocsGrid = {display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'14px'};
+  const staffDocumentFormGrid = {display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'6px',marginBottom:'6px'};
+  const staffDocumentFileGrid = {display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr 1fr',gap:'6px',marginBottom:'6px'};
   const searchedStaff = staff
-    .filter(s=>matchSearch(listSearch,s.name,s.role,s.project,s.specialization))
+    .filter(s=>matchSearch(
+      listSearch,
+      s.name,
+      s.role,
+      s.project,
+      s.specialization,
+      s.systemRole,
+      s.category,
+      s.employmentType,
+      s.brigade,
+      s.email,
+      s.emailWork,
+      s.phone
+    ))
     .slice()
     .sort(compareStaffRows);
   const filteredStaff = staffGroupFilter === 'all'
@@ -325,12 +345,12 @@ export default function PersonnelPage({
           {showForm&&(
             <div style={{...card,padding:'20px',marginBottom:'16px'}}>
               <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>👤 Основное</b>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',marginBottom:'10px'}}>
+              <div style={{...formGrid3,marginBottom:'10px'}}>
                 <input placeholder='Фамилия *' value={newStaff.lastName} onChange={e=>setNewStaff({...newStaff,lastName:e.target.value,name:[e.target.value,newStaff.firstName,newStaff.middleName].filter(Boolean).join(' ')})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Имя *' value={newStaff.firstName} onChange={e=>setNewStaff({...newStaff,firstName:e.target.value,name:[newStaff.lastName,e.target.value,newStaff.middleName].filter(Boolean).join(' ')})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Отчество' value={newStaff.middleName} onChange={e=>setNewStaff({...newStaff,middleName:e.target.value,name:[newStaff.lastName,newStaff.firstName,e.target.value].filter(Boolean).join(' ')})} style={{...inp,marginBottom:0}}/>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'10px'}}>
+              <div style={{...formGrid2,marginBottom:'10px'}}>
                 <input placeholder='Должность (напр. штукатур)' value={newStaff.role} onChange={e=>setNewStaff({...newStaff,role:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Специализация' value={newStaff.specialization} onChange={e=>setNewStaff({...newStaff,specialization:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Телефон' value={newStaff.phone} onChange={e=>setNewStaff({...newStaff,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -348,10 +368,10 @@ export default function PersonnelPage({
               {staffExpandedSections.access&&(
                 <div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
                   <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Чтобы сотрудник мог входить в приложение — заполните все три поля. Если email уже есть, пароль, роль и объекты будут обновлены.</p>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                  <div style={formGrid2}>
                     <select value={newStaff.systemRole} onChange={e=>setNewStaff({...newStaff,systemRole:e.target.value})} style={{...inp,marginBottom:0}}><option value=''>Системная роль</option>{Object.keys(ROLE_LABELS).filter(r=>!['заказчик','поставщик','system_owner'].includes(r)).map(r=><option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>
                     <input type='email' placeholder='Email для входа' value={newStaff.email} onChange={e=>setNewStaff({...newStaff,email:e.target.value,emailWork:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input type='text' placeholder={editingItem ? 'Новый пароль (оставьте пустым, если не меняем)' : 'Пароль'} value={newStaff.password} onChange={e=>setNewStaff({...newStaff,password:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                    <input type='text' placeholder={editingItem ? 'Новый пароль (оставьте пустым, если не меняем)' : 'Пароль'} value={newStaff.password} onChange={e=>setNewStaff({...newStaff,password:e.target.value})} style={fullWidthInput}/>
                   </div>
                   {accessProjectRoles.includes(newStaff.systemRole)&&(()=>{const ap=newStaff.assignedProjects||[];return(
                     <div style={{marginTop:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',border:'1px solid '+C.border}}>
@@ -392,16 +412,16 @@ export default function PersonnelPage({
               </div>
               {staffExpandedSections.docs&&(
                 <div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                  <div style={formGrid2}>
                     <input placeholder='Паспорт серия' value={newStaff.passportSeries} onChange={e=>setNewStaff({...newStaff,passportSeries:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input placeholder='Паспорт номер' value={newStaff.passportNumber} onChange={e=>setNewStaff({...newStaff,passportNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Кем выдан' value={newStaff.passportIssuedBy} onChange={e=>setNewStaff({...newStaff,passportIssuedBy:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                    <input placeholder='Кем выдан' value={newStaff.passportIssuedBy} onChange={e=>setNewStaff({...newStaff,passportIssuedBy:e.target.value})} style={fullWidthInput}/>
                     <input type='date' placeholder='Дата выдачи' value={newStaff.passportIssuedDate} onChange={e=>setNewStaff({...newStaff,passportIssuedDate:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input type='date' placeholder='Дата рождения' value={newStaff.birthDate} onChange={e=>setNewStaff({...newStaff,birthDate:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input placeholder='ИНН' value={newStaff.inn} onChange={e=>setNewStaff({...newStaff,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input placeholder='СНИЛС' value={newStaff.snils} onChange={e=>setNewStaff({...newStaff,snils:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input placeholder='Гражданство' value={newStaff.citizenship} onChange={e=>setNewStaff({...newStaff,citizenship:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <input placeholder='Адрес проживания' value={newStaff.address} onChange={e=>setNewStaff({...newStaff,address:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
+                    <input placeholder='Адрес проживания' value={newStaff.address} onChange={e=>setNewStaff({...newStaff,address:e.target.value})} style={fullWidthInput}/>
                   </div>
                 </div>
               )}
@@ -412,7 +432,7 @@ export default function PersonnelPage({
               </div>
               {staffExpandedSections.finance&&(
                 <div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                  <div style={formGrid2}>
                     <input placeholder='Расчётный счёт' value={newStaff.bankAccount} onChange={e=>setNewStaff({...newStaff,bankAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input placeholder='Банк' value={newStaff.bankName} onChange={e=>setNewStaff({...newStaff,bankName:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input placeholder='БИК' value={newStaff.bankBik} onChange={e=>setNewStaff({...newStaff,bankBik:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -429,14 +449,14 @@ export default function PersonnelPage({
               </div>
               {staffExpandedSections.extra&&(
                 <div style={{padding:'10px',marginBottom:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                  <div style={formGrid2}>
                     <input placeholder='Email личный' value={newStaff.emailPersonal} onChange={e=>setNewStaff({...newStaff,emailPersonal:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input placeholder='Доп. телефон (родственник)' value={newStaff.phoneExtra} onChange={e=>setNewStaff({...newStaff,phoneExtra:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input type='date' placeholder='Дата приёма' value={newStaff.hiredDate} onChange={e=>setNewStaff({...newStaff,hiredDate:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input type='date' placeholder='Дата увольнения' value={newStaff.firedDate} onChange={e=>setNewStaff({...newStaff,firedDate:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input placeholder='Бригада/Подразделение' value={newStaff.brigade} onChange={e=>setNewStaff({...newStaff,brigade:e.target.value})} style={{...inp,marginBottom:0}}/>
                     <input placeholder='Категория/разряд' value={newStaff.category} onChange={e=>setNewStaff({...newStaff,category:e.target.value})} style={{...inp,marginBottom:0}}/>
-                    <textarea placeholder='Заметки' value={newStaff.notes} onChange={e=>setNewStaff({...newStaff,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',minHeight:'60px',fontFamily:'inherit'}}/>
+                    <textarea placeholder='Заметки' value={newStaff.notes} onChange={e=>setNewStaff({...newStaff,notes:e.target.value})} style={{...fullWidthInput,minHeight:'60px',fontFamily:'inherit'}}/>
                   </div>
                 </div>
               )}
@@ -473,7 +493,81 @@ export default function PersonnelPage({
               );
             })}
           </div>
-          <table style={tbl}>
+          {isMobile&&(
+            <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
+              {visibleStaffGroups.map(group => (
+                <div key={group.key} style={{...card,overflow:'hidden'}}>
+                  <div style={{padding:'12px 14px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px'}}>
+                      <div>
+                        <b style={{color:C.text,fontSize:'13px'}}>{group.label}</b>
+                        <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>{group.hint}</p>
+                      </div>
+                      <span style={{color:C.textSec,fontSize:'12px',fontWeight:700}}>{group.rows.length}</span>
+                    </div>
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column'}}>
+                    {group.rows.map(s=>{
+                      const hasAccess=findUserForStaff(s);
+                      const isExp=expandedStaffId===s.id;
+                      return (
+                        <div key={s.id} style={{borderBottom:'1px solid '+C.border}}>
+                          <div
+                            onClick={()=>openStaffProfile(s)}
+                            style={{padding:'12px 14px',display:'flex',gap:'10px',alignItems:'flex-start',cursor:'pointer',backgroundColor:isExp?C.bg:'transparent'}}
+                          >
+                            <div style={{width:'36px',height:'36px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,display:'flex',alignItems:'center',justifyContent:'center',color:C.text,fontWeight:800,flexShrink:0}}>
+                              {(s.name||'?').slice(0,1)}
+                            </div>
+                            <div style={{minWidth:0,flex:1}}>
+                              <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.25,overflowWrap:'anywhere'}}>{s.name||'Без имени'}</b>
+                              <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px',lineHeight:1.35,overflowWrap:'anywhere'}}>
+                                {[s.role, s.specialization].filter(Boolean).join(' · ') || 'Должность не указана'}
+                              </p>
+                              <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'7px'}}>
+                                <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px'}}>{s.project||'Без объекта'}</span>
+                                <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px'}}>{s.payType==='сдельно'?'Сдельно':'Оклад'}</span>
+                                {s.brigade&&<span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px'}}>{s.brigade}</span>}
+                              </div>
+                              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',marginTop:'9px'}}>
+                                <b style={{color:C.success,fontSize:'12px'}}>{calcSalary(s).toLocaleString()+' ₽'}</b>
+                                {hasAccess
+                                  ? <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.successLight,color:C.success,fontSize:'10px',fontWeight:700,maxWidth:'140px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>✅ {hasAccess.email||'доступ'}</span>
+                                  : <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,color:C.textMuted,fontSize:'10px'}}>без доступа</span>}
+                              </div>
+                            </div>
+                            <div style={{paddingTop:'2px',color:C.textSec,flexShrink:0}}>{isExp?<ChevronUp size={16}/>:<ChevronDown size={16}/>}</div>
+                          </div>
+                          {isExp&&(
+                            <div style={{padding:'0 14px 12px 60px'}}>
+                              {staffProfileLoading?<p style={{color:C.textMuted,fontSize:'11px',margin:'0 0 10px'}}>Загрузка профиля...</p>:staffProfile?(
+                                <div style={{display:'grid',gap:'8px',marginBottom:'10px'}}>
+                                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                                    <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Тип</p><b style={{fontSize:'11px',color:C.text}}>{s.employmentType||'не указан'}</b></div>
+                                    <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>ИНН</p><b style={{fontSize:'11px',color:C.text}}>{s.inn||'не заполнен'}</b></div>
+                                    <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Договоры</p><b style={{fontSize:'11px',color:C.text}}>{staffProfile.contracts.length}</b></div>
+                                    <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Акты</p><b style={{fontSize:'11px',color:C.text}}>{staffProfile.acts.length}</b></div>
+                                  </div>
+                                </div>
+                              ):<p style={{color:C.textMuted,fontSize:'11px',margin:'0 0 10px'}}>Не удалось загрузить профиль</p>}
+                              <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}} onClick={e=>e.stopPropagation()}>
+                                {hasAccess
+                                  ? <button onClick={()=>resetStaffAccessPassword(hasAccess,s)} style={{...btnG,padding:'6px 9px',fontSize:'11px'}}>🔑 Пароль</button>
+                                  : <button onClick={()=>createStaffAccessFromPrompt(s)} style={{...btnB,padding:'6px 9px',fontSize:'11px'}}>🔐 Доступ</button>}
+                                <button onClick={()=>openStaffEdit(s)} style={{...btnG,padding:'6px 9px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
+                                <button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'6px 9px',fontSize:'11px'}}><Trash2 size={11}/>Удалить</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!isMobile&&(<table style={tbl}>
             <thead>
               <tr>
                 <th style={tblH}></th>
@@ -527,14 +621,14 @@ export default function PersonnelPage({
                             <td colSpan='8' style={{padding:'14px 18px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}>
                               {staffProfileLoading?<p style={{color:C.textMuted,fontSize:'12px'}}>⏳ Загрузка профиля...</p>:staffProfile?(
                                 <div>
-                                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px',marginBottom:'14px'}}>
+                                  <div style={staffProfileGrid}>
                                     <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Тип занятости</p><b style={{fontSize:'12px',color:C.text}}>{s.employmentType||'не указан'}</b></div>
                                     <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Паспорт</p><b style={{fontSize:'12px',color:C.text}}>{s.passportSeries||s.passportNumber?(s.passportSeries+' '+s.passportNumber):'не заполнен'}</b></div>
                                     <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>ИНН</p><b style={{fontSize:'12px',color:C.text}}>{s.inn||'не заполнен'}</b></div>
                                     <div style={{padding:'10px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Банк</p><b style={{fontSize:'12px',color:C.text}}>{s.bankName||'не указан'}</b></div>
                                   </div>
 
-                              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
+                              <div style={staffProfileDocsGrid}>
                                 <div style={{...card,padding:'12px'}}>
                                   <b style={{fontSize:'12px',color:C.text,display:'block',marginBottom:'8px'}}>📄 Договоры ({staffProfile.contracts.length})</b>
                                   {staffProfile.contracts.length===0?<p style={{color:C.textMuted,fontSize:'11px'}}>Договоров нет</p>:staffProfile.contracts.map(c=>(<div key={c.id} style={{padding:'6px 0',borderBottom:'1px solid '+C.border,fontSize:'11px'}}><b>№{c.contractNumber}</b> · {c.project} · {c.status||'-'}</div>))}
@@ -560,13 +654,13 @@ export default function PersonnelPage({
                                 </div>
                                 {showStaffDocForm&&(
                                   <div style={{marginBottom:'10px',padding:'10px',backgroundColor:C.bg,borderRadius:'8px'}}>
-                                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'6px'}}>
+                                    <div style={staffDocumentFormGrid}>
                                       <select value={newStaffDoc.docType} onChange={e=>setNewStaffDoc({...newStaffDoc,docType:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}>
                                         {['Трудовой договор','Договор ГПХ','Договор с самозанятым','Договор с ИП','Приказ','Должн. инструкция','Мед. книжка','Справка о статусе самозанятого','Чек НПД','Прочее'].map(t=><option key={t}>{t}</option>)}
                                       </select>
                                       <input placeholder='Название/Номер' value={newStaffDoc.title} onChange={e=>setNewStaffDoc({...newStaffDoc,title:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                                     </div>
-                                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'6px'}}>
+                                    <div style={staffDocumentFileGrid}>
                                       <input type='file' accept='image/*,.pdf' onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:s.project,context:'staff-documents'});setNewStaffDoc({...newStaffDoc,fileUrl:url});}}} style={{fontSize:'11px'}}/>
                                       <input type='date' value={newStaffDoc.signedAt} onChange={e=>setNewStaffDoc({...newStaffDoc,signedAt:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
                                       <input type='date' placeholder='Истекает' value={newStaffDoc.expiresAt} onChange={e=>setNewStaffDoc({...newStaffDoc,expiresAt:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
@@ -612,7 +706,7 @@ export default function PersonnelPage({
                 </React.Fragment>
               ))}
             </tbody>
-          </table>
+          </table>)}
           {visibleStaff.length < filteredStaff.length&&(
             <div style={{padding:'12px',color:C.textMuted,fontSize:'12px',textAlign:'center'}}>
               Показаны первые {visibleStaff.length} из {filteredStaff.length}. Уточните поиск, чтобы быстрее найти сотрудника.
