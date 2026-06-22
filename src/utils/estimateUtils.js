@@ -367,6 +367,97 @@ export const estimateImportedAdjustmentTotal = (it={}) => {
 export const estimateItemWorkSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) ? 0 : (it?.isImported ? estimateImportedWorkTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceWork)); };
 export const estimateItemMaterialSum = (it) => { const itemType=normalizeEstimateItemType(it, it?.sectionName||it?.section||''); return ['adjustment','note'].includes(itemType) ? 0 : (it?.isImported ? estimateImportedMaterialTotal(it,itemType) : toNum(it?.quantity) * toNum(it?.priceMaterial)); };
 export const estimateItemTotal = (it) => normalizeEstimateItemType(it, it?.sectionName||it?.section||'') === 'adjustment' ? estimateImportedAdjustmentTotal(it) : estimateItemWorkSum(it) + estimateItemMaterialSum(it);
+export const estimateWorkGroupNameKey = (name='') => estimateTextKey(name);
+export const buildEstimateWorkSummary = (estimate={}) => {
+  const groupsByKey = new Map();
+  const estimateId = estimate?.id || '';
+  const estimateName = estimate?.name || '';
+  const estimateVersion = estimate?.version || estimate?.versionLabel || estimate?.displayVersion || '';
+  const workPackage = estimate?.workPackage || estimate?.package || 'Основная';
+  (estimate?.sections || []).forEach((section, sectionIndex) => {
+    const sectionName = section?.name || '';
+    (section?.items || []).forEach((rawItem, itemIndex) => {
+      const item = normalizeEstimateWorkingItem({...rawItem, sectionName}, sectionName);
+      if (!isEstimateWorkItem(item, sectionName) || estimateItemLooksResourceAdjustment(item, sectionName)) return;
+      const name = String(item.name || '').trim();
+      if (!name) return;
+      const qty = toNum(item.quantity);
+      const doneQty = toNum(item.doneQuantity);
+      const unit = _normalizeUnit(normalizeMeasure(1, item.unit).unit || item.unit || '') || String(item.unit || '').trim();
+      const basis = estimateMeasurementBasisOf(item, sectionName);
+      const nameKey = estimateWorkGroupNameKey(name);
+      const groupKey = [estimateId, workPackage, nameKey, unit, basis].map(v=>String(v||'')).join('|');
+      const workSum = estimateItemWorkSum({...item, sectionName});
+      const unitPrice = qty > 0 && workSum ? workSum / qty : 0;
+      const source = {
+        estimateId,
+        estimateName,
+        estimateVersion,
+        workPackage,
+        sectionName,
+        sectionIndex,
+        itemIndex,
+        rowNumber: item.rowNumber || item.number || item.sourceRow || itemIndex + 1,
+        name,
+        originalName: rawItem?.name || name,
+        quantity: qty,
+        doneQuantity: doneQty,
+        unit,
+        basis,
+        priceWork: toNum(item.priceWork),
+        workSum,
+      };
+      if (!groupsByKey.has(groupKey)) {
+        groupsByKey.set(groupKey, {
+          key: groupKey,
+          name,
+          nameKey,
+          unit,
+          basis,
+          basisLabel: estimateMeasurementBasisMeta(basis).label,
+          workPackage,
+          quantity: 0,
+          doneQuantity: 0,
+          workSum: 0,
+          sourceCount: 0,
+          sectionNames: new Set(),
+          priceMin: unitPrice || 0,
+          priceMax: unitPrice || 0,
+          sources: [],
+        });
+      }
+      const group = groupsByKey.get(groupKey);
+      group.quantity += qty;
+      group.doneQuantity += doneQty;
+      group.workSum += workSum;
+      group.sourceCount += 1;
+      if (sectionName) group.sectionNames.add(sectionName);
+      if (unitPrice) {
+        group.priceMin = group.priceMin ? Math.min(group.priceMin, unitPrice) : unitPrice;
+        group.priceMax = Math.max(group.priceMax, unitPrice);
+      }
+      group.sources.push(source);
+    });
+  });
+  const groups = Array.from(groupsByKey.values()).map(group => ({
+    ...group,
+    remainingQuantity: Math.max(0, group.quantity - group.doneQuantity),
+    unitPriceAvg: group.quantity > 0 ? group.workSum / group.quantity : 0,
+    sectionNames: Array.from(group.sectionNames),
+  })).sort((a,b) => {
+    if ((b.sourceCount > 1) !== (a.sourceCount > 1)) return (b.sourceCount > 1 ? 1 : 0) - (a.sourceCount > 1 ? 1 : 0);
+    if (b.sourceCount !== a.sourceCount) return b.sourceCount - a.sourceCount;
+    return a.name.localeCompare(b.name, 'ru');
+  });
+  return {
+    groups,
+    totalGroups: groups.length,
+    duplicateGroups: groups.filter(group => group.sourceCount > 1).length,
+    totalSourceRows: groups.reduce((sum, group) => sum + group.sourceCount, 0),
+    totalQuantity: groups.reduce((sum, group) => sum + group.quantity, 0),
+    totalWorkSum: groups.reduce((sum, group) => sum + group.workSum, 0),
+  };
+};
 export const estimateItemDoneTotal = (it) => {
   const q = toNum(it?.quantity);
   const d = toNum(it?.doneQuantity);

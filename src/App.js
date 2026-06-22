@@ -85,6 +85,7 @@ import { resolveEstimatePackage } from './utils/estimatePackage';
 import { _normalizeUnit, denormalizeMeasure, fmtMeasure, normalizeMeasure, toNum } from './utils/measureUtils';
 import { EMPTY_MATERIAL_NORM_FORM, WORK_MATERIAL_NORM_RULES, convertUnits } from './utils/materialNormUtils';
 import {
+  buildEstimateWorkSummary,
   enrichEstimateMeasurementBasis,
   estimateImportLineMeta,
   estimateImportedPlanMeasure,
@@ -771,6 +772,7 @@ function App() {
   const [importValidating, setImportValidating] = useState(false);
   const [estimateIssueFocusKey, setEstimateIssueFocusKey] = useState('');
   const [showEstimateIssuesOnly, setShowEstimateIssuesOnly] = useState(false);
+  const [showEstimateWorkSummary, setShowEstimateWorkSummary] = useState(false);
   const [executionPriceFillPercent, setExecutionPriceFillPercent] = useState(50);
   const [showEstimateChat, setShowEstimateChat] = useState(false);
   const [estimateChatMessages, setEstimateChatMessages] = useState([]);
@@ -14018,6 +14020,51 @@ function App() {
 	                    <button type="button" onClick={()=>window.confirm('Перезаписать внутренние цены по всем строкам работ этой сметы?')&&fillSelectedEstimateExecutionPrices(true)} disabled={!priceStats.workRows} style={{...btnG,justifyContent:'center',opacity:priceStats.workRows?1:0.55}}>
 	                      Пересчитать все
 	                    </button>
+	                  </div>
+	                );})()}
+	                {['директор','зам_директора'].includes(user?.role) && (()=>{const workSummary=buildEstimateWorkSummary(selectedEstimate);if(!workSummary.totalSourceRows) return null;const compactLimit=isMobile?6:10;const visibleGroups=showEstimateWorkSummary?workSummary.groups:workSummary.groups.slice(0,compactLimit);const hiddenGroups=workSummary.groups.length-visibleGroups.length;const fmtNum=(value,max=3)=>Number(value||0).toLocaleString('ru-RU',{maximumFractionDigits:max});const fmtMoney=(value)=>Math.round(Number(value||0)).toLocaleString('ru-RU')+' ₽';const jumpToSource=(source)=>{const rowId=estimateIssueDomId(selectedEstimate.id,source.sectionIndex,source.itemIndex);setShowEstimateIssuesOnly(false);setTimeout(()=>document.getElementById(rowId)?.scrollIntoView({behavior:'smooth',block:'center'}),80);};return(
+	                  <div style={{...card,padding:isMobile?'12px':'14px',marginBottom:'12px',backgroundColor:C.bg}}>
+	                    <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:isMobile?'flex-start':'center',flexDirection:isMobile?'column':'row'}}>
+	                      <div>
+	                        <b style={{color:C.text,fontSize:isMobile?'16px':'15px'}}>🧾 Свод одинаковых работ</b>
+	                        <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'12px'}}>
+	                          Групп: {workSummary.totalGroups} · повторов: {workSummary.duplicateGroups} · исходных строк: {workSummary.totalSourceRows}. Свод не меняет смету, он показывает общий объем и источники строк.
+	                        </p>
+	                      </div>
+	                      <button type="button" onClick={()=>setShowEstimateWorkSummary(v=>!v)} style={{...btnB,justifyContent:'center',width:isMobile?'100%':'auto'}}>
+	                        {showEstimateWorkSummary?'Свернуть':'Показать свод'}
+	                      </button>
+	                    </div>
+	                    <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(2,minmax(0,1fr))',gap:'10px',marginTop:'12px'}}>
+	                      {visibleGroups.map(group=>(
+	                        <details key={group.key} open={group.sourceCount>1&&!isMobile} style={{border:'1px solid '+C.border,borderRadius:'10px',padding:'10px',backgroundColor:group.sourceCount>1?C.warningLight:C.bg}}>
+	                          <summary style={{cursor:'pointer',listStyle:'none'}}>
+	                            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(0,1fr) auto',gap:'8px',alignItems:'start'}}>
+	                              <div>
+	                                <b style={{color:C.text,fontSize:'13px',display:'block',lineHeight:1.3}}>{group.name}</b>
+	                                <span style={{color:C.textMuted,fontSize:'11px'}}>строк: {group.sourceCount} · {group.basisLabel} · {group.sectionNames.slice(0,2).join(', ')}{group.sectionNames.length>2?'...':''}</span>
+	                              </div>
+	                              <div style={{textAlign:isMobile?'left':'right',display:'grid',gap:'2px'}}>
+	                                <b style={{color:C.warning}}>{fmtNum(group.quantity)} {group.unit}</b>
+	                                <span style={{color:C.textSec,fontSize:'11px'}}>заказчик: {fmtMoney(group.workSum)}</span>
+	                                <span style={{color:C.textMuted,fontSize:'11px'}}>ср. {fmtMoney(group.unitPriceAvg)} / {group.unit}</span>
+	                              </div>
+	                            </div>
+	                          </summary>
+	                          <div style={{display:'grid',gap:'6px',marginTop:'10px'}}>
+	                            {group.sources.slice(0,12).map(source=>(
+	                              <div key={`${source.sectionIndex}-${source.itemIndex}`} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(0,1fr) auto auto',gap:'6px',alignItems:'center',padding:'7px 8px',borderRadius:'8px',backgroundColor:C.bg}}>
+	                                <span style={{color:C.textSec,fontSize:'12px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:isMobile?'normal':'nowrap'}}>{source.sectionName} · строка {source.rowNumber}</span>
+	                                <b style={{color:C.text,fontSize:'12px'}}>{fmtNum(source.quantity)} {source.unit}</b>
+	                                <button type="button" onClick={()=>jumpToSource(source)} style={{...btnB,padding:'5px 8px',fontSize:'11px',justifyContent:'center'}}>К строке</button>
+	                              </div>
+	                            ))}
+	                            {group.sources.length>12&&<span style={{color:C.textMuted,fontSize:'11px'}}>Еще источников: {group.sources.length-12}</span>}
+	                          </div>
+	                        </details>
+	                      ))}
+	                    </div>
+	                    {hiddenGroups>0&&<button type="button" onClick={()=>setShowEstimateWorkSummary(true)} style={{...btnO,justifyContent:'center',marginTop:'10px',width:'100%'}}>Показать еще {hiddenGroups}</button>}
 	                  </div>
 	                );})()}
 	                <EstimateAddSectionForm
