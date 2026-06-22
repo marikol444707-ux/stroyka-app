@@ -607,25 +607,112 @@ def assert_foreman_invoice_chain(admin_token, candidate, delivery_id):
     return foreman_invoice_id, foreman_material_name
 
 
+def assert_alias_invoice_chain(token, candidate, delivery_id):
+    alias_name = f"CODEX QA алиас накладной {delivery_id}"
+    canonical_name = candidate["materialName"]
+    canonical_unit = candidate["unit"]
+    _, alias = api_json(
+        "POST",
+        "/material-aliases",
+        token=token,
+        data={
+            "projectName": candidate["projectName"],
+            "aliasName": alias_name,
+            "canonicalName": canonical_name,
+            "canonicalUnit": canonical_unit,
+            "source": "smoke-supply-chain",
+            "active": True,
+        },
+        expected=200,
+    )
+    alias_id = alias.get("id")
+    if not alias_id:
+        raise RuntimeError("Сопоставление материала не вернуло id")
+
+    _, invoice = api_json(
+        "POST",
+        "/warehouse-invoices",
+        token=token,
+        data={
+            "number": f"CODEX-ALIAS-{delivery_id}",
+            "date": dt.date.today().isoformat(),
+            "supplierName": "CODEX QA",
+            "acceptedBy": "CODEX QA",
+            "location": candidate["projectName"],
+            "project": candidate["projectName"],
+            "sourceType": "manual_project_invoice",
+            "items": [{
+                "name": alias_name,
+                "quantity": candidate["quantity"],
+                "unit": canonical_unit,
+                "price": TEST_PRICE,
+                "workPackage": candidate["workPackage"],
+            }],
+            "totalBase": round(TEST_PRICE * candidate["quantity"], 2),
+            "totalVat": 0,
+            "totalWithVat": round(TEST_PRICE * candidate["quantity"], 2),
+        },
+        expected=200,
+    )
+    alias_invoice_id = invoice.get("id")
+    if not alias_invoice_id:
+        raise RuntimeError("Накладная по алиасу не вернула id")
+
+    _, invoices = api_json("GET", "/warehouse-invoices", token=token, expected=200)
+    saved_invoice = next((r for r in invoices if int(r.get("id") or 0) == int(alias_invoice_id)), None)
+    if not saved_invoice:
+        raise RuntimeError("Накладная по алиасу не найдена в списке накладных")
+    saved_items = saved_invoice.get("items") or []
+    saved_item = next((i for i in saved_items if isinstance(i, dict) and norm_text(i.get("name")) == norm_text(canonical_name)), None)
+    if not saved_item:
+        raise RuntimeError("Накладная по алиасу не переписала материал в сметное название")
+    if norm_text(saved_item.get("invoiceOriginalName") or saved_item.get("originalName")) != norm_text(alias_name):
+        raise RuntimeError("Накладная по алиасу не сохранила исходное название поставщика")
+    material_alias = saved_item.get("materialAlias") or {}
+    if norm_text(material_alias.get("canonicalName")) != norm_text(canonical_name):
+        raise RuntimeError("Накладная по алиасу не сохранила информацию о сопоставлении")
+    estimate_control = saved_item.get("estimateControl") or {}
+    if estimate_control.get("status") == "no_estimate_material":
+        raise RuntimeError("Сметный контроль не применился после сопоставления алиаса")
+
+    _, materials = api_json("GET", "/materials", token=token, expected=200)
+    canonical_rows = [
+        r for r in materials
+        if norm_text(r.get("name")) == norm_text(canonical_name)
+        and (r.get("project") or "") == candidate["projectName"]
+        and (r.get("workPackage") or r.get("work_package") or "Основная") == candidate["workPackage"]
+    ]
+    raw_rows = [
+        r for r in materials
+        if norm_text(r.get("name")) == norm_text(alias_name)
+        and (r.get("project") or "") == candidate["projectName"]
+    ]
+    if not canonical_rows:
+        raise RuntimeError("Материал по алиасу не попал на склад под сметным названием")
+    if raw_rows:
+        raise RuntimeError("Сырой материал поставщика попал на склад отдельной строкой вместо сметного материала")
+    return alias_invoice_id, alias_id, alias_name
+
+
 def cleanup(created):
     conn = None
     try:
         conn = db_conn()
         conn.autocommit = False
         cur = conn.cursor()
-        material_names = [
-            created.get("materialName"),
-            created.get("manualMaterialName"),
-            created.get("foremanManualMaterialName"),
-        ]
         project_name = created.get("projectName")
         package = created.get("workPackage")
         unit = created.get("unit")
-        qty_by_name = {
-            created.get("materialName"): as_float(created.get("quantity")),
-            created.get("manualMaterialName"): as_float(created.get("manualQuantity")),
-            created.get("foremanManualMaterialName"): as_float(created.get("foremanManualQuantity")),
-        }
+        qty_by_name = {}
+        for material_name, qty in [
+            (created.get("materialName"), created.get("quantity")),
+            (created.get("manualMaterialName"), created.get("manualQuantity")),
+            (created.get("foremanManualMaterialName"), created.get("foremanManualQuantity")),
+            (created.get("aliasCanonicalMaterialName"), created.get("aliasQuantity")),
+        ]:
+            if material_name:
+                qty_by_name[material_name] = qty_by_name.get(material_name, 0) + as_float(qty)
+        material_names = list(qty_by_name.keys())
 
         for material_name in [n for n in material_names if n]:
             qty = qty_by_name.get(material_name, 0)
@@ -659,6 +746,7 @@ def cleanup(created):
             "invoiceId": created.get("invoiceId"),
             "manualInvoiceId": created.get("manualInvoiceId"),
             "foremanManualInvoiceId": created.get("foremanManualInvoiceId"),
+            "aliasInvoiceId": created.get("aliasInvoiceId"),
             "deliveryId": created.get("deliveryId"),
             "offerId": created.get("offerId"),
             "requestId": created.get("requestId"),
@@ -670,6 +758,8 @@ def cleanup(created):
             cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["manualInvoiceId"],))
         if ids["foremanManualInvoiceId"]:
             cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["foremanManualInvoiceId"],))
+        if ids["aliasInvoiceId"]:
+            cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["aliasInvoiceId"],))
         if ids["deliveryId"]:
             cur.execute("DELETE FROM material_inspection_journal WHERE delivery_id=%s", (ids["deliveryId"],))
             cur.execute("DELETE FROM cable_journal WHERE delivery_id=%s", (ids["deliveryId"],))
@@ -709,6 +799,8 @@ def cleanup(created):
                 )
         if ids["supplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierId"], TEST_SUPPLIER_PREFIX + "%"))
+        if created.get("aliasId"):
+            cur.execute("UPDATE material_aliases SET active=FALSE, updated_at=NOW() WHERE id=%s", (created["aliasId"],))
         conn.commit()
         cur.close()
         print("cleanup: removed supply-chain smoke rows", json.dumps(created, ensure_ascii=False, sort_keys=True))
@@ -752,6 +844,12 @@ def main():
         created["foremanManualInvoiceId"] = foreman_invoice_id
         created["foremanManualMaterialName"] = foreman_material_name
         created["foremanManualQuantity"] = candidate["quantity"]
+        alias_invoice_id, alias_id, alias_name = assert_alias_invoice_chain(token, candidate, delivery_id)
+        created["aliasInvoiceId"] = alias_invoice_id
+        created["aliasId"] = alias_id
+        created["aliasName"] = alias_name
+        created["aliasCanonicalMaterialName"] = candidate["materialName"]
+        created["aliasQuantity"] = candidate["quantity"]
         print(json.dumps({
             "ok": True,
             "projectName": candidate["projectName"],
@@ -767,6 +865,8 @@ def main():
             "manualMaterial": manual_material_name,
             "foremanManualInvoiceId": foreman_invoice_id,
             "foremanManualMaterial": foreman_material_name,
+            "aliasInvoiceId": alias_invoice_id,
+            "aliasName": alias_name,
             "checked": [
                 "positive estimate material selected",
                 "supply request passed estimate control",
@@ -778,6 +878,7 @@ def main():
                 "manual director object invoice is allowed, controlled and written to object warehouse",
                 "foreman object invoice is allowed for assigned project warehouse",
                 "foreman main warehouse invoice is blocked",
+                "invoice alias rewrites raw supplier material to estimate material",
             ],
         }, ensure_ascii=False, indent=2))
     except Exception as exc:

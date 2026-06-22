@@ -6151,40 +6151,98 @@ def _resolve_supply_request_package(user: dict, items: list, header_package: str
         item.pop("work_package", None)
     return package_name
 
-def _material_control_key_resolved(cur, project: str, name: str, unit: str = ""):
+def _row_get(row, key, index=None, default=None):
+    if row is None:
+        return default
+    if isinstance(row, dict):
+        return row.get(key, default)
+    if index is not None:
+        try:
+            return row[index]
+        except Exception:
+            return default
+    return default
+
+def _resolve_material_alias(cur, project: str, name: str, unit: str = ""):
     raw_name = (name or "").strip()
     raw_unit = _norm_base_unit(unit or "")
     if not raw_name:
-        return _material_control_key(raw_name, raw_unit)
+        return None
+    project_name = (project or "").strip()
     try:
-        cur.execute("""SELECT canonical_name, canonical_unit
+        cur.execute("""SELECT id, project_name, alias_name, canonical_name, canonical_unit
                        FROM material_aliases
                        WHERE active=TRUE
                          AND (project_name=%s OR COALESCE(project_name,'')='')
                          AND LOWER(TRIM(alias_name))=LOWER(TRIM(%s))
                        ORDER BY COALESCE(project_name,'') DESC, id DESC
-                       LIMIT 1""", ((project or "").strip(), raw_name))
+                       LIMIT 1""", (project_name, raw_name))
         row = cur.fetchone()
         if row:
-            canonical_name = row[0] if not isinstance(row, dict) else row.get("canonical_name")
-            canonical_unit = row[1] if not isinstance(row, dict) else row.get("canonical_unit")
-            return _material_control_key(canonical_name or raw_name, canonical_unit or raw_unit)
+            return {
+                "id": _row_get(row, "id", 0),
+                "projectName": _row_get(row, "project_name", 1, ""),
+                "aliasName": _row_get(row, "alias_name", 2, raw_name),
+                "canonicalName": _row_get(row, "canonical_name", 3, raw_name),
+                "canonicalUnit": _row_get(row, "canonical_unit", 4, raw_unit),
+                "matchType": "exact",
+            }
         raw_key = _norm_key_text(raw_name)
-        cur.execute("""SELECT alias_name, canonical_name, canonical_unit
+        cur.execute("""SELECT id, project_name, alias_name, canonical_name, canonical_unit
                        FROM material_aliases
                        WHERE active=TRUE
                          AND (project_name=%s OR COALESCE(project_name,'')='')
                        ORDER BY COALESCE(project_name,'') DESC, id DESC""", ((project or "").strip(),))
         for alias_row in cur.fetchall() or []:
-            alias_name = alias_row[0] if not isinstance(alias_row, dict) else alias_row.get("alias_name")
+            alias_name = _row_get(alias_row, "alias_name", 2, "")
             if _norm_key_text(alias_name or "") != raw_key:
                 continue
-            canonical_name = alias_row[1] if not isinstance(alias_row, dict) else alias_row.get("canonical_name")
-            canonical_unit = alias_row[2] if not isinstance(alias_row, dict) else alias_row.get("canonical_unit")
-            return _material_control_key(canonical_name or raw_name, canonical_unit or raw_unit)
+            return {
+                "id": _row_get(alias_row, "id", 0),
+                "projectName": _row_get(alias_row, "project_name", 1, ""),
+                "aliasName": alias_name,
+                "canonicalName": _row_get(alias_row, "canonical_name", 3, raw_name),
+                "canonicalUnit": _row_get(alias_row, "canonical_unit", 4, raw_unit),
+                "matchType": "normalized",
+            }
     except Exception as e:
-        print("MATERIAL ALIAS CONTROL ERROR:", str(e))
+        print("MATERIAL ALIAS RESOLVE ERROR:", str(e))
+    return None
+
+def _material_control_key_resolved(cur, project: str, name: str, unit: str = ""):
+    raw_name = (name or "").strip()
+    raw_unit = _norm_base_unit(unit or "")
+    alias = _resolve_material_alias(cur, project, raw_name, raw_unit)
+    if alias:
+        return _material_control_key(alias.get("canonicalName") or raw_name, alias.get("canonicalUnit") or raw_unit)
     return _material_control_key(raw_name, raw_unit)
+
+def _apply_material_alias_to_invoice_item(cur, project: str, item: dict):
+    if not isinstance(item, dict):
+        return item
+    raw_name = (item.get("name") or item.get("materialName") or "").strip()
+    raw_unit = item.get("unit") or ""
+    alias = _resolve_material_alias(cur, project, raw_name, raw_unit)
+    if not alias:
+        return item
+    canonical_name = (alias.get("canonicalName") or raw_name).strip()
+    canonical_unit = _norm_base_unit(alias.get("canonicalUnit") or raw_unit) or raw_unit
+    if canonical_name and _norm_key_text(canonical_name) != _norm_key_text(raw_name):
+        item.setdefault("invoiceOriginalName", raw_name)
+        item.setdefault("originalName", raw_name)
+    item["name"] = canonical_name or raw_name
+    item["materialName"] = canonical_name or raw_name
+    if canonical_unit:
+        item["unit"] = canonical_unit
+    item["materialAlias"] = {
+        "id": alias.get("id"),
+        "projectName": alias.get("projectName") or "",
+        "aliasName": alias.get("aliasName") or raw_name,
+        "canonicalName": canonical_name or raw_name,
+        "canonicalUnit": canonical_unit or "",
+        "matchType": alias.get("matchType") or "exact",
+    }
+    return item
 
 _MATERIAL_MATCH_STOPWORDS = {
     "гост", "ту", "сорт", "марка", "тип", "вид", "цвет", "размер", "разм",
@@ -17230,6 +17288,8 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
                 continue
             item = dict(raw_item)
             item["workPackage"] = _supply_work_package(item.get("workPackage") or item.get("work_package") or data.get("workPackage") or data.get("work_package"))
+            if target_project:
+                item = _apply_material_alias_to_invoice_item(cur, target_project, item)
             normalized_invoice_items.append(item)
         items_list = normalized_invoice_items
         if target_project:
