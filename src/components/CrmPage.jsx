@@ -24,7 +24,7 @@ export default function CrmPage({
   isMobile = false,
 }) {
   return (
-    <div>
+    <div style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
       <CrmHeader C={C} btnO={btnO} isMobile={isMobile} onNewLead={()=>{setShowForm(!showForm);setEditingItem(null);setNewLead({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});}}/>
       {showForm&&(
         <CrmLeadForm

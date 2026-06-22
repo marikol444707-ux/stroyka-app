@@ -52,11 +52,19 @@ export default function WarehouseOperationsPanel({
   user,
   isMobile = false,
 }) {
+  const touchCompact = typeof window !== 'undefined'
+    && (window.visualViewport?.width || window.innerWidth || 0) < 1100
+    && (
+      (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches)
+      || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''))
+    );
+  const compactRows = isMobile || touchCompact;
+
   if (warehouseTab === 'move') {
     const sourceMaterials = newMovement.fromLocation === 'Основной склад'
       ? warehouseMain
       : materials.filter(material => material.project === newMovement.fromLocation);
-    const visibleSourceMaterials = isMobile ? sourceMaterials.slice(0, 40) : sourceMaterials;
+    const visibleSourceMaterials = compactRows ? sourceMaterials.slice(0, 40) : sourceMaterials;
     const movementMaterialKey = (material = {}) => [
       material.id || '',
       material.name || '',
@@ -70,8 +78,8 @@ export default function WarehouseOperationsPanel({
         <h3 style={{ color: C.text, marginBottom: '15px', fontSize: '15px', fontWeight: '700' }}>
           Перемещение материалов
         </h3>
-        <div style={{ ...card, padding: isMobile ? '14px' : '20px', marginBottom: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+        <div style={{ ...card, padding: compactRows ? '14px' : '20px', marginBottom: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: compactRows ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
             <div>
               <label style={{ fontSize: '12px', color: C.textSec, display: 'block', marginBottom: '5px' }}>
                 Откуда:
@@ -123,9 +131,9 @@ export default function WarehouseOperationsPanel({
                   border: '1.5px solid ' + (selected ? C.accent : C.border),
                   backgroundColor: selected ? C.accentLight : C.bgWhite,
                   display: 'flex',
-                  flexDirection: isMobile ? 'column' : 'row',
+                  flexDirection: compactRows ? 'column' : 'row',
                   alignItems: 'center',
-                  ...(isMobile ? {alignItems:'stretch'} : {}),
+                  ...(compactRows ? {alignItems:'stretch'} : {}),
                   gap: '10px',
                 }}
               >
@@ -174,7 +182,7 @@ export default function WarehouseOperationsPanel({
                       )),
                     }))}
                     style={{
-                      width: isMobile ? '100%' : '100px',
+                      width: compactRows ? '100%' : '100px',
                       boxSizing:'border-box',
                       padding: '5px 8px',
                       border: '1.5px solid ' + C.accent,
@@ -207,19 +215,19 @@ export default function WarehouseOperationsPanel({
                   'Накладная М-11'
                 );
               }}
-              style={{...btnO,...(isMobile ? {flex:'1 1 100%',justifyContent:'center'} : {})}}
+              style={{...btnO,...(compactRows ? {flex:'1 1 100%',justifyContent:'center'} : {})}}
             >
               <Check size={14} />
               Переместить и распечатать
             </button>
-            <button onClick={applyWarehouseMovement} style={{...btnG,...(isMobile ? {flex:'1 1 100%',justifyContent:'center'} : {})}}>Переместить</button>
+            <button onClick={applyWarehouseMovement} style={{...btnG,...(compactRows ? {flex:'1 1 100%',justifyContent:'center'} : {})}}>Переместить</button>
           </div>
         </div>
 
         <h3 style={{ color: C.text, marginBottom: '10px', fontSize: '14px', fontWeight: '700' }}>
           История перемещений
         </h3>
-        {isMobile ? (
+        {compactRows ? (
           <div style={{display:'grid',gap:'10px'}}>
             {warehouseMovements.slice(0, 20).map((movement, index) => (
               <div key={index} style={{padding:'12px',borderRadius:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,display:'grid',gap:'8px'}}>

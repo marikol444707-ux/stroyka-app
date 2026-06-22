@@ -13,19 +13,26 @@ const WAREHOUSE_TABS = [
 ];
 
 export default function WarehouseTabsNav({warehouseTab, setWarehouseTab, setShowForm, btnO, btnG, isMobile}) {
+  const touchCompact = typeof window !== 'undefined'
+    && (window.visualViewport?.width || window.innerWidth || 0) < 1100
+    && (
+      (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches)
+      || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''))
+    );
+  const compactTabs = isMobile || touchCompact;
   return (
     <div style={{
-      display:isMobile?'grid':'flex',
-      gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':undefined,
-      gap:isMobile?'8px':'8px',
+      display:compactTabs?'grid':'flex',
+      gridTemplateColumns:compactTabs?'repeat(2,minmax(0,1fr))':undefined,
+      gap:compactTabs?'8px':'8px',
       margin:'0 auto 20px',
       flexWrap:'wrap',
       width:'100%',
-      maxWidth:isMobile?'min(720px,100%)':'100%',
-      justifyContent:isMobile?'center':'flex-start',
+      maxWidth:compactTabs?'min(720px,100%)':'100%',
+      justifyContent:compactTabs?'center':'flex-start',
     }}>
       {WAREHOUSE_TABS.map(([tab, label]) => (
-        <button key={tab} onClick={() => {setWarehouseTab(tab);setShowForm(false);}} style={{...(warehouseTab===tab?btnO:btnG),fontSize:isMobile?'11px':'12px',padding:isMobile?'9px 6px':'7px 14px',justifyContent:'center',width:isMobile?'100%':undefined,minWidth:0,whiteSpace:'normal',lineHeight:1.2}}>
+        <button key={tab} onClick={() => {setWarehouseTab(tab);setShowForm(false);}} style={{...(warehouseTab===tab?btnO:btnG),fontSize:compactTabs?'11px':'12px',padding:compactTabs?'9px 6px':'7px 14px',justifyContent:'center',width:compactTabs?'100%':undefined,minWidth:0,whiteSpace:'normal',lineHeight:1.2}}>
           {label}
         </button>
       ))}

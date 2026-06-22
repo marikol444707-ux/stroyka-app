@@ -20,6 +20,13 @@ export default function WarehouseMainStockPanel({
   badge,
   isMobile,
 }) {
+  const touchCompact = typeof window !== 'undefined'
+    && (window.visualViewport?.width || window.innerWidth || 0) < 1100
+    && (
+      (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches)
+      || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''))
+    );
+  const compactRows = isMobile || touchCompact;
   const rows = (warehouseMain || []).filter(material => matchSearch(listSearch, material.name, material.category));
 
   return (
@@ -29,24 +36,24 @@ export default function WarehouseMainStockPanel({
         gap:'8px',
         margin:'0 auto 15px',
         flexWrap:'wrap',
-        justifyContent:isMobile?'center':'flex-start',
-        maxWidth:isMobile?'min(720px,100%)':'100%',
+        justifyContent:compactRows?'center':'flex-start',
+        maxWidth:compactRows?'min(720px,100%)':'100%',
       }}>
-        <button onClick={() => openReceiveInvoice('Основной склад')} style={{...btnO,justifyContent:'center',width:isMobile?'100%':undefined,maxWidth:isMobile?'320px':undefined}}><Plus size={14}/>Принять материал</button>
+        <button onClick={() => openReceiveInvoice('Основной склад')} style={{...btnO,justifyContent:'center',width:compactRows?'100%':undefined,maxWidth:compactRows?'320px':undefined}}><Plus size={14}/>Принять материал</button>
         <button onClick={() => exportToExcel((warehouseMain || []).map(material => ({
           Наименование: material.name,
           Единица: material.unit,
           Количество: material.quantity,
           Цена: material.price,
           Сумма: material.quantity * material.price,
-        })), 'Основной_склад')} style={{...btnG,justifyContent:'center',width:isMobile?'100%':undefined,maxWidth:isMobile?'160px':undefined}}><Download size={14}/>Excel</button>
-        <div style={{position:'relative',flex:isMobile?'0 0 100%':1,minWidth:0,width:isMobile?'100%':undefined}}>
+        })), 'Основной_склад')} style={{...btnG,justifyContent:'center',width:compactRows?'100%':undefined,maxWidth:compactRows?'160px':undefined}}><Download size={14}/>Excel</button>
+        <div style={{position:'relative',flex:compactRows?'0 0 100%':1,minWidth:0,width:compactRows?'100%':undefined}}>
           <Search size={14} style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
           <input placeholder="🔍 Поиск материала" value={listSearch} onChange={event => setListSearch(event.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'12px',padding:'6px 8px 6px 32px'}}/>
         </div>
       </div>
 
-      {isMobile ? (
+      {compactRows ? (
         <div style={{display:'grid',gap:'10px',width:'100%',maxWidth:'min(720px,100%)',margin:'0 auto'}}>
           {rows.map(material => {
             const low = material.minQuantity && material.quantity < material.minQuantity;
@@ -67,7 +74,7 @@ export default function WarehouseMainStockPanel({
                   </div>
                   <button onClick={() => deleteMainMaterial(material.id)} style={{...btnR,padding:'7px 9px',flex:'0 0 auto'}}><Trash2 size={13}/></button>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:isMobile && rows.length ? 'repeat(auto-fit,minmax(130px,1fr))' : 'repeat(2,minmax(0,1fr))',gap:'8px'}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'8px'}}>
                   <div>
                     <span style={{display:'block',color:C.textMuted,fontSize:'10px',textTransform:'uppercase',fontWeight:700}}>Кол-во</span>
                     <b style={{display:'block',color:C.text,fontSize:'13px',overflowWrap:'anywhere'}}>{material.quantity+' '+material.unit}</b>
