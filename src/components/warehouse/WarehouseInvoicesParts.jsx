@@ -34,6 +34,8 @@ export function WarehouseInvoiceForm({
   MATERIAL_CATEGORIES,
   isMobile = false,
 }) {
+  const invoiceGalleryInputRef = React.useRef(null);
+  const invoiceCameraInputRef = React.useRef(null);
   const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
   const packageOptions = invoiceProject && typeof getProjectWorkPackageOptions === 'function'
     ? getProjectWorkPackageOptions(invoiceProject)
@@ -271,10 +273,14 @@ export function WarehouseInvoiceForm({
       )}
 
       <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'15px',flexWrap:'wrap'}}>
-        <label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 14px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}>
-          <Upload size={13}/>Добавить фото
-          <input type="file" accept={invoiceImageAccept} multiple capture="environment" style={{display:'none'}} onChange={addPhotos}/>
-        </label>
+        <input ref={invoiceGalleryInputRef} type="file" accept={invoiceImageAccept} multiple style={{display:'none'}} onChange={addPhotos}/>
+        <input ref={invoiceCameraInputRef} type="file" accept="image/*" multiple capture="environment" style={{display:'none'}} onChange={addPhotos}/>
+        <button type="button" onClick={() => invoiceGalleryInputRef.current?.click()} style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 14px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}>
+          <Upload size={13}/>Фото из галереи
+        </button>
+        <button type="button" onClick={() => invoiceCameraInputRef.current?.click()} style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 14px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}>
+          📷 Камера
+        </button>
         {(newInvoice.photos || []).map((url, index) => (
           <img key={index} src={fileSrc(url)} alt="" onClick={() => setShowPhotoModal(fileSrc(url))} style={{width:'48px',height:'48px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/>
         ))}

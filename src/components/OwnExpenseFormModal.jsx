@@ -22,6 +22,8 @@ export default function OwnExpenseFormModal({
   showInfo = false,
   validationAlert = false,
 }) {
+  const receiptGalleryInputRef = React.useRef(null);
+  const receiptCameraInputRef = React.useRef(null);
   if (!showOwnExpenseForm) return null;
 
   const reset = () => {
@@ -42,6 +44,14 @@ export default function OwnExpenseFormModal({
     alert('Отправлено на возмещение!');
   };
 
+  const appendReceiptPhotos = async (event) => {
+    if(event.target.files&&event.target.files.length>0){
+      const newCsv = await appendPhotos(newOwnExpense.photoUrl, event.target.files,{projectName:newOwnExpense.projectName,context:'own-expenses'});
+      setNewOwnExpense(prev=>({...prev,photoUrl:newCsv}));
+      event.target.value='';
+    }
+  };
+
   return (
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div className='mobile-modal' style={{...card,padding:'20px',width:'340px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
@@ -53,16 +63,11 @@ export default function OwnExpenseFormModal({
         <input type='date' value={newOwnExpense.date} onChange={e=>setNewOwnExpense({...newOwnExpense,date:e.target.value})} style={inp}/>
         <div style={{marginBottom:'12px'}}>
           <span style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'6px'}}>📷 Фото чеков (можно несколько):</span>
-          <label style={{cursor:'pointer'}}>
-            <input type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={async e=>{
-              if(e.target.files&&e.target.files.length>0){
-                const newCsv = await appendPhotos(newOwnExpense.photoUrl, e.target.files,{projectName:newOwnExpense.projectName,context:'own-expenses'});
-                setNewOwnExpense(prev=>({...prev,photoUrl:newCsv}));
-                e.target.value='';
-              }
-            }}/>
+          <div>
+            <input ref={receiptGalleryInputRef} type='file' accept='image/*' multiple style={{display:'none'}} onChange={appendReceiptPhotos}/>
+            <input ref={receiptCameraInputRef} type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={appendReceiptPhotos}/>
             {(()=>{const urls=(newOwnExpense.photoUrl||'').split(',').filter(Boolean);
-              if (urls.length===0) return (<div style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',color:C.textMuted,fontSize:'12px'}}>📷 Нажмите чтобы добавить фото<br/><span style={{fontSize:'10px'}}>можно несколько за раз</span></div>);
+              if (urls.length===0) return (<div onClick={()=>receiptGalleryInputRef.current?.click()} role='button' tabIndex={0} onKeyDown={event=>{ if(event.key==='Enter' || event.key===' ') receiptGalleryInputRef.current?.click(); }} style={{border:'2px dashed '+C.border,borderRadius:'8px',padding:'16px',textAlign:'center',color:C.textMuted,fontSize:'12px',cursor:'pointer'}}>📷 Нажмите чтобы добавить фото<br/><span style={{fontSize:'10px'}}>можно несколько за раз</span></div>);
               return (<div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'6px',marginBottom:'8px'}}>
                   {urls.map((u,i)=>(<div key={i} style={{position:'relative'}}>
@@ -73,7 +78,11 @@ export default function OwnExpenseFormModal({
                 <div style={{padding:'8px',backgroundColor:C.bg,borderRadius:'6px',textAlign:'center',fontSize:'11px',color:C.accent,fontWeight:'600'}}>+ Добавить ещё фото ({urls.length} загружено)</div>
               </div>);
             })()}
-          </label>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
+              <button type='button' onClick={()=>receiptGalleryInputRef.current?.click()} style={{...btnG,justifyContent:'center'}}>🖼️ Галерея</button>
+              <button type='button' onClick={()=>receiptCameraInputRef.current?.click()} style={{...btnG,justifyContent:'center'}}>📷 Камера</button>
+            </div>
+          </div>
         </div>
         {showInfo&&(<div style={{padding:'10px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>
           ℹ️ После отправки трата попадёт бухгалтеру/директору на возмещение.

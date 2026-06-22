@@ -17,6 +17,8 @@ export default function ScanInvoiceModal({
   setNewInvoice,
   projects = [],
 }) {
+  const galleryInputRef = React.useRef(null);
+  const cameraInputRef = React.useRef(null);
   if (!showScanInvoice) return null;
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
 
@@ -160,6 +162,16 @@ export default function ScanInvoiceModal({
     setScanningInvoice(false);
   };
 
+  const onFilesPicked = async (event) => {
+    await scan(event.target.files);
+    event.target.value = '';
+  };
+
+  const openPicker = (ref) => {
+    if (scanningInvoice) return;
+    ref.current?.click();
+  };
+
   return (
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div className='mobile-modal' style={{...card,padding:isMobile?'16px':'20px',width:isMobile?'calc(100vw - 24px)':'340px',margin:isMobile?'12px':'20px',maxHeight:isMobile?'calc(100dvh - 24px)':'90vh',overflowY:'auto',boxSizing:'border-box'}}>
@@ -170,12 +182,17 @@ export default function ScanInvoiceModal({
           <option value='Основной склад'>📦 Основной склад</option>
           {projects.map(p=><option key={p.id || p.name} value={p.name}>🏗️ {p.name}</option>)}
         </select>
-        <label style={{display:'block',marginBottom:'12px',cursor:'pointer'}}>
-          <input type='file' accept={invoiceImageAccept} multiple capture='environment' style={{display:'none'}} onChange={e=>scan(e.target.files)}/>
-          <div style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:'30px',textAlign:'center',cursor:'pointer'}}>
+        <div style={{display:'block',marginBottom:'12px'}}>
+          <input ref={galleryInputRef} type='file' accept={invoiceImageAccept} multiple style={{display:'none'}} onChange={onFilesPicked}/>
+          <input ref={cameraInputRef} type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={onFilesPicked}/>
+          <div onClick={()=>openPicker(galleryInputRef)} role='button' tabIndex={0} onKeyDown={event=>{ if(event.key==='Enter' || event.key===' ') openPicker(galleryInputRef); }} style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:isMobile?'22px':'30px',textAlign:'center',cursor:'pointer'}}>
             {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт страницы накладной...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📷</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите фото накладной</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>Можно выбрать 1-8 страниц, ИИ соберёт их в одну накладную</p></div>}
           </div>
-        </label>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
+            <button type='button' disabled={scanningInvoice} onClick={()=>openPicker(galleryInputRef)} style={{...btnG,justifyContent:'center',opacity:scanningInvoice?0.6:1}}>🖼️ Галерея</button>
+            <button type='button' disabled={scanningInvoice} onClick={()=>openPicker(cameraInputRef)} style={{...btnG,justifyContent:'center',opacity:scanningInvoice?0.6:1}}>📷 Камера</button>
+          </div>
+        </div>
         <button onClick={()=>setShowScanInvoice(false)} style={{...btnG,width:'100%',justifyContent:'center'}}><X size={14}/>Отмена</button>
       </div>
     </div>

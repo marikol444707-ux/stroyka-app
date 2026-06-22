@@ -120,8 +120,12 @@ function SupplyDeliveriesPanel({
               <div style={{display:'flex',gap:'5px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                 <span style={badge(stC,stBg,stBd)}>{delivery.status}</span>
                 <label style={{...btnG,padding:'5px 10px',fontSize:'11px',cursor:'pointer'}}>
-                  <Bot size={11}/>AI накладная
-                  <input type='file' accept={invoiceImageAccept} capture='environment' style={{display:'none'}} onChange={event=>scanInvoice(event, delivery)}/>
+                  <Bot size={11}/>AI из галереи
+                  <input type='file' accept={invoiceImageAccept} style={{display:'none'}} onChange={event=>scanInvoice(event, delivery)}/>
+                </label>
+                <label style={{...btnG,padding:'5px 10px',fontSize:'11px',cursor:'pointer'}}>
+                  📷 Камера
+                  <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={event=>scanInvoice(event, delivery)}/>
                 </label>
                 {canReceive && <button onClick={()=>startReceiving(delivery, isReceiving)} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Принять</button>}
                 {linkedInvoice && <button onClick={()=>showPreview(buildInvoiceContent(linkedInvoice),'Накладная № '+linkedInvoice.number)} style={{...btnB,padding:'5px 10px',fontSize:'11px'}}>Печать накл.</button>}
