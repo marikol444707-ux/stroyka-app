@@ -47,6 +47,7 @@ export default function WarehouseObjectsPanel({
   isMobile = false,
 }) {
   const [visibleObjectRows, setVisibleObjectRows] = React.useState(60);
+  const useCompactRows = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const projectMaterials = (projectName) => (materials || []).filter(material => material.project === projectName);
   const canDeleteProjectMaterial = ['директор', 'зам_директора', 'кладовщик', 'снабженец'].includes(user?.role);
   const transferSourceMaterials = (materials || []).filter(material => material.project === selectedWarehouseProject);
@@ -70,12 +71,12 @@ export default function WarehouseObjectsPanel({
   const transferOverStock = !!newTransfer.materialName && selectedTransferQty > selectedTransferStockQty;
   const canSaveObjectTransfer = !!newTransfer.materialName && selectedTransferQty > 0 && !!newTransfer.toPerson && !transferMissingPackage && !transferOverStock;
   React.useEffect(() => {
-    setVisibleObjectRows(isMobile ? 60 : 180);
-  }, [isMobile, selectedWarehouseProject]);
+    setVisibleObjectRows(useCompactRows ? 60 : 180);
+  }, [useCompactRows, selectedWarehouseProject]);
   const selectedProjectMaterials = projectMaterials(selectedWarehouseProject);
   const displayedProjectMaterials = selectedProjectMaterials.slice(0, visibleObjectRows);
   const hiddenProjectMaterials = Math.max(0, selectedProjectMaterials.length - displayedProjectMaterials.length);
-  const objectRowsStep = isMobile ? 60 : 180;
+  const objectRowsStep = useCompactRows ? 60 : 180;
 
   return (
     <div>
@@ -88,26 +89,26 @@ export default function WarehouseObjectsPanel({
             return (
               <div
                 key={project.id}
-                style={{ ...card, padding: '16px', marginBottom: '10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                style={{ ...card, padding: '16px', marginBottom: '10px', cursor: 'pointer', display: 'flex', flexDirection: useCompactRows ? 'column' : 'row', justifyContent: 'space-between', alignItems: useCompactRows ? 'stretch' : 'center', gap: '10px', minWidth: 0, overflow: 'hidden' }}
                 onClick={() => setSelectedWarehouseProject(project.name)}
               >
-                <div>
-                  <b style={{ color: C.text, fontSize: '14px' }}>{project.name}</b>
-                  <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px' }}>{projectRows.length + ' позиций · ' + total.toLocaleString() + ' ₽'}</p>
+                <div style={{ minWidth: 0 }}>
+                  <b style={{ display: 'block', color: C.text, fontSize: '14px', lineHeight: 1.25, overflowWrap: 'anywhere' }}>{project.name}</b>
+                  <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px', overflowWrap: 'anywhere' }}>{projectRows.length + ' позиций · ' + total.toLocaleString() + ' ₽'}</p>
                 </div>
-                <ChevronRight size={18} color={C.textMuted} />
+                <ChevronRight size={18} color={C.textMuted} style={{ alignSelf: useCompactRows ? 'flex-end' : 'center', flex: '0 0 auto' }} />
               </div>
             );
           })}
         </div>
       ) : (
         <div>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '15px' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', minWidth: 0 }}>
             <button onClick={() => setSelectedWarehouseProject(null)} style={btnG}>
               <ArrowLeft size={14} />
               Назад
             </button>
-            <h3 style={{ color: C.text, margin: 0, fontSize: '15px', fontWeight: '700' }}>{selectedWarehouseProject}</h3>
+            <h3 style={{ color: C.text, margin: 0, fontSize: '15px', fontWeight: '700', minWidth: 0, overflowWrap: 'anywhere', flex: '1 1 220px' }}>{selectedWarehouseProject}</h3>
           </div>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
             {(isLeadership() || user.role === 'прораб' || user.role === 'кладовщик') && (
@@ -155,7 +156,7 @@ export default function WarehouseObjectsPanel({
             </button>
           </div>
           {renderMaterialReconciliationPanel(selectedWarehouseProject, { limit: 25, title: '📊 Контроль материалов объекта' })}
-          {isMobile ? (
+          {useCompactRows ? (
             <div style={{ display: 'grid', gap: '10px', width: '100%', maxWidth: 'min(720px,100%)', margin: '0 auto' }}>
               {displayedProjectMaterials.map(material => {
                 const workPackage = material.workPackage || material.work_package || '';

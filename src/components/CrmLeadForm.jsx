@@ -2,11 +2,12 @@ import React from 'react';
 import { Check, X } from 'lucide-react';
 
 export default function CrmLeadForm({card, inp, btnO, btnG, newLead, setNewLead, crmStages, editingItem, onSave, onCancel, isMobile=false}) {
+  const useCompactForm = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const fieldStyle = {...inp,marginBottom:0,minWidth:0,width:'100%',boxSizing:'border-box'};
 
   return (
-    <div style={{...card,padding:isMobile?'14px':'20px',marginBottom:'20px',maxWidth:isMobile?'720px':undefined,marginLeft:isMobile?'auto':undefined,marginRight:isMobile?'auto':undefined}}>
-      <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'10px'}}>
+    <div style={{...card,padding:useCompactForm?'14px':'20px',marginBottom:'20px',width:'100%',boxSizing:'border-box',minWidth:0,overflowX:'hidden',maxWidth:useCompactForm?'720px':undefined,marginLeft:useCompactForm?'auto':undefined,marginRight:useCompactForm?'auto':undefined}}>
+      <div style={{display:'grid',gridTemplateColumns:useCompactForm?'1fr':'1fr 1fr',gap:'10px'}}>
         <input placeholder="Имя клиента *" value={newLead.name} onChange={e=>setNewLead({...newLead,name:e.target.value})} style={fieldStyle}/>
         <input placeholder="Телефон" value={newLead.phone} onChange={e=>setNewLead({...newLead,phone:e.target.value})} style={fieldStyle}/>
         <input placeholder="Email" value={newLead.email} onChange={e=>setNewLead({...newLead,email:e.target.value})} style={fieldStyle}/>
@@ -15,11 +16,11 @@ export default function CrmLeadForm({card, inp, btnO, btnG, newLead, setNewLead,
         <select value={newLead.stage} onChange={e=>setNewLead({...newLead,stage:e.target.value})} style={fieldStyle}>
           {crmStages.map(s=><option key={s}>{s}</option>)}
         </select>
-        <textarea placeholder="Заметки" value={newLead.notes} onChange={e=>setNewLead({...newLead,notes:e.target.value})} style={{...fieldStyle,gridColumn:isMobile?'auto':'span 2',height:isMobile?'88px':'60px',resize:'vertical'}}/>
+        <textarea placeholder="Заметки" value={newLead.notes} onChange={e=>setNewLead({...newLead,notes:e.target.value})} style={{...fieldStyle,gridColumn:useCompactForm?'auto':'span 2',height:useCompactForm?'88px':'60px',resize:'vertical'}}/>
       </div>
       <div style={{display:'flex',gap:'10px',marginTop:'15px',flexWrap:'wrap'}}>
-        <button onClick={onSave} style={{...btnO,flex:isMobile?'1 1 160px':'0 0 auto',justifyContent:'center',minHeight:isMobile?'44px':undefined}}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button>
-        <button onClick={onCancel} style={{...btnG,flex:isMobile?'1 1 140px':'0 0 auto',justifyContent:'center',minHeight:isMobile?'44px':undefined}}><X size={14}/>Отмена</button>
+        <button onClick={onSave} style={{...btnO,flex:useCompactForm?'1 1 160px':'0 0 auto',justifyContent:'center',minHeight:useCompactForm?'44px':undefined}}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button>
+        <button onClick={onCancel} style={{...btnG,flex:useCompactForm?'1 1 140px':'0 0 auto',justifyContent:'center',minHeight:useCompactForm?'44px':undefined}}><X size={14}/>Отмена</button>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import React from 'react';
 import { Building2, Edit2, Trash2 } from 'lucide-react';
 
 export default function CrmStageBoard({C, card, btnG, btnR, crmStages, leads, saveLead, deleteLead, createProjectFromLead, setEditingItem, setNewLead, setShowForm, isMobile=false}) {
+  const useCompactBoard = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const stageLeads = (stage) => (leads || []).filter(l => l.stage === stage);
   const stageBg = (stage) => stage === 'Отказ' ? C.dangerLight : stage === 'Договор' ? C.successLight : C.bg;
   const stageBorder = (stage) => stage === 'Отказ' ? C.dangerBorder : stage === 'Договор' ? C.successBorder : C.border;
@@ -12,9 +13,9 @@ export default function CrmStageBoard({C, card, btnG, btnR, crmStages, leads, sa
     setShowForm(true);
   };
 
-  if (isMobile) {
+  if (useCompactBoard) {
     return (
-      <div style={{display:'grid',gridTemplateColumns:'1fr',gap:'14px',maxWidth:'720px',margin:'0 auto'}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr',gap:'14px',width:'100%',maxWidth:'720px',margin:'0 auto',minWidth:0,overflowX:'hidden'}}>
         {crmStages.map(stage => {
           const items = stageLeads(stage);
           return (
