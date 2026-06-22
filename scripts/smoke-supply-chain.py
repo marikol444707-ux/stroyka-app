@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -19,6 +20,9 @@ TEST_SUPPLIER_PREFIX = "CODEX QA Поставщик снабжение"
 TEST_NOTE_PREFIX = "CODEX QA supply chain smoke"
 TEST_QTY_DEFAULT = float(os.getenv("SUPPLY_SMOKE_QTY", "0.001"))
 TEST_PRICE = float(os.getenv("SUPPLY_SMOKE_PRICE", "123.45"))
+TEST_FOREMAN_EMAIL = os.getenv("SUPPLY_SMOKE_FOREMAN_EMAIL", "supply-foreman-smoke@stroyka.local")
+TEST_FOREMAN_NAME = "CODEX QA Прораб накладная"
+TEST_FOREMAN_PASSWORD = os.getenv("SUPPLY_SMOKE_FOREMAN_PASSWORD", "SupplyForemanSmoke123!")
 
 
 def load_env():
@@ -92,6 +96,29 @@ def login(email, password):
     if not token:
         raise SystemExit(f"FAIL login {email}: authToken не получен")
     return token
+
+
+def ensure_foreman_user(project_name):
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "manage-temp-user.py"),
+            "create",
+            "--email",
+            TEST_FOREMAN_EMAIL,
+            "--name",
+            TEST_FOREMAN_NAME,
+            "--password",
+            TEST_FOREMAN_PASSWORD,
+            "--role",
+            "прораб",
+            "--project",
+            project_name,
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    return login(TEST_FOREMAN_EMAIL, TEST_FOREMAN_PASSWORD)
 
 
 def norm_text(value):
@@ -496,19 +523,108 @@ def assert_visible_chain(token, candidate, delivery_id, invoice_id):
     return manual_invoice_id, manual_material_name
 
 
+def assert_foreman_invoice_chain(admin_token, candidate, delivery_id):
+    foreman_token = ensure_foreman_user(candidate["projectName"])
+    foreman_material_name = f"CODEX QA прямой заказ прораба {delivery_id}"
+    _, foreman_invoice = api_json(
+        "POST",
+        "/warehouse-invoices",
+        token=foreman_token,
+        data={
+            "number": f"CODEX-FOREMAN-{delivery_id}",
+            "date": dt.date.today().isoformat(),
+            "supplierName": "CODEX QA",
+            "acceptedBy": TEST_FOREMAN_NAME,
+            "location": candidate["projectName"],
+            "project": candidate["projectName"],
+            "sourceType": "manual_project_invoice",
+            "items": [{
+                "name": foreman_material_name,
+                "quantity": candidate["quantity"],
+                "unit": candidate["unit"],
+                "price": TEST_PRICE,
+                "workPackage": candidate["workPackage"],
+            }],
+            "totalBase": round(TEST_PRICE * candidate["quantity"], 2),
+            "totalVat": 0,
+            "totalWithVat": round(TEST_PRICE * candidate["quantity"], 2),
+        },
+        expected=200,
+    )
+    foreman_invoice_id = foreman_invoice.get("id")
+    if not foreman_invoice_id:
+        raise RuntimeError("Прорабская приходная накладная на объект не вернула id")
+
+    _, invoices = api_json("GET", "/warehouse-invoices", token=foreman_token, expected=200)
+    saved_invoice = next((r for r in invoices if int(r.get("id") or 0) == int(foreman_invoice_id)), None)
+    if not saved_invoice:
+        raise RuntimeError("Прораб не видит созданную им накладную на объект")
+    if saved_invoice.get("location") != candidate["projectName"]:
+        raise RuntimeError("Прорабская накладная ушла не на закрепленный объект")
+    saved_items = saved_invoice.get("items") or []
+    saved_item = next((i for i in saved_items if isinstance(i, dict) and norm_text(i.get("name")) == norm_text(foreman_material_name)), None)
+    if not saved_item:
+        raise RuntimeError("Прорабская накладная не сохранила материал")
+    estimate_control = saved_item.get("estimateControl") or {}
+    if not estimate_control.get("manualProjectInvoiceOverride"):
+        raise RuntimeError("Прорабская накладная на объект не получила контрольную пометку manualProjectInvoiceOverride")
+
+    _, materials = api_json("GET", "/materials", token=admin_token, expected=200)
+    if not any(
+        norm_text(r.get("name")) == norm_text(foreman_material_name)
+        and (r.get("project") or "") == candidate["projectName"]
+        for r in materials
+    ):
+        raise RuntimeError("Прямой материал прораба не попал на склад объекта")
+
+    blocked_status, _ = api_json(
+        "POST",
+        "/warehouse-invoices",
+        token=foreman_token,
+        data={
+            "number": f"CODEX-FOREMAN-MAIN-{delivery_id}",
+            "date": dt.date.today().isoformat(),
+            "supplierName": "CODEX QA",
+            "acceptedBy": TEST_FOREMAN_NAME,
+            "location": "Основной склад",
+            "project": "",
+            "sourceType": "manual_main_invoice",
+            "items": [{
+                "name": f"{foreman_material_name} основной склад",
+                "quantity": candidate["quantity"],
+                "unit": candidate["unit"],
+                "price": TEST_PRICE,
+                "workPackage": candidate["workPackage"],
+            }],
+            "totalBase": round(TEST_PRICE * candidate["quantity"], 2),
+            "totalVat": 0,
+            "totalWithVat": round(TEST_PRICE * candidate["quantity"], 2),
+        },
+        expected=None,
+    )
+    if blocked_status != 403:
+        raise RuntimeError(f"Прораб смог или некорректно попытался принять на основной склад: HTTP {blocked_status}")
+    return foreman_invoice_id, foreman_material_name
+
+
 def cleanup(created):
     conn = None
     try:
         conn = db_conn()
         conn.autocommit = False
         cur = conn.cursor()
-        material_names = [created.get("materialName"), created.get("manualMaterialName")]
+        material_names = [
+            created.get("materialName"),
+            created.get("manualMaterialName"),
+            created.get("foremanManualMaterialName"),
+        ]
         project_name = created.get("projectName")
         package = created.get("workPackage")
         unit = created.get("unit")
         qty_by_name = {
             created.get("materialName"): as_float(created.get("quantity")),
             created.get("manualMaterialName"): as_float(created.get("manualQuantity")),
+            created.get("foremanManualMaterialName"): as_float(created.get("foremanManualQuantity")),
         }
 
         for material_name in [n for n in material_names if n]:
@@ -542,6 +658,7 @@ def cleanup(created):
         ids = {
             "invoiceId": created.get("invoiceId"),
             "manualInvoiceId": created.get("manualInvoiceId"),
+            "foremanManualInvoiceId": created.get("foremanManualInvoiceId"),
             "deliveryId": created.get("deliveryId"),
             "offerId": created.get("offerId"),
             "requestId": created.get("requestId"),
@@ -551,6 +668,8 @@ def cleanup(created):
             cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["invoiceId"],))
         if ids["manualInvoiceId"]:
             cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["manualInvoiceId"],))
+        if ids["foremanManualInvoiceId"]:
+            cur.execute("DELETE FROM warehouse_invoices WHERE id=%s", (ids["foremanManualInvoiceId"],))
         if ids["deliveryId"]:
             cur.execute("DELETE FROM material_inspection_journal WHERE delivery_id=%s", (ids["deliveryId"],))
             cur.execute("DELETE FROM cable_journal WHERE delivery_id=%s", (ids["deliveryId"],))
@@ -583,10 +702,10 @@ def cleanup(created):
                      WHERE material=%s
                        AND project=%s
                        AND COALESCE(work_package,'')=%s
-                       AND issued_by='CODEX QA'
+                       AND issued_by IN ('CODEX QA', %s)
                        AND type='приход'
                     """,
-                    (material_name, project_name, package or ""),
+                    (material_name, project_name, package or "", TEST_FOREMAN_NAME),
                 )
         if ids["supplierId"]:
             cur.execute("DELETE FROM suppliers WHERE id=%s AND name LIKE %s", (ids["supplierId"], TEST_SUPPLIER_PREFIX + "%"))
@@ -629,6 +748,10 @@ def main():
         created["manualInvoiceId"] = manual_invoice_id
         created["manualMaterialName"] = manual_material_name
         created["manualQuantity"] = candidate["quantity"]
+        foreman_invoice_id, foreman_material_name = assert_foreman_invoice_chain(token, candidate, delivery_id)
+        created["foremanManualInvoiceId"] = foreman_invoice_id
+        created["foremanManualMaterialName"] = foreman_material_name
+        created["foremanManualQuantity"] = candidate["quantity"]
         print(json.dumps({
             "ok": True,
             "projectName": candidate["projectName"],
@@ -642,6 +765,8 @@ def main():
             "invoiceId": invoice_id,
             "manualInvoiceId": manual_invoice_id,
             "manualMaterial": manual_material_name,
+            "foremanManualInvoiceId": foreman_invoice_id,
+            "foremanManualMaterial": foreman_material_name,
             "checked": [
                 "positive estimate material selected",
                 "supply request passed estimate control",
@@ -651,6 +776,8 @@ def main():
                 "receipt updated project materials",
                 "receipt wrote supply history",
                 "manual director object invoice is allowed, controlled and written to object warehouse",
+                "foreman object invoice is allowed for assigned project warehouse",
+                "foreman main warehouse invoice is blocked",
             ],
         }, ensure_ascii=False, indent=2))
     except Exception as exc:

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
 import { API, installAuthFetch } from './api';
 import { CRM_STAGES, DOOR_PURPOSES, DOOR_TYPES, ESTIMATE_CHANGE_APPROVED_STATUSES, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES, EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, REVEAL_MATERIALS, STAGE_STATUSES, SUPPLIER_CATEGORIES, SURFACES, TOOL_STATUSES, UNITS, VAT_OPTIONS, WEATHER_CONDITIONS, WINDOW_TYPES } from './constants/catalogs';
 import {
@@ -74,7 +73,6 @@ import EstimateSectionHeader from './components/EstimateSectionHeader';
 import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsPanel from './components/MaterialNormSuggestionsPanel';
-import PublicSitePage from './components/PublicSitePage';
 import MobileBottomNav from './components/MobileBottomNav';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
 import MobileMenuSheet from './components/MobileMenuSheet';
@@ -113,6 +111,8 @@ import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollTe
 
 installAuthFetch();
 
+const RegisterPage = React.lazy(() => import('./pages/RegisterPage'));
+const PublicSitePage = React.lazy(() => import('./components/PublicSitePage'));
 const UsersPage = React.lazy(() => import('./components/UsersPage'));
 const SupplyPage = React.lazy(() => import('./components/SupplyPage'));
 const SuppliersPage = React.lazy(() => import('./components/SuppliersPage'));
@@ -442,7 +442,47 @@ function App() {
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
 
   const openReceiveInvoice = (preselectedLocation, options = {}) => {
-    setNewInvoice({number:'',date:new Date().toISOString().split('T')[0],supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:user?.name||'',location:preselectedLocation||'',project:preselectedLocation&&preselectedLocation!=='Основной склад'?preselectedLocation:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}],supplier:'',totalWithVat:0});
+    const assignedProjectNames = [
+      ...(Array.isArray(user?.assignedProjects) ? user.assignedProjects : []),
+      ...(Array.isArray(user?.assigned_projects) ? user.assigned_projects : []),
+      user?.projectName,
+      user?.project_name,
+      user?.project,
+    ].map((project) => {
+      if (!project) return '';
+      if (typeof project === 'string') return project;
+      return project.name || project.projectName || project.project_name || '';
+    }).map((project) => String(project).trim()).filter(Boolean);
+    const assignedProjectSet = new Set(assignedProjectNames);
+    let location = preselectedLocation || '';
+    if (!location && user?.role === 'прораб') {
+      const projectFromList = assignedProjectNames.length
+        ? (projects || []).find((project) => project?.name && !project.archived && project.status !== 'Завершён' && assignedProjectSet.has(project.name))
+        : null;
+      location = projectFromList?.name || assignedProjectNames[0] || '';
+    }
+    const warehouseTarget = location && location !== 'Основной склад' ? 'object' : 'main';
+    setNewInvoice({
+      number:'',
+      date:new Date().toISOString().split('T')[0],
+      supplierId:'',
+      isNewSupplier:false,
+      newSupplierName:'',
+      acceptedBy:user?.name||'',
+      location,
+      project:warehouseTarget === 'object' ? location : '',
+      warehouseTarget,
+      selectedAction:'receive_to_warehouse',
+      sourceType:warehouseTarget === 'object' ? 'manual_project_invoice' : 'manual_main_invoice',
+      sourceId:null,
+      vat:'Без НДС',
+      photos:[],
+      photoUrls:[],
+      pagesCount:1,
+      items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}],
+      supplier:'',
+      totalWithVat:0
+    });
     if (options.scanFirst) {
       setShowScanInvoice(true);
       return;
@@ -1736,9 +1776,47 @@ function App() {
       vat: declaredVat > 0 ? declaredVat : calculatedVat.vat,
       total: totalBefore,
     };
-    const photoUrl = newInvoice.photos && newInvoice.photos.length>0 ? newInvoice.photos[0] : '';
-    const inv = {id:Date.now(),number:newInvoice.number,date:newInvoice.date,supplierId:Number(supplierId)||0,supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',acceptedBy:newInvoice.acceptedBy||user.name,location:newInvoice.location,project:newInvoice.project,vat:newInvoice.vat,photoUrl,photos:newInvoice.photos||[],pagesCount:newInvoice.pagesCount||((newInvoice.photos||[]).length||1),items:validItems,totalBase:vatCalc.base,totalVat:vatCalc.vat,totalWithVat:vatCalc.total,status:'Принята',addedBy:user.name};
-    const savedInv = {...inv,project:newInvoice.location!=='Основной склад'?newInvoice.location:''};
+    const photoUrls = Array.isArray(newInvoice.photoUrls) && newInvoice.photoUrls.length ? newInvoice.photoUrls : (Array.isArray(newInvoice.photos) ? newInvoice.photos : []);
+    const photoUrl = photoUrls.length > 0 ? photoUrls[0] : (newInvoice.photoUrl || '');
+    const warehouseTarget = newInvoice.warehouseTarget || (invoiceProject ? 'object' : 'main');
+    const selectedAction = newInvoice.selectedAction || 'receive_to_warehouse';
+    const sourceType = newInvoice.sourceType || (invoiceProject ? 'manual_project_invoice' : 'manual_main_invoice');
+    const materialMatch = validItems.map((item, index) => ({
+      row:index+1,
+      name:item.name || '',
+      quantity:Number(item.quantity || 0) || 0,
+      unit:item.unit || '',
+      workPackage:item.workPackage || item.work_package || '',
+      estimateMatched:Boolean(item.estimateMaterialId || item.estimateItemId || item.workPackage || item.work_package),
+      needsReview:invoiceProject ? !(item.workPackage || item.work_package) : false,
+    }));
+    const inv = {
+      id:Date.now(),
+      number:newInvoice.number,
+      date:newInvoice.date,
+      supplierId:Number(supplierId)||0,
+      supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',
+      acceptedBy:newInvoice.acceptedBy||user.name,
+      location:newInvoice.location,
+      project:invoiceProject,
+      vat:newInvoice.vat,
+      photoUrl,
+      photos:photoUrls,
+      photoUrls,
+      pagesCount:newInvoice.pagesCount||photoUrls.length||1,
+      items:validItems,
+      totalBase:vatCalc.base,
+      totalVat:vatCalc.vat,
+      totalWithVat:vatCalc.total,
+      status:'Принята',
+      addedBy:user.name,
+      warehouseTarget,
+      selectedAction,
+      sourceType,
+      sourceId:newInvoice.sourceId||null,
+      materialMatch
+    };
+    const savedInv = inv;
     const invoiceRes = await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(savedInv)});
     if (!invoiceRes.ok) {
       const err = await invoiceRes.json().catch(()=>({}));
@@ -1754,7 +1832,7 @@ function App() {
     notify('Накладная №'+newInvoice.number+' принята'+(reviewTasksCreated ? ' · задач ИИ-контроля: '+reviewTasksCreated : ''),'invoice');
     addActivity('Принята накладная №'+newInvoice.number);
     await refreshData();
-    setNewInvoice({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}]});
+    setNewInvoice({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',warehouseTarget:'main',selectedAction:'receive_to_warehouse',sourceType:'manual_main_invoice',sourceId:null,vat:'Без НДС',photos:[],photoUrls:[],pagesCount:1,items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}]});
     setShowForm(false);
     alert('Накладная принята!'+(reviewTasksCreated ? '\nСоздано задач ИИ-контроля: '+reviewTasksCreated : ''));
     return true;
@@ -10336,34 +10414,40 @@ function App() {
   if (!user) {
     if (page==='register') {
       return (
-        <RegisterPage
-          C={C}
-          ROLE_LABELS={ROLE_LABELS}
-          btnO={btnO}
-          card={card}
-          handleRegister={handleRegister}
-          inp={inp}
-          loginError={loginError}
-          regCode={regCode}
-          regEmail={regEmail}
-          regInviteInfo={regInviteInfo}
-          regName={regName}
-          regPassword={regPassword}
-          regSupplierData={regSupplierData}
-          setLoginError={setLoginError}
-          setPage={setPage}
-          setRegCode={setRegCode}
-          setRegEmail={setRegEmail}
-          setRegName={setRegName}
-          setRegPassword={setRegPassword}
-          setRegSupplierData={setRegSupplierData}
-        />
+        <React.Suspense fallback={pageFallback}>
+          <RegisterPage
+            C={C}
+            ROLE_LABELS={ROLE_LABELS}
+            btnO={btnO}
+            card={card}
+            handleRegister={handleRegister}
+            inp={inp}
+            loginError={loginError}
+            regCode={regCode}
+            regEmail={regEmail}
+            regInviteInfo={regInviteInfo}
+            regName={regName}
+            regPassword={regPassword}
+            regSupplierData={regSupplierData}
+            setLoginError={setLoginError}
+            setPage={setPage}
+            setRegCode={setRegCode}
+            setRegEmail={setRegEmail}
+            setRegName={setRegName}
+            setRegPassword={setRegPassword}
+            setRegSupplierData={setRegSupplierData}
+          />
+        </React.Suspense>
       );
     }
     if (page==='login') {
       return <LoginPage email={email} setEmail={setEmail} password={password} setPassword={setPassword} handleLogin={handleLogin} loginError={loginError} setLoginError={setLoginError} setPage={setPage}/>;
     }
-    return <PublicSitePage onLogin={() => { setLoginError(''); setPage('login'); }} />;
+    return (
+      <React.Suspense fallback={pageFallback}>
+        <PublicSitePage onLogin={() => { setLoginError(''); setPage('login'); }} />
+      </React.Suspense>
+    );
   }
 
   const allMenuItems = [
