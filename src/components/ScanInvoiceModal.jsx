@@ -54,11 +54,16 @@ export default function ScanInvoiceModal({
   };
 
   const targetLocation = newInvoice?.location || '';
+  const getWarehouseTarget = (location) => location && location !== 'Основной склад' ? 'object' : 'main';
   const updateLocation = (location) => {
+    const warehouseTarget = getWarehouseTarget(location);
     setNewInvoice(prev => ({
       ...prev,
       location,
-      project: location && location !== 'Основной склад' ? location : '',
+      project: warehouseTarget === 'object' ? location : '',
+      warehouseTarget,
+      selectedAction: 'receive_to_warehouse',
+      sourceType: warehouseTarget === 'object' ? 'scan_project_invoice' : 'scan_main_invoice',
     }));
   };
 
@@ -86,7 +91,10 @@ export default function ScanInvoiceModal({
     }
     setScanningInvoice(true);
     const location = targetLocation;
-    const project = location !== 'Основной склад' ? location : '';
+    const warehouseTarget = getWarehouseTarget(location);
+    const project = warehouseTarget === 'object' ? location : '';
+    const selectedAction = 'receive_to_warehouse';
+    const sourceType = warehouseTarget === 'object' ? 'scan_project_invoice' : 'scan_main_invoice';
     try {
       const normalizedPages = await normalizeInvoiceImageFiles(files);
       const images = normalizedPages.map(page => ({
@@ -94,7 +102,7 @@ export default function ScanInvoiceModal({
         mimeType: page.mimeType,
         name: page.originalName,
       }));
-      const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images, target:'warehouse', location, project})});
+      const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images, target:'warehouse', location, project, warehouseTarget, selectedAction, sourceType})});
       const data = await resp.json();
       if(!data.ok) throw new Error(data.error||'Ошибка');
       const parsed = data.data;
@@ -118,23 +126,31 @@ export default function ScanInvoiceModal({
           workPackage:''
         };
       });
-      setNewInvoice(prev=>({...prev,
-        location,
-        project,
-        number:parsed.number || parsed.invoiceNumber || parsed.invoice_number || prev.number || '',
-        supplier:parsed.supplier||'',
-        newSupplierName:parsed.supplier||'',
-        isNewSupplier:true,
-        date:normalizeDate(parsed.date || parsed.invoiceDate || parsed.invoice_date) || today,
-        acceptedBy:user?.name || '',
-        vat:detectVat(parsed),
-        totalBase,
-        totalVat,
-        totalWithVat,
-        pagesCount: parsed.pagesCount || files.length,
-        photos: uploadedPhotos.length ? [...(prev.photos || []), ...uploadedPhotos] : (prev.photos || []),
-        items:normalizedItems.length ? normalizedItems : prev.items
-      }));
+      setNewInvoice(prev=>{
+        const photos = uploadedPhotos.length ? [...(prev.photos || []), ...uploadedPhotos] : (prev.photos || []);
+        return {
+          ...prev,
+          location,
+          project,
+          warehouseTarget,
+          selectedAction,
+          sourceType,
+          number:parsed.number || parsed.invoiceNumber || parsed.invoice_number || prev.number || '',
+          supplier:parsed.supplier||'',
+          newSupplierName:parsed.supplier||'',
+          isNewSupplier:true,
+          date:normalizeDate(parsed.date || parsed.invoiceDate || parsed.invoice_date) || today,
+          acceptedBy:user?.name || '',
+          vat:detectVat(parsed),
+          totalBase,
+          totalVat,
+          totalWithVat,
+          pagesCount: parsed.pagesCount || photos.length || files.length,
+          photos,
+          photoUrls: photos,
+          items:normalizedItems.length ? normalizedItems : prev.items
+        };
+      });
       setShowScanInvoice(false);
       setShowScannedInvoiceForm(true);
       alert(files.length > 1 ? `Накладная распознана: ${files.length} стр. Проверьте данные.` : 'Накладная распознана! Проверьте данные.');

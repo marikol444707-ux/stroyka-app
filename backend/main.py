@@ -2577,6 +2577,9 @@ def init_db():
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT;
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS photo_urls TEXT;
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS pages_count INT DEFAULT 1;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS warehouse_target VARCHAR(50);
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS selected_action VARCHAR(100);
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS material_match_json TEXT;
         CREATE TABLE IF NOT EXISTS warehouses (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -8125,6 +8128,9 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
+        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS warehouse_target VARCHAR(50)")
+        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS selected_action VARCHAR(100)")
+        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS material_match_json TEXT")
     except Exception as e:
         raise HTTPException(status_code=500, detail="Не удалось подготовить поля накладной поставки: " + str(e))
     try:
@@ -8164,19 +8170,20 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
     number = delivery.get('waybill_number') or ("Поставка-" + str(delivery_id))
     try:
         cur.execute("""INSERT INTO warehouse_invoices
-                       (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,
-                        items,total_base,total_vat,total_with_vat,status,added_by,photo_url,
-                        source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                       RETURNING id""",
-                    (number, date_value, delivery.get('supplier_id'), delivery.get('supplier_name') or "",
-	                     accepted_by or delivery.get('received_by') or "", project, project, "Без НДС",
-	                     _json.dumps(items, ensure_ascii=False), total, 0, total,
-	                     "Принята", accepted_by or delivery.get('received_by') or "Снабжение",
-	                     delivery.get('photo_url') or "", "supply_delivery", delivery_id,
-	                     delivery_id, delivery.get('request_id'),
-                         _json.dumps(([delivery.get('photo_url')] if delivery.get('photo_url') else []), ensure_ascii=False),
-                         1))
+	                       (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,
+	                        items,total_base,total_vat,total_with_vat,status,added_by,photo_url,
+	                        source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count,
+	                        warehouse_target,selected_action,material_match_json)
+	                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+	                       RETURNING id""",
+	                    (number, date_value, delivery.get('supplier_id'), delivery.get('supplier_name') or "",
+		                     accepted_by or delivery.get('received_by') or "", project, project, "Без НДС",
+		                     _json.dumps(items, ensure_ascii=False), total, 0, total,
+		                     "Принята", accepted_by or delivery.get('received_by') or "Снабжение",
+		                     delivery.get('photo_url') or "", "supply_delivery", delivery_id,
+		                     delivery_id, delivery.get('request_id'),
+	                         _json.dumps(([delivery.get('photo_url')] if delivery.get('photo_url') else []), ensure_ascii=False),
+	                         1, "object", "supply_receipt", _json.dumps([], ensure_ascii=False)))
         new_id = cur.fetchone()
         return new_id['id'] if isinstance(new_id, dict) else new_id[0]
     except Exception as e:
@@ -17111,15 +17118,15 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count,warehouse_target,selected_action,material_match_json FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
     elif current_user.get("role") in ("снабженец", "кладовщик"):
         allowed_projects = user_project_names(current_user)
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count,warehouse_target,selected_action,material_match_json FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
     else:
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count FROM warehouse_invoices ORDER BY id DESC")
+        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count,warehouse_target,selected_action,material_match_json FROM warehouse_invoices ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     result = []
@@ -17148,7 +17155,8 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
             photo_urls = []
         if not photo_urls and r[15]:
             photo_urls = [r[15]]
-        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19]})
+        material_match = _json_list_or_empty(r[24]) if len(r) > 24 else []
+        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match})
     return result
 
 def _create_warehouse_invoice_record(data: dict, current_user: dict):
@@ -17248,13 +17256,25 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
         if first_photo_url and first_photo_url not in photo_urls:
             photo_urls.insert(0, first_photo_url)
         pages_count = int(data.get("pagesCount") or data.get("pages_count") or len(photo_urls) or 1)
+        warehouse_target = str(data.get("warehouseTarget") or data.get("warehouse_target") or ("object" if target_project else "main")).strip()
+        warehouse_target = warehouse_target if warehouse_target in {"main", "object"} else ("object" if target_project else "main")
+        selected_action = str(data.get("selectedAction") or data.get("selected_action") or "receive_to_warehouse").strip() or "receive_to_warehouse"
+        material_match = data.get("materialMatch") or data.get("material_match") or []
+        if isinstance(material_match, str):
+            try:
+                material_match = j.loads(material_match)
+            except Exception:
+                material_match = []
+        if not isinstance(material_match, list):
+            material_match = []
         cur.execute("""INSERT INTO warehouse_invoices
                        (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
                         total_base,total_vat,total_with_vat,status,added_by,photo_url,
-                        source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count,
+                        warehouse_target,selected_action,material_match_json)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
-            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(items_list,ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),first_photo_url,source_type,source_id,supply_delivery_id,supply_request_id,j.dumps(photo_urls,ensure_ascii=False),pages_count))
+            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,data.get("vat","Без НДС"),j.dumps(items_list,ensure_ascii=False),data.get("totalBase",0),data.get("totalVat",0),data.get("totalWithVat",0),data.get("status","Принята"),data.get("addedBy",""),first_photo_url,source_type,source_id,supply_delivery_id,supply_request_id,j.dumps(photo_urls,ensure_ascii=False),pages_count,warehouse_target,selected_action,j.dumps(material_match,ensure_ascii=False)))
         invoice_id = cur.fetchone()[0]
 
         sup = data.get("supplierName","")
