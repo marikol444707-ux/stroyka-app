@@ -14022,7 +14022,7 @@ function App() {
 	                    </button>
 	                  </div>
 	                );})()}
-	                {['директор','зам_директора'].includes(user?.role) && (()=>{const workSummary=buildEstimateWorkSummary(selectedEstimate);if(!workSummary.totalSourceRows) return null;const compactLimit=isMobile?6:10;const visibleGroups=showEstimateWorkSummary?workSummary.groups:workSummary.groups.slice(0,compactLimit);const hiddenGroups=workSummary.groups.length-visibleGroups.length;const fmtNum=(value,max=3)=>Number(value||0).toLocaleString('ru-RU',{maximumFractionDigits:max});const fmtMoney=(value)=>Math.round(Number(value||0)).toLocaleString('ru-RU')+' ₽';const jumpToSource=(source)=>{const rowId=estimateIssueDomId(selectedEstimate.id,source.sectionIndex,source.itemIndex);setShowEstimateIssuesOnly(false);setTimeout(()=>document.getElementById(rowId)?.scrollIntoView({behavior:'smooth',block:'center'}),80);};return(
+	                {['директор','зам_директора'].includes(user?.role) && (()=>{const workSummary=buildEstimateWorkSummary(selectedEstimate);if(!workSummary.totalSourceRows) return null;const compactLimit=isMobile?6:10;const visibleGroups=showEstimateWorkSummary?workSummary.groups:workSummary.groups.slice(0,compactLimit);const hiddenGroups=workSummary.groups.length-visibleGroups.length;const fmtNum=(value,max=3)=>Number(value||0).toLocaleString('ru-RU',{maximumFractionDigits:max});const fmtMoney=(value)=>Math.round(Number(value||0)).toLocaleString('ru-RU')+' ₽';const jumpToSource=(source)=>{const rowId=estimateIssueDomId(selectedEstimate.id,source.sectionIndex,source.itemIndex);const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const groupKey=['estimate',selectedEstimate.id,source.sectionIndex,'Работы'].join(':');setShowEstimateIssuesOnly(false);setMobileExpandedRenderLists(prev=>({...prev,[sectionListKey]:true,[groupKey]:true}));setTimeout(()=>document.getElementById(rowId)?.scrollIntoView({behavior:'smooth',block:'center'}),120);};return(
 	                  <div style={{...card,padding:isMobile?'12px':'14px',marginBottom:'12px',backgroundColor:C.bg}}>
 	                    <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:isMobile?'flex-start':'center',flexDirection:isMobile?'column':'row'}}>
 	                      <div>
@@ -14075,7 +14075,7 @@ function App() {
                   setNewEstimateSection={setNewEstimateSection}
                   onAdd={()=>{if(!newEstimateSection.name) return;const section={id:Date.now(),name:newEstimateSection.name,items:[]};const updated={...selectedEstimate,sections:[...(selectedEstimate.sections||[]),section]};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));setNewEstimateSection({name:''});}}
                 />
-	                {(()=>{const allSections=(selectedEstimate.sections||[]).map((section,si)=>({section,si}));const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const sectionLimit=isMobile?5:8;const limitSections=isMobile&&!showEstimateIssuesOnly&&!mobileExpandedRenderLists[sectionListKey];const visibleSections=limitSections?allSections.slice(0,sectionLimit):allSections;const hiddenSections=allSections.length-visibleSections.length;return(<>
+		                {(()=>{const allSections=(selectedEstimate.sections||[]).map((section,si)=>({section,si}));const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const sectionLimit=isMobile?5:8;const limitSections=!showEstimateIssuesOnly&&!mobileExpandedRenderLists[sectionListKey];const visibleSections=limitSections?allSections.slice(0,sectionLimit):allSections;const hiddenSections=allSections.length-visibleSections.length;return(<>
 	                {visibleSections.map(({section,si})=>{
                   const itemKind=(it)=>normalizeEstimateItemType(it, section.name);
                   const sumOf=(it)=>estimateItemTotal(it);
@@ -14140,11 +14140,11 @@ function App() {
                   const canEditExecutionPrice=['директор','зам_директора'].includes(user?.role);
                   const markSectionBasis=()=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map(it=>isEstimateWorkItem(it,s.name)?{...it,measurementBasis:estimateMeasurementBasisOf(it,s.name)}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
 	                  const renderGroup=(title,emoji,list,groupTotal,accent)=>{
-	                    const mobileGroupLimit=showEstimateIssuesOnly?80:35;
-	                    const listKey=['estimate',selectedEstimate.id,si,title].join(':');
-                      const mobileListState=mobileExpandedRenderLists[listKey];
-                      const mobileVisibleLimit=mobileListState===true?list.length:Number(mobileListState||mobileGroupLimit);
-	                    const groupRows=isMobile?list.slice(0,mobileVisibleLimit):list;
+		                    const mobileGroupLimit=showEstimateIssuesOnly?(isMobile?80:180):(isMobile?35:90);
+		                    const listKey=['estimate',selectedEstimate.id,si,title].join(':');
+	                      const mobileListState=mobileExpandedRenderLists[listKey];
+	                      const mobileVisibleLimit=mobileListState===true?list.length:Number(mobileListState||mobileGroupLimit);
+		                    const groupRows=list.slice(0,mobileVisibleLimit);
 	                    const hiddenRows=list.length-groupRows.length;
 	                    return(<div style={{marginBottom:'10px'}}>
 	                    <EstimateItemGroupHeader title={title} emoji={emoji} count={list.length} total={groupTotal} accent={accent}/>
