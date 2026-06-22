@@ -20,6 +20,7 @@ export default function WarehouseMainStockPanel({
   badge,
   isMobile,
 }) {
+  const [visibleRows, setVisibleRows] = React.useState(60);
   const touchCompact = typeof window !== 'undefined'
     && (window.visualViewport?.width || window.innerWidth || 0) < 1100
     && (
@@ -27,7 +28,17 @@ export default function WarehouseMainStockPanel({
       || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''))
     );
   const compactRows = isMobile || touchCompact;
-  const rows = (warehouseMain || []).filter(material => matchSearch(listSearch, material.name, material.category));
+  const rowsStep = compactRows ? 60 : 180;
+  const rows = React.useMemo(
+    () => (warehouseMain || []).filter(material => matchSearch(listSearch, material.name, material.category)),
+    [warehouseMain, listSearch, matchSearch],
+  );
+  const displayedRows = rows.slice(0, visibleRows);
+  const hiddenRows = Math.max(0, rows.length - displayedRows.length);
+
+  React.useEffect(() => {
+    setVisibleRows(compactRows ? 60 : 180);
+  }, [compactRows, listSearch, warehouseMain?.length]);
 
   return (
     <div style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
@@ -55,7 +66,7 @@ export default function WarehouseMainStockPanel({
 
       {compactRows ? (
         <div style={{display:'grid',gap:'10px',width:'100%',maxWidth:'min(720px,100%)',margin:'0 auto'}}>
-          {rows.map(material => {
+          {displayedRows.map(material => {
             const low = material.minQuantity && material.quantity < material.minQuantity;
             return (
               <div key={material.id} style={{
@@ -107,7 +118,7 @@ export default function WarehouseMainStockPanel({
           </tr>
         </thead>
         <tbody>
-          {rows.map(material => (
+          {displayedRows.map(material => (
             <tr key={material.id} style={{backgroundColor:material.minQuantity&&material.quantity<material.minQuantity?C.dangerLight:'transparent'}}>
               <td style={tblC}>
                 <b style={{fontSize:'13px'}}>{material.name}</b>
@@ -125,7 +136,18 @@ export default function WarehouseMainStockPanel({
       </div>
       )}
 
+      {hiddenRows > 0 && (
+        <button
+          type="button"
+          onClick={() => setVisibleRows(limit => Math.min(rows.length, limit + rowsStep))}
+          style={{...btnG, width:'100%', justifyContent:'center', marginTop:'10px'}}
+        >
+          Показать ещё {Math.min(hiddenRows, rowsStep)} материалов
+        </button>
+      )}
+
       {(warehouseMain || []).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Склад пуст</p>}
+      {(warehouseMain || []).length>0&&!rows.length&&<p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Поиск ничего не нашёл</p>}
     </div>
   );
 }

@@ -47,10 +47,26 @@ export default function WarehouseObjectsPanel({
   isMobile = false,
 }) {
   const [visibleObjectRows, setVisibleObjectRows] = React.useState(60);
+  const [visibleTransferRows, setVisibleTransferRows] = React.useState(40);
   const useCompactRows = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
-  const projectMaterials = (projectName) => (materials || []).filter(material => material.project === projectName);
   const canDeleteProjectMaterial = ['директор', 'зам_директора', 'кладовщик', 'снабженец'].includes(user?.role);
-  const transferSourceMaterials = (materials || []).filter(material => material.project === selectedWarehouseProject);
+  const materialsByProject = React.useMemo(() => {
+    const grouped = new Map();
+    (materials || []).forEach(material => {
+      const projectName = material.project || '';
+      if (!grouped.has(projectName)) grouped.set(projectName, []);
+      grouped.get(projectName).push(material);
+    });
+    return grouped;
+  }, [materials]);
+  const projectMaterials = React.useCallback(
+    projectName => materialsByProject.get(projectName) || [],
+    [materialsByProject],
+  );
+  const transferSourceMaterials = React.useMemo(
+    () => projectMaterials(selectedWarehouseProject),
+    [projectMaterials, selectedWarehouseProject],
+  );
   const toNum = value => {
     const parsed = Number(String(value ?? '').replace(',', '.').replace(/\s+/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
@@ -73,10 +89,16 @@ export default function WarehouseObjectsPanel({
   React.useEffect(() => {
     setVisibleObjectRows(useCompactRows ? 60 : 180);
   }, [useCompactRows, selectedWarehouseProject]);
+  React.useEffect(() => {
+    setVisibleTransferRows(useCompactRows ? 40 : 100);
+  }, [useCompactRows, selectedWarehouseProject, showTransferForm]);
   const selectedProjectMaterials = projectMaterials(selectedWarehouseProject);
   const displayedProjectMaterials = selectedProjectMaterials.slice(0, visibleObjectRows);
   const hiddenProjectMaterials = Math.max(0, selectedProjectMaterials.length - displayedProjectMaterials.length);
   const objectRowsStep = useCompactRows ? 60 : 180;
+  const transferRowsStep = useCompactRows ? 40 : 100;
+  const displayedTransferSourceMaterials = transferSourceMaterials.slice(0, visibleTransferRows);
+  const hiddenTransferMaterials = Math.max(0, transferSourceMaterials.length - displayedTransferSourceMaterials.length);
 
   return (
     <div>
@@ -283,7 +305,7 @@ export default function WarehouseObjectsPanel({
             </select>
             <p style={{ fontSize: '12px', color: C.textSec, marginBottom: '6px' }}>Выберите материал:</p>
             <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1.5px solid ' + C.border, borderRadius: '8px', padding: '8px', marginBottom: '10px' }}>
-              {transferSourceMaterials.map((material, index) => (
+              {displayedTransferSourceMaterials.map((material, index) => (
                 <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', borderBottom: '1px solid ' + C.border, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                   <input
                     type='checkbox'
@@ -305,6 +327,15 @@ export default function WarehouseObjectsPanel({
                 </div>
               ))}
             </div>
+            {hiddenTransferMaterials > 0 && (
+              <button
+                type="button"
+                onClick={() => setVisibleTransferRows(limit => Math.min(transferSourceMaterials.length, limit + transferRowsStep))}
+                style={{ ...btnG, width: '100%', justifyContent: 'center', marginBottom: '10px' }}
+              >
+                Показать ещё {Math.min(hiddenTransferMaterials, transferRowsStep)} материалов
+              </button>
+            )}
             {newTransfer.materialName && (
               <>
                 <div className='mobile-two-cols' style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 120px auto', gap: '8px', alignItems: 'center', marginBottom: '10px', padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>

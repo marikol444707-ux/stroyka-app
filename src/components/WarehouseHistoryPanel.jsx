@@ -14,7 +14,18 @@ export default function WarehouseHistoryPanel({
   badge,
   isMobile = false,
 }) {
-  const rows = (history || []).filter(item => matchSearch(listSearch, item.material, item.project, item.type)).slice(0, 50);
+  const [visibleRows, setVisibleRows] = React.useState(isMobile ? 40 : 100);
+  const rowsStep = isMobile ? 40 : 100;
+  const rows = React.useMemo(
+    () => (history || []).filter(item => matchSearch(listSearch, item.material, item.project, item.type)),
+    [history, listSearch, matchSearch],
+  );
+  const displayedRows = rows.slice(0, visibleRows);
+  const hiddenRows = Math.max(0, rows.length - displayedRows.length);
+
+  React.useEffect(() => {
+    setVisibleRows(isMobile ? 40 : 100);
+  }, [isMobile, listSearch, history?.length]);
 
   return (
     <div>
@@ -31,7 +42,7 @@ export default function WarehouseHistoryPanel({
       </div>
       {isMobile ? (
         <div style={{display:'grid',gap:'10px'}}>
-          {rows.map((item, index) => (
+          {displayedRows.map((item, index) => (
             <div key={index} style={{padding:'12px',borderRadius:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,display:'grid',gap:'8px'}}>
               <div style={{display:'flex',justifyContent:'space-between',gap:'8px',alignItems:'flex-start'}}>
                 <b style={{color:C.text,fontSize:'13px',lineHeight:'1.35',minWidth:0,overflowWrap:'anywhere'}}>{item.material || 'Материал'}</b>
@@ -57,7 +68,7 @@ export default function WarehouseHistoryPanel({
           <tr><th style={tblH}>Материал</th><th style={tblH}>Тип</th><th style={tblH}>Кол-во</th><th style={tblH}>Проект</th><th style={tblH}>Дата</th></tr>
         </thead>
         <tbody>
-          {rows.map((item, index) => (
+          {displayedRows.map((item, index) => (
             <tr key={index}>
               <td style={tblC}>{item.material}</td>
               <td style={tblC}><span style={badge(item.type==='приход'?C.success:C.danger,item.type==='приход'?C.successLight:C.dangerLight,item.type==='приход'?C.successBorder:C.dangerBorder)}>{item.type}</span></td>
@@ -68,6 +79,15 @@ export default function WarehouseHistoryPanel({
           ))}
         </tbody>
       </table>
+      )}
+      {hiddenRows > 0 && (
+        <button
+          type="button"
+          onClick={() => setVisibleRows(limit => Math.min(rows.length, limit + rowsStep))}
+          style={{...btnG, width:'100%', justifyContent:'center', marginTop:'10px'}}
+        >
+          Показать ещё {Math.min(hiddenRows, rowsStep)} записей
+        </button>
       )}
     </div>
   );
