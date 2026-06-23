@@ -33,6 +33,7 @@
     "smoke:work-roles": "python3 scripts/smoke-work-roles.py",
     "smoke:accounting-prod": "python3 scripts/smoke-accounting-prod.py",
     "smoke:workflow-invoice": "python3 scripts/smoke-workflow-invoice-preview.py",
+    "smoke:activity-log": "python3 scripts/smoke-activity-log.py",
     "smoke:preprod": "python3 scripts/smoke-preprod.py",
     "smoke:test-artifacts": "python3 scripts/smoke-test-artifacts.py",
     "check:smeta": "python3 scripts/check-smeta-parser.py",

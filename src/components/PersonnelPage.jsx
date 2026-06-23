@@ -132,6 +132,23 @@ export default function PersonnelPage({
   const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
   const normalizeAccessList = (value) => Array.isArray(value) ? value.filter(Boolean) : [];
+  const staffWorkScope = (s) => {
+    const access = findUserForStaff(s);
+    const packages = normalizeAccessList(access?.assignedPackages || access?.assigned_packages || s.assignedPackages || s.assigned_packages);
+    return packages[0] || s.specialization || s.category || s.brigade || s.project || 'Без специализации';
+  };
+  const staffSectionsForGroup = (group) => {
+    if (!['masters', 'contractors'].includes(group.key)) return [{ key: 'all', label: '', rows: group.rows }];
+    const sections = new Map();
+    group.rows.forEach((row) => {
+      const scope = staffWorkScope(row);
+      if (!sections.has(scope)) sections.set(scope, []);
+      sections.get(scope).push(row);
+    });
+    return [...sections.entries()]
+      .sort(([a], [b]) => staffCollator.compare(a, b))
+      .map(([label, rows]) => ({ key: label, label, rows: rows.slice().sort(compareStaffRows) }));
+  };
   const openStaffEdit = (s) => {
     const access = findUserForStaff(s);
     const accessProject = access?.projectName || access?.project_name || s.project || '';
@@ -507,61 +524,70 @@ export default function PersonnelPage({
                     </div>
                   </div>
                   <div style={{display:'flex',flexDirection:'column'}}>
-                    {group.rows.map(s=>{
-                      const hasAccess=findUserForStaff(s);
-                      const isExp=expandedStaffId===s.id;
-                      return (
-                        <div key={s.id} style={{borderBottom:'1px solid '+C.border}}>
-                          <div
-                            onClick={()=>openStaffProfile(s)}
-                            style={{padding:'12px 14px',display:'flex',gap:'10px',alignItems:'flex-start',cursor:'pointer',backgroundColor:isExp?C.bg:'transparent'}}
-                          >
-                            <div style={{width:'36px',height:'36px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,display:'flex',alignItems:'center',justifyContent:'center',color:C.text,fontWeight:800,flexShrink:0}}>
-                              {(s.name||'?').slice(0,1)}
-                            </div>
-                            <div style={{minWidth:0,flex:1}}>
-                              <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.25,overflowWrap:'anywhere'}}>{s.name||'Без имени'}</b>
-                              <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px',lineHeight:1.35,overflowWrap:'anywhere'}}>
-                                {[s.role, s.specialization].filter(Boolean).join(' · ') || 'Должность не указана'}
-                              </p>
-                              <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'7px'}}>
-                                <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px'}}>{s.project||'Без объекта'}</span>
-                                <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px'}}>{s.payType==='сдельно'?'Сдельно':'Оклад'}</span>
-                                {s.brigade&&<span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px'}}>{s.brigade}</span>}
-                              </div>
-                              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',marginTop:'9px'}}>
-                                <b style={{color:C.success,fontSize:'12px'}}>{calcSalary(s).toLocaleString()+' ₽'}</b>
-                                {hasAccess
-                                  ? <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.successLight,color:C.success,fontSize:'10px',fontWeight:700,maxWidth:'140px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>✅ {hasAccess.email||'доступ'}</span>
-                                  : <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,color:C.textMuted,fontSize:'10px'}}>без доступа</span>}
-                              </div>
-                            </div>
-                            <div style={{paddingTop:'2px',color:C.textSec,flexShrink:0}}>{isExp?<ChevronUp size={16}/>:<ChevronDown size={16}/>}</div>
+                    {staffSectionsForGroup(group).map(section => (
+                      <React.Fragment key={section.key}>
+                        {section.label&&(
+                          <div style={{padding:'8px 14px',backgroundColor:C.bgWhite,borderBottom:'1px solid '+C.border,color:C.textSec,fontSize:'11px',fontWeight:800,letterSpacing:0,textTransform:'uppercase'}}>
+                            {section.label} · {section.rows.length}
                           </div>
-                          {isExp&&(
-                            <div style={{padding:'0 14px 12px 60px'}}>
-                              {staffProfileLoading?<p style={{color:C.textMuted,fontSize:'11px',margin:'0 0 10px'}}>Загрузка профиля...</p>:staffProfile?(
-                                <div style={{display:'grid',gap:'8px',marginBottom:'10px'}}>
-                                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                                    <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Тип</p><b style={{fontSize:'11px',color:C.text}}>{s.employmentType||'не указан'}</b></div>
-                                    <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>ИНН</p><b style={{fontSize:'11px',color:C.text}}>{s.inn||'не заполнен'}</b></div>
-                                    <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Договоры</p><b style={{fontSize:'11px',color:C.text}}>{staffProfile.contracts.length}</b></div>
-                                    <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Акты</p><b style={{fontSize:'11px',color:C.text}}>{staffProfile.acts.length}</b></div>
+                        )}
+                        {section.rows.map(s=>{
+                          const hasAccess=findUserForStaff(s);
+                          const isExp=expandedStaffId===s.id;
+                          return (
+                            <div key={s.id} style={{borderBottom:'1px solid '+C.border}}>
+                              <div
+                                onClick={()=>openStaffProfile(s)}
+                                style={{padding:'12px 14px',display:'flex',gap:'10px',alignItems:'flex-start',cursor:'pointer',backgroundColor:isExp?C.bg:'transparent'}}
+                              >
+                                <div style={{width:'36px',height:'36px',borderRadius:'10px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,display:'flex',alignItems:'center',justifyContent:'center',color:C.text,fontWeight:800,flexShrink:0}}>
+                                  {(s.name||'?').slice(0,1)}
+                                </div>
+                                <div style={{minWidth:0,flex:1}}>
+                                  <b style={{display:'block',color:C.text,fontSize:'13px',lineHeight:1.25,overflowWrap:'anywhere'}}>{s.name||'Без имени'}</b>
+                                  <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px',lineHeight:1.35,overflowWrap:'anywhere'}}>
+                                    {[s.role, s.specialization].filter(Boolean).join(' · ') || 'Должность не указана'}
+                                  </p>
+                                  <div style={{display:'flex',gap:'6px',flexWrap:'wrap',marginTop:'7px'}}>
+                                    <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px'}}>{s.project||'Без объекта'}</span>
+                                    <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px'}}>{s.payType==='сдельно'?'Сдельно':'Оклад'}</span>
+                                    {staffWorkScope(s)&&<span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,color:C.textSec,fontSize:'10px'}}>{staffWorkScope(s)}</span>}
+                                  </div>
+                                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',marginTop:'9px'}}>
+                                    <b style={{color:C.success,fontSize:'12px'}}>{calcSalary(s).toLocaleString()+' ₽'}</b>
+                                    {hasAccess
+                                      ? <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.successLight,color:C.success,fontSize:'10px',fontWeight:700,maxWidth:'140px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>✅ {hasAccess.email||'доступ'}</span>
+                                      : <span style={{padding:'3px 7px',borderRadius:'999px',backgroundColor:C.bgWhite,color:C.textMuted,fontSize:'10px'}}>без доступа</span>}
                                   </div>
                                 </div>
-                              ):<p style={{color:C.textMuted,fontSize:'11px',margin:'0 0 10px'}}>Не удалось загрузить профиль</p>}
-                              <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}} onClick={e=>e.stopPropagation()}>
-                                {hasAccess
-                                  ? <button onClick={()=>resetStaffAccessPassword(hasAccess,s)} style={{...btnG,padding:'6px 9px',fontSize:'11px'}}>🔑 Пароль</button>
-                                  : <button onClick={()=>createStaffAccessFromPrompt(s)} style={{...btnB,padding:'6px 9px',fontSize:'11px'}}>🔐 Доступ</button>}
-                                <button onClick={()=>openStaffEdit(s)} style={{...btnG,padding:'6px 9px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
-                                <button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'6px 9px',fontSize:'11px'}}><Trash2 size={11}/>Удалить</button>
+                                <div style={{paddingTop:'2px',color:C.textSec,flexShrink:0}}>{isExp?<ChevronUp size={16}/>:<ChevronDown size={16}/>}</div>
                               </div>
+                              {isExp&&(
+                                <div style={{padding:'0 14px 12px 60px'}}>
+                                  {staffProfileLoading?<p style={{color:C.textMuted,fontSize:'11px',margin:'0 0 10px'}}>Загрузка профиля...</p>:staffProfile?(
+                                    <div style={{display:'grid',gap:'8px',marginBottom:'10px'}}>
+                                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                                        <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Тип</p><b style={{fontSize:'11px',color:C.text}}>{s.employmentType||'не указан'}</b></div>
+                                        <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>ИНН</p><b style={{fontSize:'11px',color:C.text}}>{s.inn||'не заполнен'}</b></div>
+                                        <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Договоры</p><b style={{fontSize:'11px',color:C.text}}>{staffProfile.contracts.length}</b></div>
+                                        <div style={{padding:'8px',backgroundColor:C.bgWhite,borderRadius:'8px',border:'1px solid '+C.border}}><p style={{margin:0,fontSize:'10px',color:C.textSec}}>Акты</p><b style={{fontSize:'11px',color:C.text}}>{staffProfile.acts.length}</b></div>
+                                      </div>
+                                    </div>
+                                  ):<p style={{color:C.textMuted,fontSize:'11px',margin:'0 0 10px'}}>Не удалось загрузить профиль</p>}
+                                  <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}} onClick={e=>e.stopPropagation()}>
+                                    {hasAccess
+                                      ? <button onClick={()=>resetStaffAccessPassword(hasAccess,s)} style={{...btnG,padding:'6px 9px',fontSize:'11px'}}>🔑 Пароль</button>
+                                      : <button onClick={()=>createStaffAccessFromPrompt(s)} style={{...btnB,padding:'6px 9px',fontSize:'11px'}}>🔐 Доступ</button>}
+                                    <button onClick={()=>openStaffEdit(s)} style={{...btnG,padding:'6px 9px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
+                                    <button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'6px 9px',fontSize:'11px'}}><Trash2 size={11}/>Удалить</button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
                   </div>
                 </div>
               ))}
@@ -592,11 +618,20 @@ export default function PersonnelPage({
                       </div>
                     </td>
                   </tr>
-                  {group.rows.map(s=>{
-                    const hasAccess=findUserForStaff(s);
-                    const isExp=expandedStaffId===s.id;
-                    return (
-                      <React.Fragment key={s.id}>
+                  {staffSectionsForGroup(group).map(section => (
+                    <React.Fragment key={section.key}>
+                      {section.label&&(
+                        <tr>
+                          <td colSpan='8' style={{...tblC,backgroundColor:C.bgWhite,borderBottom:'1px solid '+C.border,padding:'8px 12px'}}>
+                            <b style={{color:C.textSec,fontSize:'11px',textTransform:'uppercase',letterSpacing:0}}>{section.label} · {section.rows.length}</b>
+                          </td>
+                        </tr>
+                      )}
+                      {section.rows.map(s=>{
+                        const hasAccess=findUserForStaff(s);
+                        const isExp=expandedStaffId===s.id;
+                        return (
+                          <React.Fragment key={s.id}>
                         <tr style={{cursor:'pointer',backgroundColor:isExp?C.bg:'transparent'}} onClick={()=>openStaffProfile(s)}>
                           <td style={{...tblC,width:'24px',textAlign:'center'}}>{isExp?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</td>
                           <td style={tblC}><b style={{fontSize:'13px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.phone}</p></td>
@@ -700,9 +735,11 @@ export default function PersonnelPage({
                         </td>
                       </tr>
                     )}
-                  </React.Fragment>
-                );
-              })}
+                          </React.Fragment>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
                 </React.Fragment>
               ))}
             </tbody>
