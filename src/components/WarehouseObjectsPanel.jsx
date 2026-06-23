@@ -63,6 +63,21 @@ export default function WarehouseObjectsPanel({
     projectName => materialsByProject.get(projectName) || [],
     [materialsByProject],
   );
+  const visibleWarehouseProjects = React.useMemo(
+    () => visibleActiveProjects(projects),
+    [visibleActiveProjects, projects],
+  );
+  const projectStockSummaries = React.useMemo(() => {
+    const summaries = new Map();
+    visibleWarehouseProjects.forEach(project => {
+      const projectRows = projectMaterials(project.name);
+      const total = projectRows.reduce((sum, material) => (
+        sum + Number(material.price || 0) * Number(material.quantity || 0)
+      ), 0);
+      summaries.set(project.name, { count: projectRows.length, total });
+    });
+    return summaries;
+  }, [projectMaterials, visibleWarehouseProjects]);
   const transferSourceMaterials = React.useMemo(
     () => projectMaterials(selectedWarehouseProject),
     [projectMaterials, selectedWarehouseProject],
@@ -105,9 +120,8 @@ export default function WarehouseObjectsPanel({
       {!selectedWarehouseProject ? (
         <div>
           <h3 style={{ color: C.text, marginBottom: '15px', fontSize: '15px', fontWeight: '700' }}>Материалы по объектам</h3>
-          {visibleActiveProjects(projects).map(project => {
-            const projectRows = projectMaterials(project.name);
-            const total = projectRows.reduce((sum, material) => sum + Number(material.price || 0) * Number(material.quantity || 0), 0);
+          {visibleWarehouseProjects.map(project => {
+            const summary = projectStockSummaries.get(project.name) || { count: 0, total: 0 };
             return (
               <div
                 key={project.id}
@@ -116,7 +130,7 @@ export default function WarehouseObjectsPanel({
               >
                 <div style={{ minWidth: 0 }}>
                   <b style={{ display: 'block', color: C.text, fontSize: '14px', lineHeight: 1.25, overflowWrap: 'anywhere' }}>{project.name}</b>
-                  <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px', overflowWrap: 'anywhere' }}>{projectRows.length + ' позиций · ' + total.toLocaleString() + ' ₽'}</p>
+                  <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px', overflowWrap: 'anywhere' }}>{summary.count + ' позиций · ' + summary.total.toLocaleString() + ' ₽'}</p>
                 </div>
                 <ChevronRight size={18} color={C.textMuted} style={{ alignSelf: useCompactRows ? 'flex-end' : 'center', flex: '0 0 auto' }} />
               </div>

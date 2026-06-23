@@ -29,9 +29,10 @@ export default function WarehouseMainStockPanel({
     );
   const compactRows = isMobile || touchCompact;
   const rowsStep = compactRows ? 60 : 180;
+  const deferredListSearch = React.useDeferredValue(listSearch);
   const rows = React.useMemo(
-    () => (warehouseMain || []).filter(material => matchSearch(listSearch, material.name, material.category)),
-    [warehouseMain, listSearch, matchSearch],
+    () => (warehouseMain || []).filter(material => matchSearch(deferredListSearch, material.name, material.category)),
+    [warehouseMain, deferredListSearch, matchSearch],
   );
   const displayedRows = rows.slice(0, visibleRows);
   const hiddenRows = Math.max(0, rows.length - displayedRows.length);
