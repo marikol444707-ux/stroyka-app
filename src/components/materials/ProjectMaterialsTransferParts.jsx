@@ -273,8 +273,26 @@ export function MaterialTransferForm({
   saveTransfer,
   setShowTransferForm,
 }) {
+  const [manualPackageEdit, setManualPackageEdit] = React.useState(false);
   const selectedPackages = [...new Set((selectedTransferItems || []).map(item => item.workPackage || '').filter(Boolean))];
+  const missingPackageCount = (selectedTransferItems || []).filter(item => !(item.workPackage || '').trim()).length;
   const packageSelectValue = selectedPackages.length === 1 ? selectedPackages[0] : (newTransfer.workPackage || '');
+  const showPackageControl = selectedTransferItems.length > 0 && (manualPackageEdit || missingWorkPackage);
+  const packageHint = (() => {
+    if (missingWorkPackage) {
+      return `У ${missingPackageCount} строк пакет не определён. Выберите пакет, чтобы передача и дальнейшее списание прошли в одном разделе работ.`;
+    }
+    if (missingPackageCount > 0) {
+      return `У ${missingPackageCount} строк пакет не указан. Если выдаёте исполнителю, система попросит выбрать пакет перед сохранением.`;
+    }
+    if (selectedPackages.length > 1) {
+      return `У выбранных строк разные пакеты: ${selectedPackages.slice(0, 3).join(', ')}${selectedPackages.length > 3 ? '...' : ''}. Каждая строка уйдёт в своём пакете.`;
+    }
+    if (selectedPackages.length === 1) {
+      return `Пакет берётся из выбранной строки склада: ${selectedPackages[0]}.`;
+    }
+    return 'Пакет будет взят из строки склада после выбора материала.';
+  })();
   const applyPackageToSelected = (workPackage) => {
     if (updateTransferItems && selectedTransferItems.length > 0) {
       updateTransferItems(selectedTransferItems.map(item => ({...item, workPackage})));
@@ -334,14 +352,37 @@ export function MaterialTransferForm({
           staff={staff}
         />
 
-        <select
-          value={packageSelectValue}
-          onChange={e => applyPackageToSelected(e.target.value)}
-          style={{...inp, marginBottom: 0, borderColor: missingWorkPackage ? C.warning : inp.borderColor}}
-        >
-          <option value="">{selectedTransferItems.length > 1 && selectedPackages.length > 1 ? 'Разные пакеты в выбранных строках' : (needsWorkPackage ? 'Пакет работ *' : 'Пакет работ: общий')}</option>
-          {(workPackageOptions || []).map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
-        </select>
+        {selectedTransferItems.length > 0 && (
+          <div style={{gridColumn: 'span 2', padding: '10px 12px', backgroundColor: missingWorkPackage ? C.warningLight : C.infoLight, border: '1.5px solid ' + (missingWorkPackage ? C.warningBorder : C.infoBorder), borderRadius: '8px', fontSize: '12px', color: C.text}}>
+            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap'}}>
+              <b style={{color: missingWorkPackage ? C.warning : C.info}}>Пакет работ</b>
+              {!showPackageControl && (
+                <button type="button" onClick={() => setManualPackageEdit(true)} style={{...btnG, padding: '4px 10px', fontSize: '11px'}}>
+                  Изменить вручную
+                </button>
+              )}
+            </div>
+            <p style={{margin: '5px 0 0', color: C.textSec}}>{packageHint}</p>
+          </div>
+        )}
+        {showPackageControl && (
+          <select
+            value={packageSelectValue}
+            onChange={e => {
+              applyPackageToSelected(e.target.value);
+              if (e.target.value) setManualPackageEdit(false);
+            }}
+            style={{...inp, marginBottom: 0, borderColor: missingWorkPackage ? C.warning : inp.borderColor, gridColumn: 'span 2'}}
+          >
+            <option value="">{selectedTransferItems.length > 1 && selectedPackages.length > 1 ? 'Разные пакеты в выбранных строках' : (needsWorkPackage ? 'Пакет работ *' : 'Пакет работ: общий')}</option>
+            {(workPackageOptions || []).map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
+          </select>
+        )}
+        {manualPackageEdit && !missingWorkPackage && (
+          <button type="button" onClick={() => setManualPackageEdit(false)} style={{...btnG, marginBottom: 0, gridColumn: 'span 2', justifyContent: 'center'}}>
+            Оставить пакеты из строк склада
+          </button>
+        )}
         <input type="date" value={newTransfer.transferDate} onChange={e => setNewTransfer({...newTransfer, transferDate: e.target.value})} style={{...inp, marginBottom: 0}}/>
         <input placeholder="Примечание" value={newTransfer.notes} onChange={e => setNewTransfer({...newTransfer, notes: e.target.value})} style={{...inp, marginBottom: 0}}/>
       </div>

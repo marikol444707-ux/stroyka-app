@@ -53,6 +53,7 @@ export default function WarehouseObjectsPanel({
   const [visibleObjectRows, setVisibleObjectRows] = React.useState(60);
   const [visibleTransferRows, setVisibleTransferRows] = React.useState(40);
   const [objectMaterialSearch, setObjectMaterialSearch] = React.useState('');
+  const [manualTransferPackageEdit, setManualTransferPackageEdit] = React.useState(false);
   const useCompactRows = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const canDeleteProjectMaterial = user?.role === 'директор';
   const materialsByProject = React.useMemo(() => {
@@ -170,6 +171,9 @@ export default function WarehouseObjectsPanel({
   React.useEffect(() => {
     setVisibleTransferRows(useCompactRows ? 40 : 100);
   }, [useCompactRows, selectedWarehouseProject, showTransferForm]);
+  React.useEffect(() => {
+    if (!showTransferForm) setManualTransferPackageEdit(false);
+  }, [showTransferForm]);
   const selectedProjectMaterials = projectMaterials(selectedWarehouseProject);
   const normalizedObjectSearch = objectMaterialSearch.trim().toLowerCase();
   const filteredProjectMaterials = normalizedObjectSearch
@@ -588,20 +592,62 @@ export default function WarehouseObjectsPanel({
             </select>
             {(() => {
               const selectedPackages = [...new Set(selectedTransferItems.map(item => item.workPackage || '').filter(Boolean))];
+              const missingPackageCount = selectedTransferItems.filter(item => !(item.workPackage || '').trim()).length;
               const packageSelectValue = selectedPackages.length === 1 ? selectedPackages[0] : (newTransfer.workPackage || '');
+              const showPackageControl = selectedTransferItems.length > 0 && (manualTransferPackageEdit || transferMissingPackage);
+              const packageHint = (() => {
+                if (transferMissingPackage) {
+                  return `У ${missingPackageCount} строк пакет не определён. Выберите пакет, чтобы передача и дальнейшее списание прошли в одном разделе работ.`;
+                }
+                if (missingPackageCount > 0) {
+                  return `У ${missingPackageCount} строк пакет не указан. Если выдаёте исполнителю, система попросит выбрать пакет перед сохранением.`;
+                }
+                if (selectedPackages.length > 1) {
+                  return `У выбранных строк разные пакеты: ${selectedPackages.slice(0, 3).join(', ')}${selectedPackages.length > 3 ? '...' : ''}. Каждая строка уйдёт в своём пакете.`;
+                }
+                if (selectedPackages.length === 1) {
+                  return `Пакет берётся из выбранной строки склада: ${selectedPackages[0]}.`;
+                }
+                return 'Пакет будет взят из строки склада после выбора материала.';
+              })();
               return (
-            <select
-              value={packageSelectValue}
-              onChange={event => updateTransferItems(selectedTransferItems.length > 0
-                ? selectedTransferItems.map(item => ({ ...item, workPackage: event.target.value }))
-                : [{ materialName: newTransfer.materialName, quantity: newTransfer.quantity, unit: newTransfer.unit || 'шт', workPackage: event.target.value }])}
-              style={{ ...inp, borderColor: transferMissingPackage ? C.warning : inp.borderColor }}
-            >
-              <option value=''>{selectedTransferItems.length > 1 && selectedPackages.length > 1 ? 'Разные пакеты в выбранных строках' : (transferNeedsPackage ? 'Пакет работ *' : 'Пакет работ')}</option>
-              {transferPackageOptions.map(packageName => (
-                <option key={packageName} value={packageName}>{packageName}</option>
-              ))}
-            </select>
+                <>
+                  {selectedTransferItems.length > 0 && (
+                    <div style={{ padding: '10px 12px', backgroundColor: transferMissingPackage ? C.warningLight : C.infoLight, border: '1.5px solid ' + (transferMissingPackage ? C.warningBorder : C.infoBorder), borderRadius: '8px', color: C.text, fontSize: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                        <b style={{ color: transferMissingPackage ? C.warning : C.info }}>Пакет работ</b>
+                        {!showPackageControl && (
+                          <button type='button' onClick={() => setManualTransferPackageEdit(true)} style={{ ...btnG, padding: '4px 10px', fontSize: '11px' }}>
+                            Изменить вручную
+                          </button>
+                        )}
+                      </div>
+                      <p style={{ margin: '5px 0 0', color: C.textSec }}>{packageHint}</p>
+                    </div>
+                  )}
+                  {showPackageControl && (
+                    <select
+                      value={packageSelectValue}
+                      onChange={event => {
+                        updateTransferItems(selectedTransferItems.length > 0
+                          ? selectedTransferItems.map(item => ({ ...item, workPackage: event.target.value }))
+                          : [{ materialName: newTransfer.materialName, quantity: newTransfer.quantity, unit: newTransfer.unit || 'шт', workPackage: event.target.value }]);
+                        if (event.target.value) setManualTransferPackageEdit(false);
+                      }}
+                      style={{ ...inp, borderColor: transferMissingPackage ? C.warning : inp.borderColor }}
+                    >
+                      <option value=''>{selectedTransferItems.length > 1 && selectedPackages.length > 1 ? 'Разные пакеты в выбранных строках' : (transferNeedsPackage ? 'Пакет работ *' : 'Пакет работ')}</option>
+                      {transferPackageOptions.map(packageName => (
+                        <option key={packageName} value={packageName}>{packageName}</option>
+                      ))}
+                    </select>
+                  )}
+                  {manualTransferPackageEdit && !transferMissingPackage && (
+                    <button type='button' onClick={() => setManualTransferPackageEdit(false)} style={{ ...btnG, justifyContent: 'center' }}>
+                      Оставить пакеты из строк склада
+                    </button>
+                  )}
+                </>
               );
             })()}
             <input type='date' value={newTransfer.transferDate} onChange={event => setNewTransfer({ ...newTransfer, transferDate: event.target.value })} style={inp} />
