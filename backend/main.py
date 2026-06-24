@@ -22731,10 +22731,114 @@ def _normalize_invoice_scan_image_entry(entry):
         mime_type = "image/jpeg"
     return {"data": raw, "mimeType": mime_type}
 
+def _compact_ai_json_text(text: str) -> str:
+    clean = (text or "").replace("\ufeff", "").strip()
+    if not clean:
+        return ""
+    if "```" in clean:
+        parts = clean.split("```")
+        if len(parts) >= 3:
+            clean = parts[1]
+            clean = re.sub(r"^\s*(json|JSON)\s*", "", clean).strip()
+    clean = clean.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
+    return clean
+
+def _close_json_prefix(candidate: str) -> str:
+    out = []
+    stack = []
+    in_string = False
+    escape = False
+    for ch in candidate or "":
+        if in_string and ch in "\r\n":
+            out.append("\\n")
+            continue
+        out.append(ch)
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            stack.append("}")
+        elif ch == "[":
+            stack.append("]")
+        elif ch in "}]":
+            if stack and stack[-1] == ch:
+                stack.pop()
+    if in_string:
+        out.append('"')
+    out.extend(reversed(stack))
+    repaired = "".join(out)
+    previous = None
+    while previous != repaired:
+        previous = repaired
+        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+    return repaired
+
+def _parse_ai_json_object(text: str):
+    clean = _compact_ai_json_text(text)
+    if not clean:
+        return None, "empty"
+    candidates = [clean]
+    start = clean.find("{")
+    if start >= 0:
+        end = clean.rfind("}")
+        candidates.append(clean[start:end + 1] if end > start else clean[start:])
+    seen_candidates = set()
+    seen_attempts = set()
+    last_error = ""
+    for candidate in candidates:
+        candidate = (candidate or "").strip()
+        if not candidate or candidate in seen_candidates:
+            continue
+        seen_candidates.add(candidate)
+        for attempt in (candidate, _close_json_prefix(candidate)):
+            if not attempt or attempt in seen_attempts:
+                continue
+            seen_attempts.add(attempt)
+            try:
+                parsed = json.loads(attempt)
+                if isinstance(parsed, dict):
+                    return parsed, ""
+            except Exception as exc:
+                last_error = str(exc)
+
+        positions = []
+        in_string = False
+        escape = False
+        for idx, ch in enumerate(candidate):
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+            elif ch == '"':
+                in_string = True
+            elif ch in "}]":
+                positions.append(idx)
+        for idx in reversed(positions[-120:]):
+            attempt = _close_json_prefix(candidate[:idx + 1])
+            if not attempt or attempt in seen_attempts:
+                continue
+            seen_attempts.add(attempt)
+            try:
+                parsed = json.loads(attempt)
+                if isinstance(parsed, dict):
+                    return parsed, ""
+            except Exception as exc:
+                last_error = str(exc)
+    return None, last_error or "invalid json"
+
 @app.post("/scan-invoice")
 def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     import openai as oa
-    import json
     FOLDER_ID = YANDEX_FOLDER_ID
     API_KEY = YANDEX_API_KEY
     images = data.get("images") or data.get("pages") or []
@@ -22758,7 +22862,7 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
             "Распознай приходную накладную или товарный чек для склада. Если страниц несколько, это один документ: "
             "объедини позиции со всех страниц в один items, номер/дату/поставщика бери из шапки, итог — с последней страницы или строки итого. "
             "Верни только JSON без markdown. Не путай складскую накладную с личной тратой. Не выдумывай позиции: если строка товара читается плохо, "
-            "заполни confidence меньше 0.6 и sourceText исходным фрагментом. Если виден только итог без списка товаров, "
+            "заполни confidence меньше 0.6 и sourceText исходным фрагментом до 120 символов. Не вставляй переносы строк внутрь JSON-строк. Если виден только итог без списка товаров, "
             "верни пустой items и documentType='other'. "
             "Формат: {"
             "\"documentType\":\"warehouse_invoice|receipt|other\",\"confidence\":0..1,\"pagesCount\":число_страниц,"
@@ -22785,11 +22889,19 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
                     "content": content
                 }
             ],
-            max_output_tokens=min(7000, 2500 + len(images) * 900)
+            max_output_tokens=min(12000, 3500 + len(images) * 1400)
         )
-        answer = response.output_text
-        clean = answer.replace("```json","").replace("```","").strip()
-        parsed = json.loads(clean)
+        answer = response.output_text or ""
+        parsed, parse_error = _parse_ai_json_object(answer)
+        if not parsed:
+            print("SCAN PARSE FAILED:", parse_error)
+            print("SCAN RAW LEN:", len(answer))
+            print("SCAN RAW HEAD:", answer[:500])
+            print("SCAN RAW TAIL:", answer[-500:] if len(answer) > 500 else "")
+            return {
+                "ok": False,
+                "error": "ИИ не смог вернуть корректный JSON по накладной. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.",
+            }
         page_items = []
         if isinstance(parsed.get("pages"), list):
             for page_idx, page in enumerate(parsed.get("pages") or [], start=1):

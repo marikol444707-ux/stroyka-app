@@ -88,6 +88,14 @@ export default function ScanInvoiceModal({
     }
   };
 
+  const scanErrorMessage = (message) => {
+    const text = String(message || '').trim();
+    if (/unterminated|string starting|json|line \d+|column \d+|char \d+/i.test(text)) {
+      return 'ИИ не смог корректно разобрать накладную. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.';
+    }
+    return text || 'Не удалось распознать. Попробуйте ещё раз.';
+  };
+
   const scan = async (fileList) => {
     const files = Array.from(fileList || []).filter(Boolean).slice(0, 8);
     if(!files.length) return;
@@ -110,7 +118,7 @@ export default function ScanInvoiceModal({
       }));
       const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images, target:'warehouse', location, project, warehouseTarget, selectedAction, sourceType})});
       const data = await resp.json();
-      if(!data.ok) throw new Error(data.error||'Ошибка');
+      if(!data.ok) throw new Error(scanErrorMessage(data.error||'Ошибка'));
       const parsed = data.data;
       const uploadedPhotos = (await Promise.all(normalizedPages.map(page => uploadInvoicePhoto(page.uploadFile, location)))).filter(Boolean);
       const today = new Date().toISOString().split('T')[0];
@@ -183,7 +191,7 @@ export default function ScanInvoiceModal({
       setShowScannedInvoiceForm(true);
       alert(files.length > 1 ? `Накладная распознана: ${files.length} стр. Проверьте данные.` : 'Накладная распознана! Проверьте данные.');
     } catch(e){
-      alert(e?.message || 'Не удалось распознать. Попробуйте ещё раз.');
+      alert(scanErrorMessage(e?.message));
     }
     setScanningInvoice(false);
   };
