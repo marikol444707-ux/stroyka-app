@@ -117,6 +117,36 @@ const MATERIAL_NORMS_PAGE_LIMIT = 200;
 const WORK_JOURNAL_PAGE_LIMIT = 200;
 const AUDIT_LOG_PAGE_LIMIT = 200;
 
+const executionPercentValue = (value) => {
+  const percent = toNum(String(value ?? '').replace(',', '.'));
+  if (percent < 1 || percent > 100) return 0;
+  return Math.round(percent * 100) / 100;
+};
+
+const estimateExecutionFillPercentOf = (estimate) => {
+  const counts = new Map();
+  (estimate?.sections || []).forEach(section => {
+    (section.items || []).forEach(item => {
+      if (!isEstimateWorkItem(item, section.name)) return;
+      const mode = String(item.executionPriceMode || '').trim().toLowerCase();
+      if (!mode.startsWith('percent')) return;
+      const fromMode = mode.match(/^percent[_:\s-]*(\d+(?:[.,]\d+)?)/);
+      const percent = executionPercentValue(fromMode ? fromMode[1] : item.executionPricePercent);
+      if (!percent) return;
+      counts.set(percent, (counts.get(percent) || 0) + 1);
+    });
+  });
+  let bestPercent = 0;
+  let bestCount = 0;
+  counts.forEach((count, percent) => {
+    if (count > bestCount) {
+      bestCount = count;
+      bestPercent = percent;
+    }
+  });
+  return bestPercent ? String(bestPercent) : '';
+};
+
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage'));
 const PublicSitePage = React.lazy(() => import('./components/PublicSitePage'));
 const UsersPage = React.lazy(() => import('./components/UsersPage'));
@@ -783,6 +813,11 @@ function App() {
   const [showEstimateIssuesOnly, setShowEstimateIssuesOnly] = useState(false);
   const [showEstimateWorkSummary, setShowEstimateWorkSummary] = useState(false);
   const [executionPriceFillPercent, setExecutionPriceFillPercent] = useState(50);
+  const selectedEstimateExecutionFillPercent = estimateExecutionFillPercentOf(selectedEstimate);
+  useEffect(() => {
+    if (!selectedEstimate?.id || !selectedEstimateExecutionFillPercent) return;
+    setExecutionPriceFillPercent(prev => String(prev) === selectedEstimateExecutionFillPercent ? prev : selectedEstimateExecutionFillPercent);
+  }, [selectedEstimate?.id, selectedEstimateExecutionFillPercent]);
   const [showEstimateChat, setShowEstimateChat] = useState(false);
   const [estimateChatMessages, setEstimateChatMessages] = useState([]);
   const [estimateChatInput, setEstimateChatInput] = useState('');
@@ -11663,6 +11698,7 @@ function App() {
   const fillSelectedEstimateExecutionPrices = async (overwrite = false) => {
     if (!selectedEstimate?.id) return;
     const percent = Math.max(1, Math.min(100, toNum(executionPriceFillPercent) || 50));
+    setExecutionPriceFillPercent(String(percent));
     let changed = 0;
     const sections = (selectedEstimate.sections || []).map(section => ({
       ...section,
@@ -11677,6 +11713,7 @@ function App() {
           ...item,
           executionPricePerUnit: Math.round(customerUnitPrice * percent) / 100,
           executionPriceMode: 'percent_' + percent,
+          executionPricePercent: percent,
         };
       }),
     }));
@@ -14441,7 +14478,7 @@ function App() {
 	                        <td style={tblC}><input disabled={!isWork} type='number' step='any' inputMode='decimal' value={isWork?(doneNorm.qty||''):''} onChange={e=>{const raw=denormalizeMeasure(e.target.value,item.unit);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+fmtMeasure(qty,item.unit)+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text,opacity:isWork?1:0.55}}/></td>
 	                        <td style={{...tblC,color:isWork?(qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted):C.textMuted,fontWeight:'600',fontSize:'11px'}}>{isWork&&qty>0?fmtMeasure(remain,item.unit):'—'}</td>
 	                        <td style={tblC}>{item.isImported?<div style={{...inpCell,backgroundColor:C.bg,whiteSpace:'normal',lineHeight:1.25}}><b style={{color:C.success}}>{Math.round(importedLineTotal).toLocaleString('ru-RU')} ₽</b><div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>≈ {importedUnitPrice?importedUnitPrice.toLocaleString('ru-RU',{maximumFractionDigits:2}):0} ₽/{qtyNorm.unit||item.unit||'ед.'}</div>{importMeta&&<div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>{importMeta}</div>}</div>:<input type='number' step='any' inputMode='decimal' title='Цена за единицу' value={item[priceField]||''} onChange={e=>updateItem(item._idx,priceField,e.target.value)} onBlur={persist} style={inpCell}/>}</td>
-                          <td style={tblC}>{isWork?<><input disabled={!canEditExecutionPrice} type='number' step='any' inputMode='decimal' title='Внутренняя цена исполнителю за единицу. Если пусто — используется fallback по цене заказчика до настройки пакета.' value={item.executionPricePerUnit||''} onChange={e=>updateItemPatch(item._idx,{executionPricePerUnit:e.target.value,executionPriceMode:e.target.value?'fixed':''})} onBlur={persist} placeholder='авто' style={{...inpCell,color:executionPrice>0?C.success:C.textMuted,opacity:canEditExecutionPrice?1:0.65}}/>{executionPrice>0&&<div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>внутр. цена</div>}</>:<span style={{color:C.textMuted}}>—</span>}</td>
+                          <td style={tblC}>{isWork?<><input disabled={!canEditExecutionPrice} type='number' step='any' inputMode='decimal' title='Внутренняя цена исполнителю за единицу. Если пусто — используется fallback по цене заказчика до настройки пакета.' value={item.executionPricePerUnit||''} onChange={e=>updateItemPatch(item._idx,{executionPricePerUnit:e.target.value,executionPriceMode:e.target.value?'fixed':'',executionPricePercent:''})} onBlur={persist} placeholder='авто' style={{...inpCell,color:executionPrice>0?C.success:C.textMuted,opacity:canEditExecutionPrice?1:0.65}}/>{executionPrice>0&&<div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>внутр. цена</div>}</>:<span style={{color:C.textMuted}}>—</span>}</td>
                         <td style={{...tblC,fontWeight:'700',color:C.success,whiteSpace:'nowrap',fontSize:'14px'}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
                         <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
 	                      </tr>);})}
