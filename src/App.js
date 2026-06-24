@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
 import { API, installAuthFetch } from './api';
@@ -111,6 +111,11 @@ import {
 import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollText, BarChart3, Handshake, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
 installAuthFetch();
+
+const MATERIALS_PAGE_LIMIT = 200;
+const MATERIAL_NORMS_PAGE_LIMIT = 200;
+const WORK_JOURNAL_PAGE_LIMIT = 200;
+const AUDIT_LOG_PAGE_LIMIT = 200;
 
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage'));
 const PublicSitePage = React.lazy(() => import('./components/PublicSitePage'));
@@ -633,6 +638,10 @@ function App() {
   const [toolsTab, setToolsTab] = useState('list');
   const [estimatesTab, setEstimatesTab] = useState('list');
   const [materialNorms, setMaterialNorms] = useState([]);
+  const [materialsPage, setMaterialsPage] = useState({projectName:'', search:'', hasMore:false, loading:false, error:''});
+  const [materialNormSearch, setMaterialNormSearch] = useState('');
+  const [materialNormsPage, setMaterialNormsPage] = useState({search:'', hasMore:false, loading:false, error:''});
+  const [workJournalPage, setWorkJournalPage] = useState({hasMore:false, loading:false, error:''});
   const [materialAliases, setMaterialAliases] = useState([]);
   const [materialNormOverrides, setMaterialNormOverrides] = useState([]);
   const [materialNormSuggestions, setMaterialNormSuggestions] = useState([]);
@@ -952,7 +961,7 @@ function App() {
   const loadAuditLog = async () => {
     try {
       const token = localStorage.getItem('authToken');
-      const data = await fetch(API + '/audit-log?limit=200', token ? {headers: {Authorization: 'Bearer ' + token}} : undefined).then(r => r.ok ? r.json() : []);
+      const data = await fetch(API + pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT}), token ? {headers: {Authorization: 'Bearer ' + token}} : undefined).then(r => r.ok ? r.json() : []);
       setAuditLog(Array.isArray(data) ? data : []);
     } catch (e) {
       setAuditLog([]);
@@ -1030,6 +1039,107 @@ function App() {
     return request;
   };
 
+  const pagedPath = (path, params = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      query.set(key, String(value));
+    });
+    const queryString = query.toString();
+    return queryString ? `${path}?${queryString}` : path;
+  };
+
+  const mergeRowsById = (current = [], incoming = []) => {
+    const rows = new Map();
+    [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])].forEach((row, index) => {
+      if (!row) return;
+      const key = row.id !== undefined && row.id !== null ? `id:${row.id}` : `row:${index}:${JSON.stringify(row)}`;
+      rows.set(key, row);
+    });
+    return Array.from(rows.values());
+  };
+
+  const loadMaterialsPage = useCallback(async ({projectName = '', search = '', offset = 0} = {}) => {
+    setMaterialsPage(prev => ({...prev, projectName, search, loading:true, error:''}));
+    try {
+      const data = await getApi(pagedPath('/materials', {
+        project_name: projectName,
+        search,
+        limit: MATERIALS_PAGE_LIMIT,
+        offset,
+      }), []);
+      const rows = Array.isArray(data) ? data : [];
+      setMaterials(prev => mergeRowsById(prev, rows));
+      setMaterialsPage({
+        projectName,
+        search,
+        hasMore: rows.length === MATERIALS_PAGE_LIMIT,
+        loading:false,
+        error:'',
+      });
+      return rows;
+    } catch (e) {
+      setMaterialsPage(prev => ({...prev, loading:false, error:'Не удалось загрузить материалы'}));
+      return [];
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadMaterialNormsPage = useCallback(async ({search = '', offset = 0} = {}) => {
+    setMaterialNormsPage(prev => ({...prev, search, loading:true, error:''}));
+    try {
+      const data = await getApi(pagedPath('/material-norms', {
+        search,
+        limit: MATERIAL_NORMS_PAGE_LIMIT,
+        offset,
+      }), []);
+      const rows = Array.isArray(data) ? data : [];
+      setMaterialNorms(prev => mergeRowsById(prev, rows));
+      setMaterialNormsPage({
+        search,
+        hasMore: rows.length === MATERIAL_NORMS_PAGE_LIMIT,
+        loading:false,
+        error:'',
+      });
+      return rows;
+    } catch (e) {
+      setMaterialNormsPage(prev => ({...prev, loading:false, error:'Не удалось загрузить нормы'}));
+      return [];
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadWorkJournalPage = useCallback(async ({offset = 0} = {}) => {
+    setWorkJournalPage(prev => ({...prev, loading:true, error:''}));
+    try {
+      const data = await getApi(pagedPath('/work-journal', {
+        limit: WORK_JOURNAL_PAGE_LIMIT,
+        offset,
+      }), []);
+      const rows = Array.isArray(data) ? data : [];
+      setWorkJournal(prev => mergeRowsById(prev, rows));
+      setWorkJournalPage({
+        hasMore: rows.length === WORK_JOURNAL_PAGE_LIMIT,
+        loading:false,
+        error:'',
+      });
+      return rows;
+    } catch (e) {
+      setWorkJournalPage(prev => ({...prev, loading:false, error:'Не удалось загрузить ЖПР'}));
+      return [];
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!user || activePage !== 'estimates' || estimatesTab !== 'norms') return undefined;
+    const search = materialNormSearch.trim();
+    const timer = setTimeout(() => {
+      loadMaterialNormsPage({search, offset: 0});
+    }, search ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [user, activePage, estimatesTab, materialNormSearch, loadMaterialNormsPage]);
+
   const loadMobileScopeOnce = async (scope, loader) => {
     if (mobileLoadedScopesRef.current.has('full') || mobileLoadedScopesRef.current.has(scope)) return;
     mobileLoadedScopesRef.current.add(scope);
@@ -1051,7 +1161,7 @@ function App() {
       isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
       isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
       role === 'кладовщик' ? getApi('/warehouse-main') : Promise.resolve([]),
-      isWorkerRole ? getApi('/work-journal') : Promise.resolve([]),
+      isWorkerRole ? getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})) : Promise.resolve([]),
     ]);
     setProjects(Array.isArray(p)?p:[]);
     setUsers(Array.isArray(u)?u:[]);
@@ -1061,6 +1171,7 @@ function App() {
     setProjectPayments(Array.isArray(pp)?pp:[]);
     setWarehouseMain(Array.isArray(wm)?wm:[]);
     setWorkJournal(Array.isArray(wj)?wj:[]);
+    setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});
     setInitialDataLoaded(true);
   });
 
@@ -1084,7 +1195,7 @@ function App() {
     if (['projects','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
       const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
-        role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
+        role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
 	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/rooms') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/room-works') : Promise.resolve([]),
@@ -1109,6 +1220,7 @@ function App() {
       ]);
       setProjects(Array.isArray(p)?p:[]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
+      setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});
       setMaterialTransfers(Array.isArray(mt)?mt:[]);
       setRooms(Array.isArray(ro)?ro:[]); setRoomWorks(Array.isArray(rw)?rw:[]);
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
@@ -1125,7 +1237,7 @@ function App() {
       const [est,pl,mn,ma,mno,mns,bc,abi,abp] = await Promise.all([
         canSeeProjectDocs ? getApi('/estimates-summary') : Promise.resolve([]),
         ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/material-norms') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-aliases') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norms/overrides') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norm-suggestions') : Promise.resolve([]),
@@ -1134,14 +1246,14 @@ function App() {
         (isInternalRole || isFinanceRole) ? getApi('/brigade-payments') : Promise.resolve([]),
       ]);
       setEstimatesList(normalizeEstimateList(est)); setPricelists(Array.isArray(pl)?pl:[]);
-      setMaterialNorms(Array.isArray(mn)?mn:[]); setMaterialAliases(Array.isArray(ma)?ma:[]);
+      setMaterialNorms(Array.isArray(mn)?mn:[]); setMaterialNormsPage({search:'', hasMore:Array.isArray(mn) && mn.length === MATERIAL_NORMS_PAGE_LIMIT, loading:false, error:''}); setMaterialAliases(Array.isArray(ma)?ma:[]);
       setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       setAllBrigadePayments(Array.isArray(abp)?abp:[]);
     });
     if (['warehouse','materials'].includes(page)) return loadMobileScopeOnce('mobile:warehouse', async () => {
       const [m,winv,wm,wmov,h,wh,mt,mij,cbj] = await Promise.all([
-        role === 'поставщик' ? Promise.resolve([]) : getApi('/materials'),
+        role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-invoices') : Promise.resolve([]),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-main') : Promise.resolve([]),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-movements') : Promise.resolve([]),
@@ -1151,7 +1263,7 @@ function App() {
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/cable-journal') : Promise.resolve([]),
       ]);
-      setMaterials(Array.isArray(m)?m:[]); setInvoices(Array.isArray(winv)?winv:[]);
+      setMaterials(Array.isArray(m)?m:[]); setMaterialsPage({projectName:'', search:'', hasMore:Array.isArray(m) && m.length === MATERIALS_PAGE_LIMIT, loading:false, error:''}); setInvoices(Array.isArray(winv)?winv:[]);
       setWarehouseMain(Array.isArray(wm)?wm:[]); setWarehouseMovements(Array.isArray(wmov)?wmov:[]);
       setHistory(Array.isArray(h)?h:[]); setWarehouses(Array.isArray(wh)?wh:[]);
       setMaterialTransfers(Array.isArray(mt)?mt:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
@@ -1218,11 +1330,12 @@ function App() {
     });
     if (page === 'history') return loadMobileScopeOnce('mobile:history', async () => {
       const [wj,h,mt] = await Promise.all([
-        role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
+        role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
 	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
 	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
       ]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
+      setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});
       setHistory(Array.isArray(h)?h:[]);
       setMaterialTransfers(Array.isArray(mt)?mt:[]);
     });
@@ -1246,12 +1359,13 @@ function App() {
       const [pp,me,wj,est] = await Promise.all([
         isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
         isFinanceRole ? getApi('/expenses') : Promise.resolve([]),
-        role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
+        role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         canSeeProjectDocs ? getApi('/estimates-summary') : Promise.resolve([]),
       ]);
       setProjectPayments(Array.isArray(pp)?pp:[]);
       setManualExpenses(Array.isArray(me)?me:[]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
+      setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});
       setEstimatesList(normalizeEstimateList(est));
     });
     if (page === 'settings') return loadMobileScopeOnce('mobile:settings', async () => {
@@ -1263,7 +1377,7 @@ function App() {
       setCompanyDocuments(Array.isArray(cd)?cd:[]);
     });
     if (page === 'activitylog') return loadMobileScopeOnce('mobile:activitylog', async () => {
-      const aud = (isLeadershipRole || isFinanceRole) ? await getApi('/audit-log?limit=200') : [];
+      const aud = (isLeadershipRole || isFinanceRole) ? await getApi(pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT})) : [];
       setAuditLog(Array.isArray(aud) ? aud : []);
     });
     if (page === 'companychat') return loadMobileScopeOnce('mobile:chat', async () => {
@@ -1305,7 +1419,7 @@ function App() {
       const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
-        role === 'поставщик' ? skip([]) : get('/materials'),
+        role === 'поставщик' ? skip([]) : get(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})),
         (isWarehouseRole || isFinanceRole) ? get('/warehouse-invoices') : skip([]),
         isFinanceRole ? get('/project-payments') : skip([]),
         isFinanceRole ? get('/accountable-payments') : skip([]),
@@ -1325,7 +1439,7 @@ function App() {
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? get('/supply-history') : skip([]),
         isSupplyRole ? get('/supply-deliveries') : skip([]),
         isSupplyRole ? get('/supply-claims') : skip([]),
-        role === 'поставщик' ? skip([]) : get('/work-journal'),
+        role === 'поставщик' ? skip([]) : get(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         (isInternalRole || isFinanceRole) ? get('/master-profiles') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/contracts') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/interim-acts') : skip([]),
@@ -1356,21 +1470,21 @@ function App() {
         isSupplyRole ? get('/supply-request-templates') : skip([]),
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
         canSeeProjectDocs ? get('/ai-tasks') : skip([]),
-        canSeeProjectDocs ? get('/material-norms') : skip([]),
+        canSeeProjectDocs ? get(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : skip([]),
         canSeeProjectDocs ? get('/material-aliases') : skip([]),
         canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),
         canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
-        (isLeadershipRole || isFinanceRole) ? get('/audit-log?limit=200') : skip([]),
+        (isLeadershipRole || isFinanceRole) ? get(pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT})) : skip([]),
       ]);
-      setProjects(p);setClients(c);setMaterials(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
+      setProjects(p);setClients(c);setMaterials(m);setMaterialsPage({projectName:'', search:'', hasMore:Array.isArray(m) && m.length === MATERIALS_PAGE_LIMIT, loading:false, error:''});setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
       setInviteCodes(ic);setSuppliers(sup);setSupplyRequests(sr);setSupplierOffers(so);
-      setSupplyHistory(sh);setSupplyDeliveries(Array.isArray(sd)?sd:[]);setSupplyClaims(Array.isArray(sc)?sc:[]);setWorkJournal(wj);setMasterProfiles(mp);setContracts(ct);
+      setSupplyHistory(sh);setSupplyDeliveries(Array.isArray(sd)?sd:[]);setSupplyClaims(Array.isArray(sc)?sc:[]);setWorkJournal(wj);setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});setMasterProfiles(mp);setContracts(ct);
       setInterimActs(ia);setRooms(ro);setRoomWorks(rw);setTools(tl);setToolHistory(th);
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialNormsPage({search:'', hasMore:Array.isArray(mn) && mn.length === MATERIAL_NORMS_PAGE_LIMIT, loading:false, error:''});setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -1771,11 +1885,12 @@ function App() {
     const declaredTotal = Number(newInvoice.totalWithVat||0);
     const declaredBase = Number(newInvoice.totalBase||0);
     const declaredVat = Number(newInvoice.totalVat||0);
-    const totalBefore = declaredTotal > 0 ? declaredTotal : rowsTotal;
+    const totalBefore = declaredTotal > 0 ? declaredTotal : (declaredBase > 0 && declaredVat > 0 ? declaredBase + declaredVat : rowsTotal);
     const calculatedVat = calcVat(totalBefore, newInvoice.vat);
+    const inferredVat = declaredVat > 0 ? declaredVat : (declaredTotal > 0 && declaredBase > 0 ? Math.max(0, declaredTotal - declaredBase) : 0);
     const vatCalc = {
       base: declaredBase > 0 ? declaredBase : calculatedVat.base,
-      vat: declaredVat > 0 ? declaredVat : calculatedVat.vat,
+      vat: inferredVat > 0 ? inferredVat : calculatedVat.vat,
       total: totalBefore,
     };
     const photoUrls = Array.isArray(newInvoice.photoUrls) && newInvoice.photoUrls.length ? newInvoice.photoUrls : (Array.isArray(newInvoice.photos) ? newInvoice.photos : []);
@@ -12508,6 +12623,8 @@ function App() {
                       <ProjectWorkJournalPanel
                         project={p}
                         workJournal={workJournal}
+                        workJournalPage={workJournalPage}
+                        loadWorkJournalPage={loadWorkJournalPage}
                         weatherLog={weatherLog}
                         listSearch={listSearch}
                         setListSearch={setListSearch}
@@ -13461,6 +13578,8 @@ function App() {
               tblC={tblC}
               selectedWarehouseProject={selectedWarehouseProject}
               materials={materials}
+              materialsPage={materialsPage}
+              loadMaterialsPage={loadMaterialsPage}
               openReceiveInvoice={openReceiveInvoice}
               user={user}
               setMaterialTransfers={setMaterialTransfers}
@@ -14434,7 +14553,35 @@ function App() {
                   {editingMaterialNormId&&<button onClick={resetMaterialNormForm} style={btnG}><X size={14}/>Отмена</button>}
                 </div>
               </div>)}
-              {(()=>{const normsToShow=(materialNorms||[]).length?(materialNorms||[]):WORK_MATERIAL_NORM_RULES.map(r=>({...r,ruleKey:r.id,name:materialTitleForNormRule(r),active:true}));return(<div style={{display:'grid',gap:'10px'}}>
+              {(()=>{const term=materialNormSearch.trim().toLowerCase();const loadedNorms=(materialNorms||[]);const filteredNorms=term?loadedNorms.filter(n=>[
+                n.ruleKey,n.id,n.name,n.label,
+                ...(Array.isArray(n.work)?n.work:[]),
+                ...(Array.isArray(n.material)?n.material:[]),
+                ...(Array.isArray(n.blockWork)?n.blockWork:[])
+              ].some(v=>String(v||'').toLowerCase().includes(term))):loadedNorms;const normsToShow=filteredNorms.length||term?filteredNorms:WORK_MATERIAL_NORM_RULES.map(r=>({...r,ruleKey:r.id,name:materialTitleForNormRule(r),active:true}));const normQueryMatches=(materialNormsPage.search||'')===materialNormSearch.trim();const canLoadMoreNorms=normQueryMatches&&materialNormsPage.hasMore;return(<div style={{display:'grid',gap:'10px'}}>
+                <div style={{...card,padding:'12px',display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(260px,1fr) auto',gap:'10px',alignItems:'center'}}>
+                  <div style={{position:'relative'}}>
+                    <Search size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:C.textMuted}}/>
+                    <input
+                      placeholder='Поиск нормы на сервере: работа, материал, код'
+                      value={materialNormSearch}
+                      onChange={e=>setMaterialNormSearch(e.target.value)}
+                      style={{...inp,marginBottom:0,paddingLeft:34,width:'100%',boxSizing:'border-box'}}
+                    />
+                    {(materialNormsPage.loading||materialNormsPage.error)&&normQueryMatches&&<div style={{color:materialNormsPage.error?C.danger:C.textMuted,fontSize:'11px',marginTop:'5px'}}>{materialNormsPage.error||'Ищу нормы...'}</div>}
+                  </div>
+                  <button
+                    type='button'
+                    onClick={()=>loadMaterialNormsPage({search:materialNormSearch.trim(),offset:filteredNorms.length})}
+                    disabled={!canLoadMoreNorms||materialNormsPage.loading}
+                    style={btnState(btnB,!canLoadMoreNorms||materialNormsPage.loading,{justifyContent:'center'})}
+                  >
+                    {materialNormsPage.loading?'Загружаю...':canLoadMoreNorms?'Загрузить ещё нормы':'Нормы загружены'}
+                  </button>
+                  <p style={{gridColumn:isMobile?'auto':'1 / -1',color:C.textMuted,fontSize:'11px',margin:0}}>
+                    Показано {normsToShow.length} норм. Поиск обращается к backend и добавляет найденные правила в локальный набор расчёта.
+                  </p>
+                </div>
                 {normsToShow.map(n=>{const rule=materialNormRuleForCalc(n);return(<div key={rule.id || rule.ruleKey} style={{...card,padding:'12px 14px',display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(220px,1.3fr) minmax(260px,2fr) auto',gap:'12px',alignItems:'center'}}>
                   <div style={{minWidth:0}}>
                     <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>

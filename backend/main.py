@@ -8272,6 +8272,8 @@ def _normalize_invoice_totals_payload(payload: dict) -> dict:
             total_base = total_with_vat
     elif total_with_vat and total_vat and not total_base:
         total_base = round(total_with_vat - total_vat, 2)
+    elif total_with_vat and total_base and not total_vat:
+        total_vat = round(max(0, total_with_vat - total_base), 2)
     elif total_with_vat and vat_rate and not total_base and not total_vat:
         total_base = round(total_with_vat / (1 + vat_rate / 100), 2)
         total_vat = round(total_with_vat - total_base, 2)

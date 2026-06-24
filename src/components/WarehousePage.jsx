@@ -43,6 +43,8 @@ export default function WarehousePage(props) {
     tblC,
     selectedWarehouseProject,
     materials,
+    materialsPage,
+    loadMaterialsPage,
     openReceiveInvoice,
     user,
     setMaterialTransfers,
@@ -161,6 +163,7 @@ export default function WarehousePage(props) {
           card={card}
           inp={inp}
           btnO={btnO}
+          btnB={btnB}
           btnG={btnG}
           btnR={btnR}
         />
@@ -184,6 +187,8 @@ export default function WarehousePage(props) {
           visibleActiveProjects={visibleActiveProjects}
           projects={projects}
           materials={materials}
+          materialsPage={materialsPage}
+          loadMaterialsPage={loadMaterialsPage}
           openReceiveInvoice={openReceiveInvoice}
           isLeadership={isLeadership}
           user={user}

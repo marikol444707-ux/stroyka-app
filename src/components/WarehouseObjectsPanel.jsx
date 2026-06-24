@@ -4,6 +4,7 @@ import {
   Check,
   ChevronRight,
   Download,
+  Search,
   Trash2,
   Truck,
   X,
@@ -15,6 +16,7 @@ export default function WarehouseObjectsPanel({
   card,
   inp,
   btnO,
+  btnB,
   btnG,
   btnGr,
   btnR,
@@ -27,6 +29,8 @@ export default function WarehouseObjectsPanel({
   visibleActiveProjects,
   projects,
   materials,
+  materialsPage = {},
+  loadMaterialsPage,
   isLeadership,
   user,
   setMaterialTransfers,
@@ -48,6 +52,7 @@ export default function WarehouseObjectsPanel({
 }) {
   const [visibleObjectRows, setVisibleObjectRows] = React.useState(60);
   const [visibleTransferRows, setVisibleTransferRows] = React.useState(40);
+  const [objectMaterialSearch, setObjectMaterialSearch] = React.useState('');
   const useCompactRows = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const canDeleteProjectMaterial = user?.role === 'директор';
   const materialsByProject = React.useMemo(() => {
@@ -105,15 +110,48 @@ export default function WarehouseObjectsPanel({
     setVisibleObjectRows(useCompactRows ? 60 : 180);
   }, [useCompactRows, selectedWarehouseProject]);
   React.useEffect(() => {
+    setObjectMaterialSearch('');
+  }, [selectedWarehouseProject]);
+  React.useEffect(() => {
+    if (!selectedWarehouseProject || typeof loadMaterialsPage !== 'function') return undefined;
+    const search = objectMaterialSearch.trim();
+    const timer = setTimeout(() => {
+      loadMaterialsPage({projectName: selectedWarehouseProject, search, offset: 0});
+      setVisibleObjectRows(useCompactRows ? 60 : 180);
+    }, search ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [selectedWarehouseProject, objectMaterialSearch, loadMaterialsPage, useCompactRows]);
+  React.useEffect(() => {
     setVisibleTransferRows(useCompactRows ? 40 : 100);
   }, [useCompactRows, selectedWarehouseProject, showTransferForm]);
   const selectedProjectMaterials = projectMaterials(selectedWarehouseProject);
-  const displayedProjectMaterials = selectedProjectMaterials.slice(0, visibleObjectRows);
-  const hiddenProjectMaterials = Math.max(0, selectedProjectMaterials.length - displayedProjectMaterials.length);
+  const normalizedObjectSearch = objectMaterialSearch.trim().toLowerCase();
+  const filteredProjectMaterials = normalizedObjectSearch
+    ? selectedProjectMaterials.filter(material => [
+      material.name,
+      material.category,
+      material.unit,
+      material.workPackage,
+      material.work_package,
+    ].some(value => String(value || '').toLowerCase().includes(normalizedObjectSearch)))
+    : selectedProjectMaterials;
+  const displayedProjectMaterials = filteredProjectMaterials.slice(0, visibleObjectRows);
+  const hiddenProjectMaterials = Math.max(0, filteredProjectMaterials.length - displayedProjectMaterials.length);
   const objectRowsStep = useCompactRows ? 60 : 180;
   const transferRowsStep = useCompactRows ? 40 : 100;
   const displayedTransferSourceMaterials = transferSourceMaterials.slice(0, visibleTransferRows);
   const hiddenTransferMaterials = Math.max(0, transferSourceMaterials.length - displayedTransferSourceMaterials.length);
+  const materialsQueryMatches = materialsPage.projectName === (selectedWarehouseProject || '') && (materialsPage.search || '') === objectMaterialSearch.trim();
+  const canLoadMoreFromServer = !!selectedWarehouseProject && typeof loadMaterialsPage === 'function' && materialsQueryMatches && materialsPage.hasMore;
+  const loadNextProjectMaterials = () => {
+    if (!canLoadMoreFromServer) return;
+    loadMaterialsPage({
+      projectName: selectedWarehouseProject,
+      search: objectMaterialSearch.trim(),
+      offset: filteredProjectMaterials.length,
+    });
+    setVisibleObjectRows(limit => limit + objectRowsStep);
+  };
 
   return (
     <div>
@@ -130,7 +168,7 @@ export default function WarehouseObjectsPanel({
               >
                 <div style={{ minWidth: 0 }}>
                   <b style={{ display: 'block', color: C.text, fontSize: '14px', lineHeight: 1.25, overflowWrap: 'anywhere' }}>{project.name}</b>
-                  <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px', overflowWrap: 'anywhere' }}>{summary.count + ' позиций · ' + summary.total.toLocaleString() + ' ₽'}</p>
+                  <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px', overflowWrap: 'anywhere' }}>{summary.count + ' загруж. позиций · ' + summary.total.toLocaleString() + ' ₽'}</p>
                 </div>
                 <ChevronRight size={18} color={C.textMuted} style={{ alignSelf: useCompactRows ? 'flex-end' : 'center', flex: '0 0 auto' }} />
               </div>
@@ -190,6 +228,20 @@ export default function WarehouseObjectsPanel({
               <Download size={14} />
               Excel
             </button>
+          </div>
+          <div style={{ position: 'relative', marginBottom: '12px' }}>
+            <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: C.textMuted }} />
+            <input
+              value={objectMaterialSearch}
+              onChange={event => setObjectMaterialSearch(event.target.value)}
+              placeholder="Поиск по складу объекта: материал, пакет, категория"
+              style={{ ...inp, marginBottom: 0, paddingLeft: 34, width: '100%', boxSizing: 'border-box' }}
+            />
+            {(materialsPage.loading || materialsPage.error) && materialsQueryMatches && (
+              <div style={{ color: materialsPage.error ? C.danger : C.textMuted, fontSize: '11px', marginTop: '5px' }}>
+                {materialsPage.error || 'Ищу на сервере...'}
+              </div>
+            )}
           </div>
           {renderMaterialReconciliationPanel(selectedWarehouseProject, { limit: 25, title: '📊 Контроль материалов объекта' })}
           {useCompactRows ? (
@@ -293,11 +345,26 @@ export default function WarehouseObjectsPanel({
           {hiddenProjectMaterials > 0 && (
             <button
               type="button"
-              onClick={() => setVisibleObjectRows(limit => Math.min(selectedProjectMaterials.length, limit + objectRowsStep))}
+              onClick={() => setVisibleObjectRows(limit => Math.min(filteredProjectMaterials.length, limit + objectRowsStep))}
               style={{...btnG, width: '100%', justifyContent: 'center', marginTop: '10px'}}
             >
               Показать ещё {Math.min(hiddenProjectMaterials, objectRowsStep)} материалов
             </button>
+          )}
+          {canLoadMoreFromServer && (
+            <button
+              type="button"
+              onClick={loadNextProjectMaterials}
+              disabled={materialsPage.loading}
+              style={{...btnB, width: '100%', justifyContent: 'center', marginTop: '10px', opacity: materialsPage.loading ? 0.65 : 1}}
+            >
+              {materialsPage.loading ? 'Загружаю...' : 'Загрузить ещё материалы с сервера'}
+            </button>
+          )}
+          {selectedWarehouseProject && !canLoadMoreFromServer && !materialsPage.loading && filteredProjectMaterials.length > 0 && (
+            <p style={{ color: C.textMuted, fontSize: '11px', margin: '8px 0 0' }}>
+              Показано {displayedProjectMaterials.length} из {filteredProjectMaterials.length} загруженных позиций объекта.
+            </p>
           )}
         </div>
       )}

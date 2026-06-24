@@ -49,9 +49,13 @@ export default function ScanInvoiceModal({
     const rawVat = String(parsed.vat || parsed.tax || parsed.vatType || '').toLowerCase();
     const rate = toNumber(parsed.vatRate ?? parsed.vat_rate ?? parsed.vatPercent ?? parsed.vat_percent);
     const vatAmount = toNumber(parsed.totalVat ?? parsed.total_vat ?? parsed.vatAmount ?? parsed.vat_amount);
+    const totalWithVat = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
+    const totalBase = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
+    const inferredVat = totalWithVat > 0 && totalBase > 0 ? Math.max(0, totalWithVat - totalBase) : 0;
+    const inferredRate = totalBase > 0 && inferredVat > 0 ? inferredVat / totalBase * 100 : 0;
     const hasVat = parsed.vatIncluded === true || parsed.hasVat === true || vatAmount > 0 || rate > 0 || /ндс/.test(rawVat);
-    if (!hasVat || /без\s*ндс/.test(rawVat)) return 'Без НДС';
-    if (Math.abs(rate - 20) < 0.5 || /20\s*%/.test(rawVat)) return 'С НДС 20%';
+    if ((!hasVat && inferredVat <= 0) || /без\s*ндс/.test(rawVat)) return 'Без НДС';
+    if (Math.abs(rate - 20) < 0.5 || Math.abs(inferredRate - 20) < 0.75 || /20\s*%/.test(rawVat)) return 'С НДС 20%';
     return 'С НДС 22%';
   };
 
@@ -129,9 +133,27 @@ export default function ScanInvoiceModal({
         };
       });
       const itemsTotal = normalizedItems.reduce((sum, item) => sum + toNumber(item.lineTotal), 0);
-      const totalWithVat = totalWithVatRaw || itemsTotal;
-      const totalVat = totalVatRaw;
-      const totalBase = totalBaseRaw || (totalWithVat ? Math.max(0, totalWithVat - totalVat) : 0);
+      const detectedVat = detectVat(parsed);
+      const vatRate = detectedVat.includes('22') ? 22 : detectedVat.includes('20') ? 20 : 0;
+      let totalWithVat = totalWithVatRaw || (totalBaseRaw && totalVatRaw ? totalBaseRaw + totalVatRaw : itemsTotal);
+      let totalVat = totalVatRaw;
+      let totalBase = totalBaseRaw;
+      if (detectedVat === 'Без НДС') {
+        totalVat = 0;
+        if (!totalBase && totalWithVat) totalBase = totalWithVat;
+      } else if (!totalVat && totalWithVat && totalBase) {
+        totalVat = Math.max(0, totalWithVat - totalBase);
+      } else if (!totalBase && totalWithVat && totalVat) {
+        totalBase = Math.max(0, totalWithVat - totalVat);
+      } else if (!totalBase && !totalVat && totalWithVat && vatRate) {
+        totalBase = totalWithVat / (1 + vatRate / 100);
+        totalVat = totalWithVat - totalBase;
+      } else if (!totalWithVat && totalBase && totalVat) {
+        totalWithVat = totalBase + totalVat;
+      }
+      totalWithVat = Math.round((totalWithVat || 0) * 100) / 100;
+      totalBase = Math.round((totalBase || 0) * 100) / 100;
+      totalVat = Math.round((totalVat || 0) * 100) / 100;
       setNewInvoice(prev=>{
         const photos = uploadedPhotos.length ? [...(prev.photos || []), ...uploadedPhotos] : (prev.photos || []);
         return {
@@ -147,7 +169,7 @@ export default function ScanInvoiceModal({
           isNewSupplier:true,
           date:normalizeDate(parsed.date || parsed.invoiceDate || parsed.invoice_date) || today,
           acceptedBy:user?.name || '',
-          vat:detectVat(parsed),
+          vat:detectedVat,
           totalBase,
           totalVat,
           totalWithVat,

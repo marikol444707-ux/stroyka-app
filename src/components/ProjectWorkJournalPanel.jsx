@@ -4,6 +4,8 @@ import { Check, FileText, ScrollText, Search, X } from 'lucide-react';
 export default function ProjectWorkJournalPanel({
   project,
   workJournal = [],
+  workJournalPage = {},
+  loadWorkJournalPage,
   weatherLog = [],
   listSearch,
   setListSearch,
@@ -173,6 +175,19 @@ export default function ProjectWorkJournalPanel({
 
       {projectWorks.length === 0 && (
         <p style={{color: C.textMuted, textAlign: 'center', padding: '20px'}}>Работ нет</p>
+      )}
+      {typeof loadWorkJournalPage === 'function' && workJournalPage.hasMore && (
+        <button
+          type="button"
+          onClick={() => loadWorkJournalPage({offset: workJournal.length})}
+          disabled={workJournalPage.loading}
+          style={{...btnB, width:'100%', justifyContent:'center', marginTop:'12px', opacity:workJournalPage.loading ? 0.65 : 1}}
+        >
+          {workJournalPage.loading ? 'Загружаю ЖПР...' : 'Загрузить ещё записи ЖПР'}
+        </button>
+      )}
+      {workJournalPage.error && (
+        <p style={{color: C.danger, fontSize:'12px', margin:'8px 0 0'}}>{workJournalPage.error}</p>
       )}
     </div>
   );
