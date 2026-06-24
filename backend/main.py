@@ -4499,7 +4499,13 @@ def delete_client(id: int, _current_user: dict = Depends(require_roles(*LEADERSH
     return {"ok": True}
 
 @app.get("/materials")
-def get_materials(current_user: dict = Depends(get_current_user)):
+def get_materials(
+    search: str = "",
+    project_name: str = "",
+    limit: Optional[int] = None,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     base = """SELECT id,name,unit,quantity,price,min_quantity as "minQuantity",
@@ -4510,22 +4516,53 @@ def get_materials(current_user: dict = Depends(get_current_user)):
     if role in ("заказчик", "технадзор"):
         cur.close(); conn.close()
         return []
+    conditions = []
+    params = []
+
+    def add_condition(sql, *values):
+        conditions.append(sql)
+        params.extend(values)
+
+    def run_material_query():
+        search_value = (search or "").strip()
+        if search_value:
+            add_condition("""(
+                COALESCE(name, '') ILIKE %s OR
+                COALESCE(category, '') ILIKE %s OR
+                COALESCE(project, '') ILIKE %s OR
+                COALESCE(work_package, '') ILIKE %s
+            )""", *([f"%{search_value}%"] * 4))
+        project_value = (project_name or "").strip()
+        if project_value:
+            require_project_or_warehouse_access(current_user, project_value)
+            add_condition("COALESCE(project, '') = %s", project_value)
+        where_sql = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+        page_sql, page_params = limit_offset_sql(limit, offset)
+        cur.execute(base + where_sql + " ORDER BY project NULLS FIRST, name, id" + page_sql, params + page_params)
+
     if role == "прораб":
         if not projects:
             cur.close(); conn.close()
             return []
         package_sql, package_params = package_access_filter(current_user)
-        cur.execute(base + " WHERE project = ANY(%s)" + package_sql, [projects] + package_params)
+        add_condition("project = ANY(%s)", projects)
+        if package_sql:
+            add_condition(package_sql.replace(" AND ", "", 1), *package_params)
+        run_material_query()
     elif role in ("снабженец", "кладовщик"):
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute(base + " WHERE project = ANY(%s)", [projects])
+        add_condition("project = ANY(%s)", projects)
+        run_material_query()
     elif can_see_warehouse_data(current_user):
-        cur.execute(base)
+        run_material_query()
     elif projects:
         package_sql, package_params = package_access_filter(current_user)
-        cur.execute(base + " WHERE project = ANY(%s)" + package_sql, [projects] + package_params)
+        add_condition("project = ANY(%s)", projects)
+        if package_sql:
+            add_condition(package_sql.replace(" AND ", "", 1), *package_params)
+        run_material_query()
     else:
         cur.close(); conn.close()
         return []
@@ -4614,20 +4651,26 @@ def update_material(id: int, m: MaterialModel, _current_user: dict = Depends(req
     return {"ok": True}
 
 @app.delete("/materials/{id}")
-def delete_material(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def delete_material(id: int, _current_user: dict = Depends(require_roles("директор"))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT COALESCE(project,'') FROM materials WHERE id=%s", (id,))
+    cur.execute("SELECT COALESCE(project,''), COALESCE(name,''), COALESCE(quantity,0), COALESCE(unit,'') FROM materials WHERE id=%s", (id,))
     row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Материал не найден")
-    if (row[0] or "").strip():
-        conn.close()
-        raise HTTPException(status_code=400, detail="Материал объекта нельзя удалить напрямую. Аннулируйте накладную или оформите корректировку движения.")
     cur.execute("DELETE FROM materials WHERE id=%s", (id,))
     conn.commit()
     conn.close()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        "delete",
+        "material",
+        id,
+        (f"Удален материал со склада: {row[1]} ({row[2]} {row[3]})")[:250],
+        row[0] or "",
+    )
     return {"ok": True}
 
 @app.get("/warehouse-main")
@@ -4672,12 +4715,26 @@ def update_warehouse_main(id: int, m: WarehouseMainModel, _current_user: dict = 
     return {"ok": True}
 
 @app.delete("/warehouse-main/{id}")
-def delete_warehouse_main(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+def delete_warehouse_main(id: int, _current_user: dict = Depends(require_roles("директор"))):
     conn = get_db()
     cur = conn.cursor()
+    cur.execute("SELECT COALESCE(name,''), COALESCE(quantity,0), COALESCE(unit,'') FROM warehouse_main WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Материал не найден")
     cur.execute("DELETE FROM warehouse_main WHERE id=%s", (id,))
     conn.commit()
     conn.close()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        "delete",
+        "warehouse_main",
+        id,
+        (f"Удален материал основного склада: {row[0]} ({row[1]} {row[2]})")[:250],
+        "",
+    )
     return {"ok": True}
 
 @app.get("/warehouse-movements")
@@ -14620,8 +14677,57 @@ def _sanitize_worker_estimate_total(user: dict, total):
     return 0 if user.get("role") in WORKER_EXECUTION_ROLES else float(total or 0)
 
 
+def _estimate_item_total_for_summary(item: dict) -> float:
+    item = item or {}
+    qty = _safe_float(item.get("quantity"))
+    if item.get("isImported"):
+        work_total = _safe_float(item.get("totalWork") or item.get("workTotal") or item.get("workSum"))
+        material_total = _safe_float(item.get("totalMaterial") or item.get("materialTotal") or item.get("materialSum"))
+        if work_total or material_total:
+            return work_total + material_total
+        for field in ("lineTotal", "currentTotal", "total", "amount", "sum", "totalSum", "estimatedCost"):
+            total = _safe_float(item.get(field))
+            if total:
+                return total
+    return qty * (_safe_float(item.get("priceWork")) + _safe_float(item.get("priceMaterial")))
+
+
+def _estimate_sections_total_for_summary(sections) -> float:
+    total = 0.0
+    for sec in sections or []:
+        for item in (sec or {}).get("items", []) or []:
+            total += _estimate_item_total_for_summary(item)
+    return round(total, 2)
+
+
+def _estimate_response_payload_from_row(r, sections, *, sections_loaded: bool, total_override=None):
+    summary_total = (
+        _estimate_sections_total_for_summary(sections)
+        if total_override is None
+        else round(_safe_float(total_override), 2)
+    )
+    return {
+        "id": r[0],
+        "projectId": r[1],
+        "projectName": r[2],
+        "name": r[3],
+        "version": r[4],
+        "sections": sections if sections_loaded else [],
+        "sectionsLoaded": bool(sections_loaded),
+        "summaryTotal": summary_total,
+        "total": summary_total,
+        "smetaType": r[6] or "Заказчик",
+        "workPackage": r[7] or "Основная",
+        "isTemplate": bool(r[8]),
+        "status": r[9] or "Черновик",
+        "createdAt": str(r[10]) if r[10] else "",
+        "versionCount": int(r[11] or 0),
+        "latestVersionAt": str(r[12]) if r[12] else "",
+    }
+
+
 @app.get("/estimates")
-def get_estimates(current_user: dict = Depends(get_current_user)):
+def get_estimates(summary: bool = False, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
     allowed_projects = visible_project_names(current_user)
@@ -14687,8 +14793,6 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
         except:
             sections = []
         sections, _ = _normalize_estimate_adjustment_rows(sections)
-        if role == "бухгалтер":
-            sections = []
         if role in WORKER_EXECUTION_ROLES:
             # Исполнитель получает доступ через объект + пакет работ. Старые
             # contract-items могут дополнительно сузить список строк, но их
@@ -14696,8 +14800,76 @@ def get_estimates(current_user: dict = Depends(get_current_user)):
             # без обязательного ручного наряда.
             allowed_items = worker_allowed_items_by_scope.get((r[2] or "", r[7] or "Основная"))
             sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None)
-        result.append({"id":r[0],"projectId":r[1],"projectName":r[2],"name":r[3],"version":r[4],"sections":sections,"smetaType":r[6] or "Заказчик","workPackage":r[7] or "Основная","isTemplate":bool(r[8]),"status":r[9] or "Черновик","createdAt":str(r[10]) if r[10] else "","versionCount":int(r[11] or 0),"latestVersionAt":str(r[12]) if r[12] else ""})
+        summary_total = _estimate_sections_total_for_summary(sections)
+        if role == "бухгалтер":
+            sections = []
+            summary_total = 0
+        sections_loaded = not summary and role != "бухгалтер"
+        result.append(_estimate_response_payload_from_row(
+            r,
+            sections,
+            sections_loaded=sections_loaded,
+            total_override=summary_total,
+        ))
     return result
+
+
+@app.get("/estimates-summary")
+def get_estimates_summary(current_user: dict = Depends(get_current_user)):
+    return get_estimates(summary=True, current_user=current_user)
+
+
+@app.get("/estimates/{id}")
+def get_estimate_detail(id: int, current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    cur = conn.cursor()
+    require_estimate_access(cur, id, current_user)
+    base_cols = """e.id,e.project_id,e.project_name,e.name,e.version,e.sections_json,
+                   COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.work_package,'Основная'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
+                   (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
+                   (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at"""
+    cur.execute(f"SELECT {base_cols} FROM estimates e WHERE e.id=%s", (id,))
+    r = cur.fetchone()
+    if not r:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Смета не найдена")
+
+    role = current_user.get("role")
+    status = r[9] or "Черновик"
+    smeta_type = r[6] or "Заказчик"
+    if role == "заказчик" and (status != "Активная" or smeta_type != "Заказчик"):
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к смете")
+    if (role in WORKER_EXECUTION_ROLES or role == "прораб") and status != "Активная":
+        cur.close(); conn.close()
+        raise HTTPException(status_code=403, detail="Нет доступа к неактивной смете")
+
+    import json as j
+    try:
+        sections = j.loads(r[5]) if r[5] else []
+    except:
+        sections = []
+    sections, _ = _normalize_estimate_adjustment_rows(sections)
+    if role in WORKER_EXECUTION_ROLES:
+        allowed_by_scope = _worker_allowed_estimate_items_for_scopes(
+            cur,
+            current_user,
+            [((r[2] or ""), (r[7] or "Основная"))],
+        )
+        allowed_items = allowed_by_scope.get((r[2] or "", r[7] or "Основная"))
+        sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None)
+    summary_total = _estimate_sections_total_for_summary(sections)
+    if role == "бухгалтер":
+        sections = []
+        summary_total = 0
+    cur.close(); conn.close()
+    return _estimate_response_payload_from_row(
+        r,
+        sections,
+        sections_loaded=role != "бухгалтер",
+        total_override=summary_total,
+    )
+
 
 @app.post("/estimates")
 def create_estimate(data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
@@ -18212,15 +18384,33 @@ def delete_material_alias(id: int, current_user: dict = Depends(require_roles(*L
     return {"ok": True}
 
 @app.get("/material-norms")
-def list_material_norms(_current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def list_material_norms(
+    search: str = "",
+    limit: Optional[int] = None,
+    offset: int = 0,
+    _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES)),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    where = ["active=TRUE"]
+    params = []
+    search_value = (search or "").strip()
+    if search_value:
+        where.append("""(
+            COALESCE(rule_key, '') ILIKE %s OR
+            COALESCE(name, '') ILIKE %s OR
+            COALESCE(label, '') ILIKE %s OR
+            COALESCE(array_to_string(work_keywords, ' '), '') ILIKE %s OR
+            COALESCE(array_to_string(material_keywords, ' '), '') ILIKE %s
+        )""")
+        params.extend([f"%{search_value}%"] * 5)
+    page_sql, page_params = limit_offset_sql(limit, offset)
     cur.execute("""SELECT id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
                           work_unit, material_unit, qty_per_unit, thickness_base_mm,
                           default_thickness_mm, label, active, updated_by, updated_at
                    FROM material_norms
-                   WHERE active=TRUE
-                   ORDER BY name, id""")
+                   WHERE """ + " AND ".join(where) + """
+                   ORDER BY name, id""" + page_sql, params + page_params)
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [_material_norm_row(r) for r in rows]

@@ -1094,7 +1094,7 @@ function App() {
         canSeeProjectDocs ? getApi('/project-checklists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/prescriptions') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/unexpected-works') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/estimates') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/estimates-summary') : Promise.resolve([]),
         (isInternalRole || isFinanceRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/hidden-works-acts') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
@@ -1123,7 +1123,7 @@ function App() {
     });
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
       const [est,pl,mn,ma,mno,mns,bc,abi,abp] = await Promise.all([
-        canSeeProjectDocs ? getApi('/estimates') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/estimates-summary') : Promise.resolve([]),
         ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norms') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-aliases') : Promise.resolve([]),
@@ -1247,7 +1247,7 @@ function App() {
         isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
         isFinanceRole ? getApi('/expenses') : Promise.resolve([]),
         role === 'поставщик' ? Promise.resolve([]) : getApi('/work-journal'),
-        canSeeProjectDocs ? getApi('/estimates') : Promise.resolve([]),
+        canSeeProjectDocs ? getApi('/estimates-summary') : Promise.resolve([]),
       ]);
       setProjectPayments(Array.isArray(pp)?pp:[]);
       setManualExpenses(Array.isArray(me)?me:[]);
@@ -1342,7 +1342,7 @@ function App() {
         canSeeProjectDocs ? get('/project-checklists') : skip([]),
         canSeeProjectDocs ? get('/prescriptions') : skip([]),
         canSeeProjectDocs ? get('/unexpected-works') : skip([]),
-        canSeeProjectDocs ? get('/estimates') : skip([]),
+        canSeeProjectDocs ? get('/estimates-summary') : skip([]),
         (isInternalRole || isFinanceRole) ? get('/brigade-contracts') : skip([]),
         canSeeProjectDocs ? get('/hidden-works-acts') : skip([]),
         (canSeeProjectDocs || isWarehouseRole) ? get('/material-inspection') : skip([]),
@@ -3120,7 +3120,7 @@ function App() {
       const estimateId = payload.estimateId;
       if (estimateId) {
         const est = (estimatesList||[]).find(e=>Number(e.id)===Number(estimateId));
-        if (est) setSelectedEstimate(est);
+        if (est) openEstimateDetail(est);
       }
       setEstimatesTab('list');
       navigateTo('estimates');
@@ -3135,7 +3135,7 @@ function App() {
       if (projectName) setMaterialNormCoverageProject(projectName);
       if (estimateId) {
         const est = (estimatesList||[]).find(e=>Number(e.id)===Number(estimateId));
-        if (est) setSelectedEstimate(est);
+        if (est) openEstimateDetail(est);
       }
       setEstimatesTab('norms');
       navigateTo('estimates');
@@ -3213,7 +3213,35 @@ function App() {
 
   // Расчёт прогресса и сумм по факту сметы (используется в дашборде, кабинетах технадзора и заказчика, карточке объекта)
   const _sectionsOfEst = (est) => { try { return est.sections || (typeof est.sectionsJson==='string'?JSON.parse(est.sectionsJson||'[]'):est.sectionsJson) || []; } catch(e) { return []; } };
-  const estimateTotal = (est) => _sectionsOfEst(est).reduce((sum,s)=>sum+(s.items||[]).reduce((ss,it)=>ss+estimateItemTotal(it),0),0);
+  const estimateTotal = (est) => {
+    const sections = _sectionsOfEst(est);
+    if (sections.length) return sections.reduce((sum,s)=>sum+(s.items||[]).reduce((ss,it)=>ss+estimateItemTotal(it),0),0);
+    const fallback = Number(est?.summaryTotal ?? est?.total ?? est?.totalAmount ?? 0);
+    return Number.isFinite(fallback) ? fallback : 0;
+  };
+  const estimateHasLoadedSections = (est) => Boolean(est?.sectionsLoaded) || _sectionsOfEst(est).length > 0;
+  const loadEstimateDetail = async (estimate) => {
+    if (!estimate?.id || estimateHasLoadedSections(estimate)) return estimate;
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(API + '/estimates/' + encodeURIComponent(estimate.id), token ? {headers:{Authorization:'Bearer '+token}} : undefined);
+    if (!res.ok) throw new Error(await res.text());
+    const fullRaw = await res.json();
+    const normalized = normalizeEstimateList([fullRaw])[0] || fullRaw;
+    const merged = {...estimate, ...normalized, sectionsLoaded:true};
+    setEstimatesList(prev => (prev||[]).map(e => String(e.id)===String(merged.id) ? {...e, ...merged} : e));
+    return merged;
+  };
+  const openEstimateDetail = async (estimate) => {
+    setSelectedEstimate(estimate);
+    try {
+      const full = await loadEstimateDetail(estimate);
+      if (full && full !== estimate) setSelectedEstimate(full);
+      return full;
+    } catch (err) {
+      alert('Не удалось загрузить смету: ' + (err?.message || err));
+      return estimate;
+    }
+  };
   const estimateKind = (est) => est?.smetaType || 'Заказчик';
   const estimatePackage = (est) => est?.workPackage || est?.work_package || 'Основная';
   const estimateTypeIcon = (type) => ({'Заказчик':'📋','Работы':'👷','Материалы':'📦'}[type||'Заказчик'] || '📄');
@@ -8767,7 +8795,7 @@ function App() {
     if ((estimatesList||[]).length) return estimatesList;
     try {
       const token = localStorage.getItem('authToken');
-      const res = await fetch(API+'/estimates', token ? {headers:{Authorization:'Bearer '+token}} : undefined);
+      const res = await fetch(API+'/estimates-summary', token ? {headers:{Authorization:'Bearer '+token}} : undefined);
       if (!res.ok) return estimatesList||[];
       const data = await res.json();
       const list = Array.isArray(data) ? data : [];
@@ -8976,9 +9004,35 @@ function App() {
 
   const deleteClient = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/clients/'+id,{method:'DELETE'}); await refreshData(); } };
 
-  const deleteMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/materials/'+id,{method:'DELETE'}); await refreshData(); } };
+  const deleteMaterial = async (id) => {
+    if (!window.confirm('Удалить материал со склада? Это действие доступно только директору.')) return;
+    const res = await fetch(API+'/materials/'+id,{method:'DELETE'});
+    if (!res.ok) {
+      let msg = 'Не удалось удалить материал';
+      try {
+        const body = await res.json();
+        msg = body.detail || msg;
+      } catch {}
+      alert(msg);
+      return;
+    }
+    await refreshData();
+  };
 
-  const deleteMainMaterial = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/warehouse-main/'+id,{method:'DELETE'}); await refreshData(); } };
+  const deleteMainMaterial = async (id) => {
+    if (!window.confirm('Удалить материал с основного склада? Это действие доступно только директору.')) return;
+    const res = await fetch(API+'/warehouse-main/'+id,{method:'DELETE'});
+    if (!res.ok) {
+      let msg = 'Не удалось удалить материал';
+      try {
+        const body = await res.json();
+        msg = body.detail || msg;
+      } catch {}
+      alert(msg);
+      return;
+    }
+    await refreshData();
+  };
 
   const saveTool = async () => {
     if (!newTool.name) return;
@@ -12441,7 +12495,7 @@ function App() {
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                             <div><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{estimateKind(est)+' · 📁 '+estimatePackage(est)+' · v'+est.version}</p></div>
                             <div style={{display:'flex',gap:'6px'}}>
-                              <button onClick={()=>{setSelectedEstimate(est);navigateTo('estimates');}} style={btnB}><Eye size={13}/>Открыть</button>
+                              <button onClick={()=>{openEstimateDetail(est);navigateTo('estimates');}} style={btnB}><Eye size={13}/>Открыть</button>
                             </div>
                           </div>
                         </div>));
@@ -13921,7 +13975,7 @@ function App() {
                 estimateSearch={estimateSearch}
                 estimatesList={filteredEstimateList}
                 setEstimateSearch={setEstimateSearch}
-                setSelectedEstimate={setSelectedEstimate}
+                setSelectedEstimate={openEstimateDetail}
                 fmtMeasure={fmtMeasure}
                 estimateItemTotal={estimateItemTotal}
               />
@@ -14212,7 +14266,7 @@ function App() {
                   projectFilter={estimateProjectFilter}
                   showArchivedEstimates={showArchivedEstimates}
                   setShowArchivedEstimates={setShowArchivedEstimates}
-                  setSelectedEstimate={setSelectedEstimate}
+                  setSelectedEstimate={openEstimateDetail}
                   isGlobalEstimateTemplate={isGlobalEstimateTemplate}
                   isArchivedEstimate={isArchivedEstimate}
                   estimateGroupKey={estimateGroupKey}

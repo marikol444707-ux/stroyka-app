@@ -2,6 +2,7 @@ import React from 'react';
 import { Download, Plus, Search, Trash2 } from 'lucide-react';
 
 export default function WarehouseMainStockPanel({
+  user,
   warehouseMain,
   listSearch,
   setListSearch,
@@ -21,6 +22,7 @@ export default function WarehouseMainStockPanel({
   isMobile,
 }) {
   const [visibleRows, setVisibleRows] = React.useState(60);
+  const canDeleteMainMaterial = user?.role === 'директор';
   const touchCompact = typeof window !== 'undefined'
     && (window.visualViewport?.width || window.innerWidth || 0) < 1100
     && (
@@ -84,7 +86,9 @@ export default function WarehouseMainStockPanel({
                     <b style={{display:'block',color:C.text,fontSize:'14px',lineHeight:1.25,overflowWrap:'anywhere'}}>{material.name}</b>
                     <span style={{color:C.textSec,fontSize:'12px'}}>{material.category || 'Без категории'}</span>
                   </div>
-                  <button onClick={() => deleteMainMaterial(material.id)} style={{...btnR,padding:'7px 9px',flex:'0 0 auto'}}><Trash2 size={13}/></button>
+                  {canDeleteMainMaterial && (
+                    <button onClick={() => deleteMainMaterial(material.id)} style={{...btnR,padding:'7px 9px',flex:'0 0 auto'}}><Trash2 size={13}/></button>
+                  )}
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'8px'}}>
                   <div>
@@ -129,7 +133,11 @@ export default function WarehouseMainStockPanel({
               <td style={tblC}>{material.quantity+' '+material.unit}</td>
               <td style={tblC}>{material.price.toLocaleString()+' ₽'}</td>
               <td style={{...tblC,fontWeight:'600'}}>{(material.price*material.quantity).toLocaleString()+' ₽'}</td>
-              <td style={tblC}><button onClick={() => deleteMainMaterial(material.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
+              <td style={tblC}>
+                {canDeleteMainMaterial && (
+                  <button onClick={() => deleteMainMaterial(material.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>

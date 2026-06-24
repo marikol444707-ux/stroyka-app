@@ -49,7 +49,7 @@ export default function WarehouseObjectsPanel({
   const [visibleObjectRows, setVisibleObjectRows] = React.useState(60);
   const [visibleTransferRows, setVisibleTransferRows] = React.useState(40);
   const useCompactRows = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
-  const canDeleteProjectMaterial = ['директор', 'зам_директора', 'кладовщик', 'снабженец'].includes(user?.role);
+  const canDeleteProjectMaterial = user?.role === 'директор';
   const materialsByProject = React.useMemo(() => {
     const grouped = new Map();
     (materials || []).forEach(material => {

@@ -210,6 +210,7 @@ export default function WarehousePage(props) {
 
       {warehouseTab === 'main' && (
         <WarehouseMainStockPanel
+          user={user}
           warehouseMain={warehouseMain}
           listSearch={listSearch}
           setListSearch={setListSearch}

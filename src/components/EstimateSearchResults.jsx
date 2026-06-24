@@ -29,6 +29,18 @@ export default function EstimateSearchResults({
   const results = [];
   (estimatesList||[]).forEach(est => {
     const sects = parseEstimateSections(est);
+    if (!sects.length) {
+      const haystack = [
+        est.name,
+        est.projectName,
+        est.workPackage,
+        est.smetaType,
+      ].map(v => String(v || '').toLowerCase()).join(' ');
+      if (haystack.includes(q)) {
+        results.push({estimate: est, section: null, item: null, summaryOnly: true});
+      }
+      return;
+    }
     sects.forEach(sec => {
       (sec.items||[]).forEach(it => {
         const name = String(it.name||'').toLowerCase();
@@ -47,22 +59,28 @@ export default function EstimateSearchResults({
         <p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'14px'}}>Ничего не найдено. Попробуйте другое слово.</p>
       ) : (
         <div style={{maxHeight:'400px',overflowY:'auto'}}>
-          {results.slice(0,200).map((r,i) => (
+	          {results.slice(0,200).map((r,i) => (
             <div
               key={i}
-              onClick={() => {
-                setSelectedEstimate(r.estimate);
+              onClick={async () => {
+                const opened = await setSelectedEstimate(r.estimate);
                 setEstimateSearch('');
+                if (!r.item) return;
                 setTimeout(() => {
-                  const el = document.querySelector('[data-estitem="'+(r.item.id||r.item.name)+'"]');
+	                  const el = document.querySelector('[data-estitem="'+(r.item.id||r.item.name)+'"]');
                   if (el) el.scrollIntoView({behavior:'smooth',block:'center'});
                 }, 300);
+                return opened;
               }}
               style={{padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,cursor:'pointer'}}
             >
-              <b style={{fontSize:'13px',color:C.text,display:'block'}}>{r.item.name}</b>
-              <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px'}}>{'📋 '+r.estimate.name+' · '+(r.estimate.projectName||'—')+' · 📂 '+r.section.name}</p>
-              <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{fmtMeasure(r.item.quantity,r.item.unit)+' · 💰 '+Math.round(estimateItemTotal(r.item)).toLocaleString('ru-RU')+' ₽'}</p>
+              <b style={{fontSize:'13px',color:C.text,display:'block'}}>{r.item?.name || r.estimate.name}</b>
+              <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px'}}>{'📋 '+r.estimate.name+' · '+(r.estimate.projectName||'—')+' · 📂 '+(r.section?.name || r.estimate.workPackage || 'свод')}</p>
+              {r.item ? (
+                <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{fmtMeasure(r.item.quantity,r.item.unit)+' · 💰 '+Math.round(estimateItemTotal(r.item)).toLocaleString('ru-RU')+' ₽'}</p>
+              ) : (
+                <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>Свод сметы · открою строки при выборе</p>
+              )}
             </div>
           ))}
           {results.length>200&&<p style={{color:C.textMuted,fontSize:'11px',textAlign:'center',padding:'8px'}}>Показано первые 200 результатов. Уточните запрос.</p>}
