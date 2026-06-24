@@ -66,6 +66,11 @@ export default function WarehouseMainStockPanel({
           <input placeholder="🔍 Поиск материала" value={listSearch} onChange={event => setListSearch(event.target.value)} style={{...inp,marginBottom:0,paddingLeft:'32px',fontSize:'12px',padding:'6px 8px 6px 32px'}}/>
         </div>
       </div>
+      {user?.role && !canDeleteMainMaterial && (
+        <div style={{margin:'-6px 0 12px',color:C.textMuted,fontSize:'11px'}}>
+          Удаление остатков основного склада доступно только директору. Для исправления количества используйте приход, перемещение или списание.
+        </div>
+      )}
 
       {compactRows ? (
         <div style={{display:'grid',gap:'10px',width:'100%',maxWidth:'min(720px,100%)',margin:'0 auto'}}>

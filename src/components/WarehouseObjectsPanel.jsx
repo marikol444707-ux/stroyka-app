@@ -243,6 +243,11 @@ export default function WarehouseObjectsPanel({
               </div>
             )}
           </div>
+          {user?.role && !canDeleteProjectMaterial && (
+            <div style={{margin:'-4px 0 12px',color:C.textMuted,fontSize:'11px'}}>
+              Удаление остатков объекта доступно только директору. Для корректировки используйте накладную, перемещение, выдачу или списание.
+            </div>
+          )}
           {renderMaterialReconciliationPanel(selectedWarehouseProject, { limit: 25, title: '📊 Контроль материалов объекта' })}
           {useCompactRows ? (
             <div style={{ display: 'grid', gap: '10px', width: '100%', maxWidth: 'min(720px,100%)', margin: '0 auto' }}>
