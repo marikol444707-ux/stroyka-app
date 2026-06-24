@@ -91,21 +91,67 @@ export default function WarehouseObjectsPanel({
     const parsed = Number(String(value ?? '').replace(',', '.').replace(/\s+/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
   };
+  const transferItemKey = item => [
+    item.materialName || item.name || '',
+    item.workPackage || item.work_package || '',
+    item.unit || '',
+  ].join('|||');
+  const selectedTransferItems = React.useMemo(() => {
+    const explicitItems = Array.isArray(newTransfer.items) ? newTransfer.items : [];
+    const cleaned = explicitItems
+      .map(item => ({
+        materialName: item.materialName || item.name || '',
+        quantity: item.quantity ?? '',
+        unit: item.unit || 'шт',
+        workPackage: item.workPackage || item.work_package || '',
+      }))
+      .filter(item => item.materialName);
+    if (cleaned.length > 0) return cleaned;
+    if (!newTransfer.materialName) return [];
+    return [{
+      materialName: newTransfer.materialName,
+      quantity: newTransfer.quantity,
+      unit: newTransfer.unit || 'шт',
+      workPackage: newTransfer.workPackage || '',
+    }];
+  }, [newTransfer]);
+  const updateTransferItems = React.useCallback((items) => {
+    const normalizedItems = items.map(item => ({
+      materialName: item.materialName || item.name || '',
+      quantity: item.quantity ?? '',
+      unit: item.unit || 'шт',
+      workPackage: item.workPackage || item.work_package || '',
+    })).filter(item => item.materialName);
+    const first = normalizedItems[0] || {materialName: '', quantity: '', unit: 'шт', workPackage: ''};
+    setNewTransfer({
+      ...newTransfer,
+      items: normalizedItems,
+      materialName: first.materialName,
+      quantity: first.quantity,
+      unit: first.unit || 'шт',
+      workPackage: normalizedItems.length === 1 ? (first.workPackage || '') : '',
+    });
+  }, [newTransfer, setNewTransfer]);
   const transferPackageOptions = selectedWarehouseProject
     ? (getProjectWorkPackageOptions
       ? getProjectWorkPackageOptions(selectedWarehouseProject)
       : [...new Set(transferSourceMaterials.map(material => material.workPackage || material.work_package || '').filter(Boolean))])
     : [];
-  const selectedTransferStock = transferSourceMaterials.find(material =>
-    material.name === newTransfer.materialName &&
-    (material.workPackage || material.work_package || '') === (newTransfer.workPackage || '')
+  const stockForTransferItem = item => transferSourceMaterials.find(material =>
+    material.name === item.materialName &&
+    (material.workPackage || material.work_package || '') === (item.workPackage || '')
   );
-  const selectedTransferQty = toNum(newTransfer.quantity);
-  const selectedTransferStockQty = toNum(selectedTransferStock?.quantity);
   const transferNeedsPackage = ['мастер', 'бригадир', 'субподрядчик'].includes((newTransfer.toPersonRole || '').toLowerCase());
-  const transferMissingPackage = transferNeedsPackage && !(newTransfer.workPackage || '').trim();
-  const transferOverStock = !!newTransfer.materialName && selectedTransferQty > selectedTransferStockQty;
-  const canSaveObjectTransfer = !!newTransfer.materialName && selectedTransferQty > 0 && !!newTransfer.toPerson && !transferMissingPackage && !transferOverStock;
+  const transferMissingPackage = transferNeedsPackage && selectedTransferItems.some(item => !(item.workPackage || '').trim());
+  const transferOverStock = selectedTransferItems.some(item => {
+    const stock = stockForTransferItem(item);
+    return !!item.materialName && toNum(item.quantity) > toNum(stock?.quantity);
+  });
+  const canSaveObjectTransfer = selectedTransferItems.length > 0 &&
+    selectedTransferItems.every(item => toNum(item.quantity) > 0) &&
+    !!newTransfer.toPerson &&
+    !transferMissingPackage &&
+    !transferOverStock;
   React.useEffect(() => {
     setVisibleObjectRows(useCompactRows ? 60 : 180);
   }, [useCompactRows, selectedWarehouseProject]);
@@ -196,6 +242,7 @@ export default function WarehouseObjectsPanel({
                     quantity: '',
                     unit: 'шт',
                     workPackage: '',
+                    items: [],
                     toPerson: '',
                     toPersonRole: '',
                     fromLocation: selectedWarehouseProject,
@@ -395,14 +442,18 @@ export default function WarehouseObjectsPanel({
                 <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', borderBottom: '1px solid ' + C.border, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
                   <input
                     type='checkbox'
-                    checked={newTransfer.materialName === material.name && (newTransfer.workPackage || '') === ((material.workPackage || material.work_package || ''))}
-                    onChange={event => setNewTransfer({
-                      ...newTransfer,
-                      materialName: event.target.checked ? material.name : '',
-                      unit: event.target.checked ? material.unit : newTransfer.unit,
-                      workPackage: event.target.checked ? (material.workPackage || material.work_package || '') : '',
-                      quantity: ''
-                    })}
+                    checked={selectedTransferItems.some(item => transferItemKey(item) === transferItemKey({materialName: material.name, unit: material.unit || 'шт', workPackage: material.workPackage || material.work_package || ''}))}
+                    onChange={event => {
+                      const item = {
+                        materialName: material.name,
+                        unit: material.unit || 'шт',
+                        workPackage: material.workPackage || material.work_package || '',
+                        quantity: '',
+                      };
+                      updateTransferItems(event.target.checked
+                        ? [...selectedTransferItems, item]
+                        : selectedTransferItems.filter(row => transferItemKey(row) !== transferItemKey(item)));
+                    }}
                     style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                   />
                   <span style={{ flex: '1 1 180px', minWidth: 0, fontSize: '12px', color: C.text, overflowWrap: 'anywhere' }}>
@@ -422,15 +473,41 @@ export default function WarehouseObjectsPanel({
                 Показать ещё {Math.min(hiddenTransferMaterials, transferRowsStep)} материалов
               </button>
             )}
-            {newTransfer.materialName && (
+            {selectedTransferItems.length > 0 && (
               <>
-                <div className='mobile-two-cols' style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 120px auto', gap: '8px', alignItems: 'center', marginBottom: '10px', padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>
-                  <b style={{ fontSize: '13px', color: C.text, minWidth: 0, overflowWrap: 'anywhere' }}>{newTransfer.materialName}</b>
-                  <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={newTransfer.quantity} onChange={event => setNewTransfer({ ...newTransfer, quantity: event.target.value })} style={{ ...inp, marginBottom: 0, width: isMobile ? '100%' : '120px' }} />
-                  <span style={{ fontSize: '12px', color: C.textSec }}>{newTransfer.unit}</span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: '8px', marginBottom: '10px' }}>
+                  <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}><p style={{ margin: '0 0 3px', color: C.textSec, fontSize: '10px' }}>Выбрано</p><b style={{ color: C.text }}>{selectedTransferItems.length}</b></div>
+                  <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}><p style={{ margin: '0 0 3px', color: C.textSec, fontSize: '10px' }}>С количеством</p><b style={{ color: C.warning }}>{selectedTransferItems.filter(item => toNum(item.quantity) > 0).length}</b></div>
+                  <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}><p style={{ margin: '0 0 3px', color: C.textSec, fontSize: '10px' }}>Ошибки</p><b style={{ color: transferOverStock ? C.danger : C.success }}>{selectedTransferItems.filter(item => toNum(item.quantity) > toNum(stockForTransferItem(item)?.quantity)).length}</b></div>
+                  <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}><p style={{ margin: '0 0 3px', color: C.textSec, fontSize: '10px' }}>Получатель</p><b style={{ color: newTransfer.toPerson ? C.accent : C.textMuted, overflowWrap: 'anywhere' }}>{newTransfer.toPerson || '—'}</b></div>
                 </div>
-                {(() => {
-                  const materialName = (newTransfer.materialName || '').toLowerCase().trim();
+                <div style={{ display: 'grid', gap: '8px', marginBottom: '10px' }}>
+                  {selectedTransferItems.map(item => {
+                    const stock = stockForTransferItem(item);
+                    const stockQty = toNum(stock?.quantity);
+                    const qty = toNum(item.quantity);
+                    const over = qty > stockQty;
+                    return (
+                      <div key={transferItemKey(item)} style={{ padding: '10px', backgroundColor: over ? C.dangerLight : C.bg, border: '1.5px solid ' + (over ? C.dangerBorder : C.border), borderRadius: '8px' }}>
+                        <div className='mobile-two-cols' style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px,1fr) 120px auto auto', gap: '8px', alignItems: 'center' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <b style={{ display: 'block', fontSize: '13px', color: C.text, overflowWrap: 'anywhere' }}>{item.materialName}</b>
+                            {item.workPackage && <span style={{ display: 'block', color: C.textSec, fontSize: '10px', marginTop: '2px' }}>Пакет: {item.workPackage}</span>}
+                          </div>
+                          <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={item.quantity} onChange={event => updateTransferItems(selectedTransferItems.map(row => transferItemKey(row) === transferItemKey(item) ? { ...row, quantity: event.target.value } : row))} style={{ ...inp, marginBottom: 0, width: isMobile ? '100%' : '120px' }} />
+                          <span style={{ fontSize: '12px', color: C.textSec }}>{item.unit}</span>
+                          <button type='button' onClick={() => updateTransferItems(selectedTransferItems.filter(row => transferItemKey(row) !== transferItemKey(item)))} style={{ ...btnG, padding: '6px 9px' }}><X size={12}/></button>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px', fontSize: '11px', color: over ? C.danger : C.textSec }}>
+                          <span>Остаток: {stockQty} {item.unit}</span>
+                          <span>Останется: {Math.max(0, stockQty - qty)} {item.unit}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {selectedTransferItems.map(item => {
+                  const materialName = (item.materialName || '').toLowerCase().trim();
                   const matchedRequest = (supplyRequests || []).find(request => {
                     if (request.project !== selectedWarehouseProject) return false;
                     if (request.status === 'Отменена' || request.status === 'Отклонена') return false;
@@ -439,26 +516,26 @@ export default function WarehouseObjectsPanel({
                     return requestName.includes(materialName.split(' ')[0]) || materialName.includes(requestName.split(' ')[0]);
                   });
                   if (!matchedRequest) return null;
-                  if (_normalizeUnit(matchedRequest.unit) === _normalizeUnit(newTransfer.unit)) return null;
-                  const conversion = convertUnits(newTransfer.materialName, matchedRequest.quantity, matchedRequest.unit, newTransfer.unit);
+                  if (_normalizeUnit(matchedRequest.unit) === _normalizeUnit(item.unit)) return null;
+                  const conversion = convertUnits(item.materialName, matchedRequest.quantity, matchedRequest.unit, item.unit);
                   if (conversion) {
                     return (
-                      <div style={{ padding: '10px 12px', backgroundColor: C.infoLight, border: '1.5px solid ' + C.infoBorder, borderRadius: '8px', marginBottom: '10px', fontSize: '12px' }}>
-                        📐 <b style={{ color: C.text }}>Заявка была на {matchedRequest.quantity} {matchedRequest.unit}</b>, склад в {newTransfer.unit}. Это ≈ <b style={{ color: C.accent }}>{conversion.qty.toFixed(2)} {newTransfer.unit}</b>.
+                      <div key={transferItemKey(item)} style={{ padding: '10px 12px', backgroundColor: C.infoLight, border: '1.5px solid ' + C.infoBorder, borderRadius: '8px', marginBottom: '10px', fontSize: '12px' }}>
+                        📐 <b style={{ color: C.text }}>{item.materialName}: заявка была на {matchedRequest.quantity} {matchedRequest.unit}</b>, склад в {item.unit}. Это ≈ <b style={{ color: C.accent }}>{conversion.qty.toFixed(2)} {item.unit}</b>.
                         <p style={{ margin: '4px 0 6px', color: C.textSec, fontSize: '11px' }}>{conversion.note}</p>
-                        <button onClick={() => setNewTransfer({ ...newTransfer, quantity: Number(conversion.qty.toFixed(3)) })} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px' }}>
+                        <button onClick={() => updateTransferItems(selectedTransferItems.map(row => transferItemKey(row) === transferItemKey(item) ? { ...row, quantity: Number(conversion.qty.toFixed(3)) } : row))} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px' }}>
                           <Check size={11} />
-                          Подставить {conversion.qty.toFixed(2)} {newTransfer.unit}
+                          Подставить {conversion.qty.toFixed(2)} {item.unit}
                         </button>
                       </div>
                     );
                   }
                   return (
-                    <div style={{ padding: '10px 12px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder, borderRadius: '8px', marginBottom: '10px', fontSize: '12px', color: C.text }}>
-                      ⚠️ Заявка в <b>{matchedRequest.quantity} {matchedRequest.unit}</b>, на складе в <b>{newTransfer.unit}</b>. Конверсия не задана — пересчитайте вручную.
+                    <div key={transferItemKey(item)} style={{ padding: '10px 12px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder, borderRadius: '8px', marginBottom: '10px', fontSize: '12px', color: C.text }}>
+                      ⚠️ {item.materialName}: заявка в <b>{matchedRequest.quantity} {matchedRequest.unit}</b>, на складе в <b>{item.unit}</b>. Конверсия не задана — пересчитайте вручную.
                     </div>
                   );
-                })()}
+                })}
               </>
             )}
             <select
@@ -474,14 +551,15 @@ export default function WarehouseObjectsPanel({
             >
               <option value=''>Кому передать *</option>
               {(() => {
-                const materialName = (newTransfer.materialName || '').toLowerCase().trim();
+                const materialNames = selectedTransferItems.map(item => (item.materialName || '').toLowerCase().trim()).filter(Boolean);
                 const requesters = new Map();
                 (supplyRequests || [])
                   .filter(request => request.project === selectedWarehouseProject && (request.status === 'Утверждена' || request.status === 'Подтверждена прорабом' || request.status === 'Новая'))
                   .forEach(request => {
-                    if (materialName) {
+                    if (materialNames.length > 0) {
                       const requestName = (request.materialName || '').toLowerCase();
-                      if (!requestName.includes(materialName.split(' ')[0]) && !materialName.includes(requestName.split(' ')[0] || '')) return;
+                      const matchesAny = materialNames.some(materialName => requestName.includes(materialName.split(' ')[0]) || materialName.includes(requestName.split(' ')[0] || ''));
+                      if (!matchesAny) return;
                     }
                     if (request.createdBy && !requesters.has(request.createdBy)) {
                       requesters.set(request.createdBy, { name: request.createdBy, role: request.requestedByRole || '', quantity: request.quantity, unit: request.unit });
@@ -508,22 +586,30 @@ export default function WarehouseObjectsPanel({
                 );
               })()}
             </select>
+            {(() => {
+              const selectedPackages = [...new Set(selectedTransferItems.map(item => item.workPackage || '').filter(Boolean))];
+              const packageSelectValue = selectedPackages.length === 1 ? selectedPackages[0] : (newTransfer.workPackage || '');
+              return (
             <select
-              value={newTransfer.workPackage || ''}
-              onChange={event => setNewTransfer({ ...newTransfer, workPackage: event.target.value })}
+              value={packageSelectValue}
+              onChange={event => updateTransferItems(selectedTransferItems.length > 0
+                ? selectedTransferItems.map(item => ({ ...item, workPackage: event.target.value }))
+                : [{ materialName: newTransfer.materialName, quantity: newTransfer.quantity, unit: newTransfer.unit || 'шт', workPackage: event.target.value }])}
               style={{ ...inp, borderColor: transferMissingPackage ? C.warning : inp.borderColor }}
             >
-              <option value=''>{transferNeedsPackage ? 'Пакет работ *' : 'Пакет работ'}</option>
+              <option value=''>{selectedTransferItems.length > 1 && selectedPackages.length > 1 ? 'Разные пакеты в выбранных строках' : (transferNeedsPackage ? 'Пакет работ *' : 'Пакет работ')}</option>
               {transferPackageOptions.map(packageName => (
                 <option key={packageName} value={packageName}>{packageName}</option>
               ))}
             </select>
+              );
+            })()}
             <input type='date' value={newTransfer.transferDate} onChange={event => setNewTransfer({ ...newTransfer, transferDate: event.target.value })} style={inp} />
             <input placeholder='Примечание' value={newTransfer.notes} onChange={event => setNewTransfer({ ...newTransfer, notes: event.target.value })} style={inp} />
             {(transferMissingPackage || transferOverStock) && (
               <div style={{ padding: '10px 12px', backgroundColor: transferOverStock ? C.dangerLight : C.warningLight, border: '1.5px solid ' + (transferOverStock ? C.dangerBorder : C.warningBorder), borderRadius: '8px', color: transferOverStock ? C.danger : C.warning, fontSize: '12px', fontWeight: 700 }}>
                 {transferOverStock
-                  ? `Нельзя выдать больше остатка: на складе ${selectedTransferStockQty}, указано ${selectedTransferQty}.`
+                  ? 'Нельзя выдать больше остатка. Проверьте строки, выделенные красным.'
                   : 'Для выдачи мастеру, бригадиру или субподрядчику выберите пакет работ.'}
               </div>
             )}
@@ -538,27 +624,48 @@ export default function WarehouseObjectsPanel({
                         : 'Заполните: материал, количество, кому');
                     return;
                   }
-                  const data = { ...newTransfer, fromLocation: selectedWarehouseProject, projectName: selectedWarehouseProject, createdBy: user.name };
-                  const response = await fetch(API + '/material-transfers', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                  });
-                  const saved = await response.json();
-                  if (!response.ok || !saved.ok) {
-                    window.alert('Ошибка: ' + (saved.detail || saved.error || 'не удалось списать со склада'));
-                    return;
+                  const savedRows = [];
+                  for (const item of selectedTransferItems) {
+                    const data = {
+                      ...newTransfer,
+                      items: undefined,
+                      materialName: item.materialName,
+                      quantity: item.quantity,
+                      unit: item.unit,
+                      workPackage: item.workPackage,
+                      fromLocation: selectedWarehouseProject,
+                      projectName: selectedWarehouseProject,
+                      createdBy: user.name
+                    };
+                    const response = await fetch(API + '/material-transfers', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(data),
+                    });
+                    const saved = await response.json();
+                    if (!response.ok || !saved.ok) {
+                      if (savedRows.length > 0) {
+                        setMaterialTransfers(prev => [...savedRows.map(row => ({ ...row.data, id: row.id, signed: false })).reverse(), ...prev]);
+                        setMaterials(prev => savedRows.reduce((acc, row) => acc.map(material => (
+                          material.name === row.data.materialName &&
+                          material.project === selectedWarehouseProject &&
+                          (material.workPackage || material.work_package || '') === (row.data.workPackage || '')
+                        ) ? { ...material, quantity: Number(material.quantity || 0) - Number(row.data.quantity || 0) } : material), prev));
+                      }
+                      window.alert('Ошибка по позиции «' + item.materialName + '»: ' + (saved.detail || saved.error || 'не удалось списать со склада'));
+                      return;
+                    }
+                    savedRows.push({ id: saved.id, data });
                   }
-                  setMaterialTransfers(prev => [{ ...data, id: saved.id, signed: false }, ...prev]);
-                  const quantity = Number(newTransfer.quantity);
-                  setMaterials(prev => prev.map(material => (
-                    material.name === newTransfer.materialName &&
+                  setMaterialTransfers(prev => [...savedRows.map(row => ({ ...row.data, id: row.id, signed: false })).reverse(), ...prev]);
+                  setMaterials(prev => savedRows.reduce((acc, row) => acc.map(material => (
+                    material.name === row.data.materialName &&
                     material.project === selectedWarehouseProject &&
-                    (material.workPackage || material.work_package || '') === (newTransfer.workPackage || '')
-                  ) ? { ...material, quantity: Number(material.quantity || 0) - quantity } : material));
+                    (material.workPackage || material.work_package || '') === (row.data.workPackage || '')
+                  ) ? { ...material, quantity: Number(material.quantity || 0) - Number(row.data.quantity || 0) } : material), prev));
                   setShowTransferForm(false);
-                  setNewTransfer({ materialName: '', quantity: '', unit: 'шт', workPackage: '', toPerson: '', toPersonRole: '', toUserId: '', fromLocation: selectedWarehouseProject, notes: '', transferDate: new Date().toISOString().split('T')[0] });
-                  notify('Передал ' + (saved.materialName || newTransfer.materialName) + ' (' + newTransfer.quantity + ' ' + newTransfer.unit + ') → ' + newTransfer.toPerson, 'material');
+                  setNewTransfer({ materialName: '', quantity: '', unit: 'шт', workPackage: '', items: [], toPerson: '', toPersonRole: '', toUserId: '', fromLocation: selectedWarehouseProject, notes: '', transferDate: new Date().toISOString().split('T')[0] });
+                  notify('Передано материалов: ' + savedRows.length + ' → ' + newTransfer.toPerson, 'material');
                 }}
                 disabled={!canSaveObjectTransfer}
                 style={{ ...btnO, opacity: canSaveObjectTransfer ? 1 : 0.55, cursor: canSaveObjectTransfer ? 'pointer' : 'not-allowed' }}

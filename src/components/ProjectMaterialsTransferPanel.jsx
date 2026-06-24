@@ -11,6 +11,7 @@ const emptyTransfer = () => ({
   quantity: '',
   unit: 'шт',
   workPackage: '',
+  items: [],
   toPerson: '',
   toPersonRole: '',
   toUserId: '',
@@ -63,6 +64,57 @@ export default function ProjectMaterialsTransferPanel({
     return Number.isFinite(n) ? n : 0;
   };
   const materialKey = (v) => (v || '').trim().toLowerCase();
+  const sourceProject = projectName || newTransfer.fromLocation || '';
+  const selectedTransferItems = React.useMemo(() => {
+    const explicitItems = Array.isArray(newTransfer.items) ? newTransfer.items : [];
+    const cleaned = explicitItems
+      .map(item => ({
+        materialName: item.materialName || item.name || '',
+        quantity: item.quantity ?? '',
+        unit: item.unit || 'шт',
+        workPackage: item.workPackage || item.work_package || '',
+      }))
+      .filter(item => item.materialName);
+    if (cleaned.length > 0) return cleaned;
+    if (!newTransfer.materialName) return [];
+    return [{
+      materialName: newTransfer.materialName,
+      quantity: newTransfer.quantity,
+      unit: newTransfer.unit || 'шт',
+      workPackage: newTransfer.workPackage || '',
+    }];
+  }, [newTransfer]);
+  const primaryTransferItem = selectedTransferItems[0] || {
+    materialName: newTransfer.materialName || '',
+    quantity: newTransfer.quantity || '',
+    unit: newTransfer.unit || 'шт',
+    workPackage: newTransfer.workPackage || '',
+  };
+  const stockForTransferItem = (item) => materials.find(m =>
+    m.name === item.materialName &&
+    m.project === sourceProject &&
+    (m.workPackage || m.work_package || '') === (item.workPackage || '')
+  );
+  const transferItemQty = (item) => toNum(item.quantity);
+  const transferItemStockQty = (item) => toNum(stockForTransferItem(item)?.quantity);
+  const transferItemOverStock = (item) => !!item.materialName && transferItemQty(item) > transferItemStockQty(item);
+  const updateTransferItems = React.useCallback((items) => {
+    const normalizedItems = items.map(item => ({
+      materialName: item.materialName || item.name || '',
+      quantity: item.quantity ?? '',
+      unit: item.unit || 'шт',
+      workPackage: item.workPackage || item.work_package || '',
+    })).filter(item => item.materialName);
+    const first = normalizedItems[0] || {materialName: '', quantity: '', unit: 'шт', workPackage: ''};
+    setNewTransfer({
+      ...newTransfer,
+      items: normalizedItems,
+      materialName: first.materialName,
+      quantity: first.quantity,
+      unit: first.unit || 'шт',
+      workPackage: normalizedItems.length === 1 ? (first.workPackage || '') : '',
+    });
+  }, [newTransfer, setNewTransfer]);
   const fmtQty = (qty, unit) => {
     if (fmtMeasure) return fmtMeasure(qty, unit);
     const n = Math.round(toNum(qty) * 1000) / 1000;
@@ -79,20 +131,13 @@ export default function ProjectMaterialsTransferPanel({
     }
   };
 
-  const sourceProject = projectName || newTransfer.fromLocation || '';
   const availableMaterials = materials.filter(m => m.project === sourceProject);
   const transfers = materialTransfers.filter(t => t.projectName === projectName);
-  const selectedStock = materials.find(m =>
-        m.name === newTransfer.materialName &&
-        m.project === sourceProject &&
-        (m.workPackage || m.work_package || '') === (newTransfer.workPackage || '')
-      );
-  const selectedQty = toNum(newTransfer.quantity);
-  const selectedStockQty = toNum(selectedStock?.quantity);
-  const hasStockOverrun = !!newTransfer.materialName && selectedQty > selectedStockQty;
+  const selectedStockQty = transferItemStockQty(primaryTransferItem);
+  const hasStockOverrun = selectedTransferItems.some(item => transferItemOverStock(item));
   const receiverRole = (newTransfer.toPersonRole || '').trim().toLowerCase();
   const needsWorkPackage = !!projectName && ['мастер', 'бригадир', 'субподрядчик'].includes(receiverRole);
-  const missingWorkPackage = needsWorkPackage && !(newTransfer.workPackage || '').trim();
+  const missingWorkPackage = needsWorkPackage && selectedTransferItems.some(item => !(item.workPackage || '').trim());
 
   const packageMatches = (rowPackage, targetPackage) => {
     if (!targetPackage) return true;
@@ -136,11 +181,15 @@ export default function ProjectMaterialsTransferPanel({
     return {issued, pending, used, returned, balance: Math.max(0, issued - used - returned)};
   };
 
-  const selectedPersonBalance = personMaterialBalance(newTransfer.toPerson, newTransfer.materialName, newTransfer.workPackage);
-  const canSaveTransfer = !!newTransfer.materialName && selectedQty > 0 && !!newTransfer.toPerson && !hasStockOverrun && !missingWorkPackage;
+  const selectedPersonBalance = personMaterialBalance(newTransfer.toPerson, primaryTransferItem.materialName, primaryTransferItem.workPackage);
+  const canSaveTransfer = selectedTransferItems.length > 0 &&
+    selectedTransferItems.every(item => transferItemQty(item) > 0) &&
+    !!newTransfer.toPerson &&
+    !hasStockOverrun &&
+    !missingWorkPackage;
 
-  const matchingRequest = (() => {
-    const matName = (newTransfer.materialName || '').toLowerCase().trim();
+  const matchingRequestForItem = (item) => {
+    const matName = (item.materialName || '').toLowerCase().trim();
     if (!matName) return null;
 
     return supplyRequests.find(r => {
@@ -150,18 +199,20 @@ export default function ProjectMaterialsTransferPanel({
       if (!requestName) return false;
       return requestName.includes(matName.split(' ')[0]) || matName.includes(requestName.split(' ')[0]);
     });
-  })();
+  };
+  const matchingRequest = matchingRequestForItem(primaryTransferItem);
 
   const requesterOptions = (() => {
-    const matName = (newTransfer.materialName || '').toLowerCase().trim();
+    const materialNames = selectedTransferItems.map(item => (item.materialName || '').toLowerCase().trim()).filter(Boolean);
     const requesters = new Map();
 
     supplyRequests
       .filter(r => r.project === projectName && (r.status === 'Утверждена' || r.status === 'Подтверждена прорабом' || r.status === 'Новая'))
       .forEach(r => {
-        if (matName) {
+        if (materialNames.length > 0) {
           const requestName = (r.materialName || '').toLowerCase();
-          if (!requestName.includes(matName.split(' ')[0]) && !matName.includes(requestName.split(' ')[0] || '')) return;
+          const matchesAny = materialNames.some(matName => requestName.includes(matName.split(' ')[0]) || matName.includes(requestName.split(' ')[0] || ''));
+          if (!matchesAny) return;
         }
         if (r.createdBy && !requesters.has(r.createdBy)) {
           requesters.set(r.createdBy, {
@@ -181,37 +232,58 @@ export default function ProjectMaterialsTransferPanel({
   })();
 
   const saveTransfer = async () => {
-    if (!newTransfer.materialName || !newTransfer.quantity || !newTransfer.toPerson) return;
+    if (selectedTransferItems.length === 0 || !newTransfer.toPerson) return;
     if (!canSaveTransfer) {
       alert(hasStockOverrun
         ? 'Нельзя выдать больше остатка на складе.'
         : missingWorkPackage
           ? 'Для выдачи мастеру, бригадиру или субподрядчику выберите пакет работ.'
-        : 'Укажите материал, получателя и количество больше нуля.');
+        : 'Укажите материалы, получателя и количество больше нуля по каждой строке.');
       return;
     }
 
-    const data = {...newTransfer, projectName, fromLocation: sourceProject, createdBy: user.name};
-    const res = await fetch(API + '/material-transfers', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(data),
-    });
-    const saved = await res.json();
+    const savedTransfers = [];
+    for (const item of selectedTransferItems) {
+      const data = {
+        ...newTransfer,
+        items: undefined,
+        materialName: item.materialName,
+        quantity: item.quantity,
+        unit: item.unit,
+        workPackage: item.workPackage,
+        projectName,
+        fromLocation: sourceProject,
+        createdBy: user.name,
+      };
+      const res = await fetch(API + '/material-transfers', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+      });
+      const saved = await res.json();
 
-    if (!res.ok || !saved.ok) {
-      alert('Ошибка: ' + (saved.detail || saved.error || 'не удалось списать со склада'));
-      return;
+      if (!res.ok || !saved.ok) {
+        if (savedTransfers.length > 0) {
+          setMaterialTransfers(prev => [...savedTransfers.map(row => ({...row.data, id: row.id, signed: false})).reverse(), ...prev]);
+          setMaterials(prev => savedTransfers.reduce((acc, row) => acc.map(m => (
+            m.name === row.data.materialName &&
+            m.project === sourceProject &&
+            (m.workPackage || m.work_package || '') === (row.data.workPackage || '')
+          ) ? {...m, quantity: Number(m.quantity || 0) - Number(row.data.quantity || 0)} : m), prev));
+        }
+        alert('Ошибка по позиции «' + item.materialName + '»: ' + (saved.detail || saved.error || 'не удалось списать со склада'));
+        return;
+      }
+      savedTransfers.push({id: saved.id, data});
     }
 
-    setMaterialTransfers(prev => [{...data, id: saved.id, signed: false}, ...prev]);
-    const qty = Number(newTransfer.quantity);
+    setMaterialTransfers(prev => [...savedTransfers.map(row => ({...row.data, id: row.id, signed: false})).reverse(), ...prev]);
 
-    setMaterials(prev => prev.map(m => (
-      m.name === newTransfer.materialName &&
+    setMaterials(prev => savedTransfers.reduce((acc, row) => acc.map(m => (
+      m.name === row.data.materialName &&
       m.project === sourceProject &&
-      (m.workPackage || m.work_package || '') === (newTransfer.workPackage || '')
-    ) ? {...m, quantity: Number(m.quantity || 0) - qty} : m));
+      (m.workPackage || m.work_package || '') === (row.data.workPackage || '')
+    ) ? {...m, quantity: Number(m.quantity || 0) - Number(row.data.quantity || 0)} : m), prev));
 
     setNewTransfer(emptyProjectTransfer(projectName));
     setShowTransferForm(false);
@@ -258,11 +330,16 @@ export default function ProjectMaterialsTransferPanel({
           availableMaterials={availableMaterials}
           newTransfer={newTransfer}
           setNewTransfer={setNewTransfer}
-          selectedQty={selectedQty}
+          selectedTransferItems={selectedTransferItems}
+          updateTransferItems={updateTransferItems}
           selectedStockQty={selectedStockQty}
           selectedPersonBalance={selectedPersonBalance}
           hasStockOverrun={hasStockOverrun}
           matchingRequest={matchingRequest}
+          matchingRequestForItem={matchingRequestForItem}
+          personMaterialBalance={personMaterialBalance}
+          transferItemStockQty={transferItemStockQty}
+          transferItemOverStock={transferItemOverStock}
           normalizeUnit={normalizeUnit}
           convertUnits={convertUnits}
           fmtQty={fmtQty}

@@ -17,12 +17,21 @@ export function TransferMetricCards({
   );
 }
 
+const transferItemKey = item => [
+  item.materialName || item.name || '',
+  item.workPackage || item.work_package || '',
+  item.unit || '',
+].join('|||');
+
 export function MaterialPicker({
   C,
   newTransfer,
   setNewTransfer,
   availableMaterials,
+  selectedTransferItems = [],
+  updateTransferItems,
 }) {
+  const selectedKeys = new Set((selectedTransferItems || []).map(transferItemKey));
   return (
     <div style={{gridColumn: 'span 2'}}>
       <p style={{fontSize: '12px', color: C.textSec, marginBottom: '6px'}}>Материалы на складе:</p>
@@ -31,14 +40,28 @@ export function MaterialPicker({
           <div key={i} style={{display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', borderBottom: '1px solid ' + C.border}}>
             <input
               type="checkbox"
-              checked={newTransfer.materialName === m.name && (newTransfer.workPackage || '') === ((m.workPackage || m.work_package || ''))}
-              onChange={e => setNewTransfer({
-                ...newTransfer,
-                materialName: e.target.checked ? m.name : '',
-                unit: e.target.checked ? m.unit : newTransfer.unit,
-                workPackage: e.target.checked ? (m.workPackage || m.work_package || '') : '',
-                quantity: ''
-              })}
+              checked={selectedKeys.has(transferItemKey({materialName: m.name, workPackage: m.workPackage || m.work_package || '', unit: m.unit || 'шт'}))}
+              onChange={e => {
+                const item = {
+                  materialName: m.name,
+                  unit: m.unit || 'шт',
+                  workPackage: m.workPackage || m.work_package || '',
+                  quantity: '',
+                };
+                if (updateTransferItems) {
+                  updateTransferItems(e.target.checked
+                    ? [...selectedTransferItems, item]
+                    : selectedTransferItems.filter(row => transferItemKey(row) !== transferItemKey(item)));
+                  return;
+                }
+                setNewTransfer({
+                  ...newTransfer,
+                  materialName: e.target.checked ? m.name : '',
+                  unit: e.target.checked ? m.unit : newTransfer.unit,
+                  workPackage: e.target.checked ? (m.workPackage || m.work_package || '') : '',
+                  quantity: ''
+                });
+              }}
               style={{width: '16px', height: '16px', cursor: 'pointer'}}
             />
             <span style={{flex: 1, fontSize: '12px', color: C.text}}>
@@ -60,79 +83,118 @@ export function TransferQuantityBlock({
   btnGr,
   newTransfer,
   setNewTransfer,
-  selectedQty,
+  selectedTransferItems = [],
+  updateTransferItems,
+  transferItemStockQty,
+  transferItemOverStock,
+  personMaterialBalance,
   selectedStockQty,
   selectedPersonBalance,
   hasStockOverrun,
   matchingRequest,
+  matchingRequestForItem,
   normalizeUnit,
   convertUnits,
   fmtQty,
 }) {
-  if (!newTransfer.materialName) return null;
+  const items = (selectedTransferItems || []).length
+    ? selectedTransferItems
+    : (newTransfer.materialName ? [{
+      materialName: newTransfer.materialName,
+      quantity: newTransfer.quantity,
+      unit: newTransfer.unit || 'шт',
+      workPackage: newTransfer.workPackage || '',
+    }] : []);
+  if (items.length === 0) return null;
+  const updateItemQuantity = (item, quantity) => {
+    if (updateTransferItems) {
+      updateTransferItems(items.map(row => transferItemKey(row) === transferItemKey(item) ? {...row, quantity} : row));
+      return;
+    }
+    setNewTransfer({...newTransfer, quantity});
+  };
+  const removeItem = (item) => {
+    if (updateTransferItems) {
+      updateTransferItems(items.filter(row => transferItemKey(row) !== transferItemKey(item)));
+    }
+  };
 
   return (
     <>
       <TransferMetricCards
         C={C}
         metrics={[
-          ['На складе', fmtQty(selectedStockQty, newTransfer.unit), C.text],
-          ['Передаём', selectedQty > 0 ? fmtQty(selectedQty, newTransfer.unit) : 'не указано', selectedQty > 0 ? C.warning : C.textMuted],
-          ['Останется', fmtQty(Math.max(0, selectedStockQty - selectedQty), newTransfer.unit), hasStockOverrun ? C.danger : C.success],
-          ['У получателя', fmtQty(selectedPersonBalance.balance, newTransfer.unit), C.accent],
+          ['Выбрано', String(items.length), C.text],
+          ['С количеством', String(items.filter(item => Number(item.quantity || 0) > 0).length), C.warning],
+          ['Ошибки остатка', String(items.filter(item => transferItemOverStock ? transferItemOverStock(item) : hasStockOverrun).length), hasStockOverrun ? C.danger : C.success],
+          ['Получатель', newTransfer.toPerson || 'не выбран', newTransfer.toPerson ? C.accent : C.textMuted],
         ]}
       />
 
-      <div style={{display: 'flex', gap: '6px', gridColumn: 'span 2', alignItems: 'center'}}>
-        <b style={{fontSize: '12px', color: C.text, flex: 1}}>Передаём: {newTransfer.materialName}</b>
-        <input
-          placeholder="Кол-во *"
-          type="number"
-          step="any"
-          inputMode="decimal"
-          value={newTransfer.quantity}
-          onChange={e => setNewTransfer({...newTransfer, quantity: e.target.value})}
-          max={selectedStockQty}
-          style={{...inp, marginBottom: 0, width: '120px'}}
-        />
-        <span style={{fontSize: '12px', color: C.textSec}}>{newTransfer.unit}</span>
-        <span style={{fontSize: '11px', color: hasStockOverrun ? C.danger : C.warning}}>
-          Остаток: {fmtQty(selectedStockQty, newTransfer.unit)}
-        </span>
+      <div style={{gridColumn: 'span 2', display: 'grid', gap: '8px'}}>
+        {items.map(item => {
+          const stockQty = transferItemStockQty ? transferItemStockQty(item) : selectedStockQty;
+          const qty = Number(item.quantity || 0);
+          const overrun = transferItemOverStock ? transferItemOverStock(item) : hasStockOverrun;
+          const balance = personMaterialBalance ? personMaterialBalance(newTransfer.toPerson, item.materialName, item.workPackage || '') : selectedPersonBalance;
+          const request = matchingRequestForItem ? matchingRequestForItem(item) : matchingRequest;
+          return (
+            <div key={transferItemKey(item)} style={{padding: '10px', border: '1.5px solid ' + (overrun ? C.dangerBorder : C.border), borderRadius: '8px', backgroundColor: overrun ? C.dangerLight : C.bg}}>
+              <div style={{display: 'grid', gridTemplateColumns: 'minmax(180px,1fr) 120px auto auto', gap: '8px', alignItems: 'center'}}>
+                <div style={{minWidth: 0}}>
+                  <b style={{display: 'block', fontSize: '12px', color: C.text, overflowWrap: 'anywhere'}}>{item.materialName}</b>
+                  {item.workPackage && <span style={{display: 'block', fontSize: '10px', color: C.textSec, marginTop: '2px'}}>Пакет: {item.workPackage}</span>}
+                </div>
+                <input
+                  placeholder="Кол-во *"
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  value={item.quantity}
+                  onChange={e => updateItemQuantity(item, e.target.value)}
+                  max={stockQty}
+                  style={{...inp, marginBottom: 0, width: '120px'}}
+                />
+                <span style={{fontSize: '12px', color: C.textSec}}>{item.unit}</span>
+                {updateTransferItems && (
+                  <button type="button" onClick={() => removeItem(item)} style={{padding: '6px 9px', border: '1px solid ' + C.border, borderRadius: '7px', backgroundColor: C.bgWhite, color: C.textSec, cursor: 'pointer'}}>
+                    <X size={12}/>
+                  </button>
+                )}
+              </div>
+              <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px', fontSize: '11px', color: C.textSec}}>
+                <span style={{color: overrun ? C.danger : C.textSec}}>Остаток: {fmtQty(stockQty, item.unit)}</span>
+                <span>Останется: {fmtQty(Math.max(0, stockQty - qty), item.unit)}</span>
+                {newTransfer.toPerson && <span>У получателя: {fmtQty(balance.balance, item.unit)}</span>}
+              </div>
+              {request && normalizeUnit(request.unit) !== normalizeUnit(item.unit) && (() => {
+                const conv = convertUnits(item.materialName, request.quantity, request.unit, item.unit);
+                if (conv) {
+                  return (
+                    <div style={{marginTop: '8px', padding: '8px 10px', backgroundColor: C.infoLight, border: '1.5px solid ' + C.infoBorder, borderRadius: '8px', fontSize: '12px'}}>
+                      📐 Заявка была на <b>{request.quantity} {request.unit}</b>, склад в {item.unit}. Это ≈ <b style={{color: C.accent}}>{conv.qty.toFixed(2)} {item.unit}</b>.
+                      <button onClick={() => updateItemQuantity(item, Number(conv.qty.toFixed(3)))} style={{...btnGr, padding: '4px 10px', fontSize: '11px', marginLeft: '8px'}}>
+                        <Check size={11}/>Подставить
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{marginTop: '8px', padding: '8px 10px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder, borderRadius: '8px', fontSize: '12px', color: C.text}}>
+                    ⚠️ Заявка в <b>{request.quantity} {request.unit}</b>, на складе в <b>{item.unit}</b>. Конверсия не задана — пересчитайте вручную.
+                  </div>
+                );
+              })()}
+            </div>
+          );
+        })}
       </div>
-
-      {newTransfer.toPerson && (
-        <div style={{gridColumn: 'span 2', padding: '9px 12px', backgroundColor: C.bg, border: '1.5px solid ' + C.border, borderRadius: '8px', color: C.textSec, fontSize: '12px'}}>
-          У {newTransfer.toPerson}: подписано {fmtQty(selectedPersonBalance.issued, newTransfer.unit)}, ожидает подписи {fmtQty(selectedPersonBalance.pending, newTransfer.unit)}, списано {fmtQty(selectedPersonBalance.used, newTransfer.unit)}, возвращено {fmtQty(selectedPersonBalance.returned, newTransfer.unit)}.
-        </div>
-      )}
 
       {hasStockOverrun && (
         <div style={{gridColumn: 'span 2', padding: '10px 12px', backgroundColor: C.dangerLight, border: '1.5px solid ' + C.dangerBorder, borderRadius: '8px', color: C.danger, fontSize: '12px', fontWeight: 700}}>
-          Нельзя выдать больше остатка: на складе {fmtQty(selectedStockQty, newTransfer.unit)}, указано {fmtQty(selectedQty, newTransfer.unit)}.
+          Нельзя выдать больше остатка. Проверьте строки, выделенные красным.
         </div>
       )}
-
-      {matchingRequest && normalizeUnit(matchingRequest.unit) !== normalizeUnit(newTransfer.unit) && (() => {
-        const conv = convertUnits(newTransfer.materialName, matchingRequest.quantity, matchingRequest.unit, newTransfer.unit);
-        if (conv) {
-          return (
-            <div style={{gridColumn: 'span 2', padding: '10px 12px', backgroundColor: C.infoLight, border: '1.5px solid ' + C.infoBorder, borderRadius: '8px', fontSize: '12px'}}>
-              📐 Заявка была на <b>{matchingRequest.quantity} {matchingRequest.unit}</b>, склад в {newTransfer.unit}. Это ≈ <b style={{color: C.accent}}>{conv.qty.toFixed(2)} {newTransfer.unit}</b>.
-              <p style={{margin: '4px 0 6px', color: C.textSec, fontSize: '11px'}}>{conv.note}</p>
-              <button onClick={() => setNewTransfer({...newTransfer, quantity: Number(conv.qty.toFixed(3))})} style={{...btnGr, padding: '4px 10px', fontSize: '11px'}}>
-                <Check size={11}/>Подставить {conv.qty.toFixed(2)} {newTransfer.unit}
-              </button>
-            </div>
-          );
-        }
-
-        return (
-          <div style={{gridColumn: 'span 2', padding: '10px 12px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder, borderRadius: '8px', fontSize: '12px', color: C.text}}>
-            ⚠️ Заявка в <b>{matchingRequest.quantity} {matchingRequest.unit}</b>, на складе в <b>{newTransfer.unit}</b>. Конверсия не задана — пересчитайте вручную.
-          </div>
-        );
-      })()}
     </>
   );
 }
@@ -189,11 +251,16 @@ export function MaterialTransferForm({
   availableMaterials,
   newTransfer,
   setNewTransfer,
-  selectedQty,
+  selectedTransferItems = [],
+  updateTransferItems,
   selectedStockQty,
   selectedPersonBalance,
   hasStockOverrun,
   matchingRequest,
+  matchingRequestForItem,
+  personMaterialBalance,
+  transferItemStockQty,
+  transferItemOverStock,
   normalizeUnit,
   convertUnits,
   fmtQty,
@@ -206,6 +273,16 @@ export function MaterialTransferForm({
   saveTransfer,
   setShowTransferForm,
 }) {
+  const selectedPackages = [...new Set((selectedTransferItems || []).map(item => item.workPackage || '').filter(Boolean))];
+  const packageSelectValue = selectedPackages.length === 1 ? selectedPackages[0] : (newTransfer.workPackage || '');
+  const applyPackageToSelected = (workPackage) => {
+    if (updateTransferItems && selectedTransferItems.length > 0) {
+      updateTransferItems(selectedTransferItems.map(item => ({...item, workPackage})));
+      return;
+    }
+    setNewTransfer({...newTransfer, workPackage});
+  };
+
   return (
     <div style={{...card, padding: '20px', marginBottom: '16px'}}>
       <h3 style={{color: C.text, marginBottom: '15px', fontWeight: '700'}}>Передача материала исполнителю</h3>
@@ -224,6 +301,8 @@ export function MaterialTransferForm({
           newTransfer={newTransfer}
           setNewTransfer={setNewTransfer}
           availableMaterials={availableMaterials}
+          selectedTransferItems={selectedTransferItems}
+          updateTransferItems={updateTransferItems}
         />
 
         <TransferQuantityBlock
@@ -232,11 +311,16 @@ export function MaterialTransferForm({
           btnGr={btnGr}
           newTransfer={newTransfer}
           setNewTransfer={setNewTransfer}
-          selectedQty={selectedQty}
+          selectedTransferItems={selectedTransferItems}
+          updateTransferItems={updateTransferItems}
+          transferItemStockQty={transferItemStockQty}
+          transferItemOverStock={transferItemOverStock}
+          personMaterialBalance={personMaterialBalance}
           selectedStockQty={selectedStockQty}
           selectedPersonBalance={selectedPersonBalance}
           hasStockOverrun={hasStockOverrun}
           matchingRequest={matchingRequest}
+          matchingRequestForItem={matchingRequestForItem}
           normalizeUnit={normalizeUnit}
           convertUnits={convertUnits}
           fmtQty={fmtQty}
@@ -251,11 +335,11 @@ export function MaterialTransferForm({
         />
 
         <select
-          value={newTransfer.workPackage || ''}
-          onChange={e => setNewTransfer({...newTransfer, workPackage: e.target.value})}
+          value={packageSelectValue}
+          onChange={e => applyPackageToSelected(e.target.value)}
           style={{...inp, marginBottom: 0, borderColor: missingWorkPackage ? C.warning : inp.borderColor}}
         >
-          <option value="">{needsWorkPackage ? 'Пакет работ *' : 'Пакет работ: общий'}</option>
+          <option value="">{selectedTransferItems.length > 1 && selectedPackages.length > 1 ? 'Разные пакеты в выбранных строках' : (needsWorkPackage ? 'Пакет работ *' : 'Пакет работ: общий')}</option>
           {(workPackageOptions || []).map(pkg => <option key={pkg} value={pkg}>{pkg}</option>)}
         </select>
         <input type="date" value={newTransfer.transferDate} onChange={e => setNewTransfer({...newTransfer, transferDate: e.target.value})} style={{...inp, marginBottom: 0}}/>
