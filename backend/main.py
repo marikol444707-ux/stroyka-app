@@ -6392,7 +6392,8 @@ def _is_invoice_consumable_material(name: str) -> bool:
         "ванночка", "лоток", "ручка", "держатель", "скребок", "терка",
         "наждачка", "шкурка", "перчатки", "мешок", "пакет", "пленка",
         "скотч", "маркер", "карандаш", "канцелярский", "лопата", "черенок",
-        "шнур", "бур", "зубило", "планинг",
+        "шнур", "бур", "зубило", "планинг", "сверло", "диск", "круг",
+        "бита", "коронка", "полотно", "насадка", "щетка", "шнурка",
     }
     return bool(tokens.intersection(consumables))
 
@@ -6401,6 +6402,8 @@ _MATERIAL_MATCH_STOPWORDS = {
     "мм", "см", "м", "шт", "кг", "л", "т", "для", "при", "под", "над", "без",
     "основная", "объект", "материал", "материалы", "позиция", "работы", "работа",
     "комплект", "комплекта", "комплектов", "изделие", "изделия", "серия",
+    "упак", "упаковка", "пач", "пачка", "пар", "рул", "рулон", "бухта",
+    "белый", "белая", "белое", "черный", "черная", "черное", "серый", "серая",
 }
 
 def _material_match_tokens(name: str) -> set[str]:
@@ -6414,9 +6417,15 @@ def _material_match_tokens(name: str) -> set[str]:
             continue
         if re.fullmatch(r"\d{4,}", token) and token.startswith(("13", "20")):
             continue
+        dimension_token = token.replace("х", "x").replace("*", "x")
+        if re.fullmatch(r"\d+(?:x\d+){1,3}", dimension_token):
+            tokens.add(dimension_token)
+            continue
         stem = token
         if stem.startswith("керамогран"):
             tokens.update({"керамогранит", "гранит", "керамическ"})
+        elif stem.startswith("gres") or stem.startswith("porcelain"):
+            tokens.update({"керамическ", "плитка"})
         elif stem.startswith("livorno") or stem.startswith("ливорн"):
             tokens.update({"livorno", "керамогранит", "плитка"})
         elif stem.startswith("axima") or stem.startswith("аксима"):
@@ -6431,14 +6440,26 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.update({"монтеррей", "металлочерепица", "черепица", "кровля"})
         elif stem.startswith("гкл") or stem.startswith("гипсокарт"):
             tokens.update({"гкл", "гипсокартон"})
+        elif stem.startswith("гипрок"):
+            tokens.update({"гкл", "гипсокартон"})
         elif stem.startswith("гвл") or stem.startswith("гипсовол"):
             tokens.update({"гвл", "гипсоволокно"})
+        elif stem.startswith("аквапан"):
+            tokens.update({"аквапанель", "лист"})
         elif stem.startswith("цемент"):
             tokens.add("цемент")
         elif "цемент" in stem:
             tokens.add("цемент")
         elif stem.startswith("смес"):
             tokens.add("смесь")
+        elif stem.startswith("пескобетон"):
+            tokens.update({"пескобетон", "бетон", "смесь"})
+        elif stem.startswith("наливн"):
+            tokens.update({"наливной", "смесь"})
+        elif stem.startswith("ровнител"):
+            tokens.update({"ровнитель", "смесь"})
+        elif stem.startswith("затир"):
+            tokens.update({"затирка", "смесь"})
         elif stem.startswith("ротб"):
             tokens.update({"ротбанд", "штукатурка", "смесь"})
         elif stem.startswith("хабез"):
@@ -6469,76 +6490,108 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("шпатлевка")
         elif stem.startswith("профил"):
             tokens.add("профиль")
+        elif stem in {"пн", "пп", "пс", "псу", "cd", "ud", "cw", "uw"}:
+            tokens.update({"профиль", stem})
         elif stem.startswith("угол"):
-            tokens.add("уголок")
+            tokens.update({"уголок", "профиль"})
         elif stem.startswith("подвес"):
-            tokens.add("подвес")
+            tokens.update({"подвес", "профиль"})
         elif stem.startswith("маяк") or stem.startswith("маяч"):
-            tokens.add("маяк")
+            tokens.update({"маяк", "профиль"})
         elif stem.startswith("рейк"):
             tokens.add("рейка")
         elif stem.startswith("лент"):
             tokens.add("лента")
         elif stem.startswith("серпян"):
             tokens.add("серпянка")
-        elif stem.startswith("саморез"):
-            tokens.add("саморез")
+        elif stem.startswith("саморез") or stem.startswith("самонар"):
+            tokens.update({"саморез", "крепеж"})
         elif stem.startswith("шуруп"):
-            tokens.add("саморез")
+            tokens.update({"саморез", "крепеж"})
+        elif stem.startswith("прессшайб"):
+            tokens.update({"прессшайба", "саморез", "крепеж"})
         elif stem.startswith("анкер"):
-            tokens.add("анкер")
+            tokens.update({"анкер", "крепеж"})
         elif stem.startswith("болт"):
-            tokens.add("болт")
+            tokens.update({"болт", "крепеж"})
         elif stem.startswith("гайк"):
-            tokens.add("гайка")
+            tokens.update({"гайка", "крепеж"})
         elif stem.startswith("шайб"):
-            tokens.add("шайба")
+            tokens.update({"шайба", "крепеж"})
         elif stem.startswith("кабел"):
             tokens.add("кабель")
         elif stem.startswith("провод"):
             tokens.add("провод")
         elif stem.startswith("светиль") or stem.startswith("табло"):
-            tokens.add("светильник")
+            tokens.update({"светильник", "свет"})
+        elif stem.startswith("светодиод") or stem in {"led", "лед"}:
+            tokens.update({"светильник", "светодиод", "свет"})
         elif stem.startswith("ламп"):
-            tokens.add("лампа")
+            tokens.update({"лампа", "свет"})
+        elif stem.startswith("прожектор"):
+            tokens.update({"прожектор", "светильник", "свет"})
         elif stem.startswith("розет"):
             tokens.add("розетка")
         elif stem.startswith("выключ"):
             tokens.add("выключатель")
+        elif stem.startswith("автомат") or stem.startswith("узо") or stem.startswith("дифавтомат"):
+            tokens.update({"автомат", "электрика"})
+        elif stem.startswith("щит"):
+            tokens.update({"щит", "электрика"})
+        elif stem.startswith("гофр"):
+            tokens.update({"гофра", "труба", "электрика"})
         elif stem.startswith("втул"):
             tokens.add("втулка")
         elif stem.startswith("хомут"):
-            tokens.add("хомут")
+            tokens.update({"хомут", "крепеж"})
         elif stem.startswith("скоб"):
-            tokens.add("скоба")
+            tokens.update({"скоба", "крепеж"})
         elif stem.startswith("труб"):
             tokens.add("труба")
+        elif stem.startswith("ппр") or stem.startswith("ppr") or stem.startswith("полипроп"):
+            tokens.update({"труба", "полипропилен"})
+        elif stem.startswith("канализ"):
+            tokens.update({"труба", "канализация"})
         elif stem.startswith("радиатор"):
             tokens.add("радиатор")
+        elif stem.startswith("бимет"):
+            tokens.update({"радиатор", "биметалл"})
         elif stem.startswith("фитинг"):
-            tokens.add("фитинг")
+            tokens.update({"фитинг", "инженерия"})
         elif stem.startswith("муфт"):
-            tokens.add("муфта")
+            tokens.update({"муфта", "фитинг", "инженерия"})
+        elif stem.startswith("тройник"):
+            tokens.update({"тройник", "фитинг", "инженерия"})
+        elif stem.startswith("отвод"):
+            tokens.update({"отвод", "фитинг", "инженерия"})
+        elif stem.startswith("нипп"):
+            tokens.update({"ниппель", "фитинг", "инженерия"})
+        elif stem.startswith("переход"):
+            tokens.update({"переход", "фитинг", "инженерия"})
+        elif stem.startswith("заглуш"):
+            tokens.update({"заглушка", "фитинг", "инженерия"})
+        elif stem.startswith("коллект"):
+            tokens.update({"коллектор", "инженерия"})
         elif stem.startswith("клапан"):
-            tokens.add("клапан")
+            tokens.update({"клапан", "инженерия"})
         elif stem.startswith("американ"):
-            tokens.add("американка")
+            tokens.update({"американка", "фитинг", "инженерия"})
         elif stem.startswith("воздухоотв"):
-            tokens.add("воздухоотводчик")
+            tokens.update({"воздухоотводчик", "радиатор", "инженерия"})
         elif stem.startswith("кран"):
-            tokens.add("кран")
+            tokens.update({"кран", "инженерия"})
         elif stem.startswith("креп"):
             tokens.add("крепеж")
         elif stem.startswith("скреп"):
-            tokens.add("скрепа")
-        elif stem.startswith("дюб"):
-            tokens.add("дюбель")
+            tokens.update({"скрепа", "крепеж"})
+        elif stem.startswith("дюб") or "дюб" in stem:
+            tokens.update({"дюбель", "крепеж"})
         elif stem.startswith("клин"):
-            tokens.add("клин")
+            tokens.update({"клин", "крепеж"})
         elif stem.startswith("кроншт"):
-            tokens.add("кронштейн")
+            tokens.update({"кронштейн", "крепеж"})
         elif stem.startswith("направл"):
-            tokens.add("направляющая")
+            tokens.update({"направляющая", "профиль"})
         elif stem.startswith("доск"):
             tokens.add("доска")
         elif stem.startswith("брус"):
@@ -6550,9 +6603,9 @@ def _material_match_tokens(name: str) -> set[str]:
         elif stem.startswith("армат"):
             tokens.add("арматура")
         elif stem.startswith("гвозд"):
-            tokens.add("гвоздь")
+            tokens.update({"гвоздь", "крепеж"})
         elif stem.startswith("шпил"):
-            tokens.add("шпилька")
+            tokens.update({"шпилька", "крепеж"})
         elif stem.startswith("перф"):
             tokens.add("перфолента")
         elif stem.startswith("краск") or stem.startswith("окрас"):
@@ -6615,6 +6668,20 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("шнур")
         elif stem.startswith("бур"):
             tokens.add("бур")
+        elif stem.startswith("сверл"):
+            tokens.add("сверло")
+        elif stem.startswith("диск") or stem.startswith("круг"):
+            tokens.add("диск")
+        elif stem.startswith("бит"):
+            tokens.add("бита")
+        elif stem.startswith("корон"):
+            tokens.add("коронка")
+        elif stem.startswith("полотн"):
+            tokens.add("полотно")
+        elif stem.startswith("насад"):
+            tokens.add("насадка")
+        elif stem.startswith("щетк"):
+            tokens.add("щетка")
         elif stem.startswith("зубил"):
             tokens.add("зубило")
         elif stem.startswith("планинг"):
@@ -6646,19 +6713,19 @@ def _material_family_tags(tokens: set[str]) -> set[str]:
         families.add("gkl")
     if t.intersection({"гвл", "гипсоволокно"}):
         families.add("gvl")
-    if t.intersection({"профиль", "уголок", "подвес", "маяк", "рейка", "направляющая"}):
+    if t.intersection({"профиль", "уголок", "подвес", "маяк", "рейка", "направляющая", "пн", "пп", "пс", "псу", "cd", "ud", "cw", "uw"}):
         families.add("metal_profile")
-    if t.intersection({"саморез", "анкер", "болт", "гайка", "шайба", "дюбель", "крепеж", "гвоздь", "шпилька", "скрепа"}):
+    if t.intersection({"саморез", "анкер", "болт", "гайка", "шайба", "дюбель", "крепеж", "гвоздь", "шпилька", "скрепа", "прессшайба", "скоба", "хомут", "клин", "кронштейн"}):
         families.add("fastener")
     if t.intersection({"кабель", "провод"}):
         families.add("cable")
-    if t.intersection({"труба", "фитинг", "муфта", "клапан", "американка", "хомут", "кран"}):
+    if t.intersection({"труба", "фитинг", "муфта", "клапан", "американка", "кран", "полипропилен", "канализация", "тройник", "отвод", "ниппель", "переход", "заглушка", "коллектор", "инженерия"}):
         families.add("pipe")
-    if t.intersection({"светильник", "лампа"}):
+    if t.intersection({"светильник", "лампа", "свет", "светодиод", "прожектор"}):
         families.add("light")
-    if t.intersection({"розетка", "выключатель"}):
+    if t.intersection({"розетка", "выключатель", "автомат", "щит", "электрика"}):
         families.add("electrical_device")
-    if t.intersection({"радиатор", "кронштейн", "воздухоотводчик"}):
+    if t.intersection({"радиатор", "биметалл", "воздухоотводчик"}):
         families.add("heating")
     if t.intersection({"металлочерепица", "черепица", "кровля", "монтеррей"}):
         families.add("roofing")
@@ -6681,7 +6748,7 @@ def _material_family_match_score(left_tokens: set[str], right_tokens: set[str]) 
     high_confidence = {
         "plaster", "putty", "primer", "cement", "tile", "gkl", "gvl",
         "metal_profile", "fastener", "cable", "pipe", "roofing",
-        "paint", "sealant", "adhesive",
+        "paint", "sealant", "adhesive", "light", "heating", "electrical_device",
     }
     if common_families.intersection(high_confidence):
         return 0.82
@@ -6711,12 +6778,16 @@ def _material_name_match_score(left: str, right: str) -> float:
         "гипсоволокно", "грунтовка", "штукатурка", "шпатлевка", "профиль",
         "кабель", "провод", "труба", "радиатор", "скрепа", "дюбель",
         "кронштейн", "направляющая", "цемент", "бетон", "песок",
-        "саморез", "анкер", "болт", "гайка", "шайба", "светильник",
-        "розетка", "выключатель", "втулка", "хомут", "скоба", "крепеж",
+        "саморез", "анкер", "болт", "гайка", "шайба", "прессшайба", "светильник",
+        "свет", "светодиод", "прожектор", "розетка", "выключатель", "автомат",
+        "щит", "электрика", "втулка", "хомут", "скоба", "крепеж",
         "кран", "клей", "плитка", "металлочерепица", "черепица", "кровля",
         "монтеррей", "livorno", "axima", "смесь", "ротбанд", "кнауф",
-        "уголок", "подвес", "маяк", "рейка", "лента", "серпянка",
-        "лампа", "фитинг", "муфта", "клапан", "американка", "воздухоотводчик",
+        "пескобетон", "наливной", "ровнитель", "затирка", "уголок", "подвес",
+        "маяк", "рейка", "лента", "серпянка", "пн", "пп", "пс", "псу",
+        "cd", "ud", "cw", "uw", "лампа", "фитинг", "муфта", "тройник",
+        "отвод", "ниппель", "переход", "заглушка", "коллектор", "клапан",
+        "американка", "воздухоотводчик", "полипропилен", "канализация",
         "доска", "брус", "фанера", "осп", "арматура", "гвоздь", "шпилька",
         "перфолента", "краска", "эмаль", "лак", "герметик", "силикон",
         "пена", "раствор", "алебастр", "гипс", "известь",
@@ -19159,7 +19230,7 @@ def _estimate_item_type_backend(item: dict, section_name: str = "") -> str:
     raw = str(item.get("itemType") or item.get("type") or item.get("kind") or "").lower()
     text = _norm_key_text((item.get("name") or "") + " " + section_name)
     source_code = str(item.get("sourceCode") or item.get("obosn") or item.get("code") or "").strip()
-    material_markers = ("смесь", "ротбанд", "кнауф", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "клей", "краска", "акрил", "грунтовка", "грунтовк", "кабель", "провод", "гофра", "лист гкл", "профиль", "саморез", "шуруп", "анкер", "болт", "гайк", "шайб", "кирпич", "бетон", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "livorno", "ливорно", "axima", "аксима", "пвх", "уголок", "подвес", "маяк", "рейк", "лента", "серпян", "панель", "плинтус", "наличник", "металлочереп", "черепиц", "монтеррей", "кровл", "кроншт", "направл", "фитинг", "муфт", "клапан", "американ", "воздухоотвод", "радиатор", "светиль", "ламп", "розет", "выключ", "доска", "брус", "фанер", "осп", "osb", "гвозд", "шпил", "перфолента")
+    material_markers = ("смесь", "ротбанд", "кнауф", "штукатурка", "штукатурк", "шпатлевка", "шпатлевк", "шпаклевка", "шпаклевк", "пескобетон", "наливн", "ровнител", "затир", "клей", "краска", "акрил", "грунтовка", "грунтовк", "кабель", "провод", "гофра", "лист гкл", "гклв", "гипрок", "гвлв", "гипсовол", "аквапан", "профиль", "саморез", "шуруп", "самонар", "анкер", "болт", "гайк", "шайб", "прессшайб", "дюб", "кирпич", "бетон", "плитка", "плитк", "керамическ", "керамогранит", "гранит", "livorno", "ливорно", "axima", "аксима", "пвх", "уголок", "подвес", "маяк", "рейк", "лента", "серпян", "панель", "плинтус", "наличник", "металлочереп", "черепиц", "монтеррей", "кровл", "кроншт", "направл", "фитинг", "муфт", "тройник", "отвод", "нипп", "переход", "заглуш", "коллект", "клапан", "американ", "воздухоотвод", "радиатор", "бимет", "светиль", "светодиод", "прожектор", "ламп", "розет", "выключ", "автомат", "узо", "щит", "ппр", "ppr", "полипроп", "канализ", "доска", "брус", "фанер", "осп", "osb", "гвозд", "шпил", "перфолента")
     strong_work_markers = ("монтаж", "установка", "устройство", "демонтаж", "разбор", "разборка", "прокладка", "замена", "подключение", "снятие", "очистка", "ремонт", "облицовка", "окраска", "кладка", "стяжка", "отбивка", "отбивк", "грунтование")
     source_looks_work = bool(re.match(r"^(ГЭСН|ФЕР|ТЕР)", source_code, re.I))
     source_looks_resource = bool(re.match(r"^\d{2,}[-/]\d+", source_code) or re.match(r"^\d{3,}$", source_code) or re.match(r"^(ТЦ_|ФСБЦ|ФССЦ)", source_code, re.I))
@@ -23588,6 +23659,53 @@ def _repair_invoice_scan_json(client, model: str, answer: str, parse_error: str)
         print("SCAN REPAIR ERROR:", str(exc))
         return None, str(exc)
 
+def _retry_invoice_scan_compact_json(client, model: str, images: list):
+    try:
+        compact_content = []
+        for idx, image in enumerate(images or [], start=1):
+            compact_content.append({"type": "input_text", "text": f"Страница документа {idx} из {len(images or [])}"})
+            compact_content.append({"type": "input_image", "image_url": f"data:{image['mimeType']};base64,{image['data']}"})
+        compact_content.append({"type": "input_text", "text": (
+            "Повтори распознавание в коротком режиме. Верни только валидный JSON без markdown и без пояснений. "
+            "Подходят счет на оплату, счет поставщика, УПД, товарная накладная, приходная накладная и фрагмент товарной таблицы. "
+            "Если видна таблица товаров, documentType не должен быть other. Не пиши переносы строк внутри строк JSON. "
+            "Если строк много, верни первые 80 полностью читаемых строк и итог документа. "
+            "Формат: {"
+            "\"documentType\":\"supplier_invoice|payment_invoice|warehouse_invoice|universal_transfer_document|waybill|receipt|other\","
+            "\"confidence\":0..1,"
+            "\"pagesCount\":число,"
+            "\"number\":строка,"
+            "\"date\":\"YYYY-MM-DD или исходная дата\","
+            "\"supplier\":строка,"
+            "\"buyer\":строка,"
+            "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\","
+            "\"vatRate\":0|20|22,"
+            "\"totalBase\":число,"
+            "\"totalVat\":число,"
+            "\"totalWithVat\":число,"
+            "\"items\":[{\"name\":строка,\"quantity\":число,\"unit\":строка,\"price\":число,\"lineTotal\":число}]"
+            "}"
+        )})
+        retry_response = client.responses.create(
+            model=model,
+            temperature=0,
+            instructions=(
+                "Ты распознаешь строительные счета и накладные. Верни только короткий валидный JSON."
+            ),
+            input=[{"role": "user", "content": compact_content}],
+            max_output_tokens=9000,
+        )
+        retry_answer = retry_response.output_text or ""
+        parsed, retry_error = _parse_ai_json_object(retry_answer)
+        if parsed is not None:
+            return parsed, ""
+        print("SCAN COMPACT RETRY FAILED:", retry_error)
+        print("SCAN COMPACT RAW HEAD:", retry_answer[:500])
+        return None, retry_error or "invalid compact json"
+    except Exception as exc:
+        print("SCAN COMPACT RETRY ERROR:", str(exc))
+        return None, str(exc)
+
 @app.post("/scan-invoice")
 def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     import openai as oa
@@ -23661,10 +23779,15 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
                 print("SCAN REPAIR OK")
             else:
                 print("SCAN REPAIR FINAL FAILED:", repair_error)
-                return {
-                    "ok": False,
-                    "error": "ИИ не смог вернуть корректный JSON по документу. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.",
-                }
+                parsed, compact_error = _retry_invoice_scan_compact_json(client, model, images)
+                if parsed is not None:
+                    print("SCAN COMPACT RETRY OK")
+                else:
+                    print("SCAN COMPACT RETRY FINAL FAILED:", compact_error)
+                    return {
+                        "ok": False,
+                        "error": "ИИ не смог корректно разобрать накладную. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.",
+                    }
         page_items = []
         if isinstance(parsed.get("pages"), list):
             for page_idx, page in enumerate(parsed.get("pages") or [], start=1):
