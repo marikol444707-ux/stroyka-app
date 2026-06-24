@@ -6403,6 +6403,8 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.update({"гвл", "гипсоволокно"})
         elif stem.startswith("цемент"):
             tokens.add("цемент")
+        elif "цемент" in stem:
+            tokens.add("цемент")
         elif stem.startswith("смес"):
             tokens.add("смесь")
         elif stem.startswith("ротб"):
@@ -6521,6 +6523,26 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("шпилька")
         elif stem.startswith("перф"):
             tokens.add("перфолента")
+        elif stem.startswith("краск") or stem.startswith("окрас"):
+            tokens.add("краска")
+        elif stem.startswith("эмал"):
+            tokens.add("эмаль")
+        elif stem.startswith("лак"):
+            tokens.add("лак")
+        elif stem.startswith("гермет"):
+            tokens.add("герметик")
+        elif stem.startswith("силикон"):
+            tokens.add("силикон")
+        elif stem.startswith("пен"):
+            tokens.add("пена")
+        elif stem.startswith("раствор"):
+            tokens.add("раствор")
+        elif stem.startswith("алебастр"):
+            tokens.add("алебастр")
+        elif stem.startswith("гипс"):
+            tokens.add("гипс")
+        elif stem.startswith("извест"):
+            tokens.add("известь")
         elif stem.startswith("валик") or stem.startswith("ролик"):
             tokens.add("валик")
         elif stem.startswith("кист"):
@@ -6557,6 +6579,70 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add(stem)
     return tokens
 
+def _material_family_tags(tokens: set[str]) -> set[str]:
+    t = set(tokens or [])
+    families: set[str] = set()
+    if t.intersection({"клей"}):
+        families.add("adhesive")
+    if t.intersection({"штукатурка", "ротбанд"}) or ("смесь" in t and t.intersection({"хабез", "старт"})):
+        families.add("plaster")
+    if t.intersection({"шпатлевка"}) and "штукатурка" not in t:
+        families.add("putty")
+    if t.intersection({"грунтовка"}):
+        families.add("primer")
+    if t.intersection({"цемент"}) and not families.intersection({"plaster", "putty", "adhesive"}):
+        families.add("cement")
+    if t.intersection({"бетон"}):
+        families.add("concrete")
+    if t.intersection({"песок"}):
+        families.add("sand")
+    if not t.intersection({"клей"}) and t.intersection({"керамогранит", "плитка", "гранит", "керамическ"}):
+        families.add("tile")
+    if t.intersection({"гкл", "гипсокартон"}):
+        families.add("gkl")
+    if t.intersection({"гвл", "гипсоволокно"}):
+        families.add("gvl")
+    if t.intersection({"профиль", "уголок", "подвес", "маяк", "рейка", "направляющая"}):
+        families.add("metal_profile")
+    if t.intersection({"саморез", "анкер", "болт", "гайка", "шайба", "дюбель", "крепеж", "гвоздь", "шпилька", "скрепа"}):
+        families.add("fastener")
+    if t.intersection({"кабель", "провод"}):
+        families.add("cable")
+    if t.intersection({"труба", "фитинг", "муфта", "клапан", "американка", "хомут", "кран"}):
+        families.add("pipe")
+    if t.intersection({"светильник", "лампа"}):
+        families.add("light")
+    if t.intersection({"розетка", "выключатель"}):
+        families.add("electrical_device")
+    if t.intersection({"радиатор", "кронштейн", "воздухоотводчик"}):
+        families.add("heating")
+    if t.intersection({"металлочерепица", "черепица", "кровля", "монтеррей"}):
+        families.add("roofing")
+    if t.intersection({"доска", "брус", "фанера", "осп"}):
+        families.add("wood_sheet")
+    if t.intersection({"арматура"}):
+        families.add("rebar")
+    if t.intersection({"краска", "эмаль", "лак"}):
+        families.add("paint")
+    if t.intersection({"герметик", "силикон", "пена"}):
+        families.add("sealant")
+    if t.intersection({"раствор", "алебастр", "гипс", "известь"}) and not families.intersection({"plaster", "putty"}):
+        families.add("binder_mix")
+    return families
+
+def _material_family_match_score(left_tokens: set[str], right_tokens: set[str]) -> float:
+    common_families = _material_family_tags(left_tokens).intersection(_material_family_tags(right_tokens))
+    if not common_families:
+        return 0.0
+    high_confidence = {
+        "plaster", "putty", "primer", "cement", "tile", "gkl", "gvl",
+        "metal_profile", "fastener", "cable", "pipe", "roofing",
+        "paint", "sealant", "adhesive",
+    }
+    if common_families.intersection(high_confidence):
+        return 0.82
+    return 0.76
+
 def _material_name_match_score(left: str, right: str) -> float:
     left_key = _norm_key_text(left or "")
     right_key = _norm_key_text(right or "")
@@ -6571,8 +6657,9 @@ def _material_name_match_score(left: str, right: str) -> float:
     if not left_tokens or not right_tokens:
         return 0.0
     common = left_tokens.intersection(right_tokens)
+    family_score = _material_family_match_score(left_tokens, right_tokens)
     if not common:
-        return 0.0
+        return family_score
     # Типовые накладные часто называют один и тот же материал иначе, чем ГРАНД:
     # "керамогранит" против "гранит керамический", "ГКЛ" против "лист гипсокартонный".
     strong_families = {
@@ -6587,7 +6674,8 @@ def _material_name_match_score(left: str, right: str) -> float:
         "уголок", "подвес", "маяк", "рейка", "лента", "серпянка",
         "лампа", "фитинг", "муфта", "клапан", "американка", "воздухоотводчик",
         "доска", "брус", "фанера", "осп", "арматура", "гвоздь", "шпилька",
-        "перфолента",
+        "перфолента", "краска", "эмаль", "лак", "герметик", "силикон",
+        "пена", "раствор", "алебастр", "гипс", "известь",
     }
     if {"металлочерепица", "черепица"}.intersection(left_tokens) and {"металлочерепица", "черепица"}.intersection(right_tokens):
         return 0.84
@@ -6601,6 +6689,8 @@ def _material_name_match_score(left: str, right: str) -> float:
         return 0.84
     if {"гвл", "гипсоволокно"}.intersection(left_tokens) and {"гвл", "гипсоволокно"}.intersection(right_tokens):
         return 0.84
+    if family_score:
+        return max(family_score, 0.78)
     strong_common = common.intersection(strong_families)
     score = len(common) / max(1, min(len(left_tokens), len(right_tokens)))
     long_common = [t for t in common if len(t) >= 6]
@@ -6629,6 +6719,7 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
     planned_qty = planned_sum = 0.0
     matched_rows = 0
     fuzzy_matched_rows = 0
+    unit_mismatch_matched_rows = 0
     matched_package = package
     params = [project]
     package_clause = ""
@@ -6665,7 +6756,8 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                 item_key = _material_control_key_resolved(cur, project, item_name, item_unit)
                 exact_match = item_key == target_key
                 fuzzy_score = 0.0 if exact_match else _material_name_match_score(material_name, item_name)
-                fuzzy_match = (not exact_match) and fuzzy_score >= 0.55 and _material_units_compatible(unit, item_unit)
+                units_compatible = _material_units_compatible(unit, item_unit)
+                fuzzy_match = (not exact_match) and fuzzy_score >= 0.55 and (units_compatible or fuzzy_score >= 0.78)
                 if not exact_match and not fuzzy_match:
                     continue
                 qty = imported_qty
@@ -6676,6 +6768,8 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                 matched_rows += 1
                 if fuzzy_match:
                     fuzzy_matched_rows += 1
+                    if not units_compatible:
+                        unit_mismatch_matched_rows += 1
                 matched_package = est.get("work_package") or package
 
     stock_qty = 0.0
@@ -6810,6 +6904,7 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
         "workPackage": matched_package,
         "requestedWorkPackage": package,
         "matchedByFuzzy": fuzzy_matched_rows,
+        "matchedWithDifferentUnit": unit_mismatch_matched_rows,
     }
 
 def _supply_linked_work_estimate_control(cur, project: str, item: dict, work_package: str = ""):

@@ -5011,12 +5011,74 @@ function App() {
 	      if (!item?.name) {
 	        return {index, name:'', quantity:0, unit, lineSum:0, status:'Не заполнено', severity:'neutral', detail:'', planText:'—', beforeText:'—', afterText:'—', overText:'—'};
 	      }
+      const backendControl = item.estimateControl || item.estimate_control || {};
       const row = m.key ? rowsByKey.get(m.key) : null;
       const alreadySeen = seenQtyByKey[m.key] || 0;
       seenQtyByKey[m.key] = alreadySeen + qty;
       const workLabel = linkedWorkLabel(item);
 
       if (!row || Number(row.controlPlanQty||row.planQty||0) <= 0) {
+        if (Number(backendControl.matchedRows || 0) > 0) {
+          const unitReview = Number(backendControl.matchedWithDifferentUnit || 0) > 0;
+          return {
+            index,
+            name:item.name||'',
+            projectName:place,
+            canonicalName:item.name||'',
+            workPackage:backendControl.workPackage || m.workPackage || item.workPackage || item.work_package || '',
+            quantity:qty,
+            incomingQty:qty,
+            unit,
+            rowUnit:unit,
+            lineSum,
+            shortageQty:0,
+            overQty:0,
+            priceOverSum:0,
+            unitMismatch:unitReview,
+            status:unitReview ? 'Ед. проверить' : 'По смете',
+            severity:unitReview ? 'warning' : 'success',
+            detail:unitReview ? 'Сервер сопоставил материал по семейству/словам, но единица отличается от сметы' : 'Сервер сопоставил материал по семейству/словам полного наименования',
+            planText:backendControl.plannedQty ? fmtMeasure(backendControl.plannedQty, unit) : 'найдено в смете',
+            beforeText:'—',
+            afterText:fmtMeasure(qty, unit),
+            overText:'—',
+            shortageText:'—',
+            lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
+            planPriceText:'—',
+            invoicePriceText:qty > 0 && lineSum ? Math.round(lineSum / qty).toLocaleString('ru-RU')+' ₽/'+(unit||'ед.') : '—',
+            priceOverText:'—',
+          };
+        }
+        if (backendControl.status === 'consumable_outside_estimate' || backendControl.isConsumableOutsideEstimate) {
+          return {
+            index,
+            name:item.name||'',
+            projectName:place,
+            canonicalName:item.name||'',
+            workPackage:backendControl.workPackage || m.workPackage || item.workPackage || item.work_package || '',
+            quantity:qty,
+            incomingQty:qty,
+            unit,
+            rowUnit:unit,
+            lineSum,
+            shortageQty:0,
+            overQty:0,
+            priceOverSum:0,
+            unitMismatch:false,
+            status:'Расходник вне сметы',
+            severity:'info',
+            detail:backendControl.controlMessage || 'Расходник принят на склад объекта и оставлен в контроле как позиция вне сметной ресурсной строки',
+            planText:'расходник',
+            beforeText:'—',
+            afterText:fmtMeasure(qty, unit),
+            overText:'—',
+            shortageText:'—',
+            lineSumText:lineSum ? lineSum.toLocaleString('ru-RU')+' ₽' : '—',
+            planPriceText:'—',
+            invoicePriceText:qty > 0 && lineSum ? Math.round(lineSum / qty).toLocaleString('ru-RU')+' ₽/'+(unit||'ед.') : '—',
+            priceOverText:'—',
+          };
+        }
         if (workLabel) {
           return {
             index,
