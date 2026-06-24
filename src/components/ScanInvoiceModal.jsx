@@ -59,6 +59,28 @@ export default function ScanInvoiceModal({
     return 'С НДС 22%';
   };
 
+  const firstText = (...values) => {
+    for (const value of values) {
+      const text = String(value || '').trim();
+      if (text) return text;
+    }
+    return '';
+  };
+
+  const buildScanDraftNumber = () => {
+    const d = new Date();
+    const stamp = [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, '0'),
+      String(d.getDate()).padStart(2, '0'),
+    ].join('');
+    const time = [
+      String(d.getHours()).padStart(2, '0'),
+      String(d.getMinutes()).padStart(2, '0'),
+    ].join('');
+    return `SCAN-${stamp}-${time}`;
+  };
+
   const targetLocation = newInvoice?.location || '';
   const getWarehouseTarget = (location) => location && location !== 'Основной склад' ? 'object' : 'main';
   const updateLocation = (location) => {
@@ -120,6 +142,17 @@ export default function ScanInvoiceModal({
       const data = await resp.json();
       if(!data.ok) throw new Error(scanErrorMessage(data.error||'Ошибка'));
       const parsed = data.data;
+      const parsedNumber = firstText(parsed.number, parsed.invoiceNumber, parsed.invoice_number, parsed.documentNumber, parsed.document_number, parsed.no);
+      const parsedDate = firstText(parsed.date, parsed.invoiceDate, parsed.invoice_date, parsed.documentDate, parsed.document_date);
+      const parsedSupplier = firstText(
+        parsed.supplier,
+        parsed.supplierName,
+        parsed.supplier_name,
+        parsed.seller,
+        parsed.shipper,
+        parsed.consignor,
+        parsed.sender
+      );
       const uploadedPhotos = (await Promise.all(normalizedPages.map(page => uploadInvoicePhoto(page.uploadFile, location)))).filter(Boolean);
       const today = new Date().toISOString().split('T')[0];
       const totalWithVatRaw = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
@@ -162,6 +195,16 @@ export default function ScanInvoiceModal({
       totalWithVat = Math.round((totalWithVat || 0) * 100) / 100;
       totalBase = Math.round((totalBase || 0) * 100) / 100;
       totalVat = Math.round((totalVat || 0) * 100) / 100;
+      const numberFromScan = parsedNumber || buildScanDraftNumber();
+      const normalizedDate = normalizeDate(parsedDate);
+      const warnings = [];
+      if (!parsedNumber) warnings.push('Номер документа не распознан: поставлен черновой номер, проверьте перед оплатой.');
+      if (!parsedDate) warnings.push('Дата документа не распознана: поставлена сегодняшняя дата, проверьте перед сохранением.');
+      if (!parsedSupplier) warnings.push('Поставщик не распознан: укажите его вручную, чтобы бухгалтерия связала первичку.');
+      if (!normalizedItems.length) warnings.push('Строки товаров не распознаны: документ можно сохранить только после ручного добавления позиций.');
+      if (totalWithVat > 0 && itemsTotal > 0 && Math.abs(totalWithVat - itemsTotal) > Math.max(1, totalWithVat * 0.015)) {
+        warnings.push('Сумма строк отличается от итога документа: проверьте количество, цену и НДС.');
+      }
       setNewInvoice(prev=>{
         const photos = uploadedPhotos.length ? [...(prev.photos || []), ...uploadedPhotos] : (prev.photos || []);
         return {
@@ -171,11 +214,11 @@ export default function ScanInvoiceModal({
           warehouseTarget,
           selectedAction,
           sourceType,
-          number:parsed.number || parsed.invoiceNumber || parsed.invoice_number || prev.number || '',
-          supplier:parsed.supplier||'',
-          newSupplierName:parsed.supplier||'',
-          isNewSupplier:true,
-          date:normalizeDate(parsed.date || parsed.invoiceDate || parsed.invoice_date) || today,
+          number:numberFromScan || prev.number || '',
+          supplier:parsedSupplier,
+          newSupplierName:parsedSupplier,
+          isNewSupplier:Boolean(parsedSupplier) || prev.isNewSupplier,
+          date:normalizedDate || today,
           acceptedBy:user?.name || '',
           vat:detectedVat,
           totalBase,
@@ -184,7 +227,11 @@ export default function ScanInvoiceModal({
           pagesCount: parsed.pagesCount || photos.length || files.length,
           photos,
           photoUrls: photos,
-          items:normalizedItems.length ? normalizedItems : prev.items
+          items:normalizedItems.length ? normalizedItems : prev.items,
+          scanWarnings:warnings,
+          scanDocumentType:parsed.documentType || parsed.document_type || '',
+          scanDocumentTitle:parsed.documentTitle || parsed.document_title || '',
+          scanConfidence:parsed.confidence ?? ''
         };
       });
       setShowScanInvoice(false);

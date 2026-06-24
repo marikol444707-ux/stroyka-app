@@ -98,6 +98,8 @@ export default function ScannedInvoiceFormModal({
   const itemsTotal = (newInvoice.items||[]).reduce((s,i)=>s+(Number(i.lineTotal||0)||Number(i.quantity||0)*Number(i.price||0)),0);
   const displayTotal = Number(newInvoice.totalWithVat||0) || itemsTotal;
   const displayVat = Number(newInvoice.totalVat||0);
+  const scanWarnings = Array.isArray(newInvoice.scanWarnings) ? newInvoice.scanWarnings.filter(Boolean) : [];
+  const isDraftNumber = /^SCAN-\d{8}-\d{4}$/i.test(String(newInvoice.number || ''));
 
   return (
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:isMobile?'center':'center',justifyContent:'center',padding:isMobile?'12px':0,boxSizing:'border-box'}}>
@@ -110,7 +112,14 @@ export default function ScannedInvoiceFormModal({
             {Number(newInvoice.pagesCount || 0) > 1 ? ` · страниц: ${newInvoice.pagesCount}` : ''}
           </div>
         )}
-        <input placeholder='Номер накладной *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inputStyle}/>
+        {(scanWarnings.length > 0 || isDraftNumber) && (
+          <div style={{border:'1.5px solid '+C.warningBorder,borderRadius:'12px',padding:isMobile?'10px 12px':'8px 10px',marginBottom:'10px',backgroundColor:C.warningLight,color:C.warning,fontSize:isMobile?'14px':'12px',lineHeight:1.45}}>
+            <b style={{display:'block',marginBottom:'4px'}}>Проверьте распознавание</b>
+            {isDraftNumber && <div>Номер не найден на фото: стоит черновой номер, его можно заменить вручную.</div>}
+            {scanWarnings.map((warning, index) => <div key={index}>{warning}</div>)}
+          </div>
+        )}
+        <input placeholder='Номер документа *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inputStyle}/>
         <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>setNewInvoice({...newInvoice,supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inputStyle}/>
         <select value={newInvoice.location||''} onChange={e=>updateLocation(e.target.value)} style={inputStyle}>
           <option value=''>Выберите склад *</option>

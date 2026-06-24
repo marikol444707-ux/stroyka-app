@@ -2112,8 +2112,24 @@ function App() {
     alert('💰 Выплата зафиксирована');
   };
 
+  const buildScanDraftInvoiceNumber = () => {
+    const d = new Date();
+    const stamp = [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, '0'),
+      String(d.getDate()).padStart(2, '0'),
+    ].join('');
+    const time = [
+      String(d.getHours()).padStart(2, '0'),
+      String(d.getMinutes()).padStart(2, '0'),
+    ].join('');
+    return `SCAN-${stamp}-${time}`;
+  };
+
   const saveInvoiceNew = async () => {
-    if (!newInvoice.number || newInvoice.items.filter(i=>i.name&&i.quantity).length===0) { alert('Заполните номер накладной и материалы'); return false; }
+    const isScannedInvoice = String(newInvoice.sourceType || '').startsWith('scan_') || Boolean(newInvoice.scanDocumentType || newInvoice.scanWarnings);
+    const invoiceNumber = String(newInvoice.number || '').trim() || (isScannedInvoice ? buildScanDraftInvoiceNumber() : '');
+    if (!invoiceNumber || newInvoice.items.filter(i=>i.name&&i.quantity).length===0) { alert('Заполните номер накладной и материалы'); return false; }
     if (!newInvoice.location) { alert('Выберите куда оприходовать (основной склад или объект)'); return false; }
     let supplierId = newInvoice.supplierId;
     let resolvedSupplierName = suppliers.find(s=>s.id===Number(supplierId))?.name || '';
@@ -2169,7 +2185,7 @@ function App() {
     }));
     const inv = {
       id:Date.now(),
-      number:newInvoice.number,
+      number:invoiceNumber,
       date:newInvoice.date,
       supplierId:Number(supplierId)||0,
       supplierName:resolvedSupplierName||suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',
@@ -2206,8 +2222,8 @@ function App() {
     } catch (err) {
       console.warn('invoice material review tasks failed', err);
     }
-    notify('Накладная №'+newInvoice.number+' принята'+(reviewTasksCreated ? ' · задач ИИ-контроля: '+reviewTasksCreated : ''),'invoice');
-    addActivity('Принята накладная №'+newInvoice.number);
+    notify('Накладная №'+invoiceNumber+' принята'+(reviewTasksCreated ? ' · задач ИИ-контроля: '+reviewTasksCreated : ''),'invoice');
+    addActivity('Принята накладная №'+invoiceNumber);
     await refreshData();
     setNewInvoice({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',warehouseTarget:'main',selectedAction:'receive_to_warehouse',sourceType:'manual_main_invoice',sourceId:null,vat:'Без НДС',photos:[],photoUrls:[],pagesCount:1,items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}]});
     setShowForm(false);
