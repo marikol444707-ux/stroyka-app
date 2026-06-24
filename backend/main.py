@@ -1779,6 +1779,7 @@ def init_db():
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100);
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS material_name VARCHAR(255);
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS warehouse_invoice_id INT;
         CREATE TABLE IF NOT EXISTS inspection_orders (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -2555,6 +2556,7 @@ def init_db():
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2) DEFAULT 0;
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_at VARCHAR(50);
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255);
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supplier_invoice_id INT;
         CREATE TABLE IF NOT EXISTS warehouses (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -8482,6 +8484,29 @@ def _ensure_warehouse_invoice_accounting_columns(cur):
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_at VARCHAR(50)")
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255)")
 
+def _ensure_invoice_document_link_columns(cur):
+    cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS warehouse_invoice_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supplier_invoice_id INT")
+
+def _find_supplier_invoice_for_supply(cur, request_id=None, offer_id=None):
+    offer_id = int(offer_id or 0)
+    request_id = int(request_id or 0)
+    if offer_id:
+        cur.execute("""SELECT id FROM supplier_invoices
+                       WHERE offer_id=%s AND COALESCE(status,'') <> 'Аннулирован'
+                       ORDER BY id DESC LIMIT 1""", (offer_id,))
+        row = cur.fetchone()
+        invoice_id = _row_get(row, "id", 0)
+        if invoice_id:
+            return invoice_id
+    if request_id:
+        cur.execute("""SELECT id FROM supplier_invoices
+                       WHERE request_id=%s AND COALESCE(status,'') <> 'Аннулирован'
+                       ORDER BY id DESC LIMIT 1""", (request_id,))
+        row = cur.fetchone()
+        return _row_get(row, "id", 0)
+    return None
+
 def _detect_cable_info(name):
     import re as _re
     raw = (name or "").strip()
@@ -8681,13 +8706,27 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS selected_action VARCHAR(100)")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS material_match_json TEXT")
         _ensure_warehouse_invoice_accounting_columns(cur)
+        _ensure_invoice_document_link_columns(cur)
     except Exception as e:
         raise HTTPException(status_code=500, detail="Не удалось подготовить поля накладной поставки: " + str(e))
     try:
         cur.execute("SELECT id FROM warehouse_invoices WHERE supply_delivery_id=%s LIMIT 1", (delivery_id,))
         existing = cur.fetchone()
         if existing:
-            return existing['id'] if isinstance(existing, dict) else existing[0]
+            existing_id = existing['id'] if isinstance(existing, dict) else existing[0]
+            linked_supplier_invoice_id = _find_supplier_invoice_for_supply(
+                cur,
+                request_id=delivery.get('request_id'),
+                offer_id=delivery.get('offer_id'),
+            )
+            if linked_supplier_invoice_id:
+                cur.execute("""UPDATE warehouse_invoices
+                               SET supplier_invoice_id=COALESCE(supplier_invoice_id,%s)
+                               WHERE id=%s""", (linked_supplier_invoice_id, existing_id))
+                cur.execute("""UPDATE supplier_invoices
+                               SET warehouse_invoice_id=COALESCE(warehouse_invoice_id,%s)
+                               WHERE id=%s""", (existing_id, linked_supplier_invoice_id))
+            return existing_id
     except Exception as e:
         print("SUPPLY INVOICE CHECK ERROR:", str(e))
     received_qty = _float_or_zero(received_qty if received_qty is not None else delivery.get('received_quantity'))
@@ -8718,6 +8757,11 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         items = _attach_supply_estimate_control(cur, project, items, exclude_request_id=delivery.get('request_id'))
         _enforce_supply_estimate_control(items, source="накладная поставки")
     number = delivery.get('waybill_number') or ("Поставка-" + str(delivery_id))
+    linked_supplier_invoice_id = _find_supplier_invoice_for_supply(
+        cur,
+        request_id=delivery.get('request_id'),
+        offer_id=delivery.get('offer_id'),
+    )
     try:
         cur.execute("""INSERT INTO warehouse_invoices
 	                       (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,
@@ -8735,7 +8779,11 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
 	                         _json.dumps(([delivery.get('photo_url')] if delivery.get('photo_url') else []), ensure_ascii=False),
 	                         1, "object", "supply_receipt", _json.dumps([], ensure_ascii=False)))
         new_id = cur.fetchone()
-        return new_id['id'] if isinstance(new_id, dict) else new_id[0]
+        warehouse_invoice_id = new_id['id'] if isinstance(new_id, dict) else new_id[0]
+        if linked_supplier_invoice_id:
+            cur.execute("UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE id=%s", (linked_supplier_invoice_id, warehouse_invoice_id))
+            cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s", (warehouse_invoice_id, linked_supplier_invoice_id))
+        return warehouse_invoice_id
     except Exception as e:
         raise HTTPException(status_code=500, detail="Не удалось создать накладную по поставке: " + str(e))
 
@@ -17888,13 +17936,14 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor()
     _ensure_warehouse_invoice_accounting_columns(cur)
+    _ensure_invoice_document_link_columns(cur)
     conn.commit()
     invoice_cols = (
         "id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,"
         "total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,"
         "supply_delivery_id,supply_request_id,photo_urls,pages_count,warehouse_target,selected_action,"
         "material_match_json,accounting_status,accounting_comment,accounting_updated_by,accounting_updated_at,"
-        "paid_amount,paid_at,paid_by"
+        "paid_amount,paid_at,paid_by,supplier_invoice_id"
     )
     package_names = user_package_names(current_user) if current_user.get("role") in PACKAGE_LIMIT_ROLES else []
     if current_user.get("role") == "прораб":
@@ -17940,7 +17989,7 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         if not photo_urls and r[15]:
             photo_urls = [r[15]]
         material_match = _json_list_or_empty(r[24]) if len(r) > 24 else []
-        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or ""})
+        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None})
     return result
 
 def _create_warehouse_invoice_record(data: dict, current_user: dict):
@@ -17960,10 +18009,27 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
     cur = conn.cursor()
     conn.autocommit = False
     try:
+        _ensure_invoice_document_link_columns(cur)
         source_type = (data.get("sourceType") or "").strip()
         source_id = data.get("sourceId") or None
         supply_delivery_id = data.get("supplyDeliveryId") or None
         supply_request_id = data.get("supplyRequestId") or None
+        supplier_invoice_id = int(data.get("supplierInvoiceId") or data.get("supplier_invoice_id") or 0) or None
+        if supplier_invoice_id:
+            if current_user.get("role") not in FINANCE_ROLES:
+                raise HTTPException(status_code=403, detail="Связать накладную со счётом поставщика может только бухгалтерия или руководство")
+            cur.execute("""SELECT project_name, warehouse_invoice_id
+                           FROM supplier_invoices
+                           WHERE id=%s AND COALESCE(status,'') <> 'Аннулирован'""", (supplier_invoice_id,))
+            supplier_invoice_row = cur.fetchone()
+            if not supplier_invoice_row:
+                raise HTTPException(status_code=404, detail="Счёт поставщика для связи не найден")
+            supplier_invoice_project = (_row_get(supplier_invoice_row, "project_name", 0, "") or "").strip()
+            supplier_invoice_warehouse_id = _row_get(supplier_invoice_row, "warehouse_invoice_id", 1)
+            if supplier_invoice_project and target_project and supplier_invoice_project != target_project:
+                raise HTTPException(status_code=400, detail="Счёт поставщика относится к другому объекту")
+            if supplier_invoice_warehouse_id:
+                raise HTTPException(status_code=409, detail="Счёт поставщика уже связан с другой складской накладной")
         if supply_delivery_id or source_type == "supply_delivery":
             raise HTTPException(status_code=400, detail="Накладная по поставке создаётся автоматически при приёмке поставки. Ручное создание отключено, чтобы не задвоить склад.")
         if target_project:
@@ -18064,11 +18130,13 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
                        (number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
                         total_base,total_vat,total_with_vat,status,added_by,photo_url,
                         source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count,
-                        warehouse_target,selected_action,material_match_json)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        warehouse_target,selected_action,material_match_json,supplier_invoice_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
-            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,invoice_vat,j.dumps(items_list,ensure_ascii=False),total_base,total_vat,total_with_vat,data.get("status","Принята"),data.get("addedBy",""),first_photo_url,source_type,source_id,supply_delivery_id,supply_request_id,j.dumps(photo_urls,ensure_ascii=False),pages_count,warehouse_target,selected_action,j.dumps(material_match,ensure_ascii=False)))
+            (data.get("number",""),data.get("date") or None,data.get("supplierId") or None,data.get("supplierName",""),data.get("acceptedBy",""),target_location,target_project,invoice_vat,j.dumps(items_list,ensure_ascii=False),total_base,total_vat,total_with_vat,data.get("status","Принята"),data.get("addedBy",""),first_photo_url,source_type,source_id,supply_delivery_id,supply_request_id,j.dumps(photo_urls,ensure_ascii=False),pages_count,warehouse_target,selected_action,j.dumps(material_match,ensure_ascii=False),supplier_invoice_id))
         invoice_id = cur.fetchone()[0]
+        if supplier_invoice_id:
+            cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s", (invoice_id, supplier_invoice_id))
 
         sup = data.get("supplierName","")
         rcv_date = data.get("date") or None
@@ -18182,9 +18250,10 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         _ensure_warehouse_invoice_accounting_columns(cur)
+        _ensure_invoice_document_link_columns(cur)
         cur.execute("""SELECT id, number, date, supplier_name, location, project, items,
                               total_base, total_vat, total_with_vat, status, photo_url, photo_urls,
-                              accounting_status, accounting_comment, paid_amount
+                              accounting_status, accounting_comment, paid_amount, supplier_invoice_id
                        FROM warehouse_invoices WHERE id=%s FOR UPDATE""", (id,))
         row = cur.fetchone()
         if not row:
@@ -18195,6 +18264,31 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
         target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
         if target_project:
             require_project_access(_current_user, target_project)
+
+        link_payload_present = "supplierInvoiceId" in data or "supplier_invoice_id" in data
+        current_supplier_invoice_id = row.get("supplier_invoice_id")
+        linked_supplier_invoice_id = current_supplier_invoice_id
+        supplier_invoice_row = None
+        if link_payload_present:
+            raw_supplier_invoice_id = data.get("supplierInvoiceId")
+            if raw_supplier_invoice_id is None:
+                raw_supplier_invoice_id = data.get("supplier_invoice_id")
+            linked_supplier_invoice_id = int(raw_supplier_invoice_id or 0) or None
+        if linked_supplier_invoice_id:
+            cur.execute("""SELECT id, project_name, supplier_name, amount, paid_amount,
+                                  status, warehouse_invoice_id
+                           FROM supplier_invoices
+                           WHERE id=%s AND COALESCE(status,'') <> 'Аннулирован'
+                           FOR UPDATE""", (linked_supplier_invoice_id,))
+            supplier_invoice_row = cur.fetchone()
+            if not supplier_invoice_row:
+                raise HTTPException(status_code=404, detail="Счёт поставщика для связи не найден")
+            supplier_project = (supplier_invoice_row.get("project_name") or "").strip()
+            if supplier_project and target_project and supplier_project != target_project:
+                raise HTTPException(status_code=400, detail="Счёт поставщика относится к другому объекту")
+            existing_warehouse_invoice_id = supplier_invoice_row.get("warehouse_invoice_id")
+            if existing_warehouse_invoice_id and int(existing_warehouse_invoice_id) != int(id):
+                raise HTTPException(status_code=409, detail="Счёт поставщика уже связан с другой складской накладной")
 
         requested_status = str(
             data.get("accountingStatus")
@@ -18241,6 +18335,7 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
         paid_amount_before = _float_or_zero(row.get("paid_amount"))
         payment_amount = _float_or_zero(data.get("paymentAmount") or data.get("payment_amount"))
         payment_id = None
+        payment_already_recorded = False
         paid_amount_after = paid_amount_before
         paid_at = str(data.get("paidAt") or data.get("paid_at") or dt.date.today().isoformat()).strip()
         actor_name = _current_user.get("name") or _current_user.get("email") or ""
@@ -18269,6 +18364,7 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
             existing_payment = cur.fetchone()
             if existing_payment:
                 payment_id = existing_payment["id"]
+                payment_already_recorded = True
                 paid_amount_after = max(paid_amount_before, payment_amount)
             else:
                 cur.execute("""INSERT INTO project_payments
@@ -18292,7 +18388,8 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
                            photo_url=%s,
                            paid_amount=%s,
                            paid_at=CASE WHEN %s > 0 THEN %s ELSE paid_at END,
-                           paid_by=CASE WHEN %s > 0 THEN %s ELSE paid_by END
+                           paid_by=CASE WHEN %s > 0 THEN %s ELSE paid_by END,
+                           supplier_invoice_id=%s
                        WHERE id=%s""",
                     (
                         next_status,
@@ -18305,8 +18402,39 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
                         paid_at,
                         payment_amount,
                         actor_name,
+                        linked_supplier_invoice_id,
                         id,
                     ))
+        if current_supplier_invoice_id and current_supplier_invoice_id != linked_supplier_invoice_id:
+            cur.execute("""UPDATE supplier_invoices
+                           SET warehouse_invoice_id=NULL
+                           WHERE id=%s AND warehouse_invoice_id=%s""", (current_supplier_invoice_id, id))
+        if linked_supplier_invoice_id:
+            supplier_sets = ["warehouse_invoice_id=%s"]
+            supplier_vals = [id]
+            if payment_amount > 0:
+                supplier_amount = _float_or_zero(supplier_invoice_row.get("amount") if supplier_invoice_row else 0)
+                supplier_paid_before = _float_or_zero(supplier_invoice_row.get("paid_amount") if supplier_invoice_row else 0)
+                if payment_already_recorded:
+                    supplier_paid_after = max(supplier_paid_before, min(supplier_amount or payment_amount, payment_amount))
+                else:
+                    supplier_paid_after = supplier_paid_before + payment_amount
+                if supplier_amount > 0:
+                    supplier_paid_after = min(supplier_paid_after, supplier_amount)
+                supplier_status = "Оплачен" if supplier_amount > 0 and supplier_paid_after + 0.01 >= supplier_amount else "Частично оплачен"
+                supplier_sets += ["paid_amount=%s", "status=%s", "paid_at=%s", "paid_by=%s", "paid_note=%s"]
+                supplier_vals += [
+                    supplier_paid_after,
+                    supplier_status,
+                    paid_at,
+                    actor_name,
+                    "Оплата по складской накладной №" + str(row.get("number") or id),
+                ]
+            elif next_status == "К оплате" and (supplier_invoice_row or {}).get("status") in ("", None, "На утверждении"):
+                supplier_sets.append("status=%s")
+                supplier_vals.append("Утверждён")
+            supplier_vals.append(linked_supplier_invoice_id)
+            cur.execute("UPDATE supplier_invoices SET " + ", ".join(supplier_sets) + " WHERE id=%s", supplier_vals)
         conn.commit()
         return {
             "ok": True,
@@ -18434,9 +18562,10 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        _ensure_invoice_document_link_columns(cur)
         cur.execute("""SELECT id, COALESCE(project,'') AS project, COALESCE(location,'') AS location,
                               COALESCE(status,'') AS status, items, COALESCE(accepted_by,'') AS accepted_by,
-                              COALESCE(added_by,'') AS added_by, date, supply_delivery_id
+                              COALESCE(added_by,'') AS added_by, date, supply_delivery_id, supplier_invoice_id
                        FROM warehouse_invoices WHERE id=%s FOR UPDATE""", (id,))
         row = cur.fetchone()
         if not row:
@@ -18503,6 +18632,10 @@ def delete_warehouse_invoice(id: int, _current_user: dict = Depends(require_role
                     ("Аннулирована", "\nНакладная аннулирована: приход сторнирован.", id))
         cur.execute("UPDATE cable_journal SET status=%s WHERE invoice_id=%s", ("Аннулирована", id))
         cur.execute("UPDATE warehouse_invoices SET status=%s WHERE id=%s", ("Аннулирована", id))
+        if row.get("supplier_invoice_id"):
+            cur.execute("""UPDATE supplier_invoices
+                           SET warehouse_invoice_id=NULL
+                           WHERE id=%s AND warehouse_invoice_id=%s""", (row.get("supplier_invoice_id"), id))
         conn.commit()
         _run_project_ai_control_safely(target_project, "warehouse_invoice:annul")
         return {"ok": True, "annulled": True, "stockRowsRestored": restored}
@@ -21036,7 +21169,9 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
         return []
     conn = get_db()
     cur = conn.cursor()
-    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount, offer_id, request_id, payment_terms, material_name, COALESCE(work_package,'')"
+    _ensure_invoice_document_link_columns(cur)
+    conn.commit()
+    cols = "id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, amount, vat_amount, description, file_url, photo_url, status, approved_by, approved_at, paid_at, paid_by, paid_note, created_at, paid_amount, offer_id, request_id, payment_terms, material_name, COALESCE(work_package,''), warehouse_invoice_id"
     where, params = [], []
     if project_name:
         allowed_projects = visible_project_names(current_user)
@@ -21085,12 +21220,14 @@ def list_supplier_invoices(project_name: str = None, status: str = None, limit: 
              "createdAt":str(r[17]),"paidAmount":float(r[18] or 0),
              "offerId":r[19],"requestId":r[20],
              "paymentTerms":r[21] or "","materialName":r[22] or "",
-             "workPackage":r[23] or ""} for r in rows]
+             "workPackage":r[23] or "","warehouseInvoiceId":r[24]} for r in rows]
 
 @app.post("/supplier-invoices")
 def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "поставщик"))):
     conn = get_db()
     cur = conn.cursor()
+    _ensure_invoice_document_link_columns(cur)
+    conn.commit()
     project_name = data.get("projectName", "")
     invoice_work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     offer_id = int(data.get("offerId") or data.get("offer_id") or 0)
@@ -21151,6 +21288,16 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
         existing_invoice = cur.fetchone()
         if existing_invoice:
             existing_id = existing_invoice[0] if not isinstance(existing_invoice, dict) else existing_invoice.get("id")
+            cur.execute("""SELECT id FROM warehouse_invoices
+                           WHERE supply_request_id=%s
+                             AND COALESCE(status,'') <> 'Аннулирована'
+                             AND (supplier_invoice_id IS NULL OR supplier_invoice_id=%s)
+                           ORDER BY id DESC LIMIT 1""", (offer_request_id, existing_id))
+            existing_warehouse_invoice_id = _row_get(cur.fetchone(), "id", 0)
+            if existing_warehouse_invoice_id:
+                cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s", (existing_warehouse_invoice_id, existing_id))
+                cur.execute("UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE id=%s", (existing_id, existing_warehouse_invoice_id))
+                conn.commit()
             cur.close(); conn.close()
             return {"id": existing_id, "ok": True, "alreadyExists": True}
         data["amount"] = amount if amount > 0 else offer_total
@@ -21160,11 +21307,33 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
         invoice_work_package = invoice_work_package or offer_package
         if not data.get("description"):
             data["description"] = "Материал: " + ((linked_offer[8] if not isinstance(linked_offer, dict) else linked_offer.get("material_name")) or "")
+    warehouse_invoice_id = int(data.get("warehouseInvoiceId") or data.get("warehouse_invoice_id") or 0) or None
+    if not warehouse_invoice_id and data.get("requestId"):
+        cur.execute("""SELECT id FROM warehouse_invoices
+                       WHERE supply_request_id=%s AND COALESCE(status,'') <> 'Аннулирована'
+                       ORDER BY id DESC LIMIT 1""", (data.get("requestId"),))
+        warehouse_invoice_id = _row_get(cur.fetchone(), "id", 0)
+    if warehouse_invoice_id:
+        cur.execute("""SELECT project, location, supplier_invoice_id
+                       FROM warehouse_invoices
+                       WHERE id=%s AND COALESCE(status,'') <> 'Аннулирована'""", (warehouse_invoice_id,))
+        warehouse_invoice_row = cur.fetchone()
+        if not warehouse_invoice_row:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="Складская накладная для связи не найдена")
+        warehouse_project = (_row_get(warehouse_invoice_row, "project", 0, "") or _row_get(warehouse_invoice_row, "location", 1, "") or "").strip()
+        existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 2)
+        if project_name and warehouse_project and warehouse_project != project_name:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
+        if existing_supplier_invoice_id:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Складская накладная уже связана с другим счётом поставщика")
     cur.execute("""INSERT INTO supplier_invoices
                    (supplier_id, supplier_name, project_name, invoice_number, invoice_date,
                     amount, vat_amount, description, file_url, photo_url, status,
-                    offer_id, request_id, payment_terms, material_name, work_package)
-	                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    offer_id, request_id, payment_terms, material_name, work_package, warehouse_invoice_id)
+		                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                 (data.get("supplierId"), data.get("supplierName",""), project_name,
                  data.get("invoiceNumber",""), data.get("invoiceDate") or None,
                  float(data.get("amount",0)), float(data.get("vatAmount",0)),
@@ -21172,19 +21341,25 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
                  data.get("status","На утверждении"), offer_id or None, data.get("requestId") or None,
                  (linked_offer[4] if linked_offer and not isinstance(linked_offer, dict) else (linked_offer.get("payment_terms") if linked_offer else "")),
                  (linked_offer[8] if linked_offer and not isinstance(linked_offer, dict) else (linked_offer.get("material_name") if linked_offer else data.get("materialName", ""))),
-                 invoice_work_package))
-    conn.commit()
+                 invoice_work_package, warehouse_invoice_id))
     row = cur.fetchone()
+    supplier_invoice_id = row[0] if not isinstance(row, dict) else row.get("id")
+    if warehouse_invoice_id:
+        cur.execute("UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE id=%s", (supplier_invoice_id, warehouse_invoice_id))
+    conn.commit()
     cur.close(); conn.close()
-    return {"id": row[0], "ok": True}
+    return {"id": supplier_invoice_id, "ok": True}
 
 @app.put("/supplier-invoices/{id}")
 def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    _ensure_invoice_document_link_columns(cur)
+    conn.commit()
     require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
     cur.execute("""SELECT si.amount, si.paid_amount, si.work_package, si.offer_id, o.total_price, COALESCE(r.work_package,''),
-                          COALESCE(si.payment_terms, o.payment_terms, '')
+                          COALESCE(si.payment_terms, o.payment_terms, ''), si.warehouse_invoice_id,
+                          si.project_name, si.supplier_name
                    FROM supplier_invoices si
                    LEFT JOIN supplier_offers o ON o.id=si.offer_id
                    LEFT JOIN supply_requests r ON r.id=o.request_id
@@ -21199,9 +21374,37 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
     offer_total = _float_or_zero(invoice_guard[4])
     offer_package = invoice_guard[5] or ""
     payment_terms = str(invoice_guard[6] or "").lower()
+    current_warehouse_invoice_id = invoice_guard[7]
+    supplier_project_name = invoice_guard[8] or ""
     next_amount = _float_or_zero(data.get("amount", current_amount))
     next_paid = _float_or_zero(data.get("paidAmount", current_paid))
     next_package = (data.get("workPackage") if "workPackage" in data else invoice_guard[2]) or ""
+    link_payload_present = "warehouseInvoiceId" in data or "warehouse_invoice_id" in data
+    next_warehouse_invoice_id = current_warehouse_invoice_id
+    if link_payload_present:
+        raw_warehouse_invoice_id = data.get("warehouseInvoiceId")
+        if raw_warehouse_invoice_id is None:
+            raw_warehouse_invoice_id = data.get("warehouse_invoice_id")
+        next_warehouse_invoice_id = int(raw_warehouse_invoice_id or 0) or None
+    if next_warehouse_invoice_id:
+        cur.execute("""SELECT id, project, location, supplier_invoice_id, status
+                       FROM warehouse_invoices
+                       WHERE id=%s FOR UPDATE""", (next_warehouse_invoice_id,))
+        warehouse_invoice_row = cur.fetchone()
+        if not warehouse_invoice_row:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="Складская накладная для связи не найдена")
+        if (_row_get(warehouse_invoice_row, "status", 4, "") or "") == "Аннулирована":
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Аннулированную накладную нельзя связать со счётом")
+        warehouse_project = (_row_get(warehouse_invoice_row, "project", 1, "") or _row_get(warehouse_invoice_row, "location", 2, "") or "").strip()
+        existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 3)
+        if supplier_project_name and warehouse_project and warehouse_project != supplier_project_name:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
+        if existing_supplier_invoice_id and int(existing_supplier_invoice_id) != int(id):
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Складская накладная уже связана с другим счётом поставщика")
     if offer_id:
         if offer_total > 0 and next_amount > offer_total + max(1, offer_total * 0.02):
             cur.close(); conn.close()
@@ -21245,10 +21448,42 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
             v = data[js_key]
             if js_key in ('approvedAt','paidAt') and not v: v = None
             vals.append(v)
+    if link_payload_present:
+        sets.append("warehouse_invoice_id=%s")
+        vals.append(next_warehouse_invoice_id)
     if not sets:
         cur.close(); conn.close(); return {"ok": True}
     vals.append(id)
     cur.execute("UPDATE supplier_invoices SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    if current_warehouse_invoice_id and current_warehouse_invoice_id != next_warehouse_invoice_id:
+        cur.execute("""UPDATE warehouse_invoices
+                       SET supplier_invoice_id=NULL
+                       WHERE id=%s AND supplier_invoice_id=%s""", (current_warehouse_invoice_id, id))
+    if next_warehouse_invoice_id:
+        warehouse_status = None
+        next_status_value = data.get("status")
+        if next_status_value == "Оплачен":
+            warehouse_status = "Оплачена"
+        elif next_status_value == "Частично оплачен":
+            warehouse_status = "Частично оплачена"
+        elif next_status_value == "Утверждён":
+            warehouse_status = "К оплате"
+        warehouse_sets = ["supplier_invoice_id=%s"]
+        warehouse_vals = [id]
+        if "paidAmount" in data:
+            warehouse_sets.append("paid_amount=GREATEST(COALESCE(paid_amount,0),%s)")
+            warehouse_vals.append(next_paid)
+        if warehouse_status:
+            warehouse_sets.append("accounting_status=%s")
+            warehouse_vals.append(warehouse_status)
+        if data.get("paidAt"):
+            warehouse_sets.append("paid_at=%s")
+            warehouse_vals.append(data.get("paidAt"))
+        if data.get("paidBy"):
+            warehouse_sets.append("paid_by=%s")
+            warehouse_vals.append(data.get("paidBy"))
+        warehouse_vals.append(next_warehouse_invoice_id)
+        cur.execute("UPDATE warehouse_invoices SET " + ", ".join(warehouse_sets) + " WHERE id=%s", warehouse_vals)
     conn.commit()
     cur.close(); conn.close()
     if 'status' in data:
@@ -21262,8 +21497,15 @@ def update_supplier_invoice(id: int, data: dict, _current_user: dict = Depends(r
 def delete_supplier_invoice(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
+    _ensure_invoice_document_link_columns(cur)
     require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
+    cur.execute("SELECT warehouse_invoice_id FROM supplier_invoices WHERE id=%s", (id,))
+    warehouse_invoice_id = _row_get(cur.fetchone(), "warehouse_invoice_id", 0)
     cur.execute("UPDATE supplier_invoices SET status='Аннулирован' WHERE id=%s", (id,))
+    if warehouse_invoice_id:
+        cur.execute("""UPDATE warehouse_invoices
+                       SET supplier_invoice_id=NULL
+                       WHERE id=%s AND supplier_invoice_id=%s""", (warehouse_invoice_id, id))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}

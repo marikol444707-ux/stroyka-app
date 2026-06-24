@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, CreditCard, Eye, FileText, MessageSquare, Upload, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, Eye, FileText, Link2, MessageSquare, Upload, XCircle } from 'lucide-react';
 import { API } from '../api';
 import {
   ACCOUNTING_INVOICE_STATUSES,
@@ -28,6 +28,7 @@ export default function AccountingIncomingDocumentsPanel({
   btnR,
   btnGr,
   invoices,
+  supplierInvoices = [],
   warehouseInvoiceEstimateControl,
   fileSrc,
   setShowPhotoModal,
@@ -46,6 +47,12 @@ export default function AccountingIncomingDocumentsPanel({
     () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl),
     [invoices, warehouseInvoiceEstimateControl]
   );
+
+  const supplierInvoiceById = React.useMemo(() => {
+    const map = new Map();
+    (supplierInvoices || []).forEach(invoice => map.set(String(invoice.id), invoice));
+    return map;
+  }, [supplierInvoices]);
 
   const counts = React.useMemo(() => {
     const base = Object.fromEntries(ACCOUNTING_INVOICE_STATUSES.map(status => [status, { count: 0, amount: 0 }]));
@@ -67,6 +74,51 @@ export default function AccountingIncomingDocumentsPanel({
   const parseMoney = (value) => {
     if (typeof toNum === 'function') return toNum(value);
     return Number(String(value || '').replace(/\s/g, '').replace(',', '.')) || 0;
+  };
+
+  const normalize = value => String(value || '').trim().toLowerCase();
+  const supplierInvoiceAmount = invoice => Number(invoice?.amount || invoice?.totalAmount || 0);
+  const supplierInvoiceTitle = invoice => {
+    if (!invoice) return '';
+    const number = invoice.invoiceNumber || invoice.id;
+    const supplier = invoice.supplierName || 'поставщик не указан';
+    return 'Счёт № ' + number + ' · ' + supplier + ' · ' + money(supplierInvoiceAmount(invoice));
+  };
+
+  const getLinkedSupplierInvoice = (row) => {
+    const invoice = row.invoice || {};
+    const directId = invoice.supplierInvoiceId || invoice.supplier_invoice_id;
+    if (directId && supplierInvoiceById.has(String(directId))) {
+      return supplierInvoiceById.get(String(directId));
+    }
+    return (supplierInvoices || []).find(supplierInvoice =>
+      String(supplierInvoice.warehouseInvoiceId || supplierInvoice.warehouse_invoice_id || '') === String(invoice.id)
+    );
+  };
+
+  const getSupplierInvoiceCandidates = (row) => {
+    const invoice = row.invoice || {};
+    const linked = getLinkedSupplierInvoice(row);
+    const invoiceProject = normalize(invoice.project || (invoice.location === 'Основной склад' ? '' : invoice.location));
+    const invoiceSupplier = normalize(invoice.supplierName);
+    const amount = Number(row.amount || 0);
+    const requestId = invoice.supplyRequestId || invoice.supply_request_id;
+    return (supplierInvoices || [])
+      .filter(supplierInvoice => {
+        if (!supplierInvoice || supplierInvoice.status === 'Аннулирован') return false;
+        if (linked && String(supplierInvoice.id) === String(linked.id)) return false;
+        const linkedWarehouseId = supplierInvoice.warehouseInvoiceId || supplierInvoice.warehouse_invoice_id;
+        if (linkedWarehouseId && String(linkedWarehouseId) !== String(invoice.id)) return false;
+        if (requestId && supplierInvoice.requestId && String(supplierInvoice.requestId) === String(requestId)) return true;
+        const supplierProject = normalize(supplierInvoice.projectName || supplierInvoice.project);
+        const supplierName = normalize(supplierInvoice.supplierName);
+        const sameProject = invoiceProject && supplierProject && invoiceProject === supplierProject;
+        const sameSupplier = invoiceSupplier && supplierName && (invoiceSupplier === supplierName || invoiceSupplier.includes(supplierName) || supplierName.includes(invoiceSupplier));
+        const supplierAmount = supplierInvoiceAmount(supplierInvoice);
+        const closeAmount = amount > 0 && supplierAmount > 0 && Math.abs(amount - supplierAmount) <= Math.max(1, amount * 0.05);
+        return sameProject && sameSupplier && closeAmount;
+      })
+      .slice(0, 3);
   };
 
   const updateAccounting = async (row, payload) => {
@@ -112,16 +164,21 @@ export default function AccountingIncomingDocumentsPanel({
   };
 
   const markStatus = async (row, status) => {
+    const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
     let comment = row.invoice.accountingComment || '';
     if (status === 'Нужно уточнение' || status === 'Отклонена') {
       const answer = window.prompt(status === 'Отклонена' ? 'Причина отклонения' : 'Что уточнить?', comment);
       if (answer === null) return;
       comment = answer;
     }
-    await updateAccounting(row, { accountingStatus: status, accountingComment: comment });
+    const payload = { accountingStatus: status, accountingComment: comment };
+    const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
+    if (linkedSupplierInvoiceId) payload.supplierInvoiceId = linkedSupplierInvoiceId;
+    await updateAccounting(row, payload);
   };
 
   const payInvoice = async (row) => {
+    const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
     const defaultAmount = row.debt || row.amount;
     const answer = window.prompt('Сумма оплаты', String(Math.round(defaultAmount)));
     if (!answer) return;
@@ -130,10 +187,18 @@ export default function AccountingIncomingDocumentsPanel({
       alert('Сумма должна быть от 1 до ' + money(defaultAmount));
       return;
     }
-    await updateAccounting(row, {
+    const payload = {
       accountingStatus: paymentAmount + 0.01 >= defaultAmount ? 'Оплачена' : 'Частично оплачена',
       paymentAmount,
-    });
+    };
+    const linkedSupplierInvoiceId = linkedSupplierInvoice?.id || row.invoice.supplierInvoiceId;
+    if (linkedSupplierInvoiceId) payload.supplierInvoiceId = linkedSupplierInvoiceId;
+    await updateAccounting(row, payload);
+  };
+
+  const linkSupplierInvoice = async (row, supplierInvoice) => {
+    if (!supplierInvoice?.id) return;
+    await updateAccounting(row, { supplierInvoiceId: supplierInvoice.id });
   };
 
   const filteredRows = activeStatus === 'Все' ? rows : rows.filter(row => row.status === activeStatus);
@@ -175,6 +240,8 @@ export default function AccountingIncomingDocumentsPanel({
 
   const renderDetail = (row) => {
     const inv = row.invoice;
+    const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
+    const supplierInvoiceCandidates = getSupplierInvoiceCandidates(row);
     return (
       <div style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '12px' }}>
@@ -193,6 +260,30 @@ export default function AccountingIncomingDocumentsPanel({
           <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 3px' }}>Оплачено</p><b style={{ color: row.paidAmount > 0 ? C.success : C.textMuted }}>{money(row.paidAmount)}</b></div>
           <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 3px' }}>Фото</p><b style={{ color: row.photos.length ? C.success : C.danger }}>{row.photos.length || 'нет'}</b></div>
           <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 3px' }}>Строки</p><b style={{ color: C.text }}>{row.controls.length || (inv.items || []).length}</b></div>
+        </div>
+
+        <div style={{ padding: '10px', borderRadius: '8px', border: '1px solid ' + C.border, backgroundColor: C.bgAlt, marginBottom: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <b style={{ color: C.text, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><Link2 size={13} />Счёт поставщика</b>
+            {linkedSupplierInvoice ? (
+              <span style={{ color: C.success, backgroundColor: C.successLight, border: '1px solid ' + C.successBorder, borderRadius: '999px', padding: '4px 8px', fontSize: '11px', fontWeight: 800 }}>связан</span>
+            ) : <span style={{ color: C.warning, fontSize: '11px', fontWeight: 800 }}>не связан</span>}
+          </div>
+          {linkedSupplierInvoice ? (
+            <p style={{ color: C.textSec, fontSize: '12px', margin: '6px 0 0' }}>
+              {supplierInvoiceTitle(linkedSupplierInvoice)} · {linkedSupplierInvoice.status || 'без статуса'}
+            </p>
+          ) : supplierInvoiceCandidates.length ? (
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
+              {supplierInvoiceCandidates.map(candidate => (
+                <button key={candidate.id} disabled={busyId === inv.id} onClick={() => linkSupplierInvoice(row, candidate)} style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}>
+                  <Link2 size={12} />Связать: {candidate.invoiceNumber || candidate.id}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p style={{ color: C.textMuted, fontSize: '12px', margin: '6px 0 0' }}>Подходящий счёт не найден. Создайте счёт из КП или проверьте поставщика/сумму.</p>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
@@ -263,6 +354,7 @@ export default function AccountingIncomingDocumentsPanel({
           {filteredRows.map(row => {
             const inv = row.invoice;
             const tone = statusTone(row.status, C);
+            const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
             return (
               <div key={inv.id} style={{ ...card, padding: '14px', border: '1.5px solid ' + tone.border, backgroundColor: C.bg }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '12px', alignItems: 'start' }}>
@@ -270,6 +362,9 @@ export default function AccountingIncomingDocumentsPanel({
                     <b style={{ color: C.text, fontSize: '13px' }}>№ {inv.number || inv.id} · {inv.date || 'без даты'}</b>
                     <p style={{ color: C.textSec, fontSize: '12px', margin: '3px 0 0' }}>{inv.supplierName || 'Поставщик не указан'}</p>
                     <p style={{ color: C.textMuted, fontSize: '11px', margin: '3px 0 0' }}>{inv.project || inv.location || 'без объекта'} · фото {row.photos.length} · строк {(inv.items || []).length || row.controls.length}</p>
+                    <p style={{ color: linkedSupplierInvoice ? C.success : C.warning, fontSize: '11px', margin: '3px 0 0', fontWeight: 800 }}>
+                      {linkedSupplierInvoice ? 'Счёт связан: № ' + (linkedSupplierInvoice.invoiceNumber || linkedSupplierInvoice.id) : 'Счёт поставщика не связан'}
+                    </p>
                   </div>
                   <div>
                     <p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Сумма / долг</p>

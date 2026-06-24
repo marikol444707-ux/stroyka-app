@@ -165,6 +165,7 @@ export default function AccountingPage(props) {
           btnR={btnR}
           btnGr={btnGr}
           invoices={invoices}
+          supplierInvoices={supplierInvoices}
           warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
           fileSrc={fileSrc}
           setShowPhotoModal={setShowPhotoModal}
