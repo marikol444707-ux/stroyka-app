@@ -35,6 +35,7 @@ export default function EstimatesListView({
   isLeadership,
   canHardDeleteEstimate,
 }) {
+  const [openProjects, setOpenProjects] = React.useState({});
   const normal = (estimatesList || []).filter(e => !isGlobalEstimateTemplate(e) || e.status === 'Активная');
   const templates = (estimatesList || []).filter(e => isGlobalEstimateTemplate(e) && e.status !== 'Активная');
   const groups = {};
@@ -67,6 +68,8 @@ export default function EstimatesListView({
     const bt = Math.max(0, ...bb.map(e => estimateUpdatedTs(e) || Number(e.id || 0)));
     return bt - at || a[0].localeCompare(b[0], 'ru');
   });
+  const isProjectOpen = (projectName) => Boolean(openProjects[projectName]);
+  const toggleProjectOpen = (projectName) => setOpenProjects(prev => ({ ...prev, [projectName]: !prev[projectName] }));
 
   return (
     <>
@@ -94,6 +97,8 @@ export default function EstimatesListView({
           btnR={btnR}
           projectName={projectName}
           groups={projectEstimateGroups}
+          isOpen={isProjectOpen(projectName)}
+          onToggle={() => toggleProjectOpen(projectName)}
           setSelectedEstimate={setSelectedEstimate}
           estimateTypeIcon={estimateTypeIcon}
           estimateKind={estimateKind}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, ChevronRight, FileText, Trash2 } from 'lucide-react';
+import { CheckCircle, ChevronDown, ChevronRight, ChevronUp, FileText, Trash2 } from 'lucide-react';
 
 export default function EstimateProjectGroupCard({
   C,
@@ -11,6 +11,8 @@ export default function EstimateProjectGroupCard({
   btnR,
   projectName,
   groups,
+  isOpen = false,
+  onToggle,
   setSelectedEstimate,
   estimateTypeIcon,
   estimateKind,
@@ -50,19 +52,27 @@ export default function EstimateProjectGroupCard({
 
   return (
     <div style={{ ...card, marginBottom: '14px', overflow: 'hidden' }}>
-      <div style={{ padding: '14px', backgroundColor: C.bg, borderBottom: '1.5px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+      <div
+        onClick={onToggle}
+        role="button"
+        aria-expanded={isOpen}
+        style={{ padding: '14px', backgroundColor: C.bg, borderBottom: isOpen ? '1.5px solid ' + C.border : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', cursor: 'pointer' }}
+      >
         <div style={{ minWidth: '260px', flex: 1 }}>
           <b style={{ color: C.text, fontSize: '15px' }}>{'🏗️ ' + projectName}</b>
           <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '12px' }}>
             {'Папок смет: ' + projectGroups.length + ' · активных ' + activeCount + ' · архив ' + archivedCount + (draftCount ? ' · черновиков ' + draftCount : '')}
           </p>
         </div>
-        <b style={{ color: C.success, fontSize: '15px', whiteSpace: 'nowrap' }}>
-          {Math.round(projectTotal).toLocaleString('ru-RU') + ' ₽'}
-        </b>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: C.textSec }}>
+          <b style={{ color: C.success, fontSize: '15px', whiteSpace: 'nowrap' }}>
+            {Math.round(projectTotal).toLocaleString('ru-RU') + ' ₽'}
+          </b>
+          {isOpen ? <ChevronUp size={18}/> : <ChevronDown size={18}/>}
+        </div>
       </div>
 
-      <div style={{ padding: '10px 12px' }}>
+      {isOpen && <div style={{ padding: '10px 12px' }}>
         {projectGroups.map(group => (
           <div key={group.key} style={{ marginBottom: '10px', border: '1px solid ' + C.border, borderRadius: '10px', overflow: 'hidden', backgroundColor: C.bgWhite }}>
             <div style={{ padding: '12px 14px', backgroundColor: C.bg, borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -119,7 +129,7 @@ export default function EstimateProjectGroupCard({
             </div>
           </div>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }
