@@ -5,7 +5,10 @@ import os
 
 import psycopg2
 
-from backend import config  # Loads backend/.env before DB_CONFIG is built.
+try:
+    from backend import config  # Loads backend/.env before DB_CONFIG is built.
+except ModuleNotFoundError:
+    import config  # type: ignore  # Supports uvicorn main:app from backend/.
 
 
 DB_CONFIG = {

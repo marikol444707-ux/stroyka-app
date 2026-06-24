@@ -21,28 +21,52 @@ import urllib.parse
 import urllib.request
 from email.message import EmailMessage
 
-from backend.config import (
-    AI_CONTROL_RUN_TOKEN,
-    APP_PUBLIC_URL,
-    AUTH_SECRET,
-    AUTH_TOKEN_TTL_SECONDS,
-    CORS_ORIGINS,
-    PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
-    PUBLIC_LEAD_RATE_LIMIT_SECONDS,
-    SMTP_FROM,
-    SMTP_HOST,
-    SMTP_PASSWORD,
-    SMTP_PORT,
-    SMTP_SSL,
-    SMTP_TLS,
-    SMTP_USER,
-    TELEGRAM_BOT_API_TOKEN,
-    VK_TOKEN,
-    WORKFLOW_TOKEN,
-    YANDEX_API_KEY,
-    YANDEX_FOLDER_ID,
-)
-from backend.db import get_db, limit_offset_sql
+try:
+    from backend.config import (
+        AI_CONTROL_RUN_TOKEN,
+        APP_PUBLIC_URL,
+        AUTH_SECRET,
+        AUTH_TOKEN_TTL_SECONDS,
+        CORS_ORIGINS,
+        PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
+        PUBLIC_LEAD_RATE_LIMIT_SECONDS,
+        SMTP_FROM,
+        SMTP_HOST,
+        SMTP_PASSWORD,
+        SMTP_PORT,
+        SMTP_SSL,
+        SMTP_TLS,
+        SMTP_USER,
+        TELEGRAM_BOT_API_TOKEN,
+        VK_TOKEN,
+        WORKFLOW_TOKEN,
+        YANDEX_API_KEY,
+        YANDEX_FOLDER_ID,
+    )
+    from backend.db import get_db, limit_offset_sql
+except ModuleNotFoundError:
+    from config import (
+        AI_CONTROL_RUN_TOKEN,
+        APP_PUBLIC_URL,
+        AUTH_SECRET,
+        AUTH_TOKEN_TTL_SECONDS,
+        CORS_ORIGINS,
+        PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
+        PUBLIC_LEAD_RATE_LIMIT_SECONDS,
+        SMTP_FROM,
+        SMTP_HOST,
+        SMTP_PASSWORD,
+        SMTP_PORT,
+        SMTP_SSL,
+        SMTP_TLS,
+        SMTP_USER,
+        TELEGRAM_BOT_API_TOKEN,
+        VK_TOKEN,
+        WORKFLOW_TOKEN,
+        YANDEX_API_KEY,
+        YANDEX_FOLDER_ID,
+    )
+    from db import get_db, limit_offset_sql
 
 def _startup_num(v) -> float:
     try:
