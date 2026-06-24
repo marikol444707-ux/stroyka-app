@@ -110,9 +110,9 @@ export default function ScanInvoiceModal({
       const parsed = data.data;
       const uploadedPhotos = (await Promise.all(normalizedPages.map(page => uploadInvoicePhoto(page.uploadFile, location)))).filter(Boolean);
       const today = new Date().toISOString().split('T')[0];
-      const totalWithVat = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
-      const totalBase = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
-      const totalVat = toNumber(parsed.totalVat ?? parsed.total_vat ?? parsed.vatAmount ?? parsed.vat_amount);
+      const totalWithVatRaw = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
+      const totalBaseRaw = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
+      const totalVatRaw = toNumber(parsed.totalVat ?? parsed.total_vat ?? parsed.vatAmount ?? parsed.vat_amount);
       const normalizedItems = (parsed.items || []).map(item => {
         const quantity = toNumber(item.quantity);
         const lineTotal = toNumber(item.lineTotalWithVat ?? item.line_total_with_vat ?? item.lineTotal ?? item.line_total ?? item.total);
@@ -128,6 +128,10 @@ export default function ScanInvoiceModal({
           workPackage:''
         };
       });
+      const itemsTotal = normalizedItems.reduce((sum, item) => sum + toNumber(item.lineTotal), 0);
+      const totalWithVat = totalWithVatRaw || itemsTotal;
+      const totalVat = totalVatRaw;
+      const totalBase = totalBaseRaw || (totalWithVat ? Math.max(0, totalWithVat - totalVat) : 0);
       setNewInvoice(prev=>{
         const photos = uploadedPhotos.length ? [...(prev.photos || []), ...uploadedPhotos] : (prev.photos || []);
         return {
