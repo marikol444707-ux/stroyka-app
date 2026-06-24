@@ -129,6 +129,7 @@ export default function PersonnelPage({
   workedDays,
 }) {
   const [staffGroupFilter, setStaffGroupFilter] = React.useState('all');
+  const [staffOpenGroups, setStaffOpenGroups] = React.useState({});
   const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
   const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
   const normalizeAccessList = (value) => Array.isArray(value) ? value.filter(Boolean) : [];
@@ -217,6 +218,8 @@ export default function PersonnelPage({
   const visibleStaffGroups = STAFF_SORT_GROUPS
     .map(group => ({ ...group, rows: visibleStaff.filter(s => getStaffGroupKey(s) === group.key) }))
     .filter(group => group.rows.length > 0);
+  const isStaffGroupOpen = (groupKey) => Boolean(staffOpenGroups[groupKey]);
+  const toggleStaffGroup = (groupKey) => setStaffOpenGroups(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
   return (
     <div>
       <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
@@ -512,18 +515,28 @@ export default function PersonnelPage({
           </div>
           {isMobile&&(
             <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
-              {visibleStaffGroups.map(group => (
+              {visibleStaffGroups.map(group => {
+                const groupOpen = isStaffGroupOpen(group.key);
+                return (
                 <div key={group.key} style={{...card,overflow:'hidden'}}>
-                  <div style={{padding:'12px 14px',backgroundColor:C.bg,borderBottom:'1.5px solid '+C.border}}>
+                  <div
+                    onClick={() => toggleStaffGroup(group.key)}
+                    role="button"
+                    aria-expanded={groupOpen}
+                    style={{padding:'12px 14px',backgroundColor:C.bg,borderBottom:groupOpen?'1.5px solid '+C.border:'none',cursor:'pointer'}}
+                  >
                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px'}}>
                       <div>
                         <b style={{color:C.text,fontSize:'13px'}}>{group.label}</b>
-                        <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>{group.hint}</p>
+                        {groupOpen&&<p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>{group.hint}</p>}
                       </div>
-                      <span style={{color:C.textSec,fontSize:'12px',fontWeight:700}}>{group.rows.length}</span>
+                      <div style={{display:'flex',alignItems:'center',gap:'8px',color:C.textSec,fontSize:'12px',fontWeight:700}}>
+                        <span>{group.rows.length}</span>
+                        {groupOpen?<ChevronUp size={16}/>:<ChevronDown size={16}/>}
+                      </div>
                     </div>
                   </div>
-                  <div style={{display:'flex',flexDirection:'column'}}>
+                  {groupOpen&&<div style={{display:'flex',flexDirection:'column'}}>
                     {staffSectionsForGroup(group).map(section => (
                       <React.Fragment key={section.key}>
                         {section.label&&(
@@ -588,9 +601,10 @@ export default function PersonnelPage({
                         })}
                       </React.Fragment>
                     ))}
-                  </div>
+                  </div>}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {!isMobile&&(<table style={tbl}>
@@ -607,18 +621,26 @@ export default function PersonnelPage({
               </tr>
             </thead>
             <tbody>
-              {visibleStaffGroups.map(group => (
+              {visibleStaffGroups.map(group => {
+                const groupOpen = isStaffGroupOpen(group.key);
+                return (
                 <React.Fragment key={group.key}>
-                  <tr>
+                  <tr onClick={() => toggleStaffGroup(group.key)} style={{cursor:'pointer'}}>
                     <td colSpan='8' style={{...tblC,backgroundColor:C.bg,borderTop:'1.5px solid '+C.border,borderBottom:'1.5px solid '+C.border}}>
-                      <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
-                        <b style={{color:C.text,fontSize:'12px'}}>{group.label}</b>
-                        <span style={{color:C.textSec,fontSize:'11px'}}>· {group.rows.length}</span>
-                        <span style={{color:C.textMuted,fontSize:'10px'}}>{group.hint}</span>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',flexWrap:'wrap'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                          <b style={{color:C.text,fontSize:'12px'}}>{group.label}</b>
+                          <span style={{color:C.textSec,fontSize:'11px'}}>· {group.rows.length}</span>
+                          {groupOpen&&<span style={{color:C.textMuted,fontSize:'10px'}}>{group.hint}</span>}
+                        </div>
+                        <span style={{display:'inline-flex',alignItems:'center',gap:'6px',color:C.textSec,fontSize:'11px',fontWeight:700}}>
+                          {groupOpen ? 'Свернуть' : 'Открыть'}
+                          {groupOpen?<ChevronUp size={14}/>:<ChevronDown size={14}/>}
+                        </span>
                       </div>
                     </td>
                   </tr>
-                  {staffSectionsForGroup(group).map(section => (
+                  {groupOpen&&staffSectionsForGroup(group).map(section => (
                     <React.Fragment key={section.key}>
                       {section.label&&(
                         <tr>
@@ -741,7 +763,8 @@ export default function PersonnelPage({
                     </React.Fragment>
                   ))}
                 </React.Fragment>
-              ))}
+                );
+              })}
             </tbody>
           </table>)}
           {visibleStaff.length < filteredStaff.length&&(
