@@ -14576,49 +14576,77 @@ function App() {
 	                    </button>
 	                  </div>
 	                );})()}
-	                {['директор','зам_директора'].includes(user?.role) && (()=>{const workSummary=buildEstimateWorkSummary(selectedEstimate);if(!workSummary.totalSourceRows) return null;const compactLimit=isMobile?6:10;const visibleGroups=showEstimateWorkSummary?workSummary.groups:workSummary.groups.slice(0,compactLimit);const hiddenGroups=workSummary.groups.length-visibleGroups.length;const fmtNum=(value,max=3)=>Number(value||0).toLocaleString('ru-RU',{maximumFractionDigits:max});const fmtMoney=(value)=>Math.round(Number(value||0)).toLocaleString('ru-RU')+' ₽';const jumpToSource=(source)=>{const rowId=estimateIssueDomId(selectedEstimate.id,source.sectionIndex,source.itemIndex);const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const groupKey=['estimate',selectedEstimate.id,source.sectionIndex,'Работы'].join(':');setShowEstimateIssuesOnly(false);setMobileExpandedRenderLists(prev=>({...prev,[sectionListKey]:true,[groupKey]:true}));setTimeout(()=>document.getElementById(rowId)?.scrollIntoView({behavior:'smooth',block:'center'}),120);};return(
-	                  <div style={{...card,padding:isMobile?'12px':'14px',marginBottom:'12px',backgroundColor:C.bg}}>
+	                {['директор','зам_директора'].includes(user?.role) && (()=>{const workSummary=buildEstimateWorkSummary(selectedEstimate);const duplicateGroups=(workSummary.groups||[]).filter(group=>group.sourceCount>1);if(!duplicateGroups.length) return null;const compactLimit=isMobile?8:14;const visibleGroups=showEstimateWorkSummary?duplicateGroups:duplicateGroups.slice(0,compactLimit);const hiddenGroups=duplicateGroups.length-visibleGroups.length;const fmtNum=(value,max=3)=>Number(value||0).toLocaleString('ru-RU',{maximumFractionDigits:max});const fmtMoney=(value)=>Math.round(Number(value||0)).toLocaleString('ru-RU')+' ₽';const jumpToSource=(source)=>{const rowId=estimateIssueDomId(selectedEstimate.id,source.sectionIndex,source.itemIndex);const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const groupKey=['estimate',selectedEstimate.id,source.sectionIndex,'Работы'].join(':');setShowEstimateIssuesOnly(false);setMobileExpandedRenderLists(prev=>({...prev,[sectionListKey]:true,[groupKey]:true}));setTimeout(()=>document.getElementById(rowId)?.scrollIntoView({behavior:'smooth',block:'center'}),120);};const summaryTbl={...tbl,minWidth:isMobile?'720px':'980px',tableLayout:'fixed'};const summaryH={...tblH,padding:'6px 8px',fontSize:'11px',whiteSpace:'nowrap'};const summaryC={...tblC,padding:'6px 8px',fontSize:'12px',verticalAlign:'top'};const renderSources=(group)=>group.sources.slice(0,8).map(source=>(
+	                      <div key={`${source.sectionIndex}-${source.itemIndex}`} style={{display:'grid',gridTemplateColumns:isMobile?'1fr auto':'minmax(0,1fr) 80px 70px',gap:'6px',alignItems:'center',padding:'5px 0',borderTop:'1px solid '+C.border}}>
+	                        <span style={{color:C.textSec,fontSize:'11px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:isMobile?'normal':'nowrap'}}>{source.sectionName} · строка {source.rowNumber}</span>
+	                        <b style={{color:C.text,fontSize:'11px',whiteSpace:'nowrap'}}>{fmtNum(source.quantity)} {source.unit}</b>
+	                        <button type="button" onClick={()=>jumpToSource(source)} style={{...btnB,padding:'4px 6px',fontSize:'10px',justifyContent:'center'}}>К строке</button>
+	                      </div>
+	                    ));return(
+	                  <div style={{...card,padding:isMobile?'10px':'12px',marginBottom:'12px',backgroundColor:C.bg}}>
 	                    <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:isMobile?'flex-start':'center',flexDirection:isMobile?'column':'row'}}>
 	                      <div>
-	                        <b style={{color:C.text,fontSize:isMobile?'16px':'15px'}}>🧾 Свод одинаковых работ</b>
-	                        <p style={{color:C.textSec,margin:'4px 0 0',fontSize:'12px'}}>
-	                          Групп: {workSummary.totalGroups} · повторов: {workSummary.duplicateGroups} · исходных строк: {workSummary.totalSourceRows}. Свод не меняет смету, он показывает общий объем и источники строк.
+	                        <b style={{color:C.text,fontSize:isMobile?'15px':'14px'}}>🧾 Свод одинаковых работ</b>
+	                        <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px'}}>
+	                          Повторов: {workSummary.duplicateGroups} · строк: {workSummary.totalSourceRows}. Одинаковые работы суммируются здесь, сама смета не меняется.
 	                        </p>
 	                      </div>
-	                      <button type="button" onClick={()=>setShowEstimateWorkSummary(v=>!v)} style={{...btnB,justifyContent:'center',width:isMobile?'100%':'auto'}}>
-	                        {showEstimateWorkSummary?'Свернуть':'Показать свод'}
+	                      <button type="button" onClick={()=>setShowEstimateWorkSummary(v=>!v)} style={{...btnB,justifyContent:'center',width:isMobile?'100%':'auto',padding:'6px 10px',fontSize:'12px'}}>
+	                        {showEstimateWorkSummary?'Свернуть':'Показать все'}
 	                      </button>
 	                    </div>
-	                    <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(2,minmax(0,1fr))',gap:'10px',marginTop:'12px'}}>
-	                      {visibleGroups.map(group=>(
-	                        <details key={group.key} open={group.sourceCount>1&&!isMobile} style={{border:'1px solid '+C.border,borderRadius:'10px',padding:'10px',backgroundColor:group.sourceCount>1?C.warningLight:C.bg}}>
-	                          <summary style={{cursor:'pointer',listStyle:'none'}}>
-	                            <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(0,1fr) auto',gap:'8px',alignItems:'start'}}>
-	                              <div>
-	                                <b style={{color:C.text,fontSize:'13px',display:'block',lineHeight:1.3}}>{group.name}</b>
-	                                <span style={{color:C.textMuted,fontSize:'11px'}}>строк: {group.sourceCount} · {group.basisLabel} · {group.sectionNames.slice(0,2).join(', ')}{group.sectionNames.length>2?'...':''}</span>
+	                    {isMobile?(
+	                      <div style={{display:'grid',gap:'6px',marginTop:'10px'}}>
+	                        {visibleGroups.map(group=>(
+	                          <details key={group.key} style={{border:'1px solid '+C.border,borderRadius:'8px',padding:'8px',backgroundColor:C.bgWhite}}>
+	                            <summary style={{cursor:'pointer',listStyle:'none'}}>
+	                              <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',gap:'8px',alignItems:'start'}}>
+	                                <b style={{color:C.text,fontSize:'12px',lineHeight:1.25,overflow:'hidden',textOverflow:'ellipsis'}}>{group.name}</b>
+	                                <b style={{color:C.warning,fontSize:'12px',whiteSpace:'nowrap'}}>{fmtNum(group.quantity)} {group.unit}</b>
 	                              </div>
-	                              <div style={{textAlign:isMobile?'left':'right',display:'grid',gap:'2px'}}>
-	                                <b style={{color:C.warning}}>{fmtNum(group.quantity)} {group.unit}</b>
-	                                <span style={{color:C.textSec,fontSize:'11px'}}>заказчик: {fmtMoney(group.workSum)}</span>
-	                                <span style={{color:C.textMuted,fontSize:'11px'}}>ср. {fmtMoney(group.unitPriceAvg)} / {group.unit}</span>
-	                              </div>
-	                            </div>
-	                          </summary>
-	                          <div style={{display:'grid',gap:'6px',marginTop:'10px'}}>
-	                            {group.sources.slice(0,12).map(source=>(
-	                              <div key={`${source.sectionIndex}-${source.itemIndex}`} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'minmax(0,1fr) auto auto',gap:'6px',alignItems:'center',padding:'7px 8px',borderRadius:'8px',backgroundColor:C.bg}}>
-	                                <span style={{color:C.textSec,fontSize:'12px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:isMobile?'normal':'nowrap'}}>{source.sectionName} · строка {source.rowNumber}</span>
-	                                <b style={{color:C.text,fontSize:'12px'}}>{fmtNum(source.quantity)} {source.unit}</b>
-	                                <button type="button" onClick={()=>jumpToSource(source)} style={{...btnB,padding:'5px 8px',fontSize:'11px',justifyContent:'center'}}>К строке</button>
-	                              </div>
+	                              <span style={{color:C.textMuted,fontSize:'10px'}}>строк: {group.sourceCount} · {group.basisLabel} · {fmtMoney(group.workSum)}</span>
+	                            </summary>
+	                            <div style={{marginTop:'6px'}}>{renderSources(group)}{group.sources.length>8&&<span style={{color:C.textMuted,fontSize:'10px'}}>Еще источников: {group.sources.length-8}</span>}</div>
+	                          </details>
+	                        ))}
+	                      </div>
+	                    ):(
+	                      <div style={{overflowX:'auto',marginTop:'10px'}}>
+	                        <table style={summaryTbl}>
+	                          <thead>
+	                            <tr>
+	                              <th style={{...summaryH,width:'42%'}}>Работа</th>
+	                              <th style={{...summaryH,width:'70px'}}>Строк</th>
+	                              <th style={{...summaryH,width:'130px'}}>Объем</th>
+	                              <th style={{...summaryH,width:'130px'}}>Сумма</th>
+	                              <th style={{...summaryH,width:'110px'}}>Средняя</th>
+	                              <th style={{...summaryH,width:'240px'}}>Где в смете</th>
+	                            </tr>
+	                          </thead>
+	                          <tbody>
+	                            {visibleGroups.map(group=>(
+	                              <tr key={group.key}>
+	                                <td style={summaryC}>
+	                                  <b style={{color:C.text,lineHeight:1.25}}>{group.name}</b>
+	                                  <div style={{color:C.textMuted,fontSize:'10px',marginTop:'2px'}}>{group.basisLabel} · {group.sectionNames.slice(0,3).join(', ')}{group.sectionNames.length>3?'...':''}</div>
+	                                </td>
+	                                <td style={{...summaryC,fontWeight:'700',color:C.warning}}>{group.sourceCount}</td>
+	                                <td style={{...summaryC,fontWeight:'700',color:C.text}}>{fmtNum(group.quantity)} {group.unit}</td>
+	                                <td style={{...summaryC,fontWeight:'700',color:C.success,whiteSpace:'nowrap'}}>{fmtMoney(group.workSum)}</td>
+	                                <td style={{...summaryC,color:C.textSec,whiteSpace:'nowrap'}}>{fmtMoney(group.unitPriceAvg)} / {group.unit}</td>
+	                                <td style={summaryC}>
+	                                  <details>
+	                                    <summary style={{cursor:'pointer',color:C.info,fontSize:'11px'}}>источники</summary>
+	                                    <div style={{marginTop:'4px'}}>{renderSources(group)}{group.sources.length>8&&<span style={{color:C.textMuted,fontSize:'10px'}}>Еще источников: {group.sources.length-8}</span>}</div>
+	                                  </details>
+	                                </td>
+	                              </tr>
 	                            ))}
-	                            {group.sources.length>12&&<span style={{color:C.textMuted,fontSize:'11px'}}>Еще источников: {group.sources.length-12}</span>}
-	                          </div>
-	                        </details>
-	                      ))}
-	                    </div>
-	                    {hiddenGroups>0&&<button type="button" onClick={()=>setShowEstimateWorkSummary(true)} style={{...btnO,justifyContent:'center',marginTop:'10px',width:'100%'}}>Показать еще {hiddenGroups}</button>}
+	                          </tbody>
+	                        </table>
+	                      </div>
+	                    )}
+	                    {hiddenGroups>0&&<button type="button" onClick={()=>setShowEstimateWorkSummary(true)} style={{...btnO,justifyContent:'center',marginTop:'8px',width:'100%',padding:'6px 10px',fontSize:'12px'}}>Показать еще {hiddenGroups}</button>}
 	                  </div>
 	                );})()}
 	                <EstimateAddSectionForm
@@ -14688,8 +14716,12 @@ function App() {
                   };
                   const updateItem=(idx,field,val,saveNow=false)=>updateItemPatch(idx,{[field]:val},saveNow);
                   const persist=()=>persistEstimate(selectedEstimate);
-                  const inpCell={padding:'6px 8px',border:'1px solid '+C.border,borderRadius:'6px',fontSize:'12px',width:'100%',minWidth:0,backgroundColor:C.bgWhite,color:C.text,outline:'none'};
-                  const estimateTbl={...tbl,minWidth:'1980px',tableLayout:'fixed'};
+	                  const inpCell={padding:'4px 6px',border:'1px solid '+C.border,borderRadius:'5px',fontSize:'11px',width:'100%',minWidth:0,minHeight:'28px',backgroundColor:C.bgWhite,color:C.text,outline:'none'};
+	                  const estimateTbl={...tbl,minWidth:isMobile?'1120px':'1280px',tableLayout:'fixed'};
+	                  const estimateTblH={...tblH,padding:'5px 6px',fontSize:'10px',lineHeight:1.15,whiteSpace:'nowrap'};
+	                  const estimateTblC={...tblC,padding:'4px 6px',fontSize:'11px',lineHeight:1.2,verticalAlign:'middle'};
+	                  const stickySumStyle={position:'sticky',right:'38px',zIndex:2,boxShadow:'-8px 0 10px -10px '+C.textMuted};
+	                  const stickyDeleteStyle={position:'sticky',right:0,zIndex:2};
                   const projBrigades=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName).map(bc=>bc.brigadeName).filter(Boolean);
                   const canEditExecutionPrice=['директор','зам_директора'].includes(user?.role);
                   const markSectionBasis=()=>{const sections=(selectedEstimate.sections||[]).map((s,sidx)=>sidx===si?{...s,items:(s.items||[]).map(it=>isEstimateWorkItem(it,s.name)?{...it,measurementBasis:estimateMeasurementBasisOf(it,s.name)}:it)}:s);const updated={...selectedEstimate,sections};setSelectedEstimate(updated);setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));persistEstimate(updated);};
@@ -14703,32 +14735,32 @@ function App() {
 	                    return(<div style={{marginBottom:'10px'}}>
 	                    <EstimateItemGroupHeader title={title} emoji={emoji} count={list.length} total={groupTotal} accent={accent}/>
 	                    {list.length>0?(<div style={{overflowX:'auto',paddingBottom:'2px'}}><table style={estimateTbl}><thead><tr>
-	                      <th style={{...tblH,width:'500px'}}>Наименование</th>
-	                      <th style={{...tblH,width:'150px'}}>Тип системы</th>
-                        <th style={{...tblH,width:'170px'}}>Обмер</th>
-	                      <th style={{...tblH,width:'82px'}}>Ед.</th>
-                      <th style={{...tblH,width:'110px'}}>План</th>
-                      <th style={{...tblH,width:'130px'}}>👷 Кому</th>
-                      <th style={{...tblH,width:'120px'}}>✅ Сделано</th>
-                      <th style={{...tblH,width:'130px'}}>📉 Осталось</th>
-                      <th style={{...tblH,width:'140px'}}>Цена / сумма</th>
-                      <th style={{...tblH,width:'140px'}}>Исполнителю</th>
-                      <th style={{...tblH,width:'180px'}}>Сумма</th>
-                      <th style={{...tblH,width:'48px'}}></th>
+	                      <th style={{...estimateTblH,width:'380px'}}>Наименование</th>
+	                      <th style={{...estimateTblH,width:'96px'}}>Тип</th>
+                        <th style={{...estimateTblH,width:'118px'}}>Обмер</th>
+	                      <th style={{...estimateTblH,width:'54px'}}>Ед.</th>
+                      <th style={{...estimateTblH,width:'82px'}}>План</th>
+                      <th style={{...estimateTblH,width:'94px'}}>Кому</th>
+                      <th style={{...estimateTblH,width:'78px'}}>Сделано</th>
+                      <th style={{...estimateTblH,width:'84px'}}>Ост.</th>
+                      <th style={{...estimateTblH,width:'104px'}}>Цена</th>
+                      <th style={{...estimateTblH,width:'104px'}}>Внутр.</th>
+                      <th style={{...estimateTblH,width:'118px',...stickySumStyle,top:0,zIndex:3,backgroundColor:C.bg}}>Сумма</th>
+                      <th style={{...estimateTblH,width:'38px',...stickyDeleteStyle,top:0,zIndex:4,backgroundColor:C.bg}}></th>
                     </tr></thead><tbody>
-		                      {groupRows.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const executionPrice=Number(item.executionPricePerUnit||item.internalPricePerUnit||item.masterPricePerUnit||0);const importedLineTotal=estimateItemTotal(item);const importedUnitPrice=qty>0?importedLineTotal/qty:0;const importMeta=estimateImportLineMeta(item,qtyNorm);const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'6px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}><span>{icon}</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
-	                        <td style={tblC}><div style={{display:'flex',alignItems:'center',gap:'4px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 2px',fontSize:'13px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'13px',width:'18px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
-	                        <td style={tblC}>{autoPill(meta.icon,meta.label)}</td>
-                          <td style={tblC}>{autoPill(basisMeta.icon,isWork?basisMeta.label:'—',!isWork)}</td>
-	                        <td style={tblC}>{autoPill('',qtyNorm.unit||item.unit||'шт')}</td>
-	                        <td style={tblC}><input type='number' step='any' inputMode='decimal' value={qtyNorm.qty||''} onChange={e=>updateItem(item._idx,'quantity',denormalizeMeasure(e.target.value,item.unit))} onBlur={persist} style={inpCell}/></td>
-	                        <td style={tblC}><select disabled={!isWork} value={isWork?(item.brigadeName||''):''} onChange={e=>updateItem(item._idx,'brigadeName',e.target.value,true)} style={{...inpCell,opacity:isWork?1:0.55}}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
-	                        <td style={tblC}><input disabled={!isWork} type='number' step='any' inputMode='decimal' value={isWork?(doneNorm.qty||''):''} onChange={e=>{const raw=denormalizeMeasure(e.target.value,item.unit);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+fmtMeasure(qty,item.unit)+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text,opacity:isWork?1:0.55}}/></td>
-	                        <td style={{...tblC,color:isWork?(qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted):C.textMuted,fontWeight:'600',fontSize:'11px'}}>{isWork&&qty>0?fmtMeasure(remain,item.unit):'—'}</td>
-	                        <td style={tblC}>{item.isImported?<div style={{...inpCell,backgroundColor:C.bg,whiteSpace:'normal',lineHeight:1.25}}><b style={{color:C.success}}>{Math.round(importedLineTotal).toLocaleString('ru-RU')} ₽</b><div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>≈ {importedUnitPrice?importedUnitPrice.toLocaleString('ru-RU',{maximumFractionDigits:2}):0} ₽/{qtyNorm.unit||item.unit||'ед.'}</div>{importMeta&&<div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>{importMeta}</div>}</div>:<input type='number' step='any' inputMode='decimal' title='Цена за единицу' value={item[priceField]||''} onChange={e=>updateItem(item._idx,priceField,e.target.value)} onBlur={persist} style={inpCell}/>}</td>
-                          <td style={tblC}>{isWork?<><input disabled={!canEditExecutionPrice} type='number' step='any' inputMode='decimal' title='Внутренняя цена исполнителю за единицу. Если пусто — используется fallback по цене заказчика до настройки пакета.' value={item.executionPricePerUnit||''} onChange={e=>updateItemPatch(item._idx,{executionPricePerUnit:e.target.value,executionPriceMode:e.target.value?'fixed':'',executionPricePercent:''})} onBlur={persist} placeholder='авто' style={{...inpCell,color:executionPrice>0?C.success:C.textMuted,opacity:canEditExecutionPrice?1:0.65}}/>{executionPrice>0&&<div style={{color:C.textMuted,fontSize:'9px',marginTop:'2px'}}>внутр. цена</div>}</>:<span style={{color:C.textMuted}}>—</span>}</td>
-                        <td style={{...tblC,fontWeight:'700',color:C.success,whiteSpace:'nowrap',fontSize:'14px'}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
-                        <td style={tblC}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
+			                      {groupRows.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const rowStickyBg=isIssueFocused?C.warningLight:C.bgWhite;const executionPrice=Number(item.executionPricePerUnit||item.internalPricePerUnit||item.masterPricePerUnit||0);const importedLineTotal=estimateItemTotal(item);const importedUnitPrice=qty>0?importedLineTotal/qty:0;const importMeta=estimateImportLineMeta(item,qtyNorm);const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'4px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}>{icon&&<span>{icon}</span>}<span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
+	                        <td style={estimateTblC}><div style={{display:'flex',alignItems:'center',gap:'3px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 1px',fontSize:'12px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'12px',width:'16px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
+	                        <td style={estimateTblC}>{autoPill(meta.icon,meta.label)}</td>
+                          <td style={estimateTblC}>{autoPill(basisMeta.icon,isWork?basisMeta.label:'—',!isWork)}</td>
+	                        <td style={estimateTblC}>{autoPill('',qtyNorm.unit||item.unit||'шт')}</td>
+	                        <td style={estimateTblC}><input type='number' step='any' inputMode='decimal' value={qtyNorm.qty||''} onChange={e=>updateItem(item._idx,'quantity',denormalizeMeasure(e.target.value,item.unit))} onBlur={persist} style={inpCell}/></td>
+	                        <td style={estimateTblC}><select disabled={!isWork} value={isWork?(item.brigadeName||''):''} onChange={e=>updateItem(item._idx,'brigadeName',e.target.value,true)} style={{...inpCell,opacity:isWork?1:0.55}}><option value=''>—</option>{projBrigades.map(b=><option key={b} value={b}>{b}</option>)}</select></td>
+	                        <td style={estimateTblC}><input disabled={!isWork} type='number' step='any' inputMode='decimal' value={isWork?(doneNorm.qty||''):''} onChange={e=>{const raw=denormalizeMeasure(e.target.value,item.unit);if(qty>0&&raw>qty){alert('Сделано не может быть больше плана ('+fmtMeasure(qty,item.unit)+')');return;}updateItem(item._idx,'doneQuantity',raw);}} onBlur={persist} style={{...inpCell,color:done>0?C.success:C.text,opacity:isWork?1:0.55}}/></td>
+	                        <td style={{...estimateTblC,color:isWork?(qty>0&&remain===0?C.success:remain>0?C.warning:C.textMuted):C.textMuted,fontWeight:'600'}}>{isWork&&qty>0?fmtMeasure(remain,item.unit):'—'}</td>
+	                        <td style={estimateTblC}>{item.isImported?<div title={importMeta||''} style={{...inpCell,backgroundColor:C.bg,whiteSpace:'normal',lineHeight:1.15}}><b style={{color:C.success}}>{Math.round(importedLineTotal).toLocaleString('ru-RU')} ₽</b><div style={{color:C.textMuted,fontSize:'9px',marginTop:'1px'}}>≈ {importedUnitPrice?importedUnitPrice.toLocaleString('ru-RU',{maximumFractionDigits:2}):0} ₽/{qtyNorm.unit||item.unit||'ед.'}</div></div>:<input type='number' step='any' inputMode='decimal' title='Цена за единицу' value={item[priceField]||''} onChange={e=>updateItem(item._idx,priceField,e.target.value)} onBlur={persist} style={inpCell}/>}</td>
+                          <td style={estimateTblC}>{isWork?<input disabled={!canEditExecutionPrice} type='number' step='any' inputMode='decimal' title='Внутренняя цена исполнителю за единицу. Если пусто — используется fallback по цене заказчика до настройки пакета.' value={item.executionPricePerUnit||''} onChange={e=>updateItemPatch(item._idx,{executionPricePerUnit:e.target.value,executionPriceMode:e.target.value?'fixed':'',executionPricePercent:''})} onBlur={persist} placeholder='авто' style={{...inpCell,color:executionPrice>0?C.success:C.textMuted,opacity:canEditExecutionPrice?1:0.65}}/>:<span style={{color:C.textMuted}}>—</span>}</td>
+                        <td style={{...estimateTblC,...stickySumStyle,backgroundColor:rowStickyBg,fontWeight:'700',color:C.success,whiteSpace:'nowrap',fontSize:'12px'}}>{sumOf(item).toLocaleString('ru-RU')+' ₽'}</td>
+                        <td style={{...estimateTblC,...stickyDeleteStyle,backgroundColor:rowStickyBg}}><button onClick={()=>removeAt(item._idx)} style={{...btnR,padding:'3px 6px'}}><Trash2 size={11}/></button></td>
 	                      </tr>);})}
 	                    </tbody></table></div>):(<EstimateItemGroupEmpty C={C}/>)}
 	                    {hiddenRows>0&&<button type="button" onClick={()=>setMobileExpandedRenderLists(prev=>({...prev,[listKey]:Math.min(list.length,mobileVisibleLimit+mobileGroupLimit)}))} style={{...btnB,width:'100%',justifyContent:'center',marginTop:'8px',fontSize:'12px'}}>Показать ещё {Math.min(hiddenRows,mobileGroupLimit)} строк</button>}
