@@ -6354,6 +6354,16 @@ def _apply_material_alias_to_invoice_item(cur, project: str, item: dict):
     }
     return item
 
+def _is_invoice_consumable_material(name: str) -> bool:
+    tokens = _material_match_tokens(name or "")
+    consumables = {
+        "валик", "ролик", "кисть", "шпатель", "нож", "лезвие", "ведро",
+        "ванночка", "лоток", "ручка", "держатель", "скребок", "терка",
+        "наждачка", "шкурка", "перчатки", "мешок", "пакет", "пленка",
+        "скотч", "маркер", "карандаш", "канцелярский",
+    }
+    return bool(tokens.intersection(consumables))
+
 _MATERIAL_MATCH_STOPWORDS = {
     "гост", "ту", "сорт", "марка", "тип", "вид", "цвет", "размер", "разм",
     "мм", "см", "м", "шт", "кг", "л", "т", "для", "при", "под", "над", "без",
@@ -6397,6 +6407,10 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("смесь")
         elif stem.startswith("ротб"):
             tokens.update({"ротбанд", "штукатурка", "смесь"})
+        elif stem.startswith("хабез"):
+            tokens.update({"хабез", "штукатурка", "смесь"})
+        elif stem.startswith("старт"):
+            tokens.update({"старт", "штукатурка", "шпатлевка", "смесь"})
         elif stem.startswith("кнауф") or stem.startswith("knauf"):
             tokens.add("кнауф")
         elif stem.startswith("песк"):
@@ -6507,6 +6521,38 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("шпилька")
         elif stem.startswith("перф"):
             tokens.add("перфолента")
+        elif stem.startswith("валик") or stem.startswith("ролик"):
+            tokens.add("валик")
+        elif stem.startswith("кист"):
+            tokens.add("кисть")
+        elif stem.startswith("шпател"):
+            tokens.add("шпатель")
+        elif stem.startswith("нож"):
+            tokens.add("нож")
+        elif stem.startswith("лезв"):
+            tokens.add("лезвие")
+        elif stem.startswith("держ"):
+            tokens.add("держатель")
+        elif stem.startswith("ванноч") or stem.startswith("лоток"):
+            tokens.add("лоток")
+        elif stem.startswith("скреб"):
+            tokens.add("скребок")
+        elif stem.startswith("терк"):
+            tokens.add("терка")
+        elif stem.startswith("нажда") or stem.startswith("шкур"):
+            tokens.add("наждачка")
+        elif stem.startswith("перчат"):
+            tokens.add("перчатки")
+        elif stem.startswith("пленк"):
+            tokens.add("пленка")
+        elif stem.startswith("скотч"):
+            tokens.add("скотч")
+        elif stem.startswith("маркер"):
+            tokens.add("маркер")
+        elif stem.startswith("карандаш"):
+            tokens.add("карандаш")
+        elif stem.startswith("канцеляр"):
+            tokens.add("канцелярский")
         else:
             tokens.add(stem)
     return tokens
@@ -6547,7 +6593,7 @@ def _material_name_match_score(left: str, right: str) -> float:
         return 0.84
     if {"керамогранит", "плитка"}.intersection(left_tokens) and {"керамогранит", "плитка"}.intersection(right_tokens) and {"livorno", "axima", "гранит", "керамическ", "матов", "глазур"}.intersection(common):
         return 0.86
-    if {"ротбанд", "кнауф", "смесь"}.intersection(left_tokens) and {"ротбанд", "кнауф", "смесь"}.intersection(right_tokens) and {"штукатурка", "смесь", "ротбанд", "кнауф"}.intersection(common):
+    if {"ротбанд", "кнауф", "смесь", "хабез", "старт"}.intersection(left_tokens) and {"ротбанд", "кнауф", "смесь", "хабез", "старт"}.intersection(right_tokens) and {"штукатурка", "шпатлевка", "смесь", "ротбанд", "кнауф"}.intersection(common):
         return 0.84
     if {"гранит", "керамическ"}.issubset(common):
         return 0.86
@@ -6862,6 +6908,11 @@ def _attach_supply_estimate_control(cur, project: str, items: list, exclude_requ
             if linked_work:
                 control.update(linked_work)
                 control["matchedRows"] = control.get("matchedRows") or 0
+            elif _is_invoice_consumable_material(item.get("materialName") or item.get("name") or ""):
+                control["status"] = "consumable_outside_estimate"
+                control["controlLabel"] = "Расходник вне сметы"
+                control["controlMessage"] = "Позиция похожа на расходный инструмент/расходник. Приход разрешен, но она остается видимой в контроле как закупка вне сметной ресурсной строки."
+                control["isConsumableOutsideEstimate"] = True
         control_package = _supply_work_package(control.get("workPackage") or item.get("workPackage") or item.get("work_package"))
         item_package = _supply_work_package(item.get("workPackage") or item.get("work_package"))
         if control_package and item_package == "Основная" and control_package != item_package:
@@ -17838,7 +17889,8 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
         if target_project:
             items_list = _attach_supply_estimate_control(cur, target_project, items_list)
             manual_project_invoice_override = (
-                source_type in ("manual_project_invoice", "telegram_project_invoice")
+                target_project
+                and source_type.endswith("_project_invoice")
                 and current_user.get("role") in PROJECT_WAREHOUSE_INVOICE_OVERRIDE_ROLES
             )
             _enforce_supply_estimate_control(
