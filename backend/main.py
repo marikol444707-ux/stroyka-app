@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Form, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Form, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -20487,7 +20487,7 @@ def create_task_from_material_norm_suggestion(id: int, current_user: dict = Depe
     return {"ok": True, "findingId": finding_id}
 
 @app.post("/material-norm-suggestions/{id}/accept")
-def accept_material_norm_suggestion(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def accept_material_norm_suggestion(id: int, payload: dict = Body(default=None), current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM material_norm_suggestions WHERE id=%s", (id,))
@@ -20497,7 +20497,8 @@ def accept_material_norm_suggestion(id: int, current_user: dict = Depends(requir
         raise HTTPException(status_code=404, detail="Предложение не найдено")
     suggestion = _material_norm_suggestion_row(dict(row))
     require_project_access(current_user, suggestion["projectName"])
-    qty = suggestion["suggestedQtyPerUnit"]
+    raw_qty = (payload or {}).get("qtyPerUnit") if isinstance(payload, dict) else None
+    qty = _safe_float(raw_qty, 0.0) if raw_qty not in (None, "") else suggestion["suggestedQtyPerUnit"]
     if qty <= 0:
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="В предложении нет расчётной нормы. Уточните вручную.")
@@ -20507,7 +20508,7 @@ def accept_material_norm_suggestion(id: int, current_user: dict = Depends(requir
     work_keywords = suggestion["work"] or _norm_keywords_from_text(suggestion["workName"] + " " + suggestion["sectionName"])
     material_keywords = suggestion["material"] or _norm_keywords_from_text(suggestion["materialName"])
     block_keywords = suggestion["blockWork"] or ["демонтаж", "разбор"]
-    label = suggestion["label"] or (suggestion["materialName"] + " " + str(qty) + " " + suggestion["materialUnit"] + " / " + (suggestion["workUnit"] or "ед."))
+    label = suggestion["materialName"] + " " + str(qty) + " " + suggestion["materialUnit"] + " / " + (suggestion["workUnit"] or "ед.")
     if suggestion["currentNormId"] and suggestion["suggestionType"] == "over_norm":
         cur.execute("""
             UPDATE material_norms
@@ -20560,7 +20561,7 @@ def accept_material_norm_suggestion(id: int, current_user: dict = Depends(requir
                 break
             rule_key = base_key + "_" + uuid.uuid4().hex[:4] if attempt < 5 else "ai_" + uuid.uuid4().hex[:10]
         norm_id = norm_row["id"] if norm_row else None
-    cur.execute("UPDATE material_norm_suggestions SET status='Принята', applied_norm_id=%s, updated_at=NOW() WHERE id=%s RETURNING *", (norm_id, id))
+    cur.execute("UPDATE material_norm_suggestions SET status='Принята', suggested_qty_per_unit=%s, label=%s, applied_norm_id=%s, updated_at=NOW() WHERE id=%s RETURNING *", (qty, label, norm_id, id))
     row = cur.fetchone()
     cur.execute("""UPDATE ai_findings
                    SET status='Закрыто', updated_at=NOW()
@@ -20569,7 +20570,7 @@ def accept_material_norm_suggestion(id: int, current_user: dict = Depends(requir
     return _material_norm_suggestion_row(dict(row))
 
 @app.post("/material-norm-suggestions/{id}/accept-override")
-def accept_material_norm_suggestion_as_override(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def accept_material_norm_suggestion_as_override(id: int, payload: dict = Body(default=None), current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM material_norm_suggestions WHERE id=%s", (id,))
@@ -20579,14 +20580,15 @@ def accept_material_norm_suggestion_as_override(id: int, current_user: dict = De
         raise HTTPException(status_code=404, detail="Предложение не найдено")
     suggestion = _material_norm_suggestion_row(dict(row))
     require_project_access(current_user, suggestion["projectName"])
-    qty = suggestion["suggestedQtyPerUnit"]
+    raw_qty = (payload or {}).get("qtyPerUnit") if isinstance(payload, dict) else None
+    qty = _safe_float(raw_qty, 0.0) if raw_qty not in (None, "") else suggestion["suggestedQtyPerUnit"]
     if qty <= 0:
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="В предложении нет расчётной нормы. Уточните вручную.")
     work_keywords = suggestion["work"] or _norm_keywords_from_text(suggestion["workName"] + " " + suggestion["sectionName"])
     material_keywords = suggestion["material"] or _norm_keywords_from_text(suggestion["materialName"])
     block_keywords = suggestion["blockWork"] or ["демонтаж", "разбор"]
-    label = suggestion["label"] or ("Поправка объекта: " + suggestion["materialName"] + " " + str(qty) + " " + suggestion["materialUnit"] + " / " + (suggestion["workUnit"] or "ед."))
+    label = "Поправка объекта: " + suggestion["materialName"] + " " + str(qty) + " " + suggestion["materialUnit"] + " / " + (suggestion["workUnit"] or "ед.")
     cur.execute("""
         INSERT INTO material_norm_overrides (
             base_norm_id, project_name, section_name, work_name, material_name,
@@ -20613,7 +20615,7 @@ def accept_material_norm_suggestion_as_override(id: int, current_user: dict = De
     ))
     norm_row = cur.fetchone()
     override_id = norm_row["id"] if norm_row else None
-    cur.execute("UPDATE material_norm_suggestions SET status='Принята', applied_norm_id=%s, updated_at=NOW() WHERE id=%s RETURNING *", (override_id, id))
+    cur.execute("UPDATE material_norm_suggestions SET status='Принята', suggested_qty_per_unit=%s, label=%s, applied_norm_id=%s, updated_at=NOW() WHERE id=%s RETURNING *", (qty, label, override_id, id))
     row = cur.fetchone()
     cur.close(); conn.close()
     return _material_norm_suggestion_row(dict(row))

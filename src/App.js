@@ -8054,10 +8054,24 @@ function App() {
       setMaterialNormSuggestionLoading(false);
     }
   };
-  const acceptMaterialNormSuggestion = async (id) => {
+  const buildMaterialNormAcceptRequest = (options={}) => {
+    if (!Object.prototype.hasOwnProperty.call(options || {}, 'qtyPerUnit')) return {};
+    const qtyPerUnit = toNum(String(options.qtyPerUnit ?? '').replace(',', '.'));
+    if (!(qtyPerUnit > 0)) {
+      alert('Укажите норму расхода больше 0');
+      return null;
+    }
+    return {
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({qtyPerUnit})
+    };
+  };
+  const acceptMaterialNormSuggestion = async (id, options={}) => {
     if (!canEditMaterialNorms() || !id) return;
+    const request = buildMaterialNormAcceptRequest(options);
+    if (!request) return;
     if (!window.confirm('Принять предложение и записать норму в справочник?')) return;
-    const res = await fetch(API+'/material-norm-suggestions/'+id+'/accept',{method:'POST'});
+    const res = await fetch(API+'/material-norm-suggestions/'+id+'/accept',{method:'POST',...request});
     const data = await res.json().catch(()=>({}));
     if (!res.ok) {
       alert(data.detail || 'Не удалось принять предложение');
@@ -8065,10 +8079,12 @@ function App() {
     }
     await refreshData();
   };
-  const acceptMaterialNormSuggestionAsOverride = async (id) => {
+  const acceptMaterialNormSuggestionAsOverride = async (id, options={}) => {
     if (!canEditMaterialNorms() || !id) return;
+    const request = buildMaterialNormAcceptRequest(options);
+    if (!request) return;
     if (!window.confirm('Принять как поправку объекта? Базовая норма компании не изменится.')) return;
-    const res = await fetch(API+'/material-norm-suggestions/'+id+'/accept-override',{method:'POST'});
+    const res = await fetch(API+'/material-norm-suggestions/'+id+'/accept-override',{method:'POST',...request});
     const data = await res.json().catch(()=>({}));
     if (!res.ok) {
       alert(data.detail || 'Не удалось сохранить поправку объекта');
@@ -14908,6 +14924,7 @@ function App() {
                 btnR={btnR}
                 btnState={btnState}
                 card={card}
+                inp={inp}
                 isMobile={isMobile}
                 suggestions={activeMaterialNormSuggestions()}
                 materialNormSuggestionLoading={materialNormSuggestionLoading}
