@@ -35,19 +35,6 @@ if [[ "$DRY_RUN" != "1" ]]; then
   echo "Creating database backup: $backup_file"
   run_postgres pg_dump "$DB_NAME" | gzip > "$backup_file"
   echo "Database backup done: $(du -h "$backup_file" | cut -f1)"
-
-  if [[ "$RESET_UPLOADS" == "1" ]]; then
-    uploads_path="$APP_DIR/$UPLOADS_DIR"
-    if [[ -d "$uploads_path" ]]; then
-      upload_backup_dir="$BACKUP_DIR/uploads_live_work_reset_$(date +%Y%m%d_%H%M%S)"
-      mkdir -p "$upload_backup_dir"
-      echo "Moving uploads to backup: $upload_backup_dir"
-      find "$uploads_path" -mindepth 1 -maxdepth 1 -exec mv {} "$upload_backup_dir"/ \;
-      echo "Uploads moved. Restore source: $upload_backup_dir"
-    else
-      echo "Uploads directory not found, skipped: $uploads_path"
-    fi
-  fi
 fi
 
 dry_run_bool=false
@@ -67,3 +54,16 @@ run_postgres psql \
   -v "reset_uploads=$RESET_UPLOADS" \
   -d "$DB_NAME" \
   -f "$SQL_FILE"
+
+if [[ "$DRY_RUN" != "1" && "$RESET_UPLOADS" == "1" ]]; then
+  uploads_path="$APP_DIR/$UPLOADS_DIR"
+  if [[ -d "$uploads_path" ]]; then
+    upload_backup_dir="$BACKUP_DIR/uploads_live_work_reset_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$upload_backup_dir"
+    echo "Moving uploads to backup: $upload_backup_dir"
+    find "$uploads_path" -mindepth 1 -maxdepth 1 -exec mv {} "$upload_backup_dir"/ \;
+    echo "Uploads moved. Restore source: $upload_backup_dir"
+  else
+    echo "Uploads directory not found, skipped: $uploads_path"
+  fi
+fi
