@@ -6131,9 +6131,31 @@ def get_suppliers(current_user: dict = Depends(get_current_user)):
 def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    name = (s.name or "").strip()
+    if not name:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=400, detail="Название поставщика обязательно")
+    name_key = _norm_key_text(name)
+    cur.execute("SELECT * FROM suppliers ORDER BY id")
+    existing = next((row for row in cur.fetchall() if _norm_key_text(row.get("name") or "") == name_key), None)
+    if existing:
+        cur.execute("""
+            UPDATE suppliers SET
+              phone=CASE WHEN COALESCE(phone,'')='' THEN %s ELSE phone END,
+              email=CASE WHEN COALESCE(email,'')='' THEN %s ELSE email END,
+              specialization=CASE WHEN COALESCE(specialization,'')='' THEN %s ELSE specialization END,
+              category=CASE WHEN COALESCE(category,'')='' THEN %s ELSE category END,
+              rating=COALESCE(rating,%s),
+              status=CASE WHEN COALESCE(status,'')='' THEN %s ELSE status END
+            WHERE id=%s RETURNING *
+        """, (s.phone, s.email, s.specialization, s.category, s.rating, s.status, existing["id"]))
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        return dict(row)
     cur.execute("INSERT INTO suppliers (name,phone,email,specialization,category,rating,status) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (s.name,s.phone,s.email,s.specialization,s.category,s.rating,s.status))
+                (name,s.phone,s.email,s.specialization,s.category,s.rating,s.status))
     row = cur.fetchone()
+    cur.close()
     conn.close()
     return dict(row)
 

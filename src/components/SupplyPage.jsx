@@ -258,6 +258,11 @@ export default function SupplyPage({
           setGeneratedInviteLink={setGeneratedInviteLink}
           setShowSupplierInviteModal={setShowSupplierInviteModal}
           loadAll={loadAll}
+          supplierInvoices={supplierInvoices}
+          supplierOffers={supplierOffers}
+          supplyDeliveries={supplyDeliveries}
+          invoices={invoices}
+          supplierCatalog={supplierCatalog}
         />
       )}
 

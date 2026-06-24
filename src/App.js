@@ -2116,9 +2116,24 @@ function App() {
     if (!newInvoice.number || newInvoice.items.filter(i=>i.name&&i.quantity).length===0) { alert('Заполните номер накладной и материалы'); return false; }
     if (!newInvoice.location) { alert('Выберите куда оприходовать (основной склад или объект)'); return false; }
     let supplierId = newInvoice.supplierId;
+    let resolvedSupplierName = suppliers.find(s=>s.id===Number(supplierId))?.name || '';
     if (newInvoice.isNewSupplier && newInvoice.newSupplierName) {
-      const res = await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newInvoice.newSupplierName,phone:'',email:'',specialization:'',category:'Прочее',rating:5.0,status:'Активный'})});
-      const newSup = await res.json(); supplierId = newSup.id;
+      const normalizeSupplierName = value => String(value||'').toLowerCase().replace(/[.,;:()«»"'`/\\]+/g,' ').replace(/\s+/g,' ').trim();
+      const existingSupplier = suppliers.find(s=>normalizeSupplierName(s.name)===normalizeSupplierName(newInvoice.newSupplierName));
+      if (existingSupplier) {
+        supplierId = existingSupplier.id;
+        resolvedSupplierName = existingSupplier.name;
+      } else {
+        const res = await fetch(API+'/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newInvoice.newSupplierName,phone:'',email:'',specialization:'',category:'Прочее',rating:5.0,status:'Активный'})});
+        if (!res.ok) {
+          const err = await res.json().catch(()=>({}));
+          alert(err.detail || 'Не удалось сохранить поставщика');
+          return false;
+        }
+        const newSup = await res.json();
+        supplierId = newSup.id;
+        resolvedSupplierName = newSup.name || newInvoice.newSupplierName;
+      }
     }
     const invoiceProject = newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
     const invoicePackages = invoiceProject ? getProjectWorkPackageOptions(invoiceProject) : [];
@@ -2157,7 +2172,7 @@ function App() {
       number:newInvoice.number,
       date:newInvoice.date,
       supplierId:Number(supplierId)||0,
-      supplierName:suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',
+      supplierName:resolvedSupplierName||suppliers.find(s=>s.id===Number(supplierId))?.name||newInvoice.newSupplierName||'',
       acceptedBy:newInvoice.acceptedBy||user.name,
       location:newInvoice.location,
       project:invoiceProject,
