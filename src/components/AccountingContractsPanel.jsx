@@ -89,6 +89,23 @@ export default function AccountingContractsPanel({
   const buildPreview = typeof buildContractContent === 'function' ? buildContractContent : () => '<p>Печатная форма договора недоступна</p>';
   const removeContract = typeof deleteContract === 'function' ? deleteContract : emptyFn;
   const submitContract = typeof createContract === 'function' ? createContract : emptyFn;
+  const openContractPreview = (row, items = []) => {
+    const title = (row?._kind === 'brigade' ? 'Договор бригады — ' : 'Договор — ') + (row.masterName || row.brigadeName || row.performer?.fullName || 'исполнитель');
+    try {
+      const html = buildPreview(row.performer || {}, row, items);
+      if (!html || typeof html !== 'string') throw new Error('Печатная форма не вернула HTML');
+      openPreview(html, title);
+    } catch (error) {
+      console.warn('Accounting contract preview failed', error);
+      openPreview(
+        '<div style="padding:16px;border:1px solid #f59e0b;background:#fff7ed;border-radius:8px;color:#92400e">' +
+        '<h3 style="margin:0 0 8px">Договор не удалось собрать автоматически</h3>' +
+        '<p style="margin:0">Проверьте карточку исполнителя, номер договора, объект и реквизиты. Сам раздел бухгалтерии продолжает работать.</p>' +
+        '</div>',
+        title,
+      );
+    }
+  };
 
   const sourceRows = [
     ...(contractRows.map((contract, index) => ({ ...contract, _kind: 'contract', _rowKey: 'contract-' + (contract.id || index), projectName: contract.project || contract.projectName || '' }))),
@@ -337,7 +354,7 @@ export default function AccountingContractsPanel({
                     {!isBrigade && <p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>{(row.startDate || '') + ' — ' + (row.endDate || '')}</p>}
                   </div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button onClick={() => openPreview(buildPreview(row.performer, row, items), 'Договор')} style={btnB}>
+                    <button onClick={() => openContractPreview(row, items)} style={btnB}>
                       <Eye size={13} />
                       Просмотр
                     </button>

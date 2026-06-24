@@ -65,8 +65,18 @@ export default function ProjectMaterialsTransferPanel({
   };
   const materialKey = (v) => (v || '').trim().toLowerCase();
   const sourceProject = projectName || newTransfer.fromLocation || '';
-  const selectedTransferItems = React.useMemo(() => {
-    const explicitItems = Array.isArray(newTransfer.items) ? newTransfer.items : [];
+  const normalizeTransferItems = React.useCallback((items = []) => (
+    (Array.isArray(items) ? items : [])
+      .map(item => ({
+        materialName: item.materialName || item.name || '',
+        quantity: item.quantity ?? '',
+        unit: item.unit || 'шт',
+        workPackage: item.workPackage || item.work_package || '',
+      }))
+      .filter(item => item.materialName)
+  ), []);
+  const transferItemsFromState = React.useCallback((transfer = {}) => {
+    const explicitItems = Array.isArray(transfer.items) ? transfer.items : [];
     const cleaned = explicitItems
       .map(item => ({
         materialName: item.materialName || item.name || '',
@@ -76,14 +86,15 @@ export default function ProjectMaterialsTransferPanel({
       }))
       .filter(item => item.materialName);
     if (cleaned.length > 0) return cleaned;
-    if (!newTransfer.materialName) return [];
+    if (!transfer.materialName) return [];
     return [{
-      materialName: newTransfer.materialName,
-      quantity: newTransfer.quantity,
-      unit: newTransfer.unit || 'шт',
-      workPackage: newTransfer.workPackage || '',
+      materialName: transfer.materialName,
+      quantity: transfer.quantity,
+      unit: transfer.unit || 'шт',
+      workPackage: transfer.workPackage || '',
     }];
-  }, [newTransfer]);
+  }, []);
+  const selectedTransferItems = React.useMemo(() => transferItemsFromState(newTransfer), [newTransfer, transferItemsFromState]);
   const primaryTransferItem = selectedTransferItems[0] || {
     materialName: newTransfer.materialName || '',
     quantity: newTransfer.quantity || '',
@@ -98,23 +109,22 @@ export default function ProjectMaterialsTransferPanel({
   const transferItemQty = (item) => toNum(item.quantity);
   const transferItemStockQty = (item) => toNum(stockForTransferItem(item)?.quantity);
   const transferItemOverStock = (item) => !!item.materialName && transferItemQty(item) > transferItemStockQty(item);
-  const updateTransferItems = React.useCallback((items) => {
-    const normalizedItems = items.map(item => ({
-      materialName: item.materialName || item.name || '',
-      quantity: item.quantity ?? '',
-      unit: item.unit || 'шт',
-      workPackage: item.workPackage || item.work_package || '',
-    })).filter(item => item.materialName);
-    const first = normalizedItems[0] || {materialName: '', quantity: '', unit: 'шт', workPackage: ''};
-    setNewTransfer({
-      ...newTransfer,
-      items: normalizedItems,
-      materialName: first.materialName,
-      quantity: first.quantity,
-      unit: first.unit || 'шт',
-      workPackage: normalizedItems.length === 1 ? (first.workPackage || '') : '',
+  const updateTransferItems = React.useCallback((itemsOrUpdater) => {
+    setNewTransfer(prev => {
+      const currentItems = transferItemsFromState(prev);
+      const nextItemsRaw = typeof itemsOrUpdater === 'function' ? itemsOrUpdater(currentItems) : itemsOrUpdater;
+      const normalizedItems = normalizeTransferItems(nextItemsRaw);
+      const first = normalizedItems[0] || {materialName: '', quantity: '', unit: 'шт', workPackage: ''};
+      return {
+        ...prev,
+        items: normalizedItems,
+        materialName: first.materialName,
+        quantity: first.quantity,
+        unit: first.unit || 'шт',
+        workPackage: normalizedItems.length === 1 ? (first.workPackage || '') : '',
+      };
     });
-  }, [newTransfer, setNewTransfer]);
+  }, [normalizeTransferItems, setNewTransfer, transferItemsFromState]);
   const fmtQty = (qty, unit) => {
     if (fmtMeasure) return fmtMeasure(qty, unit);
     const n = Math.round(toNum(qty) * 1000) / 1000;

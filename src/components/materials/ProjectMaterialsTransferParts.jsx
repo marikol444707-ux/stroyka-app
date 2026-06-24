@@ -49,9 +49,10 @@ export function MaterialPicker({
                   quantity: '',
                 };
                 if (updateTransferItems) {
-                  updateTransferItems(e.target.checked
-                    ? [...selectedTransferItems, item]
-                    : selectedTransferItems.filter(row => transferItemKey(row) !== transferItemKey(item)));
+                  updateTransferItems(currentItems => {
+                    const existing = (currentItems || []).filter(row => transferItemKey(row) !== transferItemKey(item));
+                    return e.target.checked ? [...existing, item] : existing;
+                  });
                   return;
                 }
                 setNewTransfer({
@@ -214,12 +215,12 @@ export function TransferRecipientSelect({
         const selected = rawValue.startsWith('user:') ? staff.find(st => String(st.id) === rawValue.slice(5)) : null;
         const requesterUser = !selected ? staff.find(st => st.name === rawValue) : null;
         const person = selected || requesterUser;
-        setNewTransfer({
-          ...newTransfer,
+        setNewTransfer(prev => ({
+          ...prev,
           toPerson: person ? person.name : rawValue,
           toPersonRole: person ? person.role : '',
           toUserId: person ? person.id : '',
-        });
+        }));
       }}
       style={{...inp, marginBottom: 0}}
     >

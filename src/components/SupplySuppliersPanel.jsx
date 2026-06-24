@@ -4,9 +4,21 @@ import { API } from '../api';
 
 const normalizeSupplierKey = value => String(value || '')
   .toLowerCase()
+  .replace(/ё/g, 'е')
+  .replace(/(?:,|\s)\s*(инн|кпп|огрн|огрнип|тел\.?|телефон|р\/с|расч[её]тн|адрес)\b.*$/g, ' ')
+  .replace(/\b(инн|кпп|огрн|огрнип)\s*[:№#-]?\s*\d+\b/g, ' ')
+  .replace(/\b(ооо|оао|ао|пао|зао|ип|индивидуальный предприниматель)\b/g, ' ')
   .replace(/[.,;:()«»"'`/\\]+/g, ' ')
   .replace(/\s+/g, ' ')
   .trim();
+
+const supplierKeysMatch = (left, right) => {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const short = left.length < right.length ? left : right;
+  const long = left.length < right.length ? right : left;
+  return short.length >= 6 && long.includes(short);
+};
 
 const toNumber = value => {
   const num = Number(value || 0);
@@ -111,7 +123,7 @@ function SupplySuppliersPanel({
     const recordId = Number(record?.supplierId || record?.supplier_id || 0);
     if (recordId && ids.has(recordId)) return true;
     const key = normalizeSupplierKey(record?.supplierName || record?.supplier_name || record?.supplier || '');
-    return key && (supplier._supplierKeys || []).includes(key);
+    return key && (supplier._supplierKeys || []).some(supplierKey => supplierKeysMatch(supplierKey, key));
   };
 
   const supplierStats = supplier => {

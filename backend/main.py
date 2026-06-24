@@ -393,12 +393,24 @@ def enrich_worker_project_links(cur, user: dict) -> dict:
     """Права исполнителя задаются только явными assignedProjects/assignedPackages."""
     return user
 
+def _normalize_supplier_name_key(value: str) -> str:
+    text = str(value or "").lower().replace("ё", "е")
+    text = re.sub(r"(?:,|\s)\s*(инн|кпп|огрн|огрнип|тел\.?|телефон|р/с|расч[её]тн|адрес)\b.*$", " ", text)
+    text = re.sub(r"\b(инн|кпп|огрн|огрнип)\s*[:№#-]?\s*\d+\b", " ", text)
+    text = re.sub(r"\b(ооо|оао|ао|пао|зао|ип|индивидуальный предприниматель)\b", " ", text)
+    return _norm_key_text(text)
+
 def current_supplier_id(cur, user: dict):
     cur.execute("SELECT id FROM suppliers WHERE user_id=%s OR LOWER(email)=LOWER(%s) OR name=%s LIMIT 1",
                 (user.get("id"), user.get("email") or "", user.get("name") or ""))
     row = cur.fetchone()
     if not row:
-        return None
+        name_key = _normalize_supplier_name_key(user.get("name") or "")
+        if name_key:
+            cur.execute("SELECT id, name FROM suppliers ORDER BY id")
+            row = next((supplier for supplier in cur.fetchall() if _normalize_supplier_name_key(_row_value(supplier, 1, "name", "")) == name_key), None)
+        if not row:
+            return None
     try:
         return row["id"]
     except Exception:
@@ -6135,9 +6147,9 @@ def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_role
     if not name:
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Название поставщика обязательно")
-    name_key = _norm_key_text(name)
+    name_key = _normalize_supplier_name_key(name)
     cur.execute("SELECT * FROM suppliers ORDER BY id")
-    existing = next((row for row in cur.fetchall() if _norm_key_text(row.get("name") or "") == name_key), None)
+    existing = next((row for row in cur.fetchall() if _normalize_supplier_name_key(row.get("name") or "") == name_key), None)
     if existing:
         cur.execute("""
             UPDATE suppliers SET

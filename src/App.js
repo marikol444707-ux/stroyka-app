@@ -2134,7 +2134,15 @@ function App() {
     let supplierId = newInvoice.supplierId;
     let resolvedSupplierName = suppliers.find(s=>s.id===Number(supplierId))?.name || '';
     if (newInvoice.isNewSupplier && newInvoice.newSupplierName) {
-      const normalizeSupplierName = value => String(value||'').toLowerCase().replace(/[.,;:()«»"'`/\\]+/g,' ').replace(/\s+/g,' ').trim();
+      const normalizeSupplierName = value => String(value||'')
+        .toLowerCase()
+        .replace(/ё/g,'е')
+        .replace(/(?:,|\s)\s*(инн|кпп|огрн|огрнип|тел\.?|телефон|р\/с|расч[её]тн|адрес)\b.*$/g,' ')
+        .replace(/\b(инн|кпп|огрн|огрнип)\s*[:№#-]?\s*\d+\b/g,' ')
+        .replace(/\b(ооо|оао|ао|пао|зао|ип|индивидуальный предприниматель)\b/g,' ')
+        .replace(/[.,;:()«»"'`/\\]+/g,' ')
+        .replace(/\s+/g,' ')
+        .trim();
       const existingSupplier = suppliers.find(s=>normalizeSupplierName(s.name)===normalizeSupplierName(newInvoice.newSupplierName));
       if (existingSupplier) {
         supplierId = existingSupplier.id;

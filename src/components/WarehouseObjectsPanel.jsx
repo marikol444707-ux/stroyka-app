@@ -97,8 +97,18 @@ export default function WarehouseObjectsPanel({
     item.workPackage || item.work_package || '',
     item.unit || '',
   ].join('|||');
-  const selectedTransferItems = React.useMemo(() => {
-    const explicitItems = Array.isArray(newTransfer.items) ? newTransfer.items : [];
+  const normalizeTransferItems = React.useCallback((items = []) => (
+    (Array.isArray(items) ? items : [])
+      .map(item => ({
+        materialName: item.materialName || item.name || '',
+        quantity: item.quantity ?? '',
+        unit: item.unit || 'шт',
+        workPackage: item.workPackage || item.work_package || '',
+      }))
+      .filter(item => item.materialName)
+  ), []);
+  const transferItemsFromState = React.useCallback((transfer = {}) => {
+    const explicitItems = Array.isArray(transfer.items) ? transfer.items : [];
     const cleaned = explicitItems
       .map(item => ({
         materialName: item.materialName || item.name || '',
@@ -108,31 +118,31 @@ export default function WarehouseObjectsPanel({
       }))
       .filter(item => item.materialName);
     if (cleaned.length > 0) return cleaned;
-    if (!newTransfer.materialName) return [];
+    if (!transfer.materialName) return [];
     return [{
-      materialName: newTransfer.materialName,
-      quantity: newTransfer.quantity,
-      unit: newTransfer.unit || 'шт',
-      workPackage: newTransfer.workPackage || '',
+      materialName: transfer.materialName,
+      quantity: transfer.quantity,
+      unit: transfer.unit || 'шт',
+      workPackage: transfer.workPackage || '',
     }];
-  }, [newTransfer]);
-  const updateTransferItems = React.useCallback((items) => {
-    const normalizedItems = items.map(item => ({
-      materialName: item.materialName || item.name || '',
-      quantity: item.quantity ?? '',
-      unit: item.unit || 'шт',
-      workPackage: item.workPackage || item.work_package || '',
-    })).filter(item => item.materialName);
-    const first = normalizedItems[0] || {materialName: '', quantity: '', unit: 'шт', workPackage: ''};
-    setNewTransfer({
-      ...newTransfer,
-      items: normalizedItems,
-      materialName: first.materialName,
-      quantity: first.quantity,
-      unit: first.unit || 'шт',
-      workPackage: normalizedItems.length === 1 ? (first.workPackage || '') : '',
+  }, []);
+  const selectedTransferItems = React.useMemo(() => transferItemsFromState(newTransfer), [newTransfer, transferItemsFromState]);
+  const updateTransferItems = React.useCallback((itemsOrUpdater) => {
+    setNewTransfer(prev => {
+      const currentItems = transferItemsFromState(prev);
+      const nextItemsRaw = typeof itemsOrUpdater === 'function' ? itemsOrUpdater(currentItems) : itemsOrUpdater;
+      const normalizedItems = normalizeTransferItems(nextItemsRaw);
+      const first = normalizedItems[0] || {materialName: '', quantity: '', unit: 'шт', workPackage: ''};
+      return {
+        ...prev,
+        items: normalizedItems,
+        materialName: first.materialName,
+        quantity: first.quantity,
+        unit: first.unit || 'шт',
+        workPackage: normalizedItems.length === 1 ? (first.workPackage || '') : '',
+      };
     });
-  }, [newTransfer, setNewTransfer]);
+  }, [normalizeTransferItems, setNewTransfer, transferItemsFromState]);
   const transferPackageOptions = selectedWarehouseProject
     ? (getProjectWorkPackageOptions
       ? getProjectWorkPackageOptions(selectedWarehouseProject)
@@ -454,9 +464,10 @@ export default function WarehouseObjectsPanel({
                         workPackage: material.workPackage || material.work_package || '',
                         quantity: '',
                       };
-                      updateTransferItems(event.target.checked
-                        ? [...selectedTransferItems, item]
-                        : selectedTransferItems.filter(row => transferItemKey(row) !== transferItemKey(item)));
+                      updateTransferItems(currentItems => {
+                        const existing = (currentItems || []).filter(row => transferItemKey(row) !== transferItemKey(item));
+                        return event.target.checked ? [...existing, item] : existing;
+                      });
                     }}
                     style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                   />
@@ -549,7 +560,7 @@ export default function WarehouseObjectsPanel({
                 const staffRow = rawValue.startsWith('user:') ? (staff || []).find(item => String(item.id) === rawValue.slice(5)) : null;
                 const requesterRow = !staffRow ? (staff || []).find(item => item.name === rawValue) : null;
                 const personRow = staffRow || requesterRow;
-                setNewTransfer({ ...newTransfer, toPerson: personRow ? personRow.name : rawValue, toPersonRole: personRow ? personRow.role : '', toUserId: personRow ? personRow.id : '' });
+                setNewTransfer(prev => ({ ...prev, toPerson: personRow ? personRow.name : rawValue, toPersonRole: personRow ? personRow.role : '', toUserId: personRow ? personRow.id : '' }));
               }}
               style={inp}
             >
