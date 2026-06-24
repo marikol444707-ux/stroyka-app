@@ -3,6 +3,7 @@ import { Bot, Check, Eye } from 'lucide-react';
 import { API } from '../api';
 import { aiActionButtonStyle, footerActionsStyle, formLabelStyle, formSectionStyle, infoPanelStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, smallIconButtonStyle, summaryValueStyle, threeColumnGridStyle, twoColumnGridStyle } from '../utils/modalStyles';
 import { AiNotice, ModalHeaderActions, ModalTitleBlock, SummaryCell, TextareaField } from './common/ModalParts';
+import PhotoAttachmentField from './PhotoAttachmentField';
 
 export default function ProjectWorkJournalEditModal({
   journal,
@@ -21,6 +22,9 @@ export default function ProjectWorkJournalEditModal({
   btnB,
   btnG,
   btnO,
+  appendPhotos,
+  fileSrc,
+  setShowPhotoModal,
   aiNotice,
   aiNoticeIcon,
   aiNoticeText,
@@ -78,6 +82,7 @@ export default function ProjectWorkJournalEditModal({
       projectDocs: journal.projectDocs || '',
       sectionName: journal.sectionName || '',
       hiddenWork: !!journal.hiddenWork,
+      photoUrl: journal.photoUrl || '',
     };
     const res = await fetch(API + '/work-journal/' + journal.id, {
       method: 'PUT',
@@ -213,6 +218,20 @@ export default function ProjectWorkJournalEditModal({
               placeholder="Замечания, особенности производства работ, ссылки на акты"
               inputStyle={inp}
               labelStyle={labelStyle}
+            />
+          </div>
+          <div style={sectionStyle}>
+            <PhotoAttachmentField
+              C={C}
+              btnG={btnG}
+              value={journal.photoUrl || ''}
+              onChange={photoUrl => updateJournal('photoUrl', photoUrl)}
+              appendPhotos={appendPhotos}
+              fileSrc={fileSrc}
+              setShowPhotoModal={setShowPhotoModal}
+              projectName={journal.project || ''}
+              context="work-journal"
+              title="Фото работы / помещения"
             />
           </div>
 

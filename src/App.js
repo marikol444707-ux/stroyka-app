@@ -73,6 +73,7 @@ import EstimateSectionHeader from './components/EstimateSectionHeader';
 import EstimateItemGroupHeader from './components/EstimateItemGroupHeader';
 import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsPanel from './components/MaterialNormSuggestionsPanel';
+import PhotoAttachmentField from './components/PhotoAttachmentField';
 import MobileBottomNav from './components/MobileBottomNav';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
 import MobileMenuSheet from './components/MobileMenuSheet';
@@ -584,7 +585,7 @@ function App() {
   const [projectMeasurements, setProjectMeasurements] = useState([]);
   const [measurementRoomDrafts, setMeasurementRoomDrafts] = useState([]);
   const [measurementDraftLoadingId, setMeasurementDraftLoadingId] = useState(null);
-  const [newMeasurementDoc, setNewMeasurementDoc] = useState({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
+  const [newMeasurementDoc, setNewMeasurementDoc] = useState({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',photoUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
   const [showMeasurementForm, setShowMeasurementForm] = useState(false);
   const [uploadingMeasurementDoc, setUploadingMeasurementDoc] = useState(false);
   const [projectLetters, setProjectLetters] = useState([]);
@@ -974,7 +975,7 @@ function App() {
   const [newContract, setNewContract] = useState({masterId:'',masterName:'',contractType:'ГПХ',contractNumber:'',project:'',startDate:'',endDate:''});
   const [newAct, setNewAct] = useState({masterId:'',masterName:'',project:'',workPackage:'',periodStart:'',periodEnd:''});
   const [newTool, setNewTool] = useState({name:'',inventoryNumber:'',cost:'',status:'На складе',location:'Основной склад',project:'',masterId:'',masterName:'',issueType:'',notes:''});
-  const [newRoom, setNewRoom] = useState({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',notes:''});
+  const [newRoom, setNewRoom] = useState({project:'',name:'',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''});
   const [newWindow, setNewWindow] = useState({roomId:'',name:'Окно 1',width:'',height:'',windowType:'ПВХ',revealDepth:'',revealMaterial:'Штукатурка'});
   const [newDoor, setNewDoor] = useState({roomId:'',name:'Дверь 1',width:'',height:'',doorType:'Деревянная',doorPurpose:'Межкомнатная',revealDepth:'',revealMaterial:'Штукатурка'});
   const [newInventory, setNewInventory] = useState({project:'',date:'',notes:''});
@@ -1062,7 +1063,7 @@ function App() {
   const [newCompanyDoc, setNewCompanyDoc] = useState({name:'',docType:'Устав',fileUrl:'',expiresAt:''});
   const [companyReqForm, setCompanyReqForm] = useState({fullName:'',shortName:'',inn:'',kpp:'',ogrn:'',legalAddress:'',actualAddress:'',phone:'',email:'',directorName:'',directorPosition:'Генеральный директор',basis:'Устава',bankName:'',bik:'',rs:'',ks:''});
   const [profileData, setProfileData] = useState({fullName:'',passport:'',inn:'',contractType:'ГПХ',bankAccount:'',bankName:'',phone:'',specialization:'',ogrnip:''});
-  const [newLead, setNewLead] = useState({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});
+  const [newLead, setNewLead] = useState({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый',photoUrl:''});
   const [newTbEntry, setNewTbEntry] = useState({project:'',type:'Вводный инструктаж',participants:[],date:'',program:'',instructionText:'',aiLoading:false});
   const [newParticipant, setNewParticipant] = useState('');
   const sidebarRef = useRef(null);
@@ -3250,7 +3251,7 @@ function App() {
   };
 
   const saveLead = async (lead) => {
-    const body = {name:lead.name||'',phone:lead.phone||'',email:lead.email||'',source:lead.source||'',budget:Number(lead.budget)||0,notes:lead.notes||'',stage:lead.stage||'Новый'};
+    const body = {name:lead.name||'',phone:lead.phone||'',email:lead.email||'',source:lead.source||'',budget:Number(lead.budget)||0,notes:lead.notes||'',stage:lead.stage||'Новый',photoUrl:lead.photoUrl||''};
     if (lead.id) {
       await fetch(API+'/crm-leads/'+lead.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     } else {
@@ -9716,12 +9717,13 @@ function App() {
         workPackage: estimatePackage(est),
         estimateItemName: mi.name,
         estimateItemKey: workKey,
-        contractItemId: mi.contractItemId || null,
-        customerPricePerUnit,
-        customerTotal: deltaQty * customerPricePerUnit,
+	        contractItemId: mi.contractItemId || null,
+	        customerPricePerUnit,
+	        customerTotal: deltaQty * customerPricePerUnit,
         executionPricePerUnit,
         executionTotal: deltaQty * executionPricePerUnit,
         executionPriceMode,
+        photoUrl: params.photoUrl || '',
       }},
     };
     const res = await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
@@ -10590,14 +10592,14 @@ function App() {
 
   const saveRoom = async () => {
     if (!newRoom.name||!newRoom.project) return;
-    const data = {project:newRoom.project,name:newRoom.name,floor:Number(newRoom.floor)||1,liter:newRoom.liter||'',roomType:newRoom.roomType||'Комната',floorArea:Number(newRoom.floorArea)||0,wallArea:Number(newRoom.wallArea)||0,ceilingArea:Number(newRoom.ceilingArea)||0,height:Number(newRoom.height)||0,ceilingType:newRoom.ceilingType,wallMaterial:newRoom.wallMaterial,floorMaterial:newRoom.floorMaterial,windows:0,doors:0,notes:newRoom.notes};
+    const data = {project:newRoom.project,name:newRoom.name,floor:Number(newRoom.floor)||1,liter:newRoom.liter||'',roomType:newRoom.roomType||'Комната',floorArea:Number(newRoom.floorArea)||0,wallArea:Number(newRoom.wallArea)||0,ceilingArea:Number(newRoom.ceilingArea)||0,height:Number(newRoom.height)||0,ceilingType:newRoom.ceilingType,wallMaterial:newRoom.wallMaterial,floorMaterial:newRoom.floorMaterial,windows:0,doors:0,photoUrl:newRoom.photoUrl||'',notes:newRoom.notes};
     if (editingItem) {
       await fetch(API+'/rooms/'+editingItem.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     } else {
       if(newRoom.roomType&&!['Комната','Кабинет','Коридор','Санузел','Кухня','Балкон','Лестница','Холл','Техническое'].includes(newRoom.roomType)){const updated=[...new Set([...customRoomTypes,newRoom.roomType])];setCustomRoomTypes(updated);localStorage.setItem('customRoomTypes',JSON.stringify(updated));}
       await fetch(API+'/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     }
-    await refreshData(); setNewRoom({project:'',name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',notes:''}); setEditingItem(null); setShowRoomForm(false);
+    await refreshData(); setNewRoom({project:'',name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''}); setEditingItem(null); setShowRoomForm(false);
   };
 
   const deleteRoom = async (id) => { if (window.confirm('Удалить?')) { await fetch(API+'/rooms/'+id,{method:'DELETE'}); await refreshData(); } };
@@ -12089,6 +12091,9 @@ function App() {
         btnB={btnB}
         btnG={btnG}
         btnO={btnO}
+        appendPhotos={appendPhotos}
+        fileSrc={fileSrc}
+        setShowPhotoModal={setShowPhotoModal}
         aiNotice={aiNotice}
         aiNoticeIcon={aiNoticeIcon}
         aiNoticeText={aiNoticeText}
@@ -12720,9 +12725,9 @@ function App() {
                             ? [C.danger,C.dangerLight,C.dangerBorder]
                             : [C.textSec,C.bgGray,C.border];
                       const saveMeasurement = async () => {
-                        if (!newMeasurementDoc.title.trim() && !newMeasurementDoc.fileUrl) { alert('Укажите название или загрузите файл'); return; }
+                        if (!newMeasurementDoc.title.trim() && !newMeasurementDoc.fileUrl && !newMeasurementDoc.photoUrl) { alert('Укажите название или загрузите файл/фото'); return; }
                         await fetch(API+'/project-measurements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newMeasurementDoc,projectName:p.name,roomsCreated:Number(newMeasurementDoc.roomsCreated||0),uploadedBy:user.name})});
-                        setNewMeasurementDoc({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
+                        setNewMeasurementDoc({sourceType:'Фактический ручной',docType:'Обмер',title:'',fileUrl:'',photoUrl:'',status:'Черновик',roomsCreated:'0',notes:''});
                         setShowMeasurementForm(false);
                         await refreshData();
                       };
@@ -12784,6 +12789,23 @@ function App() {
                               <input type='file' accept='.pdf,.doc,.docx,.xls,.xlsx,image/*' style={{display:'none'}} onChange={async e=>{const f=e.target.files[0];if(!f)return;setUploadingMeasurementDoc(true);const url=await uploadPhoto(f,{projectName:p.name,context:'project-measurements'});setUploadingMeasurementDoc(false);if(url)setNewMeasurementDoc(prev=>({...prev,fileUrl:url,title:prev.title||f.name}));}}/>
                             </label>
                           </div>
+                          <div style={{marginTop:'8px'}}>
+                            <PhotoAttachmentField
+                              C={C}
+                              btnG={btnG}
+                              value={newMeasurementDoc.photoUrl || ''}
+                              onChange={photoUrl => {
+                                const firstPhoto = String(photoUrl || '').split(',').map(url => url.trim()).filter(Boolean)[0] || '';
+                                setNewMeasurementDoc(prev => ({...prev, photoUrl, fileUrl: prev.fileUrl || firstPhoto, title: prev.title || (firstPhoto ? 'Фото обмера' : '')}));
+                              }}
+                              appendPhotos={appendPhotos}
+                              fileSrc={fileSrc}
+                              setShowPhotoModal={setShowPhotoModal}
+                              projectName={p.name}
+                              context="project-measurements"
+                              title="Фото/сканы листов замеров"
+                            />
+                          </div>
                           <textarea placeholder="Комментарий: откуда взяты объёмы, что нужно проверить, какие помещения создать" value={newMeasurementDoc.notes} onChange={e=>setNewMeasurementDoc({...newMeasurementDoc,notes:e.target.value})} style={{...inp,minHeight:'70px',resize:'vertical',marginTop:'8px'}}/>
                           <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
                             <button onClick={saveMeasurement} style={btnO}><Check size={14}/>Сохранить</button>
@@ -12810,6 +12832,7 @@ function App() {
                         {docs.map(doc=>{
                           const sm=statusMeta(doc.status);
                           const docDrafts = drafts.filter(d=>Number(d.measurementId)===Number(doc.id));
+                          const docPhotos = String(doc.photoUrl || '').split(',').map(url=>url.trim()).filter(Boolean);
                           return (<div key={doc.id} style={{...card,padding:'14px',marginBottom:'10px',borderLeft:'4px solid '+sm[0]}}>
                             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                               <div style={{flex:1,minWidth:'220px'}}>
@@ -12820,6 +12843,7 @@ function App() {
                                 <b style={{color:C.text,fontSize:'13px',display:'block'}}>{doc.title||doc.docType}</b>
                                 <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0'}}>{(doc.uploadedBy?'Загрузил: '+doc.uploadedBy:'')+(doc.createdAt?' · '+String(doc.createdAt).slice(0,10):'')+(doc.roomsCreated?(' · помещений: '+doc.roomsCreated):'')}</p>
                                 {doc.notes&&<p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0',lineHeight:1.45}}>{doc.notes}</p>}
+                                {docPhotos.length>0&&<div style={{display:'flex',gap:'5px',flexWrap:'wrap',marginTop:'8px'}}>{docPhotos.slice(0,6).map((url,index)=><img key={url+index} src={fileSrc(url)} alt='' onClick={()=>setShowPhotoModal(fileSrc(url))} style={{width:'54px',height:'54px',objectFit:'cover',borderRadius:'7px',cursor:'pointer',border:'1px solid '+C.border}}/>)}{docPhotos.length>6&&<span style={{fontSize:'11px',color:C.textSec,alignSelf:'center'}}>+{docPhotos.length-6}</span>}</div>}
                                 {doc.reviewedBy&&<p style={{color:C.success,fontSize:'11px',margin:'4px 0 0'}}>{'Принял: '+doc.reviewedBy}</p>}
                               </div>
                               <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
@@ -13047,10 +13071,10 @@ function App() {
                       />
                     )}
 
-                    {activeProjectTab==='Помещения'&&(<div>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-                        <b style={{color:C.text}}>Помещения</b>
-                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setNewRoom({project:p.name,name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',notes:''});}} style={btnO}><Plus size={14}/>Добавить</button>}
+	                    {activeProjectTab==='Помещения'&&(<div>
+	                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
+	                        <b style={{color:C.text}}>Помещения</b>
+                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setNewRoom({project:p.name,name:'',floor:'',liter:'',roomType:'Комната',floorArea:'',wallArea:'',ceilingArea:'',height:'',ceilingType:'Простой',wallMaterial:'Штукатурка',floorMaterial:'Стяжка',photoUrl:'',notes:''});}} style={btnO}><Plus size={14}/>Добавить</button>}
                       </div>
                       {showRoomForm&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
@@ -13065,9 +13089,20 @@ function App() {
                           <input placeholder="Площадь пола (м2)" type="number" step="any" inputMode="decimal" value={newRoom.floorArea} onChange={e=>setNewRoom({...newRoom,floorArea:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Площадь стен (м2)" type="number" step="any" inputMode="decimal" value={newRoom.wallArea} onChange={e=>setNewRoom({...newRoom,wallArea:e.target.value})} style={{...inp,marginBottom:0}}/>
                           <input placeholder="Площадь потолка (м2)" type="number" step="any" inputMode="decimal" value={newRoom.ceilingArea} onChange={e=>setNewRoom({...newRoom,ceilingArea:e.target.value})} style={{...inp,marginBottom:0}}/>
-                          
-                          
-                          
+                        </div>
+                        <div style={{marginTop:'8px'}}>
+                          <PhotoAttachmentField
+                            C={C}
+                            btnG={btnG}
+                            value={newRoom.photoUrl || ''}
+                            onChange={photoUrl => setNewRoom({...newRoom, photoUrl})}
+                            appendPhotos={appendPhotos}
+                            fileSrc={fileSrc}
+                            setShowPhotoModal={setShowPhotoModal}
+                            projectName={p.name}
+                            context="room-measurements"
+                            title="Фото помещения / лист замера"
+                          />
                         </div>
                         <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={saveRoom} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowRoomForm(false);setEditingItem(null);}} style={btnG}><X size={14}/>Отмена</button></div>
                   </div>)}
@@ -13087,11 +13122,12 @@ function App() {
                         const doorRevTotal=doors.reduce((s,d)=>s+calcDoorReveals(d),0);
                         const isRoomOpen=expandedRoom===room.id;
                         const completeness=roomCompleteness(room);
+                        const roomPhotos=String(room.photoUrl||room.photo_url||'').split(',').map(url=>url.trim()).filter(Boolean);
                         return(<div key={room.id} style={{...card,marginBottom:'10px'}}>
                           <div style={{padding:'14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setExpandedRoom(isRoomOpen?null:room.id)}>
-                            <div><b style={{color:C.text,fontSize:'13px'}}>{room.name}</b>{room.floor&&<span style={{fontSize:'11px',color:C.accent,marginLeft:'6px',padding:'1px 6px',backgroundColor:C.accentLight,borderRadius:'4px'}}>{'Эт.'+room.floor+(room.liter?' Лит.'+room.liter:'')}</span>}{room.roomType&&<span style={{fontSize:'11px',color:C.textSec,marginLeft:'4px'}}>{'· '+room.roomType}</span>}<span style={{...badge(completeness.color,completeness.bg,completeness.border),marginLeft:'6px'}}>{completeness.status}</span><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Пол: '+room.floorArea+'м² · Стены: '+room.wallArea+'м² (чистые: '+netWall+'м²) · Потолок: '+room.ceilingArea+'м² · Высота: '+(room.height||'—')+'м'}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>{'Окна: '+wins.length+'шт · Двери: '+doors.length+'шт'+(winRevTotal>0?' · Откосы окон: '+winRevTotal+'м²':'')+(doorRevTotal>0?' · Откосы дверей: '+doorRevTotal+'м²':'')}</p>{completeness.issues.length>0&&<p style={{color:completeness.color,margin:'3px 0 0',fontSize:'11px',fontWeight:'600'}}>{'Нужно: '+completeness.issues.slice(0,4).join(', ')+(completeness.issues.length>4?' …':'')}</p>}</div>
+                            <div style={{minWidth:0,flex:1}}><b style={{color:C.text,fontSize:'13px'}}>{room.name}</b>{room.floor&&<span style={{fontSize:'11px',color:C.accent,marginLeft:'6px',padding:'1px 6px',backgroundColor:C.accentLight,borderRadius:'4px'}}>{'Эт.'+room.floor+(room.liter?' Лит.'+room.liter:'')}</span>}{room.roomType&&<span style={{fontSize:'11px',color:C.textSec,marginLeft:'4px'}}>{'· '+room.roomType}</span>}<span style={{...badge(completeness.color,completeness.bg,completeness.border),marginLeft:'6px'}}>{completeness.status}</span><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Пол: '+room.floorArea+'м² · Стены: '+room.wallArea+'м² (чистые: '+netWall+'м²) · Потолок: '+room.ceilingArea+'м² · Высота: '+(room.height||'—')+'м'}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>{'Окна: '+wins.length+'шт · Двери: '+doors.length+'шт'+(winRevTotal>0?' · Откосы окон: '+winRevTotal+'м²':'')+(doorRevTotal>0?' · Откосы дверей: '+doorRevTotal+'м²':'')}</p>{roomPhotos.length>0&&<div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginTop:'6px'}}>{roomPhotos.slice(0,4).map((url,index)=><img key={url+index} src={fileSrc(url)} alt='' onClick={e=>{e.stopPropagation();setShowPhotoModal(fileSrc(url));}} style={{width:'44px',height:'44px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',border:'1px solid '+C.border}}/>)}{roomPhotos.length>4&&<span style={{fontSize:'11px',color:C.textSec,alignSelf:'center'}}>+{roomPhotos.length-4}</span>}</div>}{completeness.issues.length>0&&<p style={{color:completeness.color,margin:'3px 0 0',fontSize:'11px',fontWeight:'600'}}>{'Нужно: '+completeness.issues.slice(0,4).join(', ')+(completeness.issues.length>4?' …':'')}</p>}</div>
                             <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                              {isProrab()&&(<><button onClick={e=>{e.stopPropagation();setEditingItem(room);setNewRoom({project:room.project,name:room.name,floor:room.floor||'',liter:room.liter||'',roomType:room.roomType||'Комната',floorArea:room.floorArea,wallArea:room.wallArea,ceilingArea:room.ceilingArea,height:room.height||'',ceilingType:room.ceiling_type||room.ceilingType||'Простой',wallMaterial:room.wall_material||room.wallMaterial||'Штукатурка',floorMaterial:room.floor_material||room.floorMaterial||'Стяжка',notes:room.notes||''});setShowRoomForm(true);}} style={{...btnG,padding:'4px 8px'}}><Edit2 size={11}/></button><button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></>)}
+                              {isProrab()&&(<><button onClick={e=>{e.stopPropagation();setEditingItem(room);setNewRoom({project:room.project,name:room.name,floor:room.floor||'',liter:room.liter||'',roomType:room.roomType||'Комната',floorArea:room.floorArea,wallArea:room.wallArea,ceilingArea:room.ceilingArea,height:room.height||'',ceilingType:room.ceiling_type||room.ceilingType||'Простой',wallMaterial:room.wall_material||room.wallMaterial||'Штукатурка',floorMaterial:room.floor_material||room.floorMaterial||'Стяжка',photoUrl:room.photoUrl||room.photo_url||'',notes:room.notes||''});setShowRoomForm(true);}} style={{...btnG,padding:'4px 8px'}}><Edit2 size={11}/></button><button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></>)}
                               {isRoomOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
                             </div>
                           </div>
@@ -15072,7 +15108,7 @@ function App() {
           )}
 
           {activePage==='crm'&&(
-            <CrmPage C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm} isMobile={isMobile}/>
+            <CrmPage C={C} CRM_STAGES={CRM_STAGES} btnG={btnG} btnO={btnO} btnR={btnR} card={card} createProjectFromLead={createProjectFromLead} deleteLead={deleteLead} editingItem={editingItem} inp={inp} leads={leads} newLead={newLead} saveLead={saveLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm} showForm={showForm} isMobile={isMobile} appendPhotos={appendPhotos} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal}/>
           )}
 
           {activePage==='activitylog'&&(

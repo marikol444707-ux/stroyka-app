@@ -22,12 +22,27 @@ export default function CrmPage({
   setShowForm,
   showForm,
   isMobile = false,
+  appendPhotos,
+  fileSrc,
+  setShowPhotoModal,
 }) {
+  const emptyLead = {name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый',photoUrl:''};
+
   return (
     <div style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
-      <CrmHeader C={C} btnO={btnO} isMobile={isMobile} onNewLead={()=>{setShowForm(!showForm);setEditingItem(null);setNewLead({name:'',phone:'',email:'',source:'',budget:'',notes:'',stage:'Новый'});}}/>
-      {showForm&&(
+      <CrmHeader
+        C={C}
+        btnO={btnO}
+        isMobile={isMobile}
+        onNewLead={() => {
+          setShowForm(!showForm);
+          setEditingItem(null);
+          setNewLead(emptyLead);
+        }}
+      />
+      {showForm && (
         <CrmLeadForm
+          C={C}
           card={card}
           inp={inp}
           btnO={btnO}
@@ -37,11 +52,37 @@ export default function CrmPage({
           setNewLead={setNewLead}
           crmStages={CRM_STAGES}
           editingItem={editingItem}
-          onSave={()=>{saveLead(editingItem?{...newLead,id:editingItem.id}:newLead);setShowForm(false);setEditingItem(null);}}
-          onCancel={()=>{setShowForm(false);setEditingItem(null);}}
+          onSave={() => {
+            saveLead(editingItem ? {...newLead, id: editingItem.id} : newLead);
+            setShowForm(false);
+            setEditingItem(null);
+          }}
+          onCancel={() => {
+            setShowForm(false);
+            setEditingItem(null);
+          }}
+          appendPhotos={appendPhotos}
+          fileSrc={fileSrc}
+          setShowPhotoModal={setShowPhotoModal}
         />
       )}
-      <CrmStageBoard C={C} card={card} btnG={btnG} btnR={btnR} crmStages={CRM_STAGES} leads={leads} saveLead={saveLead} deleteLead={deleteLead} createProjectFromLead={createProjectFromLead} setEditingItem={setEditingItem} setNewLead={setNewLead} setShowForm={setShowForm} isMobile={isMobile}/>
+      <CrmStageBoard
+        C={C}
+        card={card}
+        btnG={btnG}
+        btnR={btnR}
+        crmStages={CRM_STAGES}
+        leads={leads}
+        saveLead={saveLead}
+        deleteLead={deleteLead}
+        createProjectFromLead={createProjectFromLead}
+        setEditingItem={setEditingItem}
+        setNewLead={setNewLead}
+        setShowForm={setShowForm}
+        isMobile={isMobile}
+        fileSrc={fileSrc}
+        setShowPhotoModal={setShowPhotoModal}
+      />
     </div>
   );
 }

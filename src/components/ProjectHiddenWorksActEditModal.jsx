@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Check, Eye, Upload, X } from 'lucide-react';
+import { Bot, Camera, Check, Eye, Image as ImageIcon, Upload, X } from 'lucide-react';
 import { API } from '../api';
 
 export default function ProjectHiddenWorksActEditModal({
@@ -121,14 +121,22 @@ export default function ProjectHiddenWorksActEditModal({
     }
   };
 
-  const uploadActPhoto = async file => {
-    const url = await uploadPhoto(file, {projectName: act.projectName, context: 'hidden-works-acts'});
-    if (url) updateAct('photos', [...photos, url].join(','));
+  const uploadActPhotos = async files => {
+    const next = [...photos];
+    for (const file of Array.from(files || [])) {
+      const url = await uploadPhoto(file, {projectName: act.projectName, context: 'hidden-works-acts'});
+      if (url) next.push(url);
+    }
+    updateAct('photos', next.join(','));
   };
 
-  const uploadCertificate = async file => {
-    const url = await uploadPhoto(file, {projectName: act.projectName, context: 'hidden-works-acts-certificates'});
-    if (url) updateAct('certificates', [...certificates, url].join(','));
+  const uploadCertificates = async files => {
+    const next = [...certificates];
+    for (const file of Array.from(files || [])) {
+      const url = await uploadPhoto(file, {projectName: act.projectName, context: 'hidden-works-acts-certificates'});
+      if (url) next.push(url);
+    }
+    updateAct('certificates', next.join(','));
   };
 
   const removePhoto = index => updateAct('photos', photos.filter((_, itemIndex) => itemIndex !== index).join(','));
@@ -226,10 +234,16 @@ export default function ProjectHiddenWorksActEditModal({
             <div style={sectionStyle}>
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
                 <b style={{color: C.text, fontSize: '13px'}}>📷 Фото скрытых работ ({photos.length})</b>
-                <label style={{...btnB, padding: '5px 10px', fontSize: '12px', cursor: 'pointer'}}>
-                  <Upload size={12}/>Добавить фото
-                  <input type="file" accept="image/*" multiple style={{display: 'none'}} onChange={async event => { for (const file of Array.from(event.target.files)) await uploadActPhoto(file); }}/>
-                </label>
+                <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
+                  <label style={{...btnB, padding: '5px 10px', fontSize: '12px', cursor: 'pointer'}}>
+                    <ImageIcon size={12}/>Галерея
+                    <input type="file" accept="image/*" multiple style={{display: 'none'}} onChange={async event => { await uploadActPhotos(event.target.files); event.target.value = ''; }}/>
+                  </label>
+                  <label style={{...btnB, padding: '5px 10px', fontSize: '12px', cursor: 'pointer'}}>
+                    <Camera size={12}/>Камера
+                    <input type="file" accept="image/*" capture="environment" style={{display: 'none'}} onChange={async event => { await uploadActPhotos(event.target.files); event.target.value = ''; }}/>
+                  </label>
+                </div>
               </div>
               {photos.length === 0 ? (
                 <p style={{color: C.textMuted, fontSize: '12px', margin: 0}}>Фотографий не загружено</p>
@@ -248,10 +262,16 @@ export default function ProjectHiddenWorksActEditModal({
             <div style={sectionStyle}>
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
                 <b style={{color: C.text, fontSize: '13px'}}>📄 Сертификаты и документы ({certificates.length})</b>
-                <label style={{...btnB, padding: '5px 10px', fontSize: '12px', cursor: 'pointer'}}>
-                  <Upload size={12}/>Загрузить файл
-                  <input type="file" accept=".pdf,.xlsx,.xls,.doc,.docx,image/*" multiple style={{display: 'none'}} onChange={async event => { for (const file of Array.from(event.target.files)) await uploadCertificate(file); }}/>
-                </label>
+                <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
+                  <label style={{...btnB, padding: '5px 10px', fontSize: '12px', cursor: 'pointer'}}>
+                    <Upload size={12}/>Файл
+                    <input type="file" accept=".pdf,.xlsx,.xls,.doc,.docx,image/*" multiple style={{display: 'none'}} onChange={async event => { await uploadCertificates(event.target.files); event.target.value = ''; }}/>
+                  </label>
+                  <label style={{...btnB, padding: '5px 10px', fontSize: '12px', cursor: 'pointer'}}>
+                    <Camera size={12}/>Камера
+                    <input type="file" accept="image/*" capture="environment" style={{display: 'none'}} onChange={async event => { await uploadCertificates(event.target.files); event.target.value = ''; }}/>
+                  </label>
+                </div>
               </div>
               {certificates.length === 0 ? (
                 <p style={{color: C.textMuted, fontSize: '12px', margin: 0}}>Файлов не прикреплено</p>

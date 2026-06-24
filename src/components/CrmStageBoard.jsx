@@ -1,7 +1,23 @@
 import React from 'react';
 import { Building2, Edit2, Trash2 } from 'lucide-react';
 
-export default function CrmStageBoard({C, card, btnG, btnR, crmStages, leads, saveLead, deleteLead, createProjectFromLead, setEditingItem, setNewLead, setShowForm, isMobile=false}) {
+export default function CrmStageBoard({
+  C,
+  card,
+  btnG,
+  btnR,
+  crmStages,
+  leads,
+  saveLead,
+  deleteLead,
+  createProjectFromLead,
+  setEditingItem,
+  setNewLead,
+  setShowForm,
+  isMobile = false,
+  fileSrc,
+  setShowPhotoModal,
+}) {
   const useCompactBoard = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const leadsByStage = React.useMemo(() => {
     const grouped = new Map((crmStages || []).map(stage => [stage, []]));
@@ -16,13 +32,33 @@ export default function CrmStageBoard({C, card, btnG, btnR, crmStages, leads, sa
     stage => leadsByStage.get(stage) || [],
     [leadsByStage],
   );
-  const stageBg = (stage) => stage === 'Отказ' ? C.dangerLight : stage === 'Договор' ? C.successLight : C.bg;
-  const stageBorder = (stage) => stage === 'Отказ' ? C.dangerBorder : stage === 'Договор' ? C.successBorder : C.border;
-  const stageText = (stage) => stage === 'Отказ' ? C.danger : stage === 'Договор' ? C.success : C.text;
-  const editLead = (lead) => {
+  const stageBg = stage => stage === 'Отказ' ? C.dangerLight : stage === 'Договор' ? C.successLight : C.bg;
+  const stageBorder = stage => stage === 'Отказ' ? C.dangerBorder : stage === 'Договор' ? C.successBorder : C.border;
+  const stageText = stage => stage === 'Отказ' ? C.danger : stage === 'Договор' ? C.success : C.text;
+  const leadPhotos = lead => String(lead.photoUrl || lead.photo_url || '').split(',').map(url => url.trim()).filter(Boolean);
+  const photoSrc = url => (fileSrc ? fileSrc(url) : url);
+  const editLead = lead => {
     setEditingItem(lead);
     setNewLead({...lead});
     setShowForm(true);
+  };
+  const photoStrip = (lead, limit, size) => {
+    const photos = leadPhotos(lead);
+    if (!photos.length) return null;
+    return (
+      <div style={{display:'flex',gap:size > 48 ? '5px' : '4px',flexWrap:'wrap',marginTop:size > 48 ? '8px' : '6px'}}>
+        {photos.slice(0, limit).map((url,index)=>(
+          <img
+            key={url+index}
+            src={photoSrc(url)}
+            alt=""
+            onClick={()=>setShowPhotoModal&&setShowPhotoModal(photoSrc(url))}
+            style={{width:size+'px',height:size+'px',borderRadius:size > 48 ? '7px' : '6px',objectFit:'cover',cursor:'pointer',border:'1px solid '+C.border}}
+          />
+        ))}
+        {photos.length > limit && <span style={{alignSelf:'center',fontSize:size > 48 ? '11px' : '10px',color:C.textSec}}>+{photos.length-limit}</span>}
+      </div>
+    );
   };
 
   if (useCompactBoard) {
@@ -60,6 +96,7 @@ export default function CrmStageBoard({C, card, btnG, btnR, crmStages, leads, sa
                   {lead.budget && (
                     <p style={{color:C.success,margin:'6px 0 0',fontSize:'13px',fontWeight:700}}>{Number(lead.budget).toLocaleString()} ₽</p>
                   )}
+                  {photoStrip(lead, 4, 52)}
                   <label style={{display:'block',color:C.textMuted,fontSize:'11px',fontWeight:700,margin:'12px 0 5px'}}>Стадия</label>
                   <select
                     value={stage}
@@ -107,6 +144,7 @@ export default function CrmStageBoard({C, card, btnG, btnR, crmStages, leads, sa
               <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px',overflowWrap:'anywhere'}}>{lead.phone+(lead.email?' · '+lead.email:'')}</p>
               {lead.budget&&<p style={{color:C.success,margin:'2px 0',fontSize:'12px',fontWeight:'600'}}>{Number(lead.budget).toLocaleString()+' ₽'}</p>}
               <p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px',overflowWrap:'anywhere'}}>{lead.source}</p>
+              {photoStrip(lead, 3, 44)}
               <div style={{display:'flex',gap:'4px',marginTop:'8px',flexWrap:'wrap'}}>
                 {crmStages.filter(s=>s!==stage).map(s=>(
                   <button key={s} onClick={()=>saveLead({...lead,stage:s})} style={{padding:'2px 8px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'4px',cursor:'pointer',fontSize:'10px',color:C.textSec,flex:'0 0 auto',whiteSpace:'normal'}}>→{s}</button>

@@ -1744,7 +1744,8 @@ def init_db():
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_ai_status VARCHAR(100) DEFAULT 'Не обработано';
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_ai_notes TEXT;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_updated_at TIMESTAMP;
-        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS project_id INT;
+	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS project_id INT;
+	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS photo_url TEXT;
         CREATE TABLE IF NOT EXISTS expense_reports (
             id SERIAL PRIMARY KEY,
             employee_id INT,
@@ -2264,18 +2265,20 @@ def init_db():
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
             source_type VARCHAR(100) DEFAULT 'Фактический обмер',
-            doc_type VARCHAR(100) DEFAULT 'Обмер',
-            title VARCHAR(255),
-            file_url TEXT,
-            status VARCHAR(50) DEFAULT 'Черновик',
+	            doc_type VARCHAR(100) DEFAULT 'Обмер',
+	            title VARCHAR(255),
+	            file_url TEXT,
+	            photo_url TEXT,
+	            status VARCHAR(50) DEFAULT 'Черновик',
             rooms_created INT DEFAULT 0,
             notes TEXT,
             uploaded_by VARCHAR(255),
             reviewed_by VARCHAR(255),
             reviewed_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW()
-        );
-        CREATE INDEX IF NOT EXISTS idx_project_measurements_project ON project_measurements(project_name);
+	        );
+	        ALTER TABLE project_measurements ADD COLUMN IF NOT EXISTS photo_url TEXT;
+	        CREATE INDEX IF NOT EXISTS idx_project_measurements_project ON project_measurements(project_name);
         CREATE INDEX IF NOT EXISTS idx_project_measurements_status ON project_measurements(status);
         CREATE TABLE IF NOT EXISTS measurement_room_drafts (
             id SERIAL PRIMARY KEY,
@@ -2595,11 +2598,12 @@ def init_db():
             email VARCHAR(255),
             source VARCHAR(255),
             budget NUMERIC(14,2) DEFAULT 0,
-            notes TEXT,
-            stage VARCHAR(50) DEFAULT 'Новый',
-            project_id INT,
-            created_by VARCHAR(255),
-            created_at VARCHAR(50)
+	            notes TEXT,
+	            stage VARCHAR(50) DEFAULT 'Новый',
+	            project_id INT,
+	            photo_url TEXT,
+	            created_by VARCHAR(255),
+	            created_at VARCHAR(50)
         );
         CREATE TABLE IF NOT EXISTS work_journal (
             id SERIAL PRIMARY KEY,
@@ -2675,10 +2679,11 @@ def init_db():
             ceiling_type VARCHAR(100),
             wall_material VARCHAR(100),
             floor_material VARCHAR(100),
-            windows INT DEFAULT 0,
-            doors INT DEFAULT 0,
-            notes TEXT
-        );
+	            windows INT DEFAULT 0,
+	            doors INT DEFAULT 0,
+	            photo_url TEXT,
+	            notes TEXT
+	        );
         CREATE TABLE IF NOT EXISTS room_works (
             id SERIAL PRIMARY KEY,
             room_id INT,
@@ -3031,8 +3036,9 @@ def init_db():
         ALTER TABLE rooms ADD COLUMN IF NOT EXISTS room_type VARCHAR(100) DEFAULT 'Комната';
         ALTER TABLE rooms ADD COLUMN IF NOT EXISTS height FLOAT DEFAULT 0;
         ALTER TABLE rooms ADD COLUMN IF NOT EXISTS ceiling_type VARCHAR(100);
-        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS wall_material VARCHAR(100);
-        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor_material VARCHAR(100);
+	        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS wall_material VARCHAR(100);
+	        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor_material VARCHAR(100);
+	        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS photo_url TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS materials_used TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS estimate_id INT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS section_name VARCHAR(255);
@@ -3799,6 +3805,7 @@ class RoomModel(BaseModel):
     floorMaterial: str = "Стяжка"
     windows: int = 0
     doors: int = 0
+    photoUrl: str = ""
     notes: str = ""
 
 class RoomWorkModel(BaseModel):
@@ -11683,8 +11690,8 @@ def get_rooms(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES
                            height,
                            ceiling_type as "ceilingType",
                            wall_material as "wallMaterial",
-                           floor_material as "floorMaterial",
-                           windows,doors,notes,floor,liter,room_type as "roomType"
+	                           floor_material as "floorMaterial",
+	                           windows,doors,photo_url as "photoUrl",notes,floor,liter,room_type as "roomType"
                     FROM rooms"""
     if allowed_projects is not None:
         if not allowed_projects:
@@ -11702,10 +11709,10 @@ def create_room(r: RoomModel, _current_user: dict = Depends(require_roles(*PROJE
     require_project_access(_current_user, r.project)
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("""INSERT INTO rooms (project,name,floor_area,wall_area,ceiling_area,height,ceiling_type,wall_material,floor_material,windows,doors,notes,floor,liter,room_type)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                   RETURNING id,project,name,floor_area as "floorArea",wall_area as "wallArea",ceiling_area as "ceilingArea",height,ceiling_type as "ceilingType",wall_material as "wallMaterial",floor_material as "floorMaterial",windows,doors,notes,floor,liter,room_type as "roomType" """,
-                (r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.height,r.ceilingType,r.wallMaterial,r.floorMaterial,r.windows,r.doors,r.notes,r.floor,r.liter,r.roomType))
+    cur.execute("""INSERT INTO rooms (project,name,floor_area,wall_area,ceiling_area,height,ceiling_type,wall_material,floor_material,windows,doors,photo_url,notes,floor,liter,room_type)
+	                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+	                   RETURNING id,project,name,floor_area as "floorArea",wall_area as "wallArea",ceiling_area as "ceilingArea",height,ceiling_type as "ceilingType",wall_material as "wallMaterial",floor_material as "floorMaterial",windows,doors,photo_url as "photoUrl",notes,floor,liter,room_type as "roomType" """,
+	                (r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.height,r.ceilingType,r.wallMaterial,r.floorMaterial,r.windows,r.doors,r.photoUrl,r.notes,r.floor,r.liter,r.roomType))
     row = cur.fetchone()
     conn.close()
     _run_project_ai_control_safely(r.project, "room:create")
@@ -11719,9 +11726,9 @@ def update_room(id: int, r: RoomModel, _current_user: dict = Depends(require_rol
     require_project_access(_current_user, r.project)
     cur.execute("""UPDATE rooms SET floor=%s,liter=%s,room_type=%s, project=%s,name=%s,
                    floor_area=%s,wall_area=%s,ceiling_area=%s,height=%s,
-                   ceiling_type=%s,wall_material=%s,floor_material=%s,
-                   windows=%s,doors=%s,notes=%s WHERE id=%s""",
-                (r.floor,r.liter,r.roomType,r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.height,r.ceilingType,r.wallMaterial,r.floorMaterial,r.windows,r.doors,r.notes,id))
+	                   ceiling_type=%s,wall_material=%s,floor_material=%s,
+	                   windows=%s,doors=%s,photo_url=%s,notes=%s WHERE id=%s""",
+	                (r.floor,r.liter,r.roomType,r.project,r.name,r.floorArea,r.wallArea,r.ceilingArea,r.height,r.ceilingType,r.wallMaterial,r.floorMaterial,r.windows,r.doors,r.photoUrl,r.notes,id))
     conn.close()
     _run_project_ai_control_safely(r.project, "room:update")
     return {"ok": True}
@@ -15691,14 +15698,15 @@ def update_estimate(id: int, data: dict, _current_user: dict = Depends(require_r
                 materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal
                                (master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
-                                materials_used, estimate_id, section_name, hidden_work, confirmed_by, confirmed_at,
+                                photo_url, materials_used, estimate_id, section_name, hidden_work, confirmed_by, confirmed_at,
                                 work_package, room_id, room_name, surface, estimate_item_name, estimate_item_key,
                                 contract_item_id, customer_price_per_unit, customer_total, execution_price_per_unit, execution_total, execution_price_mode)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                                RETURNING id""",
                             (_current_user.get("id"), _current_user.get("name") or brigade or "(из сметы)", project_name, it.get("name",""), unit, delta, execution_price, round(delta*execution_price,2), today,
                              auto_journal_status,
                              "Авто-запись при изменении doneQuantity по позиции сметы №"+str(id),
+                             journal_params.get("photoUrl") or "",
                              materials_json, id, s.get("name",""), bool(it.get("hiddenWork")), auto_confirmed_by, auto_confirmed_at,
                              work_package_for_journal,
                              room_id,
@@ -16445,9 +16453,9 @@ def get_project_measurements(project_name: str = None, _current_user: dict = Dep
     conn = get_db()
     cur = conn.cursor()
     allowed_projects = visible_project_names(_current_user)
-    select_sql = """SELECT id,project_name,source_type,doc_type,title,file_url,status,rooms_created,notes,
-                           uploaded_by,reviewed_by,reviewed_at,created_at
-                    FROM project_measurements"""
+    select_sql = """SELECT id,project_name,source_type,doc_type,title,file_url,photo_url,status,rooms_created,notes,
+	                           uploaded_by,reviewed_by,reviewed_at,created_at
+	                    FROM project_measurements"""
     if project_name:
         if allowed_projects is not None and project_name not in allowed_projects:
             cur.close(); conn.close()
@@ -16469,13 +16477,14 @@ def get_project_measurements(project_name: str = None, _current_user: dict = Dep
         "docType": r[3] or "Обмер",
         "title": r[4] or "",
         "fileUrl": r[5] or "",
-        "status": r[6] or "Черновик",
-        "roomsCreated": int(r[7] or 0),
-        "notes": r[8] or "",
-        "uploadedBy": r[9] or "",
-        "reviewedBy": r[10] or "",
-        "reviewedAt": str(r[11]) if r[11] else "",
-        "createdAt": str(r[12]) if r[12] else "",
+        "photoUrl": r[6] or "",
+        "status": r[7] or "Черновик",
+        "roomsCreated": int(r[8] or 0),
+        "notes": r[9] or "",
+        "uploadedBy": r[10] or "",
+        "reviewedBy": r[11] or "",
+        "reviewedAt": str(r[12]) if r[12] else "",
+        "createdAt": str(r[13]) if r[13] else "",
     } for r in rows]
 
 @app.post("/project-measurements")
@@ -16485,10 +16494,10 @@ def create_project_measurement(data: dict, _current_user: dict = Depends(require
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""INSERT INTO project_measurements
-                   (project_name,source_type,doc_type,title,file_url,status,rooms_created,notes,uploaded_by)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+	                   (project_name,source_type,doc_type,title,file_url,photo_url,status,rooms_created,notes,uploaded_by)
+	                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (project_name, data.get("sourceType","Фактический обмер"), data.get("docType","Обмер"),
-         data.get("title",""), data.get("fileUrl",""), data.get("status","Черновик"),
+         data.get("title",""), data.get("fileUrl",""), data.get("photoUrl",""), data.get("status","Черновик"),
          int(data.get("roomsCreated") or 0), data.get("notes",""), data.get("uploadedBy","")))
     new_id = cur.fetchone()[0]
     conn.commit()
@@ -16503,9 +16512,10 @@ def update_project_measurement(id: int, data: dict, _current_user: dict = Depend
     fields = {
         "sourceType": "source_type",
         "docType": "doc_type",
-        "title": "title",
-        "fileUrl": "file_url",
-        "status": "status",
+	        "title": "title",
+	        "fileUrl": "file_url",
+	        "photoUrl": "photo_url",
+	        "status": "status",
         "roomsCreated": "rooms_created",
         "notes": "notes",
     }
@@ -16884,17 +16894,17 @@ def delete_salary_payment(id: int, _current_user: dict = Depends(require_roles(*
 def get_crm_leads(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id,name,phone,email,source,budget,notes,stage,created_by,created_at,project_id FROM crm_leads ORDER BY id DESC")
+    cur.execute("SELECT id,name,phone,email,source,budget,notes,stage,created_by,created_at,project_id,photo_url FROM crm_leads ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"name":r[1] or "","phone":r[2] or "","email":r[3] or "","source":r[4] or "","budget":float(r[5] or 0),"notes":r[6] or "","stage":r[7] or "Новый","createdBy":r[8] or "","createdAt":r[9] or "","projectId":r[10]} for r in rows]
+    return [{"id":r[0],"name":r[1] or "","phone":r[2] or "","email":r[3] or "","source":r[4] or "","budget":float(r[5] or 0),"notes":r[6] or "","stage":r[7] or "Новый","createdBy":r[8] or "","createdAt":r[9] or "","projectId":r[10],"photoUrl":r[11] or ""} for r in rows]
 
 @app.post("/crm-leads")
 def create_crm_lead(data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO crm_leads (name,phone,email,source,budget,notes,stage,created_by,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), data.get("createdBy",""), data.get("createdAt","")))
+    cur.execute("INSERT INTO crm_leads (name,phone,email,source,budget,notes,stage,created_by,created_at,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), data.get("createdBy",""), data.get("createdAt",""), data.get("photoUrl","")))
     new_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
@@ -16904,8 +16914,8 @@ def create_crm_lead(data: dict, _current_user: dict = Depends(require_roles(*LEA
 def update_crm_lead(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "менеджер_crm"))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("UPDATE crm_leads SET name=%s,phone=%s,email=%s,source=%s,budget=%s,notes=%s,stage=%s WHERE id=%s",
-        (data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), id))
+    cur.execute("UPDATE crm_leads SET name=%s,phone=%s,email=%s,source=%s,budget=%s,notes=%s,stage=%s,photo_url=%s WHERE id=%s",
+        (data.get("name",""), data.get("phone",""), data.get("email",""), data.get("source",""), data.get("budget") or 0, data.get("notes",""), data.get("stage","Новый"), data.get("photoUrl",""), id))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True}

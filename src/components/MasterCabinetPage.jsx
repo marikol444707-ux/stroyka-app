@@ -23,6 +23,7 @@ import MasterSupplyPage from './MasterSupplyPage';
 import MyExpensesPage from './MyExpensesPage';
 import NotificationsDropdown from './NotificationsDropdown';
 import OwnExpenseFormModal from './OwnExpenseFormModal';
+import PhotoAttachmentField from './PhotoAttachmentField';
 import PreviewModal from './PreviewModal';
 
 export default function MasterCabinetPage(props) {
@@ -641,6 +642,21 @@ export default function MasterCabinetPage(props) {
                             </div>
                           )}
                           {roomCheck && <div style={{ marginTop: '6px', padding: '7px 9px', borderRadius: '8px', border: '1px solid ' + (roomCheck.over > 0 ? C.dangerBorder : C.successBorder), backgroundColor: roomCheck.over > 0 ? C.dangerLight : C.successLight, color: roomCheck.over > 0 ? C.danger : C.success, fontSize: '11px', fontWeight: '600' }}>{roomMeasurementMessage(roomCheck)}</div>}
+                          <div style={{ marginTop: '8px' }}>
+                            <PhotoAttachmentField
+                              C={C}
+                              btnG={btnG}
+                              value={params.photoUrl || ''}
+                              onChange={photoUrl => setEstimateWorkParams(prev => ({ ...prev, [workKey]: { ...(prev[workKey] || {}), photoUrl } }))}
+                              appendPhotos={appendPhotos}
+                              fileSrc={fileSrc}
+                              setShowPhotoModal={setShowPhotoModal}
+                              projectName={project?.name || projectName}
+                              context="work-journal"
+                              title="Фото работы / помещения"
+                              compact
+                            />
+                          </div>
                           {project && (
                             <div style={{ marginTop: '8px', padding: '8px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
@@ -804,7 +820,18 @@ export default function MasterCabinetPage(props) {
                                   return check ? <div style={{ marginBottom: '8px', padding: '8px 10px', borderRadius: '8px', border: '1px solid ' + (check.over > 0 ? C.dangerBorder : C.successBorder), backgroundColor: check.over > 0 ? C.dangerLight : C.successLight, color: check.over > 0 ? C.danger : C.success, fontSize: '11px', fontWeight: '600' }}>{roomMeasurementMessage(check)}</div> : null;
                                 })()}
                                 <input placeholder="Комментарий" value={selectedWorks[item.id]?.comment || ''} onChange={e => setSelectedWorks(prev => ({ ...prev, [item.id]: { ...prev[item.id], comment: e.target.value } }))} style={inp} />
-                                <input type="file" accept="image/*" onChange={async e => { if (e.target.files[0]) { const url = await uploadPhoto(e.target.files[0], { projectName: project?.name, context: 'work-journal' }); setSelectedWorks(prev => ({ ...prev, [item.id]: { ...prev[item.id], photoUrl: url } })); } }} style={{ ...inp, padding: '8px' }} />
+                                <PhotoAttachmentField
+                                  C={C}
+                                  btnG={btnG}
+                                  value={selectedWorks[item.id]?.photoUrl || ''}
+                                  onChange={photoUrl => setSelectedWorks(prev => ({ ...prev, [item.id]: { ...prev[item.id], photoUrl } }))}
+                                  appendPhotos={appendPhotos}
+                                  fileSrc={fileSrc}
+                                  setShowPhotoModal={setShowPhotoModal}
+                                  projectName={project?.name || ''}
+                                  context="work-journal"
+                                  title="Фото работы / помещения"
+                                />
                                 {(() => {
                                   const scopedPackage = userAssignedPackages.length === 1 ? userAssignedPackages[0] : '';
                                   const projectMaterials = project ? materialRowsAvailableForWork(project.name, scopedPackage) : [];
