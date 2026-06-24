@@ -110,7 +110,7 @@ export default function ScanInvoiceModal({
     const selectedAction = 'receive_to_warehouse';
     const sourceType = warehouseTarget === 'object' ? 'scan_project_invoice' : 'scan_main_invoice';
     try {
-      const normalizedPages = await normalizeInvoiceImageFiles(files);
+      const normalizedPages = await normalizeInvoiceImageFiles(files, { maxSide: 2400, quality: 0.9 });
       const images = normalizedPages.map(page => ({
         data: page.base64,
         mimeType: page.mimeType,

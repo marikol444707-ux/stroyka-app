@@ -22949,9 +22949,11 @@ def _parse_ai_json_object(text: str):
                 continue
             seen_attempts.add(attempt)
             try:
-                parsed = json.loads(attempt)
+                parsed = json.loads(attempt, strict=False)
                 if isinstance(parsed, dict):
                     return parsed, ""
+                if isinstance(parsed, list):
+                    return {"items": parsed}, ""
             except Exception as exc:
                 last_error = str(exc)
 
@@ -22976,12 +22978,91 @@ def _parse_ai_json_object(text: str):
                 continue
             seen_attempts.add(attempt)
             try:
-                parsed = json.loads(attempt)
+                parsed = json.loads(attempt, strict=False)
                 if isinstance(parsed, dict):
                     return parsed, ""
+                if isinstance(parsed, list):
+                    return {"items": parsed}, ""
             except Exception as exc:
                 last_error = str(exc)
     return None, last_error or "invalid json"
+
+def _invoice_scan_json_format() -> str:
+    return (
+        "{"
+        "\"documentType\":\"warehouse_invoice|receipt|other\","
+        "\"confidence\":0..1,"
+        "\"pagesCount\":число_страниц,"
+        "\"number\":строка,"
+        "\"date\":\"YYYY-MM-DD или исходная дата\","
+        "\"supplier\":строка,"
+        "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\","
+        "\"vatRate\":0|20|22,"
+        "\"totalBase\":число_без_НДС,"
+        "\"totalVat\":сумма_НДС,"
+        "\"totalWithVat\":итого_с_НДС,"
+        "\"items\":[{"
+        "\"page\":номер_страницы,"
+        "\"sourceText\":короткий_исходный_фрагмент,"
+        "\"article\":артикул_если_есть,"
+        "\"name\":строка,"
+        "\"quantity\":число,"
+        "\"unit\":строка,"
+        "\"vatRate\":0|20|22,"
+        "\"price\":цена_за_единицу_с_НДС_если_НДС_есть_иначе_цена_как_в_документе,"
+        "\"priceWithVat\":цена_за_единицу_с_НДС,"
+        "\"lineTotal\":сумма_строки,"
+        "\"lineTotalWithVat\":сумма_строки_с_НДС"
+        "}]"
+        "}"
+    )
+
+def _repair_invoice_scan_json(client, model: str, answer: str, parse_error: str):
+    raw_answer = (answer or "").strip()
+    if not raw_answer:
+        return None, parse_error or "empty"
+    try:
+        repair_response = client.responses.create(
+            model=model,
+            temperature=0,
+            instructions=(
+                "Ты исправляешь ответ распознавания накладной. Верни только валидный JSON-объект "
+                "без markdown, комментариев и текста вокруг."
+            ),
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "Ниже ответ модели по накладной, который не распарсился как JSON. "
+                                "Преобразуй его в один валидный JSON-объект по схеме. "
+                                "Не добавляй новые товары, которых нет в тексте. Если часть строки оборвана, "
+                                "сохрани только читаемые полноценные позиции, а явно неполные элементы отбрось. "
+                                "Все переносы внутри строк замени пробелами, кавычки экранируй. "
+                                "Если данных по товарам нет, верни documentType \"other\" и пустой items. "
+                                f"Схема: {_invoice_scan_json_format()}\n"
+                                f"Ошибка JSON-парсера: {parse_error or 'invalid json'}\n"
+                                "Ответ модели:\n"
+                                f"{raw_answer[:18000]}"
+                            ),
+                        }
+                    ],
+                }
+            ],
+            max_output_tokens=12000,
+        )
+        repair_answer = repair_response.output_text or ""
+        parsed, repair_error = _parse_ai_json_object(repair_answer)
+        if parsed is not None:
+            return parsed, ""
+        print("SCAN REPAIR FAILED:", repair_error)
+        print("SCAN REPAIR RAW HEAD:", repair_answer[:500])
+        return None, repair_error or parse_error or "invalid repaired json"
+    except Exception as exc:
+        print("SCAN REPAIR ERROR:", str(exc))
+        return None, str(exc)
 
 @app.post("/scan-invoice")
 def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
@@ -23005,29 +23086,23 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
         for idx, image in enumerate(images, start=1):
             content.append({"type": "input_text", "text": f"Страница накладной {idx} из {len(images)}"})
             content.append({"type": "input_image", "image_url": f"data:{image['mimeType']};base64,{image['data']}"})
+        model = f"gpt://{FOLDER_ID}/qwen3.6-35b-a3b/latest"
         content.append({"type": "input_text", "text": (
             "Распознай приходную накладную или товарный чек для склада. Если страниц несколько, это один документ: "
             "объедини позиции со всех страниц в один items, номер/дату/поставщика бери из шапки, итог — с последней страницы или строки итого. "
+            "Документ может быть повернут на 90 или 180 градусов: мысленно поверни страницу и читай таблицу по строкам. "
             "Верни только JSON без markdown. Не путай складскую накладную с личной тратой. Не выдумывай позиции: если строка товара читается плохо, "
-            "заполни confidence меньше 0.6 и sourceText исходным фрагментом до 120 символов. Не вставляй переносы строк внутрь JSON-строк. Если виден только итог без списка товаров, "
-            "верни пустой items и documentType='other'. "
-            "Формат: {"
-            "\"documentType\":\"warehouse_invoice|receipt|other\",\"confidence\":0..1,\"pagesCount\":число_страниц,"
-            "\"number\":строка,\"date\":\"YYYY-MM-DD или исходная дата\",\"supplier\":строка,"
-            "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\",\"vatRate\":0|20|22,"
-            "\"totalBase\":число_без_НДС,\"totalVat\":сумма_НДС,\"totalWithVat\":итого_с_НДС,"
-            "\"items\":[{\"page\":номер_страницы,\"sourceText\":исходная_строка,\"article\":артикул_если_есть,\"name\":строка,\"quantity\":число,\"unit\":строка,"
-            "\"vatRate\":0|20|22,"
-            "\"price\":цена_за_единицу_с_НДС_если_НДС_есть_иначе_цена_как_в_документе,"
-            "\"priceWithVat\":цена_за_единицу_с_НДС,\"lineTotal\":сумма_строки,\"lineTotalWithVat\":сумма_строки_с_НДС}]"
-            "}. Если в документе есть строки 'Итого с НДС', 'Всего с учетом НДС', "
+            "заполни confidence меньше 0.6 и sourceText коротким исходным фрагментом до 60 символов. Не вставляй переносы строк внутрь JSON-строк. "
+            "Для уверенно распознанных строк sourceText можно оставить пустым, чтобы ответ был короче. Если виден только итог без списка товаров, "
+            "верни пустой items и documentType \"other\". "
+            f"Формат: {_invoice_scan_json_format()}. Если в документе есть строки 'Итого с НДС', 'Всего с учетом НДС', "
             "'Всего к оплате' или 'Сумма с НДС' — положи это значение в totalWithVat. "
             "Если есть 'в том числе НДС' — положи сумму в totalVat. Если цена дана без НДС и есть НДС, "
             "посчитай priceWithVat и lineTotalWithVat. Если цена дана только итогом строки, посчитай цену за единицу через количество. "
             "Не округляй крупные суммы до тысяч, не теряй НДС, сохраняй единицы измерения как в документе."
         )})
         response = client.responses.create(
-            model=f"gpt://{FOLDER_ID}/qwen3.6-35b-a3b/latest",
+            model=model,
             temperature=0.1,
             instructions="Ты распознаёшь накладные. Верни только JSON без комментариев и без markdown.",
             input=[
@@ -23036,19 +23111,24 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
                     "content": content
                 }
             ],
-            max_output_tokens=min(12000, 3500 + len(images) * 1400)
+            max_output_tokens=min(12000, 4500 + len(images) * 1900)
         )
         answer = response.output_text or ""
         parsed, parse_error = _parse_ai_json_object(answer)
-        if not parsed:
+        if parsed is None:
             print("SCAN PARSE FAILED:", parse_error)
             print("SCAN RAW LEN:", len(answer))
             print("SCAN RAW HEAD:", answer[:500])
             print("SCAN RAW TAIL:", answer[-500:] if len(answer) > 500 else "")
-            return {
-                "ok": False,
-                "error": "ИИ не смог вернуть корректный JSON по накладной. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.",
-            }
+            parsed, repair_error = _repair_invoice_scan_json(client, model, answer, parse_error)
+            if parsed is not None:
+                print("SCAN REPAIR OK")
+            else:
+                print("SCAN REPAIR FINAL FAILED:", repair_error)
+                return {
+                    "ok": False,
+                    "error": "ИИ не смог вернуть корректный JSON по накладной. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.",
+                }
         page_items = []
         if isinstance(parsed.get("pages"), list):
             for page_idx, page in enumerate(parsed.get("pages") or [], start=1):
