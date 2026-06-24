@@ -32,12 +32,34 @@ export default function ProjectWorkJournalPanel({
   badge,
 }) {
   const projectName = project.name;
+  const [dateFrom, setDateFrom] = React.useState('');
+  const [dateTo, setDateTo] = React.useState('');
   const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? 0);
   const workCustomerTotal = (work) => Number(work?.customerTotal ?? work?.customer_total ?? work?.total ?? 0);
   const projectWorks = workJournal.filter(item => item.project === projectName);
   const unexpectedWorks = projectWorks.filter(item => item.unexpectedWorkId);
   const unexpectedTotal = unexpectedWorks.reduce((sum, item) => sum + workExecutionTotal(item), 0);
-  const filteredWorks = projectWorks.filter(item => matchSearch(listSearch, item.description, item.masterName || item.master_name));
+  const searchValue = String(listSearch || '').trim();
+  const dateMatches = (item) => {
+    const value = String(item.date || '').slice(0, 10);
+    if (dateFrom && value < dateFrom) return false;
+    if (dateTo && value > dateTo) return false;
+    return true;
+  };
+  const filteredWorks = projectWorks.filter(item => (
+    dateMatches(item) && matchSearch(searchValue, item.description, item.masterName || item.master_name, item.roomName, item.sectionName, item.workPackage, item.status)
+  ));
+  const queryMatches = workJournalPage.projectName === projectName
+    && (workJournalPage.search || '') === searchValue
+    && (workJournalPage.dateFrom || '') === dateFrom
+    && (workJournalPage.dateTo || '') === dateTo;
+  React.useEffect(() => {
+    if (typeof loadWorkJournalPage !== 'function') return undefined;
+    const timer = setTimeout(() => {
+      loadWorkJournalPage({projectName, search: searchValue, dateFrom, dateTo, offset: 0});
+    }, searchValue || dateFrom || dateTo ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [projectName, searchValue, dateFrom, dateTo, loadWorkJournalPage]);
 
   const groupedByDate = {};
   filteredWorks.forEach(item => {
@@ -69,14 +91,23 @@ export default function ProjectWorkJournalPanel({
         </div>
       )}
 
-      <div style={{position: 'relative', marginBottom: '10px'}}>
-        <Search size={14} style={{position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted}}/>
-        <input
-          placeholder="🔍 Поиск по работам или мастерам"
-          value={listSearch}
-          onChange={event => setListSearch(event.target.value)}
-          style={{...inp, marginBottom: 0, paddingLeft: '32px', fontSize: '12px', padding: '6px 8px 6px 32px'}}
-        />
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'8px',alignItems:'center',marginBottom:'10px'}}>
+        <div style={{position: 'relative', minWidth: 0}}>
+          <Search size={14} style={{position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted}}/>
+          <input
+            placeholder="🔍 Поиск по работам, мастерам, помещению"
+            value={listSearch}
+            onChange={event => setListSearch(event.target.value)}
+            style={{...inp, marginBottom: 0, paddingLeft: '32px', fontSize: '12px', padding: '6px 8px 6px 32px'}}
+          />
+        </div>
+        <input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} style={{...inp,marginBottom:0,fontSize:'12px',padding:'6px 8px'}} />
+        <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} style={{...inp,marginBottom:0,fontSize:'12px',padding:'6px 8px'}} />
+        {queryMatches && (workJournalPage.loading || workJournalPage.error) && (
+          <p style={{gridColumn:'1 / -1',color:workJournalPage.error ? C.danger : C.textMuted,fontSize:'11px',margin:'-2px 0 0'}}>
+            {workJournalPage.error || 'Ищу записи ЖПР на сервере...'}
+          </p>
+        )}
       </div>
 
       {Object.keys(groupedByDate).sort().reverse().map(date => {
@@ -176,17 +207,17 @@ export default function ProjectWorkJournalPanel({
       {projectWorks.length === 0 && (
         <p style={{color: C.textMuted, textAlign: 'center', padding: '20px'}}>Работ нет</p>
       )}
-      {typeof loadWorkJournalPage === 'function' && workJournalPage.hasMore && (
+      {typeof loadWorkJournalPage === 'function' && queryMatches && workJournalPage.hasMore && (
         <button
           type="button"
-          onClick={() => loadWorkJournalPage({offset: workJournal.length})}
+          onClick={() => loadWorkJournalPage({projectName, search: searchValue, dateFrom, dateTo, offset: filteredWorks.length})}
           disabled={workJournalPage.loading}
           style={{...btnB, width:'100%', justifyContent:'center', marginTop:'12px', opacity:workJournalPage.loading ? 0.65 : 1}}
         >
           {workJournalPage.loading ? 'Загружаю ЖПР...' : 'Загрузить ещё записи ЖПР'}
         </button>
       )}
-      {workJournalPage.error && (
+      {queryMatches && workJournalPage.error && (
         <p style={{color: C.danger, fontSize:'12px', margin:'8px 0 0'}}>{workJournalPage.error}</p>
       )}
     </div>

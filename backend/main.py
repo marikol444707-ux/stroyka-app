@@ -9251,7 +9251,15 @@ def update_supply_history(id: int, data: dict, _current_user: dict = Depends(req
     return {"ok": True}
 
 @app.get("/work-journal")
-def get_work_journal(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
+def get_work_journal(
+    limit: Optional[int] = None,
+    offset: int = 0,
+    project_name: str = "",
+    search: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     select_sql = """SELECT id,master_id as "masterId",master_name as "masterName",project,description,unit,quantity,
@@ -9281,6 +9289,34 @@ def get_work_journal(limit: Optional[int] = None, offset: int = 0, current_user:
     page_sql, page_params = limit_offset_sql(limit, offset)
     package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES and role != "прораб" else []
     scoped_journal_roles = ("прораб", "стройконтроль", "технадзор")
+    project_filter = (project_name or "").strip()
+    search_filter = (search or "").strip()
+    if project_filter:
+        require_project_access(current_user, project_filter)
+
+    def add_runtime_filters(conditions, params):
+        if project_filter:
+            conditions.append("project=%s")
+            params.append(project_filter)
+        if search_filter:
+            conditions.append("""(
+                COALESCE(description, '') ILIKE %s OR
+                COALESCE(master_name, '') ILIKE %s OR
+                COALESCE(project, '') ILIKE %s OR
+                COALESCE(comment, '') ILIKE %s OR
+                COALESCE(room_name, '') ILIKE %s OR
+                COALESCE(section_name, '') ILIKE %s OR
+                COALESCE(work_package, '') ILIKE %s OR
+                COALESCE(status, '') ILIKE %s
+            )""")
+            params.extend([f"%{search_filter}%"] * 8)
+        if date_from:
+            conditions.append("date >= %s")
+            params.append(date_from)
+        if date_to:
+            conditions.append("date <= %s")
+            params.append(date_to)
+
     if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names:
         cur.close(); conn.close()
         return []
@@ -9297,6 +9333,7 @@ def get_work_journal(limit: Optional[int] = None, offset: int = 0, current_user:
         if role in PACKAGE_LIMIT_ROLES and package_names:
             conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
             params.append(package_names)
+        add_runtime_filters(conditions, params)
         if conditions:
             cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
         else:
@@ -9309,13 +9346,17 @@ def get_work_journal(limit: Optional[int] = None, offset: int = 0, current_user:
         params = [current_user.get("id"), current_user.get("name") or ""]
         conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
         params.append(package_names)
+        add_runtime_filters(conditions, params)
         cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
     elif role == "заказчик":
         projects = user_project_names(current_user)
         if not projects:
             cur.close(); conn.close()
             return []
-        cur.execute(select_sql + " WHERE project = ANY(%s) AND status='Подтверждено' ORDER BY id DESC" + page_sql, [projects] + page_params)
+        conditions = ["project = ANY(%s)", "status='Подтверждено'"]
+        params = [projects]
+        add_runtime_filters(conditions, params)
+        cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC" + page_sql, params + page_params)
     else:
         cur.close(); conn.close()
         return []

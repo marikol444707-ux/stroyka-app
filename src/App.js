@@ -641,7 +641,7 @@ function App() {
   const [materialsPage, setMaterialsPage] = useState({projectName:'', search:'', hasMore:false, loading:false, error:''});
   const [materialNormSearch, setMaterialNormSearch] = useState('');
   const [materialNormsPage, setMaterialNormsPage] = useState({search:'', hasMore:false, loading:false, error:''});
-  const [workJournalPage, setWorkJournalPage] = useState({hasMore:false, loading:false, error:''});
+  const [workJournalPage, setWorkJournalPage] = useState({projectName:'', search:'', dateFrom:'', dateTo:'', hasMore:false, loading:false, error:''});
   const [materialAliases, setMaterialAliases] = useState([]);
   const [materialNormOverrides, setMaterialNormOverrides] = useState([]);
   const [materialNormSuggestions, setMaterialNormSuggestions] = useState([]);
@@ -1109,20 +1109,38 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadWorkJournalPage = useCallback(async ({offset = 0} = {}) => {
-    setWorkJournalPage(prev => ({...prev, loading:true, error:''}));
+  const workJournalPageState = ({projectName = '', search = '', dateFrom = '', dateTo = '', rows = [], loading = false, error = ''} = {}) => ({
+    projectName,
+    search,
+    dateFrom,
+    dateTo,
+    hasMore: Array.isArray(rows) && rows.length === WORK_JOURNAL_PAGE_LIMIT,
+    loading,
+    error,
+  });
+
+  const loadWorkJournalPage = useCallback(async ({projectName = '', search = '', dateFrom = '', dateTo = '', offset = 0} = {}) => {
+    setWorkJournalPage(prev => ({...prev, projectName, search, dateFrom, dateTo, loading:true, error:''}));
     try {
       const data = await getApi(pagedPath('/work-journal', {
+        project_name: projectName,
+        search,
+        date_from: dateFrom,
+        date_to: dateTo,
         limit: WORK_JOURNAL_PAGE_LIMIT,
         offset,
       }), []);
       const rows = Array.isArray(data) ? data : [];
       setWorkJournal(prev => mergeRowsById(prev, rows));
-      setWorkJournalPage({
-        hasMore: rows.length === WORK_JOURNAL_PAGE_LIMIT,
+      setWorkJournalPage(workJournalPageState({
+        projectName,
+        search,
+        dateFrom,
+        dateTo,
+        rows,
         loading:false,
         error:'',
-      });
+      }));
       return rows;
     } catch (e) {
       setWorkJournalPage(prev => ({...prev, loading:false, error:'Не удалось загрузить ЖПР'}));
@@ -1130,6 +1148,22 @@ function App() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const resetWorkJournalPage = (rows = []) => {
+    setWorkJournalPage(workJournalPageState({
+      rows,
+      loading:false,
+      error:'',
+    }));
+  };
+
+  const resetMaterialNormsPage = (rows = []) => {
+    setMaterialNormsPage({search:'', hasMore:Array.isArray(rows) && rows.length === MATERIAL_NORMS_PAGE_LIMIT, loading:false, error:''});
+  };
+
+  const resetMaterialsPage = (rows = []) => {
+    setMaterialsPage({projectName:'', search:'', hasMore:Array.isArray(rows) && rows.length === MATERIALS_PAGE_LIMIT, loading:false, error:''});
+  };
 
   useEffect(() => {
     if (!user || activePage !== 'estimates' || estimatesTab !== 'norms') return undefined;
@@ -1171,7 +1205,7 @@ function App() {
     setProjectPayments(Array.isArray(pp)?pp:[]);
     setWarehouseMain(Array.isArray(wm)?wm:[]);
     setWorkJournal(Array.isArray(wj)?wj:[]);
-    setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});
+    resetWorkJournalPage(wj);
     setInitialDataLoaded(true);
   });
 
@@ -1220,7 +1254,7 @@ function App() {
       ]);
       setProjects(Array.isArray(p)?p:[]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
-      setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});
+      resetWorkJournalPage(wj);
       setMaterialTransfers(Array.isArray(mt)?mt:[]);
       setRooms(Array.isArray(ro)?ro:[]); setRoomWorks(Array.isArray(rw)?rw:[]);
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
@@ -1246,7 +1280,7 @@ function App() {
         (isInternalRole || isFinanceRole) ? getApi('/brigade-payments') : Promise.resolve([]),
       ]);
       setEstimatesList(normalizeEstimateList(est)); setPricelists(Array.isArray(pl)?pl:[]);
-      setMaterialNorms(Array.isArray(mn)?mn:[]); setMaterialNormsPage({search:'', hasMore:Array.isArray(mn) && mn.length === MATERIAL_NORMS_PAGE_LIMIT, loading:false, error:''}); setMaterialAliases(Array.isArray(ma)?ma:[]);
+      setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn); setMaterialAliases(Array.isArray(ma)?ma:[]);
       setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       setAllBrigadePayments(Array.isArray(abp)?abp:[]);
@@ -1263,7 +1297,7 @@ function App() {
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
         (canSeeProjectDocs || isWarehouseRole) ? getApi('/cable-journal') : Promise.resolve([]),
       ]);
-      setMaterials(Array.isArray(m)?m:[]); setMaterialsPage({projectName:'', search:'', hasMore:Array.isArray(m) && m.length === MATERIALS_PAGE_LIMIT, loading:false, error:''}); setInvoices(Array.isArray(winv)?winv:[]);
+      setMaterials(Array.isArray(m)?m:[]); resetMaterialsPage(m); setInvoices(Array.isArray(winv)?winv:[]);
       setWarehouseMain(Array.isArray(wm)?wm:[]); setWarehouseMovements(Array.isArray(wmov)?wmov:[]);
       setHistory(Array.isArray(h)?h:[]); setWarehouses(Array.isArray(wh)?wh:[]);
       setMaterialTransfers(Array.isArray(mt)?mt:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
@@ -1335,7 +1369,7 @@ function App() {
 	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
       ]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
-      setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});
+      resetWorkJournalPage(wj);
       setHistory(Array.isArray(h)?h:[]);
       setMaterialTransfers(Array.isArray(mt)?mt:[]);
     });
@@ -1365,7 +1399,7 @@ function App() {
       setProjectPayments(Array.isArray(pp)?pp:[]);
       setManualExpenses(Array.isArray(me)?me:[]);
       setWorkJournal(Array.isArray(wj)?wj:[]);
-      setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});
+      resetWorkJournalPage(wj);
       setEstimatesList(normalizeEstimateList(est));
     });
     if (page === 'settings') return loadMobileScopeOnce('mobile:settings', async () => {
@@ -1476,15 +1510,15 @@ function App() {
         canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
         (isLeadershipRole || isFinanceRole) ? get(pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT})) : skip([]),
       ]);
-      setProjects(p);setClients(c);setMaterials(m);setMaterialsPage({projectName:'', search:'', hasMore:Array.isArray(m) && m.length === MATERIALS_PAGE_LIMIT, loading:false, error:''});setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
+      setProjects(p);setClients(c);setMaterials(m);resetMaterialsPage(m);setInvoices(Array.isArray(winv)?winv:[]);setProjectPayments(Array.isArray(pp)?pp:[]);setAccountablePayments(Array.isArray(acp)?acp:[]);setOwnExpenses(Array.isArray(oe)?oe:[]);setManualExpenses(Array.isArray(me)?me:[]);setWarehouseMain(wm);setWarehouseMovements(wmov);
       setHistory(h);setStaff(s);setPiecework(pw);setUsers(u);setPricelists(pl);
       setInviteCodes(ic);setSuppliers(sup);setSupplyRequests(sr);setSupplierOffers(so);
-      setSupplyHistory(sh);setSupplyDeliveries(Array.isArray(sd)?sd:[]);setSupplyClaims(Array.isArray(sc)?sc:[]);setWorkJournal(wj);setWorkJournalPage({hasMore:Array.isArray(wj) && wj.length === WORK_JOURNAL_PAGE_LIMIT, loading:false, error:''});setMasterProfiles(mp);setContracts(ct);
+      setSupplyHistory(sh);setSupplyDeliveries(Array.isArray(sd)?sd:[]);setSupplyClaims(Array.isArray(sc)?sc:[]);setWorkJournal(wj);resetWorkJournalPage(wj);setMasterProfiles(mp);setContracts(ct);
       setInterimActs(ia);setRooms(ro);setRoomWorks(rw);setTools(tl);setToolHistory(th);
       setInventory(inv);setPdConsents(pdc);setWarehouses(Array.isArray(wh)?wh:[]);
       setCompanyRequisites(cr||{});setCompanyDocuments(Array.isArray(cd)?cd:[]);
       setProjectStages(Array.isArray(ps)?ps:[]);setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);setMaterialNormsPage({search:'', hasMore:Array.isArray(mn) && mn.length === MATERIAL_NORMS_PAGE_LIMIT, loading:false, error:''});setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);setUnexpectedWorksList(Array.isArray(uw)?uw:[]);setEstimatesList(normalizeEstimateList(est));setBrigadeContracts(Array.isArray(bc)?bc:[]);setHiddenActs(Array.isArray(hwa)?hwa:[]);setMaterialInspections(Array.isArray(mij)?mij:[]);setCableJournal(Array.isArray(cbj)?cbj:[]);setSupervisorActs(Array.isArray(sva)?sva:[]);setInspectionOrders(Array.isArray(inspO)?inspO:[]);setExpenseReports(Array.isArray(expR)?expR:[]);setSupplierInvoices(Array.isArray(supI)?supI:[]);setWarrantyDefects(Array.isArray(warD)?warD:[]);setSupplierCatalog(Array.isArray(scat)?scat:[]);setSupplyTemplates(Array.isArray(stpl)?stpl:[]);setAiFindings(Array.isArray(aif)?aif:[]);setAiTasks(Array.isArray(ait)?ait:[]);setMaterialNorms(Array.isArray(mn)?mn:[]);resetMaterialNormsPage(mn);setMaterialAliases(Array.isArray(ma)?ma:[]);setMaterialNormOverrides(Array.isArray(mno)?mno:[]);setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);setAuditLog(Array.isArray(aud)?aud:[]);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
