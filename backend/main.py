@@ -6391,7 +6391,8 @@ def _is_invoice_consumable_material(name: str) -> bool:
         "валик", "ролик", "кисть", "шпатель", "нож", "лезвие", "ведро",
         "ванночка", "лоток", "ручка", "держатель", "скребок", "терка",
         "наждачка", "шкурка", "перчатки", "мешок", "пакет", "пленка",
-        "скотч", "маркер", "карандаш", "канцелярский",
+        "скотч", "маркер", "карандаш", "канцелярский", "лопата", "черенок",
+        "шнур", "бур", "зубило", "планинг",
     }
     return bool(tokens.intersection(consumables))
 
@@ -6606,6 +6607,18 @@ def _material_match_tokens(name: str) -> set[str]:
             tokens.add("карандаш")
         elif stem.startswith("канцеляр"):
             tokens.add("канцелярский")
+        elif stem.startswith("лопат"):
+            tokens.add("лопата")
+        elif stem.startswith("черен"):
+            tokens.add("черенок")
+        elif stem.startswith("шнур"):
+            tokens.add("шнур")
+        elif stem.startswith("бур"):
+            tokens.add("бур")
+        elif stem.startswith("зубил"):
+            tokens.add("зубило")
+        elif stem.startswith("планинг"):
+            tokens.add("планинг")
         else:
             tokens.add(stem)
     return tokens
@@ -6690,7 +6703,7 @@ def _material_name_match_score(left: str, right: str) -> float:
     common = left_tokens.intersection(right_tokens)
     family_score = _material_family_match_score(left_tokens, right_tokens)
     if not common:
-        return family_score
+        return 0.0
     # Типовые накладные часто называют один и тот же материал иначе, чем ГРАНД:
     # "керамогранит" против "гранит керамический", "ГКЛ" против "лист гипсокартонный".
     strong_families = {
@@ -6752,6 +6765,7 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
     fuzzy_matched_rows = 0
     unit_mismatch_matched_rows = 0
     matched_package = package
+    best_match = None
     params = [project]
     package_clause = ""
     # Если пользователь принял накладную/перемещение без явного пакета, не блокируем
@@ -6791,6 +6805,7 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                 fuzzy_match = (not exact_match) and fuzzy_score >= 0.55 and (units_compatible or fuzzy_score >= 0.78)
                 if not exact_match and not fuzzy_match:
                     continue
+                match_score = 1.0 if exact_match else fuzzy_score
                 qty = imported_qty
                 if qty <= 0:
                     qty = raw_qty
@@ -6802,6 +6817,24 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
                     if not units_compatible:
                         unit_mismatch_matched_rows += 1
                 matched_package = est.get("work_package") or package
+                candidate = {
+                    "name": item_name,
+                    "unit": _norm_base_unit(item_unit or "") or item_unit or "",
+                    "workPackage": matched_package,
+                    "score": match_score,
+                    "exact": exact_match,
+                    "unitsCompatible": units_compatible,
+                }
+                candidate_rank = (
+                    1 if candidate["unitsCompatible"] else 0,
+                    1 if candidate["exact"] else 0,
+                    candidate["score"],
+                    len(_material_match_tokens(item_name)),
+                )
+                best_rank = best_match.get("rank") if best_match else None
+                if best_rank is None or candidate_rank > best_rank:
+                    candidate["rank"] = candidate_rank
+                    best_match = candidate
 
     stock_qty = 0.0
     stock_packages = [matched_package]
@@ -6936,7 +6969,43 @@ def _supply_material_estimate_control(cur, project: str, material_name: str, uni
         "requestedWorkPackage": package,
         "matchedByFuzzy": fuzzy_matched_rows,
         "matchedWithDifferentUnit": unit_mismatch_matched_rows,
+        "canonicalName": (best_match or {}).get("name") or "",
+        "canonicalUnit": (best_match or {}).get("unit") or "",
+        "canonicalWorkPackage": (best_match or {}).get("workPackage") or matched_package,
+        "canonicalMatchScore": round(_float_or_zero((best_match or {}).get("score")), 4),
+        "canonicalMatchType": "exact" if (best_match or {}).get("exact") else ("fuzzy" if best_match else ""),
     }
+
+def _canonicalize_invoice_items_from_estimate_control(items: list):
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        control = item.get("estimateControl") or {}
+        if not isinstance(control, dict):
+            continue
+        if _float_or_zero(control.get("matchedRows")) <= 0:
+            continue
+        if _float_or_zero(control.get("matchedWithDifferentUnit")) > 0:
+            continue
+        canonical_name = str(control.get("canonicalName") or "").strip()
+        if not canonical_name:
+            continue
+        raw_name = str(item.get("name") or item.get("materialName") or "").strip()
+        if raw_name and _norm_key_text(raw_name) != _norm_key_text(canonical_name):
+            item.setdefault("invoiceOriginalName", raw_name)
+            item.setdefault("originalName", raw_name)
+            control["invoiceOriginalName"] = raw_name
+            control["canonicalizedForStock"] = True
+        item["name"] = canonical_name
+        item["materialName"] = canonical_name
+        canonical_unit = _norm_base_unit(control.get("canonicalUnit") or item.get("unit") or "") or item.get("unit") or ""
+        if canonical_unit:
+            item["unit"] = canonical_unit
+        canonical_package = _supply_work_package(control.get("canonicalWorkPackage") or control.get("workPackage") or item.get("workPackage") or item.get("work_package"))
+        item["workPackage"] = canonical_package
+        control["workPackage"] = canonical_package
+        item["estimateControl"] = control
+    return items
 
 def _supply_linked_work_estimate_control(cur, project: str, item: dict, work_package: str = ""):
     project = (project or "").strip()
@@ -18107,6 +18176,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
         items_list = normalized_invoice_items
         if target_project:
             items_list = _attach_supply_estimate_control(cur, target_project, items_list)
+            items_list = _canonicalize_invoice_items_from_estimate_control(items_list)
             manual_project_invoice_override = (
                 target_project
                 and source_type.endswith("_project_invoice")

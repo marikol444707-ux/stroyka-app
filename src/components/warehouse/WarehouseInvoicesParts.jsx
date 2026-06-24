@@ -386,6 +386,7 @@ export function WarehouseInvoiceCard({
                       <b style={{fontSize:'12px',color:C.text,overflowWrap:'anywhere'}}>{item.name || ''}</b>
                       {renderControlBadge(ctrl)}
                     </div>
+                    {item.invoiceOriginalName && item.invoiceOriginalName !== item.name && <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Из накладной: {item.invoiceOriginalName}</p>}
                     {ctrl.canonicalName && ctrl.canonicalName !== item.name && <p style={{color:C.info,fontSize:'11px',margin:'2px 0 0'}}>Смета: {ctrl.canonicalName}</p>}
                     {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
                     {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'11px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}
@@ -420,6 +421,7 @@ export function WarehouseInvoiceCard({
                       <tr key={index}>
                         <td style={tblC}>
                           <b style={{fontSize:'11px'}}>{item.name || ''}</b>
+                          {item.invoiceOriginalName && item.invoiceOriginalName !== item.name && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Из накладной: {item.invoiceOriginalName}</p>}
                           {ctrl.canonicalName && ctrl.canonicalName !== item.name && <p style={{color:C.info,fontSize:'10px',margin:'2px 0 0'}}>Смета: {ctrl.canonicalName}</p>}
                           {ctrl.planSourceCount > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>Сгруппировано из {ctrl.planSourceCount} строк сметы</p>}
                           {ctrl.sectionsList?.length > 0 && <p style={{color:C.textMuted,fontSize:'10px',margin:'2px 0 0'}}>{ctrl.sectionsList.slice(0,2).join(' · ')}{ctrl.sectionsList.length > 2 ? '…' : ''}</p>}
