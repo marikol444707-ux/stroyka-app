@@ -35,12 +35,67 @@ export default function AccountingContractsPanel({
   buildContractContent,
   deleteContract,
 }) {
+  const emptyFn = () => {};
+  const canEditFinance = typeof isFinanceRole === 'function' ? isFinanceRole : () => Boolean(isFinanceRole);
+  const searchMatches = typeof matchSearch === 'function'
+    ? matchSearch
+    : (query, ...values) => {
+      const needle = String(query || '').trim().toLowerCase();
+      if (!needle) return true;
+      return values.some(value => String(value || '').toLowerCase().includes(needle));
+    };
+  const personKey = typeof normalizePersonKey === 'function'
+    ? normalizePersonKey
+    : value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const resolvePerformer = (row = {}) => {
+    if (typeof resolveContractPerformer !== 'function') {
+      const name = row.masterName || row.brigadeName || row.performerName || 'Исполнитель не выбран';
+      return { fullName: name, name, contractType: row.contractType || row.contractorType || 'ГПХ' };
+    }
+    try {
+      return resolveContractPerformer(row) || {};
+    } catch (error) {
+      console.warn('Accounting contracts performer resolve failed', error);
+      const name = row.masterName || row.brigadeName || row.performerName || 'Исполнитель не выбран';
+      return { fullName: name, name, contractType: row.contractType || row.contractorType || 'ГПХ' };
+    }
+  };
+  const requisitesWarning = (performer, type) => {
+    if (typeof contractRequisitesWarning !== 'function') return '';
+    try {
+      return contractRequisitesWarning(performer || {}, type || '') || '';
+    } catch (error) {
+      console.warn('Accounting contracts requisites check failed', error);
+      return '';
+    }
+  };
+  const renderBadge = typeof badge === 'function'
+    ? badge
+    : (color, bg, border) => ({ color, backgroundColor: bg, border: '1px solid ' + border, borderRadius: '999px', padding: '4px 8px', fontSize: '11px', fontWeight: 800 });
+  const contractRows = Array.isArray(contracts) ? contracts.filter(Boolean) : [];
+  const brigadeContractRows = Array.isArray(brigadeContracts) ? brigadeContracts.filter(Boolean) : [];
+  const documents = Array.isArray(projectDocuments) ? projectDocuments : [];
+  const brigadePayments = Array.isArray(allBrigadePayments) ? allBrigadePayments : [];
+  const acts = Array.isArray(interimActs) ? interimActs : [];
+  const consents = Array.isArray(pdConsents) ? pdConsents : [];
+  const brigadeItems = Array.isArray(allBrigadeItems) ? allBrigadeItems : [];
+  const projectRows = Array.isArray(projects) ? projects.filter(Boolean) : [];
+  const staffRows = Array.isArray(staff) ? staff.filter(Boolean) : [];
+  const draftContract = newContract || { masterId: '', masterName: '', contractType: 'ГПХ', contractNumber: '', project: '', startDate: '', endDate: '' };
+  const updateDraftContract = typeof setNewContract === 'function' ? setNewContract : emptyFn;
+  const toggleForm = typeof setShowForm === 'function' ? setShowForm : emptyFn;
+  const updateSearch = typeof setListSearch === 'function' ? setListSearch : emptyFn;
+  const openPreview = typeof showPreview === 'function' ? showPreview : emptyFn;
+  const buildPreview = typeof buildContractContent === 'function' ? buildContractContent : () => '<p>Печатная форма договора недоступна</p>';
+  const removeContract = typeof deleteContract === 'function' ? deleteContract : emptyFn;
+  const submitContract = typeof createContract === 'function' ? createContract : emptyFn;
+
   const sourceRows = [
-    ...((contracts || []).map(contract => ({ ...contract, _kind: 'contract', _rowKey: 'contract-' + contract.id, projectName: contract.project }))),
-    ...((brigadeContracts || []).map(contract => ({
+    ...(contractRows.map((contract, index) => ({ ...contract, _kind: 'contract', _rowKey: 'contract-' + (contract.id || index), projectName: contract.project || contract.projectName || '' }))),
+    ...(brigadeContractRows.map((contract, index) => ({
       ...contract,
       _kind: 'brigade',
-      _rowKey: 'brigade-' + contract.id,
+      _rowKey: 'brigade-' + (contract.id || index),
       masterId: contract.contractorId,
       masterName: contract.brigadeName,
       contractType: contract.contractorType,
@@ -54,14 +109,14 @@ export default function AccountingContractsPanel({
 
   const hasClosingDoc = (row, performer, docNeed = '') => {
     const projectName = row.project || row.projectName || '';
-    const nameKey = normalizePersonKey(performer.fullName || row.masterName || row.brigadeName);
-    return (projectDocuments || []).some(document => {
+    const nameKey = personKey(performer.fullName || row.masterName || row.brigadeName);
+    return documents.some(document => {
       if (projectName && document.projectName !== projectName) return false;
       const rawHaystack = [document.counterparty, document.docType, document.number, document.notes].filter(Boolean).join(' ');
-      const haystack = normalizePersonKey(rawHaystack);
+      const haystack = personKey(rawHaystack);
       if (docNeed === 'self-employed-receipt' && !/чек|нпд|самозан|закрыва/i.test(rawHaystack)) return false;
-      if (docNeed && docNeed !== 'self-employed-receipt' && !haystack.includes(normalizePersonKey(docNeed))) return false;
-      return !nameKey || haystack.includes(nameKey) || nameKey.includes(normalizePersonKey(document.counterparty));
+      if (docNeed && docNeed !== 'self-employed-receipt' && !haystack.includes(personKey(docNeed))) return false;
+      return !nameKey || haystack.includes(nameKey) || nameKey.includes(personKey(document.counterparty));
     });
   };
 
@@ -70,7 +125,7 @@ export default function AccountingContractsPanel({
     const type = String(row.contractType || row.contractorType || performer.contractType || '').toLowerCase();
     if (isBrigade) {
       const accrued = Number(row.doneAmount || 0);
-      const paid = (allBrigadePayments || []).filter(payment => Number(payment.contractId) === Number(row.id)).reduce((sum, payment) => sum + Number(payment.amount || 0), 0) || Number(row.paidAmount || 0);
+      const paid = brigadePayments.filter(payment => Number(payment.contractId) === Number(row.id)).reduce((sum, payment) => sum + Number(payment.amount || 0), 0) || Number(row.paidAmount || 0);
       const retention = Math.round(accrued * 0.05);
       const payable = Math.max(0, accrued - retention);
       const owe = Math.max(0, payable - paid);
@@ -80,33 +135,33 @@ export default function AccountingContractsPanel({
       return { accrued, paid, retention, payable, owe, missingDocs };
     }
 
-    const acts = (interimActs || []).filter(act =>
+    const rowActs = acts.filter(act =>
       Number(act.contractId || 0) === Number(row.id)
       || (Number(act.masterId || 0) === Number(row.masterId || 0) && (!row.project || act.project === row.project))
-      || (normalizePersonKey(act.masterName) === normalizePersonKey(row.masterName) && (!row.project || act.project === row.project))
+      || (personKey(act.masterName) === personKey(row.masterName) && (!row.project || act.project === row.project))
     );
-    const accrued = acts.reduce((sum, act) => sum + Number(act.totalAmount || 0), 0);
-    const paid = acts.reduce((sum, act) => sum + Number(act.paidAmount || 0), 0);
+    const accrued = rowActs.reduce((sum, act) => sum + Number(act.totalAmount || 0), 0);
+    const paid = rowActs.reduce((sum, act) => sum + Number(act.paidAmount || 0), 0);
     const retention = Math.round(accrued * 0.05);
     const payable = Math.max(0, accrued - retention);
     const owe = Math.max(0, payable - paid);
     const missingDocs = [];
-    if (acts.some(act => Number(act.totalAmount || 0) > 0 && !act.scanUrl)) missingDocs.push('скан подписанного акта');
+    if (rowActs.some(act => Number(act.totalAmount || 0) > 0 && !act.scanUrl)) missingDocs.push('скан подписанного акта');
     if (paid > 0 && type.includes('самозан') && !hasClosingDoc(row, performer, 'self-employed-receipt')) missingDocs.push('чек НПД');
-    return { accrued, paid, retention, payable, owe, missingDocs, actsCount: acts.length };
+    return { accrued, paid, retention, payable, owe, missingDocs, actsCount: rowActs.length };
   };
 
   const visibleRows = sourceRows.filter(row => {
-    const performer = resolveContractPerformer(row);
-    return matchSearch(listSearch, row.contractNumber, row.project, row.projectName, row.masterName, row.brigadeName, performer.fullName, performer.inn);
+    const performer = resolvePerformer(row);
+    return searchMatches(listSearch, row.contractNumber, row.project, row.projectName, row.masterName, row.brigadeName, performer.fullName, performer.inn);
   });
 
   const groupedRows = (() => {
     const groups = {};
     visibleRows.forEach(row => {
-      const performer = resolveContractPerformer(row);
+      const performer = resolvePerformer(row);
       const finance = rowFinance(row, performer);
-      const key = normalizePersonKey(performer.fullName || row.masterName || row.brigadeName) || row._rowKey;
+      const key = personKey(performer.fullName || row.masterName || row.brigadeName) || row._rowKey;
       if (!groups[key]) {
         groups[key] = {
           key,
@@ -132,19 +187,19 @@ export default function AccountingContractsPanel({
       groups[key].retention += finance.retention;
       groups[key].payable += finance.payable;
       groups[key].owe += finance.owe;
-      const warning = contractRequisitesWarning(performer, row.contractType || row.contractorType);
+      const warning = requisitesWarning(performer, row.contractType || row.contractorType);
       if (warning) groups[key].warnings.add(warning);
       (finance.missingDocs || []).forEach(item => groups[key].missingDocs.add(item));
     });
-    return Object.values(groups).sort((left, right) => left.name.localeCompare(right.name, 'ru'));
+    return Object.values(groups).sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ru'));
   })();
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
         <b style={{ color: C.text, fontSize: '15px', fontWeight: '700' }}>Договоры</b>
-        {isFinanceRole() && (
-          <button onClick={() => setShowForm(!showForm)} style={btnO}>
+        {canEditFinance() && (
+          <button onClick={() => toggleForm(!showForm)} style={btnO}>
             <Plus size={14} />
             Новый договор
           </button>
@@ -154,22 +209,22 @@ export default function AccountingContractsPanel({
         <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <select
-              value={newContract.masterId}
+              value={draftContract.masterId || ''}
               onChange={event => {
                 const masterId = event.target.value;
-                const performer = resolveContractPerformer({ ...newContract, masterId });
-                setNewContract({
-                  ...newContract,
+                const performer = resolvePerformer({ ...draftContract, masterId });
+                updateDraftContract({
+                  ...draftContract,
                   masterId,
-                  masterName: performer.fullName,
-                  contractType: performer.contractType || newContract.contractType,
+                  masterName: performer.fullName || performer.name || '',
+                  contractType: performer.contractType || draftContract.contractType || 'ГПХ',
                 });
               }}
               style={{ ...inp, marginBottom: 0 }}
             >
               <option value="">Выберите исполнителя *</option>
               {(() => {
-                const activeStaff = (staff || []).filter(item => item.status !== 'Уволен' && item.status !== 'Архив' && item.name);
+                const activeStaff = staffRows.filter(item => item.status !== 'Уволен' && item.status !== 'Архив' && item.name);
                 const normalizedRole = role => String(role || '').toLowerCase().replace('_', ' ').trim();
                 const groups = [
                   { label: '👷 Мастера и субподрядчики', match: role => ['мастер', 'субподрядчик', 'бригадир', 'рабочий', 'отделочник', 'электрик', 'сантехник', 'штукатур', 'маляр', 'плиточник', 'каменщик', 'монтажник'].some(key => role.includes(key)) },
@@ -194,20 +249,20 @@ export default function AccountingContractsPanel({
                 });
               })()}
             </select>
-            <select value={newContract.contractType} onChange={event => setNewContract({ ...newContract, contractType: event.target.value })} style={{ ...inp, marginBottom: 0 }}>
+            <select value={draftContract.contractType || 'ГПХ'} onChange={event => updateDraftContract({ ...draftContract, contractType: event.target.value })} style={{ ...inp, marginBottom: 0 }}>
               {['ГПХ', 'ТД', 'Самозанятый', 'ИП', 'ООО', 'Подряд'].map(type => <option key={type}>{type}</option>)}
             </select>
-            <input placeholder="Номер договора *" value={newContract.contractNumber} onChange={event => setNewContract({ ...newContract, contractNumber: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
-            <select value={newContract.project} onChange={event => setNewContract({ ...newContract, project: event.target.value })} style={{ ...inp, marginBottom: 0 }}>
+            <input placeholder="Номер договора *" value={draftContract.contractNumber || ''} onChange={event => updateDraftContract({ ...draftContract, contractNumber: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
+            <select value={draftContract.project || ''} onChange={event => updateDraftContract({ ...draftContract, project: event.target.value })} style={{ ...inp, marginBottom: 0 }}>
               <option value="">Выберите объект *</option>
-              {(projects || []).map(project => <option key={project.id} value={project.name}>{project.name}</option>)}
+              {projectRows.map(project => <option key={project.id || project.name} value={project.name}>{project.name}</option>)}
             </select>
-            <input type="date" placeholder="Начало" value={newContract.startDate} onChange={event => setNewContract({ ...newContract, startDate: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
-            <input type="date" placeholder="Конец" value={newContract.endDate} onChange={event => setNewContract({ ...newContract, endDate: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
+            <input type="date" placeholder="Начало" value={draftContract.startDate || ''} onChange={event => updateDraftContract({ ...draftContract, startDate: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
+            <input type="date" placeholder="Конец" value={draftContract.endDate || ''} onChange={event => updateDraftContract({ ...draftContract, endDate: event.target.value })} style={{ ...inp, marginBottom: 0 }} />
           </div>
-          {newContract.masterId && (() => {
-            const performer = resolveContractPerformer(newContract);
-            const warning = contractRequisitesWarning(performer, newContract.contractType);
+          {draftContract.masterId && (() => {
+            const performer = resolvePerformer(draftContract);
+            const warning = requisitesWarning(performer, draftContract.contractType);
             return warning ? (
               <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '8px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder, color: C.warning, fontSize: '12px', fontWeight: '600' }}>
                 ⚠️ {warning}
@@ -219,11 +274,11 @@ export default function AccountingContractsPanel({
             );
           })()}
           <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-            <button onClick={createContract} style={btnO}>
+            <button onClick={submitContract} style={btnO}>
               <Check size={14} />
               Создать
             </button>
-            <button onClick={() => setShowForm(false)} style={btnG}>
+            <button onClick={() => toggleForm(false)} style={btnG}>
               <X size={14} />
               Отмена
             </button>
@@ -233,7 +288,7 @@ export default function AccountingContractsPanel({
 
       <div style={{ position: 'relative', marginBottom: '12px' }}>
         <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted }} />
-        <input placeholder='🔍 Поиск договора (номер, мастер, объект)' value={listSearch} onChange={event => setListSearch(event.target.value)} style={{ ...inp, marginBottom: 0, paddingLeft: '32px' }} />
+        <input placeholder='🔍 Поиск договора (номер, мастер, объект)' value={listSearch || ''} onChange={event => updateSearch(event.target.value)} style={{ ...inp, marginBottom: 0, paddingLeft: '32px' }} />
       </div>
 
       {groupedRows.length === 0 ? (
@@ -271,7 +326,7 @@ export default function AccountingContractsPanel({
 
             {group.rows.sort((left, right) => String(left.project || '').localeCompare(String(right.project || ''), 'ru')).map(row => {
               const isBrigade = row._kind === 'brigade';
-              const items = isBrigade ? (allBrigadeItems || []).filter(item => Number(item.contractId) === Number(row.id)) : [];
+              const items = isBrigade ? brigadeItems.filter(item => Number(item.contractId) === Number(row.id)) : [];
               return (
                 <div key={row._rowKey} style={{ padding: '8px 0', borderTop: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <div>
@@ -282,12 +337,12 @@ export default function AccountingContractsPanel({
                     {!isBrigade && <p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>{(row.startDate || '') + ' — ' + (row.endDate || '')}</p>}
                   </div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button onClick={() => showPreview(buildContractContent(row.performer, row, items), 'Договор')} style={btnB}>
+                    <button onClick={() => openPreview(buildPreview(row.performer, row, items), 'Договор')} style={btnB}>
                       <Eye size={13} />
                       Просмотр
                     </button>
-                    {!isBrigade && (pdConsents || []).find(consent => Number(consent.userId) === Number(row.masterId)) && <span style={badge(C.success, C.successLight, C.successBorder)}>ПД ✅</span>}
-                    {!isBrigade && <button onClick={() => deleteContract(row.id)} style={{ ...btnR, padding: '4px 8px' }}><Trash2 size={11} /></button>}
+                    {!isBrigade && consents.find(consent => Number(consent.userId) === Number(row.masterId)) && <span style={renderBadge(C.success, C.successLight, C.successBorder)}>ПД ✅</span>}
+                    {!isBrigade && <button onClick={() => removeContract(row.id)} style={{ ...btnR, padding: '4px 8px' }}><Trash2 size={11} /></button>}
                   </div>
                 </div>
               );
