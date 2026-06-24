@@ -5,6 +5,7 @@ import AccountingPaymentsPanel from './AccountingPaymentsPanel';
 import AccountingExpenseReportsPanel from './AccountingExpenseReportsPanel';
 import AccountingAuditPanel from './AccountingAuditPanel';
 import AccountingDocumentsPanel from './AccountingDocumentsPanel';
+import AccountingIncomingDocumentsPanel from './AccountingIncomingDocumentsPanel';
 import AccountingSalaryPanel from './AccountingSalaryPanel';
 import AccountingActsPanel from './AccountingActsPanel';
 import AccountingContractsPanel from './AccountingContractsPanel';
@@ -75,6 +76,7 @@ export default function AccountingPage(props) {
     buildActContent,
     fileSrc,
     uploadPhoto,
+    setShowPhotoModal,
     setShowPayActModal,
     deleteInterimAct,
     buildBrigadeActContent,
@@ -95,6 +97,7 @@ export default function AccountingPage(props) {
     buildIGDContent,
     buildExecPackageContent,
     buildVATBookContent,
+    buildInvoiceContent,
     suppliers,
     buildM2Content,
     buildM8Content,
@@ -146,6 +149,31 @@ export default function AccountingPage(props) {
           brigadeContracts={brigadeContracts}
           piecework={piecework}
           isLeadership={isLeadership}
+          invoices={invoices}
+          warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
+          setAccountingTab={setAccountingTab}
+        />
+      )}
+
+      {accountingTab === 'incoming' && (
+        <AccountingIncomingDocumentsPanel
+          C={C}
+          card={card}
+          btnO={btnO}
+          btnG={btnG}
+          btnB={btnB}
+          btnR={btnR}
+          btnGr={btnGr}
+          invoices={invoices}
+          warehouseInvoiceEstimateControl={warehouseInvoiceEstimateControl}
+          fileSrc={fileSrc}
+          setShowPhotoModal={setShowPhotoModal}
+          showPreview={showPreview}
+          buildInvoiceContent={buildInvoiceContent}
+          uploadPhoto={uploadPhoto}
+          refreshData={refreshData}
+          badge={badge}
+          toNum={toNum}
         />
       )}
 

@@ -14223,6 +14223,7 @@ function App() {
               buildActContent={buildActContent}
               fileSrc={fileSrc}
               uploadPhoto={uploadPhoto}
+              setShowPhotoModal={setShowPhotoModal}
               setShowPayActModal={setShowPayActModal}
               deleteInterimAct={deleteInterimAct}
               buildBrigadeActContent={buildBrigadeActContent}
@@ -14244,6 +14245,7 @@ function App() {
               buildIGDContent={buildIGDContent}
               buildExecPackageContent={buildExecPackageContent}
               buildVATBookContent={buildVATBookContent}
+              buildInvoiceContent={buildInvoiceContent}
               suppliers={suppliers}
               buildM2Content={buildM2Content}
               buildM8Content={buildM8Content}

@@ -2548,6 +2548,13 @@ def init_db():
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS warehouse_target VARCHAR(50);
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS selected_action VARCHAR(100);
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS material_match_json TEXT;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_status VARCHAR(100);
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_comment TEXT;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_updated_by VARCHAR(255);
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_updated_at TIMESTAMP;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2) DEFAULT 0;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_at VARCHAR(50);
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255);
         CREATE TABLE IF NOT EXISTS warehouses (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -8456,6 +8463,25 @@ def _json_list_or_empty(value):
         return [parsed]
     return []
 
+WAREHOUSE_INVOICE_ACCOUNTING_STATUSES = {
+    "Нет фото",
+    "На проверке",
+    "Нужно уточнение",
+    "К оплате",
+    "Частично оплачена",
+    "Оплачена",
+    "Отклонена",
+}
+
+def _ensure_warehouse_invoice_accounting_columns(cur):
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_status VARCHAR(100)")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_comment TEXT")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_updated_by VARCHAR(255)")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_updated_at TIMESTAMP")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2) DEFAULT 0")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_at VARCHAR(50)")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255)")
+
 def _detect_cable_info(name):
     import re as _re
     raw = (name or "").strip()
@@ -8654,6 +8680,7 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS warehouse_target VARCHAR(50)")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS selected_action VARCHAR(100)")
         cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS material_match_json TEXT")
+        _ensure_warehouse_invoice_accounting_columns(cur)
     except Exception as e:
         raise HTTPException(status_code=500, detail="Не удалось подготовить поля накладной поставки: " + str(e))
     try:
@@ -17860,21 +17887,30 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         return []
     conn = get_db()
     cur = conn.cursor()
+    _ensure_warehouse_invoice_accounting_columns(cur)
+    conn.commit()
+    invoice_cols = (
+        "id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,"
+        "total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,"
+        "supply_delivery_id,supply_request_id,photo_urls,pages_count,warehouse_target,selected_action,"
+        "material_match_json,accounting_status,accounting_comment,accounting_updated_by,accounting_updated_at,"
+        "paid_amount,paid_at,paid_by"
+    )
     package_names = user_package_names(current_user) if current_user.get("role") in PACKAGE_LIMIT_ROLES else []
     if current_user.get("role") == "прораб":
         allowed_projects = user_project_names(current_user)
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count,warehouse_target,selected_action,material_match_json FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+        cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
     elif current_user.get("role") in ("снабженец", "кладовщик"):
         allowed_projects = user_project_names(current_user)
         if not allowed_projects:
             cur.close(); conn.close()
             return []
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count,warehouse_target,selected_action,material_match_json FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
+        cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE project = ANY(%s) OR location = ANY(%s) ORDER BY id DESC", (allowed_projects, allowed_projects))
     else:
-        cur.execute("SELECT id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,total_base,total_vat,total_with_vat,status,added_by,photo_url,source_type,source_id,supply_delivery_id,supply_request_id,photo_urls,pages_count,warehouse_target,selected_action,material_match_json FROM warehouse_invoices ORDER BY id DESC")
+        cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
     result = []
@@ -17904,7 +17940,7 @@ def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
         if not photo_urls and r[15]:
             photo_urls = [r[15]]
         material_match = _json_list_or_empty(r[24]) if len(r) > 24 else []
-        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match})
+        result.append({"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or ""})
     return result
 
 def _create_warehouse_invoice_record(data: dict, current_user: dict):
@@ -18138,6 +18174,152 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict):
 @app.post("/warehouse-invoices")
 def create_warehouse_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
     return _create_warehouse_invoice_record(data, _current_user)
+
+@app.put("/warehouse-invoices/{id}/accounting")
+def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        _ensure_warehouse_invoice_accounting_columns(cur)
+        cur.execute("""SELECT id, number, date, supplier_name, location, project, items,
+                              total_base, total_vat, total_with_vat, status, photo_url, photo_urls,
+                              accounting_status, accounting_comment, paid_amount
+                       FROM warehouse_invoices WHERE id=%s FOR UPDATE""", (id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Накладная не найдена")
+        if row.get("status") == "Аннулирована":
+            raise HTTPException(status_code=409, detail="Аннулированную накладную нельзя отправить в оплату")
+
+        target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
+        if target_project:
+            require_project_access(_current_user, target_project)
+
+        requested_status = str(
+            data.get("accountingStatus")
+            or data.get("accounting_status")
+            or data.get("status")
+            or ""
+        ).strip()
+        if requested_status and requested_status not in WAREHOUSE_INVOICE_ACCOUNTING_STATUSES:
+            raise HTTPException(status_code=400, detail="Недопустимый бухгалтерский статус накладной")
+
+        current_photos = _json_list_or_empty(row.get("photo_urls"))
+        first_existing_photo = str(row.get("photo_url") or "").strip()
+        if first_existing_photo and first_existing_photo not in current_photos:
+            current_photos.insert(0, first_existing_photo)
+
+        incoming_photos = data.get("photos") or data.get("photoUrls") or data.get("photo_urls") or []
+        if isinstance(incoming_photos, str):
+            try:
+                incoming_photos = json.loads(incoming_photos)
+            except Exception:
+                incoming_photos = [x.strip() for x in incoming_photos.split(",") if x.strip()]
+        if not isinstance(incoming_photos, list):
+            incoming_photos = []
+        for photo_url in incoming_photos:
+            photo_url = str(photo_url or "").strip()
+            if photo_url and photo_url not in current_photos:
+                current_photos.append(photo_url)
+
+        next_status = requested_status or str(row.get("accounting_status") or "").strip()
+        if current_photos and next_status in ("", "Нет фото"):
+            next_status = "На проверке"
+        if not current_photos and not next_status:
+            next_status = "Нет фото"
+        if next_status in ("К оплате", "Частично оплачена", "Оплачена") and not current_photos:
+            raise HTTPException(status_code=400, detail="Перед оплатой нужно прикрепить фото накладной")
+
+        comment = data.get("accountingComment")
+        if comment is None:
+            comment = data.get("accounting_comment")
+        if comment is None:
+            comment = row.get("accounting_comment") or ""
+        comment = str(comment or "").strip()
+
+        paid_amount_before = _float_or_zero(row.get("paid_amount"))
+        payment_amount = _float_or_zero(data.get("paymentAmount") or data.get("payment_amount"))
+        payment_id = None
+        paid_amount_after = paid_amount_before
+        paid_at = str(data.get("paidAt") or data.get("paid_at") or dt.date.today().isoformat()).strip()
+        actor_name = _current_user.get("name") or _current_user.get("email") or ""
+
+        if payment_amount > 0:
+            if not target_project:
+                raise HTTPException(status_code=400, detail="Для оплаты накладной нужна привязка к объекту")
+            items = _json_list_or_empty(row.get("items"))
+            work_package = str(data.get("workPackage") or data.get("work_package") or "").strip()
+            if not work_package and items:
+                first_item = items[0] if isinstance(items[0], dict) else {}
+                work_package = str(first_item.get("workPackage") or first_item.get("work_package") or "").strip()
+            if not has_package_access(_current_user, work_package or "Основная"):
+                raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
+            note = "Оплата счёта по накладной " + str(row.get("supplier_name") or "").strip()
+            if row.get("number"):
+                note += " №" + str(row.get("number"))
+            if work_package:
+                note += " · " + work_package
+            cur.execute("""SELECT id FROM project_payments
+                           WHERE project_name=%s AND COALESCE(work_package,'')=%s AND amount=%s
+                             AND COALESCE(note,'')=%s AND date IS NOT DISTINCT FROM %s
+                             AND COALESCE(added_by,'')=%s
+                           ORDER BY id DESC LIMIT 1""",
+                        (target_project, work_package, payment_amount, note, paid_at, actor_name))
+            existing_payment = cur.fetchone()
+            if existing_payment:
+                payment_id = existing_payment["id"]
+                paid_amount_after = max(paid_amount_before, payment_amount)
+            else:
+                cur.execute("""INSERT INTO project_payments
+                                  (project_name, work_package, amount, note, date, added_by)
+                               VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                            (target_project, work_package, payment_amount, note, paid_at, actor_name))
+                payment_id = cur.fetchone()["id"]
+                paid_amount_after = round(paid_amount_before + payment_amount, 2)
+            invoice_total = _float_or_zero(row.get("total_with_vat") or row.get("total_base"))
+            if invoice_total > 0 and paid_amount_after + 0.01 >= invoice_total:
+                next_status = "Оплачена"
+            else:
+                next_status = "Частично оплачена"
+
+        cur.execute("""UPDATE warehouse_invoices
+                       SET accounting_status=%s,
+                           accounting_comment=%s,
+                           accounting_updated_by=%s,
+                           accounting_updated_at=NOW(),
+                           photo_urls=%s,
+                           photo_url=%s,
+                           paid_amount=%s,
+                           paid_at=CASE WHEN %s > 0 THEN %s ELSE paid_at END,
+                           paid_by=CASE WHEN %s > 0 THEN %s ELSE paid_by END
+                       WHERE id=%s""",
+                    (
+                        next_status,
+                        comment,
+                        actor_name,
+                        json.dumps(current_photos, ensure_ascii=False),
+                        current_photos[0] if current_photos else "",
+                        paid_amount_after,
+                        payment_amount,
+                        paid_at,
+                        payment_amount,
+                        actor_name,
+                        id,
+                    ))
+        conn.commit()
+        return {
+            "ok": True,
+            "accountingStatus": next_status,
+            "photos": current_photos,
+            "paidAmount": paid_amount_after,
+            "paymentId": payment_id,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
 
 @app.post("/workflow/invoice/preview")
 def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workflow_token)):

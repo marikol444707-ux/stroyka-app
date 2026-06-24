@@ -1,4 +1,9 @@
 import React from 'react';
+import {
+  ACCOUNTING_INVOICE_STATUSES,
+  accountingStatusGroupLabels,
+  buildAccountingInvoiceRows,
+} from '../utils/accountingInvoices';
 
 export default function AccountingSummaryPanel({
   C,
@@ -12,6 +17,9 @@ export default function AccountingSummaryPanel({
   brigadeContracts,
   piecework,
   isLeadership,
+  invoices,
+  warehouseInvoiceEstimateControl,
+  setAccountingTab,
 }) {
   const projectPaymentSignedAmount = (payment) => {
     const amount = Number(payment?.amount || 0);
@@ -43,6 +51,17 @@ export default function AccountingSummaryPanel({
   const totalPiecework = (piecework || []).reduce((sum, row) => sum + Number(row.total || 0), 0);
   const totalExpenses = totalAccountable + totalProjectPaymentsOut;
   const netProfit = totalPayIn - totalExpenses;
+  const accountingInvoiceRows = React.useMemo(
+    () => buildAccountingInvoiceRows(invoices, warehouseInvoiceEstimateControl),
+    [invoices, warehouseInvoiceEstimateControl]
+  );
+  const invoiceQueueCards = ACCOUNTING_INVOICE_STATUSES
+    .map(status => {
+      const rows = accountingInvoiceRows.filter(row => row.status === status);
+      const amount = rows.reduce((sum, row) => sum + (row.status === 'Оплачена' ? row.paidAmount : row.debt || row.amount), 0);
+      return { status, count: rows.length, amount };
+    })
+    .filter(item => item.count > 0 || ['Нет фото', 'На проверке', 'К оплате'].includes(item.status));
 
   const cards = [
     { label: 'Активных проектов', value: activeProjectsCount + ' из ' + (projects || []).length, color: C.accent },
@@ -64,6 +83,24 @@ export default function AccountingSummaryPanel({
       <b style={{ color: C.text, fontSize: '15px', fontWeight: '700', display: 'block', marginBottom: '15px' }}>
         📊 Финансовая сводка по компании
       </b>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px', marginBottom: '20px' }}>
+        {invoiceQueueCards.map(item => {
+          const color = item.status === 'Нет фото' ? C.danger : item.status === 'К оплате' ? C.accent : item.status === 'Оплачена' ? C.success : C.warning;
+          const bg = item.status === 'Нет фото' ? C.dangerLight : item.status === 'К оплате' ? C.accentLight : item.status === 'Оплачена' ? C.successLight : C.warningLight;
+          const border = item.status === 'Нет фото' ? C.dangerBorder : item.status === 'К оплате' ? C.accentBorder : item.status === 'Оплачена' ? C.successBorder : C.warningBorder;
+          return (
+            <button
+              key={item.status}
+              onClick={() => setAccountingTab && setAccountingTab('incoming')}
+              style={{ ...card, padding: '14px', textAlign: 'left', cursor: 'pointer', backgroundColor: bg, border: '1.5px solid ' + border }}
+            >
+              <p style={{ color, fontSize: '11px', margin: '0 0 5px', fontWeight: 800 }}>{accountingStatusGroupLabels[item.status]}</p>
+              <b style={{ color, fontSize: '18px' }}>{item.count}</b>
+              <span style={{ display: 'block', color, fontSize: '11px', marginTop: '3px' }}>{Math.round(item.amount).toLocaleString('ru-RU') + ' ₽'}</span>
+            </button>
+          );
+        })}
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '12px', marginBottom: '20px' }}>
         {cards.map(cardItem => (
           <div key={cardItem.label} style={{ ...card, padding: '16px' }}>
