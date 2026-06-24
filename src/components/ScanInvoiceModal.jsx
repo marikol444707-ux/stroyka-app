@@ -91,7 +91,7 @@ export default function ScanInvoiceModal({
   const scanErrorMessage = (message) => {
     const text = String(message || '').trim();
     if (/unterminated|string starting|json|line \d+|column \d+|char \d+/i.test(text)) {
-      return 'ИИ не смог корректно разобрать накладную. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.';
+      return 'ИИ не смог корректно разобрать документ. Проверьте, что видна таблица товаров, номер, дата и поставщик.';
     }
     return text || 'Не удалось распознать. Попробуйте ещё раз.';
   };
@@ -100,7 +100,7 @@ export default function ScanInvoiceModal({
     const files = Array.from(fileList || []).filter(Boolean).slice(0, 8);
     if(!files.length) return;
     if (!targetLocation) {
-      alert('Сначала выберите, куда принять накладную: основной склад или объект.');
+      alert('Сначала выберите, куда принять документ: основной склад или объект.');
       return;
     }
     setScanningInvoice(true);
@@ -189,7 +189,7 @@ export default function ScanInvoiceModal({
       });
       setShowScanInvoice(false);
       setShowScannedInvoiceForm(true);
-      alert(files.length > 1 ? `Накладная распознана: ${files.length} стр. Проверьте данные.` : 'Накладная распознана! Проверьте данные.');
+      alert(files.length > 1 ? `Документ распознан: ${files.length} стр. Проверьте данные.` : 'Документ распознан! Проверьте данные.');
     } catch(e){
       alert(scanErrorMessage(e?.message));
     }
@@ -209,7 +209,7 @@ export default function ScanInvoiceModal({
   return (
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div className='mobile-modal' style={{...card,padding:isMobile?'16px':'20px',width:isMobile?'calc(100vw - 24px)':'340px',margin:isMobile?'12px':'20px',maxHeight:isMobile?'calc(100dvh - 24px)':'90vh',overflowY:'auto',boxSizing:'border-box'}}>
-        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>📷 Сканировать накладную</b>
+        <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'12px'}}>📷 Сканировать накладную / счёт</b>
         <label style={{display:'block',color:C.textSec,fontSize:'12px',fontWeight:700,marginBottom:'6px'}}>Куда принять</label>
         <select value={targetLocation} onChange={e=>updateLocation(e.target.value)} style={{width:'100%',boxSizing:'border-box',marginBottom:'12px',padding:'12px 14px',borderRadius:'12px',border:'1.5px solid '+C.border,backgroundColor:C.bg,color:C.text,fontSize:'14px'}}>
           <option value=''>Выберите склад или объект *</option>
@@ -220,7 +220,7 @@ export default function ScanInvoiceModal({
           <input ref={galleryInputRef} type='file' accept={invoiceImageAccept} multiple style={{display:'none'}} onChange={onFilesPicked}/>
           <input ref={cameraInputRef} type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={onFilesPicked}/>
           <div onClick={()=>openPicker(galleryInputRef)} role='button' tabIndex={0} onKeyDown={event=>{ if(event.key==='Enter' || event.key===' ') openPicker(galleryInputRef); }} style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:isMobile?'22px':'30px',textAlign:'center',cursor:'pointer'}}>
-            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт страницы накладной...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📷</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите фото накладной</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>Можно выбрать 1-8 страниц, ИИ соберёт их в одну накладную</p></div>}
+            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт страницы документа...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📷</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите фото накладной или счёта</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>Можно выбрать 1-8 страниц, ИИ соберёт их в один документ</p></div>}
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
             <button type='button' disabled={scanningInvoice} onClick={()=>openPicker(galleryInputRef)} style={{...btnG,justifyContent:'center',opacity:scanningInvoice?0.6:1}}>🖼️ Галерея</button>

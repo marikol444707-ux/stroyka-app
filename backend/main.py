@@ -23436,12 +23436,14 @@ def _parse_ai_json_object(text: str):
 def _invoice_scan_json_format() -> str:
     return (
         "{"
-        "\"documentType\":\"warehouse_invoice|receipt|other\","
+        "\"documentType\":\"warehouse_invoice|supplier_invoice|payment_invoice|universal_transfer_document|waybill|receipt|other\","
         "\"confidence\":0..1,"
         "\"pagesCount\":число_страниц,"
+        "\"documentTitle\":строка,"
         "\"number\":строка,"
         "\"date\":\"YYYY-MM-DD или исходная дата\","
         "\"supplier\":строка,"
+        "\"buyer\":строка,"
         "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\","
         "\"vatRate\":0|20|22,"
         "\"totalBase\":число_без_НДС,"
@@ -23472,8 +23474,10 @@ def _repair_invoice_scan_json(client, model: str, answer: str, parse_error: str)
             model=model,
             temperature=0,
             instructions=(
-                "Ты исправляешь ответ распознавания накладной. Верни только валидный JSON-объект "
-                "без markdown, комментариев и текста вокруг."
+                "Ты исправляешь ответ распознавания складского или бухгалтерского документа: "
+                "счета на оплату, счета поставщика, УПД, товарной накладной, приходной накладной "
+                "или товарного чека. Верни только валидный JSON-объект без markdown, комментариев "
+                "и текста вокруг."
             ),
             input=[
                 {
@@ -23482,11 +23486,13 @@ def _repair_invoice_scan_json(client, model: str, answer: str, parse_error: str)
                         {
                             "type": "input_text",
                             "text": (
-                                "Ниже ответ модели по накладной, который не распарсился как JSON. "
+                                "Ниже ответ модели по документу, который не распарсился как JSON. "
                                 "Преобразуй его в один валидный JSON-объект по схеме. "
                                 "Не добавляй новые товары, которых нет в тексте. Если часть строки оборвана, "
                                 "сохрани только читаемые полноценные позиции, а явно неполные элементы отбрось. "
                                 "Все переносы внутри строк замени пробелами, кавычки экранируй. "
+                                "Если это счет на оплату или счет поставщика с таблицей товаров, не отбрасывай его: "
+                                "верни documentType \"supplier_invoice\" или \"payment_invoice\" и заполни items. "
                                 "Если данных по товарам нет, верни documentType \"other\" и пустой items. "
                                 f"Схема: {_invoice_scan_json_format()}\n"
                                 f"Ошибка JSON-парсера: {parse_error or 'invalid json'}\n"
@@ -23525,32 +23531,41 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
     images = [_normalize_invoice_scan_image_entry(img) for img in images[:8]]
     images = [img for img in images if img]
     if not images:
-        return {"ok": False, "error": "Нет изображения накладной"}
+        return {"ok": False, "error": "Нет изображения документа"}
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     try:
         content = []
         for idx, image in enumerate(images, start=1):
-            content.append({"type": "input_text", "text": f"Страница накладной {idx} из {len(images)}"})
+            content.append({"type": "input_text", "text": f"Страница документа {idx} из {len(images)}"})
             content.append({"type": "input_image", "image_url": f"data:{image['mimeType']};base64,{image['data']}"})
         model = f"gpt://{FOLDER_ID}/qwen3.6-35b-a3b/latest"
         content.append({"type": "input_text", "text": (
-            "Распознай приходную накладную или товарный чек для склада. Если страниц несколько, это один документ: "
+            "Распознай складской или бухгалтерский документ с товарными строками: счет на оплату, счет поставщика, "
+            "УПД, универсальный передаточный документ, товарную накладную, приходную накладную или товарный чек. "
+            "Если это 'Счет на оплату' или 'Счёт на оплату' с таблицей товаров, он подходит: верни documentType "
+            "\"supplier_invoice\" или \"payment_invoice\" и распознай строки товаров. Если страниц несколько, это один документ: "
             "объедини позиции со всех страниц в один items, номер/дату/поставщика бери из шапки, итог — с последней страницы или строки итого. "
             "Документ может быть повернут на 90 или 180 градусов: мысленно поверни страницу и читай таблицу по строкам. "
             "Верни только JSON без markdown. Не путай складскую накладную с личной тратой. Не выдумывай позиции: если строка товара читается плохо, "
             "заполни confidence меньше 0.6 и sourceText коротким исходным фрагментом до 60 символов. Не вставляй переносы строк внутрь JSON-строк. "
             "Для уверенно распознанных строк sourceText можно оставить пустым, чтобы ответ был короче. Если виден только итог без списка товаров, "
-            "верни пустой items и documentType \"other\". "
+            "верни пустой items и documentType \"other\". Для счета на оплату номер и дату бери из строки вида "
+            "'Счет на оплату № ... от ...', поставщика — из поля 'Поставщик', покупателя — из поля 'Покупатель', "
+            "таблицу товаров — из раздела 'Товары (работы, услуги)'. "
             f"Формат: {_invoice_scan_json_format()}. Если в документе есть строки 'Итого с НДС', 'Всего с учетом НДС', "
             "'Всего к оплате' или 'Сумма с НДС' — положи это значение в totalWithVat. "
-            "Если есть 'в том числе НДС' — положи сумму в totalVat. Если цена дана без НДС и есть НДС, "
+            "Если есть 'в том числе НДС', 'В т.ч. НДС' или 'Сумма НДС' — положи сумму в totalVat. "
+            "Если ставка НДС 22%, верни vat \"С НДС 22%\" и vatRate 22. Если цена дана без НДС и есть НДС, "
             "посчитай priceWithVat и lineTotalWithVat. Если цена дана только итогом строки, посчитай цену за единицу через количество. "
             "Не округляй крупные суммы до тысяч, не теряй НДС, сохраняй единицы измерения как в документе."
         )})
         response = client.responses.create(
             model=model,
             temperature=0.1,
-            instructions="Ты распознаёшь накладные. Верни только JSON без комментариев и без markdown.",
+            instructions=(
+                "Ты распознаёшь счета на оплату, счета поставщика, УПД, товарные накладные, "
+                "приходные накладные и товарные чеки. Верни только JSON без комментариев и без markdown."
+            ),
             input=[
                 {
                     "role": "user",
@@ -23573,7 +23588,7 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
                 print("SCAN REPAIR FINAL FAILED:", repair_error)
                 return {
                     "ok": False,
-                    "error": "ИИ не смог вернуть корректный JSON по накладной. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.",
+                    "error": "ИИ не смог вернуть корректный JSON по документу. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.",
                 }
         page_items = []
         if isinstance(parsed.get("pages"), list):
