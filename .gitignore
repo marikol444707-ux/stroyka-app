@@ -4,21 +4,27 @@
 /node_modules
 /.pnp
 .pnp.js
+.venv/
+venv/
 
 # testing
 /coverage
+.pytest_cache/
 
 # production
 /build
 
 # misc
 .DS_Store
+*.py[cod]
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 backend/.env
+/outputs/
+/tmp/
 
 npm-debug.log*
 yarn-debug.log*

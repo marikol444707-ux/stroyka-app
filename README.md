@@ -1,3 +1,11 @@
+# stroyka-app
+
+For project-specific local setup, backend dependencies, PostgreSQL bootstrap, and smoke checks, read [README_LOCAL_RUN.md](README_LOCAL_RUN.md).
+
+For the current repository map and safe backend/frontend split plan, read [docs/project-structure.md](docs/project-structure.md).
+
+The frontend was bootstrapped with Create React App; the original CRA commands are below.
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).

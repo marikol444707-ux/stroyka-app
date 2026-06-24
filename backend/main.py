@@ -21,46 +21,28 @@ import urllib.parse
 import urllib.request
 from email.message import EmailMessage
 
-_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-if os.path.exists(_env_path):
-    with open(_env_path) as _f:
-        for _line in _f:
-            _line = _line.strip()
-            if not _line or _line.startswith("#") or "=" not in _line:
-                continue
-            _k, _v = _line.split("=", 1)
-            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)))
-    except Exception:
-        return default
-
-YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
-YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID", "")
-VK_TOKEN = os.getenv("VK_TOKEN", "")
-AUTH_SECRET = os.getenv("AUTH_SECRET") or (os.getenv("DB_PASSWORD", "password") + "|stroyka-auth")
-AUTH_TOKEN_TTL_SECONDS = int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "86400"))
-AI_CONTROL_RUN_TOKEN = os.getenv("AI_CONTROL_RUN_TOKEN", "").strip()
-TELEGRAM_BOT_API_TOKEN = os.getenv("TELEGRAM_BOT_API_TOKEN", "").strip()
-WORKFLOW_TOKEN = os.getenv("WORKFLOW_TOKEN", "").strip() or os.getenv("STROYKA_WORKFLOW_TOKEN", "").strip()
-APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "https://stroyka26.pro").rstrip("/")
-SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
-SMTP_PORT = _env_int("SMTP_PORT", 465 if os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes") else 587)
-SMTP_USER = os.getenv("SMTP_USER", "").strip()
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
-SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
-SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() in ("1", "true", "yes")
-SMTP_SSL = os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes")
-PUBLIC_LEAD_RATE_LIMIT_SECONDS = _env_int("PUBLIC_LEAD_RATE_LIMIT_SECONDS", 30)
-_PUBLIC_LEAD_LAST_SUBMIT: dict[str, float] = {}
-
-def _env_list(name: str, default: list[str]) -> list[str]:
-    raw = os.getenv(name, "")
-    if not raw:
-        return default
-    return [x.strip() for x in raw.split(",") if x.strip()]
+from backend.config import (
+    AI_CONTROL_RUN_TOKEN,
+    APP_PUBLIC_URL,
+    AUTH_SECRET,
+    AUTH_TOKEN_TTL_SECONDS,
+    CORS_ORIGINS,
+    PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
+    PUBLIC_LEAD_RATE_LIMIT_SECONDS,
+    SMTP_FROM,
+    SMTP_HOST,
+    SMTP_PASSWORD,
+    SMTP_PORT,
+    SMTP_SSL,
+    SMTP_TLS,
+    SMTP_USER,
+    TELEGRAM_BOT_API_TOKEN,
+    VK_TOKEN,
+    WORKFLOW_TOKEN,
+    YANDEX_API_KEY,
+    YANDEX_FOLDER_ID,
+)
+from backend.db import get_db, limit_offset_sql
 
 def _startup_num(v) -> float:
     try:
@@ -121,25 +103,6 @@ def _startup_repair_saved_estimate_adjustments(cur) -> int:
             )
             repaired += 1
     return repaired
-
-CORS_ORIGINS = _env_list("CORS_ORIGINS", [
-    "https://stroyka26.pro",
-    "https://www.stroyka26.pro",
-    "http://stroyka26.pro",
-    "http://www.stroyka26.pro",
-    "http://147.45.237.127",
-    "https://147.45.237.127",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-])
-
-DB_CONFIG = {
-    "dbname": os.getenv("DB_NAME", "stroyka"),
-    "user": os.getenv("DB_USER", "nikolas"),
-    "password": os.getenv("DB_PASSWORD", "password"),
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": os.getenv("DB_PORT", "5432"),
-}
 
 DEFAULT_MATERIAL_NORMS = [
     {"ruleKey":"plaster_mix","name":"Штукатурная смесь","work":["штукатур"],"blockWork":["демонтаж","разбор"],"material":["штукатур","ротбанд","гипсов"],"workUnit":"м2","materialUnit":"кг","qtyPerUnit":8.5,"thicknessBaseMm":10,"defaultThicknessMm":10,"label":"штукатурная смесь 8.5 кг/м2 на 10 мм"},
@@ -423,21 +386,6 @@ def supplier_is_selected(selected_suppliers, supplier_id: int) -> bool:
     if isinstance(selected_suppliers, (list, tuple, set)):
         return any(str(x) == str(supplier_id) for x in selected_suppliers)
     return str(supplier_id) in re.findall(r"\d+", str(selected_suppliers or ""))
-
-def limit_offset_sql(limit: Optional[int] = None, offset: int = 0):
-    if limit is None:
-        return "", []
-    try:
-        limit_value = int(limit)
-    except Exception:
-        limit_value = 100
-    try:
-        offset_value = int(offset or 0)
-    except Exception:
-        offset_value = 0
-    limit_value = max(1, min(limit_value, 500))
-    offset_value = max(0, min(offset_value, 100000))
-    return " LIMIT %s OFFSET %s", [limit_value, offset_value]
 
 def can_see_all_company_data(user: dict) -> bool:
     return user.get("role") in ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик")
@@ -771,11 +719,6 @@ def recalc_brigade_contract_total(cur, contract_id: int):
                        WHERE contract_id=%s
                    ),0)
                    WHERE bc.id=%s""", (contract_id, contract_id))
-
-def get_db():
-    conn = psycopg2.connect(**DB_CONFIG)
-    conn.autocommit = True
-    return conn
 
 def _clip_api_error_text(value: str, limit: int = 700) -> str:
     text = str(value or "").replace("\x00", "").strip()
