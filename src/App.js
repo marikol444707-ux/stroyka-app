@@ -398,8 +398,11 @@ const loadStoredUser = () => {
 const initialGuestPage = () => {
   if (typeof window === 'undefined') return 'site';
   const path = window.location.pathname.toLowerCase();
+  const host = window.location.hostname.toLowerCase();
+  const appHost = host === 'app.stroyka26.pro' || host.startsWith('app.');
   if (path.includes('register')) return 'register';
   if (path.includes('login')) return 'login';
+  if (appHost) return 'login';
   return 'site';
 };
 const isEstimatePricelist = (pl={}) => {

@@ -171,6 +171,47 @@ DEFAULT_MATERIAL_NORMS = [
     {"ruleKey":"concrete","name":"Бетон","work":["бетон"],"blockWork":["демонтаж","разбор"],"material":["бетон"],"workUnit":"м3","materialUnit":"м3","qtyPerUnit":1,"label":"бетон 1 м3/м3"},
 ]
 
+SITE_PRICE_RULE_DEFAULTS = [
+    ("house_wall", "gasblock", "Газоблок", 1, "multiplier", "", 10),
+    ("house_wall", "brick", "Кирпич", 1.18, "multiplier", "", 20),
+    ("house_wall", "monolith", "Монолит", 1.28, "multiplier", "", 30),
+    ("house_wall", "frame", "Каркас", 0.88, "multiplier", "", 40),
+    ("house_package", "box", "Коробка", 38000, "rate", "₽/м2", 10),
+    ("house_package", "warm", "Тёплый контур", 52000, "rate", "₽/м2", 20),
+    ("house_package", "engineering", "Инженерия", 25000, "rate", "₽/м2", 30),
+    ("house_package", "turnkey", "Под ключ", 72000, "rate", "₽/м2", 40),
+    ("repair_object", "apartment", "Квартира", 1, "multiplier", "", 10),
+    ("repair_object", "privateHouse", "Дом", 1.08, "multiplier", "", 20),
+    ("repair_object", "office", "Офис", 0.94, "multiplier", "", 30),
+    ("repair_object", "retail", "Помещение", 1.05, "multiplier", "", 40),
+    ("repair_condition", "new", "Новостройка", 1, "multiplier", "", 10),
+    ("repair_condition", "secondary", "Вторичка", 1.12, "multiplier", "", 20),
+    ("repair_condition", "old", "Старый фонд", 1.25, "multiplier", "", 30),
+    ("repair_condition", "afterDemolition", "После демонтажа", 0.95, "multiplier", "", 40),
+    ("repair_level", "cosmetic", "Косметический", 18000, "rate", "₽/м2", 10),
+    ("repair_level", "capital", "Капитальный", 32000, "rate", "₽/м2", 20),
+    ("repair_level", "designer", "Дизайнерский", 48000, "rate", "₽/м2", 30),
+    ("repair_level", "commercial", "Коммерческий ремонт", 36000, "rate", "₽/м2", 40),
+    ("material_mode", "client", "Материалы клиента", 0.72, "multiplier", "", 10),
+    ("material_mode", "partial", "Частично через нас", 0.88, "multiplier", "", 20),
+    ("material_mode", "company", "Материалы через СтройКа", 1, "multiplier", "", 30),
+    ("commerce_type", "office", "Офис", 1, "multiplier", "", 10),
+    ("commerce_type", "shop", "Магазин", 1.08, "multiplier", "", 20),
+    ("commerce_type", "cafe", "Кафе", 1.22, "multiplier", "", 30),
+    ("commerce_type", "warehouse", "Склад", 0.78, "multiplier", "", 40),
+    ("commerce_type", "salon", "Салон", 1.12, "multiplier", "", 50),
+    ("commerce_type", "medical", "Медкабинет", 1.32, "multiplier", "", 60),
+    ("commerce_level", "base", "Базовая подготовка", 26000, "rate", "₽/м2", 10),
+    ("commerce_level", "standard", "Рабочий формат", 38000, "rate", "₽/м2", 20),
+    ("commerce_level", "opening", "Под открытие", 52000, "rate", "₽/м2", 30),
+    ("commerce_level", "special", "Сложная инженерия", 64000, "rate", "₽/м2", 40),
+    ("reconstruction_scope", "house", "Дом целиком", 42000, "rate", "₽/м2", 10),
+    ("reconstruction_scope", "extension", "Пристройка", 36000, "rate", "₽/м2", 20),
+    ("reconstruction_scope", "roof", "Кровля", 19000, "rate", "₽/м2", 30),
+    ("reconstruction_scope", "facade", "Фасад", 21000, "rate", "₽/м2", 40),
+    ("reconstruction_scope", "inside", "Внутри помещения", 30000, "rate", "₽/м2", 50),
+]
+
 app = FastAPI()
 
 app.add_middleware(
@@ -1744,6 +1785,19 @@ def init_db():
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_ai_status VARCHAR(100) DEFAULT 'Не обработано';
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_ai_notes TEXT;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS public_updated_at TIMESTAMP;
+        CREATE TABLE IF NOT EXISTS site_price_rules (
+            id SERIAL PRIMARY KEY,
+            group_key VARCHAR(100) NOT NULL,
+            item_key VARCHAR(100) NOT NULL,
+            label VARCHAR(255) NOT NULL,
+            value DOUBLE PRECISION DEFAULT 0,
+            value_type VARCHAR(50) DEFAULT 'rate',
+            unit VARCHAR(50) DEFAULT '',
+            enabled BOOLEAN DEFAULT TRUE,
+            sort_order INT DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(group_key, item_key)
+        );
 	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS project_id INT;
 	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS photo_url TEXT;
         CREATE TABLE IF NOT EXISTS expense_reports (
@@ -3284,6 +3338,12 @@ def init_db():
             VALUES (%s,%s,%s,%s)
             ON CONFLICT (email) DO NOTHING
         """, (seed_name, seed_email, hash_password(seed_password), seed_role))
+    for group_key, item_key, label, value, value_type, unit, sort_order in SITE_PRICE_RULE_DEFAULTS:
+        cur.execute("""
+            INSERT INTO site_price_rules (group_key, item_key, label, value, value_type, unit, enabled, sort_order)
+            VALUES (%s,%s,%s,%s,%s,%s,TRUE,%s)
+            ON CONFLICT (group_key, item_key) DO NOTHING
+        """, (group_key, item_key, label, value, value_type, unit, sort_order))
     for rule in DEFAULT_MATERIAL_NORMS:
         cur.execute("""
             INSERT INTO material_norms (
@@ -3436,6 +3496,45 @@ def _public_site_project(row: dict) -> dict:
         "aiStatus": row.get("publicAiStatus") or "Не обработано",
         "aiNotes": row.get("publicAiNotes") or "",
     }
+
+SITE_PRICE_GROUP_LABELS = {
+    "house_wall": "Дом: материал стен",
+    "house_package": "Дом: комплектация",
+    "repair_object": "Ремонт: тип объекта",
+    "repair_condition": "Ремонт: состояние",
+    "repair_level": "Ремонт: уровень",
+    "material_mode": "Материалы",
+    "commerce_type": "Коммерция: тип бизнеса",
+    "commerce_level": "Коммерция: формат",
+    "reconstruction_scope": "Реконструкция: объём",
+}
+
+def _site_price_rule(row: dict) -> dict:
+    return {
+        "id": row.get("id"),
+        "groupKey": row.get("group_key") or row.get("groupKey") or "",
+        "groupLabel": SITE_PRICE_GROUP_LABELS.get(row.get("group_key") or row.get("groupKey") or "", row.get("group_key") or row.get("groupKey") or ""),
+        "itemKey": row.get("item_key") or row.get("itemKey") or "",
+        "label": row.get("label") or "",
+        "value": float(row.get("value") or 0),
+        "valueType": row.get("value_type") or row.get("valueType") or "rate",
+        "unit": row.get("unit") or "",
+        "enabled": bool(row.get("enabled")),
+        "sortOrder": int(row.get("sort_order") or row.get("sortOrder") or 0),
+        "updatedAt": row.get("updated_at") or row.get("updatedAt"),
+    }
+
+def _site_price_rules() -> List[dict]:
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, group_key, item_key, label, value, value_type, unit, enabled, sort_order, updated_at
+        FROM site_price_rules
+        ORDER BY group_key, sort_order, id
+    """)
+    rows = [_site_price_rule(dict(r)) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return rows
 
 def _public_text(value, limit: int = 255) -> str:
     return str(value or "").strip()[:limit]
@@ -4269,6 +4368,59 @@ def get_site_projects():
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [_public_site_project(dict(r)) for r in rows]
+
+@app.get("/site/pricing")
+def get_site_pricing():
+    rules = [r for r in _site_price_rules() if r.get("enabled")]
+    return {
+        "rules": rules,
+        "groups": SITE_PRICE_GROUP_LABELS,
+        "domains": {
+            "public": "stroyka26.pro",
+            "app": "app.stroyka26.pro",
+            "api": "api.stroyka26.pro",
+        },
+    }
+
+@app.get("/site-price-rules")
+def get_site_price_rules(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    return _site_price_rules()
+
+@app.put("/site-price-rules/{rule_id}")
+def update_site_price_rule(rule_id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    value = data.get("value")
+    try:
+        value = float(str(value).replace(" ", "").replace(",", "."))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Некорректное значение прайса")
+    if value < 0:
+        raise HTTPException(status_code=400, detail="Значение не может быть отрицательным")
+    label = _public_text(data.get("label"), 255)
+    unit = _public_text(data.get("unit"), 50)
+    enabled = bool(data.get("enabled", True))
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        UPDATE site_price_rules
+           SET label=COALESCE(NULLIF(%s,''), label),
+               value=%s,
+               unit=%s,
+               enabled=%s,
+               updated_at=NOW()
+         WHERE id=%s
+     RETURNING id, group_key, item_key, label, value, value_type, unit, enabled, sort_order, updated_at
+    """, (label, value, unit, enabled, rule_id))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        raise HTTPException(status_code=404, detail="Правило прайса не найдено")
+    conn.commit()
+    log_audit(user_name=current_user.get("name",""), user_role=current_user.get("role",""),
+              action="update", entity_type="site_price_rule", entity_id=rule_id,
+              description="Обновлен прайс публичного калькулятора: " + (row.get("label") or ""),
+              project_name="")
+    cur.close(); conn.close()
+    return _site_price_rule(dict(row))
 
 @app.post("/site/leads")
 def create_site_lead(data: dict, request: Request):

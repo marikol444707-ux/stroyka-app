@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, Eye, FileText, Plus, Trash2, Upload, X } from 'lucide-react';
 import SettingsTabsNav from './SettingsTabsNav';
+import SitePricingSettingsPanel from './SitePricingSettingsPanel';
 
 const COMPANY_DOC_TYPES = ['Устав','ОГРН','ИНН','Выписка ЕГРЮЛ','Лицензия СРО','Доверенность','Прочее'];
 
@@ -30,9 +31,10 @@ export default function SettingsPage({
   uploadPhoto,
   user,
 }) {
+  const canManageSitePricing = ['директор', 'зам_директора'].includes(user?.role);
   return (
     <div>
-      <SettingsTabsNav settingsTab={settingsTab} setSettingsTab={setSettingsTab} btnO={btnO} btnG={btnG}/>
+      <SettingsTabsNav settingsTab={settingsTab} setSettingsTab={setSettingsTab} btnO={btnO} btnG={btnG} canManageSitePricing={canManageSitePricing}/>
 
       {settingsTab==='requisites'&&(<div>
         <div style={{...card,padding:'24px',marginBottom:'20px'}}>
@@ -107,6 +109,10 @@ export default function SettingsPage({
         })}
         {companyDocuments.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><FileText size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Документов нет — загрузите первый!</p></div>}
       </div>)}
+
+      {settingsTab==='sitePricing'&&canManageSitePricing&&(
+        <SitePricingSettingsPanel API={API} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}/>
+      )}
     </div>
   );
 }

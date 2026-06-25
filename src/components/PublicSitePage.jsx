@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Calculator,
   Camera,
@@ -280,9 +280,21 @@ const PublicSitePage = ({ onLogin }) => {
   const [projectCategory, setProjectCategory] = useState('all');
   const [selectedProjectId, setSelectedProjectId] = useState(publicProjects[0].id);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
+  const [sitePricingRules, setSitePricingRules] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
+    const loadSitePricing = async () => {
+      try {
+        const response = await fetch(API + '/site/pricing');
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled) return;
+        setSitePricingRules(Array.isArray(data.rules) ? data.rules : []);
+      } catch (_) {
+        // Если backend ещё не обновлён, калькулятор работает по локальным дефолтам.
+      }
+    };
     const loadSiteProjects = async () => {
       try {
         const response = await fetch(API + '/site/projects');
@@ -297,9 +309,26 @@ const PublicSitePage = ({ onLogin }) => {
         // Если backend ещё не обновлён или опубликованных объектов нет, оставляем демо-галерею.
       }
     };
+    loadSitePricing();
     loadSiteProjects();
     return () => { cancelled = true; };
   }, []);
+
+  const pricingMap = useMemo(() => {
+    const map = new Map();
+    sitePricingRules.forEach((rule) => {
+      if (!rule || rule.enabled === false) return;
+      const value = Number(rule.value);
+      if (!Number.isFinite(value)) return;
+      map.set(`${rule.groupKey}.${rule.itemKey}`, value);
+    });
+    return map;
+  }, [sitePricingRules]);
+
+  const pricingValue = useCallback((groupKey, itemKey, fallback) => {
+    const value = pricingMap.get(`${groupKey}.${itemKey}`);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  }, [pricingMap]);
 
   const result = useMemo(() => {
     const typeMeta = workTypes.find((item) => item.value === calc.type) || workTypes[0];
@@ -320,8 +349,10 @@ const PublicSitePage = ({ onLogin }) => {
     if (calc.type === 'house') {
       const housePackage = housePackages.find((item) => item.value === calc.package) || housePackages[3];
       const wall = houseWallTypes.find((item) => item.value === calc.wallType) || houseWallTypes[0];
+      const housePackageRate = pricingValue('house_package', housePackage.value, housePackage.rate);
+      const wallMultiplier = pricingValue('house_wall', wall.value, wall.multiplier);
       const floorMultiplier = Number(calc.floors) > 1 ? 1.06 : 1;
-      const coreWorks = area * housePackage.rate * wall.multiplier * floorMultiplier;
+      const coreWorks = area * housePackageRate * wallMultiplier * floorMultiplier;
       const roomPlanning = Math.max(0, roomsCount - Number(calc.floors || 1) * 3) * (calc.package === 'turnkey' ? 85000 : calc.package === 'engineering' ? 60000 : 35000);
       const foundation = calc.foundation ? area * 5200 + 180000 : 0;
       const communications = calc.communications ? area * 3400 + 140000 : 0;
@@ -348,13 +379,17 @@ const PublicSitePage = ({ onLogin }) => {
       const condition = repairConditions.find((item) => item.value === calc.repairCondition) || repairConditions[0];
       const level = repairLevels.find((item) => item.value === calc.repairLevel) || repairLevels[1];
       const materials = materialModes.find((item) => item.value === calc.materialMode) || materialModes[1];
+      const objectMultiplier = pricingValue('repair_object', object.value, object.multiplier);
+      const conditionMultiplier = pricingValue('repair_condition', condition.value, condition.multiplier);
+      const levelRate = pricingValue('repair_level', level.value, level.rate);
+      const materialsMultiplier = pricingValue('material_mode', materials.value, materials.multiplier);
       const roomComplexity = 1 + Math.max(0, roomsCount - 2) * 0.025;
-      const base = area * level.rate * object.multiplier * condition.multiplier * roomComplexity;
+      const base = area * levelRate * objectMultiplier * conditionMultiplier * roomComplexity;
       const roomWorks = roomsCount * 26000 + Math.max(0, roomsCount - 2) * 18000;
       const demolition = calc.demolition ? area * 2400 : 0;
       const engineering = (calc.electric ? area * 4300 : 0) + (calc.plumbing ? Number(calc.bathrooms || 1) * 95000 : 0);
       const surfaces = (calc.walls ? area * 2200 : 0) + (calc.floorsWork ? area * 2600 : 0) + (calc.ceiling ? area * 1700 : 0) + (calc.tiles ? Number(calc.bathrooms || 1) * 120000 : 0);
-      const materialsPart = base * 0.32 * materials.multiplier;
+      const materialsPart = base * 0.32 * materialsMultiplier;
       const logistics = calc.trash ? area * 900 + 25000 : area * 300;
       total = (base + roomWorks + demolition + engineering + surfaces + materialsPart + logistics) * deadlineMultiplier;
       packageLabel = level.label;
@@ -377,9 +412,11 @@ const PublicSitePage = ({ onLogin }) => {
     if (calc.type === 'commerce') {
       const object = commerceTypes.find((item) => item.value === calc.commerceType) || commerceTypes[0];
       const level = commerceLevels.find((item) => item.value === calc.commerceLevel) || commerceLevels[2];
+      const objectMultiplier = pricingValue('commerce_type', object.value, object.multiplier);
+      const levelRate = pricingValue('commerce_level', level.value, level.rate);
       const conditionMultiplier = calc.commerceCondition === 'old' ? 1.2 : calc.commerceCondition === 'ready' ? 0.82 : 1;
       const premisesComplexity = 1 + Math.max(0, roomsCount - 3) * 0.035;
-      const fitout = area * level.rate * object.multiplier * conditionMultiplier * premisesComplexity;
+      const fitout = area * levelRate * objectMultiplier * conditionMultiplier * premisesComplexity;
       const premisesWorks = Math.max(0, roomsCount - 1) * 65000;
       const ventilation = calc.ventilation ? area * 5200 : 0;
       const fire = calc.fireSafety ? area * 4300 : 0;
@@ -406,7 +443,8 @@ const PublicSitePage = ({ onLogin }) => {
 
     if (calc.type === 'reconstruction') {
       const scope = reconstructionScopes.find((item) => item.value === calc.reconstructionScope) || reconstructionScopes[0];
-      const base = area * scope.rate;
+      const scopeRate = pricingValue('reconstruction_scope', scope.value, scope.rate);
+      const base = area * scopeRate;
       const roomSurvey = roomsCount * 22000;
       const demolition = (calc.demolition ? area * 3400 : area * 1200) + roomSurvey;
       const reinforcement = calc.reinforcement ? area * 5200 + 120000 : 0;
@@ -445,7 +483,7 @@ const PublicSitePage = ({ onLogin }) => {
       breakdown: cleanBreakdown,
       advice: advice.slice(0, 3),
     };
-  }, [calc]);
+  }, [calc, pricingValue]);
 
   const updateCalc = (field, value) => {
     setCalc((current) => ({ ...current, [field]: value }));

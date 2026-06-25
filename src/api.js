@@ -1,7 +1,9 @@
 const isLocalHost = typeof window !== 'undefined'
   && ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 
-export const API = isLocalHost ? 'http://localhost:8001' : '';
+const configuredApiUrl = (process.env.REACT_APP_API_URL || '').replace(/\/$/, '');
+
+export const API = configuredApiUrl || (isLocalHost ? 'http://localhost:8001' : '');
 
 export const installAuthFetch = () => {
   if (typeof window === 'undefined' || window.__stroykaAuthFetchInstalled) return;
