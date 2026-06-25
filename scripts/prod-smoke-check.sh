@@ -52,6 +52,26 @@ check_health() {
   failures+=("health")
 }
 
+check_json_predicate() {
+  local name="$1"
+  local url="$2"
+  local predicate="$3"
+  local body
+  local attempt
+  for attempt in $(seq 1 "$SMOKE_RETRIES"); do
+    body="$(curl -skS "$url" || true)"
+    if printf '%s' "$body" | python3 -c "$predicate" >/dev/null 2>&1; then
+      echo "OK   $name"
+      return 0
+    fi
+    if [[ "$attempt" != "$SMOKE_RETRIES" ]]; then
+      sleep "$SMOKE_DELAY"
+    fi
+  done
+  echo "FAIL $name"
+  failures+=("$name")
+}
+
 echo "Smoke-check: $BASE_URL"
 
 check_code "frontend /" "$BASE_URL/"
@@ -61,6 +81,9 @@ health_version="$(printf '%s' "$health_body" | json_field version 2>/dev/null ||
 if [[ -n "$health_version" ]]; then
   echo "INFO version=$health_version"
 fi
+
+check_json_predicate "site pricing" "$BASE_URL/site/pricing" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data.get("rules"), list) else 1)'
+check_json_predicate "site projects" "$BASE_URL/site/projects" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
 
 if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
   login_payload="$(python3 -c 'import json,os; print(json.dumps({"email": os.environ["SMOKE_EMAIL"], "password": os.environ["SMOKE_PASSWORD"]}, ensure_ascii=False))')"

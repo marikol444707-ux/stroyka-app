@@ -55,6 +55,21 @@ location = /site/leads {
     proxy_pass http://127.0.0.1:8001;
 }
 
+location = /site/pricing {
+    limit_req zone=lead_limit burst=20 nodelay;
+    proxy_pass http://127.0.0.1:8001;
+}
+
+location = /site/projects {
+    limit_req zone=lead_limit burst=20 nodelay;
+    proxy_pass http://127.0.0.1:8001;
+}
+
+location ^~ /site-price-rules {
+    limit_req zone=login_limit burst=20 nodelay;
+    proxy_pass http://127.0.0.1:8001;
+}
+
 location ~ ^/(workflow|telegram)/ {
     limit_req zone=workflow_limit burst=20 nodelay;
     proxy_pass http://127.0.0.1:8001;
