@@ -15,6 +15,15 @@ function SystemStatusModal({
 
   const apiErrors = systemStatus?.apiErrors || [];
   const recentAudit = systemStatus?.recentAudit || [];
+  const uploads = systemStatus?.storage?.uploads || {};
+  const backup = systemStatus?.backup || {};
+  const formatBytes = (value) => {
+    const bytes = Number(value || 0);
+    if (bytes >= 1024 * 1024 * 1024) return (bytes / 1024 / 1024 / 1024).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' ГБ';
+    if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' МБ';
+    if (bytes >= 1024) return (bytes / 1024).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' КБ';
+    return bytes.toLocaleString('ru-RU') + ' Б';
+  };
 
   const cellBorder = (index, list) => index < list.length - 1 ? '1px solid ' + C.border : 'none';
   const headerCell = {
@@ -47,13 +56,19 @@ function SystemStatusModal({
             <div style={{padding:'12px',borderRadius:'10px',backgroundColor:C.bg,border:'1.5px solid '+C.border,marginBottom:'14px'}}>
               <b style={{color:C.text,fontSize:'13px'}}>Хранилище</b>
               <p style={{margin:'6px 0 0',color:C.textSec,fontSize:'12px'}}>{'backend: '+(systemStatus.storage?.backend||'—')+' · prefix: '+(systemStatus.storage?.prefix||'—')+' · лимит: '+(systemStatus.storage?.maxUploadMb||0)+' МБ'}</p>
+              <p style={{margin:'6px 0 0',color:C.textSec,fontSize:'12px'}}>
+                {'uploads: '+(uploads.exists ? (formatBytes(uploads.bytes)+' · файлов '+(uploads.files||0)+(uploads.truncated?' · подсчет ограничен':'') ) : 'папка не найдена')}
+              </p>
+              <p style={{margin:'6px 0 0',color:backup.latestFile?C.textSec:C.warning,fontSize:'12px'}}>
+                {'backup: '+(backup.latestFile ? (backup.latestFile+' · '+formatBytes(backup.latestSizeBytes)+' · '+(backup.latestMtime||'')) : (backup.exists?'файлы не найдены':'папка не найдена: '+(backup.dir||'')))}
+              </p>
             </div>
             <div style={{borderRadius:'10px',border:'1.5px solid '+C.border,overflow:'hidden',marginBottom:'14px'}}>
               <div style={{padding:'10px 12px',backgroundColor:C.bg,borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'center'}}>
-                <b style={{color:C.text,fontSize:'13px'}}>API ошибки</b>
-                <span style={badge(apiErrors.length?C.danger:C.success,apiErrors.length?C.dangerLight:C.successLight,apiErrors.length?C.dangerBorder:C.successBorder)}>{apiErrors.length?'Последние '+apiErrors.length:'Нет 500'}</span>
+                <b style={{color:C.text,fontSize:'13px'}}>Ошибки API и frontend</b>
+                <span style={badge(apiErrors.length?C.danger:C.success,apiErrors.length?C.dangerLight:C.successLight,apiErrors.length?C.dangerBorder:C.successBorder)}>{apiErrors.length?'Последние '+apiErrors.length:'Ошибок нет'}</span>
               </div>
-              {apiErrors.length===0?<p style={{padding:'12px',margin:0,color:C.textMuted,fontSize:'12px'}}>Свежих серверных 500-ошибок нет.</p>:(
+              {apiErrors.length===0?<p style={{padding:'12px',margin:0,color:C.textMuted,fontSize:'12px'}}>Свежих серверных и клиентских ошибок нет.</p>:(
                 <div style={{overflowX:'auto'}}>
                   <table style={{width:'100%',borderCollapse:'collapse',minWidth:'820px',fontSize:'11px'}}>
                     <thead><tr>

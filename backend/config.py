@@ -53,6 +53,9 @@ SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() in ("1", "true", "yes")
 SMTP_SSL = os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes")
 PUBLIC_LEAD_RATE_LIMIT_SECONDS = env_int("PUBLIC_LEAD_RATE_LIMIT_SECONDS", 30)
 PUBLIC_LEAD_LAST_SUBMIT: dict[str, float] = {}
+CLIENT_ERROR_LOGGING_ENABLED = os.getenv("CLIENT_ERROR_LOGGING_ENABLED", "true").lower() in ("1", "true", "yes")
+CLIENT_ERROR_RATE_LIMIT_SECONDS = env_int("CLIENT_ERROR_RATE_LIMIT_SECONDS", 10)
+CLIENT_ERROR_LAST_SUBMIT: dict[str, float] = {}
 
 CORS_ORIGINS = env_list("CORS_ORIGINS", [
     "https://stroyka26.pro",

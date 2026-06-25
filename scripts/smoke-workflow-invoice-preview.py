@@ -115,6 +115,8 @@ def main():
         failures.append(f"status != ok ({body.get('status')})")
     if body.get("document", {}).get("pagesDetected") != 2:
         failures.append("pagesDetected != 2")
+    if len(body.get("photos") or []) != 2:
+        failures.append("photos length != 2")
     if len(body.get("items") or []) != 1:
         failures.append("items length != 1")
     if round(float(body.get("totals", {}).get("totalWithVat") or 0), 2) != 322560:
@@ -131,6 +133,7 @@ def main():
         "checked": [
             "workflow endpoint is token-protected",
             "multi-page invoice preview returns warehouse route",
+            "photo pages stay attached to preview",
             "VAT 20% is split into base and VAT",
             "preview does not write stock or expenses",
         ],

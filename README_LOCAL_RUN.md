@@ -116,6 +116,14 @@ read -s PASS
 SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:prod
 ```
 
+Public-site API proxy check after nginx changes:
+
+```bash
+npm run smoke:public-api
+```
+
+This check fails if `/site/pricing`, `/site/projects`, `/site/leads`, or `/site-price-rules` are served by the React SPA fallback instead of the backend.
+
 ## Notes
 
 - `backend/.env` is intentionally ignored by Git.

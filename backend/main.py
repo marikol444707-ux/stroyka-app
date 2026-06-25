@@ -27,6 +27,9 @@ try:
         APP_PUBLIC_URL,
         AUTH_SECRET,
         AUTH_TOKEN_TTL_SECONDS,
+        CLIENT_ERROR_LAST_SUBMIT,
+        CLIENT_ERROR_LOGGING_ENABLED,
+        CLIENT_ERROR_RATE_LIMIT_SECONDS,
         CORS_ORIGINS,
         PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
         PUBLIC_LEAD_RATE_LIMIT_SECONDS,
@@ -50,6 +53,9 @@ except ModuleNotFoundError:
         APP_PUBLIC_URL,
         AUTH_SECRET,
         AUTH_TOKEN_TTL_SECONDS,
+        CLIENT_ERROR_LAST_SUBMIT,
+        CLIENT_ERROR_LOGGING_ENABLED,
+        CLIENT_ERROR_RATE_LIMIT_SECONDS,
         CORS_ORIGINS,
         PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
         PUBLIC_LEAD_RATE_LIMIT_SECONDS,
@@ -878,6 +884,102 @@ S3_SECRET_ACCESS_KEY = (os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECR
 S3_PUBLIC_URL = os.getenv("S3_PUBLIC_URL", "").rstrip("/")
 S3_PREFIX = os.getenv("S3_PREFIX", "uploads").strip("/")
 S3_ACL = os.getenv("S3_ACL", "public-read").strip()
+BACKUP_DIR = os.getenv("BACKUP_DIR", "/var/backups/stroyka").strip()
+
+def _limited_dir_stats(path: str, max_entries: int = 5000) -> dict:
+    stats = {"exists": os.path.isdir(path), "files": 0, "bytes": 0, "truncated": False}
+    if not stats["exists"]:
+        return stats
+    try:
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                stats["files"] += 1
+                try:
+                    stats["bytes"] += os.path.getsize(os.path.join(root, name))
+                except OSError:
+                    pass
+                if stats["files"] >= max_entries:
+                    stats["truncated"] = True
+                    return stats
+    except Exception as exc:
+        stats["error"] = exc.__class__.__name__
+    return stats
+
+def _latest_backup_status() -> dict:
+    status = {"dir": BACKUP_DIR, "exists": os.path.isdir(BACKUP_DIR), "latestFile": "", "latestSizeBytes": 0, "latestMtime": ""}
+    if not status["exists"]:
+        return status
+    latest = None
+    try:
+        for name in os.listdir(BACKUP_DIR):
+            path = os.path.join(BACKUP_DIR, name)
+            if not os.path.isfile(path):
+                continue
+            if latest is None or os.path.getmtime(path) > os.path.getmtime(latest):
+                latest = path
+        if latest:
+            status["latestFile"] = os.path.basename(latest)
+            status["latestSizeBytes"] = os.path.getsize(latest)
+            status["latestMtime"] = dt.datetime.utcfromtimestamp(os.path.getmtime(latest)).replace(microsecond=0).isoformat() + "Z"
+    except Exception as exc:
+        status["error"] = exc.__class__.__name__
+    return status
+
+@app.post("/client-errors")
+def log_client_error(data: dict, request: Request):
+    if not CLIENT_ERROR_LOGGING_ENABLED:
+        return {"ok": True, "disabled": True}
+    client_ip = request.client.host if request.client else ""
+    path = _clip_api_error_text(data.get("path") or data.get("url") or "client", 255)
+    error_type = _clip_api_error_text(data.get("type") or data.get("name") or "ClientError", 120)
+    message = _clip_api_error_text(data.get("message") or "", 450)
+    stack = _clip_api_error_text(data.get("stack") or "", 900)
+    user = _request_user_snapshot(request)
+    now = time.time()
+    rate_key = "|".join([client_ip, path, error_type])
+    last = CLIENT_ERROR_LAST_SUBMIT.get(rate_key, 0)
+    if now - last < max(1, CLIENT_ERROR_RATE_LIMIT_SECONDS):
+        return {"ok": True, "rateLimited": True}
+    CLIENT_ERROR_LAST_SUBMIT[rate_key] = now
+    if len(CLIENT_ERROR_LAST_SUBMIT) > 2000:
+        cutoff = now - 3600
+        for key, ts in list(CLIENT_ERROR_LAST_SUBMIT.items())[:500]:
+            if ts < cutoff:
+                CLIENT_ERROR_LAST_SUBMIT.pop(key, None)
+    conn = None
+    cur = None
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""INSERT INTO api_errors
+                       (method, path, status_code, error_type, error_message, user_id, user_name, user_role)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (
+                        "CLIENT",
+                        path,
+                        499,
+                        error_type,
+                        _clip_api_error_text((message + ("\n" + stack if stack else "")).strip(), 1000),
+                        user.get("user_id"),
+                        user.get("user_name") or "",
+                        user.get("user_role") or "",
+                    ))
+        conn.commit()
+        return {"ok": True}
+    except Exception as exc:
+        print("CLIENT ERROR LOG ERROR:", str(exc))
+        return {"ok": False, "error": exc.__class__.__name__}
+    finally:
+        try:
+            if cur:
+                cur.close()
+        except Exception:
+            pass
+        try:
+            if conn:
+                conn.close()
+        except Exception:
+            pass
 
 def _git_dir_path() -> str:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -994,7 +1096,9 @@ def system_status(
             "s3Configured": _s3_enabled(),
             "prefix": S3_PREFIX,
             "maxUploadMb": round(MAX_UPLOAD_BYTES / 1024 / 1024, 1),
+            "uploads": _limited_dir_stats(UPLOAD_DIR),
         },
+        "backup": _latest_backup_status(),
         "counts": {},
         "recentAudit": [],
         "apiErrors": [],
@@ -1018,6 +1122,7 @@ def system_status(
         if api_errors_count is not None:
             status["counts"]["apiErrors"] = api_errors_count
             status["counts"]["apiErrorsLast24h"] = _count_table(cur, "api_errors", "created_at >= NOW() - INTERVAL '24 hours'")
+            status["counts"]["clientErrorsLast24h"] = _count_table(cur, "api_errors", "method='CLIENT' AND created_at >= NOW() - INTERVAL '24 hours'")
             cur.execute("SELECT COUNT(*) FROM api_errors WHERE " + api_errors_where, api_errors_params)
             status["counts"]["apiErrorsShown"] = int((cur.fetchone() or [0])[0] or 0)
             cur.execute("""SELECT id, method, path, status_code, error_type, error_message,

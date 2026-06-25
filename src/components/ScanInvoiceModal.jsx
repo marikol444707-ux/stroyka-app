@@ -202,6 +202,9 @@ export default function ScanInvoiceModal({
       if (!parsedDate) warnings.push('Дата документа не распознана: поставлена сегодняшняя дата, проверьте перед сохранением.');
       if (!parsedSupplier) warnings.push('Поставщик не распознан: укажите его вручную, чтобы бухгалтерия связала первичку.');
       if (!normalizedItems.length) warnings.push('Строки товаров не распознаны: документ можно сохранить только после ручного добавления позиций.');
+      if (uploadedPhotos.length < normalizedPages.length) warnings.push('Не все фото документа прикрепились: загружено ' + uploadedPhotos.length + ' из ' + normalizedPages.length + '. Повторите загрузку фото в карточке накладной перед оплатой.');
+      if (!totalWithVat && !totalBase && itemsTotal > 0) warnings.push('Итог документа не распознан: сумма рассчитана по строкам, проверьте НДС и итог перед сохранением.');
+      if (!totalWithVat && !totalBase && !itemsTotal) warnings.push('Сумма документа не распознана: заполните цены и итог вручную перед сохранением.');
       if (totalWithVat > 0 && itemsTotal > 0 && Math.abs(totalWithVat - itemsTotal) > Math.max(1, totalWithVat * 0.015)) {
         warnings.push('Сумма строк отличается от итога документа: проверьте количество, цену и НДС.');
       }

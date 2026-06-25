@@ -14631,7 +14631,7 @@ function App() {
 	                    </button>
 	                  </div>
 	                );})()}
-	                {['директор','зам_директора'].includes(user?.role) && (()=>{const workSummary=buildEstimateWorkSummary(selectedEstimate);const duplicateGroups=(workSummary.groups||[]).filter(group=>group.sourceCount>1);if(!duplicateGroups.length) return null;const compactLimit=isMobile?8:14;const visibleGroups=showEstimateWorkSummary?duplicateGroups:duplicateGroups.slice(0,compactLimit);const hiddenGroups=duplicateGroups.length-visibleGroups.length;const fmtNum=(value,max=3)=>Number(value||0).toLocaleString('ru-RU',{maximumFractionDigits:max});const fmtMoney=(value)=>Math.round(Number(value||0)).toLocaleString('ru-RU')+' ₽';const jumpToSource=(source)=>{const rowId=estimateIssueDomId(selectedEstimate.id,source.sectionIndex,source.itemIndex);const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const groupKey=['estimate',selectedEstimate.id,source.sectionIndex,'Работы'].join(':');setShowEstimateIssuesOnly(false);setMobileExpandedRenderLists(prev=>({...prev,[sectionListKey]:true,[groupKey]:true}));setTimeout(()=>document.getElementById(rowId)?.scrollIntoView({behavior:'smooth',block:'center'}),120);};const summaryTbl={...tbl,minWidth:isMobile?'720px':'980px',tableLayout:'fixed'};const summaryH={...tblH,padding:'6px 8px',fontSize:'11px',whiteSpace:'nowrap'};const summaryC={...tblC,padding:'6px 8px',fontSize:'12px',verticalAlign:'top'};const renderSources=(group)=>group.sources.slice(0,8).map(source=>(
+                {['директор','зам_директора'].includes(user?.role) && (()=>{const workSummary=buildEstimateWorkSummary(selectedEstimate);const duplicateGroups=(workSummary.groups||[]).filter(group=>group.sourceCount>1);if(!duplicateGroups.length) return null;const compactLimit=isMobile?8:14;const visibleGroups=showEstimateWorkSummary?duplicateGroups:duplicateGroups.slice(0,compactLimit);const hiddenGroups=duplicateGroups.length-visibleGroups.length;const fmtNum=(value,max=3)=>Number(value||0).toLocaleString('ru-RU',{maximumFractionDigits:max});const fmtMoney=(value)=>Math.round(Number(value||0)).toLocaleString('ru-RU')+' ₽';const jumpToSource=(source)=>{const rowId=estimateIssueDomId(selectedEstimate.id,source.sectionIndex,source.itemIndex);const sectionListKey=['estimate-sections',selectedEstimate.id,'all'].join(':');const groupKey=['estimate',selectedEstimate.id,source.sectionIndex,'Работы'].join(':');setShowEstimateIssuesOnly(false);setMobileExpandedRenderLists(prev=>({...prev,[sectionListKey]:true,[groupKey]:true}));setTimeout(()=>document.getElementById(rowId)?.scrollIntoView({behavior:'smooth',block:'center'}),120);};const summaryTbl={...tbl,width:'100%',minWidth:isMobile?'0':'760px',tableLayout:'fixed'};const summaryH={...tblH,padding:'5px 6px',fontSize:'10px',whiteSpace:'nowrap'};const summaryC={...tblC,padding:'5px 6px',fontSize:'11px',verticalAlign:'top'};const renderSources=(group)=>group.sources.slice(0,8).map(source=>(
 	                      <div key={`${source.sectionIndex}-${source.itemIndex}`} style={{display:'grid',gridTemplateColumns:isMobile?'1fr auto':'minmax(0,1fr) 80px 70px',gap:'6px',alignItems:'center',padding:'5px 0',borderTop:'1px solid '+C.border}}>
 	                        <span style={{color:C.textSec,fontSize:'11px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:isMobile?'normal':'nowrap'}}>{source.sectionName} · строка {source.rowNumber}</span>
 	                        <b style={{color:C.text,fontSize:'11px',whiteSpace:'nowrap'}}>{fmtNum(source.quantity)} {source.unit}</b>
@@ -14670,12 +14670,12 @@ function App() {
 	                        <table style={summaryTbl}>
 	                          <thead>
 	                            <tr>
-	                              <th style={{...summaryH,width:'42%'}}>Работа</th>
-	                              <th style={{...summaryH,width:'70px'}}>Строк</th>
-	                              <th style={{...summaryH,width:'130px'}}>Объем</th>
-	                              <th style={{...summaryH,width:'130px'}}>Сумма</th>
-	                              <th style={{...summaryH,width:'110px'}}>Средняя</th>
-	                              <th style={{...summaryH,width:'240px'}}>Где в смете</th>
+		                              <th style={{...summaryH,width:'36%'}}>Работа</th>
+		                              <th style={{...summaryH,width:'48px'}}>Строк</th>
+		                              <th style={{...summaryH,width:'82px'}}>Объем</th>
+		                              <th style={{...summaryH,width:'92px'}}>Сумма</th>
+		                              <th style={{...summaryH,width:'88px'}}>Средняя</th>
+		                              <th style={{...summaryH,width:'154px'}}>Где</th>
 	                            </tr>
 	                          </thead>
 	                          <tbody>
@@ -14771,10 +14771,10 @@ function App() {
                   };
                   const updateItem=(idx,field,val,saveNow=false)=>updateItemPatch(idx,{[field]:val},saveNow);
                   const persist=()=>persistEstimate(selectedEstimate);
-	                  const inpCell={padding:'4px 6px',border:'1px solid '+C.border,borderRadius:'5px',fontSize:'11px',width:'100%',minWidth:0,minHeight:'28px',backgroundColor:C.bgWhite,color:C.text,outline:'none'};
-	                  const estimateTbl={...tbl,minWidth:isMobile?'1120px':'1280px',tableLayout:'fixed'};
-	                  const estimateTblH={...tblH,padding:'5px 6px',fontSize:'10px',lineHeight:1.15,whiteSpace:'nowrap'};
-	                  const estimateTblC={...tblC,padding:'4px 6px',fontSize:'11px',lineHeight:1.2,verticalAlign:'middle'};
+	                  const inpCell={padding:'3px 5px',border:'1px solid '+C.border,borderRadius:'5px',fontSize:'11px',width:'100%',minWidth:0,minHeight:'26px',backgroundColor:C.bgWhite,color:C.text,outline:'none'};
+	                  const estimateTbl={...tbl,minWidth:isMobile?'1040px':'1088px',tableLayout:'fixed'};
+	                  const estimateTblH={...tblH,padding:'4px 5px',fontSize:'10px',lineHeight:1.1,whiteSpace:'nowrap'};
+	                  const estimateTblC={...tblC,padding:'3px 5px',fontSize:'11px',lineHeight:1.15,verticalAlign:'middle'};
 	                  const stickySumStyle={position:'sticky',right:'38px',zIndex:2,boxShadow:'-8px 0 10px -10px '+C.textMuted};
 	                  const stickyDeleteStyle={position:'sticky',right:0,zIndex:2};
                   const projBrigades=brigadeContracts.filter(bc=>bc.projectName===selectedEstimate.projectName).map(bc=>bc.brigadeName).filter(Boolean);
@@ -14790,18 +14790,18 @@ function App() {
 	                    return(<div style={{marginBottom:'10px'}}>
 	                    <EstimateItemGroupHeader title={title} emoji={emoji} count={list.length} total={groupTotal} accent={accent}/>
 	                    {list.length>0?(<div style={{overflowX:'auto',paddingBottom:'2px'}}><table style={estimateTbl}><thead><tr>
-	                      <th style={{...estimateTblH,width:'380px'}}>Наименование</th>
-	                      <th style={{...estimateTblH,width:'96px'}}>Тип</th>
-                        <th style={{...estimateTblH,width:'118px'}}>Обмер</th>
-	                      <th style={{...estimateTblH,width:'54px'}}>Ед.</th>
-                      <th style={{...estimateTblH,width:'82px'}}>План</th>
-                      <th style={{...estimateTblH,width:'94px'}}>Кому</th>
-                      <th style={{...estimateTblH,width:'78px'}}>Сделано</th>
-                      <th style={{...estimateTblH,width:'84px'}}>Ост.</th>
-                      <th style={{...estimateTblH,width:'104px'}}>Цена</th>
-                      <th style={{...estimateTblH,width:'104px'}}>Внутр.</th>
-                      <th style={{...estimateTblH,width:'118px',...stickySumStyle,top:0,zIndex:3,backgroundColor:C.bg}}>Сумма</th>
-                      <th style={{...estimateTblH,width:'38px',...stickyDeleteStyle,top:0,zIndex:4,backgroundColor:C.bg}}></th>
+	                      <th style={{...estimateTblH,width:'300px'}}>Наименование</th>
+	                      <th style={{...estimateTblH,width:'78px'}}>Тип</th>
+                        <th style={{...estimateTblH,width:'90px'}}>Обмер</th>
+	                      <th style={{...estimateTblH,width:'44px'}}>Ед.</th>
+                      <th style={{...estimateTblH,width:'68px'}}>План</th>
+                      <th style={{...estimateTblH,width:'78px'}}>Кому</th>
+                      <th style={{...estimateTblH,width:'68px'}}>Сделано</th>
+                      <th style={{...estimateTblH,width:'68px'}}>Ост.</th>
+                      <th style={{...estimateTblH,width:'86px'}}>Цена</th>
+                      <th style={{...estimateTblH,width:'82px'}}>Внутр.</th>
+                      <th style={{...estimateTblH,width:'96px',...stickySumStyle,top:0,zIndex:3,backgroundColor:C.bg}}>Сумма</th>
+                      <th style={{...estimateTblH,width:'30px',...stickyDeleteStyle,top:0,zIndex:4,backgroundColor:C.bg}}></th>
                     </tr></thead><tbody>
 			                      {groupRows.map(item=>{const kind=item._type||itemKind(item);const meta=estimateItemTypeMeta(kind);const isWork=kind==='work';const basis=estimateMeasurementBasisOf(item,section.name);const basisMeta=estimateMeasurementBasisMeta(isWork?basis:'manual');const priceField=isWork?'priceWork':'priceMaterial';const qty=Number(item.quantity)||0;const done=isWork?Number(item.doneQuantity)||0:0;const remain=Math.max(0,qty-done);const qtyNorm=normalizeMeasure(qty,item.unit);const doneNorm=normalizeMeasure(done,item.unit);const rowDomId=estimateIssueDomId(selectedEstimate.id,si,item._idx);const isIssueFocused=estimateIssueFocusKey===rowDomId;const rowStickyBg=isIssueFocused?C.warningLight:C.bgWhite;const executionPrice=Number(item.executionPricePerUnit||item.internalPricePerUnit||item.masterPricePerUnit||0);const importedLineTotal=estimateItemTotal(item);const importedUnitPrice=qty>0?importedLineTotal/qty:0;const importMeta=estimateImportLineMeta(item,qtyNorm);const autoPill=(icon,label,muted=false)=><div style={{...inpCell,display:'flex',alignItems:'center',gap:'4px',fontWeight:'700',color:muted?C.textMuted:C.text,backgroundColor:C.bg}}>{icon&&<span>{icon}</span>}<span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</span></div>;return(<tr key={item.id||item._idx} id={rowDomId} data-estitem={item.id||item.name||item._idx} style={isIssueFocused?{outline:'2px solid '+C.warning,backgroundColor:C.warningLight}:undefined}>
 	                        <td style={estimateTblC}><div style={{display:'flex',alignItems:'center',gap:'3px'}}>{isWork?<button onClick={()=>updateItem(item._idx,'hiddenWork',!item.hiddenWork,true)} title={item.hiddenWork?'По этой работе будет подготовлен АОСР':'АОСР не требуется'} style={{border:'none',background:'none',cursor:'pointer',padding:'0 1px',fontSize:'12px',opacity:item.hiddenWork?1:0.3}}>{item.hiddenWork?'🔒':'🔓'}</button>:<span title={meta.label} style={{fontSize:'12px',width:'16px',textAlign:'center'}}>{meta.icon}</span>}<input value={item.name||''} onChange={e=>updateItem(item._idx,'name',e.target.value)} onBlur={persist} style={inpCell}/></div></td>
@@ -14828,7 +14828,7 @@ function App() {
 	                    {renderGroup('Материалы','📦',mats,totalM,C.info)}
 	                    {adjustments.length>0&&renderGroup('Корректировки / исключения','↕️',adjustments,totalAdjustment,C.warning)}
 	                    {renderGroup('Оборудование / доставка / прочее','⚙️',others,totalOther,C.textSec)}
-	                    <div style={{display:'grid',gridTemplateColumns:'minmax(420px,3fr) 140px 160px 160px 54px',gap:'8px',marginTop:'10px',alignItems:'center',overflowX:'auto'}}>
+		                    <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'minmax(240px,2fr) 92px 108px 108px 42px',gap:'6px',marginTop:'10px',alignItems:'center'}}>
 	                      <input placeholder="Добавить строку вручную: название *" value={newEstimateItem.sectionId===section.id?newEstimateItem.name:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,name:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
 	                      <input placeholder="Кол-во" type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.quantity:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,quantity:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>
 	                      <input placeholder="Цена работ" type="number" step="any" inputMode="decimal" value={newEstimateItem.sectionId===section.id?newEstimateItem.priceWork:''} onChange={e=>setNewEstimateItem({...newEstimateItem,sectionId:section.id,priceWork:e.target.value})} style={{...inp,marginBottom:0,fontSize:'12px'}}/>

@@ -17,6 +17,8 @@
 - Статические публичные HTML-страницы дают поисковикам и AI-агентам читаемый текст без входа в ERP.
 - `/login` защищен блокировкой после неудачных попыток.
 - `/site/leads` фиксирует IP, User-Agent, referrer, UTM и имеет защиту от повторной заявки.
+- Подготовлен `ops-nginx-stroyka-public-api.conf` для backend-маршрутов публичного сайта.
+- `npm run smoke:public-api` проверяет, что публичные API не отдаются как React `index.html`.
 
 ## Что включить перед рекламой
 
@@ -80,6 +82,7 @@ location ~ ^/(workflow|telegram)/ {
 
 ```bash
 nginx -t && systemctl reload nginx
+npm run smoke:public-api
 ```
 
 4. Для формы заявки добавить усиление, если начнется спам:
@@ -95,6 +98,7 @@ nginx -t && systemctl reload nginx
 - ограничить размер файлов;
 - хранить тяжелые файлы в S3;
 - не запускать распознавание без явного действия пользователя.
+- смотреть `/system-status`: там показываются ошибки API/frontend, локальные uploads и последний backup.
 
 ## Читаемость для AI и поиска
 
