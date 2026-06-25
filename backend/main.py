@@ -23722,7 +23722,7 @@ def _normalize_invoice_scan_image_entry(entry):
             or entry.get("contentType")
             or mime_type
         ).strip() or mime_type
-        filename = str(entry.get("name") or entry.get("filename") or "").lower()
+        filename = str(entry.get("name") or entry.get("filename") or "")
     else:
         raw = str(entry or "")
 
@@ -23735,16 +23735,37 @@ def _normalize_invoice_scan_image_entry(entry):
         raw = payload.strip()
 
     mime_lower = mime_type.lower()
-    if "heic" in mime_lower or "heif" in mime_lower or filename.endswith((".heic", ".heif")):
+    filename_lower = filename.lower()
+    if "heic" in mime_lower or "heif" in mime_lower or filename_lower.endswith((".heic", ".heif")):
         raise HTTPException(
             status_code=422,
             detail="HEIC/HEIF нужно преобразовать в JPEG/PNG перед распознаванием накладной.",
         )
     if not raw:
         return None
+    if mime_lower == "application/pdf" or filename_lower.endswith(".pdf"):
+        return {"data": raw, "mimeType": "application/pdf", "name": filename or "invoice.pdf"}
     if not mime_type.lower().startswith("image/"):
-        mime_type = "image/jpeg"
-    return {"data": raw, "mimeType": mime_type}
+        raise HTTPException(
+            status_code=422,
+            detail="Для распознавания накладной нужен PDF или изображение.",
+        )
+    return {"data": raw, "mimeType": mime_type, "name": filename or "invoice-page.jpg"}
+
+def _invoice_scan_ai_content(entry: dict, index: int, total: int) -> list:
+    mime_type = str(entry.get("mimeType") or "image/jpeg").lower()
+    label = "PDF-документ" if mime_type == "application/pdf" else "Страница документа"
+    content = [{"type": "input_text", "text": f"{label} {index} из {total}"}]
+    if mime_type == "application/pdf":
+        filename = entry.get("name") or f"invoice-{index}.pdf"
+        content.append({
+            "type": "input_file",
+            "filename": filename,
+            "file_data": f"data:application/pdf;base64,{entry['data']}",
+        })
+    else:
+        content.append({"type": "input_image", "image_url": f"data:{entry['mimeType']};base64,{entry['data']}"})
+    return content
 
 def _compact_ai_json_text(text: str) -> str:
     clean = (text or "").replace("\ufeff", "").strip()
@@ -23944,8 +23965,7 @@ def _retry_invoice_scan_compact_json(client, model: str, images: list):
     try:
         compact_content = []
         for idx, image in enumerate(images or [], start=1):
-            compact_content.append({"type": "input_text", "text": f"Страница документа {idx} из {len(images or [])}"})
-            compact_content.append({"type": "input_image", "image_url": f"data:{image['mimeType']};base64,{image['data']}"})
+            compact_content.extend(_invoice_scan_ai_content(image, idx, len(images or [])))
         compact_content.append({"type": "input_text", "text": (
             "Повтори распознавание в коротком режиме. Верни только валидный JSON без markdown и без пояснений. "
             "Подходят счет на оплату, счет поставщика, УПД, товарная накладная, приходная накладная и фрагмент товарной таблицы. "
@@ -24007,8 +24027,7 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
     try:
         content = []
         for idx, image in enumerate(images, start=1):
-            content.append({"type": "input_text", "text": f"Страница документа {idx} из {len(images)}"})
-            content.append({"type": "input_image", "image_url": f"data:{image['mimeType']};base64,{image['data']}"})
+            content.extend(_invoice_scan_ai_content(image, idx, len(images)))
         model = f"gpt://{FOLDER_ID}/qwen3.6-35b-a3b/latest"
         content.append({"type": "input_text", "text": (
             "Распознай складской или бухгалтерский документ с товарными строками: счет на оплату, счет поставщика, "

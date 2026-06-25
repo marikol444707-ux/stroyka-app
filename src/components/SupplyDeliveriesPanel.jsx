@@ -120,7 +120,7 @@ function SupplyDeliveriesPanel({
               <div style={{display:'flex',gap:'5px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                 <span style={badge(stC,stBg,stBd)}>{delivery.status}</span>
                 <label style={{...btnG,padding:'5px 10px',fontSize:'11px',cursor:'pointer'}}>
-                  <Bot size={11}/>AI из галереи
+                  <Bot size={11}/>AI PDF/фото
                   <input type='file' accept={invoiceImageAccept} style={{display:'none'}} onChange={event=>scanInvoice(event, delivery)}/>
                 </label>
                 <label style={{...btnG,padding:'5px 10px',fontSize:'11px',cursor:'pointer'}}>

@@ -52,6 +52,7 @@ export function WarehouseInvoiceForm({
   const compactInput = {...inp,marginBottom:0,fontSize:isMobile?'16px':'12px',width:'100%',minWidth:0,boxSizing:'border-box'};
   const formGridStyle = {display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:isMobile?'8px':'10px'};
   const spanAll = isMobile ? undefined : 'span 2';
+  const isPdfUrl = (url) => /\.pdf(?:$|[?#])/i.test(String(url || ''));
   const itemGridStyle = isMobile
     ? {display:'grid',gridTemplateColumns:'1fr',gap:'8px',marginBottom:'10px',padding:'10px',borderRadius:'12px',border:'1.5px solid '+C.border,backgroundColor:C.bg,minWidth:0}
     : {display:'grid',gridTemplateColumns:'minmax(180px,2.5fr) 0.8fr 0.8fr 0.9fr minmax(120px,1.2fr) minmax(130px,1.4fr) minmax(180px,1.8fr) auto',gap:'6px',marginBottom:'8px',alignItems:'center'};
@@ -276,13 +277,15 @@ export function WarehouseInvoiceForm({
         <input ref={invoiceGalleryInputRef} type="file" accept={invoiceImageAccept} multiple style={{display:'none'}} onChange={addPhotos}/>
         <input ref={invoiceCameraInputRef} type="file" accept="image/*" multiple capture="environment" style={{display:'none'}} onChange={addPhotos}/>
         <button type="button" onClick={() => invoiceGalleryInputRef.current?.click()} style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 14px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}>
-          <Upload size={13}/>Фото из галереи
+          <Upload size={13}/>PDF/фото из галереи
         </button>
         <button type="button" onClick={() => invoiceCameraInputRef.current?.click()} style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 14px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}>
           📷 Камера
         </button>
         {(newInvoice.photos || []).map((url, index) => (
-          <img key={index} src={fileSrc(url)} alt="" onClick={() => setShowPhotoModal(fileSrc(url))} style={{width:'48px',height:'48px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/>
+          isPdfUrl(url)
+            ? <a key={index} href={fileSrc(url)} target="_blank" rel="noreferrer" style={{width:'48px',height:'48px',borderRadius:'8px',display:'inline-flex',alignItems:'center',justifyContent:'center',textDecoration:'none',fontSize:'11px',fontWeight:800,color:C.info,border:'1.5px solid '+C.border,backgroundColor:C.infoLight}}>PDF</a>
+            : <img key={index} src={fileSrc(url)} alt="" onClick={() => setShowPhotoModal(fileSrc(url))} style={{width:'48px',height:'48px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/>
         ))}
       </div>
 
@@ -337,6 +340,7 @@ export function WarehouseInvoiceCard({
   isMobile = false,
 }) {
   const items = invoiceRows.items;
+  const isPdfUrl = (url) => /\.pdf(?:$|[?#])/i.test(String(url || ''));
 
   return (
     <div style={{...card,padding:isMobile?'14px':'16px',marginBottom:'10px',overflow:'hidden'}}>
@@ -458,13 +462,15 @@ export function WarehouseInvoiceCard({
         </div>
       )}
 
-      {(inv.photos || []).length > 0 && (
-        <div style={{display:'flex',gap:'6px',marginTop:'10px',flexWrap:'wrap'}}>
-          {(inv.photos || []).map((url, index) => (
-            <img key={index} src={fileSrc(url)} alt="" onClick={() => setShowPhotoModal(fileSrc(url))} style={{width:'50px',height:'50px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/>
-          ))}
-        </div>
-      )}
+	      {(inv.photos || []).length > 0 && (
+	        <div style={{display:'flex',gap:'6px',marginTop:'10px',flexWrap:'wrap'}}>
+	          {(inv.photos || []).map((url, index) => (
+	            isPdfUrl(url)
+	              ? <a key={index} href={fileSrc(url)} target="_blank" rel="noreferrer" style={{width:'50px',height:'50px',borderRadius:'8px',display:'inline-flex',alignItems:'center',justifyContent:'center',textDecoration:'none',fontSize:'11px',fontWeight:800,color:C.info,border:'1.5px solid '+C.border,backgroundColor:C.infoLight}}>PDF</a>
+	              : <img key={index} src={fileSrc(url)} alt="" onClick={() => setShowPhotoModal(fileSrc(url))} style={{width:'50px',height:'50px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/>
+	          ))}
+	        </div>
+	      )}
     </div>
   );
 }

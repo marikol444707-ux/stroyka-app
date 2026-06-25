@@ -239,7 +239,8 @@ export default function ScanInvoiceModal({
       });
       setShowScanInvoice(false);
       setShowScannedInvoiceForm(true);
-      alert(files.length > 1 ? `Документ распознан: ${files.length} стр. Проверьте данные.` : 'Документ распознан! Проверьте данные.');
+	      const hasPdf = normalizedPages.some(page => page.isPdf);
+	      alert(hasPdf ? 'PDF распознан! Проверьте данные.' : (files.length > 1 ? `Документ распознан: ${files.length} стр. Проверьте данные.` : 'Документ распознан! Проверьте данные.'));
     } catch(e){
       alert(scanErrorMessage(e?.message));
     }
@@ -270,7 +271,7 @@ export default function ScanInvoiceModal({
           <input ref={galleryInputRef} type='file' accept={invoiceImageAccept} multiple style={{display:'none'}} onChange={onFilesPicked}/>
           <input ref={cameraInputRef} type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={onFilesPicked}/>
           <div onClick={()=>openPicker(galleryInputRef)} role='button' tabIndex={0} onKeyDown={event=>{ if(event.key==='Enter' || event.key===' ') openPicker(galleryInputRef); }} style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:isMobile?'22px':'30px',textAlign:'center',cursor:'pointer'}}>
-            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт страницы документа...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📷</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите фото накладной или счёта</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>Можно выбрать 1-8 страниц, ИИ соберёт их в один документ</p></div>}
+	            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт документ...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📄</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите PDF или фото накладной/счёта</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>Можно выбрать PDF или 1-8 фото страниц, ИИ соберёт их в один документ</p></div>}
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
             <button type='button' disabled={scanningInvoice} onClick={()=>openPicker(galleryInputRef)} style={{...btnG,justifyContent:'center',opacity:scanningInvoice?0.6:1}}>🖼️ Галерея</button>
