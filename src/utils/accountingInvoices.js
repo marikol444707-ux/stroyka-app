@@ -39,13 +39,19 @@ export const invoiceAmount = (invoice = {}) => {
 
 export const invoicePaidAmount = (invoice = {}) => Number(invoice.paidAmount || invoice.paid_amount || 0);
 
+export const invoiceDebtAmount = (invoice = {}) => {
+  const amount = invoiceAmount(invoice);
+  const paid = invoicePaidAmount(invoice);
+  return Math.max(0, Math.round((amount - paid) * 100) / 100);
+};
+
 export const invoiceAccountingStatus = (invoice = {}, controls = []) => {
-  const stored = String(invoice.accountingStatus || invoice.accounting_status || '').trim();
-  if (stored) return stored;
   const amount = invoiceAmount(invoice);
   const paid = invoicePaidAmount(invoice);
   if (amount > 0 && paid + 0.01 >= amount) return 'Оплачена';
-  if (paid > 0) return 'Частично оплачена';
+  if (paid > 0 && (!amount || paid < amount - 0.01)) return 'Частично оплачена';
+  const stored = String(invoice.accountingStatus || invoice.accounting_status || '').trim();
+  if (stored) return stored;
   if (invoicePhotos(invoice).length === 0) return 'Нет фото';
   const issueRows = (controls || []).filter(row => ['danger', 'warning'].includes(row.severity));
   return issueRows.length ? 'На проверке' : 'На проверке';
@@ -62,6 +68,7 @@ export const buildAccountingInvoiceRows = (invoices = [], controlFn) => (
       const photos = invoicePhotos(invoice);
       const amount = invoiceAmount(invoice);
       const paidAmount = invoicePaidAmount(invoice);
+      const debt = invoiceDebtAmount(invoice);
       return {
         invoice,
         controls,
@@ -69,7 +76,7 @@ export const buildAccountingInvoiceRows = (invoices = [], controlFn) => (
         photos,
         amount,
         paidAmount,
-        debt: Math.max(0, amount - paidAmount),
+        debt,
         status: invoiceAccountingStatus(invoice, controls),
       };
     })

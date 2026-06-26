@@ -41,7 +41,15 @@ export default function ProjectFinancePanel({
     .reduce((sum, ac) => sum + Math.max(0, Number(ac.amount || 0) - Number(ac.spentAmount || 0)), 0);
   const profit = received - total - inAccountable;
   const toReimburse = ownExpenses.filter(e => e.projectName === projectName && e.status === 'Ожидает');
-  const activeCategories = expenseCategories.filter(c => cat[c.id] > 0);
+  const categoryById = new Map(expenseCategories.map(c => [c.id, c]));
+  const activeCategories = Object.entries(cat)
+    .filter(([, value]) => Number(value || 0) > 0)
+    .map(([id, value]) => ({
+      id,
+      label: categoryById.get(id)?.label || id,
+      color: categoryById.get(id)?.color || C.accent,
+      value,
+    }));
   const workPackageLabel = pay => pay?.workPackage || pay?.work_package || '';
 
   const addCustomerPayment = () => {
@@ -81,7 +89,7 @@ export default function ProjectFinancePanel({
         {canAddExpense && (
           <button onClick={() => {
             setAddExpenseProject(projectName);
-            setNewManualExpense({category: 'materials', amount: '', note: '', date: ''});
+            setNewManualExpense({category: 'materials', customCategory: '', projectName: '', amount: '', note: '', date: ''});
           }} style={{...btnB, fontSize: '12px', padding: '7px 14px'}}>
             <Plus size={13}/>Расход по объекту
           </button>
@@ -135,7 +143,7 @@ export default function ProjectFinancePanel({
             {activeCategories.map(c => (
               <div key={c.id} style={{padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1.5px solid ' + C.border}}>
                 <p style={{margin: '0 0 2px', fontSize: '11px', color: C.textSec}}>{c.label}</p>
-                <b style={{fontSize: '14px', color: c.color}}>{cat[c.id].toLocaleString() + ' ₽'}</b>
+                <b style={{fontSize: '14px', color: c.color}}>{Number(c.value || 0).toLocaleString() + ' ₽'}</b>
               </div>
             ))}
             {activeCategories.length === 0 && <p style={{color: C.textMuted, fontSize: '12px', gridColumn: 'span 2', textAlign: 'center', padding: '10px'}}>Расходов пока нет</p>}

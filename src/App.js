@@ -732,7 +732,7 @@ function App() {
   const [showBalanceDetails, setShowBalanceDetails] = useState(false);
   const [customRoomTypes, setCustomRoomTypes] = useState(()=>{try{return JSON.parse(localStorage.getItem('customRoomTypes')||'[]');}catch{return [];}});
   const [manualExpenses, setManualExpenses] = useState([]);
-  const [newManualExpense, setNewManualExpense] = useState({category:'materials',amount:'',note:'',date:''});
+  const [newManualExpense, setNewManualExpense] = useState({category:'materials',customCategory:'',projectName:'',amount:'',note:'',date:''});
   const [newOwnExpense, setNewOwnExpense] = useState({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
@@ -9142,7 +9142,10 @@ function App() {
     r['materials']=matCost(pn);
     r['works']=labCost(pn);
     // Ручные расходы директора
-    manualExpenses.filter(e=>e.project===pn).forEach(e=>{r[e.category]=(r[e.category]||0)+Number(e.amount);});
+    manualExpenses.filter(e=>e.project===pn).forEach(e=>{
+      const category = String(e.category || 'other').trim() || 'other';
+      r[category]=(r[category]||0)+Number(e.amount);
+    });
     // Изменения к смете, утверждённые отдельной допработой
     unexpectedWorksList.filter(u=>u.projectName===pn&&isApprovedEstimateChangeStatus(u.status)&&u.changeType!=='Исключение объёма'&&!u.includedInEstimateId).forEach(u=>{r['unexpected']=(r['unexpected']||0)+u.total;});
     // Подотчётные траты (только потраченное)
@@ -15134,7 +15137,7 @@ function App() {
 
       {showReimburseModal&&<ReimburseModal showReimburseModal={showReimburseModal} setShowReimburseModal={setShowReimburseModal} C={C} card={card} btnG={btnG} btnO={btnO} btnR={btnR} ownExpenses={ownExpenses} users={users} staff={staff} roleLabels={ROLE_LABELS} expenseCategories={EXPENSE_CATEGORIES} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} API={API} user={user} loadAll={loadAll}/>}
     {reportingPayment&&<AccountableExpenseReportModal reportingPayment={reportingPayment} setReportingPayment={setReportingPayment} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} expenseCategories={EXPENSE_CATEGORIES} newExpense={newExpense} setNewExpense={setNewExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} expenseSubmitting={expenseSubmitting} setExpenseSubmitting={setExpenseSubmitting} API={API} user={user} loadAll={loadAll}/>}
-    {addExpenseProject&&<ManualExpenseModal addExpenseProject={addExpenseProject} setAddExpenseProject={setAddExpenseProject} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newManualExpense={newManualExpense} setNewManualExpense={setNewManualExpense} isFinanceRole={isFinanceRole} expenseCategories={EXPENSE_CATEGORIES} API={API} user={user} loadAll={loadAll}/>}
+    {addExpenseProject&&<ManualExpenseModal addExpenseProject={addExpenseProject} setAddExpenseProject={setAddExpenseProject} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newManualExpense={newManualExpense} setNewManualExpense={setNewManualExpense} isFinanceRole={isFinanceRole} expenseCategories={EXPENSE_CATEGORIES} projects={projects} visibleActiveProjects={visibleActiveProjects} API={API} user={user} loadAll={loadAll}/>}
     {showAccountableForm&&<AccountablePaymentModal showAccountableForm={showAccountableForm} setShowAccountableForm={setShowAccountableForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} users={users} newAccountable={newAccountable} setNewAccountable={setNewAccountable} API={API} user={user} loadAll={loadAll}/>}
     {showDistribute&&<EstimateDistributeModal showDistribute={showDistribute} setShowDistribute={setShowDistribute} selectedEstimate={selectedEstimate} distributing={distributing} setDistributing={setDistributing} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnB={btnB} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists} staff={staff} distributeAssignments={distributeAssignments} setDistributeAssignments={setDistributeAssignments} API={API} loadAll={loadAll}/>}
     {showFromEstimate&&<PricelistFromEstimateModal showFromEstimate={showFromEstimate} setShowFromEstimate={setShowFromEstimate} creatingFromEstimate={creatingFromEstimate} setCreatingFromEstimate={setCreatingFromEstimate} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} fromEstimateForm={fromEstimateForm} setFromEstimateForm={setFromEstimateForm} estimatesList={estimatesList} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>}
@@ -15146,7 +15149,7 @@ function App() {
     {showScannedInvoiceForm&&<ScannedInvoiceFormModal showScannedInvoiceForm={showScannedInvoiceForm} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnR={btnR} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects} getProjectWorkPackageOptions={getProjectWorkPackageOptions} getProjectEstimateWorkOptions={getProjectEstimateWorkOptions} units={UNITS} saveInvoiceNew={saveInvoiceNew}/>}
     {showScanInvoice&&<ScanInvoiceModal showScanInvoice={showScanInvoice} setShowScanInvoice={setShowScanInvoice} setShowScannedInvoiceForm={setShowScannedInvoiceForm} C={C} card={card} btnG={btnG} scanningInvoice={scanningInvoice} setScanningInvoice={setScanningInvoice} API={API} user={user} newInvoice={newInvoice} setNewInvoice={setNewInvoice} projects={projects}/>}
     {showOwnExpenseForm&&<OwnExpenseFormModal showOwnExpenseForm={showOwnExpenseForm} setShowOwnExpenseForm={setShowOwnExpenseForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projectOptions={projects} expenseCategories={EXPENSE_CATEGORIES} newOwnExpense={newOwnExpense} setNewOwnExpense={setNewOwnExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} API={API} user={user} loadAll={loadAll}/>}
-    {showQuickActions&&<QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setSelectedWarehouseProject={setSelectedWarehouseProject} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>}
+    {showQuickActions&&<QuickActionsModal showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} C={C} btnG={btnG} user={user} projects={projects} visibleActiveProjects={visibleActiveProjects} openReceiveInvoice={openReceiveInvoice} setActivePage={setActivePage} setWarehouseTab={setWarehouseTab} navigateTo={navigateTo} API={API} setMaterialTransfers={setMaterialTransfers} setShowTransferForm={setShowTransferForm} setSelectedWarehouseProject={setSelectedWarehouseProject} setAddExpenseProject={setAddExpenseProject} setNewManualExpense={setNewManualExpense} setShowOwnExpenseForm={setShowOwnExpenseForm} setShowChatPanel={setShowChatPanel} setShowAiAssistant={setShowAiAssistant}/>}
     </React.Suspense>
     <SystemStatusModal
       show={showSystemStatus}

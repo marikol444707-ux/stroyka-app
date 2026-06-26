@@ -8957,8 +8957,21 @@ def _detect_cable_info(name):
         "КПС", "КПСЭ", "КПСВВ", "КСВВ", "КСПВ", "КСПЭВ", "ППГ",
         "JYSTY", "JEH", "JHSTH"
     ]
-    indicators = start_prefixes + ["КАБЕЛ", "ПРОВОД", "FRLS", "FRHF", "ОПС"]
-    is_cable = any(compact.startswith(p) for p in start_prefixes) or any(p in compact for p in indicators)
+    non_cable_markers = [
+        "КОРОБ", "РАСПАЕЧ", "РАСПРЕДЕЛ", "РАЗВЕТВ", "ПОДРОЗЕТ", "РОЗЕТК",
+        "ВЫКЛЮЧАТ", "КЛЕММ", "НАКОНЕЧ", "ГИЛЬЗ", "МУФТ", "ВВОД", "САЛЬНИК",
+        "КАБЕЛЬКАНАЛ", "КАБЕЛКАНАЛ", "КАНАЛКАБЕЛ", "ЛОТОК", "ГОФР", "ТРУБ",
+        "КЛИПС", "СКОБ", "ХОМУТ", "ДЕРЖАТЕЛ", "ЗАЖИМ", "СТЯЖК",
+        "ДЮБЕЛ", "САМОРЕЗ", "ШУРУП", "ГВОЗД", "БОЛТ", "ГАЙК", "ШАЙБ", "АНКЕР",
+        "ПЕРЧАТ", "МЕШОК", "ВЕДРО", "ШПАТЕЛ", "ВАЛИК", "КИСТ",
+        "КРАСК", "ШТУКАТУР", "ШПАКЛ"
+    ]
+    if any(p in compact for p in non_cable_markers):
+        return {"isCable": False, "cableType": "", "cores": None, "section": None}
+    brand_match = any(compact.startswith(p) for p in start_prefixes)
+    named_cable = any(compact.startswith(p) for p in ["КАБЕЛ", "ПРОВОД", "ШНУР"])
+    has_cable_mark = any(p in compact for p in start_prefixes if len(p) >= 3)
+    is_cable = brand_match or named_cable or has_cable_mark
     cable_type = ""
     if any(p in compact for p in ["КПС", "КПСЭ", "КПСВВ", "ОПС", "ПОЖАР"]):
         cable_type = "Пожарная сигнализация"
@@ -8970,15 +8983,16 @@ def _detect_cable_info(name):
         cable_type = "Силовой кабель"
     cores = None
     section = None
-    m3 = _re.search(r"(\d+)\s*[х×x*]\s*(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)", raw, _re.IGNORECASE)
-    if m3:
-        cores = int(m3.group(1)) * int(m3.group(2))
-        section = float(m3.group(3).replace(",", "."))
-    else:
-        m2 = _re.search(r"(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)", raw, _re.IGNORECASE)
-        if m2:
-            cores = int(m2.group(1))
-            section = float(m2.group(2).replace(",", "."))
+    if is_cable:
+        m3 = _re.search(r"(\d+)\s*[х×x*]\s*(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)", raw, _re.IGNORECASE)
+        if m3:
+            cores = int(m3.group(1)) * int(m3.group(2))
+            section = float(m3.group(3).replace(",", "."))
+        else:
+            m2 = _re.search(r"(\d+)\s*[х×x*]\s*(\d+(?:[.,]\d+)?)", raw, _re.IGNORECASE)
+            if m2:
+                cores = int(m2.group(1))
+                section = float(m2.group(2).replace(",", "."))
     return {"isCable": is_cable, "cableType": cable_type, "cores": cores, "section": section}
 
 def _add_project_material(cur, name, unit, qty, price, project, work_package=""):
@@ -18785,6 +18799,7 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
         if payment_amount > 0:
             if not target_project:
                 raise HTTPException(status_code=400, detail="Для оплаты накладной нужна привязка к объекту")
+            invoice_total = _float_or_zero(row.get("total_with_vat") or row.get("total_base"))
             items = _json_list_or_empty(row.get("items"))
             work_package = str(data.get("workPackage") or data.get("work_package") or "").strip()
             if not work_package and items:
@@ -18809,17 +18824,27 @@ def update_warehouse_invoice_accounting(id: int, data: dict, _current_user: dict
                 payment_already_recorded = True
                 paid_amount_after = max(paid_amount_before, payment_amount)
             else:
+                if invoice_total > 0:
+                    remaining_to_pay = max(0, invoice_total - paid_amount_before)
+                    if payment_amount > remaining_to_pay + 0.01:
+                        raise HTTPException(status_code=400, detail=f"Оплата превышает долг по накладной. Остаток к оплате: {round(remaining_to_pay, 2)} ₽")
                 cur.execute("""INSERT INTO project_payments
                                   (project_name, work_package, amount, note, date, added_by)
                                VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
                             (target_project, work_package, payment_amount, note, paid_at, actor_name))
                 payment_id = cur.fetchone()["id"]
                 paid_amount_after = round(paid_amount_before + payment_amount, 2)
-            invoice_total = _float_or_zero(row.get("total_with_vat") or row.get("total_base"))
             if invoice_total > 0 and paid_amount_after + 0.01 >= invoice_total:
                 next_status = "Оплачена"
             else:
                 next_status = "Частично оплачена"
+
+        invoice_total = _float_or_zero(row.get("total_with_vat") or row.get("total_base"))
+        if invoice_total > 0 and paid_amount_after + 0.01 >= invoice_total:
+            next_status = "Оплачена"
+            paid_amount_after = min(paid_amount_after, invoice_total)
+        elif paid_amount_after > 0 and next_status in ("", "К оплате", "Частично оплачена", "Оплачена"):
+            next_status = "Частично оплачена"
 
         cur.execute("""UPDATE warehouse_invoices
                        SET accounting_status=%s,
@@ -21067,6 +21092,7 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
     else:
         cur.execute(f"SELECT {cols} FROM cable_journal ORDER BY id DESC")
     rows = cur.fetchall()
+    rows = [r for r in rows if _detect_cable_info(r[3] if len(r) > 3 else "")["isCable"]]
     cur.close(); conn.close()
     return [{"id":r[0],"projectName":r[1] or "","invoiceId":r[2],
              "cableBrand":r[3] or "","crossSection":float(r[4] or 0),"coresCount":r[5],

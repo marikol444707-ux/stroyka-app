@@ -72,8 +72,18 @@ export default function AccountingIncomingDocumentsPanel({
   }, [rows, activeStatus]);
 
   const parseMoney = (value) => {
+    const cleaned = String(value ?? '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s/g, '')
+      .replace(/₽/g, '')
+      .replace(/руб(?:лей|ля|\.?)?/gi, '')
+      .replace(/р\./gi, '')
+      .replace(',', '.')
+      .replace(/[^0-9.-]/g, '');
+    const parsed = Number(cleaned);
+    if (Number.isFinite(parsed)) return parsed;
     if (typeof toNum === 'function') return toNum(value);
-    return Number(String(value || '').replace(/\s/g, '').replace(',', '.')) || 0;
+    return 0;
   };
 
   const normalize = value => String(value || '').trim().toLowerCase();
@@ -179,12 +189,16 @@ export default function AccountingIncomingDocumentsPanel({
 
   const payInvoice = async (row) => {
     const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
-    const defaultAmount = row.debt || row.amount;
-    const answer = window.prompt('Сумма оплаты', String(Math.round(defaultAmount)));
+    const defaultAmount = Math.max(0, Number(row.debt || 0));
+    if (defaultAmount <= 0.01) {
+      await updateAccounting(row, { accountingStatus: 'Оплачена' });
+      return;
+    }
+    const answer = window.prompt('Сумма оплаты', String(Math.round(defaultAmount * 100) / 100));
     if (!answer) return;
     const paymentAmount = parseMoney(answer);
     if (paymentAmount <= 0 || paymentAmount > defaultAmount + 0.01) {
-      alert('Сумма должна быть от 1 до ' + money(defaultAmount));
+      alert('Сумма должна быть от 0,01 до ' + money(defaultAmount));
       return;
     }
     const payload = {

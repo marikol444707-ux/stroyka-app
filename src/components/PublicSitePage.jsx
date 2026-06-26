@@ -1,11 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  BriefcaseBusiness,
+  Building2,
   Calculator,
   Camera,
   Check,
   ChevronRight,
   Clock,
+  ClipboardCheck,
   FileText,
+  Hammer,
+  Handshake,
   Image,
   MapPin,
   Package,
@@ -114,6 +119,60 @@ const projectFilters = [
   { value: 'repair', label: 'Ремонт' },
   { value: 'commerce', label: 'Коммерция' },
   { value: 'reconstruction', label: 'Реконструкция' },
+];
+
+const workProofItems = [
+  {
+    title: 'Скрытые работы',
+    text: 'Фото до закрытия, акт, исполнитель и привязка к объекту.',
+    image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=900&q=82',
+    metric: 'Акт + фото',
+    icon: ClipboardCheck,
+  },
+  {
+    title: 'Материалы и накладные',
+    text: 'Приход, поставщик, фото первички и движение по складу.',
+    image: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=900&q=82',
+    metric: 'Склад + документы',
+    icon: Package,
+  },
+  {
+    title: 'Ежедневный ход работ',
+    text: 'Работы мастеров, объёмы, замечания и подтверждения.',
+    image: 'https://images.unsplash.com/photo-1581094271901-8022df4466f9?auto=format&fit=crop&w=900&q=82',
+    metric: 'Журнал работ',
+    icon: Hammer,
+  },
+];
+
+const referenceDirections = [
+  {
+    title: 'Дом под ключ',
+    text: 'Коробка, тёплый контур, инженерия и отделка с паспортом объекта.',
+    tags: ['частный дом', 'инженерия', 'гарантия'],
+  },
+  {
+    title: 'Коммерческое помещение',
+    text: 'Офис, магазин, салон или кафе с графиком запуска и документами.',
+    tags: ['сроки', 'открытие', 'акты'],
+  },
+  {
+    title: 'Ремонт и реконструкция',
+    text: 'Старый фонд, коттедж, переделка инженерии, скрытые работы.',
+    tags: ['демонтаж', 'обследование', 'контроль'],
+  },
+  {
+    title: 'Отдельные инженерные работы',
+    text: 'Электрика, сантехника, вентиляция, отопление и исполнительная документация.',
+    tags: ['электрика', 'сантехника', 'исполнительная'],
+  },
+];
+
+const partnerTypes = [
+  { value: 'supplier', label: 'Поставщик', note: 'Материалы, счета, КП, документы', icon: Handshake },
+  { value: 'master', label: 'Мастер', note: 'Сдельные работы, объекты, акты', icon: Hammer },
+  { value: 'brigade', label: 'Бригада', note: 'Пакеты работ, закрытия, расчёты', icon: BriefcaseBusiness },
+  { value: 'subcontractor', label: 'Субподрядчик', note: 'Договор, объёмы, исполнительная документация', icon: Building2 },
 ];
 
 const publicProjects = [
@@ -276,6 +335,17 @@ const PublicSitePage = ({ onLogin }) => {
   const [sent, setSent] = useState(false);
   const [leadSending, setLeadSending] = useState(false);
   const [leadError, setLeadError] = useState('');
+  const [partnerLead, setPartnerLead] = useState({
+    type: 'supplier',
+    name: '',
+    phone: '',
+    comment: '',
+  });
+  const [partnerConsent, setPartnerConsent] = useState(false);
+  const [partnerWebsite, setPartnerWebsite] = useState('');
+  const [partnerSending, setPartnerSending] = useState(false);
+  const [partnerSent, setPartnerSent] = useState(false);
+  const [partnerError, setPartnerError] = useState('');
   const [siteProjects, setSiteProjects] = useState(publicProjects);
   const [projectCategory, setProjectCategory] = useState('all');
   const [selectedProjectId, setSelectedProjectId] = useState(publicProjects[0].id);
@@ -568,6 +638,57 @@ const PublicSitePage = ({ onLogin }) => {
     }
   };
 
+  const submitPartnerLead = async (event) => {
+    event.preventDefault();
+    if (partnerSending) return;
+    setPartnerError('');
+    setPartnerSent(false);
+    if (!partnerConsent) {
+      setPartnerError('Подтвердите согласие на обработку персональных данных.');
+      return;
+    }
+    setPartnerSending(true);
+    try {
+      const partnerType = partnerTypes.find((item) => item.value === partnerLead.type) || partnerTypes[0];
+      const response = await fetch(API + '/site/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: partnerLead.name || partnerType.label,
+          phone: partnerLead.phone,
+          comment: [
+            'Тип заявки: ' + partnerType.label,
+            partnerLead.comment ? 'Комментарий: ' + partnerLead.comment : '',
+            'Заявка только на проверку. Активный доступ не выдавать автоматически.',
+          ].filter(Boolean).join('\n'),
+          source: 'Сайт: партнерская заявка',
+          budget: 0,
+          page: 'public-site-partners',
+          legalSource: typeof window !== 'undefined' ? window.location.href : 'public-site-partners',
+          referrer: typeof document !== 'undefined' ? document.referrer : '',
+          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+          submittedAt: new Date().toISOString(),
+          consentAccepted: partnerConsent,
+          consentVersion: PUBLIC_CONSENT_VERSION,
+          website: partnerWebsite,
+          partnerType: partnerLead.type,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || 'Не удалось отправить заявку');
+      }
+      setPartnerSent(true);
+      setPartnerLead({ type: 'supplier', name: '', phone: '', comment: '' });
+      setPartnerConsent(false);
+      setPartnerWebsite('');
+    } catch (error) {
+      setPartnerError(error.message || 'Не удалось отправить заявку');
+    } finally {
+      setPartnerSending(false);
+    }
+  };
+
   return (
     <main className="public-site">
       <section className="public-hero">
@@ -579,8 +700,9 @@ const PublicSitePage = ({ onLogin }) => {
             <button type="button" onClick={() => scrollTo('services')}>Услуги</button>
             <button type="button" onClick={() => scrollTo('calculator')}>Калькулятор</button>
             <button type="button" onClick={() => scrollTo('objects')}>Объекты</button>
+            <button type="button" onClick={() => scrollTo('work-proof')}>Работы</button>
             <button type="button" onClick={() => scrollTo('passport')}>Контроль</button>
-            <button type="button" onClick={() => scrollTo('suppliers')}>Поставщикам</button>
+            <button type="button" onClick={() => scrollTo('suppliers')}>Партнёрам</button>
             <button type="button" onClick={() => scrollTo('privacy')}>Политика</button>
           </nav>
           <button className="public-login" type="button" onClick={onLogin}>Вход в ERP</button>
@@ -1051,6 +1173,51 @@ const PublicSitePage = ({ onLogin }) => {
             </button>
           ))}
         </div>
+
+        <div id="work-proof" className="public-work-proof">
+          <div className="public-section-head compact">
+            <p className="public-eyebrow dark">Наши работы</p>
+            <h2>Показываем не только красивый финал, а доказательства выполнения</h2>
+            <p>
+              Для сайта отдельно выводятся реальные работы и документы, которые можно проверить:
+              фото, накладные, акты, журнал работ и паспорт объекта.
+            </p>
+          </div>
+          <div className="public-work-grid">
+            {workProofItems.map((item) => (
+              <article className="public-work-card" key={item.title}>
+                <img src={item.image} alt={item.title} />
+                <div>
+                  <span><item.icon size={15} /> {item.metric}</span>
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="public-reference-board">
+          <div className="public-section-head compact">
+            <p className="public-eyebrow dark">Референсы</p>
+            <h2>Направления, по которым удобно собирать примеры и заявки</h2>
+            <p>
+              Референсы не выдаются за выполненные объекты. Это направления для обсуждения
+              будущего проекта, после чего менеджер переводит запрос в CRM.
+            </p>
+          </div>
+          <div className="public-reference-grid">
+            {referenceDirections.map((item) => (
+              <article className="public-reference-card" key={item.title}>
+                <h3>{item.title}</h3>
+                <p>{item.text}</p>
+                <div>
+                  {item.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="public-section public-process">
@@ -1076,14 +1243,67 @@ const PublicSitePage = ({ onLogin }) => {
 
       <section id="suppliers" className="public-section public-suppliers">
         <div className="public-supplier-copy">
-          <p className="public-eyebrow dark">Поставщикам</p>
-          <h2>Заявки на материалы будут приходить через единый кабинет</h2>
+          <p className="public-eyebrow dark">Партнёрам</p>
+          <h2>Поставщик, мастер, бригада или субподрядчик сначала оставляет заявку на проверку</h2>
           <p>
-            Поставщик сможет видеть потребности строительных компаний, отправлять КП,
-            счета, документы и историю поставок в одном окне.
+            Мы не создаём активный доступ с публичного сайта автоматически. Заявка попадает
+            в CRM, директор или ответственный сотрудник проверяет данные и только потом
+            выдаёт кабинет, договор или приглашение.
           </p>
+          <div className="public-partner-types">
+            {partnerTypes.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                className={partnerLead.type === item.value ? 'active' : ''}
+                onClick={() => setPartnerLead({ ...partnerLead, type: item.value })}
+              >
+                <span><item.icon size={15} /> {item.label}</span>
+                <small>{item.note}</small>
+              </button>
+            ))}
+          </div>
         </div>
-        <button className="public-secondary dark" type="button" onClick={onLogin}>Войти в кабинет</button>
+        <form className="public-partner-form" onSubmit={submitPartnerLead}>
+          <label className="public-honeypot" aria-hidden="true">
+            Сайт
+            <input
+              value={partnerWebsite}
+              onChange={(event) => setPartnerWebsite(event.target.value)}
+              autoComplete="off"
+              tabIndex={-1}
+            />
+          </label>
+          <label>
+            Компания или ФИО
+            <input value={partnerLead.name} onChange={(event) => setPartnerLead({ ...partnerLead, name: event.target.value })} placeholder="Название или имя" />
+          </label>
+          <label>
+            Телефон
+            <input value={partnerLead.phone} onChange={(event) => setPartnerLead({ ...partnerLead, phone: event.target.value })} placeholder="+7" required />
+          </label>
+          <label>
+            Что предлагаете
+            <textarea value={partnerLead.comment} onChange={(event) => setPartnerLead({ ...partnerLead, comment: event.target.value })} placeholder="Материалы, виды работ, регион, опыт" />
+          </label>
+          <label className="public-consent">
+            <input
+              type="checkbox"
+              checked={partnerConsent}
+              onChange={(event) => setPartnerConsent(event.target.checked)}
+            />
+            <span>
+              Даю согласие на обработку данных для проверки заявки и понимаю,
+              что кабинет не создаётся автоматически.
+            </span>
+          </label>
+          <button className="public-primary" type="submit" disabled={partnerSending || !partnerConsent}>
+            {partnerSending ? 'Отправляем...' : 'Отправить на проверку'}
+          </button>
+          <button className="public-secondary dark" type="button" onClick={onLogin}>Уже есть доступ</button>
+          {partnerSent && <p className="public-form-success">Заявка отправлена в CRM на проверку.</p>}
+          {partnerError && <p className="public-form-error">{partnerError}</p>}
+        </form>
       </section>
 
       <section id="request" className="public-section public-request">

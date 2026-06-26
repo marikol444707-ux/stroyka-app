@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, CloudSun, CreditCard, FolderKanban, MessageSquare, Package, Plus, Truck, X } from 'lucide-react';
+import { Bot, CloudSun, CreditCard, FolderKanban, MessageSquare, Package, Plus, ReceiptText, Truck, X } from 'lucide-react';
 
 export default function QuickActionsModal({
   showQuickActions,
@@ -17,6 +17,8 @@ export default function QuickActionsModal({
   setMaterialTransfers,
   setShowTransferForm,
   setSelectedWarehouseProject,
+  setAddExpenseProject,
+  setNewManualExpense,
   setShowOwnExpenseForm,
   setShowChatPanel,
   setShowAiAssistant,
@@ -29,6 +31,7 @@ export default function QuickActionsModal({
   const actions = [
     {icon:<Plus size={24}/>,label:'Принять на склад',color:'#3b82f6',action:()=>{openReceiveInvoice('',{scanFirst:true});setShowQuickActions(false);},roles:['директор','зам_директора','прораб','кладовщик','снабженец']},
     {icon:<Truck size={24}/>,label:'Передать материал',color:'#10b981',action:async()=>{const visible=visibleActiveProjects(projects);if(visible.length===1){const pn=visible[0].name;try{const res=await fetch(API+'/material-transfers?project_name='+encodeURIComponent(pn));const data=await res.json();setMaterialTransfers(Array.isArray(data)?data:[]);}catch(_e){setMaterialTransfers([]);}if(setSelectedWarehouseProject) setSelectedWarehouseProject(pn);if(setWarehouseTab) setWarehouseTab('objects');(navigateTo || setActivePage)('warehouse');setShowTransferForm(true);setShowQuickActions(false);return;}setShowQuickActions(false);if(setWarehouseTab) setWarehouseTab('objects');(navigateTo || setActivePage)('warehouse');},roles:['директор','зам_директора','прораб','кладовщик']},
+    {icon:<ReceiptText size={24}/>,label:'Расход по объекту',color:'#8b5cf6',action:()=>{const visible=visibleActiveProjects(projects);setNewManualExpense({category:'materials',customCategory:'',projectName:'',amount:'',note:'',date:''});setAddExpenseProject(visible.length===1?visible[0].name:'__choose__');setShowQuickActions(false);},roles:['директор','зам_директора','бухгалтер']},
     {icon:<CreditCard size={24}/>,label:'Мои траты',color:'#22c55e',action:()=>{setShowQuickActions(false);setShowOwnExpenseForm(true);}},
     {icon:<MessageSquare size={24}/>,label:'Чат',color:'#3b82f6',action:()=>{setShowQuickActions(false);setShowChatPanel(true);}},
     {icon:<CloudSun size={24}/>,label:'Погода',color:'#06b6d4',action:()=>{setShowQuickActions(false);(navigateTo || setActivePage)('weather');},roles:['прораб','главный_инженер']},
