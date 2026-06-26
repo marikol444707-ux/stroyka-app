@@ -540,6 +540,91 @@ const getReferenceProjectCards = (direction) => {
   }));
 };
 
+const getProjectVisual = (direction, project) => {
+  if (direction.id === 'garage-house' || project?.code?.startsWith('GAR-')) {
+    return '/site-assets/project-rg6362.png';
+  }
+  return project?.image || direction.image;
+};
+
+const parseProjectArea = (project) => {
+  const match = String(project?.area || '').replace(',', '.').match(/(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : Number(project?.calcPatch?.area || 120);
+};
+
+const getProjectSpecs = (direction, project) => {
+  const area = parseProjectArea(project);
+  const floors = Number(project?.calcPatch?.floors || direction.calcPatch?.floors || 1);
+  const rooms = Number(project?.calcPatch?.rooms || direction.calcPatch?.rooms || 1);
+  const type = project?.calcPatch?.type || direction.calcPatch?.type || 'house';
+  const isHouse = type === 'house';
+  const isRepair = type === 'repair';
+  const isFacade = project?.calcPatch?.reconstructionScope === 'facade';
+  const isRoof = project?.calcPatch?.reconstructionScope === 'roof';
+  const isGarage = direction.id === 'garage-house' || project?.code?.startsWith('GAR-');
+  const bedrooms = isHouse ? Math.max(1, rooms - 2) : Math.max(0, rooms - 1);
+  const width = Math.max(8.5, Math.sqrt(area * 0.85)).toFixed(1).replace('.', ',');
+  const length = Math.max(9.5, area / Number(width.replace(',', '.'))).toFixed(1).replace('.', ',');
+  const wallMaterial = project?.calcPatch?.wallType === 'brick'
+    ? 'кирпич / клинкер'
+    : isRepair
+      ? 'существующее основание'
+      : 'пеноблок / газобетон';
+  const finish = isFacade
+    ? 'утепление / штукатурка'
+    : isRoof
+      ? 'кровельное покрытие'
+      : isRepair
+        ? 'чистовая / инженерия'
+        : 'панели / штукатурка';
+
+  return [
+    ['Общая площадь', project?.area || `${area} м2`],
+    ['Жилая площадь', isHouse ? `${Math.round(area * 0.42)} м2` : `${Math.round(area * 0.72)} м2`],
+    ['Размеры', isHouse ? `${width} x ${length} м` : project?.floors || 'по объекту'],
+    ['Высота здания', isHouse ? `${floors === 1 ? '4,1' : '7,9'} м` : 'по месту'],
+    ['Количество комнат', String(Math.max(rooms, 1))],
+    ['Количество спален', isHouse ? String(bedrooms) : 'по задаче'],
+    ['Гараж', isGarage ? 'есть' : 'нет'],
+    ['Отделка', finish],
+    ['Материал стен', wallMaterial],
+    ['Фундамент', isHouse ? 'монолитная плита' : 'существующий'],
+    ['Перекрытия', floors > 1 ? 'монолитные' : 'по проекту'],
+  ];
+};
+
+const getPlanRooms = (project) => {
+  const rawParts = String(project?.layout || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const fallback = ['Кухня-гостиная', 'Спальня', 'Спальня', 'Санузел', 'Холл'];
+  const parts = rawParts.length ? rawParts : fallback;
+  const sizes = ['34 м2', '16 м2', '13 м2', '12 м2', '7 м2', '5 м2'];
+  return parts.slice(0, 6).map((name, index) => ({
+    name,
+    size: sizes[index] || '',
+    wide: index === 0,
+  }));
+};
+
+const ReferencePlanPreview = ({ project, title }) => {
+  const rooms = getPlanRooms(project);
+  return (
+    <div className="public-project-plan-preview">
+      <strong>{title}</strong>
+      <div className="public-project-plan-grid">
+        {rooms.map((room, index) => (
+          <span className={room.wide ? 'wide' : ''} key={`${room.name}-${index}`}>
+            <b>{room.name}</b>
+            <small>{room.size}</small>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const partnerTypes = [
   { value: 'supplier', label: 'Поставщик', note: 'Материалы, счета, КП, документы', icon: Handshake },
   { value: 'master', label: 'Мастер', note: 'Сдельные работы, объекты, акты', icon: Hammer },
@@ -944,6 +1029,8 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReference = referenceDirections.find((item) => item.id === selectedReferenceId) || referenceDirections[0];
   const selectedReferenceProjects = getReferenceProjectCards(selectedReference);
   const selectedReferenceProject = selectedReferenceProjects.find((project) => project.title === selectedReferenceExample) || selectedReferenceProjects[0];
+  const selectedReferenceSpecs = getProjectSpecs(selectedReference, selectedReferenceProject);
+  const selectedReferenceVisual = getProjectVisual(selectedReference, selectedReferenceProject);
 
   const chooseProjectCategory = (category) => {
     const nextProjects = category === 'all'
@@ -1624,60 +1711,62 @@ const PublicSitePage = ({ onLogin }) => {
               })}
             </div>
 
-            <section className="public-reference-examples-panel" aria-label="Примеры выбранного направления">
-              <div className="public-reference-examples-top">
-                <img src={selectedReference.image} alt="" />
-                <div className="public-reference-examples-summary">
-                  <p className="public-tool-kicker">Готовые проектные карточки</p>
-                  <h3>{selectedReference.title}</h3>
-                  <p>
-                    {selectedReference.text} Ниже показаны стартовые варианты с площадью,
-                    планировкой и визуалами, которые нужно подготовить для публикации.
-                  </p>
-                  <div className="public-reference-tags">
-                    {selectedReference.tags.map((tag) => <span key={tag}>{tag}</span>)}
+            <section className="public-project-catalog" aria-label="Готовые проекты выбранного направления">
+              <div className="public-project-catalog-main">
+                <div className="public-project-visual-column">
+                  <div className="public-project-hero-visual">
+                    <img src={selectedReferenceVisual} alt="" />
+                    <span className="public-project-ready-ribbon">Готовый проект</span>
+                    <span className="public-project-discount">10%</span>
+                  </div>
+                  <div className="public-project-thumb-grid" aria-label="Варианты проекта">
+                    {selectedReferenceProjects.map((project) => (
+                      <button
+                        className={selectedReferenceProject?.title === project.title ? 'active' : ''}
+                        type="button"
+                        key={project.code}
+                        onClick={() => chooseReference(selectedReference, project)}
+                      >
+                        <img src={getProjectVisual(selectedReference, project)} alt="" />
+                        <b>{project.code}</b>
+                        <span>{project.area}</span>
+                      </button>
+                    ))}
+                    <ReferencePlanPreview project={selectedReferenceProject} title="План 1 этажа" />
+                    <ReferencePlanPreview project={selectedReferenceProject} title="План 2 этажа" />
                   </div>
                 </div>
-              </div>
-              <div className="public-reference-examples-grid">
-                {selectedReferenceProjects.map((project) => (
-                  <button
-                    className={selectedReferenceProject?.title === project.title ? 'public-reference-project active' : 'public-reference-project'}
-                    type="button"
-                    key={project.code}
-                    onClick={() => chooseReference(selectedReference, project)}
-                  >
-                    <span>{project.code}</span>
-                    <b>{project.title}</b>
-                    <dl>
-                      <div>
-                        <dt>Площадь</dt>
-                        <dd>{project.area}</dd>
+
+                <div className="public-project-spec-column">
+                  <p className="public-tool-kicker">Каталог готовых проектов</p>
+                  <h3>{selectedReferenceProject?.title || selectedReference.title}</h3>
+                  <p>{selectedReferenceProject?.layout || selectedReference.text}</p>
+                  <dl className="public-project-spec-list">
+                    {selectedReferenceSpecs.map(([label, value]) => (
+                      <div key={label}>
+                        <dt>{label}</dt>
+                        <dd>{value}</dd>
                       </div>
-                      <div>
-                        <dt>Формат</dt>
-                        <dd>{project.floors}</dd>
-                      </div>
-                    </dl>
-                    <p>{project.layout}</p>
-                    <small>{project.visuals}</small>
+                    ))}
+                  </dl>
+                  <button className="public-project-outline" type="button">
+                    Показать зеркальный вариант
                   </button>
-                ))}
-              </div>
-              <div className="public-reference-actions">
-                <div>
-                  <span>Выбрано для расчета</span>
-                  <b>{selectedReferenceProject?.title || selectedReferenceExample}</b>
-                  {selectedReferenceProject?.layout && <small>{selectedReferenceProject.layout}</small>}
+                  <button className="public-project-editor" type="button">
+                    Редактор планировки
+                  </button>
+                  <button className="public-project-outline" type="button">
+                    Похожие по виду ({Math.max(3, selectedReferenceProjects.length)})
+                  </button>
+                  <button
+                    className="public-primary public-reference-cta"
+                    type="button"
+                    onClick={() => chooseReference(selectedReference, selectedReferenceProject, true)}
+                  >
+                    Рассчитать такой проект
+                    <ChevronRight size={18} />
+                  </button>
                 </div>
-                <button
-                  className="public-primary public-reference-cta"
-                  type="button"
-                  onClick={() => chooseReference(selectedReference, selectedReferenceProject, true)}
-                >
-                  Рассчитать такой проект
-                  <ChevronRight size={18} />
-                </button>
               </div>
             </section>
           </div>
