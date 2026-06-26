@@ -1057,18 +1057,68 @@
   line-height: 1.5;
 }
 
+.public-reference-layout {
+  display: grid;
+  gap: 18px;
+}
+
 .public-reference-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
 
 .public-reference-card {
+  position: relative;
+  min-width: 0;
   border: 1px solid var(--site-line);
   border-radius: 8px;
-  background: #fbfdfc;
-  padding: 16px;
-  min-width: 0;
+  background: #ffffff;
+  padding: 0 0 14px;
+  overflow: hidden;
+  color: var(--site-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.public-reference-card:hover,
+.public-reference-card.active {
+  border-color: var(--site-green);
+  box-shadow: 0 14px 34px rgba(15, 95, 74, 0.13);
+  transform: translateY(-1px);
+}
+
+.public-reference-card img {
+  width: 100%;
+  height: 128px;
+  display: block;
+  object-fit: cover;
+  background: var(--site-soft);
+}
+
+.public-reference-count {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 27px;
+  margin: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 47, 40, 0.84);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.public-reference-card h3,
+.public-reference-card p,
+.public-reference-card div {
+  margin-left: 14px;
+  margin-right: 14px;
 }
 
 .public-reference-card div {
@@ -1078,7 +1128,8 @@
   margin-top: 14px;
 }
 
-.public-reference-card span {
+.public-reference-card div span,
+.public-reference-tags span {
   color: var(--site-green);
   background: #ffffff;
   border: 1px solid var(--site-line);
@@ -1086,6 +1137,180 @@
   padding: 5px 8px;
   font-size: 11px;
   font-weight: 850;
+}
+
+.public-reference-examples-panel {
+  border: 1px solid var(--site-line);
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.public-reference-examples-top {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.42fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+  padding: 18px;
+  border-bottom: 1px solid var(--site-line);
+}
+
+.public-reference-examples-top img {
+  width: 100%;
+  min-height: 190px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+  background: var(--site-soft);
+}
+
+.public-reference-examples-summary {
+  min-width: 0;
+  align-self: center;
+}
+
+.public-reference-examples-summary h3 {
+  margin: 0 0 10px;
+  color: var(--site-ink);
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.public-reference-examples-summary p:not(.public-tool-kicker) {
+  margin: 0;
+  color: var(--site-muted);
+  line-height: 1.55;
+}
+
+.public-reference-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.public-reference-examples-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  padding: 18px;
+  background: #f7faf8;
+}
+
+.public-reference-project {
+  min-width: 0;
+  border: 1px solid var(--site-line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--site-ink);
+}
+
+.public-reference-project.active,
+.public-reference-project:hover {
+  border-color: var(--site-orange);
+  background: #fff7ed;
+}
+
+.public-reference-project > span {
+  width: fit-content;
+  min-height: 27px;
+  border-radius: 8px;
+  background: var(--site-green);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.public-reference-project b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--site-ink);
+  line-height: 1.25;
+  font-size: 18px;
+}
+
+.public-reference-project dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.public-reference-project dl div {
+  min-width: 0;
+  border: 1px solid var(--site-line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.public-reference-project dt {
+  margin: 0 0 3px;
+  color: var(--site-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.public-reference-project dd {
+  margin: 0;
+  color: var(--site-green);
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.public-reference-project p,
+.public-reference-project small,
+.public-reference-actions small {
+  min-width: 0;
+  margin: 0;
+  color: var(--site-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.public-reference-project small,
+.public-reference-actions small {
+  font-size: 12px;
+}
+
+.public-reference-actions {
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 18px 18px;
+  background: #f7faf8;
+}
+
+.public-reference-actions div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.public-reference-actions span {
+  color: var(--site-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.public-reference-actions b {
+  color: var(--site-ink);
+  overflow-wrap: anywhere;
+}
+
+.public-reference-cta {
+  flex: 0 0 auto;
 }
 
 .public-process-grid {
@@ -1317,7 +1542,8 @@
   }
   .public-hero-tools,
   .public-gallery,
-  .public-request {
+  .public-request,
+  .public-reference-layout {
     grid-template-columns: 1fr;
   }
   .public-service-row,
@@ -1431,9 +1657,35 @@
   .public-service,
   .public-process-item,
   .public-work-card,
-  .public-reference-card {
+  .public-reference-card,
+  .public-reference-examples-panel {
     padding: 16px;
     min-width: 0;
+  }
+  .public-reference-card {
+    padding: 0 0 14px;
+  }
+  .public-reference-examples-panel {
+    padding: 0;
+  }
+  .public-reference-examples-top,
+  .public-reference-examples-grid {
+    grid-template-columns: 1fr;
+  }
+  .public-reference-examples-top {
+    padding: 14px;
+    gap: 12px;
+  }
+  .public-reference-examples-top img {
+    min-height: 180px;
+  }
+  .public-reference-examples-grid {
+    padding: 14px;
+  }
+  .public-reference-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: 0 14px 14px;
   }
   .public-tool-header h2,
   .public-passport h2 {

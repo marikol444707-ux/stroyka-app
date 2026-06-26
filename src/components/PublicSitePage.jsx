@@ -124,16 +124,16 @@ const projectFilters = [
 const workProofItems = [
   {
     title: 'Скрытые работы',
-    text: 'Фото до закрытия, акт, исполнитель и привязка к объекту.',
+    text: 'Фото до закрытия, исполнитель и привязка к этапу работ.',
     image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=900&q=82',
-    metric: 'Акт + фото',
+    metric: 'Этап + фото',
     icon: ClipboardCheck,
   },
   {
-    title: 'Материалы и накладные',
-    text: 'Приход, поставщик, фото первички и движение по складу.',
+    title: 'Материалы на объекте',
+    text: 'Поставки, остатки и движение материалов под внутренним контролем.',
     image: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=900&q=82',
-    metric: 'Склад + документы',
+    metric: 'Склад',
     icon: Package,
   },
   {
@@ -147,26 +147,398 @@ const workProofItems = [
 
 const referenceDirections = [
   {
-    title: 'Дом под ключ',
-    text: 'Коробка, тёплый контур, инженерия и отделка с паспортом объекта.',
-    tags: ['частный дом', 'инженерия', 'гарантия'],
+    id: 'one-floor-modern',
+    title: 'Одноэтажный современный дом',
+    text: 'Компактные дома 90-160 м2 с террасой, светлой гостиной и понятной планировкой.',
+    image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=900&q=82',
+    tags: ['1 этаж', 'современный фасад', 'терраса'],
+    calcPatch: { type: 'house', floors: 1, wallType: 'gasblock', package: 'turnkey', area: 120, rooms: 4 },
+    examples: [
+      'Дом 90-110 м2 с плоской кровлей и террасой',
+      'Дом 120-140 м2 с панорамным остеклением гостиной',
+      'L-образный дом с закрытым внутренним двориком',
+      'Дом с навесом для автомобиля вместо гаража',
+      'Минималистичный дом с фасадом из штукатурки и дерева',
+      'Дом с большой кухней-гостиной и выходом на участок',
+      'Компактный дом для молодой семьи на узком участке',
+      'Дом с мастер-спальней и двумя детскими',
+      'Дом с отдельной котельной и хозяйственным входом',
+      'Дом с летней кухней/террасой как главным сценарием',
+    ],
   },
   {
-    title: 'Коммерческое помещение',
-    text: 'Офис, магазин, салон или кафе с графиком запуска и документами.',
-    tags: ['сроки', 'открытие', 'акты'],
+    id: 'one-floor-brick',
+    title: 'Одноэтажный дом из кирпича',
+    text: 'Классические капитальные дома для постоянного проживания.',
+    image: 'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=900&q=82',
+    tags: ['кирпич', 'классика', 'надежность'],
+    calcPatch: { type: 'house', floors: 1, wallType: 'brick', package: 'turnkey', area: 135, rooms: 4 },
+    examples: [
+      'Классический кирпичный дом с вальмовой кровлей',
+      'Дом из светлого кирпича с темной кровлей',
+      'Дом из темного кирпича с белыми откосами',
+      'Кирпичный дом с высоким цоколем',
+      'Дом с крыльцом и аккуратной входной группой',
+      'Дом с эркером в гостиной',
+      'Кирпичный дом с пристроенной террасой',
+      'Дом с теплой кровлей и утепленным чердаком',
+      'Дом с фасадным декором без перегруза',
+      'Кирпичный дом для постоянного проживания',
+    ],
   },
   {
-    title: 'Ремонт и реконструкция',
-    text: 'Старый фонд, коттедж, переделка инженерии, скрытые работы.',
-    tags: ['демонтаж', 'обследование', 'контроль'],
+    id: 'family-cottage',
+    title: 'Семейный коттедж',
+    text: 'Загородные дома с общей семейной зоной, террасой и удобной логикой жизни.',
+    image: 'https://images.unsplash.com/photo-1600573472550-8090b5e0745e?auto=format&fit=crop&w=900&q=82',
+    tags: ['коттедж', 'семья', 'двор'],
+    calcPatch: { type: 'house', floors: 1, wallType: 'gasblock', package: 'turnkey', area: 155, rooms: 5 },
+    examples: [
+      'Коттедж с большой кухней-гостиной',
+      'Коттедж с террасой для семьи и гостей',
+      'Коттедж с детскими комнатами на солнечной стороне',
+      'Коттедж с отдельной гостевой комнатой',
+      'Коттедж с каминной зоной',
+      'Коттедж с навесом и хозяйственным блоком',
+      'Коттедж со вторым светом в гостиной',
+      'Коттедж с выходом из кухни на двор',
+      'Коттедж с большой прихожей и гардеробной',
+      'Коттедж с готовым сценарием "заехать и жить"',
+    ],
   },
   {
-    title: 'Отдельные инженерные работы',
-    text: 'Электрика, сантехника, вентиляция, отопление и исполнительная документация.',
-    tags: ['электрика', 'сантехника', 'исполнительная'],
+    id: 'two-floor-modern',
+    title: 'Двухэтажный современный дом',
+    text: 'Современная архитектура, больше площади на компактном участке.',
+    image: 'https://images.unsplash.com/photo-1600047509358-9dc75507daeb?auto=format&fit=crop&w=900&q=82',
+    tags: ['2 этажа', 'современный', 'панорама'],
+    calcPatch: { type: 'house', floors: 2, wallType: 'gasblock', package: 'turnkey', area: 180, rooms: 5 },
+    examples: [
+      'Кубический дом с плоской кровлей',
+      'Дом с балконом и террасой на втором этаже',
+      'Дом со вторым светом и панорамными окнами',
+      'Дом на узком участке с вытянутой планировкой',
+      'Дом с комбинированным фасадом: штукатурка, дерево, камень',
+      'Дом с приватной спальней на втором этаже',
+      'Дом с кабинетом на первом этаже',
+      'Дом с выходом гостиной на задний двор',
+      'Дом с минималистичной входной группой',
+      'Дом с современной вечерней подсветкой фасада',
+    ],
+  },
+  {
+    id: 'two-floor-brick',
+    title: 'Двухэтажный дом из кирпича',
+    text: 'Капитальные дома с классическим фасадом и долгим сроком службы.',
+    image: 'https://images.unsplash.com/photo-1600566752355-35792bedcfea?auto=format&fit=crop&w=900&q=82',
+    tags: ['кирпич', '2 этажа', 'статус'],
+    calcPatch: { type: 'house', floors: 2, wallType: 'brick', package: 'turnkey', area: 205, rooms: 6 },
+    examples: [
+      'Классический кирпичный дом с симметричным фасадом',
+      'Дом из клинкерного кирпича',
+      'Дом с кирпичным фасадом и каменным цоколем',
+      'Дом с гаражом в общем объеме',
+      'Дом с колоннами/крыльцом без лишнего декора',
+      'Дом с мансардным вторым этажом',
+      'Дом с эркером и большой гостиной',
+      'Дом с теплой кровлей и полноценным вторым этажом',
+      'Дом с кирпичным забором и единой входной группой',
+      'Дом в классическом стиле для постоянного проживания',
+    ],
+  },
+  {
+    id: 'garage-house',
+    title: 'Двухэтажный дом с гаражом',
+    text: 'Дом, гараж и хозяйственные зоны в одной удобной схеме.',
+    image: 'https://images.unsplash.com/photo-1600607688969-a5bfcd646154?auto=format&fit=crop&w=900&q=82',
+    tags: ['гараж', 'хозблок', 'семья'],
+    calcPatch: { type: 'house', floors: 2, wallType: 'gasblock', package: 'turnkey', area: 220, rooms: 5 },
+    examples: [
+      'Дом с встроенным гаражом на одну машину',
+      'Дом с гаражом на две машины',
+      'Дом с гаражом и мастерской',
+      'Дом с гаражом и кладовой для инструмента',
+      'Дом с жилой комнатой над гаражом',
+      'Дом с навесом перед гаражом',
+      'Дом с боковым въездом в гараж',
+      'Дом с отдельным входом из гаража в дом',
+      'Дом с хозяйственным блоком рядом с гаражом',
+      'Дом с гаражом, котельной и прачечной в одном блоке',
+    ],
+  },
+  {
+    id: 'townhouse',
+    title: 'Компактный таунхаус',
+    text: 'Секции для городской жизни, инвестиций или семейного формата.',
+    image: 'https://images.unsplash.com/photo-1600566752229-250ed79470f8?auto=format&fit=crop&w=900&q=82',
+    tags: ['таунхаус', 'секции', 'компактно'],
+    calcPatch: { type: 'house', floors: 2, wallType: 'brick', package: 'warm', area: 115, rooms: 4 },
+    examples: [
+      'Таунхаус на 2 секции',
+      'Таунхаус на 4 секции',
+      'Угловая секция с увеличенным участком',
+      'Секция с индивидуальным парковочным местом',
+      'Секция с маленьким задним двориком',
+      'Таунхаус под сдачу в аренду',
+      'Таунхаус для молодой семьи',
+      'Таунхаус с общей архитектурной линией фасада',
+      'Таунхаус с отдельными входными группами',
+      'Таунхаус с отделкой white box',
+    ],
+  },
+  {
+    id: 'cottage-reconstruction',
+    title: 'Реконструкция коттеджа',
+    text: 'Обновление старого дома: фасад, кровля, инженерия, планировка.',
+    image: 'https://images.unsplash.com/photo-1581094288338-2314dddb7ece?auto=format&fit=crop&w=900&q=82',
+    tags: ['реконструкция', 'до/после', 'инженерия'],
+    calcPatch: { type: 'reconstruction', reconstructionScope: 'house', area: 170, rooms: 5, roofTouch: true, engineeringNew: true },
+    examples: [
+      'Обновление старого кирпичного фасада',
+      'Усиление и замена кровли',
+      'Пристройка террасы к существующему дому',
+      'Переделка холодного чердака в жилую мансарду',
+      'Замена окон и утепление откосов',
+      'Утепление фасада с новой финишной отделкой',
+      'Перепланировка первого этажа под кухню-гостиную',
+      'Замена инженерных коммуникаций',
+      'Обновление входной группы и крыльца',
+      'Комплексная реконструкция до/после',
+    ],
+  },
+  {
+    id: 'facade',
+    title: 'Ремонт и отделка фасада',
+    text: 'Фасад, утепление, декоративная отделка и аккуратный внешний вид дома.',
+    image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=900&q=82',
+    tags: ['фасад', 'утепление', 'отделка'],
+    calcPatch: { type: 'reconstruction', reconstructionScope: 'facade', area: 180, rooms: 1, roofTouch: false, engineeringNew: false },
+    examples: [
+      'Декоративная штукатурка фасада',
+      'Утепление фасада под штукатурку',
+      'Вентилируемый фасад',
+      'Фасад из клинкерной плитки',
+      'Отделка цоколя камнем',
+      'Покраска фасада с восстановлением трещин',
+      'Обновление откосов, отливов и водостока',
+      'Комбинированный фасад: штукатурка + дерево',
+      'Фасад с наружной подсветкой',
+      'Ремонт фасада после усадки/трещин',
+    ],
+  },
+  {
+    id: 'roof',
+    title: 'Ремонт кровли',
+    text: 'Замена покрытия, утепление, водосток, примыкания и безопасность.',
+    image: 'https://images.unsplash.com/photo-1541976590-713941681591?auto=format&fit=crop&w=900&q=82',
+    tags: ['кровля', 'утепление', 'водосток'],
+    calcPatch: { type: 'reconstruction', reconstructionScope: 'roof', area: 150, rooms: 1, roofTouch: true, engineeringNew: false },
+    examples: [
+      'Замена старого покрытия на металлочерепицу',
+      'Замена покрытия на мягкую кровлю',
+      'Ремонт протечек и примыканий',
+      'Усиление стропильной системы',
+      'Утепление кровли и чердака',
+      'Монтаж водосточной системы',
+      'Установка снегозадержателей',
+      'Монтаж мансардных окон',
+      'Ремонт карнизов и подшивы',
+      'Полная кровля под ключ с демонтажом старой',
+    ],
+  },
+  {
+    id: 'apartment-repair',
+    title: 'Ремонт квартиры',
+    text: 'Новостройка, вторичка, капитальный или быстрый ремонт под задачу.',
+    image: 'https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?auto=format&fit=crop&w=900&q=82',
+    tags: ['квартира', 'ремонт', 'чистовая'],
+    calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'capital', area: 72, rooms: 3, bathrooms: 1 },
+    examples: [
+      'Ремонт квартиры в новостройке',
+      'Ремонт квартиры под сдачу',
+      'Капитальный ремонт старой квартиры',
+      'Ремонт студии',
+      'Ремонт однокомнатной квартиры',
+      'Ремонт двухкомнатной квартиры',
+      'Ремонт квартиры с перепланировкой',
+      'Ремонт квартиры с заменой электрики',
+      'Ремонт квартиры с выравниванием стен и полов',
+      'Чистовая отделка после черновых работ',
+    ],
+  },
+  {
+    id: 'private-house-finish',
+    title: 'Отделка частного дома',
+    text: 'Дом после коробки: черновая, чистовая отделка и подготовка к проживанию.',
+    image: 'https://images.unsplash.com/photo-1600566753151-384129cf4e3e?auto=format&fit=crop&w=900&q=82',
+    tags: ['частный дом', 'отделка', 'заехать жить'],
+    calcPatch: { type: 'repair', repairObject: 'privateHouse', repairLevel: 'capital', area: 150, rooms: 5, bathrooms: 2 },
+    examples: [
+      'Отделка дома после коробки',
+      'Черновая отделка дома',
+      'Чистовая отделка дома',
+      'Монтаж гипсокартона и перегородок',
+      'Устройство теплых полов',
+      'Укладка плитки и напольных покрытий',
+      'Монтаж лестницы и ограждений',
+      'Отделка гостиной и кухни',
+      'Отделка спален и санузлов',
+      'Комплексная отделка заехать и жить',
+    ],
+  },
+  {
+    id: 'bathroom',
+    title: 'Ремонт ванной комнаты',
+    text: 'Плитка, сантехника, гидроизоляция и аккуратные узлы.',
+    image: 'https://images.unsplash.com/photo-1600566752355-35792bedcfea?auto=format&fit=crop&w=900&q=82',
+    tags: ['санузел', 'плитка', 'сантехника'],
+    calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'capital', area: 8, rooms: 1, bathrooms: 1, tiles: true },
+    examples: [
+      'Маленькая ванная в квартире',
+      'Совмещенный санузел',
+      'Гостевой санузел',
+      'Ванная с душевой зоной',
+      'Ванная с полноценной чашей',
+      'Гидроизоляция и подготовка основания',
+      'Укладка керамогранита крупного формата',
+      'Скрытые люки и ревизии',
+      'Теплый пол и полотенцесушитель',
+      'Полный санузел под ключ',
+    ],
+  },
+  {
+    id: 'kitchen-living',
+    title: 'Ремонт кухни и гостиной',
+    text: 'Главная семейная зона: свет, электрика, полы, стены и финишная отделка.',
+    image: 'https://images.unsplash.com/photo-1600210491892-03d54c0aaf87?auto=format&fit=crop&w=900&q=82',
+    tags: ['кухня-гостиная', 'свет', 'семья'],
+    calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'designer', area: 42, rooms: 1, bathrooms: 0 },
+    examples: [
+      'Кухня-гостиная в квартире',
+      'Кухня-гостиная в частном доме',
+      'Кухня с островом',
+      'Гостиная с ТВ-зоной',
+      'Зонирование кухни и отдыха освещением',
+      'Отделка стен под покраску',
+      'Укладка пола в едином контуре',
+      'Подготовка электрики под кухонный гарнитур',
+      'Монтаж фартука и рабочей зоны',
+      'Комплексная отделка семейной зоны',
+    ],
+  },
+  {
+    id: 'office',
+    title: 'Ремонт офисных помещений',
+    text: 'Офисы и коммерческие помещения под работу команды и прием клиентов.',
+    image: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=900&q=82',
+    tags: ['офис', 'коммерция', 'сроки'],
+    calcPatch: { type: 'commerce', commerceType: 'office', commerceLevel: 'opening', area: 180, rooms: 6 },
+    examples: [
+      'Open space для команды',
+      'Кабинетный офис',
+      'Ресепшен и входная зона',
+      'Переговорная комната',
+      'Ремонт офиса без остановки работы',
+      'Замена напольных покрытий',
+      'Потолки, свет и рабочие зоны',
+      'Электрика и слаботочные сети',
+      'Стеклянные перегородки',
+      'Офис под ключ для заезда сотрудников',
+    ],
   },
 ];
+
+const readyProjectCardsByDirection = {
+  'one-floor-modern': [
+    { code: 'H1-01', title: 'Дом 105 м2 с террасой', area: '105 м2', floors: '1 этаж', layout: 'Кухня-гостиная, 3 спальни, санузел, котельная, терраса.', visuals: 'Фасад с террасой + план 105 м2.', calcPatch: { area: 105, floors: 1, rooms: 4, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'H1-02', title: 'Дом 128 м2 с панорамной гостиной', area: '128 м2', floors: '1 этаж', layout: 'Кухня-гостиная, мастер-спальня, 2 спальни, 2 санузла, гардероб.', visuals: 'Панорамный фасад + план 128 м2.', calcPatch: { area: 128, floors: 1, rooms: 4, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'H1-03', title: 'L-образный дом 145 м2', area: '145 м2', floors: '1 этаж', layout: 'Закрытый двор, кухня-гостиная, 4 спальни, 2 санузла, постирочная.', visuals: 'L-фасад + план с внутренним двором.', calcPatch: { area: 145, floors: 1, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+  ],
+  'one-floor-brick': [
+    { code: 'B1-01', title: 'Кирпичный дом 120 м2', area: '120 м2', floors: '1 этаж', layout: 'Кухня-гостиная, 3 спальни, санузел, котельная, тамбур.', visuals: 'Кирпичный фасад + план 120 м2.', calcPatch: { area: 120, floors: 1, rooms: 4, wallType: 'brick', package: 'turnkey' } },
+    { code: 'B1-02', title: 'Дом 138 м2 с эркером', area: '138 м2', floors: '1 этаж', layout: 'Гостиная с эркером, 3 спальни, кабинет, 2 санузла.', visuals: 'Фасад с эркером + план 138 м2.', calcPatch: { area: 138, floors: 1, rooms: 5, wallType: 'brick', package: 'turnkey' } },
+    { code: 'B1-03', title: 'Кирпичный дом 155 м2 с террасой', area: '155 м2', floors: '1 этаж', layout: 'Кухня-гостиная с выходом на террасу, 4 спальни, 2 санузла.', visuals: 'Кирпич и терраса + план 155 м2.', calcPatch: { area: 155, floors: 1, rooms: 5, wallType: 'brick', package: 'turnkey' } },
+  ],
+  'family-cottage': [
+    { code: 'FAM-01', title: 'Коттедж 150 м2 для семьи', area: '150 м2', floors: '1 этаж', layout: 'Кухня-гостиная, 4 спальни, 2 санузла, кладовая.', visuals: 'Семейный фасад + план 150 м2.', calcPatch: { area: 150, floors: 1, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'FAM-02', title: 'Коттедж 170 м2 со вторым светом', area: '170 м2', floors: '1 этаж', layout: 'Гостиная со вторым светом, 3 спальни, кабинет, 2 санузла.', visuals: 'Фасад + интерьер гостиной + план.', calcPatch: { area: 170, floors: 1, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'FAM-03', title: 'Коттедж 185 м2 с гостевой комнатой', area: '185 м2', floors: '1 этаж', layout: '4 спальни, гостевая, кухня-гостиная, постирочная.', visuals: 'Фасад с террасой + план 185 м2.', calcPatch: { area: 185, floors: 1, rooms: 6, wallType: 'gasblock', package: 'turnkey' } },
+  ],
+  'two-floor-modern': [
+    { code: 'H2-01', title: 'Дом 165 м2 на узкий участок', area: '165 м2', floors: '2 этажа', layout: '1 этаж: кухня-гостиная и кабинет. 2 этаж: 3 спальни.', visuals: 'Современный фасад + планы 1/2 этажа.', calcPatch: { area: 165, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'H2-02', title: 'Дом 190 м2 со вторым светом', area: '190 м2', floors: '2 этажа', layout: 'Второй свет, мастер-спальня, 2 детские, 3 санузла.', visuals: 'Фасад + разрез/план.', calcPatch: { area: 190, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'H2-03', title: 'Дом 215 м2 с балконом', area: '215 м2', floors: '2 этажа', layout: 'Большая гостиная, 4 спальни, балкон, терраса.', visuals: 'Фасад с балконом + планы этажей.', calcPatch: { area: 215, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+  ],
+  'two-floor-brick': [
+    { code: 'B2-01', title: 'Кирпичный дом 180 м2', area: '180 м2', floors: '2 этажа', layout: 'Кухня-гостиная, 4 спальни, 2 санузла, котельная.', visuals: 'Кирпичный фасад + планы этажей.', calcPatch: { area: 180, floors: 2, rooms: 5, wallType: 'brick', package: 'turnkey' } },
+    { code: 'B2-02', title: 'Дом 210 м2 с гаражной зоной', area: '210 м2', floors: '2 этажа', layout: '1 этаж: общая зона. 2 этаж: спальни. Отдельный хозблок.', visuals: 'Фасад + план 1/2 этажа.', calcPatch: { area: 210, floors: 2, rooms: 5, wallType: 'brick', package: 'turnkey' } },
+    { code: 'B2-03', title: 'Классический дом 240 м2', area: '240 м2', floors: '2 этажа', layout: '5 спален, кабинет, большая кухня-гостиная, 3 санузла.', visuals: 'Классический фасад + планы.', calcPatch: { area: 240, floors: 2, rooms: 6, wallType: 'brick', package: 'turnkey' } },
+  ],
+  'garage-house': [
+    { code: 'GAR-01', title: 'Дом 190 м2 с гаражом', area: '190 м2', floors: '2 этажа', layout: 'Гараж, кухня-гостиная, 4 спальни, котельная.', visuals: 'Фасад с гаражом + планы.', calcPatch: { area: 190, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'GAR-02', title: 'Дом 230 м2 с гаражом на 2 авто', area: '230 м2', floors: '2 этажа', layout: 'Гараж на 2 авто, мастер-спальня, кабинет, хоззона.', visuals: 'Фасад + планы этажей.', calcPatch: { area: 230, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'GAR-03', title: 'Дом 210 м2 с мастерской', area: '210 м2', floors: '2 этажа', layout: 'Гараж, мастерская, кухня-гостиная, 3 спальни.', visuals: 'Фасад + план с мастерской.', calcPatch: { area: 210, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+  ],
+  townhouse: [
+    { code: 'TOWN-01', title: 'Таунхаус 95 м2', area: '95 м2', floors: '2 этажа', layout: '1 этаж: кухня-гостиная. 2 этаж: 2 спальни.', visuals: 'Фасад секции + план.', calcPatch: { area: 95, floors: 2, rooms: 3, wallType: 'brick', package: 'warm' } },
+    { code: 'TOWN-02', title: 'Таунхаус 120 м2 для семьи', area: '120 м2', floors: '2 этажа', layout: '3 спальни, кухня-гостиная, 2 санузла.', visuals: 'Фасад секции + планы.', calcPatch: { area: 120, floors: 2, rooms: 4, wallType: 'brick', package: 'warm' } },
+    { code: 'TOWN-03', title: 'Таунхаус 135 м2 с кабинетом', area: '135 м2', floors: '2 этажа', layout: 'Кабинет, 3 спальни, кухня-гостиная.', visuals: 'Фасад + план.', calcPatch: { area: 135, floors: 2, rooms: 5, wallType: 'brick', package: 'warm' } },
+  ],
+  'cottage-reconstruction': [
+    { code: 'REC-01', title: 'Реконструкция дома 140 м2', area: '140 м2', floors: '1-2 этажа', layout: 'Фасад, кровля, окна, обновление планировки.', visuals: 'До/после фасада + схема изменений.', calcPatch: { type: 'reconstruction', reconstructionScope: 'house', area: 140, rooms: 4, roofTouch: true, engineeringNew: true } },
+    { code: 'REC-02', title: 'Мансарда вместо чердака', area: '80 м2 мансарды', floors: '2 этаж', layout: 'Спальни или кабинет на мансарде, лестница, утепление.', visuals: 'Кровля + план мансарды.', calcPatch: { type: 'reconstruction', reconstructionScope: 'roof', area: 80, rooms: 3, roofTouch: true, engineeringNew: true } },
+    { code: 'REC-03', title: 'Пристройка террасы и кухни', area: '+35 м2', floors: '1 этаж', layout: 'Расширение кухни-гостиной и новая терраса.', visuals: 'Фасад с пристройкой + план.', calcPatch: { type: 'reconstruction', reconstructionScope: 'house', area: 35, rooms: 1, roofTouch: false, engineeringNew: false } },
+  ],
+  facade: [
+    { code: 'FAC-01', title: 'Утепление фасада 180 м2', area: '180 м2 фасада', floors: 'дом', layout: 'Утепление, армирование, декоративная штукатурка.', visuals: 'Фасад до/после + узел стены.', calcPatch: { type: 'reconstruction', reconstructionScope: 'facade', area: 180, rooms: 1, roofTouch: false, engineeringNew: false } },
+    { code: 'FAC-02', title: 'Фасад штукатурка + дерево', area: '220 м2 фасада', floors: 'дом', layout: 'Комбинированная отделка, подсветка, откосы.', visuals: 'Фасад + цветовая схема.', calcPatch: { type: 'reconstruction', reconstructionScope: 'facade', area: 220, rooms: 1, roofTouch: false, engineeringNew: false } },
+    { code: 'FAC-03', title: 'Клинкерный фасад', area: '200 м2 фасада', floors: 'дом', layout: 'Клинкерная плитка, цоколь, отливы.', visuals: 'Фасад + узел цоколя.', calcPatch: { type: 'reconstruction', reconstructionScope: 'facade', area: 200, rooms: 1, roofTouch: false, engineeringNew: false } },
+  ],
+  roof: [
+    { code: 'ROOF-01', title: 'Замена кровли 160 м2', area: '160 м2 кровли', floors: 'дом', layout: 'Демонтаж, обрешетка, металлочерепица, водосток.', visuals: 'Кровля + схема скатов.', calcPatch: { type: 'reconstruction', reconstructionScope: 'roof', area: 160, rooms: 1, roofTouch: true, engineeringNew: false } },
+    { code: 'ROOF-02', title: 'Утепленная мансардная кровля', area: '190 м2 кровли', floors: 'мансарда', layout: 'Утепление, пароизоляция, окна, подшива.', visuals: 'Кровля + разрез утепления.', calcPatch: { type: 'reconstruction', reconstructionScope: 'roof', area: 190, rooms: 2, roofTouch: true, engineeringNew: false } },
+    { code: 'ROOF-03', title: 'Мягкая кровля 145 м2', area: '145 м2 кровли', floors: 'дом', layout: 'Основание, подкладочный ковер, мягкая черепица.', visuals: 'Кровля + узел примыкания.', calcPatch: { type: 'reconstruction', reconstructionScope: 'roof', area: 145, rooms: 1, roofTouch: true, engineeringNew: false } },
+  ],
+  'apartment-repair': [
+    { code: 'APT-01', title: 'Ремонт квартиры 45 м2', area: '45 м2', floors: 'квартира', layout: 'Кухня, спальня, санузел, прихожая.', visuals: 'Интерьер + план квартиры.', calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'capital', area: 45, rooms: 2, bathrooms: 1 } },
+    { code: 'APT-02', title: 'Ремонт квартиры 72 м2', area: '72 м2', floors: 'квартира', layout: 'Кухня-гостиная, 2 спальни, санузел.', visuals: 'Интерьер + план 72 м2.', calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'capital', area: 72, rooms: 3, bathrooms: 1 } },
+    { code: 'APT-03', title: 'Ремонт квартиры 95 м2', area: '95 м2', floors: 'квартира', layout: '3 спальни, кухня-гостиная, 2 санузла.', visuals: 'Интерьер + план.', calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'designer', area: 95, rooms: 4, bathrooms: 2 } },
+  ],
+  'private-house-finish': [
+    { code: 'FIN-01', title: 'Отделка дома 120 м2', area: '120 м2', floors: 'дом', layout: 'Черновая и чистовая отделка, 3 спальни, кухня-гостиная.', visuals: 'Интерьер + план дома.', calcPatch: { type: 'repair', repairObject: 'privateHouse', repairLevel: 'capital', area: 120, rooms: 4, bathrooms: 1 } },
+    { code: 'FIN-02', title: 'Отделка дома 160 м2', area: '160 м2', floors: 'дом', layout: 'Теплые полы, лестница, 4 спальни, 2 санузла.', visuals: 'Интерьер + план.', calcPatch: { type: 'repair', repairObject: 'privateHouse', repairLevel: 'capital', area: 160, rooms: 5, bathrooms: 2 } },
+    { code: 'FIN-03', title: 'Отделка дома 210 м2', area: '210 м2', floors: '2 этажа', layout: 'Лестница, 5 комнат, 3 санузла.', visuals: 'Интерьер + планы этажей.', calcPatch: { type: 'repair', repairObject: 'privateHouse', repairLevel: 'designer', area: 210, rooms: 6, bathrooms: 3 } },
+  ],
+  bathroom: [
+    { code: 'BATH-01', title: 'Санузел 4 м2', area: '4 м2', floors: 'квартира', layout: 'Душ, унитаз, раковина, стиральная зона.', visuals: 'Интерьер + план раскладки.', calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'capital', area: 4, rooms: 1, bathrooms: 1, tiles: true } },
+    { code: 'BATH-02', title: 'Ванная 6 м2', area: '6 м2', floors: 'квартира', layout: 'Ванна, инсталляция, тумба, теплый пол.', visuals: 'Интерьер + план раскладки плитки.', calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'capital', area: 6, rooms: 1, bathrooms: 1, tiles: true } },
+    { code: 'BATH-03', title: 'Санузел 9 м2 в доме', area: '9 м2', floors: 'дом', layout: 'Душ, ванна, две раковины, скрытые люки.', visuals: 'Интерьер + план.', calcPatch: { type: 'repair', repairObject: 'privateHouse', repairLevel: 'capital', area: 9, rooms: 1, bathrooms: 1, tiles: true } },
+  ],
+  'kitchen-living': [
+    { code: 'KIT-01', title: 'Кухня-гостиная 28 м2', area: '28 м2', floors: 'квартира', layout: 'Кухонная линия, столовая, ТВ-зона.', visuals: 'Интерьер + план мебели.', calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'designer', area: 28, rooms: 1, bathrooms: 0 } },
+    { code: 'KIT-02', title: 'Кухня-гостиная 42 м2', area: '42 м2', floors: 'квартира', layout: 'Остров, диванная зона, световые сценарии.', visuals: 'Интерьер + план.', calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'designer', area: 42, rooms: 1, bathrooms: 0 } },
+    { code: 'KIT-03', title: 'Кухня-гостиная в доме 55 м2', area: '55 м2', floors: 'дом', layout: 'Остров, камин/ТВ-зона, выход на террасу.', visuals: 'Интерьер + план.', calcPatch: { type: 'repair', repairObject: 'privateHouse', repairLevel: 'designer', area: 55, rooms: 1, bathrooms: 0 } },
+  ],
+  office: [
+    { code: 'OFF-01', title: 'Офис open space 120 м2', area: '120 м2', floors: 'коммерция', layout: '18 рабочих мест, переговорная, кухня, санузел.', visuals: 'Интерьер офиса + план рабочих мест.', calcPatch: { type: 'commerce', commerceType: 'office', commerceLevel: 'opening', area: 120, rooms: 4 } },
+    { code: 'OFF-02', title: 'Кабинетный офис 180 м2', area: '180 м2', floors: 'коммерция', layout: '8 кабинетов, ресепшен, переговорная, архив.', visuals: 'Интерьер + план.', calcPatch: { type: 'commerce', commerceType: 'office', commerceLevel: 'opening', area: 180, rooms: 10 } },
+    { code: 'OFF-03', title: 'Офис 260 м2 с клиентской зоной', area: '260 м2', floors: 'коммерция', layout: 'Ресепшен, open space, кабинеты, переговорные.', visuals: 'Интерьер + план зонирования.', calcPatch: { type: 'commerce', commerceType: 'office', commerceLevel: 'opening', area: 260, rooms: 12 } },
+  ],
+};
+
+const getReferenceProjectCards = (direction) => {
+  const cards = readyProjectCardsByDirection[direction.id];
+  if (cards?.length) return cards;
+  return direction.examples.map((example, index) => ({
+    code: `${direction.id}-${index + 1}`,
+    title: example,
+    area: `${direction.calcPatch.area || ''} м2`.trim(),
+    floors: direction.calcPatch.floors ? `${direction.calcPatch.floors} этаж` : 'объект',
+    layout: direction.text,
+    visuals: 'Фасад/интерьер + планировка.',
+    calcPatch: direction.calcPatch,
+  }));
+};
 
 const partnerTypes = [
   { value: 'supplier', label: 'Поставщик', note: 'Материалы, счета, КП, документы', icon: Handshake },
@@ -187,7 +559,7 @@ const publicProjects = [
     progress: 68,
     price: 'от 7,6 млн ₽',
     term: '5 месяцев',
-    passport: 'Фотоотчёты, материалы, скрытые работы',
+    passport: 'Фотоотчеты, материалы, этапы работ',
     result: 'Коробка, кровля, окна, инженерная подготовка',
     tags: ['Дом', 'Тёплый контур', 'Паспорт объекта'],
     images: [
@@ -207,7 +579,7 @@ const publicProjects = [
     progress: 92,
     price: 'от 5,2 млн ₽',
     term: '62 дня',
-    passport: 'Акты, фото, инженерия, документы',
+    passport: 'Фото, инженерия, этапы приемки',
     result: 'Офис под работу команды и приём клиентов',
     tags: ['Офис', 'Инженерия', 'Сроки'],
     images: [
@@ -247,7 +619,7 @@ const publicProjects = [
     progress: 100,
     price: 'от 2,4 млн ₽',
     term: '38 дней',
-    passport: 'Сроки, отделка, документы для открытия',
+    passport: 'Сроки, отделка, готовность к открытию',
     result: 'Торговый зал, подсобные зоны, освещение',
     tags: ['Коммерция', 'Под открытие', 'Гарантия'],
     images: [
@@ -277,7 +649,7 @@ const normalizeSiteProject = (project) => {
     progress: Math.max(0, Math.min(100, Number(project.progress ?? project.publicProgress ?? 0))),
     price: project.price || project.publicPriceLabel || '',
     term: project.term || project.publicTerm || '',
-    passport: project.passport || project.publicPassport || 'Фото, документы и паспорт объекта',
+    passport: project.passport || project.publicPassport || 'Фото, этапы и паспорт объекта',
     result: project.result || project.publicResult || project.publicSummary || '',
     tags: Array.isArray(project.tags) ? project.tags : (Array.isArray(project.publicTags) ? project.publicTags : []),
     images: images.length ? images : publicProjects[0].images,
@@ -351,6 +723,8 @@ const PublicSitePage = ({ onLogin }) => {
   const [selectedProjectId, setSelectedProjectId] = useState(publicProjects[0].id);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [sitePricingRules, setSitePricingRules] = useState([]);
+  const [selectedReferenceId, setSelectedReferenceId] = useState(referenceDirections[0].id);
+  const [selectedReferenceExample, setSelectedReferenceExample] = useState(getReferenceProjectCards(referenceDirections[0])[0].title);
 
   useEffect(() => {
     let cancelled = false;
@@ -567,6 +941,9 @@ const PublicSitePage = ({ onLogin }) => {
 
   const selectedProject = filteredProjects.find((project) => project.id === selectedProjectId) || filteredProjects[0] || siteProjects[0] || publicProjects[0];
   const selectedPhoto = selectedProject.images[selectedPhotoIndex] || selectedProject.images[0];
+  const selectedReference = referenceDirections.find((item) => item.id === selectedReferenceId) || referenceDirections[0];
+  const selectedReferenceProjects = getReferenceProjectCards(selectedReference);
+  const selectedReferenceProject = selectedReferenceProjects.find((project) => project.title === selectedReferenceExample) || selectedReferenceProjects[0];
 
   const chooseProjectCategory = (category) => {
     const nextProjects = category === 'all'
@@ -580,6 +957,22 @@ const PublicSitePage = ({ onLogin }) => {
   const chooseProject = (projectId) => {
     setSelectedProjectId(projectId);
     setSelectedPhotoIndex(0);
+  };
+
+  const chooseReference = (direction, project = getReferenceProjectCards(direction)[0], shouldScroll = false) => {
+    const projectCard = typeof project === 'string'
+      ? getReferenceProjectCards(direction).find((item) => item.title === project) || { title: project, calcPatch: {} }
+      : project;
+    setSelectedReferenceId(direction.id);
+    setSelectedReferenceExample(projectCard.title);
+    setCalc((current) => ({ ...current, ...direction.calcPatch, ...(projectCard.calcPatch || {}) }));
+    setLead((current) => ({
+      ...current,
+      comment: `Интересует: ${direction.title}. Проект: ${projectCard.title}. Планировка: ${projectCard.layout || direction.text}`,
+    }));
+    if (shouldScroll) {
+      setTimeout(() => scrollTo('calculator'), 0);
+    }
   };
 
   const scrollTo = (id) => {
@@ -713,7 +1106,7 @@ const PublicSitePage = ({ onLogin }) => {
             <p className="public-eyebrow">Строительная компания с цифровым контролем</p>
             <h1>Строим с понятной сметой и цифровым паспортом объекта</h1>
             <p className="public-lead">
-              Расчёт стоимости, фотоотчёты, этапы работ, материалы, документы и гарантия
+              Расчёт стоимости, фотоотчёты, этапы работ, материалы и гарантия
               ведутся в одной системе.
             </p>
             <div className="public-hero-actions">
@@ -1047,7 +1440,7 @@ const PublicSitePage = ({ onLogin }) => {
               </div>
               <div className="public-proof-list">
                 <p><Package size={16} /> Материалы приняты: 12 позиций</p>
-                <p><FileText size={16} /> Документы подписаны: 4</p>
+                <p><FileText size={16} /> Этапы подтверждены: 4</p>
                 <p><Clock size={16} /> Отклонений по сроку нет</p>
                 <p><QrCode size={16} /> QR-проверка паспорта</p>
               </div>
@@ -1066,7 +1459,7 @@ const PublicSitePage = ({ onLogin }) => {
             ['Строительство домов', 'Коробка, тёплый контур, под ключ'],
             ['Ремонт и реконструкция', 'Квартиры, дома, коммерческие помещения'],
             ['Инженерные системы', 'Электрика, вода, отопление, вентиляция'],
-            ['Контроль объекта', 'Фото, акты, материалы, гарантия'],
+            ['Контроль объекта', 'Фото, этапы, материалы, гарантия'],
           ].map(([title, text]) => (
             <article className="public-service" key={title}>
               <Settings size={20} />
@@ -1179,8 +1572,8 @@ const PublicSitePage = ({ onLogin }) => {
             <p className="public-eyebrow dark">Наши работы</p>
             <h2>Показываем не только красивый финал, а доказательства выполнения</h2>
             <p>
-              Для сайта отдельно выводятся реальные работы и документы, которые можно проверить:
-              фото, накладные, акты, журнал работ и паспорт объекта.
+              Для сайта отдельно выводятся реальные работы и понятные этапы:
+              фото, ход работ, материалы, результат и паспорт объекта.
             </p>
           </div>
           <div className="public-work-grid">
@@ -1199,23 +1592,94 @@ const PublicSitePage = ({ onLogin }) => {
 
         <div className="public-reference-board">
           <div className="public-section-head compact">
-            <p className="public-eyebrow dark">Референсы</p>
-            <h2>Направления, по которым удобно собирать примеры и заявки</h2>
+            <p className="public-eyebrow dark">Идеи для проекта</p>
+            <h2>15 направлений и готовые проектные карточки</h2>
             <p>
-              Референсы не выдаются за выполненные объекты. Это направления для обсуждения
-              будущего проекта, после чего менеджер переводит запрос в CRM.
+              Это не выполненные объекты, а понятные проект-идеи для заявки. Клиент выбирает
+              направление, готовую планировку и отправляет ее в расчет.
             </p>
           </div>
-          <div className="public-reference-grid">
-            {referenceDirections.map((item) => (
-              <article className="public-reference-card" key={item.title}>
-                <h3>{item.title}</h3>
-                <p>{item.text}</p>
-                <div>
-                  {item.tags.map((tag) => <span key={tag}>{tag}</span>)}
+          <div className="public-reference-layout">
+            <div className="public-reference-grid" aria-label="Направления проектов">
+              {referenceDirections.map((item) => {
+                const isActive = selectedReference.id === item.id;
+                const projectCards = getReferenceProjectCards(item);
+                return (
+                  <button
+                    className={isActive ? 'public-reference-card active' : 'public-reference-card'}
+                    key={item.id}
+                    type="button"
+                    onClick={() => chooseReference(item)}
+                    aria-pressed={isActive}
+                  >
+                    <img src={item.image} alt="" />
+                    <span className="public-reference-count">{projectCards.length} проекта</span>
+                    <h3>{item.title}</h3>
+                    <p>{item.text}</p>
+                    <div>
+                      {item.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <section className="public-reference-examples-panel" aria-label="Примеры выбранного направления">
+              <div className="public-reference-examples-top">
+                <img src={selectedReference.image} alt="" />
+                <div className="public-reference-examples-summary">
+                  <p className="public-tool-kicker">Готовые проектные карточки</p>
+                  <h3>{selectedReference.title}</h3>
+                  <p>
+                    {selectedReference.text} Ниже показаны стартовые варианты с площадью,
+                    планировкой и визуалами, которые нужно подготовить для публикации.
+                  </p>
+                  <div className="public-reference-tags">
+                    {selectedReference.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                  </div>
                 </div>
-              </article>
-            ))}
+              </div>
+              <div className="public-reference-examples-grid">
+                {selectedReferenceProjects.map((project) => (
+                  <button
+                    className={selectedReferenceProject?.title === project.title ? 'public-reference-project active' : 'public-reference-project'}
+                    type="button"
+                    key={project.code}
+                    onClick={() => chooseReference(selectedReference, project)}
+                  >
+                    <span>{project.code}</span>
+                    <b>{project.title}</b>
+                    <dl>
+                      <div>
+                        <dt>Площадь</dt>
+                        <dd>{project.area}</dd>
+                      </div>
+                      <div>
+                        <dt>Формат</dt>
+                        <dd>{project.floors}</dd>
+                      </div>
+                    </dl>
+                    <p>{project.layout}</p>
+                    <small>{project.visuals}</small>
+                  </button>
+                ))}
+              </div>
+              <div className="public-reference-actions">
+                <div>
+                  <span>Выбрано для расчета</span>
+                  <b>{selectedReferenceProject?.title || selectedReferenceExample}</b>
+                  {selectedReferenceProject?.layout && <small>{selectedReferenceProject.layout}</small>}
+                </div>
+                <button
+                  className="public-primary public-reference-cta"
+                  type="button"
+                  onClick={() => chooseReference(selectedReference, selectedReferenceProject, true)}
+                >
+                  Рассчитать такой проект
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            </section>
           </div>
         </div>
       </section>
