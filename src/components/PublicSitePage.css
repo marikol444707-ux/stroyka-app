@@ -1089,7 +1089,8 @@
   transform: translateY(-1px);
 }
 
-.public-reference-card img {
+.public-reference-card img,
+.public-reference-card .public-project-concept-thumb {
   width: 100%;
   height: 128px;
   display: block;
@@ -1177,6 +1178,443 @@
   object-fit: cover;
 }
 
+.public-project-render,
+.public-project-plan-hero {
+  width: 100%;
+  height: 100%;
+}
+
+.public-project-render {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, #d9eff9 0%, #f9fcff 54%, #d9eadf 55%, #b7d3bd 100%);
+}
+
+.public-project-render span {
+  position: absolute;
+  display: block;
+}
+
+.render-ground {
+  left: -8%;
+  right: -8%;
+  bottom: -10%;
+  height: 34%;
+  background: linear-gradient(135deg, #8fb98f, #d6c4a8);
+  transform: skewY(-5deg);
+}
+
+.render-shadow {
+  left: 18%;
+  bottom: 14%;
+  width: 58%;
+  height: 12%;
+  border-radius: 50%;
+  background: rgba(15, 31, 27, 0.18);
+  filter: blur(8px);
+}
+
+.render-main,
+.render-upper,
+.render-wing,
+.render-garage {
+  border: 1px solid rgba(17, 24, 39, 0.16);
+  box-shadow: 0 18px 35px rgba(17, 24, 39, 0.18);
+}
+
+.render-main {
+  left: 21%;
+  bottom: 20%;
+  width: 45%;
+  height: 34%;
+  background: linear-gradient(135deg, #f7f4ec, #d9d3c5);
+  transform: skewY(-4deg);
+}
+
+.render-upper {
+  left: 29%;
+  bottom: 51%;
+  width: 35%;
+  height: 20%;
+  background: linear-gradient(135deg, #f9fafb, #d8dee8);
+  transform: skewY(-4deg);
+  opacity: 0;
+}
+
+.floors-2 .render-upper {
+  opacity: 1;
+}
+
+.render-wing {
+  right: 15%;
+  bottom: 24%;
+  width: 24%;
+  height: 28%;
+  background: linear-gradient(135deg, #7c5c44, #a47755);
+  transform: skewY(5deg);
+}
+
+.angle-side .render-main {
+  width: 37%;
+}
+
+.angle-side .render-wing {
+  right: 20%;
+  width: 34%;
+}
+
+.render-garage {
+  left: 13%;
+  bottom: 20%;
+  width: 22%;
+  height: 24%;
+  background: linear-gradient(135deg, #c8c0b5, #8f8379);
+  opacity: 0;
+}
+
+.has-garage .render-garage {
+  opacity: 1;
+}
+
+.render-roof {
+  left: 18%;
+  bottom: 54%;
+  width: 52%;
+  height: 8%;
+  background: #273342;
+  transform: skewY(-4deg);
+}
+
+.floors-2 .render-roof {
+  bottom: 71%;
+  width: 48%;
+}
+
+.render-window {
+  background: linear-gradient(135deg, #102033, #3b82a8);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 0 16px rgba(255, 255, 255, 0.35);
+}
+
+.window-a {
+  left: 29%;
+  bottom: 30%;
+  width: 10%;
+  height: 15%;
+}
+
+.window-b {
+  left: 44%;
+  bottom: 31%;
+  width: 12%;
+  height: 15%;
+}
+
+.window-c {
+  right: 21%;
+  bottom: 33%;
+  width: 10%;
+  height: 13%;
+}
+
+.floors-2 .window-a,
+.floors-2 .window-b {
+  bottom: 57%;
+}
+
+.render-door {
+  left: 59%;
+  bottom: 21%;
+  width: 7%;
+  height: 19%;
+  background: linear-gradient(180deg, #7a4a29, #3f2516);
+}
+
+.is-brick .render-main,
+.is-brick .render-wing,
+.is-brick .render-upper {
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.18) 0 2px, transparent 2px 15px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.12) 0 2px, transparent 2px 38px),
+    linear-gradient(135deg, #b86943, #7e3f2c);
+}
+
+.render-facade .render-main,
+.render-facade .render-wing {
+  background: linear-gradient(135deg, #e7ede6, #9fb4a7);
+}
+
+.render-roof .render-main,
+.render-roof .render-roof {
+  background: linear-gradient(135deg, #3f4f5d, #151d26);
+}
+
+.render-interior,
+.render-office,
+.render-bathroom,
+.render-kitchen {
+  background: linear-gradient(180deg, #f7fafc 0%, #f2f4f7 55%, #ded7cb 56%, #c4b7a6 100%);
+}
+
+.render-interior .render-main,
+.render-interior .render-upper,
+.render-interior .render-wing,
+.render-interior .render-garage,
+.render-office .render-main,
+.render-office .render-upper,
+.render-office .render-wing,
+.render-office .render-garage,
+.render-bathroom .render-main,
+.render-bathroom .render-upper,
+.render-bathroom .render-wing,
+.render-bathroom .render-garage,
+.render-kitchen .render-main,
+.render-kitchen .render-upper,
+.render-kitchen .render-wing,
+.render-kitchen .render-garage,
+.render-interior .render-roof,
+.render-office .render-roof,
+.render-bathroom .render-roof,
+.render-kitchen .render-roof {
+  display: none;
+}
+
+.render-interior-wall {
+  left: 10%;
+  right: 10%;
+  top: 12%;
+  height: 50%;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(135deg, #ffffff, #dfe6e2);
+  box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.08);
+}
+
+.render-interior-floor {
+  left: 8%;
+  right: 8%;
+  bottom: 8%;
+  height: 38%;
+  background: linear-gradient(135deg, #b49a7c, #e6d5bd);
+  transform: perspective(340px) rotateX(58deg);
+  transform-origin: bottom;
+}
+
+.render-interior-feature {
+  border-radius: 8px;
+  background: #0f5f4a;
+  box-shadow: 0 14px 24px rgba(17, 24, 39, 0.16);
+}
+
+.render-interior-wall,
+.render-interior-floor,
+.render-interior-feature {
+  display: none;
+}
+
+.render-interior .render-interior-wall,
+.render-interior .render-interior-floor,
+.render-interior .render-interior-feature,
+.render-office .render-interior-wall,
+.render-office .render-interior-floor,
+.render-office .render-interior-feature,
+.render-bathroom .render-interior-wall,
+.render-bathroom .render-interior-floor,
+.render-bathroom .render-interior-feature,
+.render-kitchen .render-interior-wall,
+.render-kitchen .render-interior-floor,
+.render-kitchen .render-interior-feature {
+  display: block;
+}
+
+.feature-a {
+  left: 18%;
+  bottom: 25%;
+  width: 22%;
+  height: 18%;
+}
+
+.feature-b {
+  right: 18%;
+  bottom: 28%;
+  width: 27%;
+  height: 13%;
+  background: #f97316;
+}
+
+.feature-c {
+  left: 46%;
+  top: 20%;
+  width: 18%;
+  height: 20%;
+  background: #2f4353;
+}
+
+.render-bathroom .feature-a {
+  width: 24%;
+  height: 26%;
+  border-radius: 50% 50% 8px 8px;
+  background: #e8eef3;
+}
+
+.render-bathroom .feature-b {
+  background: #9cc7d8;
+}
+
+.render-office .feature-a {
+  width: 50%;
+  height: 11%;
+  background: #2f4353;
+}
+
+.render-office .feature-b {
+  width: 18%;
+  height: 22%;
+  background: #94a3b8;
+}
+
+.render-label {
+  left: 16px;
+  bottom: 14px;
+  z-index: 5;
+  border-radius: 999px;
+  background: rgba(15, 47, 40, 0.86);
+  color: #ffffff;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.public-project-concept-thumb {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #dceff8 0%, #f9fbfb 55%, #d7e8d8 56%, #bdd5bb 100%);
+}
+
+.public-project-concept-thumb i {
+  position: absolute;
+  display: block;
+}
+
+.thumb-main,
+.thumb-upper,
+.thumb-wing,
+.thumb-garage {
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  box-shadow: 0 8px 16px rgba(17, 24, 39, 0.12);
+}
+
+.thumb-main {
+  left: 24%;
+  bottom: 21%;
+  width: 43%;
+  height: 30%;
+  background: #f5f2ea;
+  transform: skewY(-5deg);
+}
+
+.thumb-upper {
+  left: 32%;
+  bottom: 50%;
+  width: 31%;
+  height: 18%;
+  background: #f8fafc;
+  transform: skewY(-5deg);
+  opacity: 0;
+}
+
+.floors-2 .thumb-upper {
+  opacity: 1;
+}
+
+.thumb-wing {
+  right: 17%;
+  bottom: 25%;
+  width: 23%;
+  height: 24%;
+  background: #9a6b4e;
+  transform: skewY(5deg);
+}
+
+.thumb-garage {
+  left: 12%;
+  bottom: 21%;
+  width: 22%;
+  height: 21%;
+  background: #9a9288;
+  opacity: 0;
+}
+
+.has-garage .thumb-garage {
+  opacity: 1;
+}
+
+.thumb-window {
+  background: #17445c;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+}
+
+.thumb-window.one {
+  left: 35%;
+  bottom: 31%;
+  width: 10%;
+  height: 12%;
+}
+
+.thumb-window.two {
+  right: 24%;
+  bottom: 33%;
+  width: 10%;
+  height: 12%;
+}
+
+.floors-2 .thumb-window.one {
+  bottom: 56%;
+}
+
+.is-brick .thumb-main,
+.is-brick .thumb-upper,
+.is-brick .thumb-wing {
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.18) 0 2px, transparent 2px 12px),
+    linear-gradient(135deg, #b86943, #7e3f2c);
+}
+
+.thumb-interior,
+.thumb-office,
+.thumb-bathroom,
+.thumb-kitchen {
+  background: linear-gradient(180deg, #f8fafc 0%, #f8fafc 58%, #d9c5ad 59%, #b79b7c 100%);
+}
+
+.thumb-interior .thumb-main,
+.thumb-office .thumb-main,
+.thumb-bathroom .thumb-main,
+.thumb-kitchen .thumb-main {
+  left: 18%;
+  bottom: 25%;
+  width: 28%;
+  height: 18%;
+  border-radius: 7px;
+  background: #0f5f4a;
+  transform: none;
+}
+
+.thumb-interior .thumb-upper,
+.thumb-office .thumb-upper,
+.thumb-bathroom .thumb-upper,
+.thumb-kitchen .thumb-upper,
+.thumb-interior .thumb-wing,
+.thumb-office .thumb-wing,
+.thumb-bathroom .thumb-wing,
+.thumb-kitchen .thumb-wing,
+.thumb-interior .thumb-garage,
+.thumb-office .thumb-garage,
+.thumb-bathroom .thumb-garage,
+.thumb-kitchen .thumb-garage {
+  display: none;
+}
+
 .public-project-ready-ribbon,
 .public-project-discount {
   position: absolute;
@@ -1220,6 +1658,31 @@
   gap: 12px;
 }
 
+.public-project-media-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.public-project-media-strip button {
+  min-height: 36px;
+  border: 1px solid var(--site-line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--site-green);
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.public-project-media-strip button.active,
+.public-project-media-strip button:hover {
+  border-color: var(--site-orange);
+  background: #fff7ed;
+  color: var(--site-orange-dark);
+}
+
 .public-project-thumb-grid > button {
   min-width: 0;
   border: 1px solid var(--site-line);
@@ -1241,13 +1704,10 @@
   background: #fff7ed;
 }
 
-.public-project-thumb-grid > button img {
+.public-project-thumb-grid .public-project-concept-thumb {
   width: 76px;
   height: 58px;
   border-radius: 6px;
-  display: block;
-  object-fit: cover;
-  background: var(--site-soft);
 }
 
 .public-project-thumb-grid > button b,
@@ -1267,19 +1727,22 @@
   font-weight: 800;
 }
 
-.public-project-plan-preview {
-  grid-column: span 3;
+.public-project-plan-hero {
+  display: flex;
   min-width: 0;
   border: 1px solid var(--site-line);
   border-radius: 8px;
   background: #ffffff;
-  padding: 14px;
+  padding: 18px;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.public-project-plan-preview strong {
+.public-project-plan-hero strong {
   display: block;
-  margin: 0 0 10px;
+  margin: 0 0 14px;
   color: var(--site-ink);
+  font-size: 18px;
 }
 
 .public-project-plan-grid {
@@ -1778,7 +2241,7 @@
   .public-project-thumb-grid > button {
     grid-template-columns: 82px minmax(0, 1fr);
   }
-  .public-project-plan-preview {
+  .public-project-plan-hero {
     grid-column: auto;
   }
   .public-project-plan-grid {

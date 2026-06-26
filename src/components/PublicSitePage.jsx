@@ -540,16 +540,66 @@ const getReferenceProjectCards = (direction) => {
   }));
 };
 
-const getProjectVisual = (direction, project) => {
-  if (direction.id === 'garage-house' || project?.code?.startsWith('GAR-')) {
-    return '/site-assets/project-rg6362.png';
-  }
-  return project?.image || direction.image;
-};
-
 const parseProjectArea = (project) => {
   const match = String(project?.area || '').replace(',', '.').match(/(\d+(?:\.\d+)?)/);
   return match ? Number(match[1]) : Number(project?.calcPatch?.area || 120);
+};
+
+const getProjectProfile = (direction, project) => {
+  const calc = { ...(direction.calcPatch || {}), ...(project?.calcPatch || {}) };
+  const rawFloors = String(project?.floors || '');
+  const floors = Number(calc.floors || (rawFloors.includes('2') || rawFloors.includes('мансарда') ? 2 : 1));
+  const isRepair = calc.type === 'repair';
+  const isCommerce = calc.type === 'commerce';
+  const isFacade = calc.reconstructionScope === 'facade';
+  const isRoof = calc.reconstructionScope === 'roof';
+  const isGarage = direction.id === 'garage-house' || project?.code?.startsWith('GAR-') || /гараж/i.test(project?.title || '');
+  const isBrick = calc.wallType === 'brick' || direction.id.includes('brick');
+  const visualType = isCommerce
+    ? 'office'
+    : direction.id === 'bathroom'
+      ? 'bathroom'
+      : direction.id === 'kitchen-living'
+        ? 'kitchen'
+        : isRepair
+          ? 'interior'
+          : isRoof
+            ? 'roof'
+            : isFacade
+              ? 'facade'
+              : 'house';
+  return {
+    floors: Math.max(1, floors || 1),
+    isGarage,
+    isBrick,
+    visualType,
+    title: project?.title || direction.title,
+  };
+};
+
+const getProjectMediaOptions = (direction, project) => {
+  const profile = getProjectProfile(direction, project);
+  const renderLabel = profile.visualType === 'house'
+    ? '3D фасад'
+    : profile.visualType === 'roof'
+      ? 'Ракурс кровли'
+      : profile.visualType === 'facade'
+        ? 'Фасад'
+        : 'Визуал';
+  const secondLabel = profile.visualType === 'house'
+    ? '3D боковой'
+    : profile.visualType === 'roof'
+      ? 'Узел кровли'
+      : profile.visualType === 'facade'
+        ? 'Фасад сбоку'
+        : 'Второй ракурс';
+  const planLabel = profile.floors > 1 ? 'План 1 этажа' : 'Планировка';
+  return [
+    { id: 'render-front', kind: 'render', angle: 'front', label: renderLabel },
+    { id: 'render-side', kind: 'render', angle: 'side', label: secondLabel },
+    { id: 'plan-1', kind: 'plan', floor: 1, label: planLabel },
+    ...(profile.floors > 1 ? [{ id: 'plan-2', kind: 'plan', floor: 2, label: 'План 2 этажа' }] : []),
+  ];
 };
 
 const getProjectSpecs = (direction, project) => {
@@ -593,14 +643,16 @@ const getProjectSpecs = (direction, project) => {
   ];
 };
 
-const getPlanRooms = (project) => {
+const getPlanRooms = (project, floor = 1) => {
   const rawParts = String(project?.layout || '')
     .split(',')
     .map((part) => part.trim())
     .filter(Boolean);
-  const fallback = ['Кухня-гостиная', 'Спальня', 'Спальня', 'Санузел', 'Холл'];
-  const parts = rawParts.length ? rawParts : fallback;
-  const sizes = ['34 м2', '16 м2', '13 м2', '12 м2', '7 м2', '5 м2'];
+  const secondFloor = ['Холл', 'Мастер-спальня', 'Спальня', 'Спальня', 'Санузел', 'Гардероб'];
+  const firstFloor = ['Кухня-гостиная', 'Спальня', 'Спальня', 'Санузел', 'Холл'];
+  const fallback = floor > 1 ? secondFloor : firstFloor;
+  const parts = floor > 1 ? secondFloor : (rawParts.length ? rawParts : fallback);
+  const sizes = floor > 1 ? ['12 м2', '18 м2', '15 м2', '14 м2', '6 м2', '5 м2'] : ['34 м2', '16 м2', '13 м2', '12 м2', '7 м2', '5 м2'];
   return parts.slice(0, 6).map((name, index) => ({
     name,
     size: sizes[index] || '',
@@ -608,12 +660,12 @@ const getPlanRooms = (project) => {
   }));
 };
 
-const ReferencePlanPreview = ({ project, title }) => {
-  const rooms = getPlanRooms(project);
+const ProjectPlanGraphic = ({ project, title, floor = 1 }) => {
+  const rooms = getPlanRooms(project, floor);
   return (
-    <div className="public-project-plan-preview">
+    <div className="public-project-plan-hero">
       <strong>{title}</strong>
-      <div className="public-project-plan-grid">
+      <div className="public-project-plan-grid" aria-label={title}>
         {rooms.map((room, index) => (
           <span className={room.wide ? 'wide' : ''} key={`${room.name}-${index}`}>
             <b>{room.name}</b>
@@ -622,6 +674,64 @@ const ReferencePlanPreview = ({ project, title }) => {
         ))}
       </div>
     </div>
+  );
+};
+
+const ProjectConceptVisual = ({ direction, project, media }) => {
+  if (media?.kind === 'plan') {
+    return <ProjectPlanGraphic project={project} title={media.label} floor={media.floor} />;
+  }
+  const profile = getProjectProfile(direction, project);
+  const className = [
+    'public-project-render',
+    `render-${profile.visualType}`,
+    profile.floors > 1 ? 'floors-2' : 'floors-1',
+    profile.isGarage ? 'has-garage' : '',
+    profile.isBrick ? 'is-brick' : '',
+    media?.angle === 'side' ? 'angle-side' : 'angle-front',
+  ].filter(Boolean).join(' ');
+  return (
+    <div className={className} aria-label={`${media?.label || 'Визуал'}: ${profile.title}`}>
+      <span className="render-sky" />
+      <span className="render-ground" />
+      <span className="render-shadow" />
+      <span className="render-main" />
+      <span className="render-upper" />
+      <span className="render-wing" />
+      <span className="render-garage" />
+      <span className="render-roof" />
+      <span className="render-window window-a" />
+      <span className="render-window window-b" />
+      <span className="render-window window-c" />
+      <span className="render-door" />
+      <span className="render-interior-wall" />
+      <span className="render-interior-floor" />
+      <span className="render-interior-feature feature-a" />
+      <span className="render-interior-feature feature-b" />
+      <span className="render-interior-feature feature-c" />
+      <span className="render-label">{media?.label || 'Визуал'}</span>
+    </div>
+  );
+};
+
+const ProjectConceptThumb = ({ direction, project }) => {
+  const profile = getProjectProfile(direction, project);
+  const className = [
+    'public-project-concept-thumb',
+    `thumb-${profile.visualType}`,
+    profile.floors > 1 ? 'floors-2' : 'floors-1',
+    profile.isGarage ? 'has-garage' : '',
+    profile.isBrick ? 'is-brick' : '',
+  ].filter(Boolean).join(' ');
+  return (
+    <span className={className} aria-hidden="true">
+      <i className="thumb-main" />
+      <i className="thumb-upper" />
+      <i className="thumb-wing" />
+      <i className="thumb-garage" />
+      <i className="thumb-window one" />
+      <i className="thumb-window two" />
+    </span>
   );
 };
 
@@ -810,6 +920,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [sitePricingRules, setSitePricingRules] = useState([]);
   const [selectedReferenceId, setSelectedReferenceId] = useState(referenceDirections[0].id);
   const [selectedReferenceExample, setSelectedReferenceExample] = useState(getReferenceProjectCards(referenceDirections[0])[0].title);
+  const [selectedReferenceMediaId, setSelectedReferenceMediaId] = useState('render-front');
 
   useEffect(() => {
     let cancelled = false;
@@ -1030,7 +1141,8 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReferenceProjects = getReferenceProjectCards(selectedReference);
   const selectedReferenceProject = selectedReferenceProjects.find((project) => project.title === selectedReferenceExample) || selectedReferenceProjects[0];
   const selectedReferenceSpecs = getProjectSpecs(selectedReference, selectedReferenceProject);
-  const selectedReferenceVisual = getProjectVisual(selectedReference, selectedReferenceProject);
+  const selectedReferenceMediaOptions = getProjectMediaOptions(selectedReference, selectedReferenceProject);
+  const selectedReferenceMedia = selectedReferenceMediaOptions.find((item) => item.id === selectedReferenceMediaId) || selectedReferenceMediaOptions[0];
 
   const chooseProjectCategory = (category) => {
     const nextProjects = category === 'all'
@@ -1052,6 +1164,7 @@ const PublicSitePage = ({ onLogin }) => {
       : project;
     setSelectedReferenceId(direction.id);
     setSelectedReferenceExample(projectCard.title);
+    setSelectedReferenceMediaId('render-front');
     setCalc((current) => ({ ...current, ...direction.calcPatch, ...(projectCard.calcPatch || {}) }));
     setLead((current) => ({
       ...current,
@@ -1699,7 +1812,7 @@ const PublicSitePage = ({ onLogin }) => {
                     onClick={() => chooseReference(item)}
                     aria-pressed={isActive}
                   >
-                    <img src={item.image} alt="" />
+                    <ProjectConceptThumb direction={item} project={projectCards[0]} />
                     <span className="public-reference-count">{projectCards.length} проекта</span>
                     <h3>{item.title}</h3>
                     <p>{item.text}</p>
@@ -1711,31 +1824,49 @@ const PublicSitePage = ({ onLogin }) => {
               })}
             </div>
 
-            <section className="public-project-catalog" aria-label="Готовые проекты выбранного направления">
-              <div className="public-project-catalog-main">
-                <div className="public-project-visual-column">
-                  <div className="public-project-hero-visual">
-                    <img src={selectedReferenceVisual} alt="" />
-                    <span className="public-project-ready-ribbon">Готовый проект</span>
-                    <span className="public-project-discount">10%</span>
-                  </div>
-                  <div className="public-project-thumb-grid" aria-label="Варианты проекта">
-                    {selectedReferenceProjects.map((project) => (
-                      <button
-                        className={selectedReferenceProject?.title === project.title ? 'active' : ''}
+	            <section className="public-project-catalog" aria-label="Готовые проекты выбранного направления">
+	              <div className="public-project-catalog-main">
+	                <div className="public-project-visual-column">
+	                  <div className="public-project-hero-visual">
+	                    <ProjectConceptVisual
+	                      direction={selectedReference}
+	                      project={selectedReferenceProject}
+	                      media={selectedReferenceMedia}
+	                    />
+	                    {selectedReferenceMedia?.kind === 'render' && (
+	                      <>
+	                        <span className="public-project-ready-ribbon">Готовый проект</span>
+	                        <span className="public-project-discount">10%</span>
+	                      </>
+	                    )}
+	                  </div>
+	                  <div className="public-project-media-strip" aria-label="Медиа проекта">
+	                    {selectedReferenceMediaOptions.map((media) => (
+	                      <button
+	                        className={selectedReferenceMedia.id === media.id ? 'active' : ''}
+	                        type="button"
+	                        key={media.id}
+	                        onClick={() => setSelectedReferenceMediaId(media.id)}
+	                      >
+	                        {media.label}
+	                      </button>
+	                    ))}
+	                  </div>
+	                  <div className="public-project-thumb-grid" aria-label="Варианты проекта">
+	                    {selectedReferenceProjects.map((project) => (
+	                      <button
+	                        className={selectedReferenceProject?.title === project.title ? 'active' : ''}
                         type="button"
-                        key={project.code}
-                        onClick={() => chooseReference(selectedReference, project)}
-                      >
-                        <img src={getProjectVisual(selectedReference, project)} alt="" />
-                        <b>{project.code}</b>
-                        <span>{project.area}</span>
-                      </button>
-                    ))}
-                    <ReferencePlanPreview project={selectedReferenceProject} title="План 1 этажа" />
-                    <ReferencePlanPreview project={selectedReferenceProject} title="План 2 этажа" />
-                  </div>
-                </div>
+	                        key={project.code}
+	                        onClick={() => chooseReference(selectedReference, project)}
+	                      >
+	                        <ProjectConceptThumb direction={selectedReference} project={project} />
+	                        <b>{project.code}</b>
+	                        <span>{project.area}</span>
+	                      </button>
+	                    ))}
+	                  </div>
+	                </div>
 
                 <div className="public-project-spec-column">
                   <p className="public-tool-kicker">Каталог готовых проектов</p>
