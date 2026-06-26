@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus } from 'lucide-react';
+import { FileText, Image, Paperclip, Plus } from 'lucide-react';
 import { API } from '../api';
 
 export default function ProjectFinancePanel({
@@ -7,6 +7,7 @@ export default function ProjectFinancePanel({
   projectPayments = [],
   accountablePayments = [],
   ownExpenses = [],
+  manualExpenses = [],
   expenseCategories = [],
   expByCategory,
   projectPaymentInAmount,
@@ -42,6 +43,9 @@ export default function ProjectFinancePanel({
   const profit = received - total - inAccountable;
   const toReimburse = ownExpenses.filter(e => e.projectName === projectName && e.status === 'Ожидает');
   const categoryById = new Map(expenseCategories.map(c => [c.id, c]));
+  const projectManualExpenses = [...manualExpenses]
+    .filter(expense => expense.project === projectName)
+    .sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
   const activeCategories = Object.entries(cat)
     .filter(([, value]) => Number(value || 0) > 0)
     .map(([id, value]) => ({
@@ -51,6 +55,24 @@ export default function ProjectFinancePanel({
       value,
     }));
   const workPackageLabel = pay => pay?.workPackage || pay?.work_package || '';
+  const expenseAttachmentUrls = expense => String(expense?.photoUrl || expense?.photo_url || '').split(',').map(url => url.trim()).filter(Boolean);
+  const isImageUrl = url => /\.(png|jpe?g|webp|gif|heic|heif|bmp|svg)(\?|$)/i.test(String(url || ''));
+  const attachmentLabel = url => {
+    const raw = String(url || '').split('?')[0].split('/').filter(Boolean).pop() || 'Файл';
+    try {
+      return decodeURIComponent(raw);
+    } catch (_e) {
+      return raw;
+    }
+  };
+  const openAttachment = url => {
+    const src = typeof fileSrc === 'function' ? fileSrc(url) : url;
+    if (isImageUrl(url) && typeof setShowPhotoModal === 'function') {
+      setShowPhotoModal(src);
+      return;
+    }
+    if (typeof window !== 'undefined') window.open(src, '_blank', 'noopener,noreferrer');
+  };
 
   const addCustomerPayment = () => {
     const amount = prompt('Сумма оплаты от заказчика (₽):');
@@ -89,7 +111,7 @@ export default function ProjectFinancePanel({
         {canAddExpense && (
           <button onClick={() => {
             setAddExpenseProject(projectName);
-            setNewManualExpense({category: 'materials', customCategory: '', projectName: '', amount: '', note: '', date: ''});
+            setNewManualExpense({category: 'materials', customCategory: '', projectName: '', amount: '', note: '', date: '', photoUrl: ''});
           }} style={{...btnB, fontSize: '12px', padding: '7px 14px'}}>
             <Plus size={13}/>Расход по объекту
           </button>
@@ -148,6 +170,49 @@ export default function ProjectFinancePanel({
             ))}
             {activeCategories.length === 0 && <p style={{color: C.textMuted, fontSize: '12px', gridColumn: 'span 2', textAlign: 'center', padding: '10px'}}>Расходов пока нет</p>}
           </div>
+        </div>
+      )}
+
+      {projectManualExpenses.length > 0 && (
+        <div style={{...card, padding: '16px', marginBottom: '12px'}}>
+          <b style={{color: C.text, fontSize: '14px', display: 'block', marginBottom: '10px'}}>📎 Последние расходы по объекту</b>
+          {projectManualExpenses.slice(0, 10).map(expense => {
+            const urls = expenseAttachmentUrls(expense);
+            const category = categoryById.get(expense.category)?.label || expense.category || 'Расход';
+            return (
+              <div key={expense.id} style={{display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: '10px', padding: '8px 0', borderBottom: '1px solid ' + C.border, alignItems: 'start'}}>
+                <div style={{minWidth: 0}}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap'}}>
+                    <b style={{fontSize: '13px', color: C.text, overflowWrap: 'anywhere'}}>{category}</b>
+                    {expense.source && <span style={{fontSize: '10px', color: C.textMuted, backgroundColor: C.bg, border: '1px solid ' + C.border, borderRadius: '999px', padding: '1px 6px'}}>{expense.source}</span>}
+                  </div>
+                  {(expense.note || expense.date || expense.addedBy) && (
+                    <p style={{color: C.textSec, margin: '2px 0', fontSize: '12px', overflowWrap: 'anywhere'}}>
+                      {[expense.note, expense.date, expense.addedBy].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                  {urls.length > 0 && (
+                    <div style={{display: 'flex', gap: '5px', flexWrap: 'wrap', marginTop: '5px'}}>
+                      {urls.map((url, index) => {
+                        const isImage = isImageUrl(url);
+                        return (
+                          <button key={url + index} type='button' onClick={() => openAttachment(url)} title={attachmentLabel(url)} style={{...btnG, padding: '3px 7px', fontSize: '11px', maxWidth: '160px'}}>
+                            {isImage ? <Image size={12}/> : <FileText size={12}/>}
+                            <span style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>{isImage ? 'Фото ' + (index + 1) : attachmentLabel(url)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div style={{display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap'}}>
+                  {urls.length > 0 && <span style={{fontSize: '11px', color: C.accent, display: 'flex', alignItems: 'center', gap: '3px'}}><Paperclip size={12}/>{urls.length}</span>}
+                  <b style={{color: C.danger, fontSize: '13px', whiteSpace: 'nowrap'}}>{Number(expense.amount || 0).toLocaleString() + ' ₽'}</b>
+                </div>
+              </div>
+            );
+          })}
+          {projectManualExpenses.length > 10 && <p style={{margin: '8px 0 0', color: C.textMuted, fontSize: '11px'}}>Показаны последние 10 расходов.</p>}
         </div>
       )}
 

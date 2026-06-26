@@ -732,7 +732,7 @@ function App() {
   const [showBalanceDetails, setShowBalanceDetails] = useState(false);
   const [customRoomTypes, setCustomRoomTypes] = useState(()=>{try{return JSON.parse(localStorage.getItem('customRoomTypes')||'[]');}catch{return [];}});
   const [manualExpenses, setManualExpenses] = useState([]);
-  const [newManualExpense, setNewManualExpense] = useState({category:'materials',customCategory:'',projectName:'',amount:'',note:'',date:''});
+  const [newManualExpense, setNewManualExpense] = useState({category:'materials',customCategory:'',projectName:'',amount:'',note:'',date:'',photoUrl:''});
   const [newOwnExpense, setNewOwnExpense] = useState({projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
   const [aiMessages, setAiMessages] = useState([{role:'assistant',content:'Привет! Я ИИ помощник СтройКа. Могу ответить на вопросы по вашим объектам, сметам, складу и финансам. Спрашивайте!'}]);
   const [aiInput, setAiInput] = useState('');
@@ -3331,13 +3331,36 @@ function App() {
   const handleLogin = async () => {
     try {
       const res = await fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:(email||'').trim().toLowerCase(),password:(password||'').trim()})});
-      if (!res.ok) { setLoginError('Неверный email или пароль'); return; }
+      const data = await res.json().catch(()=>({}));
+      if (!res.ok) { setLoginError(data.detail || 'Неверный email или пароль'); return null; }
+      if (data.twoFactorRequired || data.twoFactorSetupRequired) {
+        setLoginError('');
+        return data;
+      }
+      if (!data.authToken) { setLoginError('Сервер не вернул токен входа'); return null; }
+      localStorage.setItem('authToken', data.authToken);
+      localStorage.setItem('user', JSON.stringify(data));
+      setInitialDataLoaded(false);
+      setUser(data);
+      return data;
+    } catch { setLoginError('Ошибка подключения к серверу'); return null; }
+  };
+
+  const handleTwoFactorLogin = async ({mode, token, code}) => {
+    try {
+      const endpoint = mode === 'setup' ? '/login/2fa/setup-confirm' : '/login/2fa/verify';
+      const body = mode === 'setup' ? {setupToken: token, code} : {challengeToken: token, code};
+      const res = await fetch(API+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       const data = await res.json();
+      if (!res.ok) return {ok:false, error:data.detail || 'Неверный код 2FA'};
       if (data.authToken) localStorage.setItem('authToken', data.authToken);
       localStorage.setItem('user', JSON.stringify(data));
       setInitialDataLoaded(false);
       setUser(data);
-    } catch { setLoginError('Ошибка подключения к серверу'); }
+      return {ok:true, data};
+    } catch {
+      return {ok:false, error:'Ошибка подключения к серверу'};
+    }
   };
 
   const handleRegister = async () => {
@@ -9904,6 +9927,20 @@ function App() {
     await toggleUserActive(u, false);
   };
 
+  const resetUserTwoFactor = async (u) => {
+    if (!u?.id) return;
+    const label = `Сбросить 2FA для ${u.name || u.email}? При следующем входе пользователь настроит код заново.`;
+    if (!window.confirm(label)) return;
+    const res = await fetch(API + '/users/' + u.id + '/2fa-reset', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      alert(data.detail || data.error || 'Не удалось сбросить 2FA');
+      return;
+    }
+    await refreshData();
+    alert('2FA сброшена');
+  };
+
   const createInvite = async () => { await fetch(API+'/invite-codes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:newInviteRole})}); await refreshData(); };
 
   // Создать пригласительную ссылку для поставщика и показать её для копирования
@@ -11013,7 +11050,7 @@ function App() {
       );
     }
     if (page==='login') {
-      return <LoginPage email={email} setEmail={setEmail} password={password} setPassword={setPassword} handleLogin={handleLogin} loginError={loginError} setLoginError={setLoginError} setPage={setPage}/>;
+      return <LoginPage email={email} setEmail={setEmail} password={password} setPassword={setPassword} handleLogin={handleLogin} handleTwoFactorLogin={handleTwoFactorLogin} loginError={loginError} setLoginError={setLoginError} setPage={setPage}/>;
     }
     return (
       <React.Suspense fallback={pageFallback}>
@@ -13523,6 +13560,7 @@ function App() {
                           projectPayments={projectPayments}
                           accountablePayments={accountablePayments}
                           ownExpenses={ownExpenses}
+                          manualExpenses={manualExpenses}
                           expenseCategories={EXPENSE_CATEGORIES}
                           expByCategory={expByCategory}
                           projectPaymentInAmount={projectPaymentInAmount}
@@ -14488,6 +14526,7 @@ function App() {
               generateTempPassword={generateTempPassword}
               toggleUserActive={toggleUserActive}
               deleteUser={deleteUser}
+              resetUserTwoFactor={resetUserTwoFactor}
               showInvites={showInvites}
               setShowInvites={setShowInvites}
               newInviteRole={newInviteRole}
@@ -15137,7 +15176,7 @@ function App() {
 
       {showReimburseModal&&<ReimburseModal showReimburseModal={showReimburseModal} setShowReimburseModal={setShowReimburseModal} C={C} card={card} btnG={btnG} btnO={btnO} btnR={btnR} ownExpenses={ownExpenses} users={users} staff={staff} roleLabels={ROLE_LABELS} expenseCategories={EXPENSE_CATEGORIES} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} API={API} user={user} loadAll={loadAll}/>}
     {reportingPayment&&<AccountableExpenseReportModal reportingPayment={reportingPayment} setReportingPayment={setReportingPayment} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} expenseCategories={EXPENSE_CATEGORIES} newExpense={newExpense} setNewExpense={setNewExpense} appendPhotos={appendPhotos} fileSrc={fileSrc} expenseSubmitting={expenseSubmitting} setExpenseSubmitting={setExpenseSubmitting} API={API} user={user} loadAll={loadAll}/>}
-    {addExpenseProject&&<ManualExpenseModal addExpenseProject={addExpenseProject} setAddExpenseProject={setAddExpenseProject} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newManualExpense={newManualExpense} setNewManualExpense={setNewManualExpense} isFinanceRole={isFinanceRole} expenseCategories={EXPENSE_CATEGORIES} projects={projects} visibleActiveProjects={visibleActiveProjects} API={API} user={user} loadAll={loadAll}/>}
+    {addExpenseProject&&<ManualExpenseModal addExpenseProject={addExpenseProject} setAddExpenseProject={setAddExpenseProject} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} newManualExpense={newManualExpense} setNewManualExpense={setNewManualExpense} isFinanceRole={isFinanceRole} expenseCategories={EXPENSE_CATEGORIES} projects={projects} visibleActiveProjects={visibleActiveProjects} appendPhotos={appendPhotos} fileSrc={fileSrc} setShowPhotoModal={setShowPhotoModal} API={API} user={user} loadAll={loadAll}/>}
     {showAccountableForm&&<AccountablePaymentModal showAccountableForm={showAccountableForm} setShowAccountableForm={setShowAccountableForm} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} projects={projects} users={users} newAccountable={newAccountable} setNewAccountable={setNewAccountable} API={API} user={user} loadAll={loadAll}/>}
     {showDistribute&&<EstimateDistributeModal showDistribute={showDistribute} setShowDistribute={setShowDistribute} selectedEstimate={selectedEstimate} distributing={distributing} setDistributing={setDistributing} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} btnB={btnB} distributeBrigades={distributeBrigades} setDistributeBrigades={setDistributeBrigades} newDistributeBrigade={newDistributeBrigade} setNewDistributeBrigade={setNewDistributeBrigade} pricelists={pricelists} staff={staff} distributeAssignments={distributeAssignments} setDistributeAssignments={setDistributeAssignments} API={API} loadAll={loadAll}/>}
     {showFromEstimate&&<PricelistFromEstimateModal showFromEstimate={showFromEstimate} setShowFromEstimate={setShowFromEstimate} creatingFromEstimate={creatingFromEstimate} setCreatingFromEstimate={setCreatingFromEstimate} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG} fromEstimateForm={fromEstimateForm} setFromEstimateForm={setFromEstimateForm} estimatesList={estimatesList} API={API} loadAll={loadAll} setSelectedPricelist={setSelectedPricelist} loadPricelistItems={loadPricelistItems}/>}

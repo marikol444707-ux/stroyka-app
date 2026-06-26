@@ -83,6 +83,7 @@ location ~ ^/(workflow|telegram)/ {
 ```bash
 nginx -t && systemctl reload nginx
 npm run smoke:public-api
+STRICT=1 npm run smoke:ops-prod
 ```
 
 4. Для формы заявки добавить усиление, если начнется спам:

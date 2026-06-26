@@ -230,6 +230,8 @@ app.add_middleware(
 
 PASSWORD_HASH_PREFIX = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 260000
+TWO_FACTOR_REQUIRED_ROLES = ("директор", "зам_директора", "бухгалтер")
+TWO_FACTOR_TOKEN_TTL_SECONDS = 10 * 60
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
@@ -255,6 +257,89 @@ def verify_password(password: str, stored: str) -> bool:
 def is_legacy_password(stored: str) -> bool:
     return bool(stored) and not stored.startswith(PASSWORD_HASH_PREFIX + "$")
 
+def _role_requires_2fa(role: str) -> bool:
+    return (role or "") in TWO_FACTOR_REQUIRED_ROLES
+
+def _user_requires_2fa(user: dict) -> bool:
+    return bool(user.get("two_factor_required")) or _role_requires_2fa(user.get("role") or "")
+
+def _generate_totp_secret() -> str:
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+def _totp_key(secret: str) -> bytes:
+    value = re.sub(r"\s+", "", str(secret or "")).upper()
+    if not value:
+        raise ValueError("empty secret")
+    value += "=" * (-len(value) % 8)
+    return base64.b32decode(value, casefold=True)
+
+def _totp_code(secret: str, timestamp: Optional[int] = None, step: int = 30) -> str:
+    counter = int((timestamp or int(time.time())) // step)
+    digest = hmac.new(_totp_key(secret), counter.to_bytes(8, "big"), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    value = int.from_bytes(digest[offset:offset + 4], "big") & 0x7FFFFFFF
+    return str(value % 1000000).zfill(6)
+
+def _verify_totp_code(secret: str, code: str) -> bool:
+    cleaned = re.sub(r"\D", "", str(code or ""))
+    if len(cleaned) != 6:
+        return False
+    now = int(time.time())
+    for drift in (-30, 0, 30):
+        try:
+            if hmac.compare_digest(_totp_code(secret, now + drift), cleaned):
+                return True
+        except Exception:
+            return False
+    return False
+
+def _signed_flow_token(payload: dict) -> str:
+    data = dict(payload or {})
+    data["exp"] = int(data.get("exp") or (int(time.time()) + TWO_FACTOR_TOKEN_TTL_SECONDS))
+    body = _b64url(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    sig = hmac.new(AUTH_SECRET.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
+    return body + "." + _b64url(sig)
+
+def _verify_signed_flow_token(token: str, purpose: str) -> dict:
+    try:
+        body, sig = str(token or "").split(".", 1)
+        expected = _b64url(hmac.new(AUTH_SECRET.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest())
+        if not hmac.compare_digest(sig, expected):
+            raise ValueError("bad signature")
+        payload = json.loads(_b64url_decode(body).decode("utf-8"))
+        if payload.get("purpose") != purpose:
+            raise ValueError("bad purpose")
+        if int(payload.get("exp") or 0) < int(time.time()):
+            raise ValueError("expired")
+        return payload
+    except Exception:
+        raise HTTPException(status_code=401, detail="Код 2FA устарел. Войдите заново.")
+
+def _two_factor_otpauth_uri(user: dict, secret: str) -> str:
+    issuer = "Stroyka"
+    label = urllib.parse.quote(f"{issuer}:{user.get('email') or user.get('name') or user.get('id')}")
+    return "otpauth://totp/" + label + "?" + urllib.parse.urlencode({"secret": secret, "issuer": issuer, "algorithm": "SHA1", "digits": 6, "period": 30})
+
+def _two_factor_setup_response(user: dict, secret: str) -> dict:
+    return {
+        "twoFactorSetupRequired": True,
+        "setupToken": _signed_flow_token({"purpose": "2fa_setup", "userId": user.get("id")}),
+        "manualKey": secret,
+        "otpauthUri": _two_factor_otpauth_uri(user, secret),
+        "email": user.get("email") or "",
+        "name": user.get("name") or "",
+        "role": user.get("role") or "",
+    }
+
+def _two_factor_challenge_response(user: dict) -> dict:
+    return {
+        "twoFactorRequired": True,
+        "challengeToken": _signed_flow_token({"purpose": "2fa_login", "userId": user.get("id")}),
+        "email": user.get("email") or "",
+        "name": user.get("name") or "",
+        "role": user.get("role") or "",
+    }
+
 def public_user(row: dict, include_token: bool = False) -> dict:
     assigned_projects = _safe_project_list(row.get("assignedProjects", row.get("assigned_projects", [])))
     assigned_packages = _safe_project_list(row.get("assignedPackages", row.get("assigned_packages", [])))
@@ -273,6 +358,8 @@ def public_user(row: dict, include_token: bool = False) -> dict:
         "assigned_projects": assigned_projects,
         "assignedPackages": assigned_packages,
         "assigned_packages": assigned_packages,
+        "twoFactorRequired": _user_requires_2fa(row),
+        "twoFactorEnabled": bool(row.get("two_factor_enabled")),
     }
     if row.get("vkId") or row.get("vk_id"):
         user["vkId"] = row.get("vkId") or row.get("vk_id")
@@ -1814,6 +1901,11 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id VARCHAR(100);
         ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_required BOOLEAN DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR(80);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_confirmed_at TIMESTAMP;
+        UPDATE users SET two_factor_required=TRUE WHERE role IN ('директор','зам_директора','бухгалтер');
         UPDATE users SET active=TRUE WHERE active IS NULL;
         CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
@@ -2545,6 +2637,7 @@ def init_db():
             note TEXT,
             date VARCHAR(50),
             added_by VARCHAR(255),
+            photo_url TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
         ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS category VARCHAR(100);
@@ -2554,6 +2647,7 @@ def init_db():
         ALTER TABLE own_expenses ADD COLUMN IF NOT EXISTS expense_id INT;
         ALTER TABLE expenses ADD COLUMN IF NOT EXISTS own_expense_id INT;
         ALTER TABLE expenses ADD COLUMN IF NOT EXISTS source VARCHAR(100);
+        ALTER TABLE expenses ADD COLUMN IF NOT EXISTS photo_url TEXT;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_own_expense_id ON expenses(own_expense_id) WHERE own_expense_id IS NOT NULL;
         CREATE TABLE IF NOT EXISTS unexpected_works (
             id SERIAL PRIMARY KEY,
@@ -3443,6 +3537,7 @@ def init_db():
             VALUES (%s,%s,%s,%s)
             ON CONFLICT (email) DO NOTHING
         """, (seed_name, seed_email, hash_password(seed_password), seed_role))
+    cur.execute("UPDATE users SET two_factor_required=TRUE WHERE role IN ('директор','зам_директора','бухгалтер')")
     for group_key, item_key, label, value, value_type, unit, sort_order in SITE_PRICE_RULE_DEFAULTS:
         cur.execute("""
             INSERT INTO site_price_rules (group_key, item_key, label, value, value_type, unit, enabled, sort_order)
@@ -3475,7 +3570,7 @@ def init_db():
     try:
         cur.execute(
             """
-            INSERT INTO expenses (project, category, amount, note, date, added_by, own_expense_id, source)
+            INSERT INTO expenses (project, category, amount, note, date, added_by, own_expense_id, source, photo_url)
             SELECT
                 COALESCE(NULLIF(oe.project_name,''),'') AS project,
                 CASE WHEN COALESCE(NULLIF(oe.project_name,''),'')<>'' THEN 'other' ELSE %s END AS category,
@@ -3484,7 +3579,8 @@ def init_db():
                 oe.date,
                 COALESCE(oe.employee_name,'') AS added_by,
                 oe.id AS own_expense_id,
-                'own_expense' AS source
+                'own_expense' AS source,
+                COALESCE(oe.photo_url,'') AS photo_url
             FROM own_expenses oe
             WHERE NOT EXISTS (
                 SELECT 1 FROM expenses e WHERE e.own_expense_id=oe.id
@@ -3497,8 +3593,18 @@ def init_db():
             UPDATE own_expenses oe
                SET expense_id=e.id
               FROM expenses e
-             WHERE e.own_expense_id=oe.id
+            WHERE e.own_expense_id=oe.id
                AND (oe.expense_id IS NULL OR oe.expense_id<>e.id)
+            """
+        )
+        cur.execute(
+            """
+            UPDATE expenses e
+               SET photo_url=oe.photo_url
+              FROM own_expenses oe
+             WHERE e.own_expense_id=oe.id
+               AND COALESCE(e.photo_url,'')=''
+               AND COALESCE(oe.photo_url,'')<>''
             """
         )
     except Exception as e:
@@ -3804,6 +3910,14 @@ class UserModel(BaseModel):
 class LoginModel(BaseModel):
     email: str
     password: str
+
+class TwoFactorVerifyModel(BaseModel):
+    challengeToken: str = ""
+    code: str = ""
+
+class TwoFactorSetupConfirmModel(BaseModel):
+    setupToken: str = ""
+    code: str = ""
 
 class PricelistModel(BaseModel):
     name: str
@@ -4150,6 +4264,23 @@ def login(data: LoginModel):
         new_hash = hash_password(data.password)
         cur.execute("UPDATE users SET password=%s WHERE id=%s", (new_hash, user['id']))
         user["password"] = new_hash
+    if _user_requires_2fa(user):
+        user["two_factor_required"] = True
+        cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL, two_factor_required=TRUE WHERE id=%s", (user['id'],))
+        if not user.get("two_factor_secret") or not user.get("two_factor_enabled"):
+            secret = user.get("two_factor_secret") or _generate_totp_secret()
+            cur.execute(
+                "UPDATE users SET two_factor_secret=%s, two_factor_enabled=FALSE, two_factor_required=TRUE WHERE id=%s",
+                (secret, user['id']),
+            )
+            user["two_factor_secret"] = secret
+            user["two_factor_enabled"] = False
+            conn.commit()
+            conn.close()
+            return _two_factor_setup_response(user, secret)
+        conn.commit()
+        conn.close()
+        return _two_factor_challenge_response(user)
     cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user['id'],))
     conn.commit()
     user = enrich_worker_project_links(cur, user)
@@ -4157,6 +4288,61 @@ def login(data: LoginModel):
     log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
               action="login", entity_type="user", entity_id=user['id'],
               description="Успешный вход в систему")
+    return public_user(user, include_token=True)
+
+@app.post("/login/2fa/verify")
+def verify_login_2fa(data: TwoFactorVerifyModel):
+    payload = _verify_signed_flow_token(data.challengeToken, "2fa_login")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM users WHERE id=%s", (payload.get("userId"),))
+    user = cur.fetchone()
+    if not user or user.get("active") is False:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Пользователь не найден или отключён")
+    if not _user_requires_2fa(user) or not user.get("two_factor_enabled") or not user.get("two_factor_secret"):
+        conn.close()
+        raise HTTPException(status_code=400, detail="2FA для пользователя не настроена")
+    if not _verify_totp_code(user.get("two_factor_secret") or "", data.code):
+        conn.close()
+        raise HTTPException(status_code=401, detail="Неверный код 2FA")
+    cur.execute("UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=%s", (user["id"],))
+    conn.commit()
+    user = enrich_worker_project_links(cur, user)
+    conn.close()
+    log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
+              action="login", entity_type="user", entity_id=user['id'],
+              description="Успешный вход в систему с 2FA")
+    return public_user(user, include_token=True)
+
+@app.post("/login/2fa/setup-confirm")
+def confirm_login_2fa_setup(data: TwoFactorSetupConfirmModel):
+    payload = _verify_signed_flow_token(data.setupToken, "2fa_setup")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM users WHERE id=%s", (payload.get("userId"),))
+    user = cur.fetchone()
+    if not user or user.get("active") is False:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Пользователь не найден или отключён")
+    if not _user_requires_2fa(user) or not user.get("two_factor_secret"):
+        conn.close()
+        raise HTTPException(status_code=400, detail="2FA не требуется или не подготовлена")
+    if not _verify_totp_code(user.get("two_factor_secret") or "", data.code):
+        conn.close()
+        raise HTTPException(status_code=401, detail="Неверный код 2FA")
+    cur.execute(
+        "UPDATE users SET two_factor_enabled=TRUE, two_factor_required=TRUE, two_factor_confirmed_at=NOW(), failed_login_count=0, locked_until=NULL WHERE id=%s",
+        (user["id"],),
+    )
+    conn.commit()
+    user["two_factor_enabled"] = True
+    user["two_factor_required"] = True
+    user = enrich_worker_project_links(cur, user)
+    conn.close()
+    log_audit(user_name=user.get("name",""), user_role=user.get("role",""),
+              action="2fa_setup", entity_type="user", entity_id=user['id'],
+              description="Пользователь включил 2FA")
     return public_user(user, include_token=True)
 
 def _password_reset_dedupe_key(user_id) -> str:
@@ -5798,9 +5984,9 @@ def get_users(current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     if current_user.get("role") in LEADERSHIP_ROLES or current_user.get("role") == "бухгалтер":
-        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,COALESCE(active,TRUE) as active FROM users")
+        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,COALESCE(active,TRUE) as active,COALESCE(two_factor_required,FALSE) as two_factor_required,COALESCE(two_factor_enabled,FALSE) as two_factor_enabled,two_factor_confirmed_at FROM users")
     else:
-        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,COALESCE(active,TRUE) as active FROM users WHERE id=%s", (current_user.get("id"),))
+        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,COALESCE(active,TRUE) as active,COALESCE(two_factor_required,FALSE) as two_factor_required,COALESCE(two_factor_enabled,FALSE) as two_factor_enabled,two_factor_confirmed_at FROM users WHERE id=%s", (current_user.get("id"),))
     rows = cur.fetchall()
     conn.close()
     out = []
@@ -5823,6 +6009,9 @@ def get_users(current_user: dict = Depends(get_current_user)):
         d['projectId'] = d.pop('project_id', None)
         d['projectName'] = d.pop('project_name', '')
         d['active'] = d.get('active') is not False
+        d['twoFactorRequired'] = bool(d.pop('two_factor_required', False)) or _role_requires_2fa(d.get('role') or '')
+        d['twoFactorEnabled'] = bool(d.pop('two_factor_enabled', False))
+        d['twoFactorConfirmedAt'] = str(d.pop('two_factor_confirmed_at', '') or '')
         out.append(d)
     return out
 
@@ -5877,10 +6066,10 @@ def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADE
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         assigned_projects, assigned_packages = _prepare_user_access_scope(cur, u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
-        cur.execute("""INSERT INTO users (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s)
-                       RETURNING id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,active""",
-                    ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages), u.active is not False))
+        cur.execute("""INSERT INTO users (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active,two_factor_required)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)
+                       RETURNING id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,active,two_factor_required,two_factor_enabled,two_factor_confirmed_at""",
+                    ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages), u.active is not False, _role_requires_2fa(u.role)))
         row = cur.fetchone()
         conn.commit()
         log_audit(
@@ -5916,11 +6105,11 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
             active_sql = ", active=%s"
             params_tail.append(u.active is not False)
         if u.password:
-            cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb,failed_login_count=0,locked_until=NULL"+active_sql+" WHERE id=%s",
-                        ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages),*params_tail,id))
+            cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb,two_factor_required=%s,failed_login_count=0,locked_until=NULL"+active_sql+" WHERE id=%s",
+                        ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages),_role_requires_2fa(u.role),*params_tail,id))
         else:
-            cur.execute("UPDATE users SET name=%s,email=%s,role=%s,project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb"+active_sql+" WHERE id=%s",
-                        ((u.name or "").strip(),email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages),*params_tail,id))
+            cur.execute("UPDATE users SET name=%s,email=%s,role=%s,project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb,two_factor_required=%s"+active_sql+" WHERE id=%s",
+                        ((u.name or "").strip(),email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages),_role_requires_2fa(u.role),*params_tail,id))
         if cur.rowcount == 0:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Пользователь не найден")
@@ -5943,6 +6132,39 @@ def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_rol
         cur.close()
         conn.close()
         raise HTTPException(status_code=400, detail=str(e))
+    cur.close()
+    conn.close()
+    return {"ok": True}
+
+@app.post("/users/{id}/2fa-reset")
+def reset_user_2fa(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT name,email,role FROM users WHERE id=%s", (id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    cur.execute(
+        """UPDATE users
+           SET two_factor_enabled=FALSE,
+               two_factor_secret=NULL,
+               two_factor_confirmed_at=NULL,
+               two_factor_required=%s
+           WHERE id=%s""",
+        (_role_requires_2fa(row.get("role") or ""), id),
+    )
+    conn.commit()
+    log_audit(
+        _current_user.get("name", ""),
+        _current_user.get("role", ""),
+        "2fa_reset",
+        "user",
+        id,
+        ("Сброшена 2FA пользователя: " + str(row.get("name") or row.get("email") or id))[:250],
+        "",
+    )
     cur.close()
     conn.close()
     return {"ok": True}
@@ -22685,7 +22907,7 @@ def _resolve_own_expense_employee(cur, data: dict, current_user: dict) -> tuple[
         employee_id = current_user.get("id")
     return employee_name, employee_id, telegram_id, telegram_chat_id
 
-def _sync_own_expense_to_finance_expense(cur, own_expense_id: int, project_name: str, description: str, amount, date_value, employee_name: str):
+def _sync_own_expense_to_finance_expense(cur, own_expense_id: int, project_name: str, description: str, amount, date_value, employee_name: str, photo_url: str = ""):
     finance_category = "other" if project_name else OWN_EXPENSE_NO_PROJECT_CATEGORY
     note_prefix = "Моя трата"
     note = f"{note_prefix}: {description or ''}".strip()
@@ -22696,13 +22918,13 @@ def _sync_own_expense_to_finance_expense(cur, own_expense_id: int, project_name:
     if existing:
         expense_id = existing[0]
         cur.execute(
-            "UPDATE expenses SET project=%s, category=%s, amount=%s, note=%s, date=%s, added_by=%s, source=%s WHERE id=%s",
-            (project_name or "", finance_category, amount or 0, note, date_value or None, employee_name or "", "own_expense", expense_id),
+            "UPDATE expenses SET project=%s, category=%s, amount=%s, note=%s, date=%s, added_by=%s, source=%s, photo_url=%s WHERE id=%s",
+            (project_name or "", finance_category, amount or 0, note, date_value or None, employee_name or "", "own_expense", photo_url or "", expense_id),
         )
     else:
         cur.execute(
-            "INSERT INTO expenses (project,category,amount,note,date,added_by,own_expense_id,source) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (project_name or "", finance_category, amount or 0, note, date_value or None, employee_name or "", own_expense_id, "own_expense"),
+            "INSERT INTO expenses (project,category,amount,note,date,added_by,own_expense_id,source,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (project_name or "", finance_category, amount or 0, note, date_value or None, employee_name or "", own_expense_id, "own_expense", photo_url or ""),
         )
         expense_id = cur.fetchone()[0]
     cur.execute("UPDATE own_expenses SET expense_id=%s WHERE id=%s", (expense_id, own_expense_id))
@@ -22787,7 +23009,7 @@ def create_own_expense(data: dict, current_user: dict = Depends(require_roles(*O
         ),
     )
     own_expense_id = cur.fetchone()[0]
-    expense_id = _sync_own_expense_to_finance_expense(cur, own_expense_id, project_name, description, amount, date_value, employee_name)
+    expense_id = _sync_own_expense_to_finance_expense(cur, own_expense_id, project_name, description, amount, date_value, employee_name, data.get("photoUrl", ""))
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True, "id": own_expense_id, "expenseId": expense_id}
@@ -22856,6 +23078,7 @@ def create_telegram_own_expense(data: dict, _bot: dict = Depends(require_telegra
         amount,
         date_value,
         employee["name"],
+        data.get("photoUrl", ""),
     )
     conn.commit()
     cur.close(); conn.close()
@@ -22925,7 +23148,7 @@ def update_own_expense(id: int, data: dict, _current_user: dict = Depends(requir
         UPDATE own_expenses
            SET status=%s, approved_by=%s
          WHERE id=%s
-     RETURNING project_name, employee_name, description, amount, date
+     RETURNING project_name, employee_name, description, amount, date, photo_url
         """,
         (status, data.get("approvedBy", ""), id),
     )
@@ -22938,7 +23161,7 @@ def update_own_expense(id: int, data: dict, _current_user: dict = Depends(requir
         cur.execute("DELETE FROM expenses WHERE own_expense_id=%s", (id,))
         cur.execute("UPDATE own_expenses SET expense_id=NULL WHERE id=%s", (id,))
     else:
-        project_name, employee_name, description, amount, date_value = row
+        project_name, employee_name, description, amount, date_value, photo_url = row
         _sync_own_expense_to_finance_expense(
             cur,
             id,
@@ -22947,6 +23170,7 @@ def update_own_expense(id: int, data: dict, _current_user: dict = Depends(requir
             amount or 0,
             date_value,
             employee_name or "",
+            photo_url or "",
         )
     conn.commit()
     cur.close(); conn.close()
@@ -22967,19 +23191,19 @@ def get_expenses(project: str = "", _current_user: dict = Depends(require_roles(
     conn = get_db()
     cur = conn.cursor()
     if project:
-        cur.execute("SELECT id,project,category,amount,note,date,added_by,own_expense_id,source FROM expenses WHERE project=%s ORDER BY id DESC", (project,))
+        cur.execute("SELECT id,project,category,amount,note,date,added_by,own_expense_id,source,photo_url FROM expenses WHERE project=%s ORDER BY id DESC", (project,))
     else:
-        cur.execute("SELECT id,project,category,amount,note,date,added_by,own_expense_id,source FROM expenses ORDER BY id DESC")
+        cur.execute("SELECT id,project,category,amount,note,date,added_by,own_expense_id,source,photo_url FROM expenses ORDER BY id DESC")
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"project":r[1],"category":r[2],"amount":float(r[3] or 0),"note":r[4] or "","date":str(r[5]) if r[5] else "","addedBy":r[6] or "","ownExpenseId":r[7],"source":r[8] or ""} for r in rows]
+    return [{"id":r[0],"project":r[1],"category":r[2],"amount":float(r[3] or 0),"note":r[4] or "","date":str(r[5]) if r[5] else "","addedBy":r[6] or "","ownExpenseId":r[7],"source":r[8] or "","photoUrl":r[9] or ""} for r in rows]
 
 @app.post("/expenses")
 def create_expense(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO expenses (project,category,amount,note,date,added_by) VALUES (%s,%s,%s,%s,%s,%s)",
-        (data.get("project",""),data.get("category","other"),data.get("amount",0),data.get("note",""),data.get("date") or None,data.get("addedBy","")))
+    cur.execute("INSERT INTO expenses (project,category,amount,note,date,added_by,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (data.get("project",""),data.get("category","other"),data.get("amount",0),data.get("note",""),data.get("date") or None,data.get("addedBy",""),data.get("photoUrl") or data.get("photo_url") or ""))
     conn.commit()
     cur.close(); conn.close()
     return {"ok":True}

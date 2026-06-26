@@ -3,7 +3,7 @@ import React, {useState} from 'react';
 const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 const API = process.env.REACT_APP_API_URL || (isLocalHost ? 'http://localhost:8001' : '');
 
-const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginError, setLoginError, setPage}) => {
+const LoginPage = ({email, setEmail, password, setPassword, handleLogin, handleTwoFactorLogin, loginError, setLoginError, setPage}) => {
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotStep, setForgotStep] = useState(1);
   const [resetCode, setResetCode] = useState('');
@@ -11,6 +11,46 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginEr
   const [forgotMsg, setForgotMsg] = useState('');
   const [forgotErr, setForgotErr] = useState('');
   const [devCode, setDevCode] = useState('');
+  const [twoFactor, setTwoFactor] = useState(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [twoFactorErr, setTwoFactorErr] = useState('');
+
+  const qrSrc = text => `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(text || '')}`;
+
+  const submitLogin = async () => {
+    setTwoFactorErr('');
+    const data = await handleLogin();
+    if (data?.twoFactorSetupRequired) {
+      setTwoFactor({
+        mode: 'setup',
+        token: data.setupToken,
+        manualKey: data.manualKey,
+        otpauthUri: data.otpauthUri,
+        name: data.name,
+        email: data.email,
+      });
+      setTwoFactorCode('');
+    } else if (data?.twoFactorRequired) {
+      setTwoFactor({
+        mode: 'login',
+        token: data.challengeToken,
+        name: data.name,
+        email: data.email,
+      });
+      setTwoFactorCode('');
+    }
+  };
+
+  const verifyTwoFactor = async () => {
+    setTwoFactorErr('');
+    const cleanCode = String(twoFactorCode || '').replace(/\D/g, '');
+    if (!twoFactor || cleanCode.length !== 6) {
+      setTwoFactorErr('Введите 6 цифр из приложения-аутентификатора');
+      return;
+    }
+    const result = await handleTwoFactorLogin({mode: twoFactor.mode, token: twoFactor.token, code: cleanCode});
+    if (!result?.ok) setTwoFactorErr(result?.error || 'Неверный код 2FA');
+  };
 
   const requestReset = async () => {
     setForgotErr(''); setForgotMsg('');
@@ -74,6 +114,42 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginEr
     </div>
   );
 
+  if (twoFactor) return (
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
+      <div style={{width:'100%',maxWidth:'430px',borderRadius:'30px',background:'linear-gradient(145deg,rgba(15,23,42,.96),rgba(2,6,23,.96))',border:'1px solid rgba(148,163,184,.2)',padding:'28px',color:'#e5e5ea',boxShadow:'0 30px 100px rgba(0,0,0,.55)'}}>
+        <h2 style={{margin:'0 0 8px',fontSize:'22px',fontWeight:'800',color:'#fff'}}>{twoFactor.mode === 'setup' ? '🛡️ Настройка 2FA' : '🛡️ Код 2FA'}</h2>
+        <p style={{margin:'0 0 16px',fontSize:'13px',color:'#8e8e93',lineHeight:1.5}}>
+          {twoFactor.mode === 'setup'
+            ? 'Для директора, замов и бухгалтера включена обязательная двухфакторная защита. Добавьте ключ в Google Authenticator, Яндекс Ключ или другое TOTP-приложение.'
+            : 'Введите 6-значный код из приложения-аутентификатора для завершения входа.'}
+        </p>
+        {twoFactor.mode === 'setup' && (
+          <div style={{marginBottom:'14px'}}>
+            <div style={{display:'flex',justifyContent:'center',marginBottom:'12px'}}>
+              <div style={{background:'#fff',padding:'10px',borderRadius:'14px'}}>
+                <img src={qrSrc(twoFactor.otpauthUri)} alt='QR 2FA' style={{display:'block',width:'180px',height:'180px'}}/>
+              </div>
+            </div>
+            <div style={{background:'#252527',border:'1px solid #3a3a3c',borderRadius:'12px',padding:'12px',marginBottom:'10px'}}>
+              <span style={{fontSize:'11px',color:'#8e8e93',display:'block',marginBottom:'5px'}}>Ручной ключ</span>
+              <code style={{fontSize:'13px',color:'#fbbf24',wordBreak:'break-all',letterSpacing:'1px'}}>{twoFactor.manualKey}</code>
+              <button onClick={()=>navigator.clipboard?.writeText(twoFactor.manualKey).catch(()=>{})} style={{marginTop:'8px',width:'100%',padding:'8px',borderRadius:'9px',border:'1px solid #3a3a3c',background:'#2c2c2e',color:'#e5e5ea',cursor:'pointer'}}>Скопировать ключ</button>
+            </div>
+          </div>
+        )}
+        <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
+          <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>Код из приложения</span>
+          <input type='text' inputMode='numeric' autoFocus value={twoFactorCode} onChange={e=>setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))} onKeyDown={e=>e.key==='Enter'&&verifyTwoFactor()} placeholder='123456' maxLength={6} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'22px',letterSpacing:'6px',width:'100%'}}/>
+        </div>
+        {twoFactorErr&&<div style={{padding:'10px 14px',borderRadius:'10px',background:'rgba(239,68,68,.12)',border:'1px solid rgba(239,68,68,.26)',color:'#fca5a5',fontSize:'13px',marginBottom:'10px'}}>{twoFactorErr}</div>}
+        <button onClick={verifyTwoFactor} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',color:'white',fontSize:'15px',fontWeight:'700',marginBottom:'10px'}}>
+          {twoFactor.mode === 'setup' ? 'Включить 2FA и войти' : 'Подтвердить вход'}
+        </button>
+        <button onClick={()=>{setTwoFactor(null);setTwoFactorCode('');setTwoFactorErr('');setPassword('');}} style={{width:'100%',padding:'12px',borderRadius:'12px',border:'1px solid #3a3a3c',background:'#252527',cursor:'pointer',color:'#aeaeb2',fontSize:'13px',fontWeight:'500'}}>Вернуться ко входу</button>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:'20px',background:'radial-gradient(circle at 15% 10%,rgba(234,88,12,.18),transparent 28%),linear-gradient(135deg,#020617 0%,#0f172a 54%,#020617 100%)'}}>
       <button onClick={()=>{setPage('site');setLoginError('');}} style={{position:'fixed',top:'18px',left:'18px',zIndex:2,padding:'10px 14px',borderRadius:'12px',border:'1px solid rgba(255,255,255,.18)',background:'rgba(15,23,42,.72)',color:'#e5e7eb',fontSize:'13px',fontWeight:'700',cursor:'pointer',backdropFilter:'blur(12px)'}}>На сайт СтройКа</button>
@@ -104,11 +180,11 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginEr
         <div style={{padding:'16px 28px 28px'}}>
           <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px 11px 14px',marginBottom:'10px'}}>
             <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>E-mail</span>
-            <input type="email" placeholder="admin@stroyka.ru" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
+            <input type="email" placeholder="admin@stroyka.ru" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitLogin()} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
           </div>
           <div style={{background:'#2c2c2e',borderRadius:'11px',padding:'11px 14px',marginBottom:'10px'}}>
             <span style={{fontSize:'11px',color:'#636366',display:'block',marginBottom:'2px'}}>Пароль</span>
-            <input type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
+            <input type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submitLogin()} style={{background:'none',border:'none',outline:'none',color:'#e5e5ea',fontSize:'14px',width:'100%'}}/>
           </div>
           {loginError&&<div style={{padding:'10px 14px',borderRadius:'10px',background:'rgba(239,68,68,.12)',border:'1px solid rgba(239,68,68,.26)',color:'#fca5a5',fontSize:'13px',marginBottom:'10px'}}>{loginError}</div>}
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0 14px'}}>
@@ -118,7 +194,7 @@ const LoginPage = ({email, setEmail, password, setPassword, handleLogin, loginEr
             </div>
             <button onClick={()=>{setForgotMode(true);setLoginError('');}} style={{fontSize:'13px',color:'#FF6A00',fontWeight:'500',background:'none',border:'none',cursor:'pointer'}}>Забыли пароль?</button>
           </div>
-          <button onClick={handleLogin} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px',boxShadow:'0 4px 24px rgba(255,100,0,0.45)'}}>
+          <button onClick={submitLogin} style={{width:'100%',padding:'15px 18px',borderRadius:'12px',border:'none',cursor:'pointer',background:'linear-gradient(135deg,#FF6000 0%,#FF8000 45%,#FF6A00 100%)',display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px',boxShadow:'0 4px 24px rgba(255,100,0,0.45)'}}>
             <span style={{color:'#fff',fontSize:'15px',fontWeight:'700'}}>Войти в систему</span>
             <div style={{width:'30px',height:'30px',borderRadius:'50%',background:'rgba(255,255,255,0.18)',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontSize:'16px'}}>→</div>
           </button>

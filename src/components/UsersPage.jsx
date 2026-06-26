@@ -42,6 +42,7 @@ function UsersPage({
   generateTempPassword,
   toggleUserActive,
   deleteUser,
+  resetUserTwoFactor,
   showInvites,
   setShowInvites,
   newInviteRole,
@@ -186,10 +187,18 @@ function UsersPage({
             {groupUsers.map(u=>(<div key={u.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid '+C.border,opacity:u.active===false?0.58:1}}>
               <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
                 <div style={{width:'36px',height:'36px',borderRadius:'10px',backgroundColor:roleColor(u.role),display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:'700',fontSize:'14px'}}>{u.name.charAt(0)}</div>
-                <div><b style={{fontSize:'13px',color:C.text}}>{u.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{u.email+' · '+(ROLE_LABELS[u.role]||u.role)}{u.projectName?' · '+u.projectName:''}</p>{u.active===false&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),fontSize:'10px'}}>Доступ отключён</span>}</div>
+                <div>
+                  <b style={{fontSize:'13px',color:C.text}}>{u.name}</b>
+                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{u.email+' · '+(ROLE_LABELS[u.role]||u.role)}{u.projectName?' · '+u.projectName:''}</p>
+                  <div style={{display:'flex',gap:'5px',flexWrap:'wrap'}}>
+                    {u.active===false&&<span style={{...badge(C.danger,C.dangerLight,C.dangerBorder),fontSize:'10px'}}>Доступ отключён</span>}
+                    {u.twoFactorRequired&&<span style={{...badge(u.twoFactorEnabled?C.success:C.warning,u.twoFactorEnabled?C.successLight:C.warningLight,u.twoFactorEnabled?C.successBorder:C.warningBorder),fontSize:'10px'}}>{u.twoFactorEnabled?'2FA включена':'Нужна 2FA'}</span>}
+                  </div>
+                </div>
               </div>
               <div style={{display:'flex',gap:'6px'}}>
                 <button onClick={()=>editUser(u)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Edit2 size={11}/></button>
+                {u.twoFactorEnabled&&<button onClick={()=>resetUserTwoFactor?.(u)} title="Сбросить 2FA" style={{...btnG,padding:'5px 8px',fontSize:'11px'}}>2FA</button>}
                 {u.active===false?<button onClick={()=>toggleUserActive(u,true)} style={{...btnGr,padding:'5px 8px',fontSize:'11px'}}><Check size={11}/></button>:u.id!==user.id&&<button onClick={()=>deleteUser(u)} style={{...btnR,padding:'5px 8px',fontSize:'11px'}}><X size={11}/></button>}
               </div>
             </div>))}

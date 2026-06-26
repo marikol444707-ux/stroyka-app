@@ -6,7 +6,8 @@ DRY_RUN="${DRY_RUN:-1}"
 CONFIRM="${CONFIRM:-}"
 RESET_UPLOADS="${RESET_UPLOADS:-0}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/stroyka}"
-UPLOADS_DIR="${UPLOADS_DIR:-backend/uploads}"
+UPLOADS_DIR="${UPLOADS_DIR:-uploads}"
+LEGACY_UPLOADS_DIR="${LEGACY_UPLOADS_DIR:-backend/uploads}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SQL_FILE="$SCRIPT_DIR/live-work-reset.sql"
@@ -56,14 +57,23 @@ run_postgres psql \
   -f "$SQL_FILE"
 
 if [[ "$DRY_RUN" != "1" && "$RESET_UPLOADS" == "1" ]]; then
-  uploads_path="$APP_DIR/$UPLOADS_DIR"
-  if [[ -d "$uploads_path" ]]; then
-    upload_backup_dir="$BACKUP_DIR/uploads_live_work_reset_$(date +%Y%m%d_%H%M%S)"
-    mkdir -p "$upload_backup_dir"
-    echo "Moving uploads to backup: $upload_backup_dir"
-    find "$uploads_path" -mindepth 1 -maxdepth 1 -exec mv {} "$upload_backup_dir"/ \;
-    echo "Uploads moved. Restore source: $upload_backup_dir"
-  else
-    echo "Uploads directory not found, skipped: $uploads_path"
-  fi
+  upload_backup_dir="$BACKUP_DIR/uploads_live_work_reset_$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$upload_backup_dir"
+  seen_upload_dirs="|"
+  for rel_uploads_dir in "$UPLOADS_DIR" "$LEGACY_UPLOADS_DIR"; do
+    if [[ -z "$rel_uploads_dir" || "$seen_upload_dirs" == *"|$rel_uploads_dir|"* ]]; then
+      continue
+    fi
+    seen_upload_dirs="${seen_upload_dirs}${rel_uploads_dir}|"
+    uploads_path="$APP_DIR/$rel_uploads_dir"
+    if [[ -d "$uploads_path" ]]; then
+      target_dir="$upload_backup_dir/${rel_uploads_dir//\//__}"
+      mkdir -p "$target_dir"
+      echo "Moving uploads from $rel_uploads_dir to backup: $target_dir"
+      find "$uploads_path" -mindepth 1 -maxdepth 1 -exec mv {} "$target_dir"/ \;
+      echo "Uploads moved. Restore source: $target_dir"
+    else
+      echo "Uploads directory not found, skipped: $uploads_path"
+    fi
+  done
 fi
