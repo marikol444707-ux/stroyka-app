@@ -450,7 +450,20 @@ const referenceDirections = [
 
 const readyProjectCardsByDirection = {
   'one-floor-modern': [
-    { code: 'H1-01', title: 'Дом 105 м2 с террасой', area: '105 м2', floors: '1 этаж', layout: 'Кухня-гостиная, 3 спальни, санузел, котельная, терраса.', visuals: 'Фасад с террасой + план 105 м2.', calcPatch: { area: 105, floors: 1, rooms: 4, wallType: 'gasblock', package: 'turnkey' } },
+    {
+      code: 'H1-01',
+      title: 'Дом 105 м2 с террасой',
+      area: '105 м2',
+      floors: '1 этаж',
+      layout: 'Кухня-гостиная, 3 спальни, санузел, котельная, терраса.',
+      visuals: 'Фасад, боковой ракурс и план 105 м2.',
+      media: [
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/h1-01/facade.png' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/h1-01/side.png' },
+        { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/h1-01/plan.png' },
+      ],
+      calcPatch: { area: 105, floors: 1, rooms: 4, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' },
+    },
     { code: 'H1-02', title: 'Дом 128 м2 с панорамной гостиной', area: '128 м2', floors: '1 этаж', layout: 'Кухня-гостиная, мастер-спальня, 2 спальни, 2 санузла, гардероб.', visuals: 'Панорамный фасад + план 128 м2.', calcPatch: { area: 128, floors: 1, rooms: 4, wallType: 'gasblock', package: 'turnkey' } },
     { code: 'H1-03', title: 'L-образный дом 145 м2', area: '145 м2', floors: '1 этаж', layout: 'Закрытый двор, кухня-гостиная, 4 спальни, 2 санузла, постирочная.', visuals: 'L-фасад + план с внутренним двором.', calcPatch: { area: 145, floors: 1, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
   ],
@@ -578,6 +591,17 @@ const getProjectProfile = (direction, project) => {
 };
 
 const getProjectMediaOptions = (direction, project) => {
+  if (Array.isArray(project?.media) && project.media.length) {
+    return project.media.map((item, index) => ({
+      id: item.id || `media-${index + 1}`,
+      kind: item.kind || 'image',
+      role: item.role || (item.id?.startsWith('plan') ? 'plan' : 'render'),
+      angle: item.angle,
+      floor: item.floor,
+      label: item.label || `Вид ${index + 1}`,
+      src: item.src,
+    }));
+  }
   const profile = getProjectProfile(direction, project);
   const renderLabel = profile.visualType === 'house'
     ? '3D фасад'
@@ -612,7 +636,13 @@ const getProjectSpecs = (direction, project) => {
   const isFacade = project?.calcPatch?.reconstructionScope === 'facade';
   const isRoof = project?.calcPatch?.reconstructionScope === 'roof';
   const isGarage = direction.id === 'garage-house' || project?.code?.startsWith('GAR-');
-  const bedrooms = isHouse ? Math.max(1, rooms - 2) : Math.max(0, rooms - 1);
+  const explicitBedrooms = Number(project?.calcPatch?.bedrooms ?? direction.calcPatch?.bedrooms);
+  const bedroomMatches = String(project?.layout || '').toLowerCase().matchAll(/(\d+)\s*(?:спальн|детск)/g);
+  const layoutBedrooms = [...bedroomMatches].reduce((sum, match) => sum + Number(match[1] || 0), 0)
+    + (/мастер[-\s]?спальн/.test(String(project?.layout || '').toLowerCase()) ? 1 : 0);
+  const bedrooms = Number.isFinite(explicitBedrooms)
+    ? explicitBedrooms
+    : layoutBedrooms || (isHouse ? Math.max(1, rooms - 2) : Math.max(0, rooms - 1));
   const width = Math.max(8.5, Math.sqrt(area * 0.85)).toFixed(1).replace('.', ',');
   const length = Math.max(9.5, area / Number(width.replace(',', '.'))).toFixed(1).replace('.', ',');
   const wallMaterial = project?.calcPatch?.wallType === 'brick'
@@ -678,10 +708,19 @@ const ProjectPlanGraphic = ({ project, title, floor = 1 }) => {
 };
 
 const ProjectConceptVisual = ({ direction, project, media }) => {
+  const profile = getProjectProfile(direction, project);
+  if (media?.src) {
+    return (
+      <img
+        className={`public-project-media-image ${media.role === 'plan' ? 'is-plan' : 'is-render'}`}
+        src={media.src}
+        alt={`${media.label || 'Визуал'}: ${profile.title}`}
+      />
+    );
+  }
   if (media?.kind === 'plan') {
     return <ProjectPlanGraphic project={project} title={media.label} floor={media.floor} />;
   }
-  const profile = getProjectProfile(direction, project);
   const className = [
     'public-project-render',
     `render-${profile.visualType}`,
@@ -716,6 +755,16 @@ const ProjectConceptVisual = ({ direction, project, media }) => {
 
 const ProjectConceptThumb = ({ direction, project }) => {
   const profile = getProjectProfile(direction, project);
+  const imageMedia = Array.isArray(project?.media) ? project.media.find((item) => item.src) : null;
+  if (imageMedia?.src) {
+    return (
+      <img
+        className="public-project-concept-thumb image-thumb"
+        src={imageMedia.src}
+        alt=""
+      />
+    );
+  }
   const className = [
     'public-project-concept-thumb',
     `thumb-${profile.visualType}`,
@@ -1833,7 +1882,7 @@ const PublicSitePage = ({ onLogin }) => {
 	                      project={selectedReferenceProject}
 	                      media={selectedReferenceMedia}
 	                    />
-	                    {selectedReferenceMedia?.kind === 'render' && (
+                    {(selectedReferenceMedia?.kind === 'render' || selectedReferenceMedia?.role === 'render') && (
 	                      <>
 	                        <span className="public-project-ready-ribbon">Готовый проект</span>
 	                        <span className="public-project-discount">10%</span>

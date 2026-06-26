@@ -1178,6 +1178,17 @@
   object-fit: cover;
 }
 
+.public-project-hero-visual img.public-project-media-image.is-plan {
+  object-fit: contain;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.public-project-concept-thumb.image-thumb {
+  display: block;
+  object-fit: cover;
+}
+
 .public-project-render,
 .public-project-plan-hero {
   width: 100%;
