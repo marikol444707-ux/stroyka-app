@@ -250,8 +250,8 @@
 - ✅ DB helpers вынесены из `backend/main.py` в `backend/db.py`.
 - ✅ Docker Compose добавлен для локального PostgreSQL + backend.
 - ✅ Alembic baseline добавлен без замены `init_db()` и без SQL-изменений схемы.
-- Следующий безопасный структурный шаг: добавить CI для backend compile и `npm run build` после GitHub token с `workflow` scope.
-- После этого вынести одну низкорисковую группу `init_db()` в реальную Alembic-миграцию.
+- ✅ CI добавлен: GitHub Actions запускает backend compile и `npm run build` на push в `main` и pull request.
+- Следующий безопасный структурный шаг: вынести одну низкорисковую группу `init_db()` в реальную Alembic-миграцию.
 
 ## Что уже закрыто и не должно возвращаться в план
 
