@@ -30,6 +30,8 @@ const PUBLIC_SITE_OPERATOR = {
   leadEmail: 'info@stroyka26.pro',
 };
 
+const PROJECT_EXAMPLE_STATUS = 'Проект-идея / пример для расчета';
+
 const publicFunnelSteps = [
   {
     number: '1',
@@ -1846,7 +1848,7 @@ const PublicSitePage = ({ onLogin }) => {
     : '/#projects';
   const selectedReferencePublicUrl = `https://stroyka26.pro${selectedReferenceDeepLink}`;
   const selectedLeadProject = {
-    status: 'Проект-идея / пример для расчета',
+    status: PROJECT_EXAMPLE_STATUS,
     directionId: selectedReference.id,
     directionTitle: selectedReference.title,
     projectCode: selectedReferenceProject?.code || '',
@@ -2684,6 +2686,7 @@ const PublicSitePage = ({ onLogin }) => {
 	                          <ProjectCardMediaPreview direction={selectedReference} project={project} />
 	                          <span className="public-project-card-copy">
 	                            <b>{project.code}</b>
+	                            <span className="public-project-card-status">{PROJECT_EXAMPLE_STATUS}</span>
 	                            <strong>{project.title}</strong>
 	                            <small>{project.area} · {project.floors}</small>
 	                            <span className="public-project-card-price">Примерная стоимость: {projectEstimate.rangeLabel}</span>
