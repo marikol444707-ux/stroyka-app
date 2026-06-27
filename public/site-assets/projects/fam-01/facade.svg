@@ -1,51 +1,35 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1536 864" width="1536" height="864" role="img" aria-label="Family cottage exterior">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" width="900" height="600" role="img">
   <defs>
-    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#ccecff"/><stop offset="1" stop-color="#f8fbff"/></linearGradient>
-    <linearGradient id="grass" x1="0" x2="1"><stop stop-color="#d9f0d8"/><stop offset="1" stop-color="#9fc887"/></linearGradient>
-    <linearGradient id="wall" x1="0" x2="1"><stop stop-color="#f3ead9"/><stop offset="1" stop-color="#d6bf98"/></linearGradient>
-    <linearGradient id="roof" x1="0" x2="1"><stop stop-color="#374151"/><stop offset="1" stop-color="#111827"/></linearGradient>
-    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.18"/></filter>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="16"/></filter>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bfe6ff"/><stop offset="1" stop-color="#eef8ff"/></linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#dff6ff"/><stop offset="1" stop-color="#5f8da2"/></linearGradient>
+    <linearGradient id="room" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#edf4ef"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#1f2937" flood-opacity="0.18"/></filter>
   </defs>
-  <rect width="1536" height="864" fill="url(#sky)"/>
-  <circle cx="1295" cy="122" r="58" fill="#fff7c7" opacity="0.8"/>
-  <path d="M0 594 C260 554 480 598 740 570 C1010 538 1240 568 1536 535 L1536 864 L0 864 Z" fill="url(#grass)"/>
-  <path d="M180 660 C430 610 800 624 1190 586 C1340 572 1460 590 1536 624 L1536 864 L0 864 L0 706 C52 690 112 674 180 660 Z" fill="#e8e2d4" opacity="0.8"/>
-  <ellipse cx="780" cy="662" rx="570" ry="54" fill="#1f2937" opacity="0.18" filter="url(#shadow)"/>
-  <g filter="url(#soft)">
-    
-    <rect x="295" y="382" width="880" height="205" rx="8" fill="url(#wall)"/>
-    <rect x="800" y="420" width="260" height="155" rx="8" fill="#9a6a42" opacity="0.95"/>
-    <path d="M257 390 L735 300 L1217 390 Z" fill="url(#roof)"/>
-    <path d="M331 374 L735 318 L1139 374 Z" fill="#334155" opacity="0.16"/>
-    <path d="M772 426 L930 326 L1092 426 Z" fill="url(#roof)"/>
-    <rect x="295" y="561" width="880" height="28" fill="#6b7280" opacity="0.42"/>
-    
-    <g filter="url(#soft)">
-      <rect x="365" y="438" width="150" height="112" rx="8" fill="#101827" opacity="0.82"/>
-      <rect x="374" y="447" width="62" height="94" rx="4" fill="#dff4ff" opacity="0.9"/>
-      <rect x="445" y="447" width="62" height="94" rx="4" fill="#f9fbff" opacity="0.84"/>
-      <rect x="437" y="446" width="6" height="96" fill="#ffffff" opacity="0.75"/>
-    </g>
-    
-    <g filter="url(#soft)">
-      <rect x="595" y="436" width="225" height="112" rx="8" fill="#101827" opacity="0.82"/>
-      <rect x="604" y="445" width="99.5" height="94" rx="4" fill="#dff4ff" opacity="0.9"/>
-      <rect x="712.5" y="445" width="99.5" height="94" rx="4" fill="#f9fbff" opacity="0.84"/>
-      <rect x="704.5" y="444" width="6" height="96" fill="#ffffff" opacity="0.75"/>
-    </g>
-    
-    <g filter="url(#soft)">
-      <rect x="858" y="468" width="142" height="104" rx="8" fill="#101827" opacity="0.82"/>
-      <rect x="867" y="477" width="58" height="86" rx="4" fill="#dff4ff" opacity="0.9"/>
-      <rect x="934" y="477" width="58" height="86" rx="4" fill="#f9fbff" opacity="0.84"/>
-      <rect x="926" y="476" width="6" height="88" fill="#ffffff" opacity="0.75"/>
-    </g>
-    <rect x="1020" y="454" width="78" height="133" rx="8" fill="#173142"/>
-    <rect x="1043" y="480" width="30" height="62" rx="4" fill="#e0f2fe" opacity="0.82"/>
-    
+  <rect width="900" height="600" fill="url(#sky)"/>
+  <path d="M0 445 C160 395 250 470 390 430 C540 390 625 440 900 382 L900 600 L0 600 Z" fill="#d9efc8"/>
+  <path d="M0 510 C190 465 350 528 520 482 C650 448 760 482 900 450 L900 600 L0 600 Z" fill="#b8d99c"/>
+  <ellipse cx="455" cy="508" rx="310" ry="38" fill="#263238" opacity="0.18"/>
+  <circle cx="730" cy="118" r="36" fill="#ffe08a" opacity="0.85"/>
+  <g filter="url(#shadow)">
+    <rect x="165" y="300" width="570" height="180" rx="5" fill="#efe3cf"/>
+    <path d="M145 303 L450 180 L755 303 Z" fill="#324055"/>
+    <path d="M185 302 L450 210 L715 302 Z" fill="#334155" opacity="0.55"/>
+    <rect x="185" y="310" width="120" height="130" fill="#8f6b46" opacity="0.92"/>
+    <rect x="585" y="300" width="100" height="140" fill="#8f6b46" opacity="0.88"/>
+  <rect x="330" y="326" width="74" height="78" rx="8" fill="url(#glass)" stroke="#26323d" stroke-width="5"/>
+  <path d="M338 338 L392 392" stroke="#ffffff" stroke-width="4" opacity="0.42"/>
+  <rect x="429" y="326" width="74" height="78" rx="8" fill="url(#glass)" stroke="#26323d" stroke-width="5"/>
+  <path d="M437 338 L491 392" stroke="#ffffff" stroke-width="4" opacity="0.42"/>
+  <rect x="528" y="326" width="74" height="78" rx="8" fill="url(#glass)" stroke="#26323d" stroke-width="5"/>
+  <path d="M536 338 L590 392" stroke="#ffffff" stroke-width="4" opacity="0.42"/>
+    <rect x="650" y="342" width="62" height="98" rx="5" fill="#324055"/>
+    <rect x="666" y="382" width="10" height="22" rx="4" fill="#c9a66b"/>
+    <rect x="145" y="440" width="615" height="18" fill="#c9c2b8"/>
   </g>
-  <g><ellipse cx="212" cy="662" rx="37.400000000000006" ry="22" fill="#31734f" opacity="0.95"/><ellipse cx="295" cy="660" rx="27.200000000000003" ry="16" fill="#5c8f54" opacity="0.95"/><ellipse cx="1230" cy="642" rx="34" ry="20" fill="#31734f" opacity="0.95"/><ellipse cx="1320" cy="634" rx="28.9" ry="17" fill="#6e9f55" opacity="0.95"/><ellipse cx="1080" cy="680" rx="24.48" ry="14.399999999999999" fill="#2f6d4d" opacity="0.95"/></g>
-  <path d="M610 676 C742 650 890 644 1015 625" fill="none" stroke="#f8fafc" stroke-width="18" stroke-linecap="round" opacity="0.66"/>
+  <path d="M180 470 C260 452 340 480 430 466 C530 450 620 460 735 450" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity="0.8"/>
+  <circle cx="175" cy="468" r="22" fill="#0f6b53"/>
+  <circle cx="730" cy="468" r="21" fill="#0f6b53"/>
+  <circle cx="766" cy="461" r="17" fill="#6ca156"/>
+  <text x="40" y="54" fill="#0f2f28" font-family="Arial, sans-serif" font-size="28" font-weight="800">FAM-01 · 150 м2</text>
+
 </svg>
