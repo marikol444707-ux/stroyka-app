@@ -10,11 +10,12 @@
 
 - `/robots.txt` разрешает индексировать публичную главную страницу и закрывает приватные ERP-разделы.
 - `/sitemap.xml` отдает публичный URL.
-- `/sitemap.xml` включает статические публичные страницы `/features.html`, `/contacts.html`, `/privacy.html`, `/terms.html`.
+- `/sitemap.xml` включает статические публичные страницы `/features.html`, `/project-catalog.html`, `/contacts.html`, `/privacy.html`, `/terms.html`.
 - В `index.html` есть SEO, Open Graph и Twitter meta.
-- В `index.html` добавлены JSON-LD данные `Organization`, `WebSite`, `SoftwareApplication`.
+- В `index.html` добавлены JSON-LD данные `Organization`, `WebSite`, `LocalBusiness`, `Service`, `ItemList` и `FAQPage`.
 - `/llms.txt` дает AI-агентам короткое структурированное описание продукта.
-- Статические публичные HTML-страницы дают поисковикам и AI-агентам читаемый текст без входа в ERP.
+- Статические публичные HTML-страницы дают поисковикам и AI-агентам читаемый текст без входа в ERP, включая каталог 15 направлений и 45 стартовых проектных карточек.
+- Каталог дополнительно проверяется локальным smoke: React-данные, статический HTML и проектные медиа должны совпадать перед деплоем.
 - `/login` защищен блокировкой после неудачных попыток.
 - `/site/leads` фиксирует IP, User-Agent, referrer, UTM и имеет защиту от повторной заявки.
 - Подготовлен `ops-nginx-stroyka-public-api.conf` для backend-маршрутов публичного сайта.

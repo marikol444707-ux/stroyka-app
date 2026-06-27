@@ -10,7 +10,8 @@
 - Блоки `Объекты`, `Наши работы` и `Референсы` разделяют опубликованные объекты, доказательства выполнения и направления для будущих заявок.
 - В заявке фиксируются согласие на обработку персональных данных, страница, IP, User-Agent, referrer и UTM-метки.
 - Есть `robots.txt`, `sitemap.xml`, `llms.txt`, PWA manifest, SEO/OG-мета и JSON-LD для поисковиков, мессенджеров и AI-агентов.
-- Есть статические публичные страницы для индексации без входа в ERP: `/features.html`, `/contacts.html`, `/privacy.html`, `/terms.html`.
+- Есть статические публичные страницы для индексации без входа в ERP: `/features.html`, `/project-catalog.html`, `/contacts.html`, `/privacy.html`, `/terms.html`.
+- `npm run smoke:public-site` сверяет React-каталог, статический `/project-catalog.html` и локальные файлы проектных медиа, чтобы перед деплоем не проходили карточки без фасада, второго ракурса или планировки.
 
 ## Перед рекламой и публикацией
 
@@ -35,10 +36,12 @@ cd /var/www/stroyka-app
 read -s PASS
 SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:prod
 npm run smoke:public-api
+npm run smoke:public-site
 curl -sSI https://stroyka26.pro/ | head -20
 curl -sS https://stroyka26.pro/sitemap.xml | head -20
 curl -sS https://stroyka26.pro/llms.txt | head -40
 curl -sSI https://stroyka26.pro/features.html | head -10
+curl -sSI https://stroyka26.pro/project-catalog.html | head -10
 curl -sSI https://stroyka26.pro/contacts.html | head -10
 curl -sSI https://stroyka26.pro/privacy.html | head -10
 curl -sSI https://stroyka26.pro/terms.html | head -10
@@ -47,5 +50,5 @@ curl -sSI https://stroyka26.pro/terms.html | head -10
 ## Деплой
 
 ```bash
-cd /var/www/stroyka-app && git pull --ff-only && PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py && npm run build && bash deploy.sh
+cd /var/www/stroyka-app && git pull --ff-only && PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py && npm run build && npm run smoke:public-site && bash deploy.sh
 ```

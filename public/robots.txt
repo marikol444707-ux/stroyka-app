@@ -2,6 +2,7 @@ User-agent: *
 Allow: /
 Allow: /llms.txt
 Allow: /features.html
+Allow: /project-catalog.html
 Allow: /contacts.html
 Allow: /privacy.html
 Allow: /terms.html

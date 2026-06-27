@@ -30,6 +30,33 @@ const PUBLIC_SITE_OPERATOR = {
   leadEmail: 'info@stroyka26.pro',
 };
 
+const publicFunnelSteps = [
+  {
+    number: '1',
+    title: 'Выбрать направление',
+    text: 'Дом, ремонт, реконструкция или коммерческий объект.',
+    target: 'directions',
+  },
+  {
+    number: '2',
+    title: 'Открыть проект',
+    text: 'Посмотреть фасад, ракурс, планировку и ориентир цены.',
+    target: 'projects',
+  },
+  {
+    number: '3',
+    title: 'Уточнить расчет',
+    text: 'Площадь, комплектация, материалы, сроки и файлы.',
+    target: 'calculator',
+  },
+  {
+    number: '4',
+    title: 'Оставить заявку',
+    text: 'Параметры попадут в CRM для точной сметы.',
+    target: 'request',
+  },
+];
+
 const workTypes = [
   { value: 'house', label: 'Дом', short: 'Строительство', description: 'Коробка, тёплый контур, инженерия, под ключ' },
   { value: 'repair', label: 'Ремонт', short: 'Отделка', description: 'Квартира, дом, офис, состояние и набор работ' },
@@ -142,6 +169,52 @@ const workProofItems = [
     image: 'https://images.unsplash.com/photo-1581094271901-8022df4466f9?auto=format&fit=crop&w=900&q=82',
     metric: 'Журнал работ',
     icon: Hammer,
+  },
+];
+
+const trustItems = [
+  {
+    title: 'Расчёт не теряется',
+    text: 'Выбранное направление, проект, параметры калькулятора и комментарий уходят в CRM одной заявкой.',
+    icon: Calculator,
+  },
+  {
+    title: 'Материалы под контролем',
+    text: 'Поставки, накладные, остатки и передача материалов фиксируются внутри рабочей системы.',
+    icon: Package,
+  },
+  {
+    title: 'Этапы подтверждаются',
+    text: 'Фото, скрытые работы, замечания и ежедневный ход объекта остаются в истории объекта.',
+    icon: ClipboardCheck,
+  },
+  {
+    title: 'Документы отдельно от сайта',
+    text: 'Публичная витрина не публикует договоры и внутренние документы, они остаются внутри ERP.',
+    icon: ShieldCheck,
+  },
+];
+
+const faqItems = [
+  {
+    question: 'Почему стоимость на сайте предварительная?',
+    answer: 'Сайт даёт ориентир по выбранному типу объекта, площади и комплектации. Точная сумма появляется после замера, проверки проекта, материалов, грунтов, инженерии и сроков.',
+  },
+  {
+    question: 'Что происходит после отправки заявки?',
+    answer: 'Заявка попадает в CRM. В ней сохраняются телефон, комментарий, выбранный проект, примерная стоимость и параметры расчёта. После этого менеджер или директор уточняет данные.',
+  },
+  {
+    question: 'Можно выбрать готовый проект и изменить планировку?',
+    answer: 'Да. Карточки на сайте нужны как стартовая точка. Планировку, площадь, фасад, комплектацию и материалы можно уточнить перед точной сметой.',
+  },
+  {
+    question: 'Почему документы не публикуются на сайте?',
+    answer: 'Публичный сайт показывает направления, примеры и расчёт. Договоры, накладные, акты и внутренние документы остаются в защищённой рабочей системе.',
+  },
+  {
+    question: 'Можно ли загрузить свои фото, план или проект?',
+    answer: 'Да. В калькуляторе есть загрузка файлов. Они повышают точность первичного расчёта и помогают быстрее подготовить смету.',
   },
 ];
 
@@ -821,6 +894,265 @@ const getProjectSpecs = (direction, project) => {
   ];
 };
 
+const splitLayoutItems = (value) => String(value || '')
+  .replace(/\s+/g, ' ')
+  .split(/[,;]+/)
+  .map((item) => item.trim().replace(/\.$/, ''))
+  .filter(Boolean)
+  .slice(0, 8);
+
+const getProjectLayoutGroups = (direction, project) => {
+  const calc = { ...(direction?.calcPatch || {}), ...(project?.calcPatch || {}) };
+  const layout = String(project?.layout || direction?.text || '').trim();
+  const type = calc.type || 'house';
+  const floorMatches = [...layout.matchAll(/(\d)\s*этаж:\s*([^.]*)/gi)];
+
+  if (floorMatches.length) {
+    return floorMatches.map((match) => ({
+      title: `${match[1]} этаж`,
+      items: splitLayoutItems(match[2]),
+    })).filter((group) => group.items.length);
+  }
+
+  const title = type === 'commerce'
+    ? 'Зоны объекта'
+    : type === 'repair'
+      ? 'Помещения'
+      : type === 'reconstruction'
+        ? 'Состав работ'
+        : 'Планировка';
+  const items = splitLayoutItems(layout)
+    .map((item) => item.replace(/^и\s+/i, ''));
+
+  return [{
+    title,
+    items: items.length ? items : splitLayoutItems(direction?.text || project?.title),
+  }];
+};
+
+const referenceHouseObjectCardPackages = {
+  'one-floor-modern': {
+    status: 'Карточка современного дома',
+    format: 'Одноэтажный современный дом',
+    accent: 'терраса / панорама',
+    summary: ({ title, wall, floors, rooms }) => `${title}: ${wall}, ${floors} эт., ${rooms} комн., акцент на светлую кухню-гостиную, террасу и понятную посадку на участок.`,
+    stages: ['Посадка на участок', 'Планировка семьи', 'Фасады и терраса', 'Смета под ключ'],
+    deliverables: ['3D фасады', 'Планировка', 'Терраса и вход', 'Расчет комплектации'],
+  },
+  'one-floor-brick': {
+    status: 'Карточка кирпичного дома',
+    format: 'Одноэтажный дом из кирпича',
+    accent: 'кирпич / надежность',
+    summary: ({ title, floors, rooms }) => `${title}: капитальный кирпичный дом, ${floors} эт., ${rooms} комн., с упором на долговечность, кровлю, цоколь и аккуратную входную группу.`,
+    stages: ['Посадка и цоколь', 'Планировка', 'Кирпичный фасад', 'Смета и узлы'],
+    deliverables: ['Фасад из кирпича', 'План дома', 'Узлы кровли', 'Расчет материалов'],
+  },
+  'family-cottage': {
+    status: 'Карточка семейного коттеджа',
+    format: 'Семейный коттедж',
+    accent: 'семья / двор',
+    summary: ({ title, rooms }) => `${title}: сценарий постоянного проживания, ${rooms} комн., общая семейная зона, спальни, хранение и выход во двор без лишних проходов.`,
+    stages: ['Сценарии семьи', 'Планировка зон', 'Фасады и двор', 'Смета проживания'],
+    deliverables: ['Семейная планировка', '3D двор', 'Хоззоны', 'Расчет под ключ'],
+  },
+  'two-floor-modern': {
+    status: 'Карточка современного двухэтажного дома',
+    format: 'Двухэтажный современный дом',
+    accent: '2 этажа / панорама',
+    summary: ({ title, wall, rooms }) => `${title}: ${wall}, ${rooms} комн., компактная посадка на участок, первый этаж под общую зону и второй этаж под приватные комнаты.`,
+    stages: ['Габариты участка', 'Планы 1/2 этажа', 'Современный фасад', 'Смета по этапам'],
+    deliverables: ['3D фасады', 'Планы этажей', 'Разрез / второй свет', 'Бюджет строительства'],
+  },
+  'two-floor-brick': {
+    status: 'Карточка капитального двухэтажного дома',
+    format: 'Двухэтажный дом из кирпича',
+    accent: 'кирпич / статус',
+    summary: ({ title, rooms }) => `${title}: капитальный двухэтажный дом, ${rooms} комн., с классическим фасадом, надежной кровлей и полноценной семейной планировкой.`,
+    stages: ['Фундамент и стены', 'Планировка этажей', 'Кирпичный фасад', 'Смета конструкций'],
+    deliverables: ['Кирпичные фасады', 'Планы 1/2 этажа', 'Узлы цоколя', 'Расчет коробки'],
+  },
+  'garage-house': {
+    status: 'Карточка дома с гаражом',
+    format: 'Двухэтажный дом с гаражом',
+    accent: 'гараж / хозблок',
+    summary: ({ title, rooms }) => `${title}: дом, гараж и хозяйственные зоны в одной схеме, ${rooms} комн., с удобным входом из гаража и понятной логикой хранения.`,
+    stages: ['Въезд и посадка', 'Гаражный блок', 'Жилая зона', 'Смета дома и гаража'],
+    deliverables: ['Фасад с гаражом', 'Планы этажей', 'Схема въезда', 'Расчет хозблока'],
+  },
+  townhouse: {
+    status: 'Карточка таунхауса',
+    format: 'Компактный таунхаус',
+    accent: 'секции / компактно',
+    summary: ({ title, rooms }) => `${title}: компактная секция, ${rooms} комн., с отдельным входом, понятным первым этажом и приватной зоной на втором этаже.`,
+    stages: ['Секция и участок', 'Планы этажей', 'Фасадная линия', 'Смета секции'],
+    deliverables: ['Фасад секции', 'Планы 1/2 этажа', 'Схема парковки', 'Расчет white box'],
+  },
+};
+
+const referenceReconstructionObjectCardPackages = {
+  'cottage-reconstruction': {
+    status: 'Карточка реконструкции дома',
+    format: 'Реконструкция коттеджа',
+    accent: 'до/после',
+    summary: ({ title }) => `${title}: сначала фиксируем состояние дома, затем считаем демонтаж, усиления, новые узлы, инженерные изменения и очередность работ.`,
+    stages: ['Обследование', 'Дефектовка', 'Проект узлов', 'Смета по этапам'],
+    deliverables: ['Фото до/после', 'Схема изменений', 'Ведомость демонтажа', 'План контроля'],
+  },
+  facade: {
+    status: 'Карточка фасадных работ',
+    format: 'Ремонт и отделка фасада',
+    accent: 'фасад / утепление',
+    summary: ({ title }) => `${title}: считаем площадь фасада, утепление, армирование, финишную отделку, цоколь, откосы, отливы и места примыканий.`,
+    stages: ['Обмер фасада', 'Выбор системы', 'Узлы и материалы', 'Смета фасада'],
+    deliverables: ['Схема фасада', 'Узлы цоколя', 'Цветовое решение', 'Расчет материалов'],
+  },
+  roof: {
+    status: 'Карточка кровельных работ',
+    format: 'Ремонт кровли',
+    accent: 'кровля / водосток',
+    summary: ({ title }) => `${title}: фиксируем скаты, примыкания, утепление, водосток, безопасность и считаем работы с демонтажом старого покрытия.`,
+    stages: ['Осмотр кровли', 'Схема скатов', 'Материалы и узлы', 'Смета кровли'],
+    deliverables: ['Схема кровли', 'Узлы примыканий', 'Ведомость материалов', 'График монтажа'],
+  },
+};
+
+const referenceInteriorObjectCardPackages = {
+  'apartment-repair': {
+    status: 'Карточка ремонта квартиры',
+    format: 'Ремонт квартиры',
+    accent: 'квартира / чистовая',
+    summary: ({ title }) => `${title}: фиксируем планировку, состояние основания, инженерные точки, отделку по комнатам и формируем расчет до понятного результата.`,
+    stages: ['Замер квартиры', 'План работ', 'Материалы по комнатам', 'Смета ремонта'],
+    deliverables: ['План квартиры', 'Ведомость отделки', 'Список материалов', 'График работ'],
+  },
+  'private-house-finish': {
+    status: 'Карточка отделки дома',
+    format: 'Отделка частного дома',
+    accent: 'дом / заехать жить',
+    summary: ({ title }) => `${title}: отделка после коробки с инженерией, полами, стенами, санузлами, лестницей и подготовкой дома к проживанию.`,
+    stages: ['Осмотр коробки', 'Инженерия', 'Черновая отделка', 'Чистовая комплектация'],
+    deliverables: ['План отделки', 'Инженерные точки', 'Ведомость материалов', 'Смета заехать жить'],
+  },
+  bathroom: {
+    status: 'Карточка санузла',
+    format: 'Ремонт ванной комнаты',
+    accent: 'плитка / сантехника',
+    summary: ({ title }) => `${title}: считаем гидроизоляцию, плитку, сантехнику, скрытые узлы, ревизии, теплый пол и аккуратную раскладку.`,
+    stages: ['Обмер санузла', 'Раскладка плитки', 'Сантехника и узлы', 'Смета под ключ'],
+    deliverables: ['План раскладки', 'Список сантехники', 'Узлы ревизий', 'Расчет плитки'],
+  },
+  'kitchen-living': {
+    status: 'Карточка кухни-гостиной',
+    format: 'Ремонт кухни и гостиной',
+    accent: 'семейная зона',
+    summary: ({ title }) => `${title}: собираем электрику под кухню, световые сценарии, полы, стены, фартук, ТВ-зону и мебельную логику.`,
+    stages: ['План мебели', 'Электрика и свет', 'Отделка стен/пола', 'Смета зоны'],
+    deliverables: ['План кухни', 'Схема света', 'Ведомость отделки', 'Расчет зоны'],
+  },
+  office: {
+    status: 'Карточка коммерческого ремонта',
+    format: 'Ремонт офисных помещений',
+    accent: 'офис / запуск',
+    summary: ({ title }) => `${title}: зонирование рабочих мест, инженерия, свет, слаботочка, отделка и график запуска помещения без лишней остановки бизнеса.`,
+    stages: ['Обмер и ТЗ', 'План зонирования', 'Инженерия и отделка', 'График запуска'],
+    deliverables: ['План рабочих мест', 'Ведомость отделки', 'Схема инженерии', 'Смета по этапам'],
+  },
+};
+
+const getReferenceObjectCard = (direction, project, estimate) => {
+  const calc = { ...(direction?.calcPatch || {}), ...(project?.calcPatch || {}) };
+  const area = parseProjectArea(project);
+  const rooms = Number(calc.rooms || direction?.calcPatch?.rooms || 1);
+  const floors = Number(calc.floors || direction?.calcPatch?.floors || 1);
+  const type = calc.type || 'house';
+  const isRepair = type === 'repair';
+  const isCommerce = type === 'commerce';
+  const isReconstruction = type === 'reconstruction';
+  const scope = calc.reconstructionScope || '';
+  const wall = calc.wallType === 'brick' ? 'кирпич' : calc.wallType === 'monolith' ? 'монолит' : 'газоблок';
+
+  if (isCommerce) {
+    const commercePackage = referenceInteriorObjectCardPackages[direction?.id];
+    const commerceTitle = project?.title || direction?.title || 'Коммерческий объект';
+    return {
+      code: project?.code || direction?.id || '',
+      format: commercePackage?.format || 'Коммерческий объект',
+      status: commercePackage?.status || 'Готовая карточка для расчета',
+      summary: commercePackage?.summary?.({ title: commerceTitle, area, rooms }) || `${commerceTitle}: зонирование, инженерия и запуск помещения под работу.`,
+      facts: [
+        ['Площадь', project?.area || `${area} м2`],
+        ['Акцент', commercePackage?.accent || `${Math.max(rooms, 1)} зон`],
+        ['Срок', area > 220 ? '75-110 дней' : '45-80 дней'],
+        ['Бюджет', estimate?.rangeLabel || 'после замера'],
+      ],
+      stages: commercePackage?.stages || ['Обмер и ТЗ', 'План зонирования', 'Инженерия и смета', 'График запуска'],
+      deliverables: commercePackage?.deliverables || ['План рабочих зон', 'Ведомость отделки', 'Инженерные решения', 'Смета по этапам'],
+    };
+  }
+
+  if (isRepair) {
+    const repairPackage = referenceInteriorObjectCardPackages[direction?.id];
+    const repairTitle = project?.title || direction?.title || 'Ремонт помещения';
+    return {
+      code: project?.code || direction?.id || '',
+      format: repairPackage?.format || (calc.repairObject === 'privateHouse' ? 'Отделка дома' : 'Ремонт помещения'),
+      status: repairPackage?.status || 'Карточка ремонта',
+      summary: repairPackage?.summary?.({ title: repairTitle, area, rooms }) || `${repairTitle}: планировка, отделка и материалы под выбранный уровень работ.`,
+      facts: [
+        ['Площадь', project?.area || `${area} м2`],
+        ['Акцент', repairPackage?.accent || `${Math.max(rooms, 1)} помещ.`],
+        ['Срок', area > 120 ? '70-120 дней' : '30-75 дней'],
+        ['Бюджет', estimate?.rangeLabel || 'после замера'],
+      ],
+      stages: repairPackage?.stages || ['Замер', 'План работ', 'Материалы', 'Смета и график'],
+      deliverables: repairPackage?.deliverables || ['Планировка', 'Список материалов', 'Работы по комнатам', 'Фотофиксация этапов'],
+    };
+  }
+
+  if (isReconstruction) {
+    const format = scope === 'roof'
+      ? 'Кровля / мансарда'
+      : scope === 'facade'
+        ? 'Фасадные работы'
+        : 'Реконструкция дома';
+    const reconstructionPackage = referenceReconstructionObjectCardPackages[direction?.id];
+    const reconstructionTitle = project?.title || direction?.title || format;
+    return {
+      code: project?.code || direction?.id || '',
+      format: reconstructionPackage?.format || format,
+      status: reconstructionPackage?.status || 'Карточка реконструкции',
+      summary: reconstructionPackage?.summary?.({ title: reconstructionTitle, area, scope }) || `${reconstructionTitle}: обследование, демонтаж, усиление и поэтапный расчет работ.`,
+      facts: [
+        ['Объем', project?.area || `${area} м2`],
+        ['Акцент', reconstructionPackage?.accent || format],
+        ['Срок', scope === 'roof' ? '25-55 дней' : '35-90 дней'],
+        ['Бюджет', estimate?.rangeLabel || 'после осмотра'],
+      ],
+      stages: reconstructionPackage?.stages || ['Осмотр', 'Дефектовка', 'Решение по узлам', 'Смета и этапы'],
+      deliverables: reconstructionPackage?.deliverables || ['Схема работ', 'Фото до/после', 'Ведомость материалов', 'План контроля'],
+    };
+  }
+
+  const housePackage = referenceHouseObjectCardPackages[direction?.id];
+  const houseTitle = project?.title || direction?.title || 'Проект дома';
+  const defaultHouseSummary = `${houseTitle}: ${wall}, ${floors} эт., ${rooms} комн., расчет под выбранную комплектацию.`;
+
+  return {
+    code: project?.code || direction?.id || '',
+    format: housePackage?.format || `${floors > 1 ? 'Двухэтажный' : 'Одноэтажный'} дом`,
+    status: housePackage?.status || 'Проектная карточка дома',
+    summary: housePackage?.summary?.({ title: houseTitle, wall, floors, rooms, area }) || defaultHouseSummary,
+    facts: [
+      ['Площадь', project?.area || `${area} м2`],
+      ['Акцент', housePackage?.accent || project?.floors || `${floors} этаж`],
+      ['Комнат', String(Math.max(rooms, 1))],
+      ['Бюджет', estimate?.rangeLabel || 'после проекта'],
+    ],
+    stages: housePackage?.stages || ['Участок и ТЗ', 'Планировка', 'Фасады и конструктив', 'Смета и график'],
+    deliverables: housePackage?.deliverables || ['3D ракурсы', 'Планы этажей', 'Паспорт объекта', 'Расчет стоимости'],
+  };
+};
+
 const getPlanRooms = (project, floor = 1) => {
   const rawParts = String(project?.layout || '')
     .split(',')
@@ -938,21 +1270,29 @@ const getCompactMediaLabel = (media) => {
   return String(media.label || 'Вид').replace(/^3D\s+/i, '');
 };
 
+const getProjectMediaSequence = (direction, project) => (
+  getProjectMediaOptions(direction, project).map((media, index) => ({
+    ...media,
+    number: index + 1,
+    compactLabel: getCompactMediaLabel(media),
+  }))
+);
+
 const ProjectCardMediaPreview = ({ direction, project }) => {
-  const mediaOptions = getProjectMediaOptions(direction, project).slice(0, 3);
+  const mediaOptions = getProjectMediaSequence(direction, project).slice(0, 3);
   const primary = mediaOptions[0];
   const secondary = mediaOptions.slice(1);
   return (
     <div className="public-project-card-media" aria-hidden="true">
       <div className="public-project-card-primary">
         <ProjectConceptVisual direction={direction} project={project} media={primary} />
-        <span>{primary?.label || '3D фасад'}</span>
+        <span><b>{primary?.number || 1}</b>{primary?.label || '3D фасад'}</span>
       </div>
       <div className="public-project-card-secondary">
         {secondary.map((media) => (
           <div key={media.id}>
             <ProjectConceptVisual direction={direction} project={project} media={media} />
-            <span>{getCompactMediaLabel(media)}</span>
+            <span><b>{media.number}</b>{media.compactLabel}</span>
           </div>
         ))}
       </div>
@@ -1162,6 +1502,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [selectedReferenceId, setSelectedReferenceId] = useState(referenceDirections[0].id);
   const [selectedReferenceExample, setSelectedReferenceExample] = useState(getReferenceProjectCards(referenceDirections[0])[0].title);
   const [selectedReferenceMediaId, setSelectedReferenceMediaId] = useState('render-front');
+  const [isReferenceMirrored, setIsReferenceMirrored] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1467,9 +1808,36 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReferenceProjects = getReferenceProjectCards(selectedReference);
   const selectedReferenceProject = selectedReferenceProjects.find((project) => project.title === selectedReferenceExample) || selectedReferenceProjects[0];
   const selectedReferenceSpecs = getProjectSpecs(selectedReference, selectedReferenceProject);
+  const selectedReferenceLayoutGroups = getProjectLayoutGroups(selectedReference, selectedReferenceProject);
   const selectedReferenceMediaOptions = getProjectMediaOptions(selectedReference, selectedReferenceProject);
   const selectedReferenceMedia = selectedReferenceMediaOptions.find((item) => item.id === selectedReferenceMediaId) || selectedReferenceMediaOptions[0];
+  const selectedReferenceMediaIndex = Math.max(0, selectedReferenceMediaOptions.findIndex((item) => item.id === selectedReferenceMedia?.id));
   const selectedReferenceEstimate = getReferenceProjectEstimate(selectedReference, selectedReferenceProject);
+  const selectedReferenceObjectCard = getReferenceObjectCard(selectedReference, selectedReferenceProject, selectedReferenceEstimate);
+  const selectedReferenceRenderCount = selectedReferenceMediaOptions.filter((item) => item.role === 'render' || item.kind === 'render').length;
+  const selectedReferencePlanCount = selectedReferenceMediaOptions.filter((item) => item.role === 'plan' || item.kind === 'plan').length;
+  const selectedReferenceAssetSummary = [
+    { icon: Camera, label: '3D ракурсы', value: `${Math.max(1, selectedReferenceRenderCount)} шт.` },
+    { icon: FileText, label: 'Планировка', value: `${Math.max(1, selectedReferencePlanCount)} шт.` },
+    { icon: Calculator, label: 'Ориентир', value: selectedReferenceEstimate.fromLabel },
+    { icon: Check, label: 'Действие', value: 'в расчет' },
+  ];
+  const selectedReferenceDecisionFacts = [
+    ['Направление', selectedReference.title],
+    ['Проект', selectedReferenceProject?.code || 'карточка'],
+    ['Ориентир', selectedReferenceEstimate.fromLabel],
+    ['Медиа', `${selectedReferenceMediaOptions.length} вида`],
+  ];
+  const selectedLeadProject = {
+    directionId: selectedReference.id,
+    directionTitle: selectedReference.title,
+    projectCode: selectedReferenceProject?.code || '',
+    projectTitle: selectedReferenceProject?.title || selectedReference.title,
+    projectArea: selectedReferenceProject?.area || '',
+    estimateRange: selectedReferenceEstimate.rangeLabel,
+    estimateFrom: selectedReferenceEstimate.fromLabel,
+    mediaCount: selectedReferenceMediaOptions.length,
+  };
 
   const chooseProjectCategory = (category) => {
     const nextProjects = category === 'all'
@@ -1492,10 +1860,11 @@ const PublicSitePage = ({ onLogin }) => {
     setSelectedReferenceId(direction.id);
     setSelectedReferenceExample(projectCard.title);
     setSelectedReferenceMediaId('render-front');
+    setIsReferenceMirrored(false);
     setCalc((current) => ({ ...current, ...direction.calcPatch, ...(projectCard.calcPatch || {}) }));
     setLead((current) => ({
       ...current,
-      comment: `Интересует: ${direction.title}. Проект: ${projectCard.title}. Планировка: ${projectCard.layout || direction.text}`,
+      comment: `Интересует: ${direction.title}. Проект: ${projectCard.title}. Формат объекта: ${getReferenceObjectCard(direction, projectCard, getReferenceProjectEstimate(direction, projectCard)).format}. Планировка: ${projectCard.layout || direction.text}`,
     }));
     if (scrollTarget === 'calculator' || scrollTarget === true) {
       setTimeout(() => scrollTo('calculator'), 0);
@@ -1503,6 +1872,21 @@ const PublicSitePage = ({ onLogin }) => {
     if (scrollTarget === 'catalog') {
       setTimeout(() => document.querySelector('.public-project-catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
     }
+  };
+
+  const chooseSimilarReferenceProject = () => {
+    const currentIndex = selectedReferenceProjects.findIndex((project) => project.title === selectedReferenceProject?.title);
+    const nextProject = selectedReferenceProjects[(currentIndex + 1) % selectedReferenceProjects.length] || selectedReferenceProjects[0];
+    chooseReference(selectedReference, nextProject);
+  };
+
+  const requestLayoutEditor = () => {
+    setCalc((current) => ({ ...current, ...selectedReference.calcPatch, ...(selectedReferenceProject?.calcPatch || {}) }));
+    setLead((current) => ({
+      ...current,
+      comment: `Нужна доработка планировки. Направление: ${selectedReference.title}. Проект: ${selectedReferenceProject?.title || selectedReference.title}. Планировка: ${selectedReferenceProject?.layout || selectedReference.text}`,
+    }));
+    setTimeout(() => scrollTo('calculator'), 0);
   };
 
   const scrollTo = (id) => {
@@ -1544,6 +1928,7 @@ const PublicSitePage = ({ onLogin }) => {
             summary: result.summary,
             rangeText: `${formatMoney(result.min)} - ${formatMoney(result.max)} ₽`,
           },
+          selectedProject: selectedLeadProject,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -1620,13 +2005,12 @@ const PublicSitePage = ({ onLogin }) => {
             <span>Строй</span><strong>Ка</strong>
           </button>
           <nav className="public-nav-links" aria-label="Навигация по сайту">
-            <button type="button" onClick={() => scrollTo('services')}>Услуги</button>
+            <button type="button" onClick={() => scrollTo('directions')}>Направления</button>
+            <button type="button" onClick={() => scrollTo('projects')}>Проекты</button>
             <button type="button" onClick={() => scrollTo('calculator')}>Калькулятор</button>
-            <button type="button" onClick={() => scrollTo('objects')}>Объекты</button>
-            <button type="button" onClick={() => scrollTo('work-proof')}>Работы</button>
-            <button type="button" onClick={() => scrollTo('passport')}>Контроль</button>
-            <button type="button" onClick={() => scrollTo('suppliers')}>Партнёрам</button>
-            <button type="button" onClick={() => scrollTo('privacy')}>Политика</button>
+            <button type="button" onClick={() => scrollTo('process')}>Как работаем</button>
+            <button type="button" onClick={() => scrollTo('objects')}>Работы</button>
+            <button type="button" onClick={() => scrollTo('request')}>Заявка</button>
           </nav>
           <button className="public-login" type="button" onClick={onLogin}>Вход в ERP</button>
         </header>
@@ -1640,13 +2024,24 @@ const PublicSitePage = ({ onLogin }) => {
               ведутся в одной системе.
             </p>
             <div className="public-hero-actions">
-              <button className="public-primary" type="button" onClick={() => scrollTo('calculator')}>
-                Рассчитать стоимость
+              <button className="public-primary" type="button" onClick={() => scrollTo('directions')}>
+                Выбрать проект
                 <ChevronRight size={18} />
               </button>
-              <button className="public-secondary" type="button" onClick={() => scrollTo('passport')}>
-                Посмотреть пример паспорта
+              <button className="public-secondary" type="button" onClick={() => scrollTo('calculator')}>
+                Рассчитать стоимость
               </button>
+            </div>
+            <div className="public-hero-flow" aria-label="Путь клиента на сайте">
+              {publicFunnelSteps.map((step) => (
+                <button key={step.number} type="button" onClick={() => scrollTo(step.target)}>
+                  <b>{step.number}</b>
+                  <span>
+                    <strong>{step.title}</strong>
+                    <small>{step.text}</small>
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -2000,6 +2395,26 @@ const PublicSitePage = ({ onLogin }) => {
         </div>
       </section>
 
+      <section id="trust" className="public-section public-trust">
+        <div className="public-section-head">
+          <p className="public-eyebrow dark">Почему удобно</p>
+          <h2>Сайт связан с рабочим процессом, а не просто собирает телефоны</h2>
+          <p>
+            Клиент выбирает проект и отправляет его в расчёт, а команда получает
+            понятную заявку с контекстом: что выбрано, какой ориентир стоимости и какие файлы приложены.
+          </p>
+        </div>
+        <div className="public-trust-grid">
+          {trustItems.map((item) => (
+            <article className="public-trust-card" key={item.title}>
+              <span><item.icon size={18} /></span>
+              <h3>{item.title}</h3>
+              <p>{item.text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section id="objects" className="public-section public-objects">
         <div className="public-section-head">
           <p className="public-eyebrow dark">Объекты</p>
@@ -2120,7 +2535,7 @@ const PublicSitePage = ({ onLogin }) => {
           </div>
         </div>
 
-        <div className="public-reference-board">
+        <div id="directions" className="public-reference-board">
           <div className="public-section-head compact">
             <p className="public-eyebrow dark">Идеи для проекта</p>
             <h2>15 направлений и готовые проектные карточки</h2>
@@ -2135,6 +2550,9 @@ const PublicSitePage = ({ onLogin }) => {
                 const isActive = selectedReference.id === item.id;
                 const projectCards = getReferenceProjectCards(item);
                 const directionEstimate = getReferenceProjectEstimate(item, projectCards[0]);
+                const mediaCount = getProjectMediaSequence(item, projectCards[0]).length;
+                const planCount = getProjectMediaSequence(item, projectCards[0])
+                  .filter((media) => media.role === 'plan' || media.kind === 'plan').length;
                 return (
                   <button
                     className={isActive ? 'public-reference-card active' : 'public-reference-card'}
@@ -2146,6 +2564,7 @@ const PublicSitePage = ({ onLogin }) => {
                     <ProjectConceptThumb direction={item} project={projectCards[0]} />
                     <span className="public-reference-count">{projectCards.length} проекта</span>
                     <span className="public-reference-price">{directionEstimate.fromLabel}</span>
+                    <span className="public-reference-media-note">{mediaCount} вида · {planCount} план</span>
                     <h3>{item.title}</h3>
                     <p>{item.text}</p>
                     <div>
@@ -2157,20 +2576,59 @@ const PublicSitePage = ({ onLogin }) => {
               })}
             </div>
 
-	            <section className="public-project-catalog" aria-label="Готовые проекты выбранного направления">
+	            <section id="projects" className="public-project-catalog" aria-label="Готовые проекты выбранного направления">
 	              <div className="public-project-catalog-head">
 	                <div>
 	                  <p>Открытое направление</p>
 	                  <h3>{selectedReference.title}</h3>
 	                  <span>{selectedReference.text}</span>
 	                </div>
-	                <strong>{selectedReferenceProjects.length} проекта</strong>
+	                <div className="public-project-catalog-badges" aria-label="Состав направления">
+	                  <strong>{selectedReferenceProjects.length} проекта</strong>
+                    <span>{selectedReferenceMediaOptions.length} вида</span>
+                    <span>{selectedReferencePlanCount} план</span>
+	                </div>
 	              </div>
+                <div className="public-project-decision-bar">
+                  <div className="public-project-decision-copy">
+                    <span>Выбрано для расчета</span>
+                    <strong>{selectedReferenceProject?.title || selectedReference.title}</strong>
+                    <small>{selectedReferenceProject?.layout || selectedReference.text}</small>
+                  </div>
+                  <div className="public-project-decision-facts" aria-label="Кратко по выбранному проекту">
+                    {selectedReferenceDecisionFacts.map(([label, value]) => (
+                      <span key={label}>
+                        <small>{label}</small>
+                        <b>{value}</b>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="public-project-decision-actions">
+                    <button
+                      className="public-secondary dark"
+                      type="button"
+                      onClick={() => chooseReference(selectedReference, selectedReferenceProject, 'calculator')}
+                    >
+                      К расчету
+                    </button>
+                    <button
+                      className="public-primary"
+                      type="button"
+                      onClick={() => {
+                        chooseReference(selectedReference, selectedReferenceProject);
+                        setTimeout(() => scrollTo('request'), 0);
+                      }}
+                    >
+                      Оставить заявку
+                    </button>
+                  </div>
+                </div>
 	              <div className="public-project-catalog-main">
 	                <div className="public-project-visual-column">
 	                  <div className="public-project-thumb-grid" aria-label="Варианты проекта">
 	                    {selectedReferenceProjects.map((project) => {
 	                      const projectEstimate = getReferenceProjectEstimate(selectedReference, project);
+                        const projectMediaSequence = getProjectMediaSequence(selectedReference, project).slice(0, 4);
 	                      return (
 	                        <button
 	                          className={selectedReferenceProject?.title === project.title ? 'active' : ''}
@@ -2184,13 +2642,21 @@ const PublicSitePage = ({ onLogin }) => {
 	                            <strong>{project.title}</strong>
 	                            <small>{project.area} · {project.floors}</small>
 	                            <span className="public-project-card-price">Примерная стоимость: {projectEstimate.rangeLabel}</span>
+                              <span className="public-project-card-sequence">
+                                {projectMediaSequence.map((media) => (
+                                  <i key={media.id}>
+                                    <b>{media.number}</b>
+                                    {media.compactLabel}
+                                  </i>
+                                ))}
+                              </span>
 	                            <em>{project.visuals}</em>
 	                          </span>
 	                        </button>
 	                      );
 	                    })}
 	                  </div>
-	                  <div className="public-project-hero-visual">
+	                  <div className={isReferenceMirrored ? 'public-project-hero-visual mirrored' : 'public-project-hero-visual'}>
 	                    <ProjectConceptVisual
 	                      direction={selectedReference}
 	                      project={selectedReferenceProject}
@@ -2202,29 +2668,102 @@ const PublicSitePage = ({ onLogin }) => {
 	                        <span className="public-project-discount">10%</span>
 	                      </>
 	                    )}
+                      <span className="public-project-media-counter">
+                        {selectedReferenceMediaIndex + 1} / {selectedReferenceMediaOptions.length}
+                        <b>{selectedReferenceMedia?.label || 'Визуал'}</b>
+                      </span>
 	                  </div>
+                    <div className="public-project-media-head">
+                      <span>Состав проекта</span>
+                      <strong>{selectedReferenceMediaOptions.length} материала для просмотра</strong>
+                    </div>
 	                  <div className="public-project-media-strip" aria-label="Медиа проекта">
-	                    {selectedReferenceMediaOptions.map((media) => (
+	                    {selectedReferenceMediaOptions.map((media, index) => (
 	                      <button
 	                        className={selectedReferenceMedia.id === media.id ? 'active' : ''}
 	                        type="button"
 	                        key={media.id}
 	                        onClick={() => setSelectedReferenceMediaId(media.id)}
 	                      >
-	                        {media.label}
+                          <span className="public-project-media-option-visual">
+                            <ProjectConceptVisual
+                              direction={selectedReference}
+                              project={selectedReferenceProject}
+                              media={media}
+                            />
+                            <b>{index + 1}</b>
+                          </span>
+	                        <span>{media.label}</span>
 	                      </button>
 	                    ))}
 	                  </div>
+                    <div className="public-project-asset-summary" aria-label="Комплектация карточки проекта">
+                      {selectedReferenceAssetSummary.map((item) => {
+                        const AssetIcon = item.icon;
+                        return (
+                          <span key={item.label}>
+                            <AssetIcon size={15} />
+                            <small>{item.label}</small>
+                            <b>{item.value}</b>
+                          </span>
+                        );
+                      })}
+                    </div>
 	                </div>
 
                 <div className="public-project-spec-column">
                   <p className="public-tool-kicker">Каталог готовых проектов</p>
                   <h3>{selectedReferenceProject?.title || selectedReference.title}</h3>
                   <p>{selectedReferenceProject?.layout || selectedReference.text}</p>
+                  <div className="public-project-layout-card">
+                    <span>Планировочное решение</span>
+                    {selectedReferenceLayoutGroups.map((group) => (
+                      <div key={group.title}>
+                        <strong>{group.title}</strong>
+                        <ul>
+                          {group.items.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
                   <div className="public-project-cost-panel">
                     <span>Примерная стоимость этого проекта</span>
                     <strong>{selectedReferenceEstimate.rangeLabel}</strong>
                     <small>Ориентир для сайта. Точная сумма зависит от замера, проекта, грунтов, материалов и комплектации.</small>
+                  </div>
+                  <div className="public-generated-object-card">
+                    <div className="public-generated-object-head">
+                      <span>{selectedReferenceObjectCard.status}</span>
+                      <b>{selectedReferenceObjectCard.code}</b>
+                    </div>
+                    <h4>{selectedReferenceObjectCard.format}</h4>
+                    <p>{selectedReferenceObjectCard.summary}</p>
+                    <div className="public-generated-object-facts">
+                      {selectedReferenceObjectCard.facts.map(([label, value]) => (
+                        <span key={label}>
+                          <small>{label}</small>
+                          <strong>{value}</strong>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="public-generated-object-flow">
+                      {selectedReferenceObjectCard.stages.map((stage, index) => (
+                        <span key={stage}>
+                          <b>{index + 1}</b>
+                          {stage}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="public-generated-object-output">
+                      {selectedReferenceObjectCard.deliverables.map((item) => (
+                        <span key={item}>
+                          <Check size={14} />
+                          {item}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                   <dl className="public-project-spec-list">
                     {selectedReferenceSpecs.map(([label, value]) => (
@@ -2234,13 +2773,18 @@ const PublicSitePage = ({ onLogin }) => {
                       </div>
                     ))}
                   </dl>
-                  <button className="public-project-outline" type="button">
-                    Показать зеркальный вариант
+                  <button
+                    className="public-project-outline"
+                    type="button"
+                    aria-pressed={isReferenceMirrored}
+                    onClick={() => setIsReferenceMirrored((value) => !value)}
+                  >
+                    {isReferenceMirrored ? 'Вернуть обычный вариант' : 'Показать зеркальный вариант'}
                   </button>
-                  <button className="public-project-editor" type="button">
+                  <button className="public-project-editor" type="button" onClick={requestLayoutEditor}>
                     Редактор планировки
                   </button>
-                  <button className="public-project-outline" type="button">
+                  <button className="public-project-outline" type="button" onClick={chooseSimilarReferenceProject}>
                     Похожие по виду ({Math.max(3, selectedReferenceProjects.length)})
                   </button>
                   <button
@@ -2258,7 +2802,7 @@ const PublicSitePage = ({ onLogin }) => {
         </div>
       </section>
 
-      <section className="public-section public-process">
+      <section id="process" className="public-section public-process">
         <div className="public-section-head">
           <p className="public-eyebrow dark">Как ведём объект</p>
           <h2>Заявка сразу превращается в управляемую стройку</h2>
@@ -2274,6 +2818,21 @@ const PublicSitePage = ({ onLogin }) => {
               <b>{num}</b>
               <h3>{title}</h3>
               <p>{text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="faq" className="public-section public-faq">
+        <div className="public-section-head">
+          <p className="public-eyebrow dark">Частые вопросы</p>
+          <h2>Чтобы перед заявкой было понятно, что именно считается</h2>
+        </div>
+        <div className="public-faq-grid">
+          {faqItems.map((item) => (
+            <article className="public-faq-card" key={item.question}>
+              <h3>{item.question}</h3>
+              <p>{item.answer}</p>
             </article>
           ))}
         </div>
@@ -2354,6 +2913,14 @@ const PublicSitePage = ({ onLogin }) => {
           </p>
         </div>
         <form className="public-request-form" onSubmit={submitLead}>
+          <div className="public-request-selected">
+            <span>В заявку попадёт</span>
+            <strong>{selectedLeadProject.projectTitle}</strong>
+            <small>
+              {selectedLeadProject.directionTitle} · {selectedLeadProject.projectCode || 'проект'} · {selectedLeadProject.estimateRange}
+            </small>
+            <button type="button" onClick={() => scrollTo('projects')}>Изменить проект</button>
+          </div>
           <label className="public-honeypot" aria-hidden="true">
             Сайт
             <input
@@ -2454,6 +3021,7 @@ const PublicSitePage = ({ onLogin }) => {
           <span>Сайт: {PUBLIC_SITE_OPERATOR.site}</span>
           <span>По персональным данным: {PUBLIC_SITE_OPERATOR.privacyEmail}</span>
           <span>Заявки: {PUBLIC_SITE_OPERATOR.leadEmail}</span>
+          <span><a href="/project-catalog.html">Каталог проектов</a></span>
           <span><a href="/privacy.html">Политика</a></span>
           <span><a href="/terms.html">Условия</a></span>
           <span><a href="/contacts.html">Контакты</a></span>

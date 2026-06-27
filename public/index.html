@@ -12,24 +12,24 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta
       name="description"
-      content="СтройКа — ERP для строительной компании: объекты, сметы, ЖПР, снабжение, склад, акты, бухгалтерия и контроль рисков в одной системе."
+      content="СтройКа — строительство домов, ремонт квартир, отделка частных домов и коммерческих помещений с расчётом стоимости, проектными карточками и контролем работ."
     />
     <link rel="canonical" href="https://stroyka26.pro/" />
     <link rel="alternate" type="text/plain" href="https://stroyka26.pro/llms.txt" title="LLMS" />
     <meta property="og:locale" content="ru_RU" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="СтройКа — ERP для строительной компании" />
+    <meta property="og:title" content="СтройКа — строительство, ремонт и расчёт стоимости" />
     <meta
       property="og:description"
-      content="Объекты, сметы, ЖПР, снабжение, склад, акты, бухгалтерия и контроль рисков в одной системе."
+      content="Подберите направление, откройте готовую проектную карточку и отправьте объект в расчёт."
     />
     <meta property="og:url" content="https://stroyka26.pro/" />
     <meta property="og:image" content="https://stroyka26.pro/logo512.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="СтройКа — ERP для строительной компании" />
+    <meta name="twitter:title" content="СтройКа — строительство, ремонт и расчёт стоимости" />
     <meta
       name="twitter:description"
-      content="Объекты, сметы, ЖПР, снабжение, склад, акты, бухгалтерия и контроль рисков в одной системе."
+      content="Дома, реконструкция, фасады, кровля, квартиры, отделка и коммерческие помещения с понятной заявкой в расчёт."
     />
     <meta name="twitter:image" content="https://stroyka26.pro/logo512.png" />
     <script type="application/ld+json">
@@ -55,16 +55,96 @@
             }
           },
           {
-            "@type": "SoftwareApplication",
-            "@id": "https://stroyka26.pro/#software",
-            "name": "СтройКа ERP",
-            "applicationCategory": "BusinessApplication",
-            "operatingSystem": "Web",
+            "@type": "LocalBusiness",
+            "@id": "https://stroyka26.pro/#business",
+            "name": "СтройКа",
             "url": "https://stroyka26.pro/",
-            "description": "ERP для строительной компании: объекты, сметы, ЖПР, снабжение, склад, акты, бухгалтерия и контроль рисков.",
-            "publisher": {
+            "description": "Строительство домов, ремонт, отделка, фасады, кровля, реконструкция и коммерческие помещения с расчётом стоимости.",
+            "image": "https://stroyka26.pro/logo512.png",
+            "parentOrganization": {
               "@id": "https://stroyka26.pro/#organization"
-            }
+            },
+            "areaServed": "Ставропольский край"
+          },
+          {
+            "@type": "Service",
+            "@id": "https://stroyka26.pro/#construction-service",
+            "name": "Строительство и ремонт под ключ",
+            "provider": {
+              "@id": "https://stroyka26.pro/#business"
+            },
+            "serviceType": [
+              "строительство домов",
+              "ремонт квартир",
+              "отделка частных домов",
+              "реконструкция",
+              "фасадные работы",
+              "кровельные работы",
+              "ремонт коммерческих помещений"
+            ],
+            "areaServed": "Ставропольский край"
+          },
+          {
+            "@type": "ItemList",
+            "@id": "https://stroyka26.pro/project-catalog.html#project-directions",
+            "name": "Каталог проектных направлений СтройКа",
+            "url": "https://stroyka26.pro/project-catalog.html",
+            "numberOfItems": 15,
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "name": "Одноэтажный современный дом" },
+              { "@type": "ListItem", "position": 2, "name": "Одноэтажный дом из кирпича" },
+              { "@type": "ListItem", "position": 3, "name": "Семейный коттедж" },
+              { "@type": "ListItem", "position": 4, "name": "Двухэтажный современный дом" },
+              { "@type": "ListItem", "position": 5, "name": "Двухэтажный дом из кирпича" },
+              { "@type": "ListItem", "position": 6, "name": "Двухэтажный дом с гаражом" },
+              { "@type": "ListItem", "position": 7, "name": "Компактный таунхаус" },
+              { "@type": "ListItem", "position": 8, "name": "Реконструкция коттеджа" },
+              { "@type": "ListItem", "position": 9, "name": "Ремонт и отделка фасада" },
+              { "@type": "ListItem", "position": 10, "name": "Ремонт кровли" },
+              { "@type": "ListItem", "position": 11, "name": "Ремонт квартиры" },
+              { "@type": "ListItem", "position": 12, "name": "Отделка частного дома" },
+              { "@type": "ListItem", "position": 13, "name": "Ремонт ванной комнаты" },
+              { "@type": "ListItem", "position": 14, "name": "Ремонт кухни и гостиной" },
+              { "@type": "ListItem", "position": 15, "name": "Ремонт офисных помещений" }
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://stroyka26.pro/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Почему стоимость на сайте предварительная?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Сайт дает ориентир по выбранному типу объекта, площади и комплектации. Точная сумма появляется после замера, проверки проекта, материалов, грунтов, инженерии и сроков."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Что происходит после отправки заявки?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Заявка попадает в CRM. В ней сохраняются телефон, комментарий, выбранный проект, примерная стоимость и параметры расчета. После этого менеджер или директор уточняет данные."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Можно выбрать готовый проект и изменить планировку?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Да. Карточки на сайте нужны как стартовая точка. Планировку, площадь, фасад, комплектацию и материалы можно уточнить перед точной сметой."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Почему документы не публикуются на сайте?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Публичный сайт показывает направления, примеры и расчет. Договоры, накладные, акты и внутренние документы остаются в защищенной рабочей системе."
+                }
+              }
+            ]
           }
         ]
       }
@@ -84,10 +164,23 @@
       work correctly both with client-side routing and a non-root public URL.
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
-    <title>СтройКа — ERP для строительной компании</title>
+    <title>СтройКа — строительство, ремонт и расчёт стоимости</title>
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <noscript>
+      <div style="max-width: 760px; margin: 32px auto; padding: 24px; font-family: Arial, sans-serif; color: #111827; background: #ffffff; border: 1px solid #dfe7e4; border-radius: 8px;">
+        <h1 style="margin: 0 0 12px; font-size: 32px;">СтройКа</h1>
+        <p style="font-size: 17px; line-height: 1.55;">
+          Для интерактивного калькулятора и формы заявки включите JavaScript.
+          Основную информацию можно открыть на статических страницах сайта.
+        </p>
+        <p style="display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 0;">
+          <a style="color: #0f5f4a; font-weight: 700;" href="/project-catalog.html">Каталог проектов</a>
+          <a style="color: #0f5f4a; font-weight: 700;" href="/features.html">Возможности</a>
+          <a style="color: #0f5f4a; font-weight: 700;" href="/contacts.html">Контакты</a>
+        </p>
+      </div>
+    </noscript>
     <div id="root"></div>
     <!--
       This HTML file is a template.
