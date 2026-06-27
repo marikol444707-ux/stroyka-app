@@ -69,6 +69,21 @@ a {
   margin-top: 24px;
 }
 
+.static-project-note {
+  margin: 20px 0 0;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #9a3412;
+  padding: 12px 14px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.static-project-note + .action-row {
+  margin-top: 18px;
+}
+
 .button-link {
   display: inline-flex;
   align-items: center;
@@ -187,6 +202,59 @@ li {
   line-height: 1.35;
 }
 
+.catalog-card li a {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid #dfe7e4;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.catalog-card li a:hover {
+  border-color: #b7d9cc;
+  color: #0f5f4a;
+  background: #f8fcfa;
+}
+
+.catalog-card li a span {
+  font-weight: 850;
+}
+
+.catalog-card li a b {
+  display: inline-block;
+  margin-right: 6px;
+  color: #0f5f4a;
+}
+
+.catalog-card li a small,
+.catalog-card li a em,
+.catalog-card li a strong {
+  display: block;
+}
+
+.catalog-card li a small {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.catalog-card li a em {
+  color: #475467;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 650;
+}
+
+.catalog-card li a strong {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .metric-line {
   width: max-content;
   max-width: 100%;
@@ -213,20 +281,39 @@ li {
   font-size: 14px;
 }
 
+@media (max-width: 1040px) {
+  .page {
+    max-width: 760px;
+  }
+
+  .catalog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 720px) {
+  .page {
+    padding: 18px 12px 40px;
+  }
+
   .topline {
     align-items: flex-start;
     flex-direction: column;
+    margin-bottom: 20px;
   }
 
   .nav {
     display: grid;
     grid-template-columns: 1fr 1fr;
     width: 100%;
+    gap: 8px;
   }
 
   .nav a {
+    min-height: 38px;
+    padding: 9px 8px;
     text-align: center;
+    font-size: 13px;
   }
 
   .grid {
@@ -235,5 +322,82 @@ li {
 
   .catalog-grid {
     grid-template-columns: 1fr;
+  }
+
+  .hero,
+  .card {
+    border-radius: 7px;
+    box-shadow: 0 10px 28px rgba(16, 24, 40, 0.07);
+  }
+
+  .hero {
+    padding: 22px 16px;
+  }
+
+  h1 {
+    font-size: 34px;
+    line-height: 1.03;
+  }
+
+  h2 {
+    font-size: 24px;
+    line-height: 1.12;
+  }
+
+  p,
+  li {
+    font-size: 15px;
+    line-height: 1.48;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .catalog-card {
+    gap: 9px;
+  }
+
+  .catalog-media {
+    grid-template-columns: minmax(0, 1fr) minmax(92px, 0.46fr);
+    margin: -14px -14px 6px;
+    padding: 8px;
+  }
+
+  .catalog-media img {
+    aspect-ratio: 16 / 10;
+  }
+
+  .catalog-card ol {
+    gap: 6px;
+    padding-left: 0;
+    list-style: none;
+  }
+
+  .catalog-card li a {
+    padding: 8px;
+  }
+
+  .catalog-card li a span {
+    font-size: 14px;
+    line-height: 1.22;
+  }
+
+  .catalog-card li a em,
+  .catalog-card li a strong {
+    font-size: 11px;
+    line-height: 1.28;
+  }
+
+  .metric-line {
+    width: 100%;
+    border-radius: 7px;
+    text-align: center;
+  }
+
+  .static-project-note {
+    padding: 10px;
+    font-size: 14px;
+    line-height: 1.4;
   }
 }

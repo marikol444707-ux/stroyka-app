@@ -259,6 +259,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  text-decoration: none;
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
@@ -1553,7 +1554,7 @@
 
 .public-project-decision-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(116px, auto));
+  grid-template-columns: repeat(3, minmax(104px, auto));
   gap: 8px;
 }
 
@@ -3347,15 +3348,34 @@
     align-items: flex-start;
     padding: 16px;
   }
+  .public-project-catalog-badges {
+    width: 100%;
+    justify-content: flex-start;
+  }
   .public-project-catalog-head strong {
     width: max-content;
+  }
+  .public-project-catalog-badges span {
+    text-align: center;
   }
   .public-project-decision-bar {
     grid-template-columns: 1fr;
     padding: 14px;
   }
+  .public-project-decision-copy strong {
+    font-size: 16px;
+  }
+  .public-project-decision-copy small {
+    font-size: 11px;
+  }
   .public-project-decision-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .public-project-decision-facts span {
+    padding: 7px;
+  }
+  .public-project-decision-facts b {
+    font-size: 11px;
   }
   .public-project-decision-actions {
     grid-template-columns: 1fr;
@@ -3402,9 +3422,59 @@
   }
   .public-project-hero-visual {
     min-height: 220px;
+    aspect-ratio: 4 / 3;
+  }
+  .public-project-media-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .public-project-media-head strong {
+    text-align: left;
+  }
+  .public-project-media-strip {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+  }
+  .public-project-media-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .public-project-media-strip button {
+    flex: 0 0 132px;
+    scroll-snap-align: start;
   }
   .public-project-thumb-grid > button {
-    grid-template-columns: 82px minmax(0, 1fr);
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+  .public-project-card-media {
+    grid-template-columns: 1fr;
+    padding: 6px;
+  }
+  .public-project-card-secondary {
+    display: none;
+  }
+  .public-project-card-copy {
+    gap: 5px;
+    padding: 9px;
+  }
+  .public-project-card-copy b {
+    padding: 4px 7px;
+    font-size: 11px;
+  }
+  .public-project-card-copy strong {
+    font-size: 13px;
+  }
+  .public-project-card-price {
+    padding: 5px 6px;
+    font-size: 11px;
+  }
+  .public-project-card-sequence,
+  .public-project-card-copy em {
+    display: none;
   }
   .public-project-plan-hero {
     grid-column: auto;
@@ -3572,10 +3642,16 @@
     height: 130px;
   }
   .public-project-asset-summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .public-project-decision-facts {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .public-project-thumb-grid > button {
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+  .public-project-media-strip button {
+    flex-basis: 118px;
   }
   .public-project-asset-summary span {
     padding: 9px;

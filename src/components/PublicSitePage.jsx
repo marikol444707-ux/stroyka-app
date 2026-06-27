@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BriefcaseBusiness,
   Building2,
@@ -774,6 +774,18 @@ const getReferenceProjectCards = (direction) => {
   }));
 };
 
+const findReferenceProjectByCode = (code) => {
+  const target = String(code || '').trim().toUpperCase();
+  if (!target) return null;
+  for (const direction of referenceDirections) {
+    const project = getReferenceProjectCards(direction).find(
+      (item) => String(item.code || '').toUpperCase() === target,
+    );
+    if (project) return { direction, project };
+  }
+  return null;
+};
+
 const parseProjectArea = (project) => {
   const match = String(project?.area || '').replace(',', '.').match(/(\d+(?:\.\d+)?)/);
   return match ? Number(match[1]) : Number(project?.calcPatch?.area || 120);
@@ -1503,6 +1515,7 @@ const PublicSitePage = ({ onLogin }) => {
   const [selectedReferenceExample, setSelectedReferenceExample] = useState(getReferenceProjectCards(referenceDirections[0])[0].title);
   const [selectedReferenceMediaId, setSelectedReferenceMediaId] = useState('render-front');
   const [isReferenceMirrored, setIsReferenceMirrored] = useState(false);
+  const deepLinkedReferenceRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1828,15 +1841,30 @@ const PublicSitePage = ({ onLogin }) => {
     ['Ориентир', selectedReferenceEstimate.fromLabel],
     ['Медиа', `${selectedReferenceMediaOptions.length} вида`],
   ];
+  const selectedReferenceDeepLink = selectedReferenceProject?.code
+    ? `/?project=${encodeURIComponent(selectedReferenceProject.code)}#projects`
+    : '/#projects';
+  const selectedReferencePublicUrl = `https://stroyka26.pro${selectedReferenceDeepLink}`;
   const selectedLeadProject = {
+    status: 'Проект-идея / пример для расчета',
     directionId: selectedReference.id,
     directionTitle: selectedReference.title,
     projectCode: selectedReferenceProject?.code || '',
     projectTitle: selectedReferenceProject?.title || selectedReference.title,
     projectArea: selectedReferenceProject?.area || '',
+    projectFloors: selectedReferenceProject?.floors || '',
+    projectLayout: selectedReferenceProject?.layout || selectedReference.text,
+    projectVisuals: selectedReferenceProject?.visuals || '',
+    projectUrl: selectedReferencePublicUrl,
     estimateRange: selectedReferenceEstimate.rangeLabel,
     estimateFrom: selectedReferenceEstimate.fromLabel,
     mediaCount: selectedReferenceMediaOptions.length,
+    media: selectedReferenceMediaOptions.map((item) => ({
+      id: item.id,
+      label: item.label,
+      role: item.role,
+      src: item.src || '',
+    })),
   };
 
   const chooseProjectCategory = (category) => {
@@ -1853,7 +1881,13 @@ const PublicSitePage = ({ onLogin }) => {
     setSelectedPhotoIndex(0);
   };
 
-  const chooseReference = (direction, project = getReferenceProjectCards(direction)[0], scrollTarget = '') => {
+  const scrollTo = useCallback((id) => {
+    if (typeof document === 'undefined') return;
+    const element = document.getElementById(id);
+    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const chooseReference = useCallback((direction, project = getReferenceProjectCards(direction)[0], scrollTarget = '') => {
     const projectCard = typeof project === 'string'
       ? getReferenceProjectCards(direction).find((item) => item.title === project) || { title: project, calcPatch: {} }
       : project;
@@ -1864,7 +1898,7 @@ const PublicSitePage = ({ onLogin }) => {
     setCalc((current) => ({ ...current, ...direction.calcPatch, ...(projectCard.calcPatch || {}) }));
     setLead((current) => ({
       ...current,
-      comment: `Интересует: ${direction.title}. Проект: ${projectCard.title}. Формат объекта: ${getReferenceObjectCard(direction, projectCard, getReferenceProjectEstimate(direction, projectCard)).format}. Планировка: ${projectCard.layout || direction.text}`,
+      comment: `Интересует: ${direction.title}. Проект: ${projectCard.title}. Формат объекта: ${getReferenceObjectCard(direction, projectCard, getReferenceProjectEstimate(direction, projectCard)).format}. Планировка: ${projectCard.layout || direction.text}. Ссылка на карточку: https://stroyka26.pro/?project=${encodeURIComponent(projectCard.code || '')}#projects`,
     }));
     if (scrollTarget === 'calculator' || scrollTarget === true) {
       setTimeout(() => scrollTo('calculator'), 0);
@@ -1872,7 +1906,18 @@ const PublicSitePage = ({ onLogin }) => {
     if (scrollTarget === 'catalog') {
       setTimeout(() => document.querySelector('.public-project-catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
     }
-  };
+  }, [getReferenceProjectEstimate, scrollTo]);
+
+  useEffect(() => {
+    if (deepLinkedReferenceRef.current) return;
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const projectCode = params.get('project') || params.get('ref');
+    const match = findReferenceProjectByCode(projectCode);
+    if (!match) return;
+    deepLinkedReferenceRef.current = true;
+    chooseReference(match.direction, match.project, 'catalog');
+  }, [chooseReference]);
 
   const chooseSimilarReferenceProject = () => {
     const currentIndex = selectedReferenceProjects.findIndex((project) => project.title === selectedReferenceProject?.title);
@@ -1887,12 +1932,6 @@ const PublicSitePage = ({ onLogin }) => {
       comment: `Нужна доработка планировки. Направление: ${selectedReference.title}. Проект: ${selectedReferenceProject?.title || selectedReference.title}. Планировка: ${selectedReferenceProject?.layout || selectedReference.text}`,
     }));
     setTimeout(() => scrollTo('calculator'), 0);
-  };
-
-  const scrollTo = (id) => {
-    if (typeof document === 'undefined') return;
-    const element = document.getElementById(id);
-    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const submitLead = async (event) => {
@@ -2604,6 +2643,12 @@ const PublicSitePage = ({ onLogin }) => {
                     ))}
                   </div>
                   <div className="public-project-decision-actions">
+                    <a
+                      className="public-secondary dark public-project-share-link"
+                      href={selectedReferenceDeepLink}
+                    >
+                      Ссылка
+                    </a>
                     <button
                       className="public-secondary dark"
                       type="button"
@@ -2664,7 +2709,7 @@ const PublicSitePage = ({ onLogin }) => {
 	                    />
                     {(selectedReferenceMedia?.kind === 'render' || selectedReferenceMedia?.role === 'render') && (
 	                      <>
-	                        <span className="public-project-ready-ribbon">Готовый проект</span>
+	                        <span className="public-project-ready-ribbon">Проект-идея</span>
 	                        <span className="public-project-discount">10%</span>
 	                      </>
 	                    )}

@@ -19,6 +19,12 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://stroyka26.pro/project-catalog.json</loc>
+    <lastmod>2026-06-27</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://stroyka26.pro/contacts.html</loc>
     <lastmod>2026-06-27</lastmod>
     <changefreq>monthly</changefreq>

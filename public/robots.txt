@@ -3,6 +3,7 @@ Allow: /
 Allow: /llms.txt
 Allow: /features.html
 Allow: /project-catalog.html
+Allow: /project-catalog.json
 Allow: /contacts.html
 Allow: /privacy.html
 Allow: /terms.html

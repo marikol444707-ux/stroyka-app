@@ -22,6 +22,7 @@ URL: https://stroyka26.pro/
 - выбор направления: ремонт квартиры, отделка частного дома, санузел, кухня-гостиная, офис, готовые дома;
 - проектные карточки с визуалом, планировкой, площадью, форматом и примерной стоимостью;
 - статический каталог `/project-catalog.html` с 15 направлениями и 45 стартовыми карточками;
+- машинно-читаемый каталог `/project-catalog.json` с теми же направлениями, проектами и deep-link URL;
 - калькулятор предварительной стоимости;
 - форма заявки, в которую передаётся выбранное направление и проект;
 - объяснение процесса: заявка, уточнение, расчёт, договор, выполнение и контроль.
@@ -35,6 +36,7 @@ URL: https://stroyka26.pro/
 Основная публичная страница: https://stroyka26.pro/
 Возможности: https://stroyka26.pro/features.html
 Каталог проектных карточек: https://stroyka26.pro/project-catalog.html
+JSON каталога проектных карточек: https://stroyka26.pro/project-catalog.json
 Контакты: https://stroyka26.pro/contacts.html
 Политика персональных данных: https://stroyka26.pro/privacy.html
 Условия использования: https://stroyka26.pro/terms.html
@@ -65,6 +67,7 @@ URL: https://stroyka26.pro/
 - robots.txt: https://stroyka26.pro/robots.txt
 - sitemap.xml: https://stroyka26.pro/sitemap.xml
 - manifest.json: https://stroyka26.pro/manifest.json
+- project-catalog.json: https://stroyka26.pro/project-catalog.json
 
 ## Контакты
 

@@ -15,6 +15,7 @@ REQUIRED_PAGES = [
     "index.html",
     "features.html",
     "project-catalog.html",
+    "project-catalog.json",
     "contacts.html",
     "privacy.html",
     "terms.html",
@@ -28,10 +29,13 @@ PUBLIC_URLS = [
     "https://stroyka26.pro/",
     "https://stroyka26.pro/features.html",
     "https://stroyka26.pro/project-catalog.html",
+    "https://stroyka26.pro/project-catalog.json",
     "https://stroyka26.pro/contacts.html",
     "https://stroyka26.pro/privacy.html",
     "https://stroyka26.pro/terms.html",
 ]
+
+EXPECTED_PROJECT_STATUS = "Проект-идея / пример для расчета"
 
 
 class PublicSiteParser(HTMLParser):
@@ -72,6 +76,37 @@ def quoted_strings(value):
     return re.findall(r"'([^']+)'", value or "")
 
 
+def parse_ready_project_details(source):
+    cards_match = re.search(
+        r"const readyProjectCardsByDirection = \{(?P<body>.*?)\n\};\n\nconst makeProjectMedia",
+        source,
+        re.S,
+    )
+    if not cards_match:
+        fail("cannot find readyProjectCardsByDirection in PublicSitePage.jsx")
+
+    rows = re.findall(
+        r"code:\s*'([^']+)'\s*,\s*title:\s*'([^']+)'\s*,\s*area:\s*'([^']+)'\s*,\s*floors:\s*'([^']+)'\s*,\s*layout:\s*'([^']+)'\s*,\s*visuals:\s*'([^']+)'",
+        cards_match.group("body"),
+        re.S,
+    )
+    projects = {
+        code: {
+            "code": code,
+            "title": title,
+            "area": area,
+            "floors": floors,
+            "layout": layout,
+            "visuals": visuals,
+            "url": f"https://stroyka26.pro/?project={code}#projects",
+        }
+        for code, title, area, floors, layout, visuals in rows
+    }
+    if len(projects) != 45:
+        fail(f"React project catalog should expose 45 projects, got {len(projects)}")
+    return projects
+
+
 def check_public_files():
     for name in REQUIRED_PAGES:
         read(PUBLIC / name)
@@ -90,7 +125,7 @@ def check_sitemap_robots_llms():
         if url not in sitemap:
             fail(f"sitemap missing {url}")
 
-    for page in ["features.html", "project-catalog.html", "contacts.html", "privacy.html", "terms.html"]:
+    for page in ["features.html", "project-catalog.html", "project-catalog.json", "contacts.html", "privacy.html", "terms.html"]:
         if f"Allow: /{page}" not in robots:
             fail(f"robots missing Allow for /{page}")
         if page not in llms:
@@ -111,6 +146,9 @@ def check_catalog_assets():
         fail(f"project catalog should have 45 project items, got {parser.catalog_items}")
     if len(parser.images) < 30:
         fail(f"project catalog should expose facade and plan previews, got {len(parser.images)} images")
+    catalog_lower = catalog.lower()
+    if "проектные примеры" not in catalog_lower or "не договоры" not in catalog_lower:
+        fail("project catalog should explain that cards are project examples, not documents")
 
     for src in parser.images:
         if src.startswith("http"):
@@ -127,36 +165,35 @@ def check_catalog_matches_react_source():
     source = read(ROOT / "src" / "components" / "PublicSitePage.jsx")
     catalog = read(PUBLIC / "project-catalog.html")
 
-    cards_match = re.search(
-        r"const readyProjectCardsByDirection = \{(?P<body>.*?)\n\};\n\nconst makeProjectMedia",
-        source,
+    react_projects = parse_ready_project_details(source)
+
+    html_project_matches = re.findall(
+        r'<li>\s*<a href="/\?project=([A-Z0-9-]+)#projects">\s*<span>\s*<b>\1</b>\s*([^<]+)</span>\s*<small>([^<]+)</small>\s*<em>([^<]+)</em>\s*<strong>([^<]+)</strong>\s*</a>\s*</li>',
+        catalog,
         re.S,
     )
-    if not cards_match:
-        fail("cannot find readyProjectCardsByDirection in PublicSitePage.jsx")
-
-    react_projects = {
-        (code, title)
-        for code, title in re.findall(
-            r"code:\s*'([^']+)'\s*,\s*title:\s*'([^']+)'",
-            cards_match.group("body"),
-            re.S,
-        )
-    }
-    if len(react_projects) != 45:
-        fail(f"React project catalog should expose 45 projects, got {len(react_projects)}")
-
     html_projects = {
-        (code, unescape(title).strip())
-        for code, title in re.findall(
-            r"<li>\s*([A-Z0-9-]+)\s+—\s+([^<]+)</li>",
-            catalog,
-        )
+        code: {
+            "code": code,
+            "title": unescape(title).strip(),
+            "area": unescape(area_floor).split(" · ", 1)[0].strip(),
+            "floors": unescape(area_floor).split(" · ", 1)[1].strip() if " · " in area_floor else "",
+            "layout": unescape(layout).strip(),
+            "visuals": unescape(visuals).strip(),
+            "url": f"https://stroyka26.pro/?project={code}#projects",
+        }
+        for code, title, area_floor, layout, visuals in html_project_matches
     }
     if react_projects != html_projects:
-        missing = sorted(react_projects - html_projects)
-        extra = sorted(html_projects - react_projects)
+        missing = sorted(set(react_projects) - set(html_projects))
+        extra = sorted(set(html_projects) - set(react_projects))
         fail(f"static catalog differs from React catalog; missing={missing[:5]} extra={extra[:5]}")
+
+    for code, project in sorted(react_projects.items()):
+        if f'href="/?project={code}#projects"' not in catalog:
+            fail(f"project catalog missing deep link for {code}")
+        if html_projects.get(code) != project:
+            fail(f"project catalog details differ for {code}")
 
     directions_match = re.search(
         r"const referenceDirections = \[(?P<body>.*?)\n\];\n\nconst readyProjectCardsByDirection",
@@ -180,6 +217,128 @@ def check_catalog_matches_react_source():
     ]
     if react_directions != html_directions:
         fail("static catalog direction order differs from React referenceDirections")
+
+
+def check_catalog_json_matches_react_source():
+    source = read(ROOT / "src" / "components" / "PublicSitePage.jsx")
+    catalog = read(PUBLIC / "project-catalog.html")
+    catalog_json = json.loads(read(PUBLIC / "project-catalog.json"))
+
+    if catalog_json.get("directionCount") != 15 or len(catalog_json.get("directions", [])) != 15:
+        fail("project-catalog.json should expose 15 directions")
+    if catalog_json.get("projectCount") != 45:
+        fail("project-catalog.json should expose 45 projects")
+
+    react_projects = parse_ready_project_details(source)
+    json_projects = {
+        project.get("code"): {
+            "code": project.get("code", ""),
+            "title": project.get("title", ""),
+            "area": project.get("area", ""),
+            "floors": project.get("floors", ""),
+            "layout": project.get("layout", ""),
+            "visuals": project.get("visuals", ""),
+            "url": project.get("url", ""),
+        }
+        for direction in catalog_json.get("directions", [])
+        for project in direction.get("projects", [])
+    }
+    if react_projects != json_projects:
+        missing = sorted(set(react_projects) - set(json_projects))
+        extra = sorted(set(json_projects) - set(react_projects))
+        fail(f"project-catalog.json differs from React catalog; missing={missing[:5]} extra={extra[:5]}")
+
+    for direction in catalog_json.get("directions", []):
+        if len(direction.get("projects", [])) != 3:
+            fail(f"project-catalog.json direction should have 3 projects: {direction.get('title')}")
+        if len(direction.get("previewImages", [])) < 2:
+            fail(f"project-catalog.json direction should expose preview images: {direction.get('title')}")
+        for image in direction.get("previewImages", []):
+            src = image.get("src", "")
+            if not src:
+                fail(f"project-catalog.json preview image missing src: {direction.get('title')}")
+            asset = PUBLIC / src.lstrip("/")
+            if not asset.exists():
+                fail(f"project-catalog.json preview image missing: {src}")
+        for project in direction.get("projects", []):
+            code = project.get("code", "")
+            if project.get("status") != EXPECTED_PROJECT_STATUS:
+                fail(f"project-catalog.json project status mismatch for {code}")
+            expected_url = f"https://stroyka26.pro/?project={code}#projects"
+            if project.get("url") != expected_url:
+                fail(f"project-catalog.json project url mismatch for {code}")
+            media = project.get("media", [])
+            if len(media) < 3:
+                fail(f"project-catalog.json project should expose media: {code}")
+            if not any(item.get("role") == "render" for item in media):
+                fail(f"project-catalog.json project missing render media: {code}")
+            if not any(item.get("role") == "plan" for item in media):
+                fail(f"project-catalog.json project missing plan media: {code}")
+            for item in media:
+                src = item.get("src", "")
+                if not src:
+                    fail(f"project-catalog.json media missing src: {code}")
+                asset = PUBLIC / src.lstrip("/")
+                if not asset.exists():
+                    fail(f"project-catalog.json media missing: {src}")
+
+    jsonld_blocks = re.findall(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', catalog, re.S)
+    item_list = None
+    for block in jsonld_blocks:
+        payload = json.loads(block)
+        if payload.get("@type") == "ItemList":
+            item_list = payload
+            break
+    if not item_list:
+        fail("project-catalog.html missing ItemList JSON-LD")
+    if item_list.get("numberOfItems") != 45:
+        fail("project-catalog.html ItemList should expose 45 projects")
+    item_list_description = item_list.get("description", "").lower()
+    if "проектными примерами" not in item_list_description or "не опубликованными документами" not in item_list_description:
+        fail("project-catalog.html ItemList should describe cards as examples, not published documents")
+
+    json_urls = {
+        project.get("url")
+        for direction in catalog_json.get("directions", [])
+        for project in direction.get("projects", [])
+    }
+    jsonld_urls = {item.get("url") for item in item_list.get("itemListElement", [])}
+    if json_urls != jsonld_urls:
+        fail("project-catalog.html ItemList URLs differ from project-catalog.json")
+
+    jsonld_descriptions = {
+        item.get("url"): item.get("description", "")
+        for item in item_list.get("itemListElement", [])
+    }
+    jsonld_images = {
+        item.get("url"): item.get("image", [])
+        for item in item_list.get("itemListElement", [])
+    }
+    jsonld_properties = {
+        item.get("url"): {
+            prop.get("name"): prop.get("value")
+            for prop in item.get("additionalProperty", [])
+        }
+        for item in item_list.get("itemListElement", [])
+    }
+    for project in json_projects.values():
+        description = jsonld_descriptions.get(project["url"], "")
+        if EXPECTED_PROJECT_STATUS not in description:
+            fail(f"project-catalog.html ItemList missing status in description for {project['code']}")
+        if jsonld_properties.get(project["url"], {}).get("Статус") != EXPECTED_PROJECT_STATUS:
+            fail(f"project-catalog.html ItemList status property differs for {project['code']}")
+        for field in ["area", "floors", "layout", "visuals"]:
+            if project[field] not in description:
+                fail(f"project-catalog.html ItemList missing {field} for {project['code']}")
+
+    for direction in catalog_json.get("directions", []):
+        for project in direction.get("projects", []):
+            expected_images = [
+                f"https://stroyka26.pro{item.get('src')}"
+                for item in project.get("media", [])
+            ]
+            if jsonld_images.get(project.get("url")) != expected_images:
+                fail(f"project-catalog.html ItemList images differ for {project.get('code')}")
 
 
 def check_react_project_media_assets():
@@ -269,7 +428,7 @@ def check_index_jsonld():
 def check_build_copy_if_present():
     if not BUILD.exists():
         return
-    for name in ["project-catalog.html", "features.html", "contacts.html", "privacy.html", "terms.html"]:
+    for name in ["project-catalog.html", "project-catalog.json", "features.html", "contacts.html", "privacy.html", "terms.html"]:
         if not (BUILD / name).exists():
             fail(f"build missing copied public page: {name}")
 
@@ -279,6 +438,7 @@ def main():
     check_sitemap_robots_llms()
     check_catalog_assets()
     check_catalog_matches_react_source()
+    check_catalog_json_matches_react_source()
     check_react_project_media_assets()
     check_index_jsonld()
     check_build_copy_if_present()
