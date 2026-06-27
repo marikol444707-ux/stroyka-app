@@ -1115,6 +1115,22 @@
   font-weight: 900;
 }
 
+.public-reference-price {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  max-width: calc(100% - 28px);
+  min-height: 31px;
+  margin: 12px 14px 0;
+  border: 1px solid #cde8dc;
+  border-radius: 999px;
+  background: #eef8f4;
+  color: var(--site-green-dark);
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 950;
+}
+
 .public-reference-card h3,
 .public-reference-card p,
 .public-reference-card div {
@@ -1921,6 +1937,18 @@
   font-weight: 800;
 }
 
+.public-project-card-price {
+  min-width: 0;
+  border: 1px solid #cde8dc;
+  border-radius: 6px;
+  background: #f1fbf6;
+  color: var(--site-green-dark);
+  padding: 7px 8px;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
 .public-project-card-copy em {
   color: #667085;
   font-size: 11px;
@@ -2008,6 +2036,45 @@
   margin: 0;
   color: var(--site-muted);
   line-height: 1.55;
+}
+
+.public-project-cost-panel {
+  min-width: 0;
+  border: 1px solid #ffd4ad;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(249, 115, 22, 0.12), rgba(15, 95, 74, 0.08)),
+    #fffaf4;
+  padding: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.public-project-cost-panel span,
+.public-project-cost-panel strong,
+.public-project-cost-panel small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.public-project-cost-panel span {
+  color: var(--site-orange-dark);
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.public-project-cost-panel strong {
+  color: var(--site-ink);
+  font-size: clamp(22px, 2.4vw, 30px);
+  line-height: 1.05;
+}
+
+.public-project-cost-panel small {
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .public-project-spec-list {

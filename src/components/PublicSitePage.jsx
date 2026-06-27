@@ -1054,6 +1054,63 @@ const formatMoney = (value) => new Intl.NumberFormat('ru-RU', {
   maximumFractionDigits: 0,
 }).format(value);
 
+const formatCompactMoney = (value) => {
+  const amount = Math.max(0, Math.round((Number(value) || 0) / 10000) * 10000);
+  if (amount >= 1000000) {
+    const millions = amount / 1000000;
+    return `${new Intl.NumberFormat('ru-RU', {
+      maximumFractionDigits: millions < 10 ? 1 : 0,
+    }).format(millions)} млн ₽`;
+  }
+  if (amount >= 1000) {
+    return `${formatMoney(Math.round(amount / 1000))} тыс. ₽`;
+  }
+  return `${formatMoney(amount)} ₽`;
+};
+
+const publicCalcDefaults = {
+  type: 'house',
+  area: 140,
+  floors: 2,
+  wallType: 'gasblock',
+  package: 'turnkey',
+  stage: 'project',
+  foundation: true,
+  communications: true,
+  deadline: 'normal',
+  files: 0,
+  repairObject: 'apartment',
+  rooms: 3,
+  bathrooms: 1,
+  ceilingHeight: 2.7,
+  repairCondition: 'new',
+  repairLevel: 'capital',
+  demolition: false,
+  electric: true,
+  plumbing: true,
+  walls: true,
+  floorsWork: true,
+  ceiling: true,
+  tiles: true,
+  materialMode: 'partial',
+  trash: true,
+  commerceType: 'office',
+  commerceLevel: 'opening',
+  commerceCondition: 'shell',
+  ventilation: true,
+  fireSafety: false,
+  powerEquipment: true,
+  designProject: false,
+  nightWork: false,
+  reconstructionScope: 'house',
+  keepsStructure: true,
+  reinforcement: true,
+  foundationTouch: false,
+  roofTouch: true,
+  engineeringNew: true,
+  inspectionNeeded: true,
+};
+
 const normalizeSiteProject = (project) => {
   const images = Array.isArray(project.images) && project.images.length
     ? project.images
@@ -1079,48 +1136,7 @@ const normalizeSiteProject = (project) => {
 };
 
 const PublicSitePage = ({ onLogin }) => {
-  const [calc, setCalc] = useState({
-    type: 'house',
-    area: 140,
-    floors: 2,
-    wallType: 'gasblock',
-    package: 'turnkey',
-    stage: 'project',
-    foundation: true,
-    communications: true,
-    deadline: 'normal',
-    files: 0,
-    repairObject: 'apartment',
-    rooms: 3,
-    bathrooms: 1,
-    ceilingHeight: 2.7,
-    repairCondition: 'new',
-    repairLevel: 'capital',
-    demolition: false,
-    electric: true,
-    plumbing: true,
-    walls: true,
-    floorsWork: true,
-    ceiling: true,
-    tiles: true,
-    materialMode: 'partial',
-    trash: true,
-    commerceType: 'office',
-    commerceLevel: 'opening',
-    commerceCondition: 'shell',
-    ventilation: true,
-    fireSafety: false,
-    powerEquipment: true,
-    designProject: false,
-    nightWork: false,
-    reconstructionScope: 'house',
-    keepsStructure: true,
-    reinforcement: true,
-    foundationTouch: false,
-    roofTouch: true,
-    engineeringNew: true,
-    inspectionNeeded: true,
-  });
+  const [calc, setCalc] = useState(publicCalcDefaults);
   const [lead, setLead] = useState({ name: '', phone: '', comment: '' });
   const [leadConsent, setLeadConsent] = useState(false);
   const [leadWebsite, setLeadWebsite] = useState('');
@@ -1354,6 +1370,91 @@ const PublicSitePage = ({ onLogin }) => {
     setCalc((current) => ({ ...current, [field]: value }));
   };
 
+  const getReferenceProjectEstimate = useCallback((direction, project) => {
+    const projectCalc = {
+      ...publicCalcDefaults,
+      ...(direction?.calcPatch || {}),
+      ...(project?.calcPatch || {}),
+      stage: 'project',
+      files: 1,
+    };
+    const area = Math.max(1, Number(projectCalc.area) || parseProjectArea(project) || 1);
+    const roomsCount = Math.max(1, Number(projectCalc.rooms) || 1);
+    const floors = Math.max(1, Number(projectCalc.floors) || 1);
+    let total = 0;
+    let spread = 0.16;
+
+    if (projectCalc.type === 'house') {
+      const housePackage = housePackages.find((item) => item.value === projectCalc.package) || housePackages[3];
+      const wall = houseWallTypes.find((item) => item.value === projectCalc.wallType) || houseWallTypes[0];
+      const housePackageRate = pricingValue('house_package', housePackage.value, housePackage.rate);
+      const wallMultiplier = pricingValue('house_wall', wall.value, wall.multiplier);
+      const floorMultiplier = floors > 1 ? 1.06 : 1;
+      const coreWorks = area * housePackageRate * wallMultiplier * floorMultiplier;
+      const roomPlanning = Math.max(0, roomsCount - floors * 3) * (projectCalc.package === 'turnkey' ? 85000 : projectCalc.package === 'engineering' ? 60000 : 35000);
+      const foundation = projectCalc.foundation ? area * 5200 + 180000 : 0;
+      const communications = projectCalc.communications ? area * 3400 + 140000 : 0;
+      const management = (coreWorks + roomPlanning + foundation + communications) * 0.04;
+      total = coreWorks + roomPlanning + foundation + communications + management;
+      spread = 0.13;
+    } else if (projectCalc.type === 'repair') {
+      const object = repairObjects.find((item) => item.value === projectCalc.repairObject) || repairObjects[0];
+      const condition = repairConditions.find((item) => item.value === projectCalc.repairCondition) || repairConditions[0];
+      const level = repairLevels.find((item) => item.value === projectCalc.repairLevel) || repairLevels[1];
+      const materials = materialModes.find((item) => item.value === projectCalc.materialMode) || materialModes[1];
+      const objectMultiplier = pricingValue('repair_object', object.value, object.multiplier);
+      const conditionMultiplier = pricingValue('repair_condition', condition.value, condition.multiplier);
+      const levelRate = pricingValue('repair_level', level.value, level.rate);
+      const materialsMultiplier = pricingValue('material_mode', materials.value, materials.multiplier);
+      const roomComplexity = 1 + Math.max(0, roomsCount - 2) * 0.025;
+      const base = area * levelRate * objectMultiplier * conditionMultiplier * roomComplexity;
+      const roomWorks = roomsCount * 26000 + Math.max(0, roomsCount - 2) * 18000;
+      const demolition = projectCalc.demolition ? area * 2400 : 0;
+      const engineering = (projectCalc.electric ? area * 4300 : 0) + (projectCalc.plumbing ? Number(projectCalc.bathrooms || 1) * 95000 : 0);
+      const surfaces = (projectCalc.walls ? area * 2200 : 0) + (projectCalc.floorsWork ? area * 2600 : 0) + (projectCalc.ceiling ? area * 1700 : 0) + (projectCalc.tiles ? Number(projectCalc.bathrooms || 1) * 120000 : 0);
+      const materialsPart = base * 0.32 * materialsMultiplier;
+      const logistics = projectCalc.trash ? area * 900 + 25000 : area * 300;
+      total = base + roomWorks + demolition + engineering + surfaces + materialsPart + logistics;
+      spread = 0.16;
+    } else if (projectCalc.type === 'commerce') {
+      const object = commerceTypes.find((item) => item.value === projectCalc.commerceType) || commerceTypes[0];
+      const level = commerceLevels.find((item) => item.value === projectCalc.commerceLevel) || commerceLevels[2];
+      const objectMultiplier = pricingValue('commerce_type', object.value, object.multiplier);
+      const levelRate = pricingValue('commerce_level', level.value, level.rate);
+      const conditionMultiplier = projectCalc.commerceCondition === 'old' ? 1.2 : projectCalc.commerceCondition === 'ready' ? 0.82 : 1;
+      const premisesComplexity = 1 + Math.max(0, roomsCount - 3) * 0.035;
+      const fitout = area * levelRate * objectMultiplier * conditionMultiplier * premisesComplexity;
+      const premisesWorks = Math.max(0, roomsCount - 1) * 65000;
+      const ventilation = projectCalc.ventilation ? area * 5200 : 0;
+      const fire = projectCalc.fireSafety ? area * 4300 : 0;
+      const power = projectCalc.powerEquipment ? area * 3600 : 0;
+      const projectDocs = projectCalc.designProject ? area * 1800 : area * 900;
+      total = fitout + premisesWorks + ventilation + fire + power + projectDocs;
+      spread = 0.18;
+    } else if (projectCalc.type === 'reconstruction') {
+      const scope = reconstructionScopes.find((item) => item.value === projectCalc.reconstructionScope) || reconstructionScopes[0];
+      const scopeRate = pricingValue('reconstruction_scope', scope.value, scope.rate);
+      const base = area * scopeRate;
+      const demolition = (projectCalc.demolition ? area * 3400 : area * 1200) + roomsCount * 22000;
+      const reinforcement = projectCalc.reinforcement ? area * 5200 + 120000 : 0;
+      const foundation = projectCalc.foundationTouch ? area * 6200 + 180000 : 0;
+      const roof = projectCalc.roofTouch ? area * 4300 + 160000 : 0;
+      const engineering = projectCalc.engineeringNew ? area * 4800 : 0;
+      const inspection = projectCalc.inspectionNeeded ? 85000 : 0;
+      total = base + demolition + reinforcement + foundation + roof + engineering + inspection;
+      spread = 0.24;
+    }
+
+    const min = Math.max(10000, Math.round(total * (1 - spread) / 10000) * 10000);
+    const max = Math.max(min, Math.round(total * (1 + spread) / 10000) * 10000);
+    return {
+      min,
+      max,
+      rangeLabel: `${formatCompactMoney(min)} - ${formatCompactMoney(max)}`,
+      fromLabel: `от ${formatCompactMoney(min)}`,
+    };
+  }, [pricingValue]);
+
   const filteredProjects = useMemo(() => (
     projectCategory === 'all'
       ? siteProjects
@@ -1368,6 +1469,7 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReferenceSpecs = getProjectSpecs(selectedReference, selectedReferenceProject);
   const selectedReferenceMediaOptions = getProjectMediaOptions(selectedReference, selectedReferenceProject);
   const selectedReferenceMedia = selectedReferenceMediaOptions.find((item) => item.id === selectedReferenceMediaId) || selectedReferenceMediaOptions[0];
+  const selectedReferenceEstimate = getReferenceProjectEstimate(selectedReference, selectedReferenceProject);
 
   const chooseProjectCategory = (category) => {
     const nextProjects = category === 'all'
@@ -2032,6 +2134,7 @@ const PublicSitePage = ({ onLogin }) => {
               {referenceDirections.map((item) => {
                 const isActive = selectedReference.id === item.id;
                 const projectCards = getReferenceProjectCards(item);
+                const directionEstimate = getReferenceProjectEstimate(item, projectCards[0]);
                 return (
                   <button
                     className={isActive ? 'public-reference-card active' : 'public-reference-card'}
@@ -2042,6 +2145,7 @@ const PublicSitePage = ({ onLogin }) => {
                   >
                     <ProjectConceptThumb direction={item} project={projectCards[0]} />
                     <span className="public-reference-count">{projectCards.length} проекта</span>
+                    <span className="public-reference-price">{directionEstimate.fromLabel}</span>
                     <h3>{item.title}</h3>
                     <p>{item.text}</p>
                     <div>
@@ -2065,22 +2169,26 @@ const PublicSitePage = ({ onLogin }) => {
 	              <div className="public-project-catalog-main">
 	                <div className="public-project-visual-column">
 	                  <div className="public-project-thumb-grid" aria-label="Варианты проекта">
-	                    {selectedReferenceProjects.map((project) => (
-	                      <button
-	                        className={selectedReferenceProject?.title === project.title ? 'active' : ''}
-                        type="button"
-	                        key={project.code}
-	                        onClick={() => chooseReference(selectedReference, project)}
-	                      >
-	                        <ProjectCardMediaPreview direction={selectedReference} project={project} />
-	                        <span className="public-project-card-copy">
-	                          <b>{project.code}</b>
-	                          <strong>{project.title}</strong>
-	                          <small>{project.area} · {project.floors}</small>
-	                          <em>{project.visuals}</em>
-	                        </span>
-	                      </button>
-	                    ))}
+	                    {selectedReferenceProjects.map((project) => {
+	                      const projectEstimate = getReferenceProjectEstimate(selectedReference, project);
+	                      return (
+	                        <button
+	                          className={selectedReferenceProject?.title === project.title ? 'active' : ''}
+                          type="button"
+	                          key={project.code}
+	                          onClick={() => chooseReference(selectedReference, project)}
+	                        >
+	                          <ProjectCardMediaPreview direction={selectedReference} project={project} />
+	                          <span className="public-project-card-copy">
+	                            <b>{project.code}</b>
+	                            <strong>{project.title}</strong>
+	                            <small>{project.area} · {project.floors}</small>
+	                            <span className="public-project-card-price">Примерная стоимость: {projectEstimate.rangeLabel}</span>
+	                            <em>{project.visuals}</em>
+	                          </span>
+	                        </button>
+	                      );
+	                    })}
 	                  </div>
 	                  <div className="public-project-hero-visual">
 	                    <ProjectConceptVisual
@@ -2113,6 +2221,11 @@ const PublicSitePage = ({ onLogin }) => {
                   <p className="public-tool-kicker">Каталог готовых проектов</p>
                   <h3>{selectedReferenceProject?.title || selectedReference.title}</h3>
                   <p>{selectedReferenceProject?.layout || selectedReference.text}</p>
+                  <div className="public-project-cost-panel">
+                    <span>Примерная стоимость этого проекта</span>
+                    <strong>{selectedReferenceEstimate.rangeLabel}</strong>
+                    <small>Ориентир для сайта. Точная сумма зависит от замера, проекта, грунтов, материалов и комплектации.</small>
+                  </div>
                   <dl className="public-project-spec-list">
                     {selectedReferenceSpecs.map(([label, value]) => (
                       <div key={label}>
