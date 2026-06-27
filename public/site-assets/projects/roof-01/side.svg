@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="864" viewBox="0 0 1536 864" role="img">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#d8f0ff"/>
+      <stop offset="1" stop-color="#f7fbff"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#bfe4f4"/>
+      <stop offset="1" stop-color="#33485e"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#1d2733" flood-opacity=".22"/>
+    </filter>
+  </defs>
+  
+  <rect width="1536" height="864" fill="url(#sky)"/>
+  <circle cx="1338" cy="118" r="54" fill="#ffe49a" opacity=".75"/>
+  <path d="M0 612 C260 545 430 590 645 548 C900 500 1120 555 1536 500 L1536 864 L0 864 Z" fill="#dfeecf"/>
+  <path d="M0 705 C250 652 526 690 745 646 C1012 594 1250 650 1536 606 L1536 864 L0 864 Z" fill="#eef0dd"/>
+  <path d="M165 730 C410 682 835 690 1198 744" stroke="#ffffff" stroke-width="18" stroke-linecap="round" opacity=".8"/>
+  
+  <rect x="64" y="52" width="470" height="112" rx="22" fill="#ffffff" opacity=".9"/>
+  <text x="96" y="106" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#132033">Кровля 160 м2</text>
+  <text x="96" y="144" font-family="Arial, sans-serif" font-size="24" fill="#607087">металлочерепица · узел · 160 м2</text>
+
+
+  <g filter="url(#shadow)">
+    <rect x="360" y="360" width="780" height="246" fill="#efe9dc"/>
+    <polygon points="320,360 760,244 1180,360" fill="#34333a"/>
+    <rect x="440" y="404" width="160" height="96" rx="8" fill="url(#glass)"/>
+    <rect x="680" y="404" width="190" height="96" rx="8" fill="url(#glass)"/>
+    <rect x="940" y="410" width="82" height="196" rx="7" fill="#243142"/>
+    <rect x="358" y="606" width="784" height="32" fill="#b8b0a3"/>
+    <rect x="1050" y="278" width="280" height="82" rx="16" fill="#9b273d" opacity=".94"/>
+    <text x="1080" y="330" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#fff">КРОВЛЯ</text>
+  </g>
+  <path d="M440 680 H1120" stroke="#9b273d" stroke-width="9" stroke-dasharray="18 18"/>
+  <text x="474" y="724" font-family="Arial, sans-serif" font-size="26" fill="#26313d">Схема работ и обновления объекта</text>
+  
+</svg>

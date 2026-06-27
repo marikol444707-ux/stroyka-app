@@ -643,9 +643,53 @@ const readyProjectCardsByDirection = {
   ],
 };
 
+const makeProjectMedia = (code, labels, files = ['facade.svg', 'side.svg', 'plan.svg']) => {
+  const slug = String(code).toLowerCase();
+  return files.map((file, index) => ({
+    id: index === 0 ? 'render-front' : index === 1 ? 'render-side' : `plan-${index - 1}`,
+    kind: 'image',
+    role: file.startsWith('plan') ? 'plan' : 'render',
+    label: labels[index] || `Вид ${index + 1}`,
+    src: `/site-assets/projects/${slug}/${file}`,
+  }));
+};
+
+const makeProjectMediaMap = (codes, labels, files) => Object.fromEntries(
+  codes.map((code) => [code, makeProjectMedia(code, labels, files)]),
+);
+
+const readyProjectMediaByCode = {
+  ...makeProjectMediaMap(
+    ['H2-01', 'H2-02', 'H2-03', 'B2-01', 'B2-02', 'B2-03', 'GAR-01', 'GAR-02', 'GAR-03', 'TOWN-01', 'TOWN-02', 'TOWN-03'],
+    ['3D фасад', '3D боковой', 'План 1 этажа', 'План 2 этажа'],
+    ['facade.svg', 'side.svg', 'plan-1.svg', 'plan-2.svg'],
+  ),
+  ...makeProjectMediaMap(
+    ['REC-01', 'REC-02', 'REC-03'],
+    ['Визуал обновления', 'Узел работ', 'Схема работ'],
+  ),
+  ...makeProjectMediaMap(
+    ['FAC-01', 'FAC-02', 'FAC-03'],
+    ['Вид фасада', 'Узел фасада', 'Схема фасада'],
+  ),
+  ...makeProjectMediaMap(
+    ['ROOF-01', 'ROOF-02', 'ROOF-03'],
+    ['Вид кровли', 'Узел кровли', 'Схема кровли'],
+  ),
+  ...makeProjectMediaMap(
+    ['APT-01', 'APT-02', 'APT-03', 'FIN-01', 'FIN-02', 'FIN-03', 'BATH-01', 'BATH-02', 'BATH-03', 'KIT-01', 'KIT-02', 'KIT-03', 'OFF-01', 'OFF-02', 'OFF-03'],
+    ['Визуал', 'Второй ракурс', 'Планировка'],
+  ),
+};
+
 const getReferenceProjectCards = (direction) => {
   const cards = readyProjectCardsByDirection[direction.id];
-  if (cards?.length) return cards;
+  if (cards?.length) {
+    return cards.map((card) => ({
+      ...card,
+      media: card.media || readyProjectMediaByCode[card.code],
+    }));
+  }
   return direction.examples.map((example, index) => ({
     code: `${direction.id}-${index + 1}`,
     title: example,
