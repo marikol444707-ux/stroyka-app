@@ -265,7 +265,7 @@ const referenceDirections = [
     id: 'family-cottage',
     title: 'Семейный коттедж',
     text: 'Загородные дома с общей семейной зоной, террасой и удобной логикой жизни.',
-    image: '/site-assets/projects/fam-01/facade.svg',
+    image: '/site-assets/projects/fam-01/facade.png',
     tags: ['коттедж', 'семья', 'двор'],
     calcPatch: { type: 'house', floors: 1, wallType: 'gasblock', package: 'turnkey', area: 155, rooms: 5 },
     examples: [
@@ -621,9 +621,9 @@ const readyProjectCardsByDirection = {
       layout: 'Кухня-гостиная, 4 спальни, 2 санузла, кладовая.',
       visuals: 'Семейный фасад, второй ракурс и план 150 м2.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-01/facade.svg' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/fam-01/side.svg' },
-        { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/fam-01/plan.svg' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-01/facade.png' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/fam-01/side.png' },
+        { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/fam-01/plan.png' },
       ],
       calcPatch: { area: 150, floors: 1, rooms: 5, bedrooms: 4, wallType: 'gasblock', package: 'turnkey' },
     },
@@ -635,9 +635,9 @@ const readyProjectCardsByDirection = {
       layout: 'Гостиная со вторым светом, 3 спальни, кабинет, 2 санузла.',
       visuals: 'Высокая гостиная, второй ракурс и план 170 м2.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-02/facade.svg' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/fam-02/side.svg' },
-        { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/fam-02/plan.svg' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-02/facade.png' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/fam-02/side.png' },
+        { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/fam-02/plan.png' },
       ],
       calcPatch: { area: 170, floors: 1, rooms: 5, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' },
     },
@@ -649,9 +649,9 @@ const readyProjectCardsByDirection = {
       layout: '4 спальни, гостевая, кухня-гостиная, постирочная.',
       visuals: 'Терраса, второй ракурс и план 185 м2.',
       media: [
-        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-03/facade.svg' },
-        { id: 'render-side', kind: 'image', role: 'render', label: '3D терраса', src: '/site-assets/projects/fam-03/side.svg' },
-        { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/fam-03/plan.svg' },
+        { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-03/facade.png' },
+        { id: 'render-side', kind: 'image', role: 'render', label: '3D терраса', src: '/site-assets/projects/fam-03/side.png' },
+        { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/fam-03/plan.png' },
       ],
       calcPatch: { area: 185, floors: 1, rooms: 6, bedrooms: 5, wallType: 'gasblock', package: 'turnkey' },
     },
@@ -718,7 +718,7 @@ const readyProjectCardsByDirection = {
   ],
 };
 
-const makeProjectMedia = (code, labels, files = ['facade.svg', 'side.svg', 'plan.svg']) => {
+const makeProjectMedia = (code, labels, files = ['facade.png', 'side.png', 'plan.png']) => {
   const slug = String(code).toLowerCase();
   return files.map((file, index) => ({
     id: index === 0 ? 'render-front' : index === 1 ? 'render-side' : `plan-${index - 1}`,
@@ -737,7 +737,7 @@ const readyProjectMediaByCode = {
   ...makeProjectMediaMap(
     ['H2-01', 'H2-02', 'H2-03', 'B2-01', 'B2-02', 'B2-03', 'GAR-01', 'GAR-02', 'GAR-03', 'TOWN-01', 'TOWN-02', 'TOWN-03'],
     ['3D фасад', '3D боковой', 'План 1 этажа', 'План 2 этажа'],
-    ['facade.svg', 'side.svg', 'plan-1.svg', 'plan-2.svg'],
+    ['facade.png', 'side.png', 'plan-1.png', 'plan-2.png'],
   ),
   ...makeProjectMediaMap(
     ['REC-01', 'REC-02', 'REC-03'],

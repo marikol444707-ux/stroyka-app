@@ -1,14 +1,22 @@
 #!/usr/bin/env node
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
+const { pathToFileURL } = require('url');
 
 const root = path.resolve(__dirname, '..', 'public', 'site-assets', 'projects');
+const tmpRoot = path.join(os.tmpdir(), 'stroyka-public-project-assets');
+const chromeBin = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 const projects = [
   ['h2-01', 'twoFloorModern', 'Дом 165 м2', 'узкий участок', '165 м2'],
   ['h2-02', 'twoFloorModern', 'Дом 190 м2', 'второй свет', '190 м2'],
   ['h2-03', 'twoFloorModern', 'Дом 215 м2', 'балкон и терраса', '215 м2'],
+  ['fam-01', 'familyHouse', 'Семейный дом 150 м2', '4 спальни', '150 м2'],
+  ['fam-02', 'familyHouseModern', 'Коттедж 170 м2', 'второй свет', '170 м2'],
+  ['fam-03', 'familyHouseTerrace', 'Коттедж 185 м2', 'терраса', '185 м2'],
   ['b2-01', 'twoFloorBrick', 'Кирпичный дом 180 м2', 'классический фасад', '180 м2'],
   ['b2-02', 'twoFloorBrickGarage', 'Дом 210 м2', 'гаражная зона', '210 м2'],
   ['b2-03', 'twoFloorBrickClassic', 'Классический дом 240 м2', 'кирпич и цоколь', '240 м2'],
@@ -212,6 +220,31 @@ const schemeSvg = ({ title, subtitle, area, style }) => (
     : interiorSvg({ title, subtitle, area, style })
 );
 
+const renderPng = (outDir, fileName, svg) => {
+  fs.mkdirSync(tmpRoot, { recursive: true });
+  const tmpSvg = path.join(tmpRoot, `${path.basename(outDir)}-${fileName}.svg`);
+  const outPng = path.join(outDir, fileName);
+  fs.writeFileSync(tmpSvg, svg);
+
+  const result = spawnSync(chromeBin, [
+    '--headless=new',
+    '--disable-gpu',
+    '--no-sandbox',
+    '--hide-scrollbars',
+    `--screenshot=${outPng}`,
+    '--window-size=1536,864',
+    pathToFileURL(tmpSvg).href,
+  ], { encoding: 'utf8' });
+
+  if (result.status !== 0) {
+    throw new Error([
+      `Failed to render ${outPng}`,
+      result.stderr,
+      result.stdout,
+    ].filter(Boolean).join('\n'));
+  }
+};
+
 const renderFiles = (slug, style, title, subtitle, area) => {
   const out = path.join(root, slug);
   fs.mkdirSync(out, { recursive: true });
@@ -220,31 +253,40 @@ const renderFiles = (slug, style, title, subtitle, area) => {
   const isScheme = ['rec-', 'fac-', 'roof-'].some((prefix) => slug.startsWith(prefix));
 
   if (isInterior) {
-    fs.writeFileSync(path.join(out, 'facade.svg'), interiorSvg({ title, subtitle, area, style }));
-    fs.writeFileSync(path.join(out, 'side.svg'), interiorSvg({ title, subtitle: `${subtitle} · второй ракурс`, area, style }));
-    fs.writeFileSync(path.join(out, 'plan.svg'), planSvg({ title, subtitle, area, style }));
+    renderPng(out, 'facade.png', interiorSvg({ title, subtitle, area, style }));
+    renderPng(out, 'side.png', interiorSvg({ title, subtitle: `${subtitle} · второй ракурс`, area, style }));
+    renderPng(out, 'plan.png', planSvg({ title, subtitle, area, style }));
     return;
   }
 
   if (isScheme) {
-    fs.writeFileSync(path.join(out, 'facade.svg'), schemeSvg({ title, subtitle, area, style }));
-    fs.writeFileSync(path.join(out, 'side.svg'), reconstructionSvg({ title, subtitle: `${subtitle} · узел`, area, style: `${style} roof` }));
-    fs.writeFileSync(path.join(out, 'plan.svg'), planSvg({ title, subtitle, area, style }));
+    renderPng(out, 'facade.png', schemeSvg({ title, subtitle, area, style }));
+    renderPng(out, 'side.png', reconstructionSvg({ title, subtitle: `${subtitle} · узел`, area, style: `${style} roof` }));
+    renderPng(out, 'plan.png', planSvg({ title, subtitle, area, style }));
     return;
   }
 
-  fs.writeFileSync(path.join(out, 'facade.svg'), houseSvg({ title, subtitle, area, style }));
-  fs.writeFileSync(path.join(out, 'side.svg'), houseSvg({ title, subtitle: `${subtitle} · боковой ракурс`, area, style, side: true }));
+  renderPng(out, 'facade.png', houseSvg({ title, subtitle, area, style }));
+  renderPng(out, 'side.png', houseSvg({ title, subtitle: `${subtitle} · боковой ракурс`, area, style, side: true }));
   if (twoFloor) {
-    fs.writeFileSync(path.join(out, 'plan-1.svg'), planSvg({ title, subtitle, area, floor: 1, style }));
-    fs.writeFileSync(path.join(out, 'plan-2.svg'), planSvg({ title, subtitle, area, floor: 2, style }));
+    renderPng(out, 'plan-1.png', planSvg({ title, subtitle, area, floor: 1, style }));
+    renderPng(out, 'plan-2.png', planSvg({ title, subtitle, area, floor: 2, style }));
   } else {
-    fs.writeFileSync(path.join(out, 'plan.svg'), planSvg({ title, subtitle, area, style }));
+    renderPng(out, 'plan.png', planSvg({ title, subtitle, area, style }));
   }
 };
 
-projects.forEach(([slug, style, title, subtitle, area]) => {
+const requestedSlugs = new Set(process.argv.slice(2).map((item) => item.toLowerCase()));
+const targetProjects = requestedSlugs.size
+  ? projects.filter(([slug]) => requestedSlugs.has(slug))
+  : projects;
+
+if (!targetProjects.length) {
+  throw new Error(`No matching project slugs: ${[...requestedSlugs].join(', ')}`);
+}
+
+targetProjects.forEach(([slug, style, title, subtitle, area]) => {
   renderFiles(slug, style, title, subtitle, area);
 });
 
-console.log(`Generated ${projects.length} public project asset sets in ${root}`);
+console.log(`Generated ${targetProjects.length} public project PNG asset sets in ${root}`);

@@ -371,7 +371,7 @@ def check_react_project_media_assets():
     if not media_map_match:
         fail("cannot find readyProjectMediaByCode in PublicSitePage.jsx")
 
-    default_files = ["facade.svg", "side.svg", "plan.svg"]
+    default_files = ["facade.png", "side.png", "plan.png"]
     for match in re.finditer(
         r"makeProjectMediaMap\(\s*\[(?P<codes>.*?)\]\s*,\s*\[(?P<labels>.*?)\]\s*(?:,\s*\[(?P<files>.*?)\])?\s*,?\s*\)",
         media_map_match.group("body"),
@@ -392,6 +392,11 @@ def check_react_project_media_assets():
         missing = sorted(expected_slugs - asset_dirs)
         extra = sorted(asset_dirs - expected_slugs)
         fail(f"project asset directories differ from React project codes; missing={missing[:5]} extra={extra[:5]}")
+
+    leftover_svg = sorted(assets_root.rglob("*.svg"))
+    if leftover_svg:
+        sample = leftover_svg[0].relative_to(ROOT)
+        fail(f"project media should use PNG assets, found leftover SVG: {sample}")
 
     for slug, sources in sorted(media_by_slug.items()):
         if len(sources) < 3:
