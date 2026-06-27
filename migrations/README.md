@@ -2,9 +2,13 @@
 
 The current production schema is still bootstrapped by `init_db()` in `backend/main.py`.
 
-Alembic is introduced here as a safe baseline only:
+Alembic was introduced with a safe metadata baseline, then small schema slices
+are moved in one at a time:
 
 - `0001_baseline_inline_init_db` does not change tables.
+- `0002_ops_error_logging` creates the operational `api_errors` table and index
+  idempotently. The same `CREATE TABLE IF NOT EXISTS` remains in `init_db()` as
+  a temporary compatibility guard until deploy runs `alembic upgrade head`.
 - Existing databases should only be stamped after the backend has already bootstrapped the schema.
 - Future migrations should move small, well-understood slices out of `init_db()` one at a time.
 

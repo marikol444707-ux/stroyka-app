@@ -251,7 +251,8 @@
 - ✅ Docker Compose добавлен для локального PostgreSQL + backend.
 - ✅ Alembic baseline добавлен без замены `init_db()` и без SQL-изменений схемы.
 - ✅ CI добавлен: GitHub Actions запускает backend compile и `npm run build` на push в `main` и pull request.
-- Следующий безопасный структурный шаг: вынести одну низкорисковую группу `init_db()` в реальную Alembic-миграцию.
+- ✅ Первая реальная Alembic-миграция добавлена для служебной таблицы `api_errors` и индекса ошибок; `init_db()` временно сохраняет тот же `CREATE TABLE IF NOT EXISTS` как страховку, пока деплой не запускает `alembic upgrade head`.
+- Следующий безопасный структурный шаг: добавить управляемый запуск `alembic upgrade head` в deploy/predeploy, затем переносить следующую низкорисковую группу из `init_db()`.
 
 ## Что уже закрыто и не должно возвращаться в план
 
