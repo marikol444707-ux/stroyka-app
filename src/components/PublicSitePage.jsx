@@ -932,6 +932,34 @@ const ProjectConceptThumb = ({ direction, project }) => {
   );
 };
 
+const getCompactMediaLabel = (media) => {
+  if (!media) return 'Вид';
+  if (media.role === 'plan' || media.kind === 'plan' || String(media.id || '').startsWith('plan')) return 'План';
+  return String(media.label || 'Вид').replace(/^3D\s+/i, '');
+};
+
+const ProjectCardMediaPreview = ({ direction, project }) => {
+  const mediaOptions = getProjectMediaOptions(direction, project).slice(0, 3);
+  const primary = mediaOptions[0];
+  const secondary = mediaOptions.slice(1);
+  return (
+    <div className="public-project-card-media" aria-hidden="true">
+      <div className="public-project-card-primary">
+        <ProjectConceptVisual direction={direction} project={project} media={primary} />
+        <span>{primary?.label || '3D фасад'}</span>
+      </div>
+      <div className="public-project-card-secondary">
+        {secondary.map((media) => (
+          <div key={media.id}>
+            <ProjectConceptVisual direction={direction} project={project} media={media} />
+            <span>{getCompactMediaLabel(media)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const partnerTypes = [
   { value: 'supplier', label: 'Поставщик', note: 'Материалы, счета, КП, документы', icon: Handshake },
   { value: 'master', label: 'Мастер', note: 'Сдельные работы, объекты, акты', icon: Hammer },
@@ -2024,6 +2052,24 @@ const PublicSitePage = ({ onLogin }) => {
 	            <section className="public-project-catalog" aria-label="Готовые проекты выбранного направления">
 	              <div className="public-project-catalog-main">
 	                <div className="public-project-visual-column">
+	                  <div className="public-project-thumb-grid" aria-label="Варианты проекта">
+	                    {selectedReferenceProjects.map((project) => (
+	                      <button
+	                        className={selectedReferenceProject?.title === project.title ? 'active' : ''}
+                        type="button"
+	                        key={project.code}
+	                        onClick={() => chooseReference(selectedReference, project)}
+	                      >
+	                        <ProjectCardMediaPreview direction={selectedReference} project={project} />
+	                        <span className="public-project-card-copy">
+	                          <b>{project.code}</b>
+	                          <strong>{project.title}</strong>
+	                          <small>{project.area} · {project.floors}</small>
+	                          <em>{project.visuals}</em>
+	                        </span>
+	                      </button>
+	                    ))}
+	                  </div>
 	                  <div className="public-project-hero-visual">
 	                    <ProjectConceptVisual
 	                      direction={selectedReference}
@@ -2046,20 +2092,6 @@ const PublicSitePage = ({ onLogin }) => {
 	                        onClick={() => setSelectedReferenceMediaId(media.id)}
 	                      >
 	                        {media.label}
-	                      </button>
-	                    ))}
-	                  </div>
-	                  <div className="public-project-thumb-grid" aria-label="Варианты проекта">
-	                    {selectedReferenceProjects.map((project) => (
-	                      <button
-	                        className={selectedReferenceProject?.title === project.title ? 'active' : ''}
-                        type="button"
-	                        key={project.code}
-	                        onClick={() => chooseReference(selectedReference, project)}
-	                      >
-	                        <ProjectConceptThumb direction={selectedReference} project={project} />
-	                        <b>{project.code}</b>
-	                        <span>{project.area}</span>
 	                      </button>
 	                    ))}
 	                  </div>
