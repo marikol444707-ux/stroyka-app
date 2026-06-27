@@ -1383,7 +1383,7 @@ const PublicSitePage = ({ onLogin }) => {
     setSelectedPhotoIndex(0);
   };
 
-  const chooseReference = (direction, project = getReferenceProjectCards(direction)[0], shouldScroll = false) => {
+  const chooseReference = (direction, project = getReferenceProjectCards(direction)[0], scrollTarget = '') => {
     const projectCard = typeof project === 'string'
       ? getReferenceProjectCards(direction).find((item) => item.title === project) || { title: project, calcPatch: {} }
       : project;
@@ -1395,8 +1395,11 @@ const PublicSitePage = ({ onLogin }) => {
       ...current,
       comment: `Интересует: ${direction.title}. Проект: ${projectCard.title}. Планировка: ${projectCard.layout || direction.text}`,
     }));
-    if (shouldScroll) {
+    if (scrollTarget === 'calculator' || scrollTarget === true) {
       setTimeout(() => scrollTo('calculator'), 0);
+    }
+    if (scrollTarget === 'catalog') {
+      setTimeout(() => document.querySelector('.public-project-catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
     }
   };
 
@@ -2034,7 +2037,7 @@ const PublicSitePage = ({ onLogin }) => {
                     className={isActive ? 'public-reference-card active' : 'public-reference-card'}
                     key={item.id}
                     type="button"
-                    onClick={() => chooseReference(item)}
+                    onClick={() => chooseReference(item, projectCards[0], 'catalog')}
                     aria-pressed={isActive}
                   >
                     <ProjectConceptThumb direction={item} project={projectCards[0]} />
@@ -2044,12 +2047,21 @@ const PublicSitePage = ({ onLogin }) => {
                     <div>
                       {item.tags.map((tag) => <span key={tag}>{tag}</span>)}
                     </div>
+                    <span className="public-reference-open">Смотреть проекты</span>
                   </button>
                 );
               })}
             </div>
 
 	            <section className="public-project-catalog" aria-label="Готовые проекты выбранного направления">
+	              <div className="public-project-catalog-head">
+	                <div>
+	                  <p>Открытое направление</p>
+	                  <h3>{selectedReference.title}</h3>
+	                  <span>{selectedReference.text}</span>
+	                </div>
+	                <strong>{selectedReferenceProjects.length} проекта</strong>
+	              </div>
 	              <div className="public-project-catalog-main">
 	                <div className="public-project-visual-column">
 	                  <div className="public-project-thumb-grid" aria-label="Варианты проекта">
@@ -2121,7 +2133,7 @@ const PublicSitePage = ({ onLogin }) => {
                   <button
                     className="public-primary public-reference-cta"
                     type="button"
-                    onClick={() => chooseReference(selectedReference, selectedReferenceProject, true)}
+                    onClick={() => chooseReference(selectedReference, selectedReferenceProject, 'calculator')}
                   >
                     Рассчитать такой проект
                     <ChevronRight size={18} />
