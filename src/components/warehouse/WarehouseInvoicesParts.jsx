@@ -332,6 +332,7 @@ export function WarehouseInvoiceCard({
   setShowPhotoModal,
   projectName,
   materialSummary,
+  materialTransfers = [],
   onPrepareTransfer,
   C,
   card,
@@ -354,6 +355,11 @@ export function WarehouseInvoiceCard({
     .replace(/\s+/g, ' ')
     .trim();
   const packageOf = (row = {}) => String(row.workPackage || row.work_package || row.packageName || '').trim();
+  const invoiceLineKeyFor = ({ materialName = '', workPackage = '', unit = '' } = {}) => [
+    normalizeText(materialName),
+    normalizeText(workPackage),
+    normalizeText(unit),
+  ].join('|');
   const formatMeasure = (value, unit) => {
     const num = toNum(value);
     if (!num) return '0 ' + (unit || '');
@@ -370,6 +376,31 @@ export function WarehouseInvoiceCard({
     };
     const packageMatches = row => !itemPackage || packageOf(row) === itemPackage;
     return rows.find(row => packageMatches(row) && nameMatches(row)) || rows.find(nameMatches) || null;
+  };
+  const invoiceBalanceForItem = (item = {}, ctrl = {}, fact = null) => {
+    const unit = fact?.unit || ctrl.rowUnit || item.unit || '';
+    const workPackage = packageOf(fact || {}) || packageOf(ctrl) || packageOf(item);
+    const materialName = item.name || fact?.name || ctrl.canonicalName || '';
+    const invoiceLineKey = invoiceLineKeyFor({ materialName, workPackage, unit });
+    const issued = (materialTransfers || [])
+      .filter(transfer => String(transfer.invoiceId || '') === String(inv.id || ''))
+      .filter(transfer => (transfer.status || 'Активна') !== 'Аннулирована')
+      .filter(transfer => {
+        const transferLineKey = transfer.invoiceLineKey || '';
+        if (transferLineKey) return transferLineKey === invoiceLineKey;
+        return normalizeText(transfer.materialName) === normalizeText(materialName) &&
+          packageOf(transfer) === workPackage &&
+          normalizeText(transfer.unit || '') === normalizeText(unit || '');
+      })
+      .reduce((sum, transfer) => sum + toNum(transfer.quantity), 0);
+    const received = toNum(item.quantity);
+    return {
+      unit,
+      received,
+      issued,
+      remaining: Math.max(0, received - issued),
+      overIssued: Math.max(0, issued - received),
+    };
   };
 
   return (
@@ -422,6 +453,7 @@ export function WarehouseInvoiceCard({
                 const ctrl = estimateControl[index] || {};
                 const fact = stockFactForItem(item, ctrl);
                 const factUnit = fact?.unit || ctrl.rowUnit || item.unit || '';
+                const invoiceBalance = invoiceBalanceForItem(item, ctrl, fact);
                 return (
                   <div key={index} style={{border:'1.5px solid '+C.border,borderRadius:'12px',backgroundColor:C.bg,padding:'10px',minWidth:0}}>
                     <div style={{display:'flex',justifyContent:'space-between',gap:'8px',alignItems:'flex-start',marginBottom:'8px'}}>
@@ -445,6 +477,10 @@ export function WarehouseInvoiceCard({
                     </div>
                     {projectName && (
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'10px',padding:'10px',borderRadius:'10px',border:'1px solid '+(fact?C.infoBorder:C.border),backgroundColor:fact?C.infoLight:C.bgWhite,fontSize:'12px'}}>
+                        <span style={{color:C.textSec}}>Пришло по накладной<br/><b style={{color:C.text}}>{formatMeasure(invoiceBalance.received, invoiceBalance.unit)}</b></span>
+                        <span style={{color:C.textSec}}>Выдано из накладной<br/><b style={{color:invoiceBalance.issued>0?C.info:C.textMuted}}>{formatMeasure(invoiceBalance.issued, invoiceBalance.unit)}</b></span>
+                        <span style={{color:C.textSec}}>Осталось по накладной<br/><b style={{color:invoiceBalance.remaining>0?C.success:C.textMuted}}>{formatMeasure(invoiceBalance.remaining, invoiceBalance.unit)}</b></span>
+                        <span style={{color:C.textSec}}>Перевыдача<br/><b style={{color:invoiceBalance.overIssued>0?C.danger:C.textMuted}}>{formatMeasure(invoiceBalance.overIssued, invoiceBalance.unit)}</b></span>
                         <span style={{color:C.textSec}}>Остаток объекта<br/><b style={{color:fact && toNum(fact.stock)>0?C.success:C.textMuted}}>{fact ? formatMeasure(fact.stock, factUnit) : 'не найден'}</b></span>
                         <span style={{color:C.textSec}}>Выдано по объекту<br/><b style={{color:fact && toNum(fact.issued)>0?C.info:C.textMuted}}>{fact ? formatMeasure(fact.issued, factUnit) : '—'}</b></span>
                         <span style={{color:C.textSec}}>У мастеров<br/><b style={{color:fact && toNum(fact.masterBalance)>0?C.warning:C.textMuted}}>{fact ? formatMeasure(fact.masterBalance, factUnit) : '—'}</b></span>
@@ -469,6 +505,7 @@ export function WarehouseInvoiceCard({
                     const ctrl = estimateControl[index] || {};
                     const fact = stockFactForItem(item, ctrl);
                     const factUnit = fact?.unit || ctrl.rowUnit || item.unit || '';
+                    const invoiceBalance = invoiceBalanceForItem(item, ctrl, fact);
                     return (
                       <tr key={index}>
                         <td style={tblC}>
@@ -496,11 +533,13 @@ export function WarehouseInvoiceCard({
                           {(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+(ctrl.priceOverText && ctrl.priceOverText !== '—' ? ' · +'+ctrl.priceOverText : '')}
                         </td>
                         <td style={tblC}>
-                          {projectName && fact ? (
+                          {projectName ? (
                             <div style={{display:'grid',gap:'2px',fontSize:'10px',color:C.textSec}}>
-                              <span>Ост: <b style={{color:toNum(fact.stock)>0?C.success:C.textMuted}}>{formatMeasure(fact.stock, factUnit)}</b></span>
-                              <span>Выд: <b style={{color:toNum(fact.issued)>0?C.info:C.textMuted}}>{formatMeasure(fact.issued, factUnit)}</b></span>
-                              <span>У мастеров: <b style={{color:toNum(fact.masterBalance)>0?C.warning:C.textMuted}}>{formatMeasure(fact.masterBalance, factUnit)}</b></span>
+                              <span>Накл выд: <b style={{color:invoiceBalance.issued>0?C.info:C.textMuted}}>{formatMeasure(invoiceBalance.issued, invoiceBalance.unit)}</b></span>
+                              <span>Накл ост: <b style={{color:invoiceBalance.remaining>0?C.success:C.textMuted}}>{formatMeasure(invoiceBalance.remaining, invoiceBalance.unit)}</b></span>
+                              {fact && <span>Ост: <b style={{color:toNum(fact.stock)>0?C.success:C.textMuted}}>{formatMeasure(fact.stock, factUnit)}</b></span>}
+                              {fact && <span>Выд: <b style={{color:toNum(fact.issued)>0?C.info:C.textMuted}}>{formatMeasure(fact.issued, factUnit)}</b></span>}
+                              {fact && <span>У мастеров: <b style={{color:toNum(fact.masterBalance)>0?C.warning:C.textMuted}}>{formatMeasure(fact.masterBalance, factUnit)}</b></span>}
                             </div>
                           ) : '—'}
                         </td>

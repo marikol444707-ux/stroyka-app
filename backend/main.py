@@ -2448,6 +2448,10 @@ def init_db():
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS to_user_id INT;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS invoice_id INT;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS invoice_line_key VARCHAR(255);
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS invoice_line_index INT;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(100);
         CREATE TABLE IF NOT EXISTS brigade_contracts (
             id SERIAL PRIMARY KEY,
             project_id INT,
@@ -17996,7 +18000,7 @@ def get_material_transfers(project_name: str = None, current_user: dict = Depend
     active_filter = "COALESCE(status,'Активна') <> 'Аннулирована'"
     role = current_user.get("role")
     package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
-    base_select = "SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at,to_user_id FROM material_transfers"
+    base_select = "SELECT id,project_name,from_location,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at,to_user_id,invoice_id,invoice_line_key,invoice_line_index,invoice_number FROM material_transfers"
     conditions = [active_filter]
     params = []
     if project_name:
@@ -18022,7 +18026,7 @@ def get_material_transfers(project_name: str = None, current_user: dict = Depend
     cur.execute(base_select + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14]),"toUserId":r[15]} for r in rows]
+    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14]),"toUserId":r[15],"invoiceId":r[16],"invoiceLineKey":r[17] or "","invoiceLineIndex":r[18],"invoiceNumber":r[19] or ""} for r in rows]
 
 @app.post("/material-transfers")
 def create_material_transfer(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
@@ -18062,12 +18066,37 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
     try:
         to_person = (data.get("toPerson") or "").strip()
         to_user_id = data.get("toUserId") or data.get("to_user_id")
+        invoice_id = data.get("invoiceId") or data.get("invoice_id")
+        try:
+            invoice_id = int(invoice_id) if str(invoice_id or "").strip() else None
+        except Exception:
+            invoice_id = None
+        invoice_line_key = str(data.get("invoiceLineKey") or data.get("invoice_line_key") or "").strip()
+        invoice_number = str(data.get("invoiceNumber") or data.get("invoice_number") or "").strip()
+        invoice_line_index = data.get("invoiceLineIndex")
+        if invoice_line_index is None:
+            invoice_line_index = data.get("invoice_line_index")
+        try:
+            invoice_line_index = int(invoice_line_index) if str(invoice_line_index or "").strip() else None
+        except Exception:
+            invoice_line_index = None
         try:
             to_user_id = int(to_user_id) if str(to_user_id or "").strip() else None
         except Exception:
             to_user_id = None
         if not to_person:
             raise HTTPException(status_code=400, detail="Укажите получателя материала")
+        if invoice_id:
+            cur.execute("""SELECT number, project, location
+                           FROM warehouse_invoices
+                           WHERE id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'""", (invoice_id,))
+            invoice_row = cur.fetchone()
+            if not invoice_row:
+                raise HTTPException(status_code=400, detail="Накладная для выдачи не найдена или аннулирована")
+            invoice_project = (invoice_row[1] or "").strip() or ((invoice_row[2] or "").strip() if (invoice_row[2] or "") != "Основной склад" else "")
+            if invoice_project and invoice_project != project_name:
+                raise HTTPException(status_code=400, detail="Накладная относится к другому объекту: " + invoice_project)
+            invoice_number = invoice_number or (invoice_row[0] or "")
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
             to_user_id = _resolve_staff_or_user_id(cur, to_user_id, to_person)
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
@@ -18139,8 +18168,8 @@ def create_material_transfer(data: dict, _current_user: dict = Depends(require_r
             material_name = stock_name or material_name
 
         created_by = _current_user.get("name", "") or data.get("createdBy", "")
-        cur.execute("INSERT INTO material_transfers (project_name,from_location,to_user_id,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,notes,created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (project_name, from_location, to_user_id, to_person, to_person_role, work_package, material_name, qty, unit, data.get("transferDate") or None, data.get("notes",""), created_by))
+        cur.execute("INSERT INTO material_transfers (project_name,from_location,to_user_id,to_person,to_person_role,work_package,material_name,quantity,unit,transfer_date,notes,created_by,invoice_id,invoice_line_key,invoice_line_index,invoice_number) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (project_name, from_location, to_user_id, to_person, to_person_role, work_package, material_name, qty, unit, data.get("transferDate") or None, data.get("notes",""), created_by, invoice_id, invoice_line_key, invoice_line_index, invoice_number))
         new_id = cur.fetchone()[0]
 
         cur.execute("INSERT INTO warehouse_history (material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",

@@ -31,6 +31,7 @@ export default function WarehouseInvoicesPanel({
   setSelectedWarehouseProject,
   setNewTransfer,
   setShowTransferForm,
+  materialTransfers = [],
   C,
   card,
   inp,
@@ -70,6 +71,11 @@ export default function WarehouseInvoicesPanel({
   );
 
   const packageOf = (row = {}) => String(row.workPackage || row.work_package || row.packageName || '').trim();
+  const invoiceLineKeyFor = ({ materialName = '', workPackage = '', unit = '' } = {}) => [
+    normalizeText(materialName),
+    normalizeText(workPackage),
+    normalizeText(unit),
+  ].join('|');
 
   const stockForInvoiceItem = (projectName, item = {}, ctrl = {}) => {
     if (!projectName) return null;
@@ -109,6 +115,7 @@ export default function WarehouseInvoicesPanel({
       const stockQty = toNum(stock?.quantity);
       const suggestedQty = transferQuantity(toNum(item.quantity), stockQty);
       const key = [materialName, workPackage, unit].join('|||');
+      const invoiceLineKey = invoiceLineKeyFor({ materialName: item.name, workPackage, unit });
       const existing = grouped.get(key);
       if (existing) {
         const nextQty = toNum(existing.quantity) + toNum(suggestedQty);
@@ -120,6 +127,10 @@ export default function WarehouseInvoicesPanel({
         quantity: suggestedQty,
         unit,
         workPackage,
+        invoiceId: inv.id || null,
+        invoiceLineKey,
+        invoiceLineIndex: index,
+        invoiceNumber: inv.number || '',
       });
     });
 
@@ -141,6 +152,10 @@ export default function WarehouseInvoicesPanel({
       toPersonRole: '',
       toUserId: '',
       fromLocation: projectName,
+      invoiceId: inv.id || null,
+      invoiceLineKey: first.invoiceLineKey || '',
+      invoiceLineIndex: first.invoiceLineIndex ?? null,
+      invoiceNumber: inv.number || '',
       notes: 'Подготовлено из ' + invoiceLabel + '. Проверьте количество перед передачей.',
       transferDate: new Date().toISOString().split('T')[0],
     });
@@ -338,6 +353,7 @@ export default function WarehouseInvoicesPanel({
             setShowPhotoModal={setShowPhotoModal}
             projectName={projectName}
             materialSummary={materialSummary}
+            materialTransfers={materialTransfers}
             onPrepareTransfer={canPrepareTransfer ? () => prepareTransferFromInvoice(inv, invoiceRows, estimateControl) : null}
             C={C}
             card={card}

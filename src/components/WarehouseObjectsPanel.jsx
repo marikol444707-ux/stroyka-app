@@ -104,6 +104,10 @@ export default function WarehouseObjectsPanel({
         quantity: item.quantity ?? '',
         unit: item.unit || 'шт',
         workPackage: item.workPackage || item.work_package || '',
+        invoiceId: item.invoiceId || item.invoice_id || null,
+        invoiceLineKey: item.invoiceLineKey || item.invoice_line_key || '',
+        invoiceLineIndex: item.invoiceLineIndex ?? item.invoice_line_index ?? null,
+        invoiceNumber: item.invoiceNumber || item.invoice_number || '',
       }))
       .filter(item => item.materialName)
   ), []);
@@ -115,6 +119,10 @@ export default function WarehouseObjectsPanel({
         quantity: item.quantity ?? '',
         unit: item.unit || 'шт',
         workPackage: item.workPackage || item.work_package || '',
+        invoiceId: item.invoiceId || item.invoice_id || null,
+        invoiceLineKey: item.invoiceLineKey || item.invoice_line_key || '',
+        invoiceLineIndex: item.invoiceLineIndex ?? item.invoice_line_index ?? null,
+        invoiceNumber: item.invoiceNumber || item.invoice_number || '',
       }))
       .filter(item => item.materialName);
     if (cleaned.length > 0) return cleaned;
@@ -124,6 +132,10 @@ export default function WarehouseObjectsPanel({
       quantity: transfer.quantity,
       unit: transfer.unit || 'шт',
       workPackage: transfer.workPackage || '',
+      invoiceId: transfer.invoiceId || transfer.invoice_id || null,
+      invoiceLineKey: transfer.invoiceLineKey || transfer.invoice_line_key || '',
+      invoiceLineIndex: transfer.invoiceLineIndex ?? transfer.invoice_line_index ?? null,
+      invoiceNumber: transfer.invoiceNumber || transfer.invoice_number || '',
     }];
   }, []);
   const selectedTransferItems = React.useMemo(() => transferItemsFromState(newTransfer), [newTransfer, transferItemsFromState]);
@@ -690,6 +702,10 @@ export default function WarehouseObjectsPanel({
                       quantity: item.quantity,
                       unit: item.unit,
                       workPackage: item.workPackage,
+                      invoiceId: item.invoiceId || newTransfer.invoiceId || null,
+                      invoiceLineKey: item.invoiceLineKey || newTransfer.invoiceLineKey || '',
+                      invoiceLineIndex: item.invoiceLineIndex ?? newTransfer.invoiceLineIndex ?? null,
+                      invoiceNumber: item.invoiceNumber || newTransfer.invoiceNumber || '',
                       fromLocation: selectedWarehouseProject,
                       projectName: selectedWarehouseProject,
                       createdBy: user.name

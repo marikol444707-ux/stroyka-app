@@ -14057,6 +14057,7 @@ function App() {
               loadMaterialsPage={loadMaterialsPage}
               openReceiveInvoice={openReceiveInvoice}
               user={user}
+              materialTransfers={materialTransfers}
               setMaterialTransfers={setMaterialTransfers}
               setNewTransfer={setNewTransfer}
               setShowTransferForm={setShowTransferForm}

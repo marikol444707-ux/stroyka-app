@@ -47,6 +47,7 @@ export default function WarehousePage(props) {
     loadMaterialsPage,
     openReceiveInvoice,
     user,
+    materialTransfers,
     setMaterialTransfers,
     setNewTransfer,
     showTransferForm,
@@ -266,6 +267,7 @@ export default function WarehousePage(props) {
           setSelectedWarehouseProject={setSelectedWarehouseProject}
           setNewTransfer={setNewTransfer}
           setShowTransferForm={setShowTransferForm}
+          materialTransfers={materialTransfers}
           C={C}
           card={card}
           inp={inp}
