@@ -1,0 +1,1195 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Карта руководителя - прототип</title>
+  <style>
+    :root {
+      --accent: #f97316;
+      --accent-soft: #fff7ed;
+      --accent-border: #fed7aa;
+      --bg: #f9fafb;
+      --panel: #ffffff;
+      --line: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+      --muted-soft: #9ca3af;
+      --soft: #f3f4f6;
+      --info: #3b82f6;
+      --green: #10b981;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --cyan: #06b6d4;
+      --violet: #8b5cf6;
+      --info-soft: #eff6ff;
+      --green-soft: #ecfdf5;
+      --amber-soft: #fffbeb;
+      --red-soft: #fef2f2;
+      --cyan-soft: #ecfeff;
+      --violet-soft: #f5f3ff;
+      --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      letter-spacing: 0;
+    }
+
+    button, input, select {
+      font: inherit;
+    }
+
+    .shell {
+      width: 100%;
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 20px;
+      overflow-x: hidden;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
+
+    .topbar > *,
+    .summary,
+    .layout,
+    .section,
+    .metric {
+      min-width: 0;
+    }
+
+    .eyebrow {
+      margin: 0 0 5px;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      line-height: 1.15;
+      overflow-wrap: anywhere;
+    }
+
+    .subtitle {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+      max-width: 820px;
+      overflow-wrap: anywhere;
+    }
+
+    .modebar {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .chip-button {
+      border: 1.5px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      padding: 8px 11px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 800;
+      min-height: 36px;
+    }
+
+    .chip-button[aria-pressed="true"] {
+      border-color: var(--accent);
+      color: #ffffff;
+      background: var(--accent);
+    }
+
+    .placement {
+      display: grid;
+      grid-template-columns: minmax(0, .72fr) minmax(0, 1.28fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .placement-card {
+      background: var(--panel);
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .placement-card.active {
+      border-color: var(--accent-border);
+      background: var(--accent-soft);
+    }
+
+    .placement-card p {
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .placement-card b {
+      display: block;
+      font-size: 13px;
+      line-height: 1.3;
+      color: var(--text);
+    }
+
+    .project-tabs {
+      display: grid;
+      gap: 8px;
+    }
+
+    .group-row,
+    .tab-row {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .group-pill {
+      flex: 0 0 auto;
+      min-width: 92px;
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      padding: 10px 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .group-pill.active {
+      color: var(--accent);
+      border-color: var(--accent-border);
+      background: var(--accent-soft);
+    }
+
+    .tab-pill {
+      flex: 0 0 auto;
+      border: 1.5px solid var(--line);
+      border-radius: 20px;
+      background: var(--panel);
+      padding: 6px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .tab-pill.active {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+      font-weight: 800;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .metric {
+      background: var(--panel);
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      padding: 13px;
+      box-shadow: var(--shadow);
+      min-height: 92px;
+    }
+
+    .metric p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 22px;
+      line-height: 1.1;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .metric.red strong { color: var(--red); }
+    .metric.amber strong { color: var(--amber); }
+    .metric.green strong { color: var(--green); }
+    .metric.blue strong { color: var(--info); }
+    .metric.cyan strong { color: var(--cyan); }
+    .metric.violet strong { color: var(--violet); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .section {
+      background: var(--panel);
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .section-head p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .legend {
+      display: flex;
+      gap: 9px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .legend i {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      border-radius: 2px;
+      margin-right: 4px;
+      vertical-align: -1px;
+    }
+
+    .timeline {
+      padding: 12px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .work-row {
+      display: grid;
+      grid-template-columns: 210px minmax(260px, 1fr) 126px;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 11px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .work-row.is-selected {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .work-row[hidden] {
+      display: none;
+    }
+
+    .work-title {
+      min-width: 0;
+    }
+
+    .work-title strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+      line-height: 1.2;
+    }
+
+    .work-title span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    .bar-wrap {
+      position: relative;
+      height: 32px;
+      border-radius: 6px;
+      background: var(--soft);
+      overflow: hidden;
+      border: 1px solid #e1e7f0;
+    }
+
+    .bar-window {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      min-width: 28px;
+      padding-left: 7px;
+      color: white;
+      font-size: 11px;
+      font-weight: 900;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .bar-window.green { background: var(--green); }
+    .bar-window.amber { background: var(--amber); }
+    .bar-window.red { background: var(--red); }
+    .bar-window.blue { background: var(--info); }
+    .bar-window.violet { background: var(--violet); }
+
+    .today-line {
+      position: absolute;
+      top: -2px;
+      bottom: -2px;
+      width: 2px;
+      background: #111827;
+      opacity: .55;
+    }
+
+    .row-status {
+      display: grid;
+      justify-items: end;
+      gap: 5px;
+      text-align: right;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 4px 8px;
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 900;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .badge.green { color: var(--green); background: var(--green-soft); border-color: #bfe6ce; }
+    .badge.amber { color: var(--amber); background: var(--amber-soft); border-color: #fed7aa; }
+    .badge.red { color: var(--red); background: var(--red-soft); border-color: #fac5c0; }
+    .badge.blue { color: var(--info); background: var(--info-soft); border-color: #bfdbfe; }
+    .badge.cyan { color: var(--cyan); background: var(--cyan-soft); border-color: #aeeaf2; }
+    .badge.violet { color: var(--violet); background: var(--violet-soft); border-color: #d8c4fb; }
+
+    .row-status small {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.25;
+    }
+
+    .detail {
+      padding: 16px;
+    }
+
+    .detail h3 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .detail .meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 13px 0;
+    }
+
+    .kv {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fbfcfe;
+      min-width: 0;
+    }
+
+    .kv span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+
+    .kv b {
+      display: block;
+      font-size: 13px;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+
+    .signal-list {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .signal {
+      border-radius: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .signal.red { background: var(--red-soft); border-color: #fac5c0; color: #7f1d1d; }
+    .signal.amber { background: var(--amber-soft); border-color: #fed7aa; color: #7c3b05; }
+    .signal.blue { background: var(--info-soft); border-color: #bfdbfe; color: #1d4ed8; }
+
+    .action-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    .action {
+      border: 1px solid var(--line);
+      background: var(--text);
+      color: white;
+      padding: 8px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .action.secondary {
+      background: #fff;
+      color: var(--text);
+    }
+
+    .action.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .wide {
+      margin-top: 14px;
+    }
+
+    .chain-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      padding: 12px;
+    }
+
+    .chain-step {
+      position: relative;
+      min-height: 116px;
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: 11px;
+      display: grid;
+      gap: 7px;
+      align-content: start;
+    }
+
+    .chain-step::after {
+      content: ">";
+      position: absolute;
+      right: -9px;
+      top: 46px;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: var(--text);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 900;
+      z-index: 2;
+    }
+
+    .chain-step:nth-child(5)::after,
+    .chain-step:last-child::after {
+      display: none;
+    }
+
+    .chain-step.green { border-color: #bfe6ce; background: var(--green-soft); }
+    .chain-step.amber { border-color: #fed7aa; background: var(--amber-soft); }
+    .chain-step.red { border-color: #fac5c0; background: var(--red-soft); }
+    .chain-step.blue { border-color: #bfdbfe; background: var(--info-soft); }
+
+    .chain-step span {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .chain-step b {
+      font-size: 13px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .chain-step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .chain-footer {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 0 12px 12px;
+    }
+
+    .chain-note {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+      min-width: 0;
+    }
+
+    .chain-note p {
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    .chain-note b {
+      display: block;
+      font-size: 13px;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 840px;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      background: #fbfcfe;
+      text-transform: uppercase;
+    }
+
+    .impl-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 12px;
+    }
+
+    .impl-step {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fff;
+      min-height: 130px;
+    }
+
+    .impl-step b {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 7px;
+    }
+
+    .impl-step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .note {
+      margin: 0;
+      padding: 12px 16px 16px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 1120px) {
+      .summary {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .work-row {
+        grid-template-columns: 190px minmax(220px, 1fr) 112px;
+      }
+
+      .impl-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .chain-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .chain-step:nth-child(5)::after {
+        display: grid;
+      }
+
+      .chain-step:nth-child(even)::after {
+        display: none;
+      }
+
+      .chain-footer {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        padding: 12px;
+        max-width: 100vw;
+      }
+
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar > div:first-child,
+      h1,
+      .subtitle {
+        width: 100%;
+        max-width: calc(100vw - 24px);
+      }
+
+      h1 {
+        white-space: normal;
+        word-break: break-word;
+      }
+
+      .modebar {
+        justify-content: flex-start;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        max-width: 100%;
+        padding-bottom: 2px;
+      }
+
+      .chip-button {
+        flex: 0 0 auto;
+      }
+
+      h1 {
+        font-size: 22px;
+      }
+
+      .summary {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .legend {
+        white-space: normal;
+      }
+
+      .work-row {
+        grid-template-columns: 1fr;
+      }
+
+      .work-title strong {
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+      }
+
+      .work-title span {
+        overflow-wrap: anywhere;
+      }
+
+      .row-status {
+        justify-items: start;
+        text-align: left;
+      }
+
+      .detail .meta {
+        grid-template-columns: 1fr;
+      }
+
+      .impl-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .chain-grid,
+      .chain-footer {
+        grid-template-columns: 1fr;
+      }
+
+      .chain-step::after {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="topbar">
+      <div>
+        <p class="eyebrow">Песочница без привязки</p>
+        <h1>Карта руководителя</h1>
+        <p class="subtitle">Объект: Лермонтова, спортзал. Это не новая главная страница, а будущая рабочая вкладка объекта. Сейчас экран работает на моковых данных и ничего не подключает к живой системе.</p>
+      </div>
+      <div class="modebar" aria-label="Фильтры">
+        <button class="chip-button" data-filter="all" aria-pressed="true">Все</button>
+        <button class="chip-button" data-filter="red" aria-pressed="false">Красные</button>
+        <button class="chip-button" data-filter="material" aria-pressed="false">Материалы</button>
+        <button class="chip-button" data-filter="delivery" aria-pressed="false">Поставка</button>
+        <button class="chip-button" data-filter="document" aria-pressed="false">Документы</button>
+        <button class="chip-button" data-filter="money" aria-pressed="false">Деньги</button>
+        <button class="chip-button" data-filter="review" aria-pressed="false">Проверить связи</button>
+      </div>
+    </div>
+
+    <section class="placement" aria-label="Место в системе">
+      <div class="placement-card">
+        <p>Главная страница</p>
+        <b>Остается сводкой по компании. Тут только короткий сигнал: критичные объекты и переход в карту.</b>
+      </div>
+      <div class="placement-card active">
+        <p>Карточка объекта / группа Объект</p>
+        <div class="project-tabs" aria-label="Встраивание во вкладки объекта">
+          <div class="group-row">
+            <span class="group-pill">Работы</span>
+            <span class="group-pill">Финансы</span>
+            <span class="group-pill active">Объект</span>
+            <span class="group-pill">Журналы</span>
+            <span class="group-pill">Документы</span>
+          </div>
+          <div class="tab-row">
+            <span class="tab-pill">Общее</span>
+            <span class="tab-pill">ИИ-контроль</span>
+            <span class="tab-pill">График</span>
+            <span class="tab-pill active">Карта руководителя</span>
+            <span class="tab-pill">Этапы</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="summary" aria-label="Сводка">
+      <div class="metric amber"><p>План по календарю</p><strong>76%</strong><span>факт ниже на 14%</span></div>
+      <div class="metric blue"><p>Факт по ЖПР</p><strong>62%</strong><span>подтвержденные объемы</span></div>
+      <div class="metric red"><p>Критичные сигналы</p><strong>2</strong><span>материал и документ</span></div>
+      <div class="metric amber"><p>На проверке</p><strong>5</strong><span>ЖПР, связи, счет</span></div>
+      <div class="metric green"><p>Оплачено факт</p><strong>1,85 млн</strong><span>только project_payments</span></div>
+      <div class="metric cyan"><p>Обязательства</p><strong>420 тыс.</strong><span>счета и поставки, не факт</span></div>
+    </section>
+
+    <div class="layout">
+      <section class="section">
+        <div class="section-head">
+          <div>
+            <h2>График работ с сигналами</h2>
+            <p>Строка становится красной не для запрета, а чтобы быстрее увидеть риск: материал, документ, деньги или связь.</p>
+          </div>
+          <div class="legend">
+            <span><i style="background: var(--green)"></i>норма</span>
+            <span><i style="background: var(--amber)"></i>риск</span>
+            <span><i style="background: var(--red)"></i>критично</span>
+            <span><i style="background: #111827"></i>сегодня</span>
+          </div>
+        </div>
+        <div id="timeline" class="timeline"></div>
+      </section>
+
+      <aside class="section" aria-live="polite">
+        <div class="section-head">
+          <div>
+            <h2>Карточка выбранного этапа</h2>
+            <p>То, что руководитель должен понять за 15 секунд.</p>
+          </div>
+        </div>
+        <div id="detail" class="detail"></div>
+      </aside>
+    </div>
+
+    <section id="supply-chain" class="section wide">
+      <div class="section-head">
+        <div>
+          <h2>Цепочка поставки по выбранному этапу</h2>
+          <p>Поставка не блокирует работу жестко, а показывает где появился риск между потребностью, документами, складом и ЖПР.</p>
+        </div>
+        <span class="badge red">Армирующая сетка · Полы</span>
+      </div>
+      <div class="chain-grid" aria-label="Цепочка поставки">
+        <div class="chain-step blue"><span>01 Потребность</span><b>120 м2 не хватает</b><p>Плановая потребность пришла из сметы и текущего этапа.</p></div>
+        <div class="chain-step green"><span>02 Заявка</span><b>Заявка #55</b><p>Создана снабжением, согласована директором.</p></div>
+        <div class="chain-step green"><span>03 КП</span><b>Поставщик выбран</b><p>Цена и срок согласованы, связь с пакетом Полы есть.</p></div>
+        <div class="chain-step amber"><span>04 Счет</span><b>Оплата частичная</b><p>Счет есть, но факт оплаты берется только из платежей проекта.</p></div>
+        <div class="chain-step red"><span>05 Отгрузка</span><b>80 из 200 м2</b><p>Поставщик отгрузил не весь объем, нужен дозавоз.</p></div>
+        <div class="chain-step red"><span>06 Приемка</span><b>Недостача 120 м2</b><p>Приемка показывает частичный приход, можно открыть претензию.</p></div>
+        <div class="chain-step amber"><span>07 Накладная</span><b>Фото загружено</b><p>Бухгалтерия проверяет документ и сумму.</p></div>
+        <div class="chain-step amber"><span>08 Входной контроль</span><b>Нет сертификата</b><p>Материал виден, но контроль качества еще не закрыт.</p></div>
+        <div class="chain-step blue"><span>09 Склад</span><b>80 м2 на объекте</b><p>Остаток есть, выдача мастеру еще не оформлена.</p></div>
+        <div class="chain-step blue"><span>10 ЖПР</span><b>Списание после работы</b><p>Факт попадет в ЖПР после выдачи и выполненного объема.</p></div>
+      </div>
+      <div class="chain-footer">
+        <div class="chain-note"><p>Сигнал</p><b>Поставка частичная, нужен дозавоз 120 м2</b></div>
+        <div class="chain-note"><p>Действие</p><b>Открыть поставку или создать претензию</b></div>
+        <div class="chain-note"><p>Деньги</p><b>Счет не равен фактической оплате</b></div>
+        <div class="chain-note"><p>Учет</p><b>Склад и ЖПР не проводятся из карты</b></div>
+      </div>
+    </section>
+
+    <section class="section wide">
+      <div class="section-head">
+        <div>
+          <h2>Цепочка связей</h2>
+          <p>Так карта собирает одну рабочую карточку из существующих модулей Stroyka.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Этап</th>
+              <th>Смета</th>
+              <th>ЖПР</th>
+              <th>Материалы</th>
+              <th>Поставка</th>
+              <th>Документы</th>
+              <th>Деньги</th>
+              <th>Решение</th>
+            </tr>
+          </thead>
+          <tbody id="linksTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section wide">
+      <div class="section-head">
+        <div>
+          <h2>Этапность внедрения</h2>
+          <p>Никаких кусков деплоя: сначала подтверждаем модель, потом внедряем цельно и тестируем цепочки.</p>
+        </div>
+      </div>
+      <div class="impl-grid">
+        <div class="impl-step"><b>0. Без привязки</b><p>Документ, демо-экран и контракт данных. Основной код, API и база не трогаются.</p></div>
+        <div class="impl-step"><b>1. Контракт</b><p>`contract.v1.json` описывает, что будущий агрегатор должен вернуть в карту.</p></div>
+        <div class="impl-step"><b>2. Изолированный UI</b><p>Отдельный модуль карты на моках. В `App.js` не подключаем до решения.</p></div>
+        <div class="impl-step"><b>3. Read-only API</b><p>`/projects/director-map` появится позже и сначала будет только читать данные.</p></div>
+        <div class="impl-step"><b>4. Проверка связей</b><p>Все неуверенные совпадения идут в `needs_review`, без автопроведения.</p></div>
+        <div class="impl-step"><b>5. Действия</b><p>Открыть ЖПР, АОСР, заявку снабжения, оплату или задачу. Карта не запрещает и не проводит сама.</p></div>
+        <div class="impl-step"><b>6. Smoke-цепочки</b><p>Смета, ЖПР, склад, накладные, документы, роли и финансы проходят проверку.</p></div>
+        <div class="impl-step"><b>7. Внедрение разом</b><p>После проверки включаем через feature flag как цельную функцию.</p></div>
+      </div>
+      <p class="note">Главное правило: пока карта собрана без привязки. После внедрения она подсказывает и связывает, но не ставит жесткий стоп. Она не должна сама проводить склад, создавать фактические деньги или молча связывать спорные документы.</p>
+    </section>
+  </main>
+
+  <script>
+    const items = [
+      {
+        id: "demolition",
+        title: "Демонтаж и вывоз",
+        package: "Демонтаж",
+        zone: "Зал 1, коридор",
+        status: "Завершен",
+        tone: "green",
+        start: 0,
+        width: 18,
+        progress: 100,
+        responsible: "Прораб Иванов",
+        fact: "ЖПР 12/12 подтверждены",
+        money: "310 000 ₽ оплачено",
+        estimate: "Смета 8, раздел Демонтаж",
+        links: ["estimate", "journal", "money"],
+        signals: [],
+        decision: "Закрыто, можно использовать как подтвержденный факт для следующих этапов."
+      },
+      {
+        id: "screed",
+        title: "Стяжка и подготовка основания",
+        package: "Полы",
+        zone: "Зал 1",
+        status: "В работе",
+        tone: "red",
+        start: 17,
+        width: 24,
+        progress: 54,
+        responsible: "Прораб Иванов",
+        fact: "ЖПР 3 подтверждены, 2 на проверке",
+        money: "410 000 ₽ оплачено, 148 000 ₽ обязательства",
+        estimate: "Смета 8, Полы: стяжка",
+        links: ["estimate", "journal", "material", "delivery", "money", "review"],
+        signals: [
+          {tone: "red", text: "Материал: не хватает армирующей сетки 120 м2. Есть заявка, поставка принята частично."},
+          {tone: "amber", text: "Связь: две строки ЖПР без помещения. Нужна проверка прораба."}
+        ],
+        decision: "Открыть заявку снабжения, затем проверить две записи ЖПР без зоны."
+      },
+      {
+        id: "electric",
+        title: "Электрика под скрытые работы",
+        package: "Электрика",
+        zone: "Зал 1, серверная",
+        status: "В работе",
+        tone: "red",
+        start: 34,
+        width: 26,
+        progress: 48,
+        responsible: "Главный инженер",
+        fact: "ЖПР 5 подтверждены",
+        money: "260 000 ₽ оплачено",
+        estimate: "Смета 8, Электрика",
+        links: ["estimate", "journal", "document", "review"],
+        signals: [
+          {tone: "red", text: "Документ: скрытые работы есть, АОСР еще не создан."},
+          {tone: "amber", text: "Проверка: нужен фотофикс до закрытия штроб."}
+        ],
+        decision: "Создать АОСР из ЖПР и прикрепить фото до закрытия работ."
+      },
+      {
+        id: "walls",
+        title: "Штукатурка и стены",
+        package: "Отделка",
+        zone: "Зал 1",
+        status: "Не начат",
+        tone: "amber",
+        start: 56,
+        width: 22,
+        progress: 0,
+        responsible: "Мастер Петров",
+        fact: "ЖПР нет",
+        money: "Деньги не проводились",
+        estimate: "Смета 8, Отделка стен",
+        links: ["estimate", "material", "delivery"],
+        signals: [
+          {tone: "amber", text: "Зависимость: нельзя начинать до АОСР по электрике."},
+          {tone: "amber", text: "Материалы: штукатурная смесь зарезервирована, выдачи на объект еще нет."}
+        ],
+        decision: "Ждать закрытия скрытых работ и оформить выдачу материала."
+      },
+      {
+        id: "flooring",
+        title: "Финишное покрытие пола",
+        package: "Полы",
+        zone: "Зал 1",
+        status: "Следующий",
+        tone: "blue",
+        start: 76,
+        width: 18,
+        progress: 0,
+        responsible: "Субподрядчик СК Пол",
+        fact: "ЖПР нет",
+        money: "Счет поставщика на проверке",
+        estimate: "Смета 8, Покрытие пола",
+        links: ["estimate", "money", "review"],
+        signals: [
+          {tone: "amber", text: "Деньги: счет есть, но оплату факт не создаем до `project_payments`."},
+          {tone: "amber", text: "Связь: КП поставщика надо связать с пакетом Полы."}
+        ],
+        decision: "Проверить счет и связь с пакетом, оплату проводить только через проектные платежи."
+      }
+    ];
+
+    const filterButtons = Array.from(document.querySelectorAll(".chip-button"));
+    const timeline = document.getElementById("timeline");
+    const detail = document.getElementById("detail");
+    const linksTable = document.getElementById("linksTable");
+    let activeFilter = "all";
+    let selectedId = items[1].id;
+
+    function badgeClass(item) {
+      if (item.tone === "red") return "red";
+      if (item.tone === "amber") return "amber";
+      if (item.tone === "green") return "green";
+      if (item.tone === "violet") return "violet";
+      return "blue";
+    }
+
+    function itemMatches(item) {
+      if (activeFilter === "all") return true;
+      if (activeFilter === "red") return item.tone === "red";
+      if (activeFilter === "review") return item.links.includes("review");
+      return item.links.includes(activeFilter);
+    }
+
+    function formatLink(type, item) {
+      const has = item.links.includes(type);
+      if (!has) return '<span class="badge">нет связи</span>';
+      const map = {
+        estimate: ["blue", item.estimate],
+        journal: ["green", item.fact],
+        material: [item.tone === "red" ? "red" : "amber", item.links.includes("material") ? "есть сигнал" : "нет"],
+        delivery: [item.tone === "red" ? "red" : item.links.includes("delivery") ? "amber" : "blue", item.links.includes("delivery") ? "поставка в цепочке" : "нет"],
+        document: [item.tone === "red" ? "red" : "amber", item.links.includes("document") ? "требует документа" : "нет"],
+        money: ["cyan", item.money],
+        review: ["amber", "needs_review"]
+      };
+      const value = map[type];
+      return `<span class="badge ${value[0]}">${value[1]}</span>`;
+    }
+
+    function renderTimeline() {
+      timeline.innerHTML = items.map(item => `
+        <button class="work-row ${item.id === selectedId ? "is-selected" : ""}" data-id="${item.id}" data-tone="${item.tone}" ${itemMatches(item) ? "" : "hidden"}>
+          <span class="work-title">
+            <strong>${item.title}</strong>
+            <span>${item.package} · ${item.zone} · ${item.responsible}</span>
+          </span>
+          <span class="bar-wrap" aria-label="Срок и прогресс">
+            <span class="today-line" style="left: 52%"></span>
+            <span class="bar-window ${item.tone}" style="left: ${item.start}%; width: ${item.width}%">${item.progress}%</span>
+          </span>
+          <span class="row-status">
+            <span class="badge ${badgeClass(item)}">${item.status}</span>
+            <small>${item.signals.length ? item.signals.length + " сигнала" : "без критики"}</small>
+          </span>
+        </button>
+      `).join("");
+
+      timeline.querySelectorAll(".work-row").forEach(row => {
+        row.addEventListener("click", () => {
+          selectedId = row.dataset.id;
+          render();
+        });
+      });
+    }
+
+    function renderDetail() {
+      const item = items.find(entry => entry.id === selectedId) || items[0];
+      detail.innerHTML = `
+        <h3>${item.title}</h3>
+        <div class="meta">
+          <div class="kv"><span>Пакет</span><b>${item.package}</b></div>
+          <div class="kv"><span>Зона</span><b>${item.zone}</b></div>
+          <div class="kv"><span>Ответственный</span><b>${item.responsible}</b></div>
+          <div class="kv"><span>Факт</span><b>${item.fact}</b></div>
+          <div class="kv"><span>Смета</span><b>${item.estimate}</b></div>
+          <div class="kv"><span>Деньги</span><b>${item.money}</b></div>
+        </div>
+        <div class="signal-list">
+          ${item.signals.length ? item.signals.map(signal => `<div class="signal ${signal.tone}">${signal.text}</div>`).join("") : '<div class="signal blue">Критичных сигналов нет. Этап можно использовать как подтвержденный факт.</div>'}
+        </div>
+        <div class="kv"><span>Решение</span><b>${item.decision}</b></div>
+        <div class="action-row">
+          <button class="action primary">Открыть источник</button>
+          <button class="action secondary">Проверить связь</button>
+          <button class="action secondary">Создать задачу</button>
+        </div>
+      `;
+    }
+
+    function renderLinksTable() {
+      linksTable.innerHTML = items.map(item => `
+        <tr>
+          <td><b>${item.title}</b><br><span class="badge ${badgeClass(item)}">${item.status}</span></td>
+          <td>${formatLink("estimate", item)}</td>
+          <td>${formatLink("journal", item)}</td>
+          <td>${formatLink("material", item)}</td>
+          <td>${formatLink("delivery", item)}</td>
+          <td>${formatLink("document", item)}</td>
+          <td>${formatLink("money", item)}</td>
+          <td>${item.decision}</td>
+        </tr>
+      `).join("");
+    }
+
+    function render() {
+      renderTimeline();
+      renderDetail();
+      renderLinksTable();
+    }
+
+    filterButtons.forEach(button => {
+      button.addEventListener("click", () => {
+        activeFilter = button.dataset.filter;
+        filterButtons.forEach(entry => entry.setAttribute("aria-pressed", entry === button ? "true" : "false"));
+        const visible = items.find(itemMatches);
+        if (visible && !itemMatches(items.find(entry => entry.id === selectedId))) selectedId = visible.id;
+        render();
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>

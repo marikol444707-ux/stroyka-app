@@ -1,0 +1,184 @@
+{
+  "contractVersion": "director-map.v1",
+  "mode": "sandbox_unbound",
+  "integrationPolicy": {
+    "readOnly": true,
+    "writesToAccounting": false,
+    "writesToWarehouse": false,
+    "writesToWorkJournal": false,
+    "autoScheduleShift": false,
+    "autoLinkThreshold": 90,
+    "uncertainState": "needs_review"
+  },
+  "project": {
+    "id": "mock-project-1",
+    "name": "Лермонтова, спортзал",
+    "status": "В работе",
+    "deadline": "2026-08-15",
+    "directorViewTitle": "Карта руководителя"
+  },
+  "summary": {
+    "plannedProgress": 76,
+    "factProgress": 62,
+    "lagPercent": 14,
+    "redSignals": 2,
+    "yellowSignals": 5,
+    "moneyFact": 1850000,
+    "moneyObligations": 420000,
+    "reviewItems": 5
+  },
+  "items": [
+    {
+      "id": "work-node-screed",
+      "type": "work_node",
+      "title": "Стяжка и подготовка основания",
+      "workPackage": "Полы",
+      "zone": "Зал 1",
+      "status": "В работе",
+      "priority": "high",
+      "startDate": "2026-06-20",
+      "endDate": "2026-07-04",
+      "responsible": "Прораб Иванов",
+      "plannedProgress": 74,
+      "factProgress": 54,
+      "reviewState": "needs_review",
+      "money": {
+        "plan": 820000,
+        "fact": 410000,
+        "obligations": 148000,
+        "factSourceRule": "project_payments_only"
+      },
+      "sourceRefs": {
+        "stage": {
+          "status": "mock",
+          "futureSource": "project_stages"
+        },
+        "estimate": {
+          "status": "mock",
+          "futureSource": "estimates"
+        },
+        "workJournal": {
+          "status": "mock",
+          "futureSource": "work_journal"
+        },
+        "supply": {
+          "status": "mock",
+          "futureSource": "supply_requests/supplier_offers/supply_deliveries"
+        },
+        "warehouse": {
+          "status": "mock",
+          "futureSource": "warehouse_invoices/materials/warehouse_history"
+        },
+        "documents": {
+          "status": "mock",
+          "futureSource": "hidden_works_acts/material_inspection_journal"
+        },
+        "payments": {
+          "status": "mock",
+          "futureSource": "project_payments"
+        }
+      },
+      "signals": [
+        {
+          "id": "sig-material-shortage",
+          "type": "material",
+          "severity": "red",
+          "title": "Не хватает армирующей сетки 120 м2",
+          "explanation": "Поставка принята частично, объем не закрывает текущую потребность этапа.",
+          "nextAction": {
+            "type": "open_source",
+            "label": "Открыть поставку",
+            "enabledInSandbox": false
+          }
+        },
+        {
+          "id": "sig-room-binding",
+          "type": "link_quality",
+          "severity": "yellow",
+          "title": "Две записи ЖПР без помещения",
+          "explanation": "Факт есть, но связь с зоной требует проверки.",
+          "nextAction": {
+            "type": "review_link",
+            "label": "Проверить связь",
+            "enabledInSandbox": false
+          }
+        }
+      ],
+      "supplyChain": [
+        {
+          "step": "need",
+          "title": "Потребность",
+          "status": "info",
+          "value": "120 м2 не хватает"
+        },
+        {
+          "step": "request",
+          "title": "Заявка",
+          "status": "ok",
+          "value": "Заявка создана"
+        },
+        {
+          "step": "offer",
+          "title": "КП",
+          "status": "ok",
+          "value": "Поставщик выбран"
+        },
+        {
+          "step": "invoice",
+          "title": "Счет",
+          "status": "warning",
+          "value": "Оплата частичная"
+        },
+        {
+          "step": "shipment",
+          "title": "Отгрузка",
+          "status": "danger",
+          "value": "80 из 200 м2"
+        },
+        {
+          "step": "acceptance",
+          "title": "Приемка",
+          "status": "danger",
+          "value": "Недостача 120 м2"
+        },
+        {
+          "step": "primary_document",
+          "title": "Накладная",
+          "status": "warning",
+          "value": "Фото загружено"
+        },
+        {
+          "step": "quality_control",
+          "title": "Входной контроль",
+          "status": "warning",
+          "value": "Нет сертификата"
+        },
+        {
+          "step": "warehouse",
+          "title": "Склад",
+          "status": "info",
+          "value": "80 м2 на объекте"
+        },
+        {
+          "step": "work_journal",
+          "title": "ЖПР",
+          "status": "info",
+          "value": "Списание после работы"
+        }
+      ]
+    }
+  ],
+  "unlinked": {
+    "workJournal": [],
+    "materials": [],
+    "documents": [],
+    "payments": []
+  },
+  "guards": [
+    "no_fact_money_outside_project_payments",
+    "no_warehouse_changes_from_director_map",
+    "no_work_journal_confirmation_from_director_map",
+    "no_auto_date_shift",
+    "all_low_confidence_links_go_to_needs_review"
+  ]
+}

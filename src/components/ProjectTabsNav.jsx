@@ -1,13 +1,21 @@
 import React from 'react';
 
 const canSeeJournalReconcileRole = (role) => ['директор','зам_директора','бухгалтер','прораб','главный_инженер','сметчик'].includes(role);
+const DIRECTOR_MAP_ENABLED = process.env.REACT_APP_FEATURE_DIRECTOR_MAP !== 'false';
+const OBJECT_PLANNING_TABS = DIRECTOR_MAP_ENABLED ? ['Карта руководителя'] : ['График','Этапы'];
+const OBJECT_INTERNAL_TABS = DIRECTOR_MAP_ENABLED ? ['График','Этапы'] : [];
+
+const groupContainsTab = (group, tab) => [
+  ...(group.tabs || []),
+  ...(group.hiddenTabs || []),
+].includes(tab);
 
 const projectTabGroupsForRole = (role) => {
   const canSeeJournalReconcile = canSeeJournalReconcileRole(role);
   if (role === 'прораб') {
     return [
       {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете',...(canSeeJournalReconcile?['Сверка ЖПР']:[]),'Чек-листы','Смета']},
-      {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения','График','Этапы','Материалы']},
+      {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения',...OBJECT_PLANNING_TABS,'Материалы'],hiddenTabs:OBJECT_INTERNAL_TABS},
       {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
       {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','Акты технадзора','Замечания ГСН','Гарантия']},
     ];
@@ -15,7 +23,7 @@ const projectTabGroupsForRole = (role) => {
   return [
     {id:'work',icon:'🔨',label:'Работы',tabs:['Расчёт с бригадой','Изменения к смете',...(canSeeJournalReconcile?['Сверка ЖПР']:[]),'Чек-листы']},
     {id:'finance',icon:'💰',label:'Финансы',tabs:['Финансы','Смета','Материалы']},
-    {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения','График','Этапы']},
+    {id:'object',icon:'🏗️',label:'Объект',tabs:['Общее','ИИ-контроль','Проект / Обмеры','Помещения',...OBJECT_PLANNING_TABS],hiddenTabs:OBJECT_INTERNAL_TABS},
     {id:'journals',icon:'📚',label:'Журналы',tabs:['Главный','Производство работ','АОСР','Входной контроль','Кабельная продукция','Журнал ТБ','Погода','Предписания','Чат']},
     {id:'docs',icon:'📋',label:'Документы',tabs:['📁 Реестр','✉️ Переписка','КС-2','КС-3','Паспорт','Акты технадзора','Замечания ГСН','Гарантия']},
   ];
@@ -30,7 +38,7 @@ function ProjectTabsNav({
   setActiveTabGroup,
 }) {
   const tabGroups = projectTabGroupsForRole(role);
-  const activeGroup = tabGroups.find(group=>group.tabs.includes(activeProjectTab));
+  const activeGroup = tabGroups.find(group=>groupContainsTab(group, activeProjectTab));
 
   return (
     <div>

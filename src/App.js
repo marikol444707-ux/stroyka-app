@@ -53,6 +53,7 @@ import ProjectPrescriptionsPanel from './components/ProjectPrescriptionsPanel';
 import ProjectSafetyJournalPanel from './components/ProjectSafetyJournalPanel';
 import ProjectWorkJournalPanel from './components/ProjectWorkJournalPanel';
 import ProjectScheduleSummaryPanel from './components/ProjectScheduleSummaryPanel';
+import { ProjectDirectorMapPanel, buildDirectorMapContract } from './features/director-map';
 import PreviewModal from './components/PreviewModal';
 import ImagePreviewModal from './components/ImagePreviewModal';
 import EstimatesTabsNav from './components/EstimatesTabsNav';
@@ -117,6 +118,7 @@ const MATERIALS_PAGE_LIMIT = 200;
 const MATERIAL_NORMS_PAGE_LIMIT = 200;
 const WORK_JOURNAL_PAGE_LIMIT = 200;
 const AUDIT_LOG_PAGE_LIMIT = 200;
+const DIRECTOR_MAP_FEATURE_ENABLED = process.env.REACT_APP_FEATURE_DIRECTOR_MAP !== 'false';
 
 const executionPercentValue = (value) => {
   const percent = toNum(String(value ?? '').replace(',', '.'));
@@ -8579,6 +8581,36 @@ function App() {
 	    }
 	    return items;
 	  };
+	  const directorMapActionTarget = ({ item, action } = {}) => {
+	    if (action === 'create_task') return 'ИИ-контроль';
+	    const signals = item?.signals || [];
+	    const types = signals.map(signal => signal.type);
+	    if (types.includes('material')) return 'Материалы';
+	    if (types.includes('document')) {
+	      return signals.some(signal => String(signal.title || '').includes('Входной')) ? 'Входной контроль' : 'АОСР';
+	    }
+	    if (types.includes('money')) return isFinanceRole() ? 'Финансы' : 'Смета';
+	    if (types.includes('link_quality')) return 'Производство работ';
+	    if (action === 'review_link') return 'Производство работ';
+	    return 'Карта руководителя';
+	  };
+	  const directorMapContractForProject = (p) => buildDirectorMapContract({
+	    project: p,
+	    stages: projectStages,
+	    estimates: activeEstimatesForProject(p, 'Заказчик').map(est => ({...est, workPackage: estimatePackage(est)})),
+	    workJournal,
+	    materials,
+	    supplyRequests,
+	    supplyDeliveries,
+	    supplierInvoices,
+	    warehouseInvoices: invoices,
+	    materialInspections,
+	    hiddenActs,
+	    projectPayments,
+	    materialSummary: materialControlSummaryForProject(p.name),
+	    planDone: projectPlanDone(p),
+	    projectProgress: projectRealProgress(p),
+	  });
 	  const projectRealProgress = (p) => {
 	    if(!p) return 0;
     const {plan,done}=projectPlanDone(p);
@@ -13042,6 +13074,18 @@ function App() {
                         </div>);
                       })()}
                   </div>)}
+
+                    {DIRECTOR_MAP_FEATURE_ENABLED&&activeProjectTab==='Карта руководителя'&&(
+                      <ProjectDirectorMapPanel
+                        sandbox={false}
+                        contract={directorMapContractForProject(p)}
+                        onOpenStages={()=>setActiveProjectTab('Этапы')}
+                        onAction={({ item, action }) => {
+                          const targetTab = directorMapActionTarget({ item, action });
+                          if (targetTab) setActiveProjectTab(targetTab);
+                        }}
+                      />
+                    )}
 
 	                    {activeProjectTab==='Смета'&&(<div>
 	                      <b style={{color:C.text,display:'block',marginBottom:'15px'}}>Смета проекта</b>
