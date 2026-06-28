@@ -3279,6 +3279,7 @@
   }
   .public-nav {
     align-items: flex-start;
+    flex-wrap: wrap;
     gap: 12px;
   }
   .public-brand {
@@ -3290,21 +3291,27 @@
     min-height: 42px;
   }
   .public-nav-links {
+    order: 3;
+    flex: 0 0 100%;
     width: 100%;
-    gap: 8px;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
     padding: 4px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scroll-snap-type: x proximity;
+    overflow: visible;
   }
   .public-nav-links::-webkit-scrollbar {
     display: none;
   }
   .public-nav-links button {
-    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
     min-height: 40px;
-    white-space: nowrap;
-    scroll-snap-align: start;
+    padding: 9px 6px;
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
   }
   .public-hero {
     min-height: auto;
