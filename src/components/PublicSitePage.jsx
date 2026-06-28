@@ -1889,6 +1889,22 @@ const PublicSitePage = ({ onLogin }) => {
     if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
+  const scrollToCurrentHash = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const id = decodeURIComponent(window.location.hash.replace(/^#/, ''));
+    if (!id) return;
+    [0, 120, 420].forEach((delay) => {
+      setTimeout(() => scrollTo(id), delay);
+    });
+  }, [scrollTo]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    scrollToCurrentHash();
+    window.addEventListener('hashchange', scrollToCurrentHash);
+    return () => window.removeEventListener('hashchange', scrollToCurrentHash);
+  }, [scrollToCurrentHash]);
+
   const chooseReference = useCallback((direction, project = getReferenceProjectCards(direction)[0], scrollTarget = '') => {
     const projectCard = typeof project === 'string'
       ? getReferenceProjectCards(direction).find((item) => item.title === project) || { title: project, calcPatch: {} }
