@@ -21,6 +21,7 @@
     "smoke:ops-prod": "bash scripts/check-production-ops.sh",
     "smoke:public-api": "bash scripts/check-public-api-proxy.sh",
     "smoke:public-site": "python3 scripts/check-public-site-static.py",
+    "generate:public-plans": "node scripts/generate-public-project-plan-assets.js",
     "smoke:data-guard": "python3 scripts/smoke-data-guard.py",
     "smoke:telegram-expense": "python3 scripts/smoke-telegram-own-expense.py",
     "smoke:own-expense": "python3 scripts/smoke-own-expense-chain.py",
