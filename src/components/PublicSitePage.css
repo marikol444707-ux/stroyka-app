@@ -3455,19 +3455,17 @@
     text-align: left;
   }
   .public-project-media-strip {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    -webkit-overflow-scrolling: touch;
-    scroll-snap-type: x proximity;
+    overflow: visible;
+    padding-bottom: 0;
   }
   .public-project-media-strip::-webkit-scrollbar {
     display: none;
   }
   .public-project-media-strip button {
-    flex: 0 0 132px;
-    scroll-snap-align: start;
+    min-width: 0;
   }
   .public-project-thumb-grid > button {
     grid-template-columns: 96px minmax(0, 1fr);
@@ -3688,7 +3686,7 @@
     grid-template-columns: 88px minmax(0, 1fr);
   }
   .public-project-media-strip button {
-    flex-basis: 118px;
+    min-width: 0;
   }
   .public-project-asset-summary span {
     padding: 9px;
