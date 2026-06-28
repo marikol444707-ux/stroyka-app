@@ -527,25 +527,25 @@ const readyProjectCardsByDirection = {
   'one-floor-modern': [
     {
       code: 'H1-01',
-      title: 'Дом 105 м2 с террасой',
-      area: '105 м2',
+      title: 'Дом 147 м2 с террасой',
+      area: '147 м2',
       floors: '1 этаж',
-      layout: 'Кухня-гостиная, 3 спальни, санузел, котельная, терраса.',
-      visuals: 'Фасад, боковой ракурс и план 105 м2.',
+      layout: 'Кухня-гостиная, 3 спальни, 2 санузла, гардероб, котельная, терраса.',
+      visuals: 'Современный фасад, второй ракурс и план 147 м2.',
       media: [
         { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/h1-01/facade.png' },
         { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/h1-01/side.png' },
         { id: 'plan-1', kind: 'image', role: 'plan', label: 'Планировка', src: '/site-assets/projects/h1-01/plan.png' },
       ],
-      calcPatch: { area: 105, floors: 1, rooms: 4, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' },
+      calcPatch: { area: 147, floors: 1, rooms: 4, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' },
     },
     {
       code: 'H1-02',
       title: 'Дом 128 м2 с панорамной гостиной',
       area: '128 м2',
       floors: '1 этаж',
-      layout: 'Кухня-гостиная, мастер-спальня, 2 спальни, 2 санузла, гардероб.',
-      visuals: 'Длинный панорамный фасад, второй ракурс и план 128 м2.',
+      layout: 'Панорамная гостиная, мастер-спальня, 2 спальни, 2 санузла, гардероб, котельная.',
+      visuals: 'Панорамный фасад, второй ракурс и план 128 м2.',
       media: [
         { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/h1-02/facade.png' },
         { id: 'render-side', kind: 'image', role: 'render', label: '3D боковой', src: '/site-assets/projects/h1-02/side.png' },
@@ -657,9 +657,9 @@ const readyProjectCardsByDirection = {
     },
   ],
   'two-floor-modern': [
-    { code: 'H2-01', title: 'Дом 165 м2 на узкий участок', area: '165 м2', floors: '2 этажа', layout: '1 этаж: кухня-гостиная и кабинет. 2 этаж: 3 спальни.', visuals: 'Современный фасад + планы 1/2 этажа.', calcPatch: { area: 165, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
-    { code: 'H2-02', title: 'Дом 190 м2 со вторым светом', area: '190 м2', floors: '2 этажа', layout: 'Второй свет, мастер-спальня, 2 детские, 3 санузла.', visuals: 'Фасад + разрез/план.', calcPatch: { area: 190, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
-    { code: 'H2-03', title: 'Дом 215 м2 с балконом', area: '215 м2', floors: '2 этажа', layout: 'Большая гостиная, 4 спальни, балкон, терраса.', visuals: 'Фасад с балконом + планы этажей.', calcPatch: { area: 215, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'H2-01', title: 'Дом 117 м2 с террасой и балконом', area: '117 м2', floors: '2 этажа', layout: '1 этаж: кухня-гостиная, гостевой санузел, кабинет/гостевая. 2 этаж: 3 спальни, санузел, балкон.', visuals: 'Современный фасад, терраса и планы 1/2 этажа.', calcPatch: { area: 117, floors: 2, rooms: 5, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'H2-02', title: 'Дом 174 м2 с четырьмя спальнями', area: '174 м2', floors: '2 этажа', layout: '1 этаж: кухня-гостиная, кабинет, котельная. 2 этаж: 4 спальни, санузел, два балкона.', visuals: 'Фасад с балконами и планы этажей.', calcPatch: { area: 174, floors: 2, rooms: 6, bedrooms: 4, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'H2-03', title: 'Дом 235 м2 с террасой и балконом', area: '235 м2', floors: '2 этажа', layout: 'Большая кухня-гостиная, кабинет, мастер-спальня, 3 спальни, балкон, терраса.', visuals: 'Большой современный фасад и планы этажей.', calcPatch: { area: 235, floors: 2, rooms: 6, bedrooms: 4, wallType: 'gasblock', package: 'turnkey' } },
   ],
   'two-floor-brick': [
     { code: 'B2-01', title: 'Кирпичный дом 180 м2', area: '180 м2', floors: '2 этажа', layout: 'Кухня-гостиная, 4 спальни, 2 санузла, котельная.', visuals: 'Кирпичный фасад + планы этажей.', calcPatch: { area: 180, floors: 2, rooms: 5, wallType: 'brick', package: 'turnkey' } },
@@ -667,9 +667,9 @@ const readyProjectCardsByDirection = {
     { code: 'B2-03', title: 'Классический дом 240 м2', area: '240 м2', floors: '2 этажа', layout: '5 спален, кабинет, большая кухня-гостиная, 3 санузла.', visuals: 'Классический фасад + планы.', calcPatch: { area: 240, floors: 2, rooms: 6, wallType: 'brick', package: 'turnkey' } },
   ],
   'garage-house': [
-    { code: 'GAR-01', title: 'Дом 190 м2 с гаражом', area: '190 м2', floors: '2 этажа', layout: 'Гараж, кухня-гостиная, 4 спальни, котельная.', visuals: 'Фасад с гаражом + планы.', calcPatch: { area: 190, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
-    { code: 'GAR-02', title: 'Дом 230 м2 с гаражом на 2 авто', area: '230 м2', floors: '2 этажа', layout: 'Гараж на 2 авто, мастер-спальня, кабинет, хоззона.', visuals: 'Фасад + планы этажей.', calcPatch: { area: 230, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
-    { code: 'GAR-03', title: 'Дом 210 м2 с мастерской', area: '210 м2', floors: '2 этажа', layout: 'Гараж, мастерская, кухня-гостиная, 3 спальни.', visuals: 'Фасад + план с мастерской.', calcPatch: { area: 210, floors: 2, rooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'GAR-01', title: 'Дом 136 м2 с гаражом и террасой', area: '136 м2', floors: '2 этажа', layout: 'Гараж, кухня-гостиная, терраса. 2 этаж: 3 спальни, санузел.', visuals: 'Фасад с гаражом, терраса и планы этажей.', calcPatch: { area: 136, floors: 2, rooms: 4, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'GAR-02', title: 'Дом 193 м2 с гаражом и плоской кровлей', area: '193 м2', floors: '2 этажа', layout: 'Гараж, кабинет, кухня-гостиная, мастер-спальня, 2 спальни, кровля-терраса.', visuals: 'Современный фасад, гараж и планы этажей.', calcPatch: { area: 193, floors: 2, rooms: 5, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'GAR-03', title: 'Дом 218 м2 с гаражом и мастер-спальней', area: '218 м2', floors: '2 этажа', layout: 'Гараж, мастерская, каминная гостиная, гостевая, мастер-спальня и 3 спальни.', visuals: 'Фасад с гаражом, мастерская и планы этажей.', calcPatch: { area: 218, floors: 2, rooms: 6, bedrooms: 5, wallType: 'gasblock', package: 'turnkey' } },
   ],
   townhouse: [
     { code: 'TOWN-01', title: 'Таунхаус 95 м2', area: '95 м2', floors: '2 этажа', layout: '1 этаж: кухня-гостиная. 2 этаж: 2 спальни.', visuals: 'Фасад секции + план.', calcPatch: { area: 95, floors: 2, rooms: 3, wallType: 'brick', package: 'warm' } },
