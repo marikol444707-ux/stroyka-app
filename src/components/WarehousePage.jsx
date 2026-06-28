@@ -260,6 +260,12 @@ export default function WarehousePage(props) {
           showPreview={showPreview}
           buildInvoiceContent={buildInvoiceContent}
           setShowQRModal={setShowQRModal}
+          materials={materials}
+          materialControlSummaryForProject={materialControlSummaryForProject}
+          setWarehouseTab={setWarehouseTab}
+          setSelectedWarehouseProject={setSelectedWarehouseProject}
+          setNewTransfer={setNewTransfer}
+          setShowTransferForm={setShowTransferForm}
           C={C}
           card={card}
           inp={inp}

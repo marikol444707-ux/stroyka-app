@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Eye, Plus, QrCode, Upload, X } from 'lucide-react';
+import { Check, Eye, Plus, QrCode, Truck, Upload, X } from 'lucide-react';
 import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../../utils/invoiceImages';
 
 export function WarehouseInvoiceForm({
@@ -330,6 +330,9 @@ export function WarehouseInvoiceCard({
   setShowQRModal,
   fileSrc,
   setShowPhotoModal,
+  projectName,
+  materialSummary,
+  onPrepareTransfer,
   C,
   card,
   btnB,
@@ -341,6 +344,33 @@ export function WarehouseInvoiceCard({
 }) {
   const items = invoiceRows.items;
   const isPdfUrl = (url) => /\.pdf(?:$|[?#])/i.test(String(url || ''));
+  const toNum = value => {
+    const parsed = Number(String(value ?? '').replace(',', '.').replace(/\s+/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const normalizeText = value => String(value || '')
+    .toLowerCase()
+    .replace(/[.,;:()«»"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const packageOf = (row = {}) => String(row.workPackage || row.work_package || row.packageName || '').trim();
+  const formatMeasure = (value, unit) => {
+    const num = toNum(value);
+    if (!num) return '0 ' + (unit || '');
+    return (Math.round(num * 1000) / 1000).toLocaleString('ru-RU') + ' ' + (unit || '');
+  };
+  const stockFactForItem = (item = {}, ctrl = {}) => {
+    const rows = materialSummary?.rows || [];
+    if (!rows.length) return null;
+    const itemPackage = packageOf(ctrl) || packageOf(item);
+    const names = [item.name, ctrl.canonicalName, ctrl.name].map(normalizeText).filter(Boolean);
+    const nameMatches = row => {
+      const rowName = normalizeText(row.name);
+      return names.some(name => rowName === name || (name && (rowName.includes(name) || name.includes(rowName))));
+    };
+    const packageMatches = row => !itemPackage || packageOf(row) === itemPackage;
+    return rows.find(row => packageMatches(row) && nameMatches(row)) || rows.find(nameMatches) || null;
+  };
 
   return (
     <div style={{...card,padding:isMobile?'14px':'16px',marginBottom:'10px',overflow:'hidden'}}>
@@ -369,7 +399,13 @@ export function WarehouseInvoiceCard({
         </div>
         <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',width:isMobile?'100%':undefined,justifyContent:isMobile?'space-between':'flex-start'}}>
           <b style={{color:C.success,fontSize:'14px'}}>{(inv.totalWithVat||inv.totalBase||0).toLocaleString()+' ₽'}</b>
-          <div style={{display:'flex',gap:'6px'}}>
+          <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:isMobile?'flex-end':'flex-start'}}>
+            {onPrepareTransfer && projectName && items.length > 0 && (
+              <button onClick={onPrepareTransfer} style={{...btnG,padding:'6px 9px'}} title="Подготовить выдачу по материалам этой накладной">
+                <Truck size={13}/>
+                В выдачу
+              </button>
+            )}
             <button onClick={() => showPreview(buildInvoiceContent(inv),'Накладная № '+inv.number)} style={btnB} title="Печать"><Eye size={13}/></button>
             <button onClick={() => setShowQRModal({title:'QR накладной №'+inv.number,data:window.location.origin+'/?invoice='+inv.id})} style={btnG} title="QR-код накладной — отсканировав, можно быстро открыть на телефоне на стройке"><QrCode size={13}/></button>
           </div>
@@ -378,12 +414,14 @@ export function WarehouseInvoiceCard({
 
       {items.length > 0 ? (
         <details style={{marginTop:'10px'}}>
-          <summary style={{cursor:'pointer',color:C.accent,fontSize:'12px',fontWeight:'600',padding:'4px 0'}}>📋 Показать материалы ({items.length})</summary>
+          <summary style={{cursor:'pointer',color:C.accent,fontSize:'12px',fontWeight:'600',padding:'4px 0'}}>📋 Материалы и остатки ({items.length})</summary>
           {isMobile ? (
             <div style={{display:'grid',gap:'10px',marginTop:'8px'}}>
               {items.map((item, index) => {
                 const rowSum = Number(item.total || 0) || Number((item.quantity || 0) * (item.price || 0));
                 const ctrl = estimateControl[index] || {};
+                const fact = stockFactForItem(item, ctrl);
+                const factUnit = fact?.unit || ctrl.rowUnit || item.unit || '';
                 return (
                   <div key={index} style={{border:'1.5px solid '+C.border,borderRadius:'12px',backgroundColor:C.bg,padding:'10px',minWidth:0}}>
                     <div style={{display:'flex',justifyContent:'space-between',gap:'8px',alignItems:'flex-start',marginBottom:'8px'}}>
@@ -405,6 +443,14 @@ export function WarehouseInvoiceCard({
                       <span style={{color:C.textSec}}>Накладная<br/><b style={{color:C.info}}>{ctrl.incomingText || item.quantity + ' ' + (item.unit || '')}</b></span>
                       <span style={{color:C.textSec}}>Цена<br/><b style={{color:ctrl.priceOverText && ctrl.priceOverText !== '—' ? C.warning : C.text}}>{ctrl.invoicePriceText||'—'}</b></span>
                     </div>
+                    {projectName && (
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'10px',padding:'10px',borderRadius:'10px',border:'1px solid '+(fact?C.infoBorder:C.border),backgroundColor:fact?C.infoLight:C.bgWhite,fontSize:'12px'}}>
+                        <span style={{color:C.textSec}}>Остаток объекта<br/><b style={{color:fact && toNum(fact.stock)>0?C.success:C.textMuted}}>{fact ? formatMeasure(fact.stock, factUnit) : 'не найден'}</b></span>
+                        <span style={{color:C.textSec}}>Выдано по объекту<br/><b style={{color:fact && toNum(fact.issued)>0?C.info:C.textMuted}}>{fact ? formatMeasure(fact.issued, factUnit) : '—'}</b></span>
+                        <span style={{color:C.textSec}}>У мастеров<br/><b style={{color:fact && toNum(fact.masterBalance)>0?C.warning:C.textMuted}}>{fact ? formatMeasure(fact.masterBalance, factUnit) : '—'}</b></span>
+                        <span style={{color:C.textSec}}>Списано<br/><b style={{color:fact && toNum(fact.used)>0?C.text:C.textMuted}}>{fact ? formatMeasure(fact.used, factUnit) : '—'}</b></span>
+                      </div>
+                    )}
                     <div style={{marginTop:'8px',fontSize:'12px',color:ctrl.overText && ctrl.overText !== '—' ? C.danger : ctrl.shortageText && ctrl.shortageText !== '—' ? C.warning : C.success,fontWeight:'800'}}>
                       {ctrl.overText && ctrl.overText !== '—' ? 'Сверх сметы: '+ctrl.overText : ctrl.shortageText && ctrl.shortageText !== '—' ? 'Докупить: '+ctrl.shortageText : 'Закрыто по смете'}
                     </div>
@@ -415,12 +461,14 @@ export function WarehouseInvoiceCard({
             </div>
           ) : (
             <div style={{marginTop:'8px',overflowX:'auto'}}>
-              <table style={{...tbl,fontSize:'11px',minWidth:'1260px'}}>
-                <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План</th><th style={tblH}>До</th><th style={tblH}>Накладная</th><th style={tblH}>После</th><th style={tblH}>Докупить / сверх</th><th style={tblH}>Цена</th><th style={tblH}>Действие</th></tr></thead>
+              <table style={{...tbl,fontSize:'11px',minWidth:'1380px'}}>
+                <thead><tr><th style={tblH}>Наименование</th><th style={tblH}>Ед.</th><th style={tblH}>Кол-во</th><th style={tblH}>Сумма</th><th style={tblH}>Смета</th><th style={tblH}>План</th><th style={tblH}>До</th><th style={tblH}>Накладная</th><th style={tblH}>После</th><th style={tblH}>Докупить / сверх</th><th style={tblH}>Цена</th><th style={tblH}>Склад объекта</th><th style={tblH}>Действие</th></tr></thead>
                 <tbody>
                   {items.map((item, index) => {
                     const rowSum = Number(item.total || 0) || Number((item.quantity || 0) * (item.price || 0));
                     const ctrl = estimateControl[index] || {};
+                    const fact = stockFactForItem(item, ctrl);
+                    const factUnit = fact?.unit || ctrl.rowUnit || item.unit || '';
                     return (
                       <tr key={index}>
                         <td style={tblC}>
@@ -446,6 +494,15 @@ export function WarehouseInvoiceCard({
                         </td>
                         <td style={{...tblC,color:ctrl.priceOverText && ctrl.priceOverText !== '—' ? C.warning : C.textSec}}>
                           {(ctrl.invoicePriceText||'—')+' / '+(ctrl.planPriceText||'—')+(ctrl.priceOverText && ctrl.priceOverText !== '—' ? ' · +'+ctrl.priceOverText : '')}
+                        </td>
+                        <td style={tblC}>
+                          {projectName && fact ? (
+                            <div style={{display:'grid',gap:'2px',fontSize:'10px',color:C.textSec}}>
+                              <span>Ост: <b style={{color:toNum(fact.stock)>0?C.success:C.textMuted}}>{formatMeasure(fact.stock, factUnit)}</b></span>
+                              <span>Выд: <b style={{color:toNum(fact.issued)>0?C.info:C.textMuted}}>{formatMeasure(fact.issued, factUnit)}</b></span>
+                              <span>У мастеров: <b style={{color:toNum(fact.masterBalance)>0?C.warning:C.textMuted}}>{formatMeasure(fact.masterBalance, factUnit)}</b></span>
+                            </div>
+                          ) : '—'}
                         </td>
                         <td style={tblC}>{renderInvoiceControlActions ? (renderInvoiceControlActions(inv, ctrl, item) || <span style={{color:C.textMuted}}>—</span>) : <span style={{color:C.textMuted}}>—</span>}</td>
                       </tr>

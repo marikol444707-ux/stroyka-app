@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { WarehouseInvoiceCard, WarehouseInvoiceForm } from './warehouse/WarehouseInvoicesParts';
 
 export default function WarehouseInvoicesPanel({
@@ -25,6 +25,12 @@ export default function WarehouseInvoicesPanel({
   showPreview,
   buildInvoiceContent,
   setShowQRModal,
+  materials = [],
+  materialControlSummaryForProject,
+  setWarehouseTab,
+  setSelectedWarehouseProject,
+  setNewTransfer,
+  setShowTransferForm,
   C,
   card,
   inp,
@@ -40,11 +46,107 @@ export default function WarehouseInvoicesPanel({
   MATERIAL_CATEGORIES,
   isMobile = false,
 }) {
+  const [invoiceSearch, setInvoiceSearch] = React.useState('');
   const invoiceItems = newInvoice.items || [];
   const invoiceTotal = invoiceItems.reduce((sum, item) => sum + (Number(item.lineTotal || 0) || Number(item.quantity || 0) * Number(item.price || 0)), 0);
   const materialEstimates = (estimatesList || []).filter(est => est.projectName === newInvoice.location && est.smetaType === 'Материалы');
   const draftEstimateControl = warehouseInvoiceEstimateControl ? warehouseInvoiceEstimateControl(newInvoice) : [];
   const draftControlIssues = draftEstimateControl.filter(row => ['danger', 'warning'].includes(row.severity));
+  const canPrepareTransfer = typeof setNewTransfer === 'function' && typeof setShowTransferForm === 'function';
+
+  const toNum = value => {
+    const parsed = Number(String(value ?? '').replace(',', '.').replace(/\s+/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const normalizeText = value => String(value || '')
+    .toLowerCase()
+    .replace(/[.,;:()«»"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const invoiceProjectName = (inv = {}) => (
+    inv.location === 'Основной склад' ? '' : (inv.project || inv.location || '')
+  );
+
+  const packageOf = (row = {}) => String(row.workPackage || row.work_package || row.packageName || '').trim();
+
+  const stockForInvoiceItem = (projectName, item = {}, ctrl = {}) => {
+    if (!projectName) return null;
+    const itemPackage = packageOf(ctrl) || packageOf(item);
+    const names = [item.name, ctrl.canonicalName, ctrl.name].map(normalizeText).filter(Boolean);
+    const projectMaterials = (materials || []).filter(material => material.project === projectName);
+    const packageMatches = material => !itemPackage || packageOf(material) === itemPackage;
+    const nameMatches = material => {
+      const materialName = normalizeText(material.name);
+      return names.some(name => materialName === name || (name && (materialName.includes(name) || name.includes(materialName))));
+    };
+    return projectMaterials.find(material => packageMatches(material) && nameMatches(material)) ||
+      projectMaterials.find(nameMatches) ||
+      null;
+  };
+
+  const transferQuantity = (invoiceQty, stockQty) => {
+    const qty = stockQty > 0 ? Math.min(invoiceQty || stockQty, stockQty) : 0;
+    if (qty <= 0) return '';
+    return String(Math.round(qty * 1000) / 1000);
+  };
+
+  const prepareTransferFromInvoice = (inv, invoiceRows, estimateControl) => {
+    const projectName = invoiceProjectName(inv);
+    if (!projectName) {
+      window.alert('Эта накладная заведена на основной склад. Для передачи выберите объектную накладную или сделайте перемещение на объект.');
+      return;
+    }
+    const grouped = new Map();
+    (invoiceRows.items || []).forEach((item, index) => {
+      if (!item?.name) return;
+      const ctrl = estimateControl[index] || {};
+      const stock = stockForInvoiceItem(projectName, item, ctrl);
+      const materialName = stock?.name || item.name;
+      const unit = stock?.unit || ctrl.rowUnit || item.unit || 'шт';
+      const workPackage = packageOf(stock || {}) || packageOf(ctrl) || packageOf(item);
+      const stockQty = toNum(stock?.quantity);
+      const suggestedQty = transferQuantity(toNum(item.quantity), stockQty);
+      const key = [materialName, workPackage, unit].join('|||');
+      const existing = grouped.get(key);
+      if (existing) {
+        const nextQty = toNum(existing.quantity) + toNum(suggestedQty);
+        existing.quantity = stockQty > 0 ? transferQuantity(nextQty, stockQty) : existing.quantity;
+        return;
+      }
+      grouped.set(key, {
+        materialName,
+        quantity: suggestedQty,
+        unit,
+        workPackage,
+      });
+    });
+
+    const transferItems = Array.from(grouped.values()).filter(item => item.materialName);
+    if (!transferItems.length) {
+      window.alert('В накладной нет строк материалов для передачи.');
+      return;
+    }
+    const first = transferItems[0];
+    const invoiceLabel = ['накладной №' + (inv.number || inv.id || ''), inv.date ? 'от ' + inv.date : ''].filter(Boolean).join(' ');
+    setSelectedWarehouseProject?.(projectName);
+    setNewTransfer({
+      materialName: first.materialName,
+      quantity: first.quantity,
+      unit: first.unit || 'шт',
+      workPackage: transferItems.length === 1 ? (first.workPackage || '') : '',
+      items: transferItems,
+      toPerson: '',
+      toPersonRole: '',
+      toUserId: '',
+      fromLocation: projectName,
+      notes: 'Подготовлено из ' + invoiceLabel + '. Проверьте количество перед передачей.',
+      transferDate: new Date().toISOString().split('T')[0],
+    });
+    setWarehouseTab?.('objects');
+    setShowTransferForm(true);
+  };
 
   const controlTone = (row = {}) => {
     if (row.severity === 'danger') return {color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
@@ -86,6 +188,36 @@ export default function WarehouseInvoicesPanel({
     );
   };
 
+  const preparedInvoices = (invoices || []).map(inv => {
+    const invoiceRows = warehouseInvoiceItems(inv);
+    const estimateControl = warehouseInvoiceEstimateControl ? warehouseInvoiceEstimateControl(inv) : [];
+    const estimateIssues = estimateControl.filter(row => ['danger', 'warning'].includes(row.severity));
+    const projectName = invoiceProjectName(inv);
+    const materialSummary = projectName && typeof materialControlSummaryForProject === 'function'
+      ? materialControlSummaryForProject(projectName)
+      : null;
+    return { inv, invoiceRows, estimateControl, estimateIssues, projectName, materialSummary };
+  });
+
+  const normalizedInvoiceSearch = normalizeText(invoiceSearch);
+  const filteredInvoices = normalizedInvoiceSearch
+    ? preparedInvoices.filter(row => {
+      const itemText = (row.invoiceRows.items || []).map(item => item.name).join(' ');
+      return normalizeText([
+        row.inv.number,
+        row.inv.date,
+        row.inv.supplierName,
+        row.inv.acceptedBy,
+        row.inv.location,
+        row.inv.project,
+        row.inv.status,
+        itemText,
+      ].join(' ')).includes(normalizedInvoiceSearch);
+    })
+    : preparedInvoices;
+  const totalPositions = preparedInvoices.reduce((sum, row) => sum + (row.invoiceRows.items || []).length, 0);
+  const filteredPositions = filteredInvoices.reduce((sum, row) => sum + (row.invoiceRows.items || []).length, 0);
+
   const buildEstimateReconciliationReport = (estimate) => {
     const smetaItems = (estimate.sections || []).flatMap(section => section.items || []);
     const filledItems = invoiceItems.filter(item => item.name && item.quantity);
@@ -123,6 +255,35 @@ export default function WarehouseInvoicesPanel({
         <button onClick={() => setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая накладная</button>
       </div>
 
+      <div style={{display:'grid',gridTemplateColumns:isMobile?'repeat(2,minmax(0,1fr))':'repeat(4,minmax(0,1fr))',gap:'8px',marginBottom:'12px'}}>
+        <div style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
+          <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Накладных</p>
+          <b style={{color:C.text,fontSize:'15px'}}>{filteredInvoices.length}</b>
+        </div>
+        <div style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
+          <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Позиций</p>
+          <b style={{color:C.text,fontSize:'15px'}}>{filteredPositions}</b>
+        </div>
+        <div style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
+          <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Всего накладных</p>
+          <b style={{color:C.text,fontSize:'15px'}}>{preparedInvoices.length}</b>
+        </div>
+        <div style={{padding:'10px',border:'1px solid '+C.border,borderRadius:'10px',backgroundColor:C.bg}}>
+          <p style={{margin:'0 0 3px',fontSize:'10px',color:C.textSec}}>Всего позиций</p>
+          <b style={{color:C.text,fontSize:'15px'}}>{totalPositions}</b>
+        </div>
+      </div>
+
+      <div style={{position:'relative',marginBottom:'12px'}}>
+        <Search size={14} style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:C.textMuted}} />
+        <input
+          value={invoiceSearch}
+          onChange={event => setInvoiceSearch(event.target.value)}
+          placeholder="Поиск: номер, объект, поставщик, материал"
+          style={{...inp,marginBottom:0,paddingLeft:34,width:'100%',boxSizing:'border-box'}}
+        />
+      </div>
+
       {showForm && (
         <WarehouseInvoiceForm
           newInvoice={newInvoice}
@@ -158,10 +319,7 @@ export default function WarehouseInvoicesPanel({
         />
       )}
 
-      {(invoices || []).map(inv => {
-        const invoiceRows = warehouseInvoiceItems(inv);
-        const estimateControl = warehouseInvoiceEstimateControl ? warehouseInvoiceEstimateControl(inv) : [];
-        const estimateIssues = estimateControl.filter(row => ['danger', 'warning'].includes(row.severity));
+      {filteredInvoices.map(({ inv, invoiceRows, estimateControl, estimateIssues, projectName, materialSummary }) => {
         return (
           <WarehouseInvoiceCard
             key={inv.id}
@@ -178,6 +336,9 @@ export default function WarehouseInvoicesPanel({
             setShowQRModal={setShowQRModal}
             fileSrc={fileSrc}
             setShowPhotoModal={setShowPhotoModal}
+            projectName={projectName}
+            materialSummary={materialSummary}
+            onPrepareTransfer={canPrepareTransfer ? () => prepareTransferFromInvoice(inv, invoiceRows, estimateControl) : null}
             C={C}
             card={card}
             btnB={btnB}
@@ -191,6 +352,7 @@ export default function WarehouseInvoicesPanel({
       })}
 
       {(invoices || []).length === 0 && <p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Накладных нет</p>}
+      {(invoices || []).length > 0 && filteredInvoices.length === 0 && <p style={{color:C.textMuted,textAlign:'center',padding:'30px'}}>Поиск ничего не нашёл</p>}
     </div>
   );
 }
