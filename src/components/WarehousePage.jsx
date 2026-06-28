@@ -281,6 +281,7 @@ export default function WarehousePage(props) {
         <WarehouseHistoryPanel
           history={history}
           listSearch={listSearch}
+          setListSearch={setListSearch}
           matchSearch={matchSearch}
           exportToExcel={exportToExcel}
           C={C}
