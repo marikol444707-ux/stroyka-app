@@ -529,10 +529,10 @@ def check_crm(crm_token):
 
 def main():
     cleanup()
-    system_password = prepare_user(SYSTEM_EMAIL, "system_owner", f"{PREFIX} System Owner")
+    system_user = prepare_user_record(SYSTEM_EMAIL, "system_owner", f"{PREFIX} System Owner")
     crm_password = prepare_user(CRM_EMAIL, "менеджер_crm", f"{PREFIX} CRM Manager")
     try:
-        system_token = login(SYSTEM_EMAIL, system_password)
+        system_token = system_user["token"]
         crm_token = login(CRM_EMAIL, crm_password)
         platform_result = check_platform(system_token)
         platform_roles_result = check_platform_roles(system_token, platform_result)
