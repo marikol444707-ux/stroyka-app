@@ -7,6 +7,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [payments, setPayments] = useState([]);
   const [demos, setDemos] = useState([]);
   const [tariffs, setTariffs] = useState([]);
+  const [auditLog, setAuditLog] = useState([]);
   const [showNewCompany, setShowNewCompany] = useState(false);
   const emptyCompanyForm = {platformAccountId:'',platformAccountName:'',name:'',shortName:'',inn:'',kpp:'',contactName:'',contactPhone:'',contactEmail:'',plan:'demo',trialDays:30,monthlyFee:'',maxProjects:'',maxUsers:'',notes:''};
   const [newCompany, setNewCompany] = useState(emptyCompanyForm);
@@ -16,18 +17,20 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 
   const loadAll = useCallback(async () => {
     try {
-      const [d, c, p, dr, t] = await Promise.all([
+      const [d, c, p, dr, t, a] = await Promise.all([
         fetch(API+'/system/dashboard').then(r=>r.json()),
         fetch(API+'/system/companies').then(r=>r.json()),
         fetch(API+'/system/payments').then(r=>r.json()),
         fetch(API+'/demo-requests').then(r=>r.json()),
         fetch(API+'/system/tariffs').then(r=>r.json()),
+        fetch(API+'/system/audit-log?limit=80').then(r=>r.json()),
       ]);
       setDashboard(d);
       setCompanies(Array.isArray(c)?c:[]);
       setPayments(Array.isArray(p)?p:[]);
       setDemos(Array.isArray(dr)?dr:[]);
       setTariffs(Array.isArray(t)?t:[]);
+      setAuditLog(Array.isArray(a)?a:[]);
     } catch(_){}
 	  }, [API]);
 	  useEffect(()=>{ loadAll(); }, [loadAll]);
@@ -125,6 +128,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     {id:'tariffs', label:'💼 Тарифы'},
     {id:'payments', label:'💰 Платежи'},
     {id:'demos', label:'🎁 Демо-заявки'},
+    {id:'audit', label:'🧾 Журнал'},
     {id:'system', label:'🔧 Система'},
   ];
 
@@ -400,6 +404,55 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <button onClick={async()=>{await fetch(API+'/demo-requests/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонена'})});loadAll();}} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}>✕ Отклонить</button>
             </div>)}
           </div>))}
+        </div>)}
+
+        {/* Журнал платформы */}
+        {tab==='audit' && (<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap',marginBottom:'12px'}}>
+            <div>
+              <b style={{color:C.text,fontSize:'15px',display:'block'}}>Журнал действий платформы ({auditLog.length})</b>
+              <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0 0'}}>Создание аккаунтов, компаний, оплаты, заморозки, демо-заявки.</p>
+            </div>
+            <button onClick={loadAll} style={{...btnG,padding:'7px 12px',fontSize:'12px'}}>Обновить</button>
+          </div>
+          {auditLog.length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Событий пока нет</div>}
+          {auditLog.map(item=>{
+            const labels = {
+              platform_account_created: 'Создан аккаунт',
+              company_created: 'Создана компания',
+              company_soft_suspended: 'Мягкая заморозка',
+              company_hard_suspended: 'Жесткая заморозка',
+              company_resumed: 'Разморозка',
+              company_marked_overdue: 'Просрочка',
+              company_trial_extended: 'Продлен триал',
+              company_tariff_changed: 'Сменен тариф',
+              company_updated: 'Компания изменена',
+              payment_added: 'Зачислена оплата',
+              demo_request_updated: 'Демо-заявка изменена',
+            };
+            const details = item.details || {};
+            const meta = [
+              item.actor_name || item.actor_role || 'system',
+              item.entity_name,
+              item.company_id ? 'company #' + item.company_id : '',
+            ].filter(Boolean).join(' · ');
+            return (
+              <div key={item.id} style={{...card,padding:'12px',marginBottom:'8px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
+                  <div style={{minWidth:0,flex:1}}>
+                    <b style={{color:C.text,fontSize:'13px',display:'block'}}>{labels[item.action] || item.action}</b>
+                    <p style={{color:C.textSec,margin:'3px 0 0',fontSize:'11px',overflowWrap:'anywhere'}}>{meta || '—'}</p>
+                    {(details.amount || details.plan || details.status || details.paymentDate || details.periodEnd) && (
+                      <p style={{color:C.textMuted,margin:'4px 0 0',fontSize:'11px',overflowWrap:'anywhere'}}>
+                        {[details.plan && 'тариф '+details.plan, details.status, details.amount && Number(details.amount).toLocaleString('ru-RU')+' ₽', details.paymentDate, details.periodEnd && 'до '+details.periodEnd].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                  <span style={badge(C.textSec,C.bg,C.border)}>{item.created_at ? new Date(item.created_at).toLocaleString('ru-RU') : '—'}</span>
+                </div>
+              </div>
+            );
+          })}
         </div>)}
 
         {/* Система */}

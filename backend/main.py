@@ -2232,6 +2232,7 @@ def init_db():
         INSERT INTO platform_accounts (id, name, owner_name, plan, status)
         VALUES (1, 'СтройКа', 'system_owner', 'pro', 'active')
         ON CONFLICT (id) DO NOTHING;
+        SELECT setval(pg_get_serial_sequence('platform_accounts','id'), GREATEST((SELECT COALESCE(MAX(id), 1) FROM platform_accounts), 1), true);
         CREATE TABLE IF NOT EXISTS companies (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -2250,6 +2251,7 @@ def init_db():
         );
         INSERT INTO companies (id, name, short_name, plan) VALUES (1, 'СтройКа', 'СтройКа', 'pro')
         ON CONFLICT (id) DO NOTHING;
+        SELECT setval(pg_get_serial_sequence('companies','id'), GREATEST((SELECT COALESCE(MAX(id), 1) FROM companies), 1), true);
         ALTER TABLE companies ADD COLUMN IF NOT EXISTS platform_account_id INT DEFAULT 1;
         UPDATE companies SET platform_account_id=1 WHERE platform_account_id IS NULL;
         -- SaaS-биллинг: расширение companies для управления подписками
@@ -2297,6 +2299,20 @@ def init_db():
             notes TEXT,
             created_at TIMESTAMP DEFAULT NOW(),
             processed_at TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS platform_audit_log (
+            id SERIAL PRIMARY KEY,
+            actor_user_id INT,
+            actor_name VARCHAR(255),
+            actor_role VARCHAR(100),
+            action VARCHAR(100) NOT NULL,
+            entity_type VARCHAR(100),
+            entity_id INT,
+            entity_name VARCHAR(255),
+            platform_account_id INT,
+            company_id INT,
+            details_json TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
         );
         -- Ставим company_id на ключевые таблицы — пока всем 1 (текущая компания)
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
@@ -6617,6 +6633,21 @@ def _system_company_billing_state(company: dict):
             return {"status": "payment_expiring", "label": "Оплата скоро закончится", "level": "warning", "reason": f"Осталось {days_left} дн.", "daysLeft": days_left}
     return {"status": "active_paid", "label": "Активен", "level": "success", "reason": "Оплата в порядке.", "daysLeft": days_left}
 
+def _system_write_audit(cur, current_user: dict, action: str, entity_type: str = None, entity_id: int = None,
+                        entity_name: str = None, platform_account_id: int = None, company_id: int = None,
+                        details: dict = None):
+    safe_details = details or {}
+    cur.execute("""INSERT INTO platform_audit_log
+                   (actor_user_id, actor_name, actor_role, action, entity_type, entity_id, entity_name,
+                    platform_account_id, company_id, details_json)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (current_user.get("id") if isinstance(current_user, dict) else None,
+         current_user.get("name") if isinstance(current_user, dict) else "system_owner",
+         current_user.get("role") if isinstance(current_user, dict) else None,
+         action, entity_type, entity_id, entity_name,
+         platform_account_id, company_id,
+         json.dumps(safe_details, ensure_ascii=False, default=str)))
+
 @app.get("/system/tariffs")
 def system_tariffs_list(_current_user: dict = Depends(require_roles("system_owner"))):
     return SYSTEM_TARIFFS
@@ -6653,7 +6684,7 @@ def system_companies_list(_current_user: dict = Depends(require_roles("system_ow
     return rows
 
 @app.post("/system/companies")
-def system_create_company(data: dict, _current_user: dict = Depends(require_roles("system_owner"))):
+def system_create_company(data: dict, current_user: dict = Depends(require_roles("system_owner"))):
     """Создание новой компании-клиента + инвайт-код её директору."""
     from datetime import datetime, timedelta
     conn = get_db()
@@ -6666,6 +6697,7 @@ def system_create_company(data: dict, _current_user: dict = Depends(require_role
     max_projects = int(data.get('maxProjects') or tariff.get('maxProjects') or 0) or None
     max_users = int(data.get('maxUsers') or tariff.get('maxUsers') or 0) or None
     platform_account_id = data.get('platformAccountId')
+    created_platform_account = False
     if not platform_account_id:
         account_name = (data.get('platformAccountName') or data.get('accountName') or data.get('name') or '').strip()
         cur.execute("""INSERT INTO platform_accounts (name, owner_name, contact_email, plan, status, notes)
@@ -6673,6 +6705,10 @@ def system_create_company(data: dict, _current_user: dict = Depends(require_role
             (account_name, data.get('contactName'), data.get('contactEmail'),
              plan, 'trial' if plan == 'demo' else 'active', data.get('notes')))
         platform_account_id = cur.fetchone()['id']
+        created_platform_account = True
+        _system_write_audit(cur, current_user, "platform_account_created", "platform_account",
+            platform_account_id, account_name, platform_account_id=platform_account_id,
+            details={"plan": plan, "status": "trial" if plan == "demo" else "active", "contactEmail": data.get("contactEmail")})
     cur.execute("""INSERT INTO companies (platform_account_id, name, short_name, inn, kpp, contact_name, contact_phone,
                                           contact_email, plan, trial_until, monthly_fee,
                                           payment_status, max_projects, max_users, active, notes)
@@ -6689,18 +6725,36 @@ def system_create_company(data: dict, _current_user: dict = Depends(require_role
     expires = datetime.now() + timedelta(days=30)
     cur.execute("INSERT INTO invite_codes (code, role, preset_name, expires_at, created_by) VALUES (%s,%s,%s,%s,%s)",
         (invite_code, 'директор', data.get('name'), expires, data.get('createdBy') or 'system_owner'))
+    _system_write_audit(cur, current_user, "company_created", "company", new_id, data.get('name'),
+        platform_account_id=platform_account_id, company_id=new_id,
+        details={
+            "createdPlatformAccount": created_platform_account,
+            "plan": plan,
+            "trialUntil": trial_until,
+            "monthlyFee": monthly_fee,
+            "maxProjects": max_projects,
+            "maxUsers": max_users,
+            "inviteCode": invite_code,
+        })
     conn.close()
     return {"id": new_id, "inviteCode": invite_code, "trialUntil": str(trial_until) if trial_until else None}
 
 @app.put("/system/companies/{id}")
-def system_update_company(id: int, data: dict, _current_user: dict = Depends(require_roles("system_owner"))):
+def system_update_company(id: int, data: dict, current_user: dict = Depends(require_roles("system_owner"))):
     """Обновление компании: смена тарифа, продление триала, заморозка."""
     from datetime import datetime
     action = data.get('action')
     if id == 1 and action in ('suspend', 'soft_suspend', 'hard_suspend'):
         raise HTTPException(status_code=400, detail="system_owner company cannot be suspended")
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""SELECT id, name, platform_account_id, plan, trial_until, plan_expires_at,
+                          payment_status, suspended_at, active, max_projects, max_users
+                   FROM companies WHERE id=%s""", (id,))
+    before = cur.fetchone()
+    if not before:
+        conn.close()
+        raise HTTPException(status_code=404, detail="company not found")
     sets, vals = [], []
     fields_map = [
         ('plan','plan'),('trialUntil','trial_until'),('planExpiresAt','plan_expires_at'),
@@ -6734,6 +6788,24 @@ def system_update_company(id: int, data: dict, _current_user: dict = Depends(req
         return {"ok": False, "error": "no fields"}
     vals.append(id)
     cur.execute("UPDATE companies SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    cur.execute("""SELECT id, name, platform_account_id, plan, trial_until, plan_expires_at,
+                          payment_status, suspended_at, active, max_projects, max_users
+                   FROM companies WHERE id=%s""", (id,))
+    after = cur.fetchone()
+    audit_action = {
+        "soft_suspend": "company_soft_suspended",
+        "suspend": "company_soft_suspended",
+        "hard_suspend": "company_hard_suspended",
+        "resume": "company_resumed",
+        "mark_overdue": "company_marked_overdue",
+    }.get(action, "company_updated")
+    if not action and ("trialUntil" in data):
+        audit_action = "company_trial_extended"
+    if not action and ("plan" in data):
+        audit_action = "company_tariff_changed"
+    _system_write_audit(cur, current_user, audit_action, "company", id, after.get("name"),
+        platform_account_id=after.get("platform_account_id"), company_id=id,
+        details={"request": data, "before": dict(before), "after": dict(after)})
     conn.close()
     return {"ok": True}
 
@@ -6792,7 +6864,7 @@ def system_payments_list(_current_user: dict = Depends(require_roles("system_own
     return rows
 
 @app.post("/system/payments")
-def system_create_payment(data: dict, _current_user: dict = Depends(require_roles("system_owner"))):
+def system_create_payment(data: dict, current_user: dict = Depends(require_roles("system_owner"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""INSERT INTO company_payments (company_id, amount, payment_date, method,
@@ -6811,8 +6883,49 @@ def system_create_payment(data: dict, _current_user: dict = Depends(require_role
                            suspended_at=NULL, suspended_reason=NULL, active=TRUE
                        WHERE id=%s""",
             (data['periodEnd'], data['companyId']))
+    cur.execute("SELECT id, name, platform_account_id FROM companies WHERE id=%s", (data.get('companyId'),))
+    company = cur.fetchone() or {}
+    _system_write_audit(cur, current_user, "payment_added", "company_payment", new_id,
+        data.get('invoiceNumber') or company.get('name'), platform_account_id=company.get('platform_account_id'),
+        company_id=data.get('companyId'),
+        details={
+            "amount": float(data.get('amount') or 0),
+            "paymentDate": data.get('paymentDate'),
+            "periodStart": data.get('periodStart'),
+            "periodEnd": data.get('periodEnd'),
+            "method": data.get('method'),
+            "companyName": company.get('name'),
+        })
     conn.close()
     return {"id": new_id, "ok": True}
+
+@app.get("/system/audit-log")
+def system_audit_log(limit: int = 120, companyId: Optional[int] = None,
+                     _current_user: dict = Depends(require_roles("system_owner"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    safe_limit = max(1, min(int(limit or 120), 300))
+    where, vals = [], []
+    if companyId:
+        where.append("company_id=%s")
+        vals.append(companyId)
+    sql = """SELECT id, actor_user_id, actor_name, actor_role, action, entity_type, entity_id,
+                    entity_name, platform_account_id, company_id, details_json, created_at
+             FROM platform_audit_log"""
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY created_at DESC LIMIT %s"
+    vals.append(safe_limit)
+    cur.execute(sql, vals)
+    rows = [dict(r) for r in cur.fetchall()]
+    for row in rows:
+        try:
+            row["details"] = json.loads(row.get("details_json") or "{}")
+        except Exception:
+            row["details"] = {}
+        row.pop("details_json", None)
+    conn.close()
+    return rows
 
 @app.get("/demo-requests")
 def list_demo_requests(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
@@ -6839,10 +6952,15 @@ def create_demo_request(data: dict):
     return {"id": new_id, "ok": True, "message": "Заявка принята, с вами свяжутся в течение рабочего дня"}
 
 @app.put("/demo-requests/{id}")
-def update_demo_request(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
+def update_demo_request(id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
     from datetime import datetime
     conn = get_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM demo_requests WHERE id=%s", (id,))
+    before = cur.fetchone()
+    if not before:
+        conn.close()
+        raise HTTPException(status_code=404, detail="demo request not found")
     sets, vals = [], []
     for k, c in [('status','status'),('notes','notes'),('assignedCompanyId','assigned_company_id')]:
         if k in data:
@@ -6854,6 +6972,11 @@ def update_demo_request(id: int, data: dict, _current_user: dict = Depends(requi
         return {"ok": False}
     vals.append(id)
     cur.execute("UPDATE demo_requests SET " + ", ".join(sets) + " WHERE id=%s", vals)
+    cur.execute("SELECT * FROM demo_requests WHERE id=%s", (id,))
+    after = cur.fetchone()
+    _system_write_audit(cur, current_user, "demo_request_updated", "demo_request", id,
+        after.get("company_name"), company_id=after.get("assigned_company_id"),
+        details={"request": data, "beforeStatus": before.get("status"), "afterStatus": after.get("status")})
     conn.close()
     return {"ok": True}
 

@@ -130,6 +130,14 @@ def cleanup():
         cur.execute("DELETE FROM staff WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM company_payments WHERE company_id IN (SELECT id FROM companies WHERE name LIKE %s)", (like_prefix,))
         cur.execute("DELETE FROM invite_codes WHERE preset_name IN (SELECT name FROM companies WHERE name LIKE %s)", (like_prefix,))
+        cur.execute("""
+            DELETE FROM platform_audit_log
+            WHERE actor_name LIKE %s
+               OR entity_name LIKE %s
+               OR COALESCE(details_json,'') LIKE %s
+               OR company_id IN (SELECT id FROM companies WHERE name LIKE %s)
+               OR platform_account_id IN (SELECT id FROM platform_accounts WHERE name LIKE %s)
+        """, (like_prefix, like_prefix, "%" + PREFIX + "%", like_prefix, like_prefix))
         cur.execute("DELETE FROM companies WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM platform_accounts WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM users WHERE LOWER(email)=LOWER(%s) OR LOWER(email)=LOWER(%s)", emails)
@@ -219,6 +227,11 @@ def check_platform(system_token):
     created_company = next((c for c in companies if c.get("id") == company_id), None)
     if not created_company or not created_company.get("billing_state"):
         raise RuntimeError("system companies did not return created company with billing_state")
+    _, audit_log = api_json("GET", "/system/audit-log?limit=80", token=system_token, expected=200)
+    audit_text = json.dumps(audit_log, ensure_ascii=False)
+    for expected_action in ("platform_account_created", "company_created", "company_soft_suspended", "company_resumed", "payment_added"):
+        if expected_action not in audit_text:
+            raise RuntimeError(f"system audit log missing {expected_action}")
     return {"companyId": company_id, "tariffs": sorted(tariff_ids)}
 
 
@@ -370,6 +383,7 @@ def main():
                 "platform account company creation",
                 "soft suspend and resume",
                 "platform payment",
+                "platform audit log",
                 "crm lead summaries and details",
                 "crm documents and tasks",
                 "supplier approval",
