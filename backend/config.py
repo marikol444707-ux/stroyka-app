@@ -48,20 +48,27 @@ SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = env_int("SMTP_PORT", 465 if os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes") else 587)
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_PLACEHOLDER_EMAILS = {
+    "your@email.com",
+    "you@example.com",
+    "noreply@example.com",
+    "no-reply@example.com",
+    "твоя_почта@домен.ru",
+}
+
+
+def valid_smtp_email(value: str) -> bool:
+    raw = (value or "").strip()
+    return bool(raw and "@" in raw and raw.lower() not in SMTP_PLACEHOLDER_EMAILS)
 
 
 def smtp_from_value() -> str:
     raw = os.getenv("SMTP_FROM", "").strip()
-    placeholders = {
-        "your@email.com",
-        "you@example.com",
-        "noreply@example.com",
-        "no-reply@example.com",
-        "твоя_почта@домен.ru",
-    }
-    if not raw or raw.lower() in placeholders or "@" not in raw:
+    if valid_smtp_email(raw):
+        return raw
+    if valid_smtp_email(SMTP_USER):
         return SMTP_USER
-    return raw
+    return ""
 
 
 SMTP_FROM = smtp_from_value()
