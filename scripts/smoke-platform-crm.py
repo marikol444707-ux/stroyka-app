@@ -21,6 +21,7 @@ ENV_PATH = ROOT / "backend" / ".env"
 BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
 RUN_ID = uuid.uuid4().hex[:8]
 PREFIX = f"CODEX PLATFORM CRM SMOKE {RUN_ID}"
+SMOKE_GENERATE_PLATFORM_PDF = os.getenv("SMOKE_GENERATE_PLATFORM_PDF") == "1"
 SYSTEM_EMAIL = f"platform-crm-system-{RUN_ID}@stroyka.local"
 CRM_EMAIL = f"platform-crm-manager-{RUN_ID}@stroyka.local"
 PLATFORM_ROLE_EMAILS = {
@@ -298,6 +299,27 @@ def check_platform(system_token):
     _, billing_documents = api_json("GET", "/system/billing-documents", token=system_token, expected=200)
     if not any(item.get("id") == billing_document_id and item.get("status") == "payment_expected" for item in billing_documents):
         raise RuntimeError(f"system billing documents did not include updated document: {billing_documents}")
+    _, payment_providers = api_json("GET", "/system/payment-providers", token=system_token, expected=200)
+    if not any(item.get("id") == "manual" and item.get("configured") for item in payment_providers):
+        raise RuntimeError(f"system payment providers did not include manual provider: {payment_providers}")
+    _, prepared_payment = api_json(
+        "POST",
+        f"/system/billing-documents/{billing_document_id}/prepare-payment",
+        token=system_token,
+        expected=200,
+        data={"provider": "manual", "paymentUrl": f"https://stroyka26.pro/pay/smoke-{RUN_ID}"},
+    )
+    if prepared_payment.get("paymentLinkCreated") is not False or prepared_payment.get("document", {}).get("status") != "payment_expected":
+        raise RuntimeError(f"system prepare-payment returned invalid body: {prepared_payment}")
+    if SMOKE_GENERATE_PLATFORM_PDF:
+        _, generated_pdf = api_json(
+            "POST",
+            f"/system/billing-documents/{billing_document_id}/generate-pdf",
+            token=system_token,
+            expected=200,
+        )
+        if not str(generated_pdf.get("fileUrl", "")).endswith(".pdf"):
+            raise RuntimeError(f"system billing PDF generation returned invalid body: {generated_pdf}")
     _, companies = api_json("GET", "/system/companies", token=system_token, expected=200)
     created_company = next((c for c in companies if c.get("id") == company_id), None)
     if not created_company or not created_company.get("billing_state"):
@@ -312,6 +334,8 @@ def check_platform(system_token):
         "payment_added",
         "platform_billing_document_created",
         "platform_billing_document_updated",
+        "platform_payment_provider_prepared",
+        *(("platform_billing_document_pdf_generated",) if SMOKE_GENERATE_PLATFORM_PDF else ()),
     ):
         if expected_action not in audit_text:
             raise RuntimeError(f"system audit log missing {expected_action}")
@@ -382,8 +406,10 @@ def check_platform_roles(system_token, platform_result):
 
     api_json("GET", "/system/payments", token=platform_support["token"], expected=403)
     api_json("GET", "/system/billing-documents", token=platform_support["token"], expected=403)
+    api_json("GET", "/system/payment-providers", token=platform_support["token"], expected=403)
     api_json("GET", "/system/payments", token=billing_admin["token"], expected=200)
     api_json("GET", "/system/billing-documents", token=billing_admin["token"], expected=200)
+    api_json("GET", "/system/payment-providers", token=billing_admin["token"], expected=200)
     _, billing_payment = api_json(
         "POST",
         "/system/payments",
@@ -622,6 +648,7 @@ def main():
                 "soft suspend and resume",
                 "platform payment",
                 "platform billing documents",
+                "platform payment providers",
                 "platform audit log",
                 "platform audit filters",
                 "platform team invite",

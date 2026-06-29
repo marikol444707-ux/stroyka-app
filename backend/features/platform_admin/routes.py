@@ -1,5 +1,9 @@
 import datetime as dt
 import json
+import os
+import re
+import textwrap
+import urllib.parse
 import uuid
 from datetime import datetime, timedelta, date
 from typing import Optional
@@ -202,6 +206,219 @@ def _billing_document_status_label(status: str) -> str:
         "cancelled": "Аннулирован",
     }
     return labels.get(status or "", status or "Черновик")
+
+
+def _payment_provider_label(provider: str) -> str:
+    labels = {
+        "manual": "Безнал / вручную",
+        "yukassa": "ЮKassa",
+        "robokassa": "Robokassa",
+    }
+    return labels.get(provider or "", provider or "Безнал / вручную")
+
+
+def _payment_provider_states() -> list:
+    yukassa_shop = (os.getenv("YUKASSA_SHOP_ID") or os.getenv("YOOKASSA_SHOP_ID") or "").strip()
+    yukassa_secret = (os.getenv("YUKASSA_SECRET_KEY") or os.getenv("YOOKASSA_SECRET_KEY") or "").strip()
+    robokassa_login = (os.getenv("ROBOKASSA_MERCHANT_LOGIN") or "").strip()
+    robokassa_password = (os.getenv("ROBOKASSA_PASSWORD1") or "").strip()
+    return [
+        {
+            "id": "manual",
+            "label": _payment_provider_label("manual"),
+            "configured": True,
+            "mode": "manual",
+            "message": "Ручной безнал: можно прикрепить счет/акт и потом зачислить факт оплаты отдельно.",
+        },
+        {
+            "id": "yukassa",
+            "label": _payment_provider_label("yukassa"),
+            "configured": bool(yukassa_shop and yukassa_secret),
+            "mode": "draft_only",
+            "message": "Интеграционный слой подготовлен, внешний платеж не создается автоматически.",
+        },
+        {
+            "id": "robokassa",
+            "label": _payment_provider_label("robokassa"),
+            "configured": bool(robokassa_login and robokassa_password),
+            "mode": "draft_only",
+            "message": "Интеграционный слой подготовлен, внешний платеж не создается автоматически.",
+        },
+    ]
+
+
+def _payment_provider_by_id(provider: str) -> dict:
+    provider_id = (provider or "manual").strip()
+    return next((item for item in _payment_provider_states() if item["id"] == provider_id), None)
+
+
+def _safe_pdf_segment(value: str, fallback: str = "document") -> str:
+    text = re.sub(r"[^A-Za-z0-9А-Яа-яёЁ._-]+", "-", str(value or "")).strip("-._")
+    return (text[:70] or fallback)
+
+
+def _format_money(value) -> str:
+    try:
+        return f"{float(value or 0):,.2f}".replace(",", " ").replace(".", ",") + " RUB"
+    except Exception:
+        return "0,00 RUB"
+
+
+def _display_date(value) -> str:
+    return str(value)[:10] if value else "-"
+
+
+def _register_pdf_font():
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    regular_candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+    ]
+    bold_candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    ]
+    regular_path = next((path for path in regular_candidates if os.path.exists(path)), None)
+    bold_path = next((path for path in bold_candidates if os.path.exists(path)), None)
+    if not regular_path:
+        return "Helvetica", "Helvetica-Bold"
+    if "StroykaSans" not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont("StroykaSans", regular_path))
+    if bold_path and "StroykaSansBold" not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont("StroykaSansBold", bold_path))
+    return "StroykaSans", "StroykaSansBold" if bold_path else "StroykaSans"
+
+
+def _draw_wrapped_pdf_line(canvas_obj, text: str, x: float, y: float, width_chars: int,
+                           font_name: str, font_size: int = 10, leading: int = 14) -> float:
+    canvas_obj.setFont(font_name, font_size)
+    for line in textwrap.wrap(str(text or "-"), width=width_chars) or ["-"]:
+        canvas_obj.drawString(x, y, line)
+        y -= leading
+    return y
+
+
+def _generate_billing_document_pdf(document: dict, company: dict, current_user: dict) -> str:
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Для генерации PDF установите reportlab: pip install -r requirements.txt") from exc
+
+    regular_font, bold_font = _register_pdf_font()
+    upload_root = os.getenv("UPLOAD_DIR", "uploads").strip() or "uploads"
+    today_parts = dt.datetime.utcnow().strftime("%Y/%m/%d").split("/")
+    rel_dir_parts = ["platform-billing", *today_parts]
+    output_dir = os.path.join(upload_root, *rel_dir_parts)
+    os.makedirs(output_dir, exist_ok=True)
+
+    number = document.get("number") or f"DOC-{document.get('id')}"
+    filename = _safe_pdf_segment(number, "billing-document") + "-" + str(uuid.uuid4())[:8] + ".pdf"
+    output_path = os.path.join(output_dir, filename)
+    file_url = "/uploads/" + urllib.parse.quote("/".join([*rel_dir_parts, filename]), safe="/")
+
+    label = _billing_document_type_label(document.get("document_type"))
+    title = f"{label} {number}"
+    if document.get("document_type") == "invoice":
+        title = f"Счет на оплату {number}"
+    elif document.get("document_type") == "act":
+        title = f"Акт оказанных услуг {number}"
+
+    c = canvas.Canvas(output_path, pagesize=A4)
+    page_width, page_height = A4
+    x = 48
+    y = page_height - 54
+    c.setFont(bold_font, 18)
+    c.drawString(x, y, "Stroyka ERP")
+    c.setFont(regular_font, 9)
+    c.drawRightString(page_width - x, y + 3, "Платежный документ платформы")
+    y -= 34
+    c.setFont(bold_font, 16)
+    c.drawString(x, y, title)
+    y -= 26
+    c.setFont(regular_font, 10)
+    c.drawString(x, y, "Дата документа: " + _display_date(document.get("issue_date") or document.get("created_at")))
+    c.drawString(310, y, "Оплатить до: " + _display_date(document.get("due_date")))
+    y -= 22
+    c.line(x, y, page_width - x, y)
+    y -= 26
+
+    c.setFont(bold_font, 11)
+    c.drawString(x, y, "Получатель")
+    y -= 16
+    y = _draw_wrapped_pdf_line(c, "Оператор платформы Stroyka ERP", x, y, 90, regular_font, 10)
+    y -= 6
+    c.setFont(bold_font, 11)
+    c.drawString(x, y, "Плательщик")
+    y -= 16
+    payer = company.get("name") or document.get("company_name") or "-"
+    inn = company.get("inn")
+    kpp = company.get("kpp")
+    if inn:
+        payer += f", ИНН {inn}"
+    if kpp:
+        payer += f", КПП {kpp}"
+    y = _draw_wrapped_pdf_line(c, payer, x, y, 90, regular_font, 10)
+    if company.get("contact_email"):
+        y = _draw_wrapped_pdf_line(c, "Email: " + company.get("contact_email"), x, y, 90, regular_font, 10)
+    y -= 12
+
+    c.setFont(bold_font, 11)
+    c.drawString(x, y, "Основание")
+    y -= 16
+    period = f"{_display_date(document.get('period_start'))} - {_display_date(document.get('period_end'))}"
+    description = "Доступ к Stroyka ERP и сопровождение аккаунта платформы"
+    y = _draw_wrapped_pdf_line(c, description, x, y, 88, regular_font, 10)
+    c.drawString(x, y, "Период: " + period)
+    c.drawString(310, y, "Провайдер: " + _payment_provider_label(document.get("payment_provider")))
+    y -= 26
+
+    c.setFont(bold_font, 10)
+    c.drawString(x, y, "Наименование")
+    c.drawRightString(page_width - 190, y, "Кол-во")
+    c.drawRightString(page_width - 110, y, "Цена")
+    c.drawRightString(page_width - x, y, "Сумма")
+    y -= 8
+    c.line(x, y, page_width - x, y)
+    y -= 18
+    c.setFont(regular_font, 10)
+    c.drawString(x, y, "Подписка / услуги платформы")
+    c.drawRightString(page_width - 190, y, "1")
+    c.drawRightString(page_width - 110, y, _format_money(document.get("amount")))
+    c.drawRightString(page_width - x, y, _format_money(document.get("amount")))
+    y -= 18
+    c.line(x, y, page_width - x, y)
+    y -= 24
+    c.setFont(bold_font, 13)
+    c.drawRightString(page_width - x, y, "Итого: " + _format_money(document.get("amount")))
+    y -= 34
+
+    c.setFont(regular_font, 9)
+    y = _draw_wrapped_pdf_line(
+        c,
+        "Важно: этот документ является основанием для оплаты и не подтверждает поступление денег. "
+        "Факт оплаты фиксируется в кабинете платформы отдельным платежом после проверки поступления.",
+        x,
+        y,
+        110,
+        regular_font,
+        9,
+        13,
+    )
+    if document.get("notes"):
+        y -= 8
+        y = _draw_wrapped_pdf_line(c, "Комментарий: " + str(document.get("notes")), x, y, 110, regular_font, 9, 13)
+    y -= 26
+    c.setFont(regular_font, 9)
+    c.drawString(x, y, "Сформировал: " + (current_user.get("name") or current_user.get("email") or "-"))
+    c.drawRightString(page_width - x, y, "Статус: " + _billing_document_status_label(document.get("status")))
+    c.showPage()
+    c.save()
+    return file_url
 
 
 def register_platform_admin_routes(app, deps):
@@ -430,6 +647,10 @@ def register_platform_admin_routes(app, deps):
         conn.close()
         return rows
 
+    @app.get("/system/payment-providers")
+    def system_payment_providers(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        return _payment_provider_states()
+
     @app.post("/system/payments")
     def system_create_payment(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         conn = get_db()
@@ -583,6 +804,103 @@ def register_platform_admin_routes(app, deps):
         document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
         document["statusLabel"] = _billing_document_status_label(document.get("status"))
         return {"ok": True, "document": document}
+
+    @app.post("/system/billing-documents/{id}/generate-pdf")
+    def system_generate_billing_document_pdf(id: int, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT d.*, c.name AS company_name, c.inn, c.kpp, c.contact_email,
+                              c.platform_account_id AS company_platform_account_id,
+                              pa.name AS platform_account_name
+                       FROM platform_billing_documents d
+                       LEFT JOIN companies c ON c.id=d.company_id
+                       LEFT JOIN platform_accounts pa ON pa.id=d.platform_account_id
+                       WHERE d.id=%s""", (id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Документ не найден")
+        document = dict(row)
+        company = {
+            "name": document.get("company_name"),
+            "inn": document.get("inn"),
+            "kpp": document.get("kpp"),
+            "contact_email": document.get("contact_email"),
+        }
+        file_url = _generate_billing_document_pdf(document, company, current_user)
+        cur.execute("""UPDATE platform_billing_documents
+                       SET file_url=%s, updated_at=NOW()
+                       WHERE id=%s
+                       RETURNING *""", (file_url, id))
+        updated = dict(cur.fetchone())
+        _system_write_audit(cur, current_user, "platform_billing_document_pdf_generated", "platform_billing_document", id,
+            updated.get("number"), platform_account_id=updated.get("platform_account_id"), company_id=updated.get("company_id"),
+            details={
+                "fileUrl": file_url,
+                "documentType": updated.get("document_type"),
+                "amount": float(updated.get("amount") or 0),
+                "companyName": document.get("company_name"),
+            })
+        conn.close()
+        updated["documentTypeLabel"] = _billing_document_type_label(updated.get("document_type"))
+        updated["statusLabel"] = _billing_document_status_label(updated.get("status"))
+        return {"ok": True, "fileUrl": file_url, "document": updated}
+
+    @app.post("/system/billing-documents/{id}/prepare-payment")
+    def system_prepare_billing_payment(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        provider = (data.get("provider") or data.get("paymentProvider") or data.get("payment_provider") or "manual").strip()
+        provider_state = _payment_provider_by_id(provider)
+        if not provider_state:
+            raise HTTPException(status_code=400, detail="Недопустимый платежный провайдер")
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT d.*, c.name AS company_name
+                       FROM platform_billing_documents d
+                       LEFT JOIN companies c ON c.id=d.company_id
+                       WHERE d.id=%s""", (id,))
+        before = cur.fetchone()
+        if not before:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Документ не найден")
+        payment_url = data.get("paymentUrl") or data.get("payment_url") or before.get("payment_url")
+        cur.execute("""UPDATE platform_billing_documents
+                       SET payment_provider=%s,
+                           payment_url=COALESCE(%s, payment_url),
+                           status=CASE WHEN status IN ('draft','issued') THEN 'payment_expected' ELSE status END,
+                           updated_at=NOW()
+                       WHERE id=%s
+                       RETURNING *""", (provider, payment_url, id))
+        document = dict(cur.fetchone())
+        draft_payload = {
+            "provider": provider,
+            "documentId": id,
+            "number": document.get("number"),
+            "amount": float(document.get("amount") or 0),
+            "currency": document.get("currency") or "RUB",
+            "description": f"Stroyka ERP {document.get('number') or id}",
+            "returnUrl": data.get("returnUrl") or None,
+        }
+        _system_write_audit(cur, current_user, "platform_payment_provider_prepared", "platform_billing_document", id,
+            document.get("number"), platform_account_id=document.get("platform_account_id"), company_id=document.get("company_id"),
+            details={
+                "provider": provider,
+                "providerLabel": provider_state.get("label"),
+                "providerConfigured": provider_state.get("configured"),
+                "integrationMode": provider_state.get("mode"),
+                "paymentLinkCreated": False,
+                "companyName": before.get("company_name"),
+            })
+        conn.close()
+        document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
+        document["statusLabel"] = _billing_document_status_label(document.get("status"))
+        return {
+            "ok": True,
+            "document": document,
+            "provider": provider_state,
+            "draftPayload": draft_payload,
+            "paymentLinkCreated": False,
+            "message": "Провайдер подготовлен. Внешний платеж не создавался, факт оплаты нужно зачислять отдельно.",
+        }
 
     @app.get("/system/platform-users")
     def system_platform_users(_current_user: dict = Depends(require_roles(*PLATFORM_TEAM_ROLES))):

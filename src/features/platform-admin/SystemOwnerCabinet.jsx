@@ -6,6 +6,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [companies, setCompanies] = useState([]);
   const [payments, setPayments] = useState([]);
   const [billingDocuments, setBillingDocuments] = useState([]);
+  const [paymentProviders, setPaymentProviders] = useState([]);
   const [demos, setDemos] = useState([]);
   const [tariffs, setTariffs] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
@@ -80,6 +81,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     demo_request_updated: 'Демо-заявка изменена',
     platform_billing_document_created: 'Создан платежный документ',
     platform_billing_document_updated: 'Изменен платежный документ',
+    platform_billing_document_pdf_generated: 'Сформирован PDF документа',
+    platform_payment_provider_prepared: 'Подготовлен платежный провайдер',
     platform_user_invited: 'Приглашен сотрудник платформы',
     platform_user_updated: 'Сотрудник платформы изменен',
     support_session_opened: 'Открыт режим поддержки',
@@ -93,11 +96,12 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       if (auditFilters.companyId) auditParams.set('companyId', auditFilters.companyId);
       if (auditFilters.action) auditParams.set('action', auditFilters.action);
       if (auditFilters.search.trim()) auditParams.set('search', auditFilters.search.trim());
-      const [d, c, p, bd, dr, t, a, u, s] = await Promise.all([
+      const [d, c, p, bd, pp, dr, t, a, u, s] = await Promise.all([
         fetchJson('/system/dashboard', null),
         fetchJson('/system/companies', []),
         canManageBilling ? fetchJson('/system/payments', []) : Promise.resolve([]),
         canManageBilling ? fetchJson('/system/billing-documents', []) : Promise.resolve([]),
+        canManageBilling ? fetchJson('/system/payment-providers', []) : Promise.resolve([]),
         canManagePlatform ? fetchJson('/demo-requests', []) : Promise.resolve([]),
         fetchJson('/system/tariffs', []),
         fetchJson('/system/audit-log?'+auditParams.toString(), []),
@@ -108,6 +112,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setCompanies(Array.isArray(c)?c:[]);
       setPayments(Array.isArray(p)?p:[]);
       setBillingDocuments(Array.isArray(bd)?bd:[]);
+      setPaymentProviders(Array.isArray(pp)?pp:[]);
       setDemos(Array.isArray(dr)?dr:[]);
       setTariffs(Array.isArray(t)?t:[]);
       setAuditLog(Array.isArray(a)?a:[]);
@@ -203,6 +208,10 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     if (status === 'cancelled') return {color:C.danger, bg:C.dangerLight, border:C.dangerBorder};
     if (status === 'issued') return {color:C.info, bg:C.infoLight, border:C.infoBorder};
     return {color:C.textSec, bg:C.bg, border:C.border};
+  };
+  const fileSrc = (url) => {
+    if (!url) return '';
+    return String(url).startsWith('http') ? url : API + url;
   };
 
   const applyTariffToForm = (plan) => {
@@ -448,6 +457,16 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             </div>
           </div>
 
+          {paymentProviders.length > 0 && (<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'8px',marginBottom:'14px'}}>
+            {paymentProviders.map(provider=>{
+              const ready = provider.configured;
+              return (<div key={provider.id} style={{...card,padding:'11px',border:'1.5px solid '+(ready?C.successBorder:C.warningBorder),backgroundColor:ready?C.successLight:C.warningLight}}>
+                <b style={{color:ready?C.success:C.warning,fontSize:'12px',display:'block'}}>{provider.label}</b>
+                <p style={{color:C.textSec,fontSize:'11px',margin:'4px 0 0'}}>{ready?'Готов к использованию':'Нужны ключи в .env'} · {provider.mode}</p>
+              </div>);
+            })}
+          </div>)}
+
           {showNewBillingDocument && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
             <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Создать платежный документ платформы</b>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:'8px'}}>
@@ -503,10 +522,24 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                     <b style={{color:C.text,fontSize:'13px',display:'block'}}>{doc.documentTypeLabel || billingDocumentTypeLabels[doc.document_type] || doc.document_type} {doc.number || 'без номера'}</b>
                     <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>{doc.company_name || '—'}{doc.period_start?' · период '+doc.period_start+' – '+(doc.period_end || ''):''}{doc.due_date?' · оплатить до '+doc.due_date:''}</p>
                     {(doc.payment_provider || doc.payment_url) && <p style={{color:C.textMuted,fontSize:'11px',margin:'3px 0 0',overflowWrap:'anywhere'}}>{doc.payment_provider || 'manual'}{doc.payment_url?' · '+doc.payment_url:''}</p>}
+                    {doc.file_url && <a href={fileSrc(doc.file_url)} target='_blank' rel='noreferrer' style={{color:C.info,fontSize:'11px',fontWeight:800,textDecoration:'none',display:'inline-block',marginTop:'5px'}}>Открыть PDF</a>}
                   </div>
                   <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
                     <b style={{color:C.success,fontSize:'14px',whiteSpace:'nowrap'}}>{Number(doc.amount || 0).toLocaleString('ru-RU')} ₽</b>
                     <span style={badge(colors.color,colors.bg,colors.border)}>{doc.statusLabel || billingDocumentStatusLabels[doc.status] || doc.status}</span>
+                    <button onClick={async()=>{
+                      const response = await sendJson('/system/billing-documents/'+doc.id+'/generate-pdf',{method:'POST'});
+                      const data = await response.json().catch(()=>({}));
+                      if(!response.ok){ alert(data.detail || 'Не удалось сформировать PDF'); return; }
+                      await loadAll();
+                    }} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>PDF</button>
+                    <button onClick={async()=>{
+                      const response = await sendJson('/system/billing-documents/'+doc.id+'/prepare-payment',{method:'POST',body:JSON.stringify({provider:doc.payment_provider || 'manual', paymentUrl:doc.payment_url || ''})});
+                      const data = await response.json().catch(()=>({}));
+                      if(!response.ok){ alert(data.detail || 'Не удалось подготовить оплату'); return; }
+                      alert(data.message || 'Провайдер подготовлен');
+                      await loadAll();
+                    }} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Провайдер</button>
                     {doc.status === 'draft' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'issued'})});loadAll();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Выставлен</button>}
                     {doc.status !== 'cancelled' && doc.status !== 'closed' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'payment_expected'})});loadAll();}} style={{...btnO,padding:'5px 10px',fontSize:'11px'}}>Ждет оплату</button>}
                     {doc.status !== 'cancelled' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'closed'})});loadAll();}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}>Закрыть</button>}
