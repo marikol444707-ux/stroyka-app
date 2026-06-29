@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, Plus, X } from 'lucide-react';
+import { API } from '../api';
 
 export default function ScannedInvoiceFormModal({
   showScannedInvoiceForm,
@@ -18,6 +19,7 @@ export default function ScannedInvoiceFormModal({
   units,
   saveInvoiceNew,
 }) {
+  const [rememberingTemplate, setRememberingTemplate] = React.useState(false);
   if (!showScannedInvoiceForm) return null;
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
   const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
@@ -25,11 +27,13 @@ export default function ScannedInvoiceFormModal({
     ? getProjectWorkPackageOptions(invoiceProject)
     : [];
   const defaultWorkPackage = packageOptions.length === 1 ? packageOptions[0] : '';
+  const isScannedInvoice = String(newInvoice.sourceType || '').startsWith('scan_') || Boolean(newInvoice.scanDocumentType || newInvoice.scanWarnings || newInvoice.scanRecognition);
+  const scanRecognition = newInvoice.scanRecognition || {};
 
   const updateItem = (idx, patch) => {
     const items=[...newInvoice.items];
     items[idx]={...items[idx],...patch};
-    setNewInvoice({...newInvoice,items});
+    setNewInvoice({...newInvoice,items,...(isScannedInvoice?{scanHasManualCorrections:true}:{})});
   };
   const workOptionsForItem = (item = {}) => invoiceProject && typeof getProjectEstimateWorkOptions === 'function'
     ? getProjectEstimateWorkOptions(invoiceProject, item.workPackage || newInvoice.workPackage || '')
@@ -64,6 +68,7 @@ export default function ScannedInvoiceFormModal({
       project,
       workPackage: defaultPackage,
       items: (newInvoice.items || []).map(item => ({...item, workPackage: item.workPackage || defaultPackage})),
+      ...(isScannedInvoice ? {scanHasManualCorrections:true} : {}),
     });
   };
 
@@ -76,6 +81,57 @@ export default function ScannedInvoiceFormModal({
       const saved = await saveInvoiceNew();
       if (saved) setShowScannedInvoiceForm(false);
     }catch(e){alert('Ошибка: '+(e.message||e));}
+  };
+
+  const patchInvoice = (patch, markEdited = true) => {
+    setNewInvoice({
+      ...newInvoice,
+      ...patch,
+      ...(markEdited && isScannedInvoice ? {scanHasManualCorrections:true} : {}),
+    });
+  };
+
+  const rememberInvoiceTemplate = async () => {
+    const supplierName = String(newInvoice.supplier || newInvoice.newSupplierName || scanRecognition.supplierName || '').trim();
+    if (!supplierName) return alert('Сначала укажите поставщика.');
+    const items = (newInvoice.items || []).filter(item => item.name && Number(item.quantity) > 0);
+    if (!items.length) return alert('Добавьте хотя бы одну распознанную позицию.');
+    setRememberingTemplate(true);
+    try {
+      const response = await fetch(API + '/supplier-invoice-templates/learn', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          supplierId:newInvoice.supplierId || scanRecognition.supplierId || 0,
+          supplierName,
+          number:newInvoice.number || '',
+          date:newInvoice.date || '',
+          documentType:newInvoice.scanDocumentType || 'supplier_invoice',
+          vat:newInvoice.vat || '',
+          totalBase:newInvoice.totalBase || 0,
+          totalVat:newInvoice.totalVat || 0,
+          totalWithVat:newInvoice.totalWithVat || 0,
+          items,
+          recognition:scanRecognition,
+          project:newInvoice.project || '',
+        })
+      });
+      const data = await response.json().catch(()=>({}));
+      if (!response.ok || !data.ok) throw new Error(data.detail || data.error || 'Не удалось сохранить правило поставщика');
+      setNewInvoice({
+        ...newInvoice,
+        scanRecognition:data.recognition || scanRecognition,
+        scanHasManualCorrections:false,
+        supplierId:data.template?.supplierId || newInvoice.supplierId,
+        supplier:data.template?.supplierName || newInvoice.supplier || supplierName,
+        newSupplierName:data.template?.supplierName || newInvoice.newSupplierName || supplierName,
+      });
+      alert('Правило распознавания поставщика сохранено.');
+    } catch (error) {
+      alert(error.message || 'Не удалось сохранить правило поставщика');
+    } finally {
+      setRememberingTemplate(false);
+    }
   };
 
   const inputStyle = {
@@ -100,6 +156,7 @@ export default function ScannedInvoiceFormModal({
   const displayVat = Number(newInvoice.totalVat||0);
   const scanWarnings = Array.isArray(newInvoice.scanWarnings) ? newInvoice.scanWarnings.filter(Boolean) : [];
   const isDraftNumber = /^SCAN-\d{8}-\d{4}$/i.test(String(newInvoice.number || ''));
+  const canRememberTemplate = isScannedInvoice && String(newInvoice.supplier || newInvoice.newSupplierName || scanRecognition.supplierName || '').trim();
 
   return (
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:isMobile?'center':'center',justifyContent:'center',padding:isMobile?'12px':0,boxSizing:'border-box'}}>
@@ -112,6 +169,15 @@ export default function ScannedInvoiceFormModal({
             {Number(newInvoice.pagesCount || 0) > 1 ? ` · страниц: ${newInvoice.pagesCount}` : ''}
           </div>
         )}
+        {isScannedInvoice && (
+          <div style={{border:'1.5px solid '+(scanRecognition.method === 'template' ? C.success : C.info),borderRadius:'12px',padding:isMobile?'10px 12px':'8px 10px',marginBottom:'10px',backgroundColor:scanRecognition.method === 'template' ? 'rgba(16,185,129,0.10)' : 'rgba(59,130,246,0.10)',color:C.text,fontSize:isMobile?'14px':'12px',lineHeight:1.45}}>
+            <b style={{display:'block',marginBottom:'3px',color:scanRecognition.method === 'template' ? C.success : C.info}}>
+              {scanRecognition.label || (scanRecognition.method === 'template' ? 'Распознано по шаблону поставщика' : 'Распознано через AI/OCR')}
+            </b>
+            <div>{scanRecognition.templateName ? 'Шаблон: ' + scanRecognition.templateName : 'Если поправите строки, поставщика или суммы, можно сохранить это как правило поставщика.'}</div>
+            {scanRecognition.supplierName && <div style={{color:C.textSec}}>Поставщик: {scanRecognition.supplierName}</div>}
+          </div>
+        )}
         {(scanWarnings.length > 0 || isDraftNumber) && (
           <div style={{border:'1.5px solid '+C.warningBorder,borderRadius:'12px',padding:isMobile?'10px 12px':'8px 10px',marginBottom:'10px',backgroundColor:C.warningLight,color:C.warning,fontSize:isMobile?'14px':'12px',lineHeight:1.45}}>
             <b style={{display:'block',marginBottom:'4px'}}>Проверьте распознавание</b>
@@ -119,16 +185,16 @@ export default function ScannedInvoiceFormModal({
             {scanWarnings.map((warning, index) => <div key={index}>{warning}</div>)}
           </div>
         )}
-        <input placeholder='Номер документа *' value={newInvoice.number||''} onChange={e=>setNewInvoice({...newInvoice,number:e.target.value})} style={inputStyle}/>
-        <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>setNewInvoice({...newInvoice,supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inputStyle}/>
+        <input placeholder='Номер документа *' value={newInvoice.number||''} onChange={e=>patchInvoice({number:e.target.value})} style={inputStyle}/>
+        <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>patchInvoice({supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true})} style={inputStyle}/>
         <select value={newInvoice.location||''} onChange={e=>updateLocation(e.target.value)} style={inputStyle}>
           <option value=''>Выберите склад *</option>
           <option value='Основной склад'>📦 Основной склад</option>
           {projects.map(p=><option key={p.id} value={p.name}>🏗️ {p.name}</option>)}
         </select>
         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'8px'}}>
-          <input type='date' value={newInvoice.date||new Date().toISOString().split('T')[0]} onChange={e=>setNewInvoice({...newInvoice,date:e.target.value})} style={inputStyle}/>
-          <select value={newInvoice.vat||'Без НДС'} onChange={e=>setNewInvoice({...newInvoice,vat:e.target.value})} style={inputStyle}>
+          <input type='date' value={newInvoice.date||new Date().toISOString().split('T')[0]} onChange={e=>patchInvoice({date:e.target.value})} style={inputStyle}/>
+          <select value={newInvoice.vat||'Без НДС'} onChange={e=>patchInvoice({vat:e.target.value})} style={inputStyle}>
             <option value='Без НДС'>Без НДС</option>
             <option value='С НДС 20%'>С НДС 20%</option>
             <option value='С НДС 22%'>С НДС 22%</option>
@@ -150,7 +216,7 @@ export default function ScannedInvoiceFormModal({
               <input placeholder='Цена с НДС' type='number' step='any' inputMode='decimal' value={item.price} onChange={e=>updateItem(idx,{price:e.target.value})} style={itemInputStyle}/>
               <input placeholder='Сумма строки' type='number' step='any' inputMode='decimal' value={item.lineTotal||''} onChange={e=>updateItem(idx,{lineTotal:e.target.value})} style={itemInputStyle}/>
             </div>
-            <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push({name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage});setNewInvoice({...newInvoice,items});}} style={{...btnR,padding:isMobile?'8px':'4px 6px',fontSize:'11px',alignSelf:'stretch',justifyContent:'center'}}><X size={isMobile?16:12}/></button>
+            <button onClick={()=>{const items=newInvoice.items.filter((_,i)=>i!==idx);if(!items.length)items.push({name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage});setNewInvoice({...newInvoice,items,...(isScannedInvoice?{scanHasManualCorrections:true}:{})});}} style={{...btnR,padding:isMobile?'8px':'4px 6px',fontSize:'11px',alignSelf:'stretch',justifyContent:'center'}}><X size={isMobile?16:12}/></button>
             {invoiceProject && (
               <select value={item.estimateWorkValue || ''} onChange={e=>updateItemWork(idx, e.target.value)} style={{...itemSelectStyle,gridColumn:isMobile?undefined:'1 / span 6'}}>
                 <option value=''>Работа сметы, если материал не выделен отдельной строкой</option>
@@ -159,7 +225,7 @@ export default function ScannedInvoiceFormModal({
             )}
           </div>
         ))}
-        <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage}]})} style={{...btnG,fontSize:isMobile?'15px':'12px',padding:isMobile?'10px 14px':'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>
+        <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:defaultWorkPackage}],...(isScannedInvoice?{scanHasManualCorrections:true}:{})})} style={{...btnG,fontSize:isMobile?'15px':'12px',padding:isMobile?'10px 14px':'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'8px 0'}}>
           <b style={{color:C.text,fontSize:isMobile?'18px':'13px'}}>Итого: {displayTotal.toLocaleString()} ₽</b>
         </div>
@@ -170,6 +236,11 @@ export default function ScannedInvoiceFormModal({
           </div>
         )}
         <div className='mobile-actions' style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:isMobile?'wrap':'nowrap'}}>
+          {canRememberTemplate && (
+            <button onClick={rememberInvoiceTemplate} disabled={rememberingTemplate} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center',borderColor:C.accent,color:C.accent,opacity:rememberingTemplate?0.7:1}}>
+              {rememberingTemplate ? 'Сохраняю...' : '🧠 Запомнить исправления'}
+            </button>
+          )}
           <button onClick={save} style={{...btnO,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><Check size={14}/>Сохранить</button>
           <button onClick={()=>setShowScannedInvoiceForm(false)} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><X size={14}/>Отмена</button>
         </div>

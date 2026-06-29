@@ -142,6 +142,7 @@ export default function ScanInvoiceModal({
       const data = await resp.json();
       if(!data.ok) throw new Error(scanErrorMessage(data.error||'Ошибка'));
       const parsed = data.data;
+      const scanRecognition = parsed.recognition || parsed.scanRecognition || null;
       const parsedNumber = firstText(parsed.number, parsed.invoiceNumber, parsed.invoice_number, parsed.documentNumber, parsed.document_number, parsed.no);
       const parsedDate = firstText(parsed.date, parsed.invoiceDate, parsed.invoice_date, parsed.documentDate, parsed.document_date);
       const parsedSupplier = firstText(
@@ -151,7 +152,8 @@ export default function ScanInvoiceModal({
         parsed.seller,
         parsed.shipper,
         parsed.consignor,
-        parsed.sender
+        parsed.sender,
+        scanRecognition?.supplierName
       );
       const uploadedPhotos = (await Promise.all(normalizedPages.map(page => uploadInvoicePhoto(page.uploadFile, location)))).filter(Boolean);
       const today = new Date().toISOString().split('T')[0];
@@ -234,7 +236,9 @@ export default function ScanInvoiceModal({
           scanWarnings:warnings,
           scanDocumentType:parsed.documentType || parsed.document_type || '',
           scanDocumentTitle:parsed.documentTitle || parsed.document_title || '',
-          scanConfidence:parsed.confidence ?? ''
+          scanConfidence:parsed.confidence ?? scanRecognition?.confidence ?? '',
+          scanRecognition,
+          scanHasManualCorrections:false
         };
       });
       setShowScanInvoice(false);

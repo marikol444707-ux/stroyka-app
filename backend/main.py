@@ -2171,6 +2171,25 @@ def init_db():
             uploaded_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS supplier_invoice_templates (
+            id SERIAL PRIMARY KEY,
+            supplier_id INT,
+            supplier_key TEXT NOT NULL,
+            supplier_name TEXT NOT NULL,
+            template_name TEXT,
+            document_type TEXT,
+            match_keywords TEXT,
+            column_map TEXT,
+            sample_json TEXT,
+            active BOOLEAN DEFAULT TRUE,
+            usage_count INT DEFAULT 0,
+            last_used_at TIMESTAMP,
+            updated_by TEXT,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_supplier_invoice_templates_key ON supplier_invoice_templates(supplier_key);
+        CREATE INDEX IF NOT EXISTS idx_supplier_invoice_templates_active ON supplier_invoice_templates(active);
         CREATE TABLE IF NOT EXISTS supply_requests (
             id SERIAL PRIMARY KEY,
             material_name VARCHAR(255),
@@ -18635,6 +18654,329 @@ def delete_supplier_document(id: int, current_user: dict = Depends(get_current_u
     cur.close(); conn.close()
     return {"ok": True}
 
+def _supplier_invoice_template_key(value: str) -> str:
+    return _normalize_supplier_name_key(value or "")
+
+def _supplier_invoice_template_json(value, fallback):
+    if isinstance(value, (dict, list)):
+        return value
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+def _supplier_invoice_template_row(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "supplierId": row.get("supplier_id") or 0,
+        "supplierKey": row.get("supplier_key") or "",
+        "supplierName": row.get("supplier_name") or "",
+        "templateName": row.get("template_name") or "",
+        "documentType": row.get("document_type") or "",
+        "matchKeywords": _supplier_invoice_template_json(row.get("match_keywords"), []),
+        "columnMap": _supplier_invoice_template_json(row.get("column_map"), {}),
+        "sample": _supplier_invoice_template_json(row.get("sample_json"), {}),
+        "active": bool(row.get("active", True)),
+        "usageCount": int(row.get("usage_count") or 0),
+        "lastUsedAt": str(row.get("last_used_at")) if row.get("last_used_at") else "",
+        "updatedBy": row.get("updated_by") or "",
+        "updatedAt": str(row.get("updated_at")) if row.get("updated_at") else "",
+        "createdAt": str(row.get("created_at")) if row.get("created_at") else "",
+    }
+
+def _scan_invoice_supplier_name(payload: dict) -> str:
+    payload = payload or {}
+    for key in ("supplier", "supplierName", "supplier_name", "seller", "shipper", "consignor", "sender"):
+        text = str(payload.get(key) or "").strip()
+        if text:
+            return text
+    document = payload.get("document") if isinstance(payload.get("document"), dict) else {}
+    for key in ("supplier", "supplierName", "seller"):
+        text = str(document.get(key) or "").strip()
+        if text:
+            return text
+    return ""
+
+def _find_supplier_by_name_key(cur, supplier_name: str):
+    supplier_key = _supplier_invoice_template_key(supplier_name)
+    if not supplier_key:
+        return None
+    cur.execute("SELECT id, name FROM suppliers ORDER BY id")
+    for row in cur.fetchall() or []:
+        row_name = _row_get(row, "name", 1, "")
+        if _supplier_invoice_template_key(row_name) == supplier_key:
+            return {"id": _row_get(row, "id", 0, 0), "name": row_name}
+    return None
+
+def _supplier_invoice_template_match_score(row, supplier_name: str) -> float:
+    supplier_key = _supplier_invoice_template_key(supplier_name)
+    template_key = str(row.get("supplier_key") or "").strip()
+    if supplier_key and template_key and supplier_key == template_key:
+        return 1.0
+    haystack = " ".join([
+        supplier_name or "",
+        str(row.get("supplier_name") or ""),
+        " ".join(_supplier_invoice_template_json(row.get("match_keywords"), [])),
+    ])
+    hay_key = _supplier_invoice_template_key(haystack)
+    if supplier_key and hay_key:
+        if supplier_key in hay_key or hay_key in supplier_key:
+            return 0.92
+        supplier_words = [w for w in supplier_key.split() if len(w) > 2]
+        if supplier_words:
+            hits = len([w for w in supplier_words if w in hay_key])
+            return hits / max(len(supplier_words), 1)
+    return 0.0
+
+def _find_supplier_invoice_template(cur, payload: dict):
+    supplier_name = _scan_invoice_supplier_name(payload)
+    supplier_key = _supplier_invoice_template_key(supplier_name)
+    if not supplier_key:
+        return None, supplier_name
+    cur.execute("""SELECT *
+                   FROM supplier_invoice_templates
+                   WHERE active=TRUE
+                   ORDER BY usage_count DESC, updated_at DESC, id DESC
+                   LIMIT 100""")
+    best = None
+    for row in cur.fetchall() or []:
+        score = _supplier_invoice_template_match_score(row, supplier_name)
+        if score >= 0.72 and (not best or score > best["score"]):
+            best = {"row": row, "score": score}
+    return best, supplier_name
+
+def _invoice_scan_template_hint(limit: int = 12) -> str:
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT supplier_name, template_name, document_type, match_keywords, sample_json, usage_count
+                       FROM supplier_invoice_templates
+                       WHERE active=TRUE
+                       ORDER BY usage_count DESC, updated_at DESC, id DESC
+                       LIMIT %s""", (limit,))
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+    except Exception as exc:
+        print("INVOICE TEMPLATE HINT ERROR:", str(exc))
+        return ""
+    if not rows:
+        return ""
+    lines = []
+    for row in rows:
+        keywords = _supplier_invoice_template_json(row.get("match_keywords"), [])
+        if not isinstance(keywords, list):
+            keywords = []
+        sample = _supplier_invoice_template_json(row.get("sample_json"), {})
+        sample_items = sample.get("items") if isinstance(sample, dict) else []
+        sample_names = []
+        if isinstance(sample_items, list):
+            for item in sample_items[:3]:
+                if isinstance(item, dict) and item.get("name"):
+                    sample_names.append(str(item.get("name")))
+        lines.append(
+            "- " + (row.get("supplier_name") or "Поставщик")
+            + " / " + (row.get("template_name") or "типовой шаблон")
+            + " / " + (row.get("document_type") or "любой документ")
+            + (": ключи " + ", ".join(str(k) for k in keywords[:4]) if keywords else "")
+            + ("; пример строк: " + "; ".join(sample_names) if sample_names else "")
+        )
+    return "\n".join(lines)
+
+def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict = None) -> dict:
+    payload = dict(payload or {})
+    recognition = {
+        "method": "ai_ocr",
+        "label": "Распознано через AI/OCR",
+        "confidence": payload.get("confidence"),
+        "templateId": None,
+        "templateName": "",
+        "supplierId": 0,
+        "supplierName": _scan_invoice_supplier_name(payload),
+        "warnings": [],
+    }
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        supplier = _find_supplier_by_name_key(cur, recognition["supplierName"])
+        if supplier:
+            recognition["supplierId"] = supplier["id"]
+            recognition["supplierName"] = supplier["name"] or recognition["supplierName"]
+        match, _supplier_name = _find_supplier_invoice_template(cur, payload)
+        if match:
+            row = match["row"]
+            template = _supplier_invoice_template_row(row)
+            recognition.update({
+                "method": "template",
+                "label": "Распознано по шаблону поставщика",
+                "templateId": template["id"],
+                "templateName": template["templateName"] or template["supplierName"],
+                "supplierId": template["supplierId"] or recognition["supplierId"],
+                "supplierName": template["supplierName"] or recognition["supplierName"],
+                "confidence": max(float(payload.get("confidence") or 0), min(1.0, float(match["score"]))),
+            })
+            payload["supplier"] = recognition["supplierName"] or payload.get("supplier") or ""
+            cur.execute("""UPDATE supplier_invoice_templates
+                           SET usage_count=COALESCE(usage_count,0)+1, last_used_at=NOW()
+                           WHERE id=%s""", (template["id"],))
+            conn.commit()
+        else:
+            if recognition["supplierId"]:
+                recognition["warnings"].append("Поставщик найден в справочнике, но шаблон еще не сохранен.")
+            conn.rollback()
+        cur.close(); conn.close()
+    except Exception as exc:
+        print("INVOICE TEMPLATE APPLY ERROR:", str(exc))
+    payload["recognition"] = recognition
+    payload["scanRecognition"] = recognition
+    return payload
+
+@app.get("/supplier-invoice-templates")
+def list_supplier_invoice_templates(current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""SELECT *
+                   FROM supplier_invoice_templates
+                   WHERE active=TRUE
+                   ORDER BY updated_at DESC, id DESC""")
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return [_supplier_invoice_template_row(row) for row in rows]
+
+@app.post("/supplier-invoice-templates/learn")
+def learn_supplier_invoice_template(data: dict, current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
+    supplier_name = (
+        data.get("supplierName")
+        or data.get("supplier")
+        or data.get("newSupplierName")
+        or _scan_invoice_supplier_name(data)
+    )
+    supplier_name = str(supplier_name or "").strip()
+    if not supplier_name:
+        raise HTTPException(status_code=400, detail="Укажите поставщика, чтобы сохранить правило распознавания")
+    supplier_key = _supplier_invoice_template_key(supplier_name)
+    if not supplier_key:
+        raise HTTPException(status_code=400, detail="Не удалось нормализовать название поставщика")
+    document_type = str(data.get("documentType") or data.get("scanDocumentType") or "supplier_invoice").strip() or "supplier_invoice"
+    items = data.get("items") if isinstance(data.get("items"), list) else []
+    sample = {
+        "number": data.get("number") or data.get("invoiceNumber") or "",
+        "date": data.get("date") or "",
+        "supplierName": supplier_name,
+        "documentType": document_type,
+        "vat": data.get("vat") or "",
+        "totalBase": data.get("totalBase") or 0,
+        "totalVat": data.get("totalVat") or 0,
+        "totalWithVat": data.get("totalWithVat") or 0,
+        "items": items[:60],
+    }
+    keywords = [supplier_name]
+    recognition = data.get("recognition") if isinstance(data.get("recognition"), dict) else data.get("scanRecognition")
+    if isinstance(recognition, dict):
+        for value in (recognition.get("supplierName"), recognition.get("templateName")):
+            if value and str(value) not in keywords:
+                keywords.append(str(value))
+    for value in data.get("matchKeywords") or []:
+        if value and str(value) not in keywords:
+            keywords.append(str(value))
+    column_map = {
+        "source": "scan_preview_correction",
+        "columns": {
+            "name": "name",
+            "quantity": "quantity",
+            "unit": "unit",
+            "price": "price",
+            "lineTotal": "lineTotal",
+        },
+        "lastCorrectionAt": dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+    }
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    supplier_id = data.get("supplierId") or 0
+    try:
+        supplier_id = int(supplier_id or 0)
+    except Exception:
+        supplier_id = 0
+    if not supplier_id:
+        supplier = _find_supplier_by_name_key(cur, supplier_name)
+        if supplier:
+            supplier_id = supplier["id"]
+            supplier_name = supplier["name"] or supplier_name
+    cur.execute("""SELECT *
+                   FROM supplier_invoice_templates
+                   WHERE active=TRUE AND supplier_key=%s AND COALESCE(document_type,'')=%s
+                   ORDER BY id DESC LIMIT 1""", (supplier_key, document_type))
+    row = cur.fetchone()
+    if row:
+        cur.execute("""UPDATE supplier_invoice_templates
+                       SET supplier_id=%s,
+                           supplier_name=%s,
+                           template_name=%s,
+                           match_keywords=%s,
+                           column_map=%s,
+                           sample_json=%s,
+                           updated_by=%s,
+                           updated_at=NOW()
+                       WHERE id=%s
+                       RETURNING *""", (
+            supplier_id or None,
+            supplier_name,
+            data.get("templateName") or ("Счет/накладная " + supplier_name),
+            json.dumps(keywords, ensure_ascii=False),
+            json.dumps(column_map, ensure_ascii=False),
+            json.dumps(sample, ensure_ascii=False),
+            current_user.get("name", ""),
+            row["id"],
+        ))
+    else:
+        cur.execute("""INSERT INTO supplier_invoice_templates (
+                           supplier_id, supplier_key, supplier_name, template_name, document_type,
+                           match_keywords, column_map, sample_json, active, usage_count,
+                           updated_by, updated_at, created_at
+                       )
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,TRUE,0,%s,NOW(),NOW())
+                       RETURNING *""", (
+            supplier_id or None,
+            supplier_key,
+            supplier_name,
+            data.get("templateName") or ("Счет/накладная " + supplier_name),
+            document_type,
+            json.dumps(keywords, ensure_ascii=False),
+            json.dumps(column_map, ensure_ascii=False),
+            json.dumps(sample, ensure_ascii=False),
+            current_user.get("name", ""),
+        ))
+    saved = cur.fetchone()
+    conn.commit()
+    cur.close(); conn.close()
+    template = _supplier_invoice_template_row(saved)
+    log_audit(
+        user_name=current_user.get("name", ""),
+        user_role=current_user.get("role", ""),
+        action="learn",
+        entity_type="supplier_invoice_template",
+        entity_id=template["id"],
+        description="Обновлен шаблон распознавания поставщика " + template["supplierName"],
+        project_name=data.get("project") or data.get("projectName") or "",
+    )
+    return {
+        "ok": True,
+        "template": template,
+        "recognition": {
+            "method": "template",
+            "label": "Распознано по шаблону поставщика",
+            "templateId": template["id"],
+            "templateName": template["templateName"],
+            "supplierId": template["supplierId"],
+            "supplierName": template["supplierName"],
+            "confidence": 1,
+            "warnings": [],
+        }
+    }
+
 @app.get("/warehouse-invoices")
 def get_warehouse_invoices(current_user: dict = Depends(get_current_user)):
     if not can_see_warehouse_data(current_user):
@@ -24302,6 +24644,7 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
     images = [img for img in images if img]
     if not images:
         return {"ok": False, "error": "Нет изображения документа"}
+    template_hint = _invoice_scan_template_hint()
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     try:
         content = []
@@ -24330,6 +24673,7 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
             "Если ставка НДС 22%, верни vat \"С НДС 22%\" и vatRate 22. Если цена дана без НДС и есть НДС, "
             "посчитай priceWithVat и lineTotalWithVat. Если цена дана только итогом строки, посчитай цену за единицу через количество. "
             "Не округляй крупные суммы до тысяч, не теряй НДС, сохраняй единицы измерения как в документе."
+            + (("\nИзвестные шаблоны поставщиков для ориентира:\n" + template_hint) if template_hint else "")
         )})
         response = client.responses.create(
             model=model,
@@ -24382,6 +24726,7 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
         parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
         parsed = _normalize_invoice_totals_payload(parsed)
         parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
+        parsed = _apply_supplier_invoice_template_metadata(parsed, _current_user)
         print("SCAN OK:", parsed)
         return {"ok": True, "data": parsed}
     except Exception as e:
