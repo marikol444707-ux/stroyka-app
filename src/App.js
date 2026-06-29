@@ -346,7 +346,7 @@ const AnalyticsPage = React.lazy(() => import('./components/AnalyticsPage'));
 const CrmPage = React.lazy(() => import('./features/crm'));
 const ActivityLogPage = React.lazy(() => import('./components/ActivityLogPage'));
 const CompanyChatPage = React.lazy(() => import('./components/CompanyChatPage'));
-const SystemOwnerCabinet = React.lazy(() => import('./components/SystemOwnerCabinet'));
+const SystemOwnerCabinet = React.lazy(() => import('./features/platform-admin'));
 const ProjectWorkJournalEditModal = React.lazy(() => import('./components/ProjectWorkJournalEditModal'));
 const ProjectWorkJournalTableModal = React.lazy(() => import('./components/ProjectWorkJournalTableModal'));
 const ProjectMaterialInspectionEditModal = React.lazy(() => import('./components/ProjectMaterialInspectionEditModal'));
