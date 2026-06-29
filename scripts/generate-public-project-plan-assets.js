@@ -95,13 +95,22 @@ const roomLabel = (room, box) => {
   const area = formatRoomArea(room);
   const totalLines = labelLines.length + (area ? 1 : 0);
   const startY = box.y + box.h * .55 - ((totalLines - 1) * lineGap) / 2;
+  const textWidth = Math.max(
+    ...labelLines.map((line) => line.length * labelSize * 0.58),
+    area ? area.length * areaSize * 0.55 : 0,
+  );
+  const bgW = Math.min(box.w - 10, Math.max(42, textWidth + 16));
+  const bgH = totalLines * lineGap + 8;
+  const bgX = box.x + box.w / 2 - bgW / 2;
+  const bgY = startY - labelSize + 1;
+  const bgSvg = `<rect x="${bgX}" y="${bgY}" width="${bgW}" height="${bgH}" rx="5" fill="#f8faf9" opacity=".82"/>`;
   const labelSvg = labelLines.map((line, index) => (
     `<text x="${box.x + box.w / 2}" y="${startY + index * lineGap}" font-family="Arial, sans-serif" font-size="${labelSize}" font-weight="600" fill="#555b60" text-anchor="middle">${esc(line)}</text>`
   )).join('');
   const areaSvg = area
     ? `<text x="${box.x + box.w / 2}" y="${startY + labelLines.length * lineGap}" font-family="Arial, sans-serif" font-size="${areaSize}" font-weight="500" fill="#70777c" text-anchor="middle">${esc(area)}</text>`
     : '';
-  return `${labelSvg}${areaSvg}`;
+  return `${bgSvg}${labelSvg}${areaSvg}`;
 };
 
 const planHeading = (def) => {
@@ -272,6 +281,35 @@ const drawExteriorWalls = (rooms, m) => {
     `<line x1="${m.ox + x * m.s}" y1="${m.oy + y1 * m.s}" x2="${m.ox + x * m.s}" y2="${m.oy + y2 * m.s}" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="square"/>`
   )).join('');
   return `${horizontalSvg}${verticalSvg}`;
+};
+
+const drawExteriorCorners = (rooms, m) => {
+  const { horizontal, vertical } = exteriorSegments(rooms);
+  const points = new Map();
+  const addPoint = (x, y, kind) => {
+    const key = `${x.toFixed(3)}:${y.toFixed(3)}`;
+    const value = points.get(key) || { x, y, kinds: new Set() };
+    value.kinds.add(kind);
+    points.set(key, value);
+  };
+  horizontal.forEach(({ y, x1, x2 }) => {
+    addPoint(x1, y, 'h');
+    addPoint(x2, y, 'h');
+  });
+  vertical.forEach(({ x, y1, y2 }) => {
+    addPoint(x, y1, 'v');
+    addPoint(x, y2, 'v');
+  });
+
+  const size = Math.max(9, 0.15 * m.s);
+  return [...points.values()]
+    .filter((point) => point.kinds.has('h') && point.kinds.has('v'))
+    .map((point) => {
+      const x = m.ox + point.x * m.s;
+      const y = m.oy + point.y * m.s;
+      return `<rect x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" fill="#2c2f31"/>`;
+    })
+    .join('');
 };
 
 const drawWindowOpenings = (room, m) => {
@@ -449,7 +487,8 @@ const drawRoom = (room, m) => {
     if (side === 'right') return `<line x1="${x + w - sw / 2}" y1="${y + h * .22}" x2="${x + w - sw / 2}" y2="${y + h * .78}" stroke="#ffffff" stroke-width="${Math.max(7, sw * 1.15)}" stroke-linecap="square"/><line x1="${x + w - sw / 2}" y1="${y + h * .22}" x2="${x + w - sw / 2}" y2="${y + h * .78}" stroke="#c4c9cc" stroke-width="1.4"/>`;
     return '';
   }).join('');
-  const fixtureSvg = autoFixtures(room).map((fixture) => drawFixture(room, fixture, { x, y, w, h })).join('');
+  const fixtures = autoFixtures(room).map((fixture) => drawFixture(room, fixture, { x, y, w, h })).join('');
+  const fixtureSvg = fixtures ? `<g opacity=".78">${fixtures}</g>` : '';
   const labelSvg = roomLabel(room, { x, y, w, h });
   const patioSvg = drawPatioFurniture(room, { x, y, w, h });
 
@@ -477,6 +516,7 @@ const drawPlan = (def) => {
   const outdoor = (def.outdoor || []).map((room) => drawRoom({ ...room, outdoor: true }, m)).join('');
   const rooms = def.rooms.map((room) => drawRoom(room, m)).join('');
   const exteriorWalls = drawExteriorWalls(def.rooms, m);
+  const exteriorCorners = drawExteriorCorners(def.rooms, m);
   const windowOpenings = def.rooms.map((room) => drawWindowOpenings(room, m)).join('');
   const doors = def.rooms.map((room) => drawDoor(room, roomBox(room, m), m)).join('');
   const dimStroke = '#c4c8cb';
@@ -508,6 +548,7 @@ const drawPlan = (def) => {
       ${outdoor}
       ${rooms}
       ${exteriorWalls}
+      ${exteriorCorners}
       ${windowOpenings}
       ${doors}
     </g>
