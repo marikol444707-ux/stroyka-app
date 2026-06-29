@@ -52,6 +52,8 @@ check_json "site pricing" "/site/pricing" 'import json,sys; data=json.load(sys.s
 check_json "site projects" "/site/projects" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
 check_not_spa "site leads route" "/site/leads" "405"
 check_not_spa "site price rules route" "/site-price-rules" "401 403"
+check_not_spa "estimate reconciliations route" "/estimate-reconciliations" "401 403"
+check_not_spa "estimate reconciliation items route" "/estimate-reconciliation-items/1" "401 403 405"
 
 if (( ${#FAILURES[@]} > 0 )); then
   echo "Public API proxy check failed:"

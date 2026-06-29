@@ -41,6 +41,7 @@ read -s PASS
 SMOKE_EMAIL='admin@stroyka.ru' SMOKE_PASSWORD="$PASS" npm run smoke:prod
 npm run smoke:public-api
 npm run smoke:public-site
+curl -sS -o /tmp/stroyka-estimate-reconciliations.out -w 'estimate-reconciliations HTTP=%{http_code}\n' https://stroyka26.pro/estimate-reconciliations
 curl -sSI https://stroyka26.pro/ | head -20
 curl -sS https://stroyka26.pro/sitemap.xml | head -20
 curl -sS https://stroyka26.pro/llms.txt | head -40
@@ -57,4 +58,11 @@ curl -sSI https://stroyka26.pro/terms.html | head -10
 
 ```bash
 cd /var/www/stroyka-app && git pull --ff-only && PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -m py_compile backend/main.py && npm run build && npm run smoke:public-site && bash deploy.sh
+```
+
+Если добавлены новые backend routes, сначала обновить nginx routes и проверить, что они не отдают React `index.html`:
+
+```bash
+nginx -t && systemctl reload nginx
+npm run smoke:public-api
 ```
