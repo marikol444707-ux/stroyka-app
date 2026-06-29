@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import secrets
 import sys
 import urllib.error
@@ -205,11 +206,34 @@ def fetch_reset_code(user_id):
         (user_id,),
     )
     row = cur.fetchone()
+    if not row or not row["reset_token"]:
+        cur.close()
+        conn.close()
+        raise SystemExit("FAIL reset request: код восстановления не записан в БД")
+    token = str(row["reset_token"])
+    expires = row["reset_token_expires"]
+    if token.isdigit() and len(token) == 6:
+        cur.close()
+        conn.close()
+        return token, expires
+    cur.execute(
+        """
+        SELECT description
+          FROM ai_tasks
+         WHERE project_name='Система'
+           AND dedupe_key=%s
+         ORDER BY updated_at DESC, id DESC
+         LIMIT 1
+        """,
+        (f"PASSWORD_RESET:{user_id}",),
+    )
+    task = cur.fetchone()
     cur.close()
     conn.close()
-    if not row or not row["reset_token"]:
-        raise SystemExit("FAIL reset request: код восстановления не записан в БД")
-    return row["reset_token"], row["reset_token_expires"]
+    match = re.search(r"Код:\s*(\d{6})", task["description"] if task else "")
+    if not match:
+        raise SystemExit("FAIL reset request: код не найден в fallback-задаче для smoke email")
+    return match.group(1), expires
 
 
 def check_reset_task_closed(user_id):
