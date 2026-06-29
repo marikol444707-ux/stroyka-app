@@ -14,17 +14,17 @@ const W = 1600;
 const H = 900;
 
 const fills = {
-  living: '#f3eee4',
-  kitchen: '#f5efe5',
-  bed: '#fff8ee',
-  bath: '#eaf4f7',
-  service: '#edf0f4',
-  hall: '#f7f3e8',
-  garage: '#eceff1',
-  terrace: '#f2efe4',
-  work: '#eef5f0',
-  void: '#f7fafc',
-  scheme: '#f4f7f3',
+  living: '#dfe5e7',
+  kitchen: '#d9e0e3',
+  bed: '#edf1f2',
+  bath: '#e8eef0',
+  service: '#e3e8ea',
+  hall: '#f7f8f8',
+  garage: '#e1e6e8',
+  terrace: '#fafafa',
+  work: '#e8edef',
+  void: '#ffffff',
+  scheme: '#eef1f2',
 };
 
 const esc = (value) => String(value).replace(/[&<>"]/g, (char) => ({
@@ -38,13 +38,13 @@ const svg = (body) => `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img">
   <defs>
     <filter id="paperShadow" x="-15%" y="-20%" width="130%" height="140%">
-      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#1d2733" flood-opacity=".16"/>
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#1d2733" flood-opacity=".08"/>
     </filter>
-    <pattern id="tileGrid" width="34" height="34" patternUnits="userSpaceOnUse">
-      <path d="M34 0H0V34" fill="none" stroke="#d5dde5" stroke-width="1.4"/>
+    <pattern id="tileGrid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#d8dde0" stroke-width="1"/>
     </pattern>
     <pattern id="hatch" width="18" height="18" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-      <line x1="0" y1="0" x2="0" y2="18" stroke="#23856d" stroke-width="4" opacity=".35"/>
+      <line x1="0" y1="0" x2="0" y2="18" stroke="#c2c8cc" stroke-width="4" opacity=".45"/>
     </pattern>
   </defs>
   ${body}
@@ -78,18 +78,44 @@ const wrapLabel = (label, max = 14) => {
   return lines.slice(0, 3);
 };
 
-const titleCard = ({ code, title, subtitle, area, level }) => `
-  <rect x="70" y="48" width="740" height="118" rx="24" fill="#ffffff" opacity=".96"/>
-  <text x="100" y="95" font-family="Arial, sans-serif" font-size="26" font-weight="800" letter-spacing="2" fill="#176b56">${esc(code)}</text>
-  <text x="100" y="132" font-family="Arial, sans-serif" font-size="30" font-weight="800" fill="#101828">${esc(title)}</text>
-  <text x="100" y="158" font-family="Arial, sans-serif" font-size="21" font-weight="600" fill="#667085">${esc([level, subtitle, area].filter(Boolean).join(' · '))}</text>
-`;
+const formatRoomArea = (room) => {
+  const value = Number(room.area ?? (room.w * room.h));
+  if (!Number.isFinite(value) || value <= 0) return '';
+  return value.toFixed(2).replace('.', ',');
+};
+
+const roomLabel = (room, box) => {
+  if (room.hideLabel) return '';
+  const wrapLimit = box.w < 135 ? 8 : box.w < 190 ? 10 : box.w < 260 ? 13 : 16;
+  const labelLines = wrapLabel(room.label, wrapLimit).slice(0, box.h < 82 ? 1 : 2);
+  const longestLabel = Math.max(...labelLines.map((line) => line.length), 1);
+  const labelSize = Math.max(10, Math.min(17, box.w / (longestLabel * .72), box.h / ((labelLines.length + 1) * 1.35)));
+  const areaSize = Math.max(9, Math.min(14, labelSize - 1));
+  const lineGap = Math.round(labelSize * 1.08);
+  const area = formatRoomArea(room);
+  const totalLines = labelLines.length + (area ? 1 : 0);
+  const startY = box.y + box.h * .55 - ((totalLines - 1) * lineGap) / 2;
+  const labelSvg = labelLines.map((line, index) => (
+    `<text x="${box.x + box.w / 2}" y="${startY + index * lineGap}" font-family="Arial, sans-serif" font-size="${labelSize}" font-weight="600" fill="#555b60" text-anchor="middle">${esc(line)}</text>`
+  )).join('');
+  const areaSvg = area
+    ? `<text x="${box.x + box.w / 2}" y="${startY + labelLines.length * lineGap}" font-family="Arial, sans-serif" font-size="${areaSize}" font-weight="500" fill="#70777c" text-anchor="middle">${esc(area)}</text>`
+    : '';
+  return `${labelSvg}${areaSvg}`;
+};
+
+const planHeading = (def) => {
+  if (!def.level) return 'План этажа';
+  const level = String(def.level).toLowerCase();
+  const floorMatch = level.match(/^(\d+)\s*этаж/);
+  if (floorMatch) return `План ${floorMatch[1]} этажа`;
+  return `План ${level}`;
+};
 
 const backdrop = (def) => `
-  <rect width="${W}" height="${H}" fill="#f7f8f6"/>
-  <path d="M0 0H1600V242H0Z" fill="#eef3f1"/>
-  <path d="M0 242C250 220 370 270 545 246C850 202 1000 258 1600 214V900H0Z" fill="#fbfaf6"/>
-  ${titleCard(def)}
+  <rect width="${W}" height="${H}" fill="#ffffff"/>
+  <text x="800" y="118" font-family="Arial, sans-serif" font-size="28" font-weight="500" fill="#3c3f42" text-anchor="middle">${esc(planHeading(def))}</text>
+  <text x="800" y="150" font-family="Arial, sans-serif" font-size="15" font-weight="500" fill="#9aa1a6" text-anchor="middle">${esc(`${def.code} · ${def.title} · ${def.area}`)}</text>
 `;
 
 const drawFixture = (room, fixture, box) => {
@@ -97,27 +123,27 @@ const drawFixture = (room, fixture, box) => {
   const fy = box.y + box.h * (fixture.y ?? 0.08);
   const fw = box.w * (fixture.w ?? 0.32);
   const fh = box.h * (fixture.h ?? 0.28);
-  const stroke = '#6f7784';
-  const light = '#ffffff';
+  const stroke = '#a8b0b5';
+  const light = '#dce2e4';
 
   if (fixture.type === 'bed') {
     return `
       <rect x="${fx}" y="${fy}" width="${fw}" height="${fh}" rx="8" fill="${light}" stroke="${stroke}" stroke-width="2"/>
-      <rect x="${fx + fw * .08}" y="${fy + fh * .08}" width="${fw * .34}" height="${fh * .22}" rx="4" fill="#f4f4f0" stroke="${stroke}" stroke-width="1.4"/>
-      <rect x="${fx + fw * .58}" y="${fy + fh * .08}" width="${fw * .34}" height="${fh * .22}" rx="4" fill="#f4f4f0" stroke="${stroke}" stroke-width="1.4"/>
+      <rect x="${fx + fw * .08}" y="${fy + fh * .08}" width="${fw * .34}" height="${fh * .22}" rx="4" fill="#eef1f2" stroke="${stroke}" stroke-width="1.4"/>
+      <rect x="${fx + fw * .58}" y="${fy + fh * .08}" width="${fw * .34}" height="${fh * .22}" rx="4" fill="#eef1f2" stroke="${stroke}" stroke-width="1.4"/>
     `;
   }
   if (fixture.type === 'singleBed') {
     return `
       <rect x="${fx}" y="${fy}" width="${fw}" height="${fh}" rx="8" fill="${light}" stroke="${stroke}" stroke-width="2"/>
-      <rect x="${fx + fw * .08}" y="${fy + fh * .08}" width="${fw * .36}" height="${fh * .28}" rx="4" fill="#f4f4f0" stroke="${stroke}" stroke-width="1.4"/>
+      <rect x="${fx + fw * .08}" y="${fy + fh * .08}" width="${fw * .36}" height="${fh * .28}" rx="4" fill="#eef1f2" stroke="${stroke}" stroke-width="1.4"/>
     `;
   }
   if (fixture.type === 'sofa') {
     return `
       <rect x="${fx}" y="${fy + fh * .36}" width="${fw}" height="${fh * .48}" rx="10" fill="${light}" stroke="${stroke}" stroke-width="2"/>
       <rect x="${fx}" y="${fy}" width="${fw * .36}" height="${fh * .84}" rx="10" fill="${light}" stroke="${stroke}" stroke-width="2"/>
-      <rect x="${fx + fw * .46}" y="${fy + fh * .02}" width="${fw * .32}" height="${fh * .28}" rx="6" fill="#fffaf2" stroke="${stroke}" stroke-width="1.5"/>
+      <rect x="${fx + fw * .46}" y="${fy + fh * .02}" width="${fw * .32}" height="${fh * .28}" rx="6" fill="#eef1f2" stroke="${stroke}" stroke-width="1.5"/>
     `;
   }
   if (fixture.type === 'table') {
@@ -130,7 +156,7 @@ const drawFixture = (room, fixture, box) => {
   if (fixture.type === 'kitchen') {
     return `
       <rect x="${box.x + box.w * .05}" y="${box.y + box.h * .06}" width="${box.w * .9}" height="${Math.max(24, box.h * .13)}" fill="#ffffff" stroke="${stroke}" stroke-width="2"/>
-      <rect x="${box.x + box.w * .58}" y="${box.y + box.h * .075}" width="${box.w * .11}" height="${Math.max(14, box.h * .07)}" rx="4" fill="#eef7fb" stroke="${stroke}" stroke-width="1.4"/>
+      <rect x="${box.x + box.w * .58}" y="${box.y + box.h * .075}" width="${box.w * .11}" height="${Math.max(14, box.h * .07)}" rx="4" fill="#eef1f2" stroke="${stroke}" stroke-width="1.4"/>
       <circle cx="${box.x + box.w * .78}" cy="${box.y + box.h * .125}" r="${Math.max(5, box.h * .025)}" fill="none" stroke="${stroke}" stroke-width="1.4"/>
       <circle cx="${box.x + box.w * .84}" cy="${box.y + box.h * .125}" r="${Math.max(5, box.h * .025)}" fill="none" stroke="${stroke}" stroke-width="1.4"/>
     `;
@@ -145,7 +171,7 @@ const drawFixture = (room, fixture, box) => {
   if (fixture.type === 'shower') {
     return `
       <rect x="${fx}" y="${fy}" width="${fw}" height="${fh}" rx="5" fill="#ffffff" stroke="${stroke}" stroke-width="2"/>
-      <path d="M${fx + 8} ${fy + fh - 8}L${fx + fw - 8} ${fy + 8}" stroke="#9cb5c2" stroke-width="2"/>
+      <path d="M${fx + 8} ${fy + fh - 8}L${fx + fw - 8} ${fy + 8}" stroke="#a8b0b5" stroke-width="2"/>
     `;
   }
   if (fixture.type === 'wc') {
@@ -164,15 +190,15 @@ const drawFixture = (room, fixture, box) => {
     return `
       <rect x="${fx}" y="${fy}" width="${fw}" height="${fh}" fill="#ffffff" stroke="${stroke}" stroke-width="2"/>
       ${[1, 2, 3, 4, 5, 6].map((i) => `<line x1="${fx}" y1="${fy + fh * i / 7}" x2="${fx + fw}" y2="${fy + fh * i / 7}" stroke="${stroke}" stroke-width="1.4"/>`).join('')}
-      <path d="M${fx + fw * .2} ${fy + fh * .78}L${fx + fw * .78} ${fy + fh * .22}" stroke="#176b56" stroke-width="3" marker-end="none"/>
+      <path d="M${fx + fw * .2} ${fy + fh * .78}L${fx + fw * .78} ${fy + fh * .22}" stroke="#4b5054" stroke-width="3" marker-end="none"/>
     `;
   }
   if (fixture.type === 'car') {
     return `
       <rect x="${fx}" y="${fy}" width="${fw}" height="${fh}" rx="18" fill="#ffffff" stroke="${stroke}" stroke-width="2.5"/>
-      <rect x="${fx + fw * .18}" y="${fy + fh * .18}" width="${fw * .64}" height="${fh * .35}" rx="10" fill="#edf4f7" stroke="${stroke}" stroke-width="1.5"/>
-      <circle cx="${fx + fw * .18}" cy="${fy + fh * .88}" r="${fh * .08}" fill="#606b76"/>
-      <circle cx="${fx + fw * .82}" cy="${fy + fh * .88}" r="${fh * .08}" fill="#606b76"/>
+      <rect x="${fx + fw * .18}" y="${fy + fh * .18}" width="${fw * .64}" height="${fh * .35}" rx="10" fill="#eef1f2" stroke="${stroke}" stroke-width="1.5"/>
+      <circle cx="${fx + fw * .18}" cy="${fy + fh * .88}" r="${fh * .08}" fill="#8b949a"/>
+      <circle cx="${fx + fw * .82}" cy="${fy + fh * .88}" r="${fh * .08}" fill="#8b949a"/>
     `;
   }
   if (fixture.type === 'desks') {
@@ -240,27 +266,19 @@ const drawRoom = (room, m) => {
   const w = room.w * m.s;
   const h = room.h * m.s;
   const fill = fills[room.type] || fills.hall;
-  const stroke = room.outdoor ? '#b7b0a4' : '#252a2f';
-  const sw = room.outdoor ? 3 : Math.max(6, 0.085 * m.s);
-  const dash = room.outdoor ? ' stroke-dasharray="10 10"' : '';
-  const wrapLimit = w < 180 ? 9 : w < 260 ? 12 : 15;
-  const labelLines = wrapLabel(room.label, wrapLimit);
-  const longestLabel = Math.max(...labelLines.map((line) => line.length), 1);
-  const labelSize = Math.max(12, Math.min(23, w / (longestLabel * .72), h / (labelLines.length * 1.65)));
+  const stroke = room.outdoor ? '#b9bec1' : '#2f3133';
+  const sw = room.outdoor ? 2.2 : Math.max(5.5, 0.082 * m.s);
+  const dash = room.outdoor ? ' stroke-dasharray="8 8"' : '';
   const tile = room.tile ? `url(#tileGrid)` : fill;
   const windows = (room.windows || []).map((side) => {
-    if (side === 'top') return `<line x1="${x + w * .18}" y1="${y + sw / 2}" x2="${x + w * .82}" y2="${y + sw / 2}" stroke="#dff6ff" stroke-width="${Math.max(5, sw * .8)}" stroke-linecap="round"/>`;
-    if (side === 'bottom') return `<line x1="${x + w * .18}" y1="${y + h - sw / 2}" x2="${x + w * .82}" y2="${y + h - sw / 2}" stroke="#dff6ff" stroke-width="${Math.max(5, sw * .8)}" stroke-linecap="round"/>`;
-    if (side === 'left') return `<line x1="${x + sw / 2}" y1="${y + h * .2}" x2="${x + sw / 2}" y2="${y + h * .8}" stroke="#dff6ff" stroke-width="${Math.max(5, sw * .8)}" stroke-linecap="round"/>`;
-    if (side === 'right') return `<line x1="${x + w - sw / 2}" y1="${y + h * .2}" x2="${x + w - sw / 2}" y2="${y + h * .8}" stroke="#dff6ff" stroke-width="${Math.max(5, sw * .8)}" stroke-linecap="round"/>`;
+    if (side === 'top') return `<line x1="${x + w * .2}" y1="${y + sw / 2}" x2="${x + w * .8}" y2="${y + sw / 2}" stroke="#ffffff" stroke-width="${Math.max(7, sw * 1.15)}" stroke-linecap="square"/><line x1="${x + w * .2}" y1="${y + sw / 2}" x2="${x + w * .8}" y2="${y + sw / 2}" stroke="#c4c9cc" stroke-width="1.4"/>`;
+    if (side === 'bottom') return `<line x1="${x + w * .2}" y1="${y + h - sw / 2}" x2="${x + w * .8}" y2="${y + h - sw / 2}" stroke="#ffffff" stroke-width="${Math.max(7, sw * 1.15)}" stroke-linecap="square"/><line x1="${x + w * .2}" y1="${y + h - sw / 2}" x2="${x + w * .8}" y2="${y + h - sw / 2}" stroke="#c4c9cc" stroke-width="1.4"/>`;
+    if (side === 'left') return `<line x1="${x + sw / 2}" y1="${y + h * .22}" x2="${x + sw / 2}" y2="${y + h * .78}" stroke="#ffffff" stroke-width="${Math.max(7, sw * 1.15)}" stroke-linecap="square"/><line x1="${x + sw / 2}" y1="${y + h * .22}" x2="${x + sw / 2}" y2="${y + h * .78}" stroke="#c4c9cc" stroke-width="1.4"/>`;
+    if (side === 'right') return `<line x1="${x + w - sw / 2}" y1="${y + h * .22}" x2="${x + w - sw / 2}" y2="${y + h * .78}" stroke="#ffffff" stroke-width="${Math.max(7, sw * 1.15)}" stroke-linecap="square"/><line x1="${x + w - sw / 2}" y1="${y + h * .22}" x2="${x + w - sw / 2}" y2="${y + h * .78}" stroke="#c4c9cc" stroke-width="1.4"/>`;
     return '';
   }).join('');
   const fixtureSvg = autoFixtures(room).map((fixture) => drawFixture(room, fixture, { x, y, w, h })).join('');
-  const labelSvg = room.hideLabel ? '' : textBlock(x + w / 2, y + h * .55, labelLines, {
-    size: labelSize,
-    weight: 700,
-    fill: room.outdoor ? '#585f68' : '#1c2530',
-  });
+  const labelSvg = roomLabel(room, { x, y, w, h });
 
   return `
     <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${tile}" stroke="${stroke}" stroke-width="${sw}"${dash}/>
@@ -271,8 +289,8 @@ const drawRoom = (room, m) => {
 };
 
 const drawPlan = (def) => {
-  const maxW = 1140;
-  const maxH = 520;
+  const maxW = 920;
+  const maxH = 600;
   const allZones = [...def.rooms, ...(def.outdoor || [])];
   const contentW = Math.max(def.width, ...allZones.map((room) => room.x + room.w));
   const contentH = Math.max(def.height, ...allZones.map((room) => room.y + room.h));
@@ -280,24 +298,40 @@ const drawPlan = (def) => {
   const planW = contentW * s;
   const planH = contentH * s;
   const ox = (W - planW) / 2;
-  const oy = 235 + (maxH - planH) / 2;
+  const oy = 190 + (maxH - planH) / 2;
   const m = { s, ox, oy };
   const outdoor = (def.outdoor || []).map((room) => drawRoom({ ...room, outdoor: true }, m)).join('');
   const rooms = def.rooms.map((room) => drawRoom(room, m)).join('');
-  const dimTop = `<line x1="${ox}" y1="${oy - 24}" x2="${ox + planW}" y2="${oy - 24}" stroke="#6b7280" stroke-width="2"/><text x="${ox + planW / 2}" y="${oy - 34}" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#4b5563" text-anchor="middle">${esc(def.dimX || `${Math.round(def.width)} м`)}</text>`;
-  const dimSide = `<line x1="${ox + planW + 28}" y1="${oy}" x2="${ox + planW + 28}" y2="${oy + planH}" stroke="#6b7280" stroke-width="2"/><text x="${ox + planW + 58}" y="${oy + planH / 2}" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#4b5563" text-anchor="middle" transform="rotate(90 ${ox + planW + 58} ${oy + planH / 2})">${esc(def.dimY || `${Math.round(def.height)} м`)}</text>`;
+  const dimStroke = '#c4c8cb';
+  const dimText = '#656a6e';
+  const leftX = ox - 58;
+  const bottomY = oy + planH + 46;
+  const bottomDim = `
+    <line x1="${ox}" y1="${bottomY}" x2="${ox + planW}" y2="${bottomY}" stroke="${dimStroke}" stroke-width="2"/>
+    <line x1="${ox}" y1="${oy + planH}" x2="${ox}" y2="${bottomY + 12}" stroke="${dimStroke}" stroke-width="1.5"/>
+    <line x1="${ox + planW}" y1="${oy + planH}" x2="${ox + planW}" y2="${bottomY + 12}" stroke="${dimStroke}" stroke-width="1.5"/>
+    <circle cx="${ox}" cy="${bottomY}" r="6" fill="#4b4f52"/>
+    <circle cx="${ox + planW}" cy="${bottomY}" r="6" fill="#4b4f52"/>
+    <text x="${ox + planW / 2}" y="${bottomY + 30}" font-family="Arial, sans-serif" font-size="18" font-weight="500" fill="${dimText}" text-anchor="middle">${esc(def.dimX || `${Math.round(def.width)} м`)}</text>
+  `;
+  const leftDim = `
+    <line x1="${leftX}" y1="${oy}" x2="${leftX}" y2="${oy + planH}" stroke="${dimStroke}" stroke-width="2"/>
+    <line x1="${leftX - 12}" y1="${oy}" x2="${ox}" y2="${oy}" stroke="${dimStroke}" stroke-width="1.5"/>
+    <line x1="${leftX - 12}" y1="${oy + planH}" x2="${ox}" y2="${oy + planH}" stroke="${dimStroke}" stroke-width="1.5"/>
+    <circle cx="${leftX}" cy="${oy}" r="6" fill="#4b4f52"/>
+    <circle cx="${leftX}" cy="${oy + planH}" r="6" fill="#4b4f52"/>
+    <text x="${leftX - 10}" y="${oy + planH / 2}" font-family="Arial, sans-serif" font-size="18" font-weight="500" fill="${dimText}" text-anchor="middle" transform="rotate(-90 ${leftX - 10} ${oy + planH / 2})">${esc(def.dimY || `${Math.round(def.height)} м`)}</text>
+  `;
 
   return svg(`
     ${backdrop(def)}
-    <g filter="url(#paperShadow)">
-      <rect x="${ox - 32}" y="${oy - 44}" width="${planW + 84}" height="${planH + 92}" rx="22" fill="#ffffff"/>
-      ${dimTop}
-      ${dimSide}
+    <g>
+      ${leftDim}
+      ${bottomDim}
       ${outdoor}
       ${rooms}
     </g>
-    <text x="110" y="828" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#176b56">${esc(def.note || 'Предпроектная схема: помещения, мебель и логика движения')}</text>
-    <text x="1490" y="828" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#98a2b3" text-anchor="end">${esc(def.code)} · ${esc(def.file)}</text>
+    <text x="1450" y="842" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#c7ccd0" text-anchor="end">${esc(def.code)} · ${esc(def.file)}</text>
   `);
 };
 
