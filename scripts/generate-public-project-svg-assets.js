@@ -9,6 +9,12 @@ const { pathToFileURL } = require('url');
 const root = path.resolve(__dirname, '..', 'public', 'site-assets', 'projects');
 const tmpRoot = path.join(os.tmpdir(), 'stroyka-public-project-assets');
 const chromeBin = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const ASSET_W = 1600;
+const ASSET_H = 900;
+const BASE_W = 1536;
+const BASE_H = 864;
+const BASE_OFFSET_X = Math.round((ASSET_W - BASE_W) / 2);
+const BASE_OFFSET_Y = Math.round((ASSET_H - BASE_H) / 2);
 
 const projects = [
   ['h2-01', 'twoFloorModern', 'Дом 165 м2', 'узкий участок', '165 м2'],
@@ -60,7 +66,7 @@ const esc = (value) => String(value).replace(/[&<>"]/g, (char) => ({
 }[char]));
 
 const wrapSvg = (body) => `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="864" viewBox="0 0 1536 864" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="${ASSET_W}" height="${ASSET_H}" viewBox="0 0 ${ASSET_W} ${ASSET_H}" role="img">
   <defs>
     <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
       <stop offset="0" stop-color="#d8f0ff"/>
@@ -74,7 +80,10 @@ const wrapSvg = (body) => `<?xml version="1.0" encoding="UTF-8"?>
       <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#1d2733" flood-opacity=".22"/>
     </filter>
   </defs>
-  ${body}
+  <rect width="${ASSET_W}" height="${ASSET_H}" fill="#f7fbff"/>
+  <g transform="translate(${BASE_OFFSET_X} ${BASE_OFFSET_Y})">
+    ${body}
+  </g>
 </svg>
 `;
 
@@ -232,7 +241,7 @@ const renderPng = (outDir, fileName, svg) => {
     '--no-sandbox',
     '--hide-scrollbars',
     `--screenshot=${outPng}`,
-    '--window-size=1536,864',
+    `--window-size=${ASSET_W},${ASSET_H}`,
     pathToFileURL(tmpSvg).href,
   ], { encoding: 'utf8' });
 

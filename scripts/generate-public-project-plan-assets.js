@@ -94,23 +94,15 @@ const roomLabel = (room, box) => {
   const lineGap = Math.round(labelSize * 1.08);
   const area = formatRoomArea(room);
   const totalLines = labelLines.length + (area ? 1 : 0);
-  const startY = box.y + box.h * .55 - ((totalLines - 1) * lineGap) / 2;
-  const textWidth = Math.max(
-    ...labelLines.map((line) => line.length * labelSize * 0.58),
-    area ? area.length * areaSize * 0.55 : 0,
-  );
-  const bgW = Math.min(box.w - 10, Math.max(42, textWidth + 16));
-  const bgH = totalLines * lineGap + 8;
-  const bgX = box.x + box.w / 2 - bgW / 2;
-  const bgY = startY - labelSize + 1;
-  const bgSvg = `<rect x="${bgX}" y="${bgY}" width="${bgW}" height="${bgH}" rx="5" fill="#f8faf9" opacity=".82"/>`;
+  const labelX = box.x + box.w * (room.labelX ?? .5);
+  const startY = box.y + box.h * (room.labelY ?? .55) - ((totalLines - 1) * lineGap) / 2;
   const labelSvg = labelLines.map((line, index) => (
-    `<text x="${box.x + box.w / 2}" y="${startY + index * lineGap}" font-family="Arial, sans-serif" font-size="${labelSize}" font-weight="600" fill="#555b60" text-anchor="middle">${esc(line)}</text>`
+    `<text x="${labelX}" y="${startY + index * lineGap}" font-family="Arial, sans-serif" font-size="${labelSize}" font-weight="600" fill="#555b60" text-anchor="middle" stroke="#f8faf9" stroke-width="4" stroke-linejoin="round" paint-order="stroke">${esc(line)}</text>`
   )).join('');
   const areaSvg = area
-    ? `<text x="${box.x + box.w / 2}" y="${startY + labelLines.length * lineGap}" font-family="Arial, sans-serif" font-size="${areaSize}" font-weight="500" fill="#70777c" text-anchor="middle">${esc(area)}</text>`
+    ? `<text x="${labelX}" y="${startY + labelLines.length * lineGap}" font-family="Arial, sans-serif" font-size="${areaSize}" font-weight="500" fill="#70777c" text-anchor="middle" stroke="#f8faf9" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${esc(area)}</text>`
     : '';
-  return `${bgSvg}${labelSvg}${areaSvg}`;
+  return `${labelSvg}${areaSvg}`;
 };
 
 const planHeading = (def) => {
@@ -199,12 +191,17 @@ const drawPatioFurniture = (room, box) => {
   if (!room.outdoor || !String(room.label || '').toLowerCase().includes('терраса')) return '';
   const cx = box.x + box.w * .58;
   const cy = box.y + box.h * .58;
-  const tw = Math.min(90, box.w * .28);
-  const th = Math.min(36, box.h * .28);
+  const tw = Math.min(90, box.w * .24);
+  const th = Math.min(36, box.h * .24);
+  const loungeW = Math.min(140, box.w * .34);
+  const loungeH = Math.min(44, box.h * .28);
   return `
     <rect x="${cx - tw / 2}" y="${cy - th / 2}" width="${tw}" height="${th}" rx="3" fill="#eef1f2" stroke="#b4bbc0" stroke-width="1.4"/>
     <rect x="${cx - tw * .62}" y="${cy - th / 2}" width="${tw * .18}" height="${th}" rx="3" fill="#f8fafb" stroke="#b4bbc0" stroke-width="1.2"/>
     <rect x="${cx + tw * .44}" y="${cy - th / 2}" width="${tw * .18}" height="${th}" rx="3" fill="#f8fafb" stroke="#b4bbc0" stroke-width="1.2"/>
+    <rect x="${box.x + box.w * .18}" y="${box.y + box.h * .48}" width="${loungeW}" height="${loungeH}" rx="4" fill="#dfe4e6" stroke="#b4bbc0" stroke-width="1.4"/>
+    <line x1="${box.x + box.w * .18 + loungeW / 3}" y1="${box.y + box.h * .48}" x2="${box.x + box.w * .18 + loungeW / 3}" y2="${box.y + box.h * .48 + loungeH}" stroke="#c7cdd0" stroke-width="1"/>
+    <line x1="${box.x + box.w * .18 + loungeW * 2 / 3}" y1="${box.y + box.h * .48}" x2="${box.x + box.w * .18 + loungeW * 2 / 3}" y2="${box.y + box.h * .48 + loungeH}" stroke="#c7cdd0" stroke-width="1"/>
   `;
 };
 
@@ -317,10 +314,30 @@ const drawWindowOpenings = (room, m) => {
   const { x, y, w, h } = roomBox(room, m);
   const sw = Math.max(7, 0.105 * m.s);
   return room.windows.map((side) => {
-    if (side === 'top') return `<line x1="${x + w * .2}" y1="${y}" x2="${x + w * .8}" y2="${y}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x + w * .2}" y1="${y}" x2="${x + w * .8}" y2="${y}" stroke="#c3c8cb" stroke-width="1.4"/>`;
-    if (side === 'bottom') return `<line x1="${x + w * .2}" y1="${y + h}" x2="${x + w * .8}" y2="${y + h}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x + w * .2}" y1="${y + h}" x2="${x + w * .8}" y2="${y + h}" stroke="#c3c8cb" stroke-width="1.4"/>`;
-    if (side === 'left') return `<line x1="${x}" y1="${y + h * .22}" x2="${x}" y2="${y + h * .78}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x}" y1="${y + h * .22}" x2="${x}" y2="${y + h * .78}" stroke="#c3c8cb" stroke-width="1.4"/>`;
-    if (side === 'right') return `<line x1="${x + w}" y1="${y + h * .22}" x2="${x + w}" y2="${y + h * .78}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x + w}" y1="${y + h * .22}" x2="${x + w}" y2="${y + h * .78}" stroke="#c3c8cb" stroke-width="1.4"/>`;
+    if (side === 'top') {
+      const x1 = x + w * .18;
+      const x2 = x + w * .82;
+      const mid = (x1 + x2) / 2;
+      return `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x1}" y1="${y - sw * .18}" x2="${x2}" y2="${y - sw * .18}" stroke="#c3c8cb" stroke-width="1.2"/><line x1="${x1}" y1="${y + sw * .18}" x2="${x2}" y2="${y + sw * .18}" stroke="#c3c8cb" stroke-width="1.2"/><line x1="${mid}" y1="${y - sw * .35}" x2="${mid}" y2="${y + sw * .35}" stroke="#c3c8cb" stroke-width="1"/>`;
+    }
+    if (side === 'bottom') {
+      const x1 = x + w * .18;
+      const x2 = x + w * .82;
+      const mid = (x1 + x2) / 2;
+      return `<line x1="${x1}" y1="${y + h}" x2="${x2}" y2="${y + h}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x1}" y1="${y + h - sw * .18}" x2="${x2}" y2="${y + h - sw * .18}" stroke="#c3c8cb" stroke-width="1.2"/><line x1="${x1}" y1="${y + h + sw * .18}" x2="${x2}" y2="${y + h + sw * .18}" stroke="#c3c8cb" stroke-width="1.2"/><line x1="${mid}" y1="${y + h - sw * .35}" x2="${mid}" y2="${y + h + sw * .35}" stroke="#c3c8cb" stroke-width="1"/>`;
+    }
+    if (side === 'left') {
+      const y1 = y + h * .2;
+      const y2 = y + h * .8;
+      const mid = (y1 + y2) / 2;
+      return `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x - sw * .18}" y1="${y1}" x2="${x - sw * .18}" y2="${y2}" stroke="#c3c8cb" stroke-width="1.2"/><line x1="${x + sw * .18}" y1="${y1}" x2="${x + sw * .18}" y2="${y2}" stroke="#c3c8cb" stroke-width="1.2"/><line x1="${x - sw * .35}" y1="${mid}" x2="${x + sw * .35}" y2="${mid}" stroke="#c3c8cb" stroke-width="1"/>`;
+    }
+    if (side === 'right') {
+      const y1 = y + h * .2;
+      const y2 = y + h * .8;
+      const mid = (y1 + y2) / 2;
+      return `<line x1="${x + w}" y1="${y1}" x2="${x + w}" y2="${y2}" stroke="#ffffff" stroke-width="${sw * 1.2}" stroke-linecap="butt"/><line x1="${x + w - sw * .18}" y1="${y1}" x2="${x + w - sw * .18}" y2="${y2}" stroke="#c3c8cb" stroke-width="1.2"/><line x1="${x + w + sw * .18}" y1="${y1}" x2="${x + w + sw * .18}" y2="${y2}" stroke="#c3c8cb" stroke-width="1.2"/><line x1="${x + w - sw * .35}" y1="${mid}" x2="${x + w + sw * .35}" y2="${mid}" stroke="#c3c8cb" stroke-width="1"/>`;
+    }
     return '';
   }).join('');
 };
@@ -502,8 +519,8 @@ const drawRoom = (room, m) => {
 };
 
 const drawPlan = (def) => {
-  const maxW = 920;
-  const maxH = 600;
+  const maxW = 870;
+  const maxH = 560;
   const allZones = [...def.rooms, ...(def.outdoor || [])];
   const contentW = Math.max(def.width, ...allZones.map((room) => room.x + room.w));
   const contentH = Math.max(def.height, ...allZones.map((room) => room.y + room.h));
@@ -572,20 +589,32 @@ const addHome = (slug, title, area, subtitle, width, height, rooms, outdoor = []
   title, area, subtitle, width, height, rooms, outdoor, ...opts,
 });
 
-addHome('h1-01', 'Дом 147 м2 с террасой', '147 м2', '1 этаж', 16.6, 8.9, [
-  r(0, 0, 3.5, 3.1, 'Спальня', 'bed', { windows: ['top'] }),
-  r(3.5, 0, 3.8, 3.1, 'Мастер-спальня', 'bed', { windows: ['top'] }),
-  r(7.3, 0, 2.1, 2.2, 'Санузел', 'bath', { tile: true }),
-  r(9.4, 0, 3.4, 3.1, 'Спальня', 'bed', { windows: ['top'] }),
-  r(12.8, 0, 3.8, 3.1, 'Кухня', 'kitchen', { windows: ['top', 'right'] }),
-  r(0, 3.1, 2.5, 3, 'Прихожая', 'hall'),
-  r(2.5, 3.1, 2.1, 2.3, 'Санузел', 'bath', { tile: true }),
-  r(4.6, 3.1, 2.2, 2.3, 'Гардероб', 'service', { fixtures: [{ type: 'wardrobe', x: .16, y: .18, w: .68, h: .5 }] }),
-  r(6.8, 3.1, 2.6, 2.3, 'Котельная', 'service', { windows: ['bottom'] }),
-  r(9.4, 3.1, 7.2, 5.1, 'Гостиная-столовая', 'living', { windows: ['right', 'bottom'] }),
-  r(0, 6.1, 4.6, 2.5, 'Тамбур / холл', 'hall'),
-  r(4.6, 5.4, 4.8, 3.2, 'Постирочная / кладовая', 'service'),
-], [r(10.3, 8.2, 5.2, 1.8, 'Терраса', 'terrace')], { dimX: '16,6 м', dimY: '8,9 м' });
+addHome('h1-01', 'Дом 147 м2 с двумя террасами', '147 м2', '1 этаж', 17.2, 12.4, [
+  r(4.1, 0, 3.2, 3.1, 'Спальня', 'bed', { area: 13.56, windows: ['top'], door: 'bottom' }),
+  r(7.3, 0, 1.9, 3.1, 'Ванная', 'bath', { area: 7.25, tile: true, door: 'bottom' }),
+  r(9.2, 0, 2.0, 3.1, 'Ванная', 'bath', { area: 8.0, tile: true, door: 'bottom' }),
+  r(11.2, 0, 3.2, 3.1, 'Спальня', 'bed', { area: 13.71, windows: ['top'], door: 'bottom' }),
+  r(14.4, 0, 2.8, 3.1, 'Гардероб', 'service', { area: 5.32, door: 'bottom', fixtures: [{ type: 'wardrobe', x: .08, y: .22, w: .84, h: .36 }] }),
+  r(0, 3.1, 2.1, 2.6, 'Гардероб', 'service', { area: 5.91, door: 'right', fixtures: [{ type: 'wardrobe', x: .14, y: .12, w: .64, h: .72 }] }),
+  r(2.1, 3.1, 4.0, 3.2, 'Спальня', 'bed', { area: 16.21, windows: ['left'], door: 'top' }),
+  r(6.1, 3.1, 2.2, 3.2, 'Холл', 'hall', { area: 7.63, door: 'right' }),
+  r(8.3, 3.1, 2.1, 3.2, 'Коридор', 'hall', { area: 9.62, door: 'bottom' }),
+  r(10.4, 3.1, 2.6, 2.4, 'Бойлерная', 'service', { area: 8.36, windows: ['right'], door: 'bottom' }),
+  r(13.0, 3.1, 4.2, 2.4, 'Кладовая', 'service', { area: 5.89, door: 'left', fixtures: [{ type: 'wardrobe', x: .08, y: .32, w: .84, h: .32 }] }),
+  r(4.1, 6.3, 1.7, 2.0, 'Гардероб', 'service', { area: 5.36, door: 'top', fixtures: [{ type: 'wardrobe', x: .16, y: .16, w: .68, h: .48 }] }),
+  r(5.8, 6.3, 1.8, 2.0, 'Тамбур', 'hall', { area: 3.45, door: 'right' }),
+  r(7.6, 6.3, 2.8, 2.0, 'Холл', 'hall', { area: 7.63, door: 'left' }),
+  r(7.6, 8.3, 2.8, 2.0, 'Постирочная', 'service', { area: 5.36, door: 'top' }),
+  r(10.4, 5.5, 6.8, 2.3, 'Кухня', 'kitchen', { area: 17.88, windows: ['right'], door: 'left', fixtures: [{ type: 'kitchen' }] }),
+  r(10.4, 7.8, 6.8, 4.6, 'Гостиная', 'living', { area: 18.98, windows: ['right', 'bottom'], door: 'right', fixtures: [
+    { type: 'sofa', x: .18, y: .54, w: .36, h: .28 },
+    { type: 'table', x: .48, y: .18, w: .28, h: .18 },
+    { type: 'sofa', x: .54, y: .62, w: .3, h: .24 },
+  ] }),
+], [
+  r(1.6, 8.3, 5.9, 2.4, 'Терраса', 'terrace', { area: 27.4, labelY: .62 }),
+  r(17.2, 4.9, 3.3, 5.9, 'Терраса', 'terrace', { area: 37.14, labelY: .28 }),
+], { dimX: '20,5 м', dimY: '12,4 м' });
 
 addHome('h1-02', 'Дом 128 м2 с панорамной гостиной', '128 м2', '1 этаж', 15.9, 8.2, [
   r(0, 0, 4.2, 3.2, 'Мастер-спальня', 'bed', { windows: ['top'] }),
