@@ -14,9 +14,43 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [newPayment, setNewPayment] = useState({companyId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
   const [showNewPayment, setShowNewPayment] = useState(false);
   const [lastInviteCode, setLastInviteCode] = useState(null);
+  const [platformUsers, setPlatformUsers] = useState([]);
+  const [supportSessions, setSupportSessions] = useState([]);
+  const [platformInvite, setPlatformInvite] = useState({role:'platform_support',name:'',email:'',expiresInDays:7});
+  const [lastPlatformInvite, setLastPlatformInvite] = useState(null);
+  const [supportForm, setSupportForm] = useState({platformAccountId:'',companyId:'',scope:'read_only',reason:'',expiresInHours:24});
   const emptyAuditFilters = {platformAccountId:'',companyId:'',action:'',search:''};
   const [auditFilters, setAuditFilters] = useState(emptyAuditFilters);
   const [auditDraftFilters, setAuditDraftFilters] = useState(emptyAuditFilters);
+  const platformRoleLabels = {
+    system_owner:'Владелец платформы',
+    platform_admin:'Администратор платформы',
+    platform_support:'Поддержка платформы',
+    billing_admin:'Биллинг платформы',
+  };
+  const supportScopeLabels = {
+    read_only:'Только просмотр',
+    access_help:'Помощь с доступом',
+    billing_help:'Биллинг',
+    technical_check:'Техническая проверка',
+  };
+  const canManagePlatform = ['system_owner','platform_admin'].includes(user.role);
+  const canManageBilling = ['system_owner','platform_admin','billing_admin'].includes(user.role);
+  const canManageTeam = user.role === 'system_owner';
+  const canUseSupport = ['system_owner','platform_admin','platform_support'].includes(user.role);
+  const authHeaders = useCallback((headers={}) => {
+    const token = localStorage.getItem('authToken');
+    return token ? {...headers, Authorization:'Bearer '+token} : headers;
+  }, []);
+  const fetchJson = useCallback(async (path, fallback) => {
+    const response = await fetch(API + path, {headers:authHeaders()});
+    if (!response.ok) return fallback;
+    return response.json();
+  }, [API, authHeaders]);
+  const sendJson = useCallback(async (path, options={}) => {
+    const headers = authHeaders({'Content-Type':'application/json', ...(options.headers || {})});
+    return fetch(API + path, {...options, headers});
+  }, [API, authHeaders]);
   const auditActionLabels = {
     platform_account_created: 'Создан аккаунт',
     company_created: 'Создана компания',
@@ -29,6 +63,10 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     company_updated: 'Компания изменена',
     payment_added: 'Зачислена оплата',
     demo_request_updated: 'Демо-заявка изменена',
+    platform_user_invited: 'Приглашен сотрудник платформы',
+    platform_user_updated: 'Сотрудник платформы изменен',
+    support_session_opened: 'Открыт режим поддержки',
+    support_session_closed: 'Закрыт режим поддержки',
   };
 
   const loadAll = useCallback(async () => {
@@ -38,13 +76,15 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       if (auditFilters.companyId) auditParams.set('companyId', auditFilters.companyId);
       if (auditFilters.action) auditParams.set('action', auditFilters.action);
       if (auditFilters.search.trim()) auditParams.set('search', auditFilters.search.trim());
-      const [d, c, p, dr, t, a] = await Promise.all([
-        fetch(API+'/system/dashboard').then(r=>r.json()),
-        fetch(API+'/system/companies').then(r=>r.json()),
-        fetch(API+'/system/payments').then(r=>r.json()),
-        fetch(API+'/demo-requests').then(r=>r.json()),
-        fetch(API+'/system/tariffs').then(r=>r.json()),
-        fetch(API+'/system/audit-log?'+auditParams.toString()).then(r=>r.json()),
+      const [d, c, p, dr, t, a, u, s] = await Promise.all([
+        fetchJson('/system/dashboard', null),
+        fetchJson('/system/companies', []),
+        canManageBilling ? fetchJson('/system/payments', []) : Promise.resolve([]),
+        canManagePlatform ? fetchJson('/demo-requests', []) : Promise.resolve([]),
+        fetchJson('/system/tariffs', []),
+        fetchJson('/system/audit-log?'+auditParams.toString(), []),
+        canManageTeam ? fetchJson('/system/platform-users', []) : Promise.resolve([]),
+        canUseSupport ? fetchJson('/system/support-sessions', []) : Promise.resolve([]),
       ]);
       setDashboard(d);
       setCompanies(Array.isArray(c)?c:[]);
@@ -52,8 +92,10 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setDemos(Array.isArray(dr)?dr:[]);
       setTariffs(Array.isArray(t)?t:[]);
       setAuditLog(Array.isArray(a)?a:[]);
+      setPlatformUsers(Array.isArray(u)?u:[]);
+      setSupportSessions(Array.isArray(s)?s:[]);
     } catch(_){}
-	  }, [API, auditFilters]);
+	  }, [auditFilters, canManageBilling, canManagePlatform, canManageTeam, canUseSupport, fetchJson]);
 	  useEffect(()=>{ loadAll(); }, [loadAll]);
 
   const companyGroups = useMemo(() => {
@@ -153,11 +195,13 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     {id:'dashboard', label:'📊 Дашборд'},
 	    {id:'companies', label:'🏢 Аккаунты/компании'},
     {id:'tariffs', label:'💼 Тарифы'},
-    {id:'payments', label:'💰 Платежи'},
-    {id:'demos', label:'🎁 Демо-заявки'},
+    canManageBilling && {id:'payments', label:'💰 Платежи'},
+    canManagePlatform && {id:'demos', label:'🎁 Демо-заявки'},
+    canUseSupport && {id:'support', label:'🛟 Поддержка'},
+    canManageTeam && {id:'team', label:'👥 Команда'},
     {id:'audit', label:'🧾 Журнал'},
     {id:'system', label:'🔧 Система'},
-  ];
+  ].filter(Boolean);
 
   return (
     <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
@@ -167,8 +211,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
           <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
             <span style={{fontSize:'28px'}}>⚙️</span>
             <div>
-              <b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет владельца платформы</b>
-              <p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name}</p>
+              <b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет платформы</b>
+              <p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name} · {platformRoleLabels[user.role] || user.role}</p>
             </div>
           </div>
           <button onClick={()=>{localStorage.removeItem('authToken');localStorage.removeItem('user');setUser(null);}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
@@ -214,9 +258,9 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
         {tab==='companies' && (<div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
 	            <b style={{color:C.text,fontSize:'15px'}}>Клиентские аккаунты ({groupsWithLimitStatus.length}) / компании ({companies.length})</b>
-	            <button onClick={()=>{setShowNewCompany(true);setLastInviteCode(null);}} style={btnO}>+ Подключить аккаунт/компанию</button>
+	            {canManagePlatform && <button onClick={()=>{setShowNewCompany(true);setLastInviteCode(null);}} style={btnO}>+ Подключить аккаунт/компанию</button>}
 	          </div>
-	          {showNewCompany && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
+	          {canManagePlatform && showNewCompany && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
 	            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>Подключить аккаунт или компанию</b>
             {lastInviteCode && (<div style={{padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'12px'}}>
               <b style={{color:C.success,fontSize:'13px',display:'block',marginBottom:'6px'}}>✅ Компания создана!</b>
@@ -253,7 +297,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
                 <button onClick={async()=>{
                   if (!newCompany.name) { alert('Укажите название'); return; }
-                  const r = await fetch(API+'/system/companies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCompany,createdBy:user.name})});
+                  const r = await sendJson('/system/companies',{method:'POST',body:JSON.stringify({...newCompany,createdBy:user.name})});
                   const data = await r.json();
                   if (data.id) { setLastInviteCode(data.inviteCode); await loadAll(); }
                   else { alert('Ошибка создания'); }
@@ -310,13 +354,13 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	                    </div>
 	                  </div>
 	                  {billingState.reason && <p style={{color:billingColors.color,fontSize:'11px',margin:'6px 0 0',fontWeight:billingNeedsAction(billingState)?700:400}}>🚦 {billingState.reason}</p>}
-	                  {c.id!==1 && (
+	                  {canManagePlatform && c.id!==1 && (
 	                    <div style={{display:'flex',gap:'6px',marginTop:'8px',flexWrap:'wrap'}}>
-	                      {isDemo && <button onClick={async()=>{const days=prompt('Продлить триал на сколько дней?','30');if(days){const base=new Date(c.trial_until||new Date());const today=new Date();const newDate=base>today?base:today;newDate.setDate(newDate.getDate()+Number(days));await fetch(API+'/system/companies/'+c.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({trialUntil:newDate.toISOString().split('T')[0],paymentStatus:'trial'})});loadAll();}}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>📅 Продлить триал</button>}
-	                      {!isDemo && !isSuspended && <button onClick={async()=>{await fetch(API+'/system/companies/'+c.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'mark_overdue'})});loadAll();}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>⚠️ Просрочка</button>}
-	                      {!isSuspended && <button onClick={async()=>{const reason=prompt('Причина мягкой заморозки:',billingState.reason || 'Не оплачен доступ');if(reason!==null){await fetch(API+'/system/companies/'+c.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'soft_suspend',reason})});loadAll();}}} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}>⏸ Мягко заморозить</button>}
-	                      {isSuspended && <button onClick={async()=>{await fetch(API+'/system/companies/'+c.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'resume'})});loadAll();}} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>▶ Разморозить</button>}
-	                      <button onClick={()=>{setNewPayment({...newPayment,companyId:c.id,amount:c.monthly_fee||''});setShowNewPayment(true);setTab('payments');}} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}>💰 Зачислить оплату</button>
+	                      {isDemo && <button onClick={async()=>{const days=prompt('Продлить триал на сколько дней?','30');if(days){const base=new Date(c.trial_until||new Date());const today=new Date();const newDate=base>today?base:today;newDate.setDate(newDate.getDate()+Number(days));await sendJson('/system/companies/'+c.id,{method:'PUT',body:JSON.stringify({trialUntil:newDate.toISOString().split('T')[0],paymentStatus:'trial'})});loadAll();}}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>📅 Продлить триал</button>}
+	                      {!isDemo && !isSuspended && <button onClick={async()=>{await sendJson('/system/companies/'+c.id,{method:'PUT',body:JSON.stringify({action:'mark_overdue'})});loadAll();}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>⚠️ Просрочка</button>}
+	                      {!isSuspended && <button onClick={async()=>{const reason=prompt('Причина мягкой заморозки:',billingState.reason || 'Не оплачен доступ');if(reason!==null){await sendJson('/system/companies/'+c.id,{method:'PUT',body:JSON.stringify({action:'soft_suspend',reason})});loadAll();}}} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}>⏸ Мягко заморозить</button>}
+	                      {isSuspended && <button onClick={async()=>{await sendJson('/system/companies/'+c.id,{method:'PUT',body:JSON.stringify({action:'resume'})});loadAll();}} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>▶ Разморозить</button>}
+	                      {canManageBilling && <button onClick={()=>{setNewPayment({...newPayment,companyId:c.id,amount:c.monthly_fee||''});setShowNewPayment(true);setTab('payments');}} style={{...btnO,padding:'4px 10px',fontSize:'11px'}}>💰 Зачислить оплату</button>}
 	                    </div>
 	                  )}
 	                  {c.suspended_reason && <p style={{color:C.danger,fontSize:'11px',margin:'6px 0 0',fontStyle:'italic'}}>⚠️ {c.suspended_reason}</p>}
@@ -392,7 +436,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
             <div style={{display:'flex',gap:'8px',marginTop:'8px'}}>
               <button onClick={async()=>{
                 if(!newPayment.companyId||!newPayment.amount) { alert('Заполните компанию и сумму'); return; }
-                await fetch(API+'/system/payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newPayment,createdBy:user.name})});
+                await sendJson('/system/payments',{method:'POST',body:JSON.stringify({...newPayment,createdBy:user.name})});
                 setShowNewPayment(false);
                 setNewPayment({companyId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
                 await loadAll();
@@ -427,9 +471,114 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <span style={badge(d.status==='Новая'?C.warning:C.success,d.status==='Новая'?C.warningLight:C.successLight,d.status==='Новая'?C.warningBorder:C.successBorder)}>{d.status}</span>
             </div>
             {d.status==='Новая' && (<div style={{display:'flex',gap:'6px',marginTop:'8px'}}>
-              <button onClick={async()=>{await fetch(API+'/demo-requests/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Обработана'})});loadAll();}} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>✓ Обработана</button>
-              <button onClick={async()=>{await fetch(API+'/demo-requests/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонена'})});loadAll();}} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}>✕ Отклонить</button>
+              <button onClick={async()=>{await sendJson('/demo-requests/'+d.id,{method:'PUT',body:JSON.stringify({status:'Обработана'})});loadAll();}} style={{...btnGr,padding:'4px 10px',fontSize:'11px'}}>✓ Обработана</button>
+              <button onClick={async()=>{await sendJson('/demo-requests/'+d.id,{method:'PUT',body:JSON.stringify({status:'Отклонена'})});loadAll();}} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}>✕ Отклонить</button>
             </div>)}
+          </div>))}
+        </div>)}
+
+        {/* Поддержка */}
+        {tab==='support' && canUseSupport && (<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap',marginBottom:'14px'}}>
+            <div>
+              <b style={{color:C.text,fontSize:'15px',display:'block'}}>Режим поддержки ({supportSessions.length})</b>
+              <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Это журналируемое разрешение на разбор проблемы клиента. Само по себе оно не открывает ЖПР, склад или финансы.</p>
+            </div>
+            {canManagePlatform && <span style={badge(C.warning,C.warningLight,C.warningBorder)}>открывает владелец/админ</span>}
+          </div>
+          {canManagePlatform && (<div style={{...card,padding:'14px',marginBottom:'14px'}}>
+            <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Открыть support-сессию</b>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'8px'}}>
+              <select value={supportForm.platformAccountId} onChange={e=>setSupportForm({...supportForm,platformAccountId:e.target.value,companyId:''})} style={{...inp,marginBottom:0}}>
+                <option value=''>Аккаунт клиента</option>
+                {groupsWithLimitStatus.map(group=><option key={group.id} value={group.id}>{group.name}</option>)}
+              </select>
+              <select value={supportForm.companyId} onChange={e=>setSupportForm({...supportForm,companyId:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value=''>Компания / весь аккаунт</option>
+                {companies.filter(company => !supportForm.platformAccountId || String(company.platform_account_id || company.id) === String(supportForm.platformAccountId)).map(company=><option key={company.id} value={company.id}>{company.name}</option>)}
+              </select>
+              <select value={supportForm.scope} onChange={e=>setSupportForm({...supportForm,scope:e.target.value})} style={{...inp,marginBottom:0}}>
+                {Object.entries(supportScopeLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}
+              </select>
+              <input type='number' min='1' max='168' placeholder='Часов' value={supportForm.expiresInHours} onChange={e=>setSupportForm({...supportForm,expiresInHours:e.target.value})} style={{...inp,marginBottom:0}}/>
+            </div>
+            <textarea placeholder='Причина: что именно разбираем и кто согласовал' value={supportForm.reason} onChange={e=>setSupportForm({...supportForm,reason:e.target.value})} style={{...inp,height:'58px',marginTop:'8px'}}/>
+            <button onClick={async()=>{
+              const response = await sendJson('/system/support-sessions',{method:'POST',body:JSON.stringify(supportForm)});
+              const data = await response.json().catch(()=>({}));
+              if (!response.ok) { alert(data.detail || 'Не удалось открыть режим поддержки'); return; }
+              setSupportForm({platformAccountId:'',companyId:'',scope:'read_only',reason:'',expiresInHours:24});
+              await loadAll();
+            }} style={btnO}>✓ Открыть режим поддержки</button>
+          </div>)}
+          {supportSessions.length===0 && <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Активных support-сессий нет</div>}
+          {supportSessions.map(session=>{
+            const statusColor = session.status === 'active' ? C.success : (session.status === 'expired' ? C.warning : C.textMuted);
+            return (<div key={session.id} style={{...card,padding:'12px',marginBottom:'8px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',gap:'10px',alignItems:'flex-start',flexWrap:'wrap'}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <b style={{color:C.text,fontSize:'13px',display:'block'}}>{session.company_name || session.platform_account_name || 'Аккаунт не выбран'}</b>
+                  <p style={{color:C.textSec,fontSize:'12px',margin:'3px 0 0',overflowWrap:'anywhere'}}>{session.reason}</p>
+                  <p style={{color:C.textMuted,fontSize:'11px',margin:'4px 0 0'}}>
+                    {session.scopeLabel || supportScopeLabels[session.scope] || session.scope} · открыл {session.opened_by_name || 'system'} · до {session.expires_at ? new Date(session.expires_at).toLocaleString('ru-RU') : '—'}
+                  </p>
+                </div>
+                <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={badge(statusColor,C.bg,C.border)}>{session.status}</span>
+                  {canManagePlatform && session.status === 'active' && <button onClick={async()=>{await sendJson('/system/support-sessions/'+session.id,{method:'PUT',body:JSON.stringify({action:'close'})});loadAll();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Закрыть</button>}
+                </div>
+              </div>
+            </div>);
+          })}
+        </div>)}
+
+        {/* Команда платформы */}
+        {tab==='team' && canManageTeam && (<div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',flexWrap:'wrap',marginBottom:'14px'}}>
+            <div>
+              <b style={{color:C.text,fontSize:'15px',display:'block'}}>Команда платформы ({platformUsers.length})</b>
+              <p style={{color:C.textSec,fontSize:'12px',margin:'4px 0 0'}}>Приглашения идут через одноразовый код. Пароли не создаем и не храним открытым текстом.</p>
+            </div>
+            <span style={badge(C.info,C.infoLight,C.infoBorder)}>только владелец</span>
+          </div>
+          <div style={{...card,padding:'14px',marginBottom:'14px'}}>
+            <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Пригласить сотрудника платформы</b>
+            {lastPlatformInvite && (<div style={{padding:'10px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'10px'}}>
+              <b style={{color:C.success,fontSize:'12px',display:'block',marginBottom:'6px'}}>Ссылка приглашения</b>
+              <div style={{padding:'9px',backgroundColor:C.bgWhite,border:'1px solid '+C.border,borderRadius:'6px',fontSize:'12px',color:C.text,wordBreak:'break-all',userSelect:'all'}}>{lastPlatformInvite.link}</div>
+              <button onClick={()=>navigator.clipboard.writeText(lastPlatformInvite.link).then(()=>alert('Скопировано'))} style={{...btnO,padding:'5px 10px',fontSize:'11px',marginTop:'8px'}}>Скопировать</button>
+            </div>)}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'8px'}}>
+              <select value={platformInvite.role} onChange={e=>setPlatformInvite({...platformInvite,role:e.target.value})} style={{...inp,marginBottom:0}}>
+                <option value='platform_support'>Поддержка платформы</option>
+                <option value='platform_admin'>Администратор платформы</option>
+                <option value='billing_admin'>Биллинг платформы</option>
+              </select>
+              <input placeholder='Имя / должность' value={platformInvite.name} onChange={e=>setPlatformInvite({...platformInvite,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input type='email' placeholder='Email для подписи приглашения' value={platformInvite.email} onChange={e=>setPlatformInvite({...platformInvite,email:e.target.value})} style={{...inp,marginBottom:0}}/>
+              <input type='number' min='1' max='30' placeholder='Дней действия' value={platformInvite.expiresInDays} onChange={e=>setPlatformInvite({...platformInvite,expiresInDays:e.target.value})} style={{...inp,marginBottom:0}}/>
+            </div>
+            <button onClick={async()=>{
+              const response = await sendJson('/system/platform-users/invite',{method:'POST',body:JSON.stringify(platformInvite)});
+              const data = await response.json().catch(()=>({}));
+              if (!response.ok) { alert(data.detail || 'Не удалось создать приглашение'); return; }
+              const link = window.location.origin + '/?invite=' + data.code;
+              setLastPlatformInvite({code:data.code, link});
+              setPlatformInvite({role:'platform_support',name:'',email:'',expiresInDays:7});
+              await loadAll();
+            }} style={{...btnO,marginTop:'10px'}}>+ Создать приглашение</button>
+          </div>
+          {platformUsers.map(item=>(<div key={item.id} style={{...card,padding:'12px',marginBottom:'8px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+              <div>
+                <b style={{color:C.text,fontSize:'13px'}}>{item.name || item.email}</b>
+                <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>{item.email} · {item.roleLabel || platformRoleLabels[item.role] || item.role} · {item.two_factor_enabled ? '2FA включена' : '2FA потребуется при входе'}</p>
+              </div>
+              <div style={{display:'flex',gap:'6px',alignItems:'center',flexWrap:'wrap'}}>
+                <span style={badge(item.active?C.success:C.textMuted,item.active?C.successLight:C.bg,item.active?C.successBorder:C.border)}>{item.active?'Активен':'Отключен'}</span>
+                {item.role !== 'system_owner' && <button onClick={async()=>{await sendJson('/system/platform-users/'+item.id,{method:'PUT',body:JSON.stringify({active:!item.active})});loadAll();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>{item.active?'Отключить':'Включить'}</button>}
+              </div>
+            </div>
           </div>))}
         </div>)}
 

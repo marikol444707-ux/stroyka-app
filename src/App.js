@@ -2,12 +2,19 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import LoginPage from './pages/LoginPage';
 import { API, installAuthFetch } from './api';
-import { CRM_STAGES, DOOR_PURPOSES, DOOR_TYPES, ESTIMATE_CHANGE_APPROVED_STATUSES, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES, EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, REVEAL_MATERIALS, STAGE_STATUSES, SUPPLIER_CATEGORIES, SURFACES, TOOL_STATUSES, UNITS, VAT_OPTIONS, WEATHER_CONDITIONS, WINDOW_TYPES } from './constants/catalogs';
+import { CRM_STAGES, DOOR_PURPOSES, DOOR_TYPES, ESTIMATE_CHANGE_TYPES, ESTIMATE_CHANGE_VISIBLE_STATUSES, ESTIMATE_PACKAGES, EXPENSE_CATEGORIES, MATERIAL_CATEGORIES, PAYMENT_TYPES, REVEAL_MATERIALS, STAGE_STATUSES, SUPPLIER_CATEGORIES, SURFACES, TOOL_STATUSES, UNITS, VAT_OPTIONS, WEATHER_CONDITIONS, WINDOW_TYPES } from './constants/catalogs';
 import {
   PROJECT_MEASUREMENT_DOC_TYPES,
   PROJECT_MEASUREMENT_SOURCE_TYPES,
   PROJECT_MEASUREMENT_STATUSES,
 } from './constants/estimateConstants';
+import {
+  AUDIT_LOG_PAGE_LIMIT,
+  DIRECTOR_MAP_FEATURE_ENABLED,
+  MATERIAL_NORMS_PAGE_LIMIT,
+  MATERIALS_PAGE_LIMIT,
+  WORK_JOURNAL_PAGE_LIMIT,
+} from './constants/appConfig';
 import {
   CHECKLIST_TEMPLATES,
   PD_CONSENT_TEXT,
@@ -76,6 +83,66 @@ import EstimateItemGroupEmpty from './components/EstimateItemGroupEmpty';
 import MaterialNormSuggestionsPanel from './components/MaterialNormSuggestionsPanel';
 import PhotoAttachmentField from './components/PhotoAttachmentField';
 import MobileBottomNav from './components/MobileBottomNav';
+import {
+  AccountingPage,
+  AccountableExpenseReportModal,
+  AccountablePaymentModal,
+  ActPaymentModal,
+  ActivityLogPage,
+  AiAssistantDrawer,
+  AiChatModal,
+  AnalyticsPage,
+  BrigadePaymentModal,
+  ClientsPage,
+  CompanyChatPage,
+  ConfirmWorkAcceptanceModal,
+  CrmPage,
+  CustomerCabinetPage,
+  DashboardActivityPanel,
+  DashboardDirectorAiPanel,
+  DashboardProductionSummaryPanel,
+  DashboardSupplyPanel,
+  EstimateChatModal,
+  EstimateDistributeModal,
+  EstimateVersionHistoryModal,
+  FloatingCompanyChatPanel,
+  GenerateEstimateModal,
+  GeneratePricelistModal,
+  ManualExpenseModal,
+  MasterCabinetPage,
+  MyExpensesPage,
+  OwnExpenseFormModal,
+  PersonnelPage,
+  PricelistFromEstimateModal,
+  PricelistsPage,
+  ProjectCableJournalEditModal,
+  ProjectHiddenWorksActEditModal,
+  ProjectMaterialInspectionEditModal,
+  ProjectWorkJournalEditModal,
+  ProjectWorkJournalTableModal,
+  PublicSitePage,
+  QrModal,
+  QuickActionsModal,
+  ReceiveMaterialDialog,
+  RegisterPage,
+  ReimburseModal,
+  RejectEntryModal,
+  RequestKpModal,
+  ScanInvoiceModal,
+  ScannedInvoiceFormModal,
+  SettingsPage,
+  SupplierInviteModal,
+  SuppliersPage,
+  SupplyPage,
+  SverkaModal,
+  SystemOwnerCabinet,
+  SupervisorCabinetPage,
+  ToolIssueModal,
+  ToolReturnModal,
+  UsersPage,
+  WarehousePage,
+  WeatherPage,
+} from './app/lazyComponents';
 import { buildPerformerContractHtml } from './utils/contractTemplates';
 import MobileMenuSheet from './components/MobileMenuSheet';
 import AppSidebar from './components/AppSidebar';
@@ -86,9 +153,19 @@ import DashboardRisksPanel from './components/DashboardRisksPanel';
 import { resolveEstimatePackage } from './utils/estimatePackage';
 import { _normalizeUnit, denormalizeMeasure, fmtMeasure, normalizeMeasure, toNum } from './utils/measureUtils';
 import { EMPTY_MATERIAL_NORM_FORM, WORK_MATERIAL_NORM_RULES, convertUnits } from './utils/materialNormUtils';
+import { materialAutoMatchSafe, materialLookupText, materialNameMatchScore } from './utils/materialMatchUtils';
+import {
+  calcDoorArea,
+  calcDoorReveals,
+  calcWindowArea,
+  calcWindowReveals,
+  roomIdOf,
+  roomMeasurementMessage,
+} from './utils/roomMeasurementUtils';
 import {
   buildEstimateWorkSummary,
   enrichEstimateMeasurementBasis,
+  estimateExecutionFillPercentOf,
   estimateImportLineMeta,
   estimateImportedPlanMeasure,
   estimateItemDoneTotal,
@@ -97,10 +174,12 @@ import {
   estimateItemTotal,
   estimateItemTypeMeta,
   estimateItemWorkSum,
+  estimateIssueDomId,
   estimateMaterialPlanIssue,
   estimateMeasurementBasisMeta,
   estimateMeasurementBasisOf,
   estimateWorkKeyForItem,
+  isEstimatePricelist,
   isEstimateMaterialItem,
   isEstimateWorkItem,
   linkEstimateResourcesToWorks,
@@ -110,358 +189,20 @@ import {
   normalizeEstimateWorkingItem,
   normalizeImportedEstimateItem,
 } from './utils/estimateUtils';
+import {
+  daysInMonth,
+  doPrint,
+  generateQR,
+  initialGuestPage,
+  loadStoredUser,
+  requestPushPermission,
+  sendPushNotification,
+} from './utils/appRuntimeUtils';
+import { EMPTY_ESTIMATE_CHANGE, isApprovedEstimateChangeStatus } from './utils/estimateChangeUtils';
+import { emptyStaffForm } from './utils/staffUtils';
 import { LayoutDashboard, FolderKanban, Package, DollarSign, UserCheck, ScrollText, BarChart3, Handshake, Search, Plus, Edit2, Trash2, Eye, Printer, Check, X, ChevronDown, ChevronUp, Download, Upload, MapPin, FileText, Archive, CloudSun, QrCode, Calculator, Settings, CreditCard, Bot, ShoppingCart, GitBranch } from 'lucide-react';
 
 installAuthFetch();
-
-const MATERIALS_PAGE_LIMIT = 200;
-const MATERIAL_NORMS_PAGE_LIMIT = 200;
-const WORK_JOURNAL_PAGE_LIMIT = 200;
-const AUDIT_LOG_PAGE_LIMIT = 200;
-const DIRECTOR_MAP_FEATURE_ENABLED = process.env.REACT_APP_FEATURE_DIRECTOR_MAP !== 'false';
-
-const executionPercentValue = (value) => {
-  const percent = toNum(String(value ?? '').replace(',', '.'));
-  if (percent < 1 || percent > 100) return 0;
-  return Math.round(percent * 100) / 100;
-};
-
-const estimateExecutionFillPercentOf = (estimate) => {
-  const counts = new Map();
-  (estimate?.sections || []).forEach(section => {
-    (section.items || []).forEach(item => {
-      if (!isEstimateWorkItem(item, section.name)) return;
-      const mode = String(item.executionPriceMode || '').trim().toLowerCase();
-      if (!mode.startsWith('percent')) return;
-      const fromMode = mode.match(/^percent[_:\s-]*(\d+(?:[.,]\d+)?)/);
-      const percent = executionPercentValue(fromMode ? fromMode[1] : item.executionPricePercent);
-      if (!percent) return;
-      counts.set(percent, (counts.get(percent) || 0) + 1);
-    });
-  });
-  let bestPercent = 0;
-  let bestCount = 0;
-  counts.forEach((count, percent) => {
-    if (count > bestCount) {
-      bestCount = count;
-      bestPercent = percent;
-    }
-  });
-  return bestPercent ? String(bestPercent) : '';
-};
-
-const materialLookupText = (name) => String(name || '').toLowerCase().replace(/[.,;:()«»"']/g, ' ').replace(/\s+/g, ' ').trim();
-const MATERIAL_MATCH_STOPWORDS = new Set([
-  'гост', 'ту', 'сорт', 'марка', 'тип', 'вид', 'цвет', 'размер', 'разм',
-  'мм', 'см', 'м', 'шт', 'кг', 'л', 'т', 'для', 'при', 'под', 'над', 'без',
-  'основная', 'объект', 'материал', 'материалы', 'позиция', 'работы', 'работа',
-  'комплект', 'комплекта', 'комплектов', 'изделие', 'изделия', 'серия',
-]);
-
-const materialMatchTokens = (name) => {
-  const tokens = new Set();
-  const add = (...values) => values.forEach(value => tokens.add(value));
-  materialLookupText(name).split(' ').forEach(raw => {
-    const token = raw.trim();
-    if (token.length < 2 || MATERIAL_MATCH_STOPWORDS.has(token)) return;
-    if (/^\d$/.test(token)) return;
-    if (/^\d{4,}$/.test(token) && /^(13|20)/.test(token)) return;
-    if (token.startsWith('керамогран')) add('керамогранит', 'гранит', 'керамическ');
-    else if (token.startsWith('livorno') || token.startsWith('ливорн')) add('livorno', 'керамогранит', 'плитка');
-    else if (token.startsWith('axima') || token.startsWith('аксима')) add('axima', 'керамогранит', 'плитка');
-    else if (token.startsWith('керамич')) tokens.add('керамическ');
-    else if (token.startsWith('гранит')) tokens.add('гранит');
-    else if (token.startsWith('металлочереп') || token.startsWith('черепиц')) add('металлочерепица', 'черепица', 'кровля');
-    else if (token.startsWith('монтер') || token.startsWith('monter')) add('монтеррей', 'металлочерепица', 'черепица', 'кровля');
-    else if (token.startsWith('гкл') || token.startsWith('гипсокарт')) add('гкл', 'гипсокартон');
-    else if (token.startsWith('гвл') || token.startsWith('гипсовол')) add('гвл', 'гипсоволокно');
-    else if (token.includes('цемент')) tokens.add('цемент');
-    else if (token.startsWith('смес')) tokens.add('смесь');
-    else if (token.startsWith('ротб')) add('ротбанд', 'штукатурка', 'смесь');
-    else if (token.startsWith('хабез')) add('хабез', 'штукатурка', 'смесь');
-    else if (token.startsWith('старт')) add('старт', 'штукатурка', 'шпатлевка', 'смесь');
-    else if (token.startsWith('кнауф') || token.startsWith('knauf')) tokens.add('кнауф');
-    else if (token.startsWith('песк')) tokens.add('песок');
-    else if (token.startsWith('бетон')) tokens.add('бетон');
-    else if (token.startsWith('глаз')) tokens.add('глазур');
-    else if (token.startsWith('матов') || token.startsWith('неполир')) tokens.add('матов');
-    else if (token.startsWith('полир')) tokens.add('полир');
-    else if (token.startsWith('плит')) tokens.add('плитка');
-    else if (token.startsWith('кле')) tokens.add('клей');
-    else if (token.startsWith('грунт')) tokens.add('грунтовка');
-    else if (token.startsWith('штукатур')) tokens.add('штукатурка');
-    else if (token.startsWith('шпатлев') || token.startsWith('шпаклев')) tokens.add('шпатлевка');
-    else if (token.startsWith('профил')) tokens.add('профиль');
-    else if (token.startsWith('угол')) tokens.add('уголок');
-    else if (token.startsWith('подвес')) tokens.add('подвес');
-    else if (token.startsWith('маяк') || token.startsWith('маяч')) tokens.add('маяк');
-    else if (token.startsWith('рейк')) tokens.add('рейка');
-    else if (token.startsWith('лент')) tokens.add('лента');
-    else if (token.startsWith('серпян')) tokens.add('серпянка');
-    else if (token.startsWith('саморез') || token.startsWith('шуруп')) tokens.add('саморез');
-    else if (token.startsWith('анкер')) tokens.add('анкер');
-    else if (token.startsWith('болт')) tokens.add('болт');
-    else if (token.startsWith('гайк')) tokens.add('гайка');
-    else if (token.startsWith('шайб')) tokens.add('шайба');
-    else if (token.startsWith('кабел')) tokens.add('кабель');
-    else if (token.startsWith('провод')) tokens.add('провод');
-    else if (token.startsWith('светиль') || token.startsWith('табло')) tokens.add('светильник');
-    else if (token.startsWith('ламп')) tokens.add('лампа');
-    else if (token.startsWith('розет')) tokens.add('розетка');
-    else if (token.startsWith('выключ')) tokens.add('выключатель');
-    else if (token.startsWith('втул')) tokens.add('втулка');
-    else if (token.startsWith('хомут')) tokens.add('хомут');
-    else if (token.startsWith('скоб')) tokens.add('скоба');
-    else if (token.startsWith('труб')) tokens.add('труба');
-    else if (token.startsWith('радиатор')) tokens.add('радиатор');
-    else if (token.startsWith('фитинг')) tokens.add('фитинг');
-    else if (token.startsWith('муфт')) tokens.add('муфта');
-    else if (token.startsWith('клапан')) tokens.add('клапан');
-    else if (token.startsWith('американ')) tokens.add('американка');
-    else if (token.startsWith('воздухоотв')) tokens.add('воздухоотводчик');
-    else if (token.startsWith('кран')) tokens.add('кран');
-    else if (token.startsWith('креп')) tokens.add('крепеж');
-    else if (token.startsWith('скреп')) tokens.add('скрепа');
-    else if (token.startsWith('дюб')) tokens.add('дюбель');
-    else if (token.startsWith('клин')) tokens.add('клин');
-    else if (token.startsWith('кроншт')) tokens.add('кронштейн');
-    else if (token.startsWith('направл')) tokens.add('направляющая');
-    else if (token.startsWith('доск')) tokens.add('доска');
-    else if (token.startsWith('брус')) tokens.add('брус');
-    else if (token.startsWith('фанер')) tokens.add('фанера');
-    else if (token.startsWith('осп') || token.startsWith('osb')) tokens.add('осп');
-    else if (token.startsWith('армат')) tokens.add('арматура');
-    else if (token.startsWith('гвозд')) tokens.add('гвоздь');
-    else if (token.startsWith('шпил')) tokens.add('шпилька');
-    else if (token.startsWith('перф')) tokens.add('перфолента');
-    else if (token.startsWith('краск') || token.startsWith('окрас')) tokens.add('краска');
-    else if (token.startsWith('эмал')) tokens.add('эмаль');
-    else if (token.startsWith('лак')) tokens.add('лак');
-    else if (token.startsWith('гермет')) tokens.add('герметик');
-    else if (token.startsWith('силикон')) tokens.add('силикон');
-    else if (token.startsWith('пен')) tokens.add('пена');
-    else if (token.startsWith('раствор')) tokens.add('раствор');
-    else if (token.startsWith('алебастр')) tokens.add('алебастр');
-    else if (token.startsWith('гипс')) tokens.add('гипс');
-    else if (token.startsWith('извест')) tokens.add('известь');
-    else tokens.add(token);
-  });
-  return tokens;
-};
-
-const materialFamilyTags = (tokens) => {
-  const t = new Set(tokens || []);
-  const families = new Set();
-  if (t.has('клей')) families.add('adhesive');
-  if (t.has('штукатурка') || t.has('ротбанд') || (t.has('смесь') && (t.has('хабез') || t.has('старт')))) families.add('plaster');
-  if (t.has('шпатлевка') && !t.has('штукатурка')) families.add('putty');
-  if (t.has('грунтовка')) families.add('primer');
-  if (t.has('цемент') && !['plaster', 'putty', 'adhesive'].some(f => families.has(f))) families.add('cement');
-  if (t.has('бетон')) families.add('concrete');
-  if (t.has('песок')) families.add('sand');
-  if (!t.has('клей') && ['керамогранит', 'плитка', 'гранит', 'керамическ'].some(x => t.has(x))) families.add('tile');
-  if (t.has('гкл') || t.has('гипсокартон')) families.add('gkl');
-  if (t.has('гвл') || t.has('гипсоволокно')) families.add('gvl');
-  if (['профиль', 'уголок', 'подвес', 'маяк', 'рейка', 'направляющая'].some(x => t.has(x))) families.add('metal_profile');
-  if (['саморез', 'анкер', 'болт', 'гайка', 'шайба', 'дюбель', 'крепеж', 'гвоздь', 'шпилька', 'скрепа'].some(x => t.has(x))) families.add('fastener');
-  if (t.has('кабель') || t.has('провод')) families.add('cable');
-  if (['труба', 'фитинг', 'муфта', 'клапан', 'американка', 'хомут', 'кран'].some(x => t.has(x))) families.add('pipe');
-  if (t.has('светильник') || t.has('лампа')) families.add('light');
-  if (t.has('розетка') || t.has('выключатель')) families.add('electrical_device');
-  if (['радиатор', 'кронштейн', 'воздухоотводчик'].some(x => t.has(x))) families.add('heating');
-  if (['металлочерепица', 'черепица', 'кровля', 'монтеррей'].some(x => t.has(x))) families.add('roofing');
-  if (['доска', 'брус', 'фанера', 'осп'].some(x => t.has(x))) families.add('wood_sheet');
-  if (t.has('арматура')) families.add('rebar');
-  if (['краска', 'эмаль', 'лак'].some(x => t.has(x))) families.add('paint');
-  if (['герметик', 'силикон', 'пена'].some(x => t.has(x))) families.add('sealant');
-  if (['раствор', 'алебастр', 'гипс', 'известь'].some(x => t.has(x)) && !families.has('plaster') && !families.has('putty')) families.add('binder_mix');
-  return families;
-};
-
-const materialSetIntersection = (left, right) => new Set([...left].filter(x => right.has(x)));
-
-const materialNameMatchScore = (left, right) => {
-  const leftKey = materialLookupText(left);
-  const rightKey = materialLookupText(right);
-  if (!leftKey || !rightKey) return 0;
-  if (leftKey === rightKey) return 1;
-  if (leftKey.length >= 10 && rightKey.length >= 10 && (leftKey.includes(rightKey) || rightKey.includes(leftKey))) return 0.92;
-  const leftTokens = materialMatchTokens(leftKey);
-  const rightTokens = materialMatchTokens(rightKey);
-  if (!leftTokens.size || !rightTokens.size) return 0;
-  const common = materialSetIntersection(leftTokens, rightTokens);
-  const commonFamilies = materialSetIntersection(materialFamilyTags(leftTokens), materialFamilyTags(rightTokens));
-  const familyScore = commonFamilies.size ? (['tile', 'plaster', 'putty', 'primer', 'cement', 'gkl', 'gvl', 'metal_profile', 'fastener', 'cable', 'pipe', 'roofing', 'paint', 'sealant', 'adhesive'].some(f => commonFamilies.has(f)) ? 0.82 : 0.76) : 0;
-  if (!common.size) return familyScore;
-  if ((leftTokens.has('металлочерепица') || leftTokens.has('черепица')) && (rightTokens.has('металлочерепица') || rightTokens.has('черепица'))) return 0.84;
-  if (['керамогранит', 'плитка'].some(x => leftTokens.has(x)) && ['керамогранит', 'плитка'].some(x => rightTokens.has(x)) && ['livorno', 'axima', 'гранит', 'керамическ', 'матов', 'глазур'].some(x => common.has(x))) return 0.86;
-  if (['ротбанд', 'кнауф', 'смесь', 'хабез', 'старт'].some(x => leftTokens.has(x)) && ['ротбанд', 'кнауф', 'смесь', 'хабез', 'старт'].some(x => rightTokens.has(x)) && ['штукатурка', 'шпатлевка', 'смесь', 'ротбанд', 'кнауф'].some(x => common.has(x))) return 0.84;
-  if (common.has('гранит') && common.has('керамическ')) return 0.86;
-  if (['гкл', 'гипсокартон'].some(x => leftTokens.has(x)) && ['гкл', 'гипсокартон'].some(x => rightTokens.has(x))) return 0.84;
-  if (['гвл', 'гипсоволокно'].some(x => leftTokens.has(x)) && ['гвл', 'гипсоволокно'].some(x => rightTokens.has(x))) return 0.84;
-  if (familyScore) return Math.max(familyScore, 0.78);
-  const score = common.size / Math.max(1, Math.min(leftTokens.size, rightTokens.size));
-  const longCommon = [...common].filter(t => t.length >= 6);
-  const strongCommon = materialSetIntersection(common, new Set(['цемент', 'бетон', 'песок', 'саморез', 'анкер', 'болт', 'гайка', 'шайба', 'кабель', 'провод', 'труба', 'радиатор', 'кран', 'клей', 'плитка', 'керамогранит', 'гранит', 'керамическ']));
-  if (strongCommon.size && common.size >= 2) return Math.min(0.82, Math.max(score + 0.2, 0.62));
-  if (common.size >= 3 && score >= 0.45) return Math.min(0.9, score + 0.15);
-  if (common.size >= 2 && longCommon.length && score >= 0.4) return Math.min(0.82, score + 0.1);
-  if (longCommon.length && score >= 0.65) return Math.min(0.72, score);
-  return score >= 0.7 ? score : 0;
-};
-
-const materialAutoMatchSafe = (left, right, score) => {
-  const leftKey = materialLookupText(left);
-  const rightKey = materialLookupText(right);
-  if (leftKey && rightKey && leftKey === rightKey) return true;
-  if (leftKey.length >= 10 && rightKey.length >= 10 && (leftKey.includes(rightKey) || rightKey.includes(leftKey))) return true;
-  const leftTokens = materialMatchTokens(left);
-  const rightTokens = materialMatchTokens(right);
-  const common = materialSetIntersection(leftTokens, rightTokens);
-  const commonFamilies = materialSetIntersection(materialFamilyTags(leftTokens), materialFamilyTags(rightTokens));
-  if (score >= 0.86 && (common.size >= 2 || commonFamilies.size > 0)) return true;
-  const broadSafeFamilies = new Set(['tile', 'plaster', 'putty', 'primer', 'gkl', 'gvl', 'metal_profile', 'fastener', 'roofing', 'wood_sheet', 'rebar', 'sealant', 'binder_mix']);
-  if (score >= 0.84 && common.size >= 1 && [...commonFamilies].some(f => broadSafeFamilies.has(f))) return true;
-  if (score >= 0.82 && common.size >= 2) return true;
-  return false;
-};
-
-const RegisterPage = React.lazy(() => import('./pages/RegisterPage'));
-const PublicSitePage = React.lazy(() => import('./components/PublicSitePage'));
-const UsersPage = React.lazy(() => import('./components/UsersPage'));
-const SupplyPage = React.lazy(() => import('./components/SupplyPage'));
-const SuppliersPage = React.lazy(() => import('./components/SuppliersPage'));
-const WarehousePage = React.lazy(() => import('./components/WarehousePage'));
-const AccountingPage = React.lazy(() => import('./components/AccountingPage'));
-const MasterCabinetPage = React.lazy(() => import('./components/MasterCabinetPage'));
-const PersonnelPage = React.lazy(() => import('./components/PersonnelPage'));
-const SupervisorCabinetPage = React.lazy(() => import('./components/SupervisorCabinetPage'));
-const CustomerCabinetPage = React.lazy(() => import('./components/CustomerCabinetPage'));
-const WeatherPage = React.lazy(() => import('./components/WeatherPage'));
-const ClientsPage = React.lazy(() => import('./components/ClientsPage'));
-const PricelistsPage = React.lazy(() => import('./components/PricelistsPage'));
-const MyExpensesPage = React.lazy(() => import('./components/MyExpensesPage'));
-const SettingsPage = React.lazy(() => import('./components/SettingsPage'));
-const AnalyticsPage = React.lazy(() => import('./components/AnalyticsPage'));
-const CrmPage = React.lazy(() => import('./features/crm'));
-const ActivityLogPage = React.lazy(() => import('./components/ActivityLogPage'));
-const CompanyChatPage = React.lazy(() => import('./components/CompanyChatPage'));
-const SystemOwnerCabinet = React.lazy(() => import('./features/platform-admin'));
-const ProjectWorkJournalEditModal = React.lazy(() => import('./components/ProjectWorkJournalEditModal'));
-const ProjectWorkJournalTableModal = React.lazy(() => import('./components/ProjectWorkJournalTableModal'));
-const ProjectMaterialInspectionEditModal = React.lazy(() => import('./components/ProjectMaterialInspectionEditModal'));
-const ProjectCableJournalEditModal = React.lazy(() => import('./components/ProjectCableJournalEditModal'));
-const ProjectHiddenWorksActEditModal = React.lazy(() => import('./components/ProjectHiddenWorksActEditModal'));
-const SverkaModal = React.lazy(() => import('./components/SverkaModal'));
-const AiChatModal = React.lazy(() => import('./components/AiChatModal'));
-const SupplierInviteModal = React.lazy(() => import('./components/SupplierInviteModal'));
-const RequestKpModal = React.lazy(() => import('./components/RequestKpModal'));
-const ReimburseModal = React.lazy(() => import('./components/ReimburseModal'));
-const AccountableExpenseReportModal = React.lazy(() => import('./components/AccountableExpenseReportModal'));
-const ManualExpenseModal = React.lazy(() => import('./components/ManualExpenseModal'));
-const AccountablePaymentModal = React.lazy(() => import('./components/AccountablePaymentModal'));
-const EstimateDistributeModal = React.lazy(() => import('./components/EstimateDistributeModal'));
-const PricelistFromEstimateModal = React.lazy(() => import('./components/PricelistFromEstimateModal'));
-const GeneratePricelistModal = React.lazy(() => import('./components/GeneratePricelistModal'));
-const GenerateEstimateModal = React.lazy(() => import('./components/GenerateEstimateModal'));
-const ToolIssueModal = React.lazy(() => import('./components/ToolIssueModal'));
-const ToolReturnModal = React.lazy(() => import('./components/ToolReturnModal'));
-const BrigadePaymentModal = React.lazy(() => import('./components/BrigadePaymentModal'));
-const ActPaymentModal = React.lazy(() => import('./components/ActPaymentModal'));
-const AiAssistantDrawer = React.lazy(() => import('./components/AiAssistantDrawer'));
-const ReceiveMaterialDialog = React.lazy(() => import('./components/ReceiveMaterialDialog'));
-const ScannedInvoiceFormModal = React.lazy(() => import('./components/ScannedInvoiceFormModal'));
-const ScanInvoiceModal = React.lazy(() => import('./components/ScanInvoiceModal'));
-const QuickActionsModal = React.lazy(() => import('./components/QuickActionsModal'));
-const OwnExpenseFormModal = React.lazy(() => import('./components/OwnExpenseFormModal'));
-const QrModal = React.lazy(() => import('./components/QrModal'));
-const RejectEntryModal = React.lazy(() => import('./components/RejectEntryModal'));
-const FloatingCompanyChatPanel = React.lazy(() => import('./components/FloatingCompanyChatPanel'));
-const EstimateChatModal = React.lazy(() => import('./components/EstimateChatModal'));
-const EstimateVersionHistoryModal = React.lazy(() => import('./components/EstimateVersionHistoryModal'));
-const ConfirmWorkAcceptanceModal = React.lazy(() => import('./components/ConfirmWorkAcceptanceModal'));
-const DashboardDirectorAiPanel = React.lazy(() => import('./components/DashboardDirectorAiPanel'));
-const DashboardSupplyPanel = React.lazy(() => import('./components/DashboardSupplyPanel'));
-const DashboardProductionSummaryPanel = React.lazy(() => import('./components/DashboardProductionSummaryPanel'));
-const DashboardActivityPanel = React.lazy(() => import('./components/DashboardActivityPanel'));
-const loadStoredUser = () => {
-  if (typeof window === 'undefined') return null;
-  try {
-    const token = localStorage.getItem('authToken');
-    const rawUser = localStorage.getItem('user');
-    if (!token || !rawUser) return null;
-    return JSON.parse(rawUser);
-  } catch {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
-    return null;
-  }
-};
-const initialGuestPage = () => {
-  if (typeof window === 'undefined') return 'site';
-  const path = window.location.pathname.toLowerCase();
-  const host = window.location.hostname.toLowerCase();
-  const appHost = host === 'app.stroyka26.pro' || host.startsWith('app.');
-  if (path.includes('register')) return 'register';
-  if (path.includes('login')) return 'login';
-  if (appHost) return 'login';
-  return 'site';
-};
-const isEstimatePricelist = (pl={}) => {
-  const name = String(pl.name || '').toLowerCase();
-  const description = String(pl.description || '').toLowerCase();
-  return name.startsWith('прайс из') || description.includes('создан из сметы');
-};
-const estimateIssueDomId = (estimateId, sectionIdx, itemIdx) => 'estimate-row-'+String(estimateId||'new')+'-'+String(sectionIdx)+'-'+String(itemIdx);
-const daysInMonth = Array.from({length: 31}, (_, i) => String(i + 1));
-
-const requestPushPermission = async () => {
-  if (!('Notification' in window)) return false;
-  if (Notification.permission === 'granted') return true;
-  const permission = await Notification.requestPermission();
-  return permission === 'granted';
-};
-
-const sendPushNotification = (title, body) => {
-  if (Notification.permission === 'granted') {
-    new Notification('🏗️ ' + title, { body, icon: '/favicon.ico' });
-  }
-};
-
-const doPrint = (content) => {
-  const iframe = document.createElement('iframe');
-  iframe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;border:none;';
-  document.body.appendChild(iframe);
-  const doc = iframe.contentDocument || iframe.contentWindow.document;
-  doc.open();
-  doc.write('<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;padding:30px;font-size:12px;color:#000}table{width:100%;border-collapse:collapse;margin:15px 0}td,th{border:1px solid #333;padding:6px;text-align:left}th{background:#f5f5f5}h2{text-align:center;margin-bottom:5px}p{margin:4px 0}.signatures{display:flex;justify-content:space-between;margin-top:40px}.sig{text-align:center;width:30%}.sig-line{border-top:1px solid #333;margin-top:30px;padding-top:5px}@media print{body{padding:15px}}</style></head><body>'+content+'</body></html>');
-  doc.close();
-  setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); setTimeout(() => document.body.removeChild(iframe), 2000); }, 300);
-};
-
-const generateQR = (text) => {
-  const size = 150;
-  const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(text)}`;
-  return url;
-};
-
-const EMPTY_ESTIMATE_CHANGE = {
-  changeType:'Работа вне сметы',
-  estimateId:'',
-  sectionName:'',
-  estimateItemName:'',
-  baseQuantity:'',
-  newRequiredQuantity:'',
-  deltaQuantity:'',
-  description:'',
-  unit:'шт',
-  quantity:'',
-  price:'',
-  notes:'',
-  reason:'',
-  photoUrl:''
-};
-const isApprovedEstimateChangeStatus = (status) => ESTIMATE_CHANGE_APPROVED_STATUSES.includes(status);
 
 function App() {
   const [isMobile, setIsMobile] = useState(detectMobileLayout);
@@ -943,7 +684,6 @@ function App() {
   const [newWarehouse, setNewWarehouse] = useState({name:'',city:'',address:'',notes:''});
   const [newMovement, setNewMovement] = useState({materialName:'',fromLocation:'Основной склад',toLocation:'',quantity:'',unit:'шт',notes:'',selectedMaterials:[]});
   const [newInvoice, setNewInvoice] = useState({number:'',date:'',supplierId:'',isNewSupplier:false,newSupplierName:'',acceptedBy:'',location:'Основной склад',project:'',vat:'Без НДС',photos:[],items:[{name:'',quantity:'',unit:'шт',price:'',category:'',workPackage:''}]});
-  const emptyStaffForm = () => ({name:'',role:'',phone:'',salary:'',project:'',payType:'оклад',email:'',password:'',systemRole:'',lastName:'',firstName:'',middleName:'',birthDate:'',citizenship:'РФ',address:'',photoUrl:'',emailWork:'',emailPersonal:'',phoneExtra:'',passportSeries:'',passportNumber:'',passportIssuedBy:'',passportIssuedDate:'',inn:'',snils:'',specialization:'',category:'',employmentType:'',hiredDate:'',firedDate:'',status:'Активен',brigade:'',bankAccount:'',bankName:'',bankBik:'',bankCorr:'',ogrnip:'',cardNumber:'',signatureUrl:'',notes:'',assignedProjects:[],assignedPackages:[]});
   const [newStaff, setNewStaff] = useState(emptyStaffForm());
   const [staffExpandedSections, setStaffExpandedSections] = useState({access:false,docs:false,finance:false,extra:false});
   const [expandedStaffId, setExpandedStaffId] = useState(null);
@@ -1958,21 +1698,6 @@ function App() {
     return {base:amount, vat:0, total:amount};
   };
 
-  const calcWindowArea = (w) => Number(w.width||0)*Number(w.height||0);
-  const calcWindowReveals = (w) => {
-    const d = Number(w.reveal_depth||w.revealDepth||0)/100;
-    const wd = Number(w.width||0);
-    const ht = Number(w.height||0);
-    return Math.round((wd*d + ht*d*2)*100)/100;
-  };
-  const calcDoorArea = (d) => Number(d.width||0)*Number(d.height||0);
-  const calcDoorReveals = (d) => {
-    const dep = Number(d.reveal_depth||d.revealDepth||0)/100;
-    const wd = Number(d.width||0);
-    const ht = Number(d.height||0);
-    return Math.round((wd*dep + ht*dep*2)*100)/100;
-  };
-
   const getRoomNetWall = (room) => {
     const wins = roomWindows.filter(w=>Number(w.room_id)===Number(room.id));
     const doors = roomDoors.filter(d=>Number(d.room_id)===Number(room.id));
@@ -2007,7 +1732,6 @@ function App() {
     return {status:'Проверить проёмы', issues, color:C.info, bg:C.infoLight, border:C.infoBorder};
   };
 
-  const roomIdOf = (row) => Number(row?.roomId ?? row?.room_id ?? 0);
   const getRoomWindowRevealsTotal = (room) => roomWindows.filter(w=>Number(w.room_id)===Number(room.id)).reduce((s,w)=>s+calcWindowReveals(w),0);
   const getRoomDoorRevealsTotal = (room) => roomDoors.filter(d=>Number(d.room_id)===Number(room.id)).reduce((s,d)=>s+calcDoorReveals(d),0);
   const roomSurfaceArea = (room, surface='Стены') => {
@@ -2042,14 +1766,6 @@ function App() {
     const total = doneInRoom + requested;
     return {room, surface:surface||'Стены', limit, doneInRoom, requested, total, over:Math.max(0,total-limit), pct:Math.round(total/limit*100)};
   };
-  const roomMeasurementMessage = (check) => {
-    if (!check) return '';
-    const left = Math.max(0, check.limit-check.doneInRoom);
-    return check.over>0
-      ? 'По обмеру «'+check.room.name+' / '+check.surface+'» доступно '+fmtMeasure(check.limit,'м2')+', уже учтено '+fmtMeasure(check.doneInRoom,'м2')+', вводите '+fmtMeasure(check.requested,'м2')+'. Превышение '+fmtMeasure(check.over,'м2')+'. Обновите фактический обмер или оформите изменение к смете.'
-      : 'Обмер: '+check.room.name+' / '+check.surface+' — осталось '+fmtMeasure(left,'м2')+', после отправки будет '+fmtMeasure(check.total,'м2')+' из '+fmtMeasure(check.limit,'м2')+'.';
-  };
-
   const saveActPayment = async (actId) => {
     if (!newPayment.amount||!newPayment.date) { alert('Заполните сумму и дату'); return; }
     const act = interimActs.find(a=>a.id===actId);
@@ -11359,8 +11075,8 @@ function App() {
 
 
 
-  // Кабинет владельца платформы (system_owner) — SaaS admin
-  if (user && user.role === 'system_owner') {
+  // Кабинет платформы — SaaS admin/support/billing, отдельно от рабочей ERP
+  if (user && ['system_owner','platform_admin','platform_support','billing_admin'].includes(user.role)) {
     return <React.Suspense fallback={pageFallback}><SystemOwnerCabinet user={user} setUser={setUser} C={C} card={card} btnO={btnO} btnG={btnG} btnGr={btnGr} btnR={btnR} inp={inp} badge={badge} API={API}/></React.Suspense>;
   }
 

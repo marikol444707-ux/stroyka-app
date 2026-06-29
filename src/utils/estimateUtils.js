@@ -94,6 +94,45 @@ export const estimateUnitLooksUnknown = (unit) => {
   const u = estimateTextKey(unit).replace(/\s+/g,'');
   return !u || ['1','ед','единица','шт','штука','штук','штуки'].includes(u);
 };
+
+const executionPercentValue = (value) => {
+  const percent = toNum(String(value ?? '').replace(',', '.'));
+  if (percent < 1 || percent > 100) return 0;
+  return Math.round(percent * 100) / 100;
+};
+
+export const estimateExecutionFillPercentOf = (estimate) => {
+  const counts = new Map();
+  (estimate?.sections || []).forEach(section => {
+    (section.items || []).forEach(item => {
+      if (!isEstimateWorkItem(item, section.name)) return;
+      const mode = String(item.executionPriceMode || '').trim().toLowerCase();
+      if (!mode.startsWith('percent')) return;
+      const fromMode = mode.match(/^percent[_:\s-]*(\d+(?:[.,]\d+)?)/);
+      const percent = executionPercentValue(fromMode ? fromMode[1] : item.executionPricePercent);
+      if (!percent) return;
+      counts.set(percent, (counts.get(percent) || 0) + 1);
+    });
+  });
+  let bestPercent = 0;
+  let bestCount = 0;
+  counts.forEach((count, percent) => {
+    if (count > bestCount) {
+      bestCount = count;
+      bestPercent = percent;
+    }
+  });
+  return bestPercent ? String(bestPercent) : '';
+};
+
+export const isEstimatePricelist = (pl={}) => {
+  const name = String(pl.name || '').toLowerCase();
+  const description = String(pl.description || '').toLowerCase();
+  return name.startsWith('прайс из') || description.includes('создан из сметы');
+};
+
+export const estimateIssueDomId = (estimateId, sectionIdx, itemIdx) => 'estimate-row-'+String(estimateId||'new')+'-'+String(sectionIdx)+'-'+String(itemIdx);
+
 export const inferEstimateUnit = (it={}, sectionName='') => {
   const current = String(it.unit || '').trim();
   const explicitType = estimateTextKey(it.itemType || it.type);

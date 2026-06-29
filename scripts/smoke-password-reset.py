@@ -19,7 +19,7 @@ BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
 TEST_EMAIL_PREFIX = os.getenv("PASSWORD_RESET_SMOKE_EMAIL_PREFIX", "password-reset-smoke")
 TEST_EMAIL_DOMAIN = os.getenv("PASSWORD_RESET_SMOKE_EMAIL_DOMAIN", "stroyka.local")
 TEST_NAME = os.getenv("PASSWORD_RESET_SMOKE_NAME", "CODEX QA Восстановление пароля")
-TWO_FACTOR_ROLES = {"директор", "зам_директора", "бухгалтер"}
+TWO_FACTOR_ROLES = {"директор", "зам_директора", "бухгалтер", "system_owner", "platform_admin", "platform_support", "billing_admin"}
 
 DEFAULT_ROLES = [
     ("директор", "director"),
@@ -39,6 +39,9 @@ DEFAULT_ROLES = [
     ("заказчик", "customer"),
     ("поставщик", "supplier"),
     ("system_owner", "system-owner"),
+    ("platform_admin", "platform-admin"),
+    ("platform_support", "platform-support"),
+    ("billing_admin", "billing-admin"),
 ]
 
 

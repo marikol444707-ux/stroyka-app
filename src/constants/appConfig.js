@@ -1,0 +1,5 @@
+export const MATERIALS_PAGE_LIMIT = 200;
+export const MATERIAL_NORMS_PAGE_LIMIT = 200;
+export const WORK_JOURNAL_PAGE_LIMIT = 200;
+export const AUDIT_LOG_PAGE_LIMIT = 200;
+export const DIRECTOR_MAP_FEATURE_ENABLED = process.env.REACT_APP_FEATURE_DIRECTOR_MAP !== 'false';

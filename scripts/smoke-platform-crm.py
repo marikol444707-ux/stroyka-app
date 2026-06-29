@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
+import base64
 import hashlib
+import hmac
 import json
 import os
 import secrets
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -20,6 +23,11 @@ RUN_ID = uuid.uuid4().hex[:8]
 PREFIX = f"CODEX PLATFORM CRM SMOKE {RUN_ID}"
 SYSTEM_EMAIL = f"platform-crm-system-{RUN_ID}@stroyka.local"
 CRM_EMAIL = f"platform-crm-manager-{RUN_ID}@stroyka.local"
+PLATFORM_ROLE_EMAILS = {
+    "platform_admin": f"platform-crm-admin-{RUN_ID}@stroyka.local",
+    "platform_support": f"platform-crm-support-{RUN_ID}@stroyka.local",
+    "billing_admin": f"platform-crm-billing-{RUN_ID}@stroyka.local",
+}
 PROJECT_NAME = f"{PREFIX} Project"
 PROJECT_CREATE_NAME = f"{PREFIX} Created Project"
 
@@ -63,6 +71,24 @@ def hash_password(password):
     return f"pbkdf2_sha256$260000${salt}${digest}"
 
 
+def b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+
+def auth_token_for(user: dict) -> str:
+    payload = {
+        "id": user.get("id"),
+        "email": user.get("email") or "",
+        "role": user.get("role") or "",
+        "name": user.get("name") or "",
+        "exp": int(time.time()) + 3600,
+    }
+    body = b64url(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    secret = env_value("AUTH_SECRET", "change-me")
+    sig = hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).digest()
+    return body + "." + b64url(sig)
+
+
 def api_json(method, path, token=None, data=None, expected=None):
     headers = {"Content-Type": "application/json"}
     if token:
@@ -86,10 +112,10 @@ def api_json(method, path, token=None, data=None, expected=None):
         return status, {"raw": text}
 
 
-def prepare_user(email, role, name):
+def prepare_user_record(email, role, name):
     password = secrets.token_urlsafe(12)
     conn = db_conn()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("DELETE FROM users WHERE LOWER(email)=LOWER(%s)", (email,))
     cur.execute(
         """
@@ -97,13 +123,21 @@ def prepare_user(email, role, name):
             (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active,two_factor_required,two_factor_enabled,company_id)
         VALUES
             (%s,%s,%s,%s,NULL,'','[]'::jsonb,'[]'::jsonb,TRUE,FALSE,FALSE,1)
+        RETURNING id, name, email, role
         """,
         (name, email, hash_password(password), role),
     )
+    row = dict(cur.fetchone())
     conn.commit()
     cur.close()
     conn.close()
-    return password
+    row["password"] = password
+    row["token"] = auth_token_for(row)
+    return row
+
+
+def prepare_user(email, role, name):
+    return prepare_user_record(email, role, name)["password"]
 
 
 def login(email, password):
@@ -118,7 +152,7 @@ def cleanup():
     conn = db_conn()
     cur = conn.cursor()
     like_prefix = PREFIX + "%"
-    emails = (SYSTEM_EMAIL, CRM_EMAIL)
+    emails = [SYSTEM_EMAIL, CRM_EMAIL, *PLATFORM_ROLE_EMAILS.values()]
     try:
         cur.execute("DELETE FROM project_documents WHERE project_name LIKE %s OR notes LIKE %s", (like_prefix, "%" + PREFIX + "%"))
         cur.execute("DELETE FROM projects WHERE name LIKE %s", (like_prefix,))
@@ -138,9 +172,17 @@ def cleanup():
                OR company_id IN (SELECT id FROM companies WHERE name LIKE %s)
                OR platform_account_id IN (SELECT id FROM platform_accounts WHERE name LIKE %s)
         """, (like_prefix, like_prefix, "%" + PREFIX + "%", like_prefix, like_prefix))
+        cur.execute("""
+            DELETE FROM platform_support_sessions
+            WHERE reason LIKE %s
+               OR opened_by_name LIKE %s
+               OR closed_by_name LIKE %s
+               OR company_id IN (SELECT id FROM companies WHERE name LIKE %s)
+               OR platform_account_id IN (SELECT id FROM platform_accounts WHERE name LIKE %s)
+        """, ("%" + PREFIX + "%", like_prefix, like_prefix, like_prefix, like_prefix))
         cur.execute("DELETE FROM companies WHERE name LIKE %s", (like_prefix,))
         cur.execute("DELETE FROM platform_accounts WHERE name LIKE %s", (like_prefix,))
-        cur.execute("DELETE FROM users WHERE LOWER(email)=LOWER(%s) OR LOWER(email)=LOWER(%s)", emails)
+        cur.execute("DELETE FROM users WHERE LOWER(email)=ANY(%s)", ([email.lower() for email in emails],))
         conn.commit()
     finally:
         cur.close()
@@ -251,7 +293,108 @@ def check_platform(system_token):
         )
         if not account_audit or any(item.get("platform_account_id") != platform_account_id for item in account_audit):
             raise RuntimeError(f"system audit filter by platform account returned invalid rows: {account_audit}")
-    return {"companyId": company_id, "tariffs": sorted(tariff_ids)}
+
+    return {"companyId": company_id, "platformAccountId": platform_account_id, "tariffs": sorted(tariff_ids)}
+
+
+def check_platform_roles(system_token, platform_result):
+    _, platform_users = api_json("GET", "/system/platform-users", token=system_token, expected=200)
+    if not isinstance(platform_users, list) or not any(item.get("role") == "system_owner" for item in platform_users):
+        raise RuntimeError("system platform-users did not return platform owner")
+
+    _, invite = api_json(
+        "POST",
+        "/system/platform-users/invite",
+        token=system_token,
+        expected=200,
+        data={
+            "role": "platform_support",
+            "name": f"{PREFIX} Support Invite",
+            "email": f"platform-invite-{RUN_ID}@stroyka.local",
+            "expiresInDays": 3,
+        },
+    )
+    if invite.get("role") != "platform_support" or not invite.get("code"):
+        raise RuntimeError(f"platform support invite returned invalid body: {invite}")
+
+    platform_admin = prepare_user_record(
+        PLATFORM_ROLE_EMAILS["platform_admin"],
+        "platform_admin",
+        f"{PREFIX} Platform Admin",
+    )
+    platform_support = prepare_user_record(
+        PLATFORM_ROLE_EMAILS["platform_support"],
+        "platform_support",
+        f"{PREFIX} Platform Support",
+    )
+    billing_admin = prepare_user_record(
+        PLATFORM_ROLE_EMAILS["billing_admin"],
+        "billing_admin",
+        f"{PREFIX} Billing Admin",
+    )
+
+    for role_user in (platform_admin, platform_support, billing_admin):
+        api_json("GET", "/system/dashboard", token=role_user["token"], expected=200)
+        api_json("GET", "/system/companies", token=role_user["token"], expected=200)
+        api_json("GET", "/system/audit-log?limit=20", token=role_user["token"], expected=200)
+        api_json("GET", "/system/platform-users", token=role_user["token"], expected=403)
+
+    api_json("GET", "/system/payments", token=platform_support["token"], expected=403)
+    api_json("GET", "/system/payments", token=billing_admin["token"], expected=200)
+    _, billing_payment = api_json(
+        "POST",
+        "/system/payments",
+        token=billing_admin["token"],
+        expected=200,
+        data={
+            "companyId": platform_result["companyId"],
+            "amount": 777,
+            "paymentDate": "2026-06-29",
+            "method": "smoke-billing",
+            "invoiceNumber": f"SMOKE-BILLING-{RUN_ID}",
+            "status": "paid",
+            "periodStart": "2026-07-29",
+            "periodEnd": "2026-08-29",
+        },
+    )
+    if not billing_payment.get("ok"):
+        raise RuntimeError(f"billing admin payment returned invalid body: {billing_payment}")
+
+    _, opened = api_json(
+        "POST",
+        "/system/support-sessions",
+        token=platform_admin["token"],
+        expected=200,
+        data={
+            "platformAccountId": platform_result.get("platformAccountId"),
+            "companyId": platform_result["companyId"],
+            "scope": "technical_check",
+            "reason": f"{PREFIX} support session",
+            "expiresInHours": 2,
+        },
+    )
+    session_id = opened.get("session", {}).get("id")
+    if not session_id:
+        raise RuntimeError(f"platform admin support-session returned invalid body: {opened}")
+
+    _, sessions = api_json("GET", "/system/support-sessions", token=platform_support["token"], expected=200)
+    if not any(item.get("id") == session_id and item.get("status") == "active" for item in sessions):
+        raise RuntimeError(f"platform support sessions did not include opened session: {sessions}")
+    api_json("PUT", f"/system/support-sessions/{session_id}", token=platform_support["token"], expected=403)
+    api_json("PUT", f"/system/support-sessions/{session_id}", token=platform_admin["token"], expected=200, data={"action": "close"})
+
+    _, audit_log = api_json("GET", f"/system/audit-log?limit=80&search={RUN_ID}", token=platform_admin["token"], expected=200)
+    audit_text = json.dumps(audit_log, ensure_ascii=False)
+    for expected_action in ("platform_user_invited", "support_session_opened", "support_session_closed", "payment_added"):
+        if expected_action not in audit_text:
+            raise RuntimeError(f"platform role audit log missing {expected_action}")
+
+    return {
+        "platformAdmin": platform_admin["email"],
+        "platformSupport": platform_support["email"],
+        "billingAdmin": billing_admin["email"],
+        "supportSessionId": session_id,
+    }
 
 
 def check_crm(crm_token):
@@ -392,6 +535,7 @@ def main():
         system_token = login(SYSTEM_EMAIL, system_password)
         crm_token = login(CRM_EMAIL, crm_password)
         platform_result = check_platform(system_token)
+        platform_roles_result = check_platform_roles(system_token, platform_result)
         crm_result = check_crm(crm_token)
         summary = {
             "ok": True,
@@ -404,6 +548,10 @@ def main():
                 "platform payment",
                 "platform audit log",
                 "platform audit filters",
+                "platform team invite",
+                "platform staff role access",
+                "platform support sessions",
+                "platform billing role",
                 "crm lead summaries and details",
                 "crm documents and tasks",
                 "supplier approval",
@@ -413,6 +561,7 @@ def main():
                 "crm document transfer to project documents",
             ],
             "platform": platform_result,
+            "platformRoles": platform_roles_result,
             "crm": crm_result,
         }
         print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))

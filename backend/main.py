@@ -230,7 +230,10 @@ app.add_middleware(
 
 PASSWORD_HASH_PREFIX = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 260000
-TWO_FACTOR_REQUIRED_ROLES = ("директор", "зам_директора", "бухгалтер")
+TWO_FACTOR_REQUIRED_ROLES = (
+    "директор", "зам_директора", "бухгалтер",
+    "system_owner", "platform_admin", "platform_support", "billing_admin",
+)
 TWO_FACTOR_TOKEN_TTL_SECONDS = 10 * 60
 
 def hash_password(password: str) -> str:
@@ -1906,7 +1909,8 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR(80);
         ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_confirmed_at TIMESTAMP;
-        UPDATE users SET two_factor_required=TRUE WHERE role IN ('директор','зам_директора','бухгалтер');
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+        UPDATE users SET two_factor_required=TRUE WHERE role IN ('директор','зам_директора','бухгалтер','system_owner','platform_admin','platform_support','billing_admin');
         UPDATE users SET active=TRUE WHERE active IS NULL;
         CREATE TABLE IF NOT EXISTS messages (
             id SERIAL PRIMARY KEY,
@@ -2313,6 +2317,21 @@ def init_db():
             platform_account_id INT,
             company_id INT,
             details_json TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS platform_support_sessions (
+            id SERIAL PRIMARY KEY,
+            platform_account_id INT,
+            company_id INT,
+            reason TEXT NOT NULL,
+            scope VARCHAR(50) DEFAULT 'read_only',
+            status VARCHAR(50) DEFAULT 'active',
+            expires_at TIMESTAMP,
+            opened_by_user_id INT,
+            opened_by_name VARCHAR(255),
+            closed_by_user_id INT,
+            closed_by_name VARCHAR(255),
+            closed_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW()
         );
         -- Ставим company_id на ключевые таблицы — пока всем 1 (текущая компания)
@@ -6543,7 +6562,7 @@ def list_companies(_current_user: dict = Depends(get_current_user)):
 # Маршруты /system/* зарегистрированы из backend/features/platform_admin/routes.py.
 
 @app.get("/demo-requests")
-def list_demo_requests(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
+def list_demo_requests(_current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner", "platform_admin"))):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM demo_requests ORDER BY created_at DESC LIMIT 200")
@@ -6567,7 +6586,7 @@ def create_demo_request(data: dict):
     return {"id": new_id, "ok": True, "message": "Заявка принята, с вами свяжутся в течение рабочего дня"}
 
 @app.put("/demo-requests/{id}")
-def update_demo_request(id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner"))):
+def update_demo_request(id: int, data: dict, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "system_owner", "platform_admin"))):
     from datetime import datetime
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)

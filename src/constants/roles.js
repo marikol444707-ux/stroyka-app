@@ -16,6 +16,9 @@ export const ROLES = {
   заказчик: ['client_view'],
   поставщик: ['supplier_view'],
   system_owner: ['system_view'],
+  platform_admin: ['system_view'],
+  platform_support: ['system_view'],
+  billing_admin: ['system_view'],
 };
 
 export const ROLE_LABELS = {
@@ -27,6 +30,9 @@ export const ROLE_LABELS = {
   сметчик:'📊 Сметчик', субподрядчик:'🔩 Субподрядчик', бригадир:'👷 Бригадир',
   технадзор:'🔎 Технадзор', заказчик:'🏠 Заказчик', поставщик:'🏭 Поставщик',
   system_owner:'⚙️ Владелец платформы',
+  platform_admin:'🧭 Администратор платформы',
+  platform_support:'🛟 Поддержка платформы',
+  billing_admin:'💳 Биллинг платформы',
 };
 
 export const ROLE_GROUPS = [

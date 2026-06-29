@@ -8,6 +8,21 @@ import psycopg2.extras
 from fastapi import Depends, HTTPException
 
 
+PLATFORM_VIEW_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
+PLATFORM_MANAGE_ROLES = ("system_owner", "platform_admin")
+PLATFORM_BILLING_ROLES = ("system_owner", "platform_admin", "billing_admin")
+PLATFORM_TEAM_ROLES = ("system_owner",)
+PLATFORM_SUPPORT_ROLES = ("system_owner", "platform_admin", "platform_support")
+PLATFORM_STAFF_ROLES = ("platform_admin", "platform_support", "billing_admin")
+
+PLATFORM_ROLE_LABELS = {
+    "system_owner": "Владелец платформы",
+    "platform_admin": "Администратор платформы",
+    "platform_support": "Поддержка платформы",
+    "billing_admin": "Биллинг платформы",
+}
+
+
 SYSTEM_TARIFFS = [
     {
         "id": "demo",
@@ -155,17 +170,31 @@ def _system_write_audit(cur, current_user: dict, action: str, entity_type: str =
 write_platform_audit = _system_write_audit
 
 
+def _platform_role_label(role: str) -> str:
+    return PLATFORM_ROLE_LABELS.get(role or "", role or "")
+
+
+def _support_scope_label(scope: str) -> str:
+    labels = {
+        "read_only": "Только просмотр",
+        "access_help": "Помощь с доступом",
+        "billing_help": "Биллинг",
+        "technical_check": "Техническая проверка",
+    }
+    return labels.get(scope or "", scope or "Только просмотр")
+
+
 def register_platform_admin_routes(app, deps):
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
 
     @app.get("/system/tariffs")
-    def system_tariffs_list(_current_user: dict = Depends(require_roles("system_owner"))):
+    def system_tariffs_list(_current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
         return SYSTEM_TARIFFS
 
     @app.get("/system/companies")
-    def system_companies_list(_current_user: dict = Depends(require_roles("system_owner"))):
-        """Полный список компаний с биллингом - только для владельца платформы."""
+    def system_companies_list(_current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
+        """Полный список компаний с биллингом - только для системных ролей платформы."""
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""SELECT c.id, c.name, c.short_name, c.inn, c.contact_name, c.contact_phone, c.contact_email,
@@ -194,7 +223,7 @@ def register_platform_admin_routes(app, deps):
         return rows
 
     @app.post("/system/companies")
-    def system_create_company(data: dict, current_user: dict = Depends(require_roles("system_owner"))):
+    def system_create_company(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
         """Создание новой компании-клиента + инвайт-код ее директору."""
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -248,7 +277,7 @@ def register_platform_admin_routes(app, deps):
         return {"id": new_id, "inviteCode": invite_code, "trialUntil": str(trial_until) if trial_until else None}
 
     @app.put("/system/companies/{id}")
-    def system_update_company(id: int, data: dict, current_user: dict = Depends(require_roles("system_owner"))):
+    def system_update_company(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
         """Обновление компании: смена тарифа, продление триала, заморозка."""
         action = data.get("action")
         if id == 1 and action in ("suspend", "soft_suspend", "hard_suspend"):
@@ -329,7 +358,7 @@ def register_platform_admin_routes(app, deps):
         return {"ok": True}
 
     @app.get("/system/dashboard")
-    def system_dashboard(_current_user: dict = Depends(require_roles("system_owner"))):
+    def system_dashboard(_current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
         """Сводка для главной страницы кабинета системы."""
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -371,7 +400,7 @@ def register_platform_admin_routes(app, deps):
         }
 
     @app.get("/system/payments")
-    def system_payments_list(_current_user: dict = Depends(require_roles("system_owner"))):
+    def system_payments_list(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""SELECT p.*, c.name as company_name FROM company_payments p
@@ -382,7 +411,7 @@ def register_platform_admin_routes(app, deps):
         return rows
 
     @app.post("/system/payments")
-    def system_create_payment(data: dict, current_user: dict = Depends(require_roles("system_owner"))):
+    def system_create_payment(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""INSERT INTO company_payments (company_id, amount, payment_date, method,
@@ -416,11 +445,164 @@ def register_platform_admin_routes(app, deps):
         conn.close()
         return {"id": new_id, "ok": True}
 
+    @app.get("/system/platform-users")
+    def system_platform_users(_current_user: dict = Depends(require_roles(*PLATFORM_TEAM_ROLES))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT id, name, email, role, active, company_id,
+                              two_factor_required, two_factor_enabled, created_at
+                       FROM users
+                       WHERE role = ANY(%s)
+                       ORDER BY role, name, email""", (list(PLATFORM_STAFF_ROLES) + ["system_owner"],))
+        rows = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item["roleLabel"] = _platform_role_label(item.get("role"))
+            rows.append(item)
+        conn.close()
+        return rows
+
+    @app.post("/system/platform-users/invite")
+    def system_invite_platform_user(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_TEAM_ROLES))):
+        role = (data.get("role") or "").strip()
+        if role not in PLATFORM_STAFF_ROLES:
+            raise HTTPException(status_code=400, detail="Недопустимая роль платформы")
+        name = (data.get("name") or _platform_role_label(role)).strip()
+        email = (data.get("email") or "").strip().lower()
+        expires_days = max(1, min(int(data.get("expiresInDays") or 7), 30))
+        expires = datetime.now() + timedelta(days=expires_days)
+        code = str(uuid.uuid4())[:8].upper()
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""INSERT INTO invite_codes
+                          (code, role, preset_name, preset_category, created_by, expires_at)
+                       VALUES (%s,%s,%s,%s,%s,%s)
+                       RETURNING *""",
+                    (code, role, name, None, current_user.get("name") or current_user.get("email") or "system_owner", expires))
+        row = dict(cur.fetchone())
+        _system_write_audit(cur, current_user, "platform_user_invited", "platform_user_invite", row.get("id"),
+            name, details={"role": role, "roleLabel": _platform_role_label(role), "email": email, "expiresAt": expires})
+        conn.close()
+        row["roleLabel"] = _platform_role_label(role)
+        return row
+
+    @app.put("/system/platform-users/{id}")
+    def system_update_platform_user(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_TEAM_ROLES))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id, name, email, role, active FROM users WHERE id=%s", (id,))
+        before = cur.fetchone()
+        if not before:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        if before.get("role") == "system_owner":
+            conn.close()
+            raise HTTPException(status_code=400, detail="Владельца платформы нельзя менять этим действием")
+        sets, vals = [], []
+        if "active" in data:
+            sets.append("active=%s")
+            vals.append(bool(data.get("active")))
+        if "role" in data:
+            role = (data.get("role") or "").strip()
+            if role not in PLATFORM_STAFF_ROLES:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Недопустимая роль платформы")
+            sets.append("role=%s")
+            vals.append(role)
+        if not sets:
+            conn.close()
+            return {"ok": False, "error": "no fields"}
+        vals.append(id)
+        cur.execute("UPDATE users SET " + ", ".join(sets) + " WHERE id=%s RETURNING id, name, email, role, active", vals)
+        after = dict(cur.fetchone())
+        _system_write_audit(cur, current_user, "platform_user_updated", "platform_user", id,
+            after.get("name") or after.get("email"), details={"before": dict(before), "after": after})
+        conn.close()
+        after["roleLabel"] = _platform_role_label(after.get("role"))
+        return {"ok": True, "user": after}
+
+    @app.get("/system/support-sessions")
+    def system_support_sessions(_current_user: dict = Depends(require_roles(*PLATFORM_SUPPORT_ROLES))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT s.*, pa.name AS platform_account_name, c.name AS company_name
+                       FROM platform_support_sessions s
+                       LEFT JOIN platform_accounts pa ON pa.id=s.platform_account_id
+                       LEFT JOIN companies c ON c.id=s.company_id
+                       ORDER BY CASE WHEN s.status='active' THEN 0 ELSE 1 END, s.created_at DESC
+                       LIMIT 200""")
+        rows = []
+        now = datetime.now()
+        for row in cur.fetchall():
+            item = dict(row)
+            if item.get("status") == "active" and item.get("expires_at") and item["expires_at"] < now:
+                item["status"] = "expired"
+            item["scopeLabel"] = _support_scope_label(item.get("scope"))
+            rows.append(item)
+        conn.close()
+        return rows
+
+    @app.post("/system/support-sessions")
+    def system_open_support_session(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
+        reason = (data.get("reason") or "").strip()
+        if len(reason) < 5:
+            raise HTTPException(status_code=400, detail="Укажите причину режима поддержки")
+        company_id = data.get("companyId") or data.get("company_id")
+        platform_account_id = data.get("platformAccountId") or data.get("platform_account_id")
+        scope = (data.get("scope") or "read_only").strip()
+        hours = max(1, min(int(data.get("expiresInHours") or 24), 168))
+        expires = datetime.now() + timedelta(hours=hours)
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if company_id and not platform_account_id:
+            cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
+            company = cur.fetchone()
+            platform_account_id = company.get("platform_account_id") if company else None
+        cur.execute("""INSERT INTO platform_support_sessions
+                          (platform_account_id, company_id, reason, scope, status, expires_at,
+                           opened_by_user_id, opened_by_name)
+                       VALUES (%s,%s,%s,%s,'active',%s,%s,%s)
+                       RETURNING *""",
+                    (platform_account_id, company_id, reason, scope, expires,
+                     current_user.get("id"), current_user.get("name") or current_user.get("email")))
+        session = dict(cur.fetchone())
+        _system_write_audit(cur, current_user, "support_session_opened", "support_session", session.get("id"),
+            reason[:120], platform_account_id=platform_account_id, company_id=company_id,
+            details={"scope": scope, "scopeLabel": _support_scope_label(scope), "expiresAt": expires, "reason": reason})
+        conn.close()
+        session["scopeLabel"] = _support_scope_label(scope)
+        return {"ok": True, "session": session}
+
+    @app.put("/system/support-sessions/{id}")
+    def system_update_support_session(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
+        action = (data.get("action") or "close").strip()
+        if action != "close":
+            raise HTTPException(status_code=400, detail="Поддерживается только закрытие режима поддержки")
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""UPDATE platform_support_sessions
+                       SET status='closed',
+                           closed_by_user_id=%s,
+                           closed_by_name=%s,
+                           closed_at=NOW()
+                       WHERE id=%s
+                       RETURNING *""",
+                    (current_user.get("id"), current_user.get("name") or current_user.get("email"), id))
+        session = cur.fetchone()
+        if not session:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Сессия поддержки не найдена")
+        _system_write_audit(cur, current_user, "support_session_closed", "support_session", id,
+            (session.get("reason") or "")[:120], platform_account_id=session.get("platform_account_id"),
+            company_id=session.get("company_id"), details={"scope": session.get("scope")})
+        conn.close()
+        return {"ok": True}
+
     @app.get("/system/audit-log")
     def system_audit_log(limit: int = 120, companyId: Optional[int] = None,
                          platformAccountId: Optional[int] = None, action: Optional[str] = None,
                          search: Optional[str] = None,
-                         _current_user: dict = Depends(require_roles("system_owner"))):
+                         _current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         safe_limit = max(1, min(int(limit or 120), 300))
