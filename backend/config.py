@@ -48,7 +48,23 @@ SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = env_int("SMTP_PORT", 465 if os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes") else 587)
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
-SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER).strip()
+
+
+def smtp_from_value() -> str:
+    raw = os.getenv("SMTP_FROM", "").strip()
+    placeholders = {
+        "your@email.com",
+        "you@example.com",
+        "noreply@example.com",
+        "no-reply@example.com",
+        "твоя_почта@домен.ru",
+    }
+    if not raw or raw.lower() in placeholders or "@" not in raw:
+        return SMTP_USER
+    return raw
+
+
+SMTP_FROM = smtp_from_value()
 SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() in ("1", "true", "yes")
 SMTP_SSL = os.getenv("SMTP_SSL", "true").lower() in ("1", "true", "yes")
 PUBLIC_LEAD_RATE_LIMIT_SECONDS = env_int("PUBLIC_LEAD_RATE_LIMIT_SECONDS", 30)

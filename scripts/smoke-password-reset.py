@@ -15,8 +15,40 @@ import psycopg2.extras
 ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / "backend" / ".env"
 BASE_URL = os.getenv("BASE_URL", "https://stroyka26.pro").rstrip("/")
-TEST_EMAIL = os.getenv("PASSWORD_RESET_SMOKE_EMAIL", "password-reset-smoke@stroyka.local")
+TEST_EMAIL_PREFIX = os.getenv("PASSWORD_RESET_SMOKE_EMAIL_PREFIX", "password-reset-smoke")
+TEST_EMAIL_DOMAIN = os.getenv("PASSWORD_RESET_SMOKE_EMAIL_DOMAIN", "stroyka.local")
 TEST_NAME = os.getenv("PASSWORD_RESET_SMOKE_NAME", "CODEX QA Восстановление пароля")
+
+DEFAULT_ROLES = [
+    ("директор", "director"),
+    ("зам_директора", "deputy"),
+    ("главный_инженер", "chief-engineer"),
+    ("прораб", "foreman"),
+    ("кладовщик", "warehouse"),
+    ("бухгалтер", "accountant"),
+    ("снабженец", "supply"),
+    ("стройконтроль", "construction-control"),
+    ("менеджер_crm", "crm-manager"),
+    ("сметчик", "estimator"),
+    ("субподрядчик", "subcontractor"),
+    ("мастер", "master"),
+    ("бригадир", "brigadier"),
+    ("технадзор", "tech-supervision"),
+    ("заказчик", "customer"),
+    ("поставщик", "supplier"),
+    ("system_owner", "system-owner"),
+]
+
+
+def smoke_roles():
+    raw = os.getenv("PASSWORD_RESET_SMOKE_ROLES", "").strip()
+    if not raw:
+        return DEFAULT_ROLES
+    known = dict(DEFAULT_ROLES)
+    roles = []
+    for role in [item.strip() for item in raw.split(",") if item.strip()]:
+        roles.append((role, known.get(role, role.replace("_", "-"))))
+    return roles
 
 
 def load_env():
@@ -84,12 +116,18 @@ def login_status(email, password):
     return status, body
 
 
-def prepare_user():
+def test_email(slug):
+    return f"{TEST_EMAIL_PREFIX}-{slug}@{TEST_EMAIL_DOMAIN}".lower()
+
+
+def prepare_user(role, slug):
+    email = test_email(slug)
     password = secrets.token_urlsafe(12)
     conn = db_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1", (TEST_EMAIL,))
+    cur.execute("SELECT id FROM users WHERE LOWER(email)=LOWER(%s) LIMIT 1", (email,))
     existing = cur.fetchone()
+    name = f"{TEST_NAME} · {role}"
     if existing:
         cur.execute(
             """
@@ -97,7 +135,7 @@ def prepare_user():
                SET name=%s,
                    email=%s,
                    password=%s,
-                   role='директор',
+                   role=%s,
                    project_id=NULL,
                    project_name='',
                    assigned_projects='[]'::jsonb,
@@ -110,7 +148,7 @@ def prepare_user():
              WHERE id=%s
          RETURNING id, name, email
             """,
-            (TEST_NAME, TEST_EMAIL, hash_password(password), existing["id"]),
+            (name, email, hash_password(password), role, existing["id"]),
         )
     else:
         cur.execute(
@@ -118,16 +156,17 @@ def prepare_user():
             INSERT INTO users
                 (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active)
             VALUES
-                (%s,%s,%s,'директор',NULL,'','[]'::jsonb,'[]'::jsonb,TRUE)
+                (%s,%s,%s,%s,NULL,'','[]'::jsonb,'[]'::jsonb,TRUE)
             RETURNING id, name, email
             """,
-            (TEST_NAME, TEST_EMAIL, hash_password(password)),
+            (name, email, hash_password(password), role),
         )
     row = dict(cur.fetchone())
     conn.commit()
     cur.close()
     conn.close()
     row["password"] = password
+    row["role"] = role
     return row
 
 
@@ -189,14 +228,14 @@ def clear_reset_state(user_id):
     conn.close()
 
 
-def main():
-    user = prepare_user()
+def check_role(role, slug):
+    user = prepare_user(role, slug)
     new_password = secrets.token_urlsafe(14)
 
     try:
         old_status, _ = login_status(user["email"], user["password"])
         if old_status != 200:
-            raise SystemExit(f"FAIL initial login: got {old_status}")
+            raise RuntimeError(f"initial login: got {old_status}")
 
         _, reset_request = api_json(
             "POST",
@@ -205,13 +244,13 @@ def main():
             expected=200,
         )
         if not reset_request.get("ok"):
-            raise SystemExit(f"FAIL reset request body: {reset_request}")
+            raise RuntimeError(f"reset request body: {reset_request}")
 
         code, expires = fetch_reset_code(user["id"])
         if not (str(code).isdigit() and len(str(code)) == 6):
-            raise SystemExit(f"FAIL reset code format: {code!r}")
+            raise RuntimeError(f"reset code format: {code!r}")
         if not expires:
-            raise SystemExit("FAIL reset code: срок действия не задан")
+            raise RuntimeError("reset code: срок действия не задан")
 
         api_json(
             "POST",
@@ -222,18 +261,18 @@ def main():
 
         old_status, _ = login_status(user["email"], user["password"])
         if old_status == 200:
-            raise SystemExit("FAIL old password: старый пароль продолжает работать")
+            raise RuntimeError("old password: старый пароль продолжает работать")
 
         new_status, body = login_status(user["email"], new_password)
         if new_status != 200 or not body.get("authToken"):
-            raise SystemExit(f"FAIL new password login: got {new_status}, body={body}")
+            raise RuntimeError(f"new password login: got {new_status}, body={body}")
 
         task_status = check_reset_task_closed(user["id"])
         if task_status and task_status != "Закрыто":
-            raise SystemExit(f"FAIL reset ai task: статус {task_status!r}, ожидали 'Закрыто'")
+            raise RuntimeError(f"reset ai task: статус {task_status!r}, ожидали 'Закрыто'")
 
-        print(json.dumps({
-            "ok": True,
+        return {
+            "role": role,
             "email": user["email"],
             "emailSent": bool(reset_request.get("emailSent")),
             "aiTaskStatus": task_status,
@@ -246,12 +285,34 @@ def main():
                 "new password accepted",
                 "password reset task closed",
             ],
-        }, ensure_ascii=False, indent=2))
+        }
     finally:
         try:
             clear_reset_state(user["id"])
         except Exception as exc:
             print(f"cleanup warning: {exc}", file=sys.stderr)
+
+
+def main():
+    results = []
+    failures = []
+    for role, slug in smoke_roles():
+        try:
+            results.append(check_role(role, slug))
+        except Exception as exc:
+            failures.append({"role": role, "error": str(exc)})
+
+    summary = {
+        "ok": not failures,
+        "baseUrl": BASE_URL,
+        "checkedRoles": len(results),
+        "failedRoles": len(failures),
+        "roles": results,
+        "failures": failures,
+    }
+    print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+    if failures:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
