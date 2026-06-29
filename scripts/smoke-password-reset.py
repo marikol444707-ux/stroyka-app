@@ -215,7 +215,7 @@ def fetch_reset_code(user_id):
     if token.isdigit() and len(token) == 6:
         cur.close()
         conn.close()
-        return token, expires
+        return token, expires, "legacy_plaintext"
     cur.execute(
         """
         SELECT description
@@ -233,7 +233,7 @@ def fetch_reset_code(user_id):
     match = re.search(r"Код:\s*(\d{6})", task["description"] if task else "")
     if not match:
         raise SystemExit("FAIL reset request: код не найден в fallback-задаче для smoke email")
-    return match.group(1), expires
+    return match.group(1), expires, "hashed"
 
 
 def check_reset_task_closed(user_id):
@@ -296,11 +296,13 @@ def check_role(role, slug):
         if not reset_request.get("ok"):
             raise RuntimeError(f"reset request body: {reset_request}")
 
-        code, expires = fetch_reset_code(user["id"])
+        code, expires, token_storage = fetch_reset_code(user["id"])
         if not (str(code).isdigit() and len(str(code)) == 6):
             raise RuntimeError(f"reset code format: {code!r}")
         if not expires:
             raise RuntimeError("reset code: срок действия не задан")
+        if token_storage != "hashed":
+            raise RuntimeError(f"reset code storage: ожидали hashed, получили {token_storage}")
 
         api_json(
             "POST",
@@ -330,7 +332,7 @@ def check_role(role, slug):
             "checked": [
                 "temporary user login",
                 "password-reset-request",
-                "reset code stored with expiry",
+                "reset code stored as hash with expiry",
                 "password-reset",
                 "old password rejected",
                 "new password accepted",
