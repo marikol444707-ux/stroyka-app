@@ -112,6 +112,93 @@ const planHeading = (def) => {
   return `План ${level}`;
 };
 
+const planDimension = (raw, meters) => {
+  const source = raw || String(meters || '');
+  const match = String(source).replace(',', '.').match(/(\d+(?:\.\d+)?)/);
+  const value = match ? Number(match[1]) : Number(meters);
+  if (!Number.isFinite(value) || value <= 0) return source;
+  return String(Math.round(value * 1000)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+};
+
+const roomBox = (room, m) => ({
+  x: m.ox + room.x * m.s,
+  y: m.oy + room.y * m.s,
+  w: room.w * m.s,
+  h: room.h * m.s,
+});
+
+const preferredDoorSide = (room) => {
+  if (room.door) return room.door;
+  const label = String(room.label || '').toLowerCase();
+  if (label.includes('терраса') || label.includes('балкон') || label.includes('кровля')) return null;
+  if (label.includes('гараж')) return 'bottom';
+  if (label.includes('прихож') || label.includes('тамбур')) return 'right';
+  if (label.includes('кух') || label.includes('гостин') || label.includes('холл')) return 'left';
+  if (label.includes('сануз') || label.includes('ванн') || label.includes('гардероб') || label.includes('котель')) return 'bottom';
+  if (label.includes('лест')) return 'bottom';
+  return 'bottom';
+};
+
+const drawDoor = (room, box, m) => {
+  const side = preferredDoorSide(room);
+  if (!side || room.outdoor || room.hideDoor) return '';
+  const wall = Math.max(8, 0.1 * m.s);
+  const d = Math.max(28, Math.min(54, Math.min(box.w, box.h) * 0.42));
+  const stroke = '#9ca3a8';
+  const gap = '#ffffff';
+
+  if (side === 'bottom') {
+    const x = box.x + Math.min(box.w * .68, Math.max(box.w * .18, box.w - d - wall));
+    const y = box.y + box.h;
+    return `
+      <line x1="${x}" y1="${y}" x2="${x + d}" y2="${y}" stroke="${gap}" stroke-width="${wall}" stroke-linecap="butt"/>
+      <path d="M${x} ${y}A${d} ${d} 0 0 1 ${x + d} ${y - d}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
+      <line x1="${x}" y1="${y}" x2="${x + d}" y2="${y - d}" stroke="${stroke}" stroke-width="1.4"/>
+    `;
+  }
+  if (side === 'top') {
+    const x = box.x + Math.min(box.w * .68, Math.max(box.w * .18, box.w - d - wall));
+    const y = box.y;
+    return `
+      <line x1="${x}" y1="${y}" x2="${x + d}" y2="${y}" stroke="${gap}" stroke-width="${wall}" stroke-linecap="butt"/>
+      <path d="M${x} ${y}A${d} ${d} 0 0 0 ${x + d} ${y + d}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
+      <line x1="${x}" y1="${y}" x2="${x + d}" y2="${y + d}" stroke="${stroke}" stroke-width="1.4"/>
+    `;
+  }
+  if (side === 'left') {
+    const x = box.x;
+    const y = box.y + Math.min(box.h * .68, Math.max(box.h * .18, box.h - d - wall));
+    return `
+      <line x1="${x}" y1="${y}" x2="${x}" y2="${y + d}" stroke="${gap}" stroke-width="${wall}" stroke-linecap="butt"/>
+      <path d="M${x} ${y}A${d} ${d} 0 0 0 ${x + d} ${y + d}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
+      <line x1="${x}" y1="${y}" x2="${x + d}" y2="${y + d}" stroke="${stroke}" stroke-width="1.4"/>
+    `;
+  }
+  if (side === 'right') {
+    const x = box.x + box.w;
+    const y = box.y + Math.min(box.h * .68, Math.max(box.h * .18, box.h - d - wall));
+    return `
+      <line x1="${x}" y1="${y}" x2="${x}" y2="${y + d}" stroke="${gap}" stroke-width="${wall}" stroke-linecap="butt"/>
+      <path d="M${x} ${y}A${d} ${d} 0 0 1 ${x - d} ${y + d}" fill="none" stroke="${stroke}" stroke-width="1.5"/>
+      <line x1="${x}" y1="${y}" x2="${x - d}" y2="${y + d}" stroke="${stroke}" stroke-width="1.4"/>
+    `;
+  }
+  return '';
+};
+
+const drawPatioFurniture = (room, box) => {
+  if (!room.outdoor || !String(room.label || '').toLowerCase().includes('терраса')) return '';
+  const cx = box.x + box.w * .58;
+  const cy = box.y + box.h * .58;
+  const tw = Math.min(90, box.w * .28);
+  const th = Math.min(36, box.h * .28);
+  return `
+    <rect x="${cx - tw / 2}" y="${cy - th / 2}" width="${tw}" height="${th}" rx="3" fill="#eef1f2" stroke="#b4bbc0" stroke-width="1.4"/>
+    <rect x="${cx - tw * .62}" y="${cy - th / 2}" width="${tw * .18}" height="${th}" rx="3" fill="#f8fafb" stroke="#b4bbc0" stroke-width="1.2"/>
+    <rect x="${cx + tw * .44}" y="${cy - th / 2}" width="${tw * .18}" height="${th}" rx="3" fill="#f8fafb" stroke="#b4bbc0" stroke-width="1.2"/>
+  `;
+};
+
 const backdrop = (def) => `
   <rect width="${W}" height="${H}" fill="#ffffff"/>
   <text x="800" y="118" font-family="Arial, sans-serif" font-size="28" font-weight="500" fill="#3c3f42" text-anchor="middle">${esc(planHeading(def))}</text>
@@ -261,15 +348,12 @@ const autoFixtures = (room) => {
 };
 
 const drawRoom = (room, m) => {
-  const x = m.ox + room.x * m.s;
-  const y = m.oy + room.y * m.s;
-  const w = room.w * m.s;
-  const h = room.h * m.s;
+  const { x, y, w, h } = roomBox(room, m);
   const fill = fills[room.type] || fills.hall;
   const stroke = room.outdoor ? '#b9bec1' : '#2f3133';
   const sw = room.outdoor ? 2.2 : Math.max(5.5, 0.082 * m.s);
   const dash = room.outdoor ? ' stroke-dasharray="8 8"' : '';
-  const tile = room.tile ? `url(#tileGrid)` : fill;
+  const tile = room.outdoor ? 'url(#tileGrid)' : room.tile ? `url(#tileGrid)` : fill;
   const windows = (room.windows || []).map((side) => {
     if (side === 'top') return `<line x1="${x + w * .2}" y1="${y + sw / 2}" x2="${x + w * .8}" y2="${y + sw / 2}" stroke="#ffffff" stroke-width="${Math.max(7, sw * 1.15)}" stroke-linecap="square"/><line x1="${x + w * .2}" y1="${y + sw / 2}" x2="${x + w * .8}" y2="${y + sw / 2}" stroke="#c4c9cc" stroke-width="1.4"/>`;
     if (side === 'bottom') return `<line x1="${x + w * .2}" y1="${y + h - sw / 2}" x2="${x + w * .8}" y2="${y + h - sw / 2}" stroke="#ffffff" stroke-width="${Math.max(7, sw * 1.15)}" stroke-linecap="square"/><line x1="${x + w * .2}" y1="${y + h - sw / 2}" x2="${x + w * .8}" y2="${y + h - sw / 2}" stroke="#c4c9cc" stroke-width="1.4"/>`;
@@ -279,10 +363,12 @@ const drawRoom = (room, m) => {
   }).join('');
   const fixtureSvg = autoFixtures(room).map((fixture) => drawFixture(room, fixture, { x, y, w, h })).join('');
   const labelSvg = roomLabel(room, { x, y, w, h });
+  const patioSvg = drawPatioFurniture(room, { x, y, w, h });
 
   return `
     <rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${tile}" stroke="${stroke}" stroke-width="${sw}"${dash}/>
     ${fixtureSvg}
+    ${patioSvg}
     ${labelSvg}
     ${windows}
   `;
@@ -302,6 +388,7 @@ const drawPlan = (def) => {
   const m = { s, ox, oy };
   const outdoor = (def.outdoor || []).map((room) => drawRoom({ ...room, outdoor: true }, m)).join('');
   const rooms = def.rooms.map((room) => drawRoom(room, m)).join('');
+  const doors = def.rooms.map((room) => drawDoor(room, roomBox(room, m), m)).join('');
   const dimStroke = '#c4c8cb';
   const dimText = '#656a6e';
   const leftX = ox - 58;
@@ -312,7 +399,7 @@ const drawPlan = (def) => {
     <line x1="${ox + planW}" y1="${oy + planH}" x2="${ox + planW}" y2="${bottomY + 12}" stroke="${dimStroke}" stroke-width="1.5"/>
     <circle cx="${ox}" cy="${bottomY}" r="6" fill="#4b4f52"/>
     <circle cx="${ox + planW}" cy="${bottomY}" r="6" fill="#4b4f52"/>
-    <text x="${ox + planW / 2}" y="${bottomY + 30}" font-family="Arial, sans-serif" font-size="18" font-weight="500" fill="${dimText}" text-anchor="middle">${esc(def.dimX || `${Math.round(def.width)} м`)}</text>
+    <text x="${ox + planW / 2}" y="${bottomY + 30}" font-family="Arial, sans-serif" font-size="18" font-weight="500" fill="${dimText}" text-anchor="middle">${esc(planDimension(def.dimX, def.width))}</text>
   `;
   const leftDim = `
     <line x1="${leftX}" y1="${oy}" x2="${leftX}" y2="${oy + planH}" stroke="${dimStroke}" stroke-width="2"/>
@@ -320,7 +407,7 @@ const drawPlan = (def) => {
     <line x1="${leftX - 12}" y1="${oy + planH}" x2="${ox}" y2="${oy + planH}" stroke="${dimStroke}" stroke-width="1.5"/>
     <circle cx="${leftX}" cy="${oy}" r="6" fill="#4b4f52"/>
     <circle cx="${leftX}" cy="${oy + planH}" r="6" fill="#4b4f52"/>
-    <text x="${leftX - 10}" y="${oy + planH / 2}" font-family="Arial, sans-serif" font-size="18" font-weight="500" fill="${dimText}" text-anchor="middle" transform="rotate(-90 ${leftX - 10} ${oy + planH / 2})">${esc(def.dimY || `${Math.round(def.height)} м`)}</text>
+    <text x="${leftX - 10}" y="${oy + planH / 2}" font-family="Arial, sans-serif" font-size="18" font-weight="500" fill="${dimText}" text-anchor="middle" transform="rotate(-90 ${leftX - 10} ${oy + planH / 2})">${esc(planDimension(def.dimY, def.height))}</text>
   `;
 
   return svg(`
@@ -330,6 +417,7 @@ const drawPlan = (def) => {
       ${bottomDim}
       ${outdoor}
       ${rooms}
+      ${doors}
     </g>
     <text x="1450" y="842" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#c7ccd0" text-anchor="end">${esc(def.code)} · ${esc(def.file)}</text>
   `);
